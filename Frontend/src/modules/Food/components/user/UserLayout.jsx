@@ -189,6 +189,34 @@ export default function UserLayout() {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
   }, [location.pathname, location.search, location.hash])
 
+  useEffect(() => {
+    // Reset bottom nav state when route changes
+    document.documentElement.style.setProperty('--bottom-nav-y', '0px');
+    document.documentElement.style.setProperty('--floating-dock-y', '-72px');
+  }, [location.pathname]);
+
+  useEffect(() => {
+    let lastScroll = window.scrollY;
+    const handleScroll = () => {
+      const currentScroll = window.scrollY;
+      
+      if (currentScroll > lastScroll + 12 && currentScroll > 80) {
+        document.documentElement.style.setProperty('--bottom-nav-y', '120px');
+        document.documentElement.style.setProperty('--floating-dock-y', '0px');
+      } else if (currentScroll < lastScroll - 12 || currentScroll <= 30) {
+        document.documentElement.style.setProperty('--bottom-nav-y', '0px');
+        document.documentElement.style.setProperty('--floating-dock-y', '-72px');
+      }
+      
+      lastScroll = currentScroll;
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
+
   useUserNotifications()
 
   // Note: Authentication checks and redirects are handled by ProtectedRoute components

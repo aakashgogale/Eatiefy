@@ -33,7 +33,8 @@ export default function BottomNavigation() {
 
   return (
     <div
-      className="md:hidden fixed bottom-6 left-5 right-5 z-50 pointer-events-none"
+      className="md:hidden fixed bottom-6 left-5 right-5 z-50 pointer-events-none transition-transform duration-300 ease-in-out"
+      style={{ transform: "translateY(var(--bottom-nav-y, 0px))" }}
     >
       <div className="flex items-center justify-around h-auto px-2 py-1.5 bg-white/85 dark:bg-[#1a1a1a]/85 backdrop-blur-[20px] border border-white/50 dark:border-white/10 rounded-full shadow-[0_20px_40px_rgba(0,0,0,0.15)] pointer-events-auto">
         

@@ -6,7 +6,6 @@ import { useCart } from "@food/context/CartContext";
 import useActiveOrderTracking from "@food/hooks/useActiveOrderTracking";
 import OrderTrackingRow from "./OrderTrackingRow";
 
-const DOCK_BOTTOM_WITH_NAV = "calc(5.75rem + env(safe-area-inset-bottom, 0px))";
 const DOCK_BOTTOM_NO_NAV = "calc(1.5rem + env(safe-area-inset-bottom, 0px))";
 
 function FloatingHomeDockInner({
@@ -23,20 +22,16 @@ function FloatingHomeDockInner({
 
   if (!showOrder && !showCart) return null;
 
-  const dockBottom = hasBottomNav ? DOCK_BOTTOM_WITH_NAV : DOCK_BOTTOM_NO_NAV;
-
   return (
-    <LayoutGroup>
-      <motion.div
-        layout
-        initial={{ y: 48, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        exit={{ y: 48, opacity: 0 }}
-        transition={{ type: "spring", damping: 26, stiffness: 280 }}
-        className="fixed left-4 right-4 z-[55] md:left-auto md:right-6 md:max-w-md pointer-events-none"
-        style={{ bottom: dockBottom }}
-      >
-        <div className="flex flex-col gap-2 pointer-events-auto">
+    <div
+      className="fixed left-4 right-4 z-[55] md:left-auto md:right-6 md:max-w-md pointer-events-none transition-transform duration-300 ease-in-out"
+      style={{ 
+        bottom: DOCK_BOTTOM_NO_NAV,
+        transform: hasBottomNav ? "translateY(var(--floating-dock-y, -72px))" : "translateY(0px)"
+      }}
+    >
+      <div className="flex flex-col gap-2 pointer-events-auto">
+        <LayoutGroup>
           <AnimatePresence mode="popLayout">
             {showOrder && (
               <motion.div
@@ -85,9 +80,9 @@ function FloatingHomeDockInner({
               </motion.div>
             )}
           </AnimatePresence>
-        </div>
-      </motion.div>
-    </LayoutGroup>
+        </LayoutGroup>
+      </div>
+    </div>
   );
 }
 
