@@ -38,6 +38,7 @@ const Orders = lazy(() => import("@food/pages/user/orders/Orders"))
 const OrderTracking = lazy(() => import("@food/pages/user/orders/OrderTracking"))
 const OrderInvoice = lazy(() => import("@food/pages/user/orders/OrderInvoice"))
 const UserOrderDetails = lazy(() => import("@food/pages/user/orders/UserOrderDetails"))
+const Reorder = lazy(() => import("@food/pages/user/reorder/Reorder"))
 
 // Offers
 const Offers = lazy(() => import("@food/pages/user/Offers"))
@@ -116,6 +117,7 @@ export default function UserRouter() {
             }
           />
           <Route path="under-250" element={<Under250 />} />
+          <Route path="reorder" element={<Reorder />} />
           <Route path="categories" element={<Categories />} />
           <Route path="category/:category" element={<CategoryPage />} />
           <Route path="restaurants" element={<Restaurants />} />

@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom"
-import { Tag, User, Soup, ShoppingCart } from "lucide-react"
+import { Tag, User, Soup, ShoppingCart, History } from "lucide-react"
 import { clearHomeScrollState } from "@food/utils/homeScrollRestore"
 
 export default function BottomNavigation() {
@@ -9,10 +9,12 @@ export default function BottomNavigation() {
   // Check active routes - support both /user/* and /* paths
   const isCart = pathname === "/food/cart" || pathname.startsWith("/food/user/cart")
   const isUnder250 = pathname === "/food/under-250" || pathname.startsWith("/food/user/under-250")
+  const isReorder = pathname === "/food/reorder" || pathname.startsWith("/food/user/reorder")
   const isProfile = pathname.startsWith("/food/profile") || pathname.startsWith("/food/user/profile")
   const isDelivery =
     !isCart &&
     !isUnder250 &&
+    !isReorder &&
     !isProfile &&
     (pathname === "/food" ||
       pathname === "/food/" ||
@@ -20,6 +22,7 @@ export default function BottomNavigation() {
       (pathname.startsWith("/food/user") &&
         !pathname.includes("/cart") &&
         !pathname.includes("/under-250") &&
+        !pathname.includes("/reorder") &&
         !pathname.includes("/profile")))
 
   const activeColor = "var(--module-theme-color, #E2AD4B)"
@@ -33,16 +36,16 @@ export default function BottomNavigation() {
 
   return (
     <div
-      className="md:hidden fixed bottom-6 left-5 right-5 z-50 pointer-events-none transition-transform duration-300 ease-in-out"
+      className="md:hidden fixed bottom-6 left-4 right-4 z-50 pointer-events-none transition-transform duration-300 ease-in-out"
       style={{ transform: "translateY(var(--bottom-nav-y, 0px))" }}
     >
-      <div className="flex items-center justify-around h-auto px-2 py-1.5 bg-white/85 dark:bg-[#1a1a1a]/85 backdrop-blur-[20px] border border-white/50 dark:border-white/10 rounded-full shadow-[0_20px_40px_rgba(0,0,0,0.15)] pointer-events-auto">
+      <div className="flex items-center justify-around h-auto px-1.5 py-1.5 bg-white/90 dark:bg-[#1a1a1a]/90 backdrop-blur-[20px] border border-white/50 dark:border-white/10 rounded-full shadow-[0_20px_40px_rgba(0,0,0,0.15)] pointer-events-auto">
         
         {/* Food Tab */}
         <Link
           to="/food/user"
           onClick={handleHomeNavClick}
-          className={`flex flex-1 flex-col items-center justify-center gap-1 px-1 py-1.5 transition-all duration-300 relative rounded-full ${isDelivery
+          className={`flex flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1 transition-all duration-300 relative rounded-full ${isDelivery
               ? ""
               : "text-gray-500 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-800/50"
             }`}
@@ -59,7 +62,7 @@ export default function BottomNavigation() {
         {/* Cart Tab */}
         <Link
           to="/food/user/cart"
-          className={`flex flex-1 flex-col items-center justify-center gap-1 px-1 py-1.5 transition-all duration-300 relative rounded-full ${isCart
+          className={`flex flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1 transition-all duration-300 relative rounded-full ${isCart
               ? ""
               : "text-gray-500 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-800/50"
             }`}
@@ -76,7 +79,7 @@ export default function BottomNavigation() {
         {/* Under 250 Tab */}
         <Link
           to="/food/user/under-250"
-          className={`flex flex-1 flex-col items-center justify-center gap-1 px-1 py-1.5 transition-all duration-300 relative rounded-full ${isUnder250
+          className={`flex flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1 transition-all duration-300 relative rounded-full ${isUnder250
               ? ""
               : "text-gray-500 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-800/50"
             }`}
@@ -87,6 +90,23 @@ export default function BottomNavigation() {
           </div>
           <span className={`text-[10px] sm:text-xs font-semibold tracking-wide transition-all ${isUnder250 ? "" : "text-gray-500 dark:text-gray-400 opacity-80"}`}>
             Eatiefy 99
+          </span>
+        </Link>
+
+        {/* Reorder Tab */}
+        <Link
+          to="/food/user/reorder"
+          className={`flex flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1 transition-all duration-300 relative rounded-full ${isReorder
+              ? ""
+              : "text-gray-500 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-800/50"
+            }`}
+          style={isReorder ? { color: activeColor, backgroundColor: activeBg } : undefined}
+        >
+          <div className="relative">
+            <History className={`h-5 w-5 transition-transform duration-300 ${isReorder ? "scale-110" : "text-gray-500 dark:text-gray-400"}`} strokeWidth={isReorder ? 2.5 : 2} style={isReorder ? { color: activeColor } : undefined} />
+          </div>
+          <span className={`text-[10px] sm:text-xs font-semibold tracking-wide transition-all ${isReorder ? "" : "text-gray-500 dark:text-gray-400 opacity-80"}`}>
+            Reorder
           </span>
         </Link>
 
