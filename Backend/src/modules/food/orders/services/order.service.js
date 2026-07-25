@@ -447,9 +447,6 @@ export async function createOrder(userId, dto) {
 
     const paymentMethod =
       dto.paymentMethod === "card" ? "razorpay" : dto.paymentMethod;
-    if (paymentMethod === "cash") {
-      throw new ValidationError("Cash on Delivery is no longer available. Please pay online.");
-    }
     const isCash = paymentMethod === "cash";
     const isWallet = paymentMethod === "wallet";
 

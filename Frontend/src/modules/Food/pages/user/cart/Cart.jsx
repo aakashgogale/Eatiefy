@@ -494,12 +494,7 @@ export default function Cart() {
     [deliveryInstructionMode, selectedDeliveryInstruction, customDeliveryInstruction],
   )
 
-  // Cash on Delivery has been removed; coerce any stale selection to online payment.
-  useEffect(() => {
-    if (selectedPaymentMethod === "cash") {
-      setSelectedPaymentMethod("razorpay")
-    }
-  }, [selectedPaymentMethod])
+  // COD is enabled; no coercion needed.
 
   useEffect(() => {
     const timer = setInterval(() => setAvailabilityTick(Date.now()), 60000)
@@ -1510,7 +1505,7 @@ export default function Cart() {
   const otherSavings = Math.max(0, savings - itemDiscountAmount)
   const compareItemTotal = getCartCompareItemTotal(cart)
   const selectedPaymentLabel =
-    selectedPaymentMethod === "wallet" ? "Wallet" : "Online Payment"
+    selectedPaymentMethod === "wallet" ? "Wallet" : selectedPaymentMethod === "cash" ? "Cash on Delivery" : "Online Payment"
 
   const headerDeliveryTime = deliveryMode === "quick" ? "20-25 mins" : (restaurantData?.estimatedDeliveryTime || "35-40 mins")
   const basicDeliveryTime = restaurantData?.estimatedDeliveryTime || "35-40 mins"
@@ -2289,6 +2284,24 @@ export default function Cart() {
         } catch (error) {
           debugError("Error refreshing wallet balance:", error)
         }
+        return
+      }
+
+      // Cash on Delivery (COD) flow: order placed successfully without gateway initialization
+      const isCodPayment =
+        selectedPaymentMethod === "cod" ||
+        selectedPaymentMethod === "cash" ||
+        selectedPaymentMethod === "cash_on_delivery" ||
+        selectedPaymentMethod === "pay_on_delivery"
+
+      if (isCodPayment) {
+        toast.success("Order placed successfully with Cash on Delivery")
+        setPlacedOrderId(order?._id || order?.orderId || order?.id || null)
+        setShowOrderSuccess(true)
+        window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
+        clearCart()
+        resetCartPreferences()
+        setIsPlacingOrder(false)
         return
       }
 
@@ -3828,6 +3841,15 @@ export default function Cart() {
                           subInfo: `Bal: ${RUPEE_SYMBOL}${walletBalance.toFixed(0)}`,
                           disabled: walletBalance < total,
                           disabledText: 'Low Balance'
+                        },
+                        {
+                          id: 'cash',
+                          name: 'Cash on Delivery',
+                          description: 'Pay when order arrives',
+                          icon: <Banknote className="w-5 h-5" />,
+                          color: 'bg-amber-50 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400',
+                          selectedColor: 'bg-amber-500 text-white',
+                          badge: 'COD'
                         },
                       ].map((option) => (
                         <button
