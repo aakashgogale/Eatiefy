@@ -1028,7 +1028,6 @@ export default function OrderTracking() {
       if (message) {
         toast.success(message, {
           duration: 5000,
-          icon: '???',
           position: 'top-center',
           description: estimatedDeliveryTime
             ? `Estimated delivery in ${Math.round(estimatedDeliveryTime / 60)} minutes`

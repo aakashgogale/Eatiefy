@@ -3152,8 +3152,13 @@ export default function Home() {
       <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full">
         <div
           ref={categoryScrollRef}
-          className="flex gap-3 sm:gap-4 lg:gap-5 overflow-x-auto overflow-y-visible scrollbar-hide scroll-smooth px-2 sm:px-3 py-2 sm:py-3"
-          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+          className="flex gap-3 sm:gap-4 md:gap-5 lg:gap-6 overflow-x-auto md:overflow-x-visible overflow-y-visible scrollbar-hide scroll-smooth px-2 sm:px-3 py-2 sm:py-3 md:py-4"
+          style={{
+            scrollbarWidth: "none",
+            msOverflowStyle: "none",
+            touchAction: "pan-x pan-y pinch-zoom",
+            overflowY: "hidden",
+          }}
         >
           {showCategorySkeleton ? (
             <CategoryChipRowSkeleton className="py-1" />
@@ -3162,22 +3167,29 @@ export default function Home() {
               <Link
                 key={category.id || index}
                 to={`/food/user/category/${category.slug || category.name.toLowerCase().replace(/\s+/g, "-")}`}
-                className="flex-shrink-0 flex flex-col items-center gap-2 group transition-all duration-300 hover:-translate-y-1"
-                style={{ animation: `fade-in-up 0.5s ease-out forwards ${index * 0.05}s`, opacity: 0 }}
+                className="flex-shrink-0"
               >
-                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-white dark:bg-[#1a1a1a] border border-gray-100 dark:border-gray-800 flex items-center justify-center p-1.5 shadow-sm transition-all duration-300 group-hover:scale-105 group-hover:border-[#659116]">
-                  <div className="w-full h-full rounded-full overflow-hidden">
+                <motion.div
+                  className="flex flex-col items-center gap-2 w-[62px] sm:w-24 md:w-28"
+                  whileHover={{ scale: 1.1, y: -4 }}
+                  whileTap={{ scale: 0.95 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                  style={{ animation: `fade-in-up 0.5s ease-out forwards ${index * 0.05}s`, opacity: 0 }}
+                >
+                  <div className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full overflow-hidden shadow-md transition-all">
                     <OptimizedImage
                       src={category.image}
                       alt={category.name}
-                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                      sizes="80px"
+                      className="w-full h-full bg-white rounded-full"
+                      objectFit="cover"
+                      sizes="(max-width: 640px) 62px, (max-width: 768px) 96px, 112px"
+                      placeholder="blur"
                     />
                   </div>
-                </div>
-                <span className="text-xs sm:text-sm font-bold text-gray-800 dark:text-gray-200 text-center truncate max-w-[72px]">
-                  {category.name}
-                </span>
+                  <span className="text-xs sm:text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 text-center pb-1">
+                    {category.name.length > 7 ? `${category.name.slice(0, 7)}...` : category.name}
+                  </span>
+                </motion.div>
               </Link>
             ))
           )}
@@ -3185,13 +3197,22 @@ export default function Home() {
           {/* See All: always show when sticky, otherwise only when >12 categories */}
           {!showCategorySkeleton && (isCategoryStuck || displayCategories.length > 12) && (
             <div
-              className="flex-shrink-0 flex flex-col items-center gap-2 cursor-pointer group"
+              className="flex-shrink-0 cursor-pointer"
               onClick={() => navigate("/food/user/categories")}
             >
-              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/50 group-hover:border-[#659116] transition-all">
-                <Plus className="w-6 h-6 text-[#659116]" style={{ color: "var(--module-theme-color, #659116)" }} />
-              </div>
-              <span className="text-xs font-bold text-gray-800 dark:text-gray-200">See more</span>
+              <motion.div
+                className="flex flex-col items-center gap-2 w-[62px] sm:w-24 md:w-28"
+                whileHover={{ scale: 1.1, y: -4 }}
+                whileTap={{ scale: 0.95 }}
+                transition={{ type: "spring", stiffness: 300, damping: 20 }}
+              >
+                <div className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/50 transition-all shadow-md">
+                  <Plus className="w-6 h-6 text-[#659116]" style={{ color: "var(--module-theme-color, #659116)" }} />
+                </div>
+                <span className="text-xs sm:text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 text-center pb-1">
+                  See more
+                </span>
+              </motion.div>
             </div>
           )}
         </div>
