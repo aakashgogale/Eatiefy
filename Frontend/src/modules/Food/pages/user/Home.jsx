@@ -3143,6 +3143,7 @@ export default function Home() {
   // Memoized Category Rail Component
   const CategoryRailSection = useMemo(() => {
     return (
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full">
         <div
           ref={categoryScrollRef}
           className="flex gap-3 sm:gap-4 lg:gap-5 overflow-x-auto overflow-y-visible scrollbar-hide scroll-smooth px-2 sm:px-3 py-2 sm:py-3"
@@ -3188,6 +3189,7 @@ export default function Home() {
             </div>
           )}
         </div>
+      </div>
     );
   }, [displayCategories, showCategorySkeleton, navigate, isCategoryStuck]);
 
@@ -3327,90 +3329,9 @@ export default function Home() {
 
 
 
-        <PromoRow 
-          handleVegModeChange={handleVegModeChange}
-          navigate={navigate}
-          isVegMode={vegMode}
-          toggleRef={vegModeToggleRef}
-        />
-
-        <PromotionBannerCarousel zoneId={zoneId} />
-
-        {recommendedForYouRestaurants.length > 0 && (
-          <motion.section
-            className="content-auto space-y-4 pt-4 sm:pt-6"
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5 }}>
-            <div className="px-4 flex items-center justify-between">
-              <h2 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 dark:text-white tracking-tight">
-                Recommended for you
-              </h2>
-            </div>
-            <div
-              className="flex gap-3 sm:gap-4 px-4 pb-2 overflow-x-auto scrollbar-hide scroll-smooth"
-              style={{
-                scrollbarWidth: "none",
-                msOverflowStyle: "none",
-                touchAction: "pan-x pan-y pinch-zoom",
-              }}
-            >
-                {recommendedForYouRestaurants.map((restaurant, index) => {
-                  const restaurantSlug =
-                    restaurant.slug ||
-                    restaurant.name.toLowerCase().replace(/\s+/g, "-");
-                  return (
-                    <motion.div
-                      key={`recommended-${restaurant.mongoId || restaurant.id || restaurantSlug}`}
-                      className="flex-shrink-0 w-[170px] sm:w-[210px] md:w-[240px]"
-                      initial={{ opacity: 0, y: 12 }}
-                      whileInView={{ opacity: 1, y: 0 }}
-                      viewport={{ once: true }}
-                      transition={{ duration: 0.35, delay: index * 0.05 }}>
-                      <div
-                        onClick={(e) => {
-                          if (e.defaultPrevented) return;
-                          try { captureHomeScrollBeforeLeave(); } catch (_) {}
-                          navigate(`/food/user/restaurants/${restaurantSlug}`);
-                        }}
-                        className="block rounded-[20px] overflow-hidden border border-gray-100 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] shadow-sm hover:shadow-md transition-shadow cursor-pointer">
-                        <div className="relative h-32 sm:h-36 md:h-40 bg-gray-50">
-                          <RestaurantImageCarousel
-                            restaurant={restaurant}
-                            backendOrigin={BACKEND_ORIGIN}
-                            className="h-32 sm:h-36 md:h-40"
-                            roundedClass="rounded-t-[20px]"
-                            autoScroll={false}
-                          />
-                        </div>
-                        <div className="p-3">
-                          <p className="text-sm font-semibold text-gray-900 dark:text-white truncate tracking-tight">
-                            {restaurant.name}
-                          </p>
-                          <p className="text-[11px] text-gray-500 truncate mt-1">
-                            {restaurant.cuisine || "Multi-cuisine"}
-                          </p>
-                          <div className="flex items-center justify-between mt-2.5">
-                            <p className="text-[9px] sm:text-[10px] text-orange-600 font-bold flex items-center gap-1 uppercase tracking-wider">
-                              <Flame className="w-3.5 h-3.5 fill-orange-600" />
-                              Near & Fast
-                            </p>
-                            <div className="flex items-center gap-0.5 text-xs font-semibold text-gray-700 dark:text-gray-300">
-                              <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
-                              <span className="pt-0.5">{Number(restaurant.rating) > 0 ? Number(restaurant.rating).toFixed(1) : "NEW"}</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            </motion.section>
-          )}
-
-        {CategoryRailHeader}
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full">
+          {CategoryRailHeader}
+        </div>
 
         {/* Category sticky anchor sentinel — must be immediately before the category rail */}
         <div ref={categoryAnchorRef} aria-hidden="true" />
@@ -3424,10 +3345,93 @@ export default function Home() {
           {CategoryRailSection}
         </div>
 
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full">
+          <PromotionBannerCarousel zoneId={zoneId} />
 
-        {HeroBannerSection}
+          {recommendedForYouRestaurants.length > 0 && (
+            <motion.section
+              className="content-auto space-y-4 pt-4 sm:pt-6"
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5 }}>
+              <div className="px-4 flex items-center justify-between">
+                <h2 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 dark:text-white tracking-tight">
+                  Recommended for you
+                </h2>
+              </div>
+              <div
+                className="flex gap-3 sm:gap-4 px-4 pb-2 overflow-x-auto scrollbar-hide scroll-smooth"
+                style={{
+                  scrollbarWidth: "none",
+                  msOverflowStyle: "none",
+                  touchAction: "pan-x pan-y pinch-zoom",
+                }}
+              >
+                  {recommendedForYouRestaurants.map((restaurant, index) => {
+                    const restaurantSlug =
+                      restaurant.slug ||
+                      restaurant.name.toLowerCase().replace(/\s+/g, "-");
+                    return (
+                      <motion.div
+                        key={`recommended-${restaurant.mongoId || restaurant.id || restaurantSlug}`}
+                        className="flex-shrink-0 w-[170px] sm:w-[210px] md:w-[240px]"
+                        initial={{ opacity: 0, y: 12 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        viewport={{ once: true }}
+                        transition={{ duration: 0.35, delay: index * 0.05 }}>
+                        <div
+                          onClick={(e) => {
+                            if (e.defaultPrevented) return;
+                            try { captureHomeScrollBeforeLeave(); } catch (_) {}
+                            navigate(`/food/user/restaurants/${restaurantSlug}`);
+                          }}
+                          className="block rounded-[20px] overflow-hidden border border-gray-100 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] shadow-sm hover:shadow-md transition-shadow cursor-pointer">
+                          <div className="relative h-32 sm:h-36 md:h-40 bg-gray-50">
+                            <RestaurantImageCarousel
+                              restaurant={restaurant}
+                              backendOrigin={BACKEND_ORIGIN}
+                              className="h-32 sm:h-36 md:h-40"
+                              roundedClass="rounded-t-[20px]"
+                              autoScroll={false}
+                            />
+                          </div>
+                          <div className="p-3">
+                            <p className="text-sm font-semibold text-gray-900 dark:text-white truncate tracking-tight">
+                              {restaurant.name}
+                            </p>
+                            <p className="text-[11px] text-gray-500 truncate mt-1">
+                              {restaurant.cuisine || "Multi-cuisine"}
+                            </p>
+                            <div className="flex items-center justify-between mt-2.5">
+                              <p className="text-[9px] sm:text-[10px] text-orange-600 font-bold flex items-center gap-1 uppercase tracking-wider">
+                                <Flame className="w-3.5 h-3.5 fill-orange-600" />
+                                Near & Fast
+                              </p>
+                              <div className="flex items-center gap-0.5 text-xs font-semibold text-gray-700 dark:text-gray-300">
+                                <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+                                <span className="pt-0.5">{Number(restaurant.rating) > 0 ? Number(restaurant.rating).toFixed(1) : "NEW"}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              </motion.section>
+            )}
 
+          <div className="py-4">
+            <PromoRow 
+              handleVegModeChange={handleVegModeChange}
+              navigate={navigate}
+              isVegMode={vegMode}
+              toggleRef={vegModeToggleRef}
+            />
+          </div>
 
+          {HeroBannerSection}
 
           {/* Restaurants - Enhanced with Animations */}
           <motion.section
@@ -3549,6 +3553,7 @@ export default function Home() {
           </motion.section>
         </div>
       </div>
+    </div>
 
         {/* Filter Modal - Bottom Sheet */}
         <AnimatePresence>

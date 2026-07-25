@@ -219,7 +219,7 @@ export default function DesktopNavbar({ showLogo = true }) {
                         <div className="flex-1 max-w-3xl mx-4 flex items-center gap-4">
                             {/* Search Bar */}
                             <div className="relative flex-1">
-                                <div className="relative bg-gray-100 dark:bg-[#2a2a2a] rounded-lg transition-all duration-300 focus-within:ring-2 focus-within:ring-[#EB590E] focus-within:bg-white dark:focus-within:bg-[#1a1a1a] border border-transparent focus-within:border-[#EB590E]/20">
+                                <div className="relative bg-gray-100 dark:bg-[#2a2a2a] rounded-lg transition-all duration-300 focus-within:ring-2 focus-within:ring-[color:var(--module-theme-color,#618E17)] focus-within:bg-white dark:focus-within:bg-[#1a1a1a] border border-transparent focus-within:border-[color:var(--module-theme-color,#618E17)]/20">
                                     <div className="flex items-center px-3 py-2">
                                         <Search className="h-4 w-4 text-gray-500 flex-shrink-0 mr-3" />
                                         <Input
@@ -310,15 +310,15 @@ export default function DesktopNavbar({ showLogo = true }) {
                                 to="/food/user"
                                 onClick={() => clearHomeScrollState()}
                                 className={`flex flex-col items-center gap-1 px-2 py-1 transition-colors relative group ${isDelivery
-                                    ? "text-orange-600 dark:text-orange-500"
-                                    : "text-gray-600 dark:text-gray-400 hover:text-orange-600 dark:hover:text-orange-500"
+                                    ? "text-[color:var(--module-theme-color,#618E17)] dark:text-[color:var(--module-theme-color,#618E17)]"
+                                    : "text-gray-600 dark:text-gray-400 hover:text-[color:var(--module-theme-hover-color,#4f7512)] dark:hover:text-[color:var(--module-theme-hover-color,#4f7512)]"
                                     }`}
                             >
                                 <span className="text-sm font-bold tracking-wide uppercase">Delivery</span>
                                 {isDelivery && (
                                     <motion.div
                                         layoutId="navIndicator"
-                                        className="absolute -bottom-3 left-0 right-0 h-0.5 bg-orange-600 dark:bg-orange-500"
+                                        className="absolute -bottom-3 left-0 right-0 h-0.5 bg-[color:var(--module-theme-color,#618E17)] dark:bg-[color:var(--module-theme-color,#618E17)]"
                                         initial={{ opacity: 0 }}
                                         animate={{ opacity: 1 }}
                                         transition={{ duration: 0.3 }}
@@ -330,15 +330,15 @@ export default function DesktopNavbar({ showLogo = true }) {
                             <Link
                                 to="/food/user/under-250"
                                 className={`flex flex-col items-center gap-1 px-2 py-1 transition-colors relative group ${isUnder250
-                                    ? "text-orange-600 dark:text-orange-500"
-                                    : "text-gray-600 dark:text-gray-400 hover:text-orange-600 dark:hover:text-orange-500"
+                                    ? "text-[color:var(--module-theme-color,#618E17)] dark:text-[color:var(--module-theme-color,#618E17)]"
+                                    : "text-gray-600 dark:text-gray-400 hover:text-[color:var(--module-theme-hover-color,#4f7512)] dark:hover:text-[color:var(--module-theme-hover-color,#4f7512)]"
                                     }`}
                             >
                                 <span className="text-sm font-bold tracking-wide uppercase">Eatiefy 99</span>
                                 {isUnder250 && (
                                     <motion.div
                                         layoutId="navIndicator"
-                                        className="absolute -bottom-3 left-0 right-0 h-0.5 bg-orange-600 dark:bg-orange-500"
+                                        className="absolute -bottom-3 left-0 right-0 h-0.5 bg-[color:var(--module-theme-color,#618E17)] dark:bg-[color:var(--module-theme-color,#618E17)]"
                                         initial={{ opacity: 0 }}
                                         animate={{ opacity: 1 }}
                                         transition={{ duration: 0.3 }}
@@ -352,15 +352,15 @@ export default function DesktopNavbar({ showLogo = true }) {
                             <Link
                                 to="/food/user/profile"
                                 className={`flex flex-col items-center gap-1 px-2 py-1 transition-colors relative group ${isProfile
-                                    ? "text-orange-600 dark:text-orange-500"
-                                    : "text-gray-600 dark:text-gray-400 hover:text-orange-600 dark:hover:text-orange-500"
+                                    ? "text-[color:var(--module-theme-color,#618E17)] dark:text-[color:var(--module-theme-color,#618E17)]"
+                                    : "text-gray-600 dark:text-gray-400 hover:text-[color:var(--module-theme-hover-color,#4f7512)] dark:hover:text-[color:var(--module-theme-hover-color,#4f7512)]"
                                     }`}
                             >
                                 <span className="text-sm font-bold tracking-wide uppercase">Profile</span>
                                 {isProfile && (
                                     <motion.div
                                         layoutId="navIndicator"
-                                        className="absolute -bottom-3 left-0 right-0 h-0.5 bg-orange-600 dark:bg-orange-500"
+                                        className="absolute -bottom-3 left-0 right-0 h-0.5 bg-[color:var(--module-theme-color,#618E17)] dark:bg-[color:var(--module-theme-color,#618E17)]"
                                         initial={{ opacity: 0 }}
                                         animate={{ opacity: 1 }}
                                         transition={{ duration: 0.3 }}
