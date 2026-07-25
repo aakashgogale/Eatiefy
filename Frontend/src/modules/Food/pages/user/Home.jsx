@@ -3133,7 +3133,7 @@ export default function Home() {
             to="/food/user/categories"
             className="text-xs sm:text-sm font-bold text-[#659116] hover:text-[#5ECC11] transition-colors"
             style={{ color: "var(--module-theme-color, #659116)" }}>
-            See All
+            See more
           </Link>
         </div>
       </section>
@@ -3185,7 +3185,7 @@ export default function Home() {
               <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/50 group-hover:border-[#659116] transition-all">
                 <Plus className="w-6 h-6 text-[#659116]" style={{ color: "var(--module-theme-color, #659116)" }} />
               </div>
-              <span className="text-xs font-bold text-gray-800 dark:text-gray-200">See All</span>
+              <span className="text-xs font-bold text-gray-800 dark:text-gray-200">See more</span>
             </div>
           )}
         </div>

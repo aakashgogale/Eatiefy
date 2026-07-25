@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom"
-import { Tag, User, Truck, ShoppingCart } from "lucide-react"
+import { Tag, User, Soup, ShoppingCart } from "lucide-react"
 import { clearHomeScrollState } from "@food/utils/homeScrollRestore"
 
 export default function BottomNavigation() {
@@ -37,7 +37,7 @@ export default function BottomNavigation() {
     >
       <div className="flex items-center justify-around h-auto px-2 py-1.5 bg-white/85 dark:bg-[#1a1a1a]/85 backdrop-blur-[20px] border border-white/50 dark:border-white/10 rounded-full shadow-[0_20px_40px_rgba(0,0,0,0.15)] pointer-events-auto">
         
-        {/* Delivery Tab */}
+        {/* Food Tab */}
         <Link
           to="/food/user"
           onClick={handleHomeNavClick}
@@ -48,10 +48,10 @@ export default function BottomNavigation() {
           style={isDelivery ? { color: activeColor, backgroundColor: activeBg } : undefined}
         >
           <div className="relative">
-            <Truck className={`h-5 w-5 transition-transform duration-300 ${isDelivery ? "scale-110" : "text-gray-500 dark:text-gray-400"}`} strokeWidth={isDelivery ? 2.5 : 2} style={isDelivery ? { color: activeColor, fill: activeFill } : undefined} />
+            <Soup className={`h-5 w-5 transition-transform duration-300 ${isDelivery ? "scale-110" : "text-gray-500 dark:text-gray-400"}`} strokeWidth={isDelivery ? 2.5 : 2} style={isDelivery ? { color: activeColor, fill: activeFill } : undefined} />
           </div>
           <span className={`text-[10px] sm:text-xs font-semibold tracking-wide transition-all ${isDelivery ? "" : "text-gray-500 dark:text-gray-400 opacity-80"}`}>
-            Delivery
+            Food
           </span>
         </Link>
 
