@@ -3,11 +3,12 @@ import UserLayout from "./UserLayout"
 import { Suspense, lazy } from "react"
 import Loader from "@food/components/Loader"
 import ProtectedRoute from "@food/components/ProtectedRoute"
+import Home from "@food/pages/user/Home"
+import Profile from "@food/pages/user/profile/Profile"
 
 // Lazy Loading Pages
 
 // Home & Discovery
-const Home = lazy(() => import("@food/pages/user/Home"))
 const Dining = lazy(() => import("@food/pages/user/Dining"))
 const DiningRestaurants = lazy(() => import("@food/pages/user/DiningRestaurants"))
 const DiningCategory = lazy(() => import("@food/pages/user/DiningCategory"))
@@ -52,7 +53,6 @@ const CollectionDetail = lazy(() => import("@food/pages/user/CollectionDetail"))
 
 
 // Profile
-const Profile = lazy(() => import("@food/pages/user/profile/Profile"))
 const EditProfile = lazy(() => import("@food/pages/user/profile/EditProfile"))
 const Payments = lazy(() => import("@food/pages/user/profile/Payments"))
 const AddPayment = lazy(() => import("@food/pages/user/profile/AddPayment"))

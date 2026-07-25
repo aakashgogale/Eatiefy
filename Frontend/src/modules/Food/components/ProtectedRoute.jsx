@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
-import { ensureValidAccessToken, isModuleAuthenticated } from "@food/utils/auth";
+import { ensureValidAccessToken, isModuleAuthenticated, getModuleToken, isTokenExpired } from "@food/utils/auth";
 
 /**
  * Role-based Protected Route Component
@@ -17,6 +17,13 @@ export default function ProtectedRoute({ children, requiredRole, loginPath = "/f
   const location = useLocation();
   const [status, setStatus] = useState(() => {
     if (!requiredRole) return "ok";
+    
+    // Synchronously bypass checking state if the access token is present and valid.
+    const token = getModuleToken(requiredRole);
+    if (token && !isTokenExpired(token)) {
+      return "ok";
+    }
+    
     return isModuleAuthenticated(requiredRole) ? "checking" : "deny";
   });
 

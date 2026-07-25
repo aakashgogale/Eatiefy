@@ -89,22 +89,6 @@ export default function BottomNavigation() {
           </span>
         </Link>
 
-        {/* Profile Tab */}
-        <Link
-          to="/food/user/profile"
-          className={`flex flex-1 flex-col items-center justify-center gap-1 px-1 py-1.5 transition-all duration-300 relative rounded-full ${isProfile
-              ? ""
-              : "text-gray-500 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-800/50"
-            }`}
-          style={isProfile ? { color: activeColor, backgroundColor: activeBg } : undefined}
-        >
-          <div className="relative">
-            <User className={`h-5 w-5 transition-transform duration-300 ${isProfile ? "scale-110" : "text-gray-500 dark:text-gray-400"}`} strokeWidth={isProfile ? 2.5 : 2} style={isProfile ? { color: activeColor, fill: activeFill } : undefined} />
-          </div>
-          <span className={`text-[10px] sm:text-xs font-semibold tracking-wide transition-all ${isProfile ? "" : "text-gray-500 dark:text-gray-400 opacity-80"}`}>
-            Profile
-          </span>
-        </Link>
       </div>
     </div>
   )

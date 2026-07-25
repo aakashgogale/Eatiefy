@@ -3127,7 +3127,7 @@ export default function Home() {
       <section className="space-y-4 pt-4 sm:pt-6">
         <div className="px-4 flex items-center justify-between">
           <h2 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 dark:text-white tracking-tight">
-            Categories
+            What's on your mind?
           </h2>
           <Link
             to="/food/user/categories"
@@ -3169,7 +3169,7 @@ export default function Home() {
                     />
                   </div>
                 </div>
-                <span className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 text-center truncate max-w-[72px]">
+                <span className="text-xs sm:text-sm font-bold text-gray-800 dark:text-gray-200 text-center truncate max-w-[72px]">
                   {category.name}
                 </span>
               </Link>
@@ -3185,7 +3185,7 @@ export default function Home() {
               <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/50 group-hover:border-[#659116] transition-all">
                 <Plus className="w-6 h-6 text-[#659116]" style={{ color: "var(--module-theme-color, #659116)" }} />
               </div>
-              <span className="text-xs font-medium text-gray-700">See All</span>
+              <span className="text-xs font-bold text-gray-800 dark:text-gray-200">See All</span>
             </div>
           )}
         </div>

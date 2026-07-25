@@ -60,6 +60,7 @@ import DeleteAccountModal from "@food/components/DeleteAccountModal";
 export default function Profile() {
   const { userProfile, vegMode, setVegMode, getDefaultAddress, addresses } =
     useProfile();
+  const [isExiting, setIsExiting] = useState(false);
   const { openLocationSelector } = useLocationSelector();
   const navigate = useNavigate();
   const companyName = useCompanyName();
@@ -349,16 +350,31 @@ export default function Profile() {
   };
 
   return (
-    <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a]">
-      <div className="max-w-md md:max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 py-4 sm:py-6 md:py-8 lg:py-10 pb-20 sm:pb-24">
-        {/* Header: Back Arrow */}
-        <div className="flex items-center mb-4">
-          <Link to="/user">
-            <Button variant="ghost" size="icon" className="h-8 w-8 p-0">
+    <div className="overflow-x-hidden min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a]">
+      <motion.div
+        initial={{ x: "100%", opacity: 0 }}
+        animate={{ x: isExiting ? "100%" : "0%", opacity: isExiting ? 0 : 1 }}
+        transition={{ ease: [0.16, 1, 0.3, 1], duration: 0.35 }}
+        className="w-full min-h-screen"
+      >
+        <div className="max-w-md md:max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 py-4 sm:py-6 md:py-8 lg:py-10 pb-20 sm:pb-24">
+          {/* Header: Back Arrow */}
+          <div className="flex items-center mb-4">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 p-0"
+              onClick={(e) => {
+                e.preventDefault();
+                setIsExiting(true);
+                setTimeout(() => {
+                  navigate("/food/user");
+                }, 300);
+              }}
+            >
               <ArrowLeft className="h-5 w-5 text-black dark:text-white" />
             </Button>
-          </Link>
-        </div>
+          </div>
 
         {/* Profile Info Card */}
         <Card className="bg-white dark:bg-[#1a1a1a] rounded-2xl py-0 pt-1 shadow-sm mb-0 border-0 dark:border-gray-800 overflow-hidden">
@@ -1096,6 +1112,7 @@ export default function Profile() {
         walletAmount={walletBalance} 
         moduleName="user" 
       />
-    </AnimatedPage>
+      </motion.div>
+    </div>
   );
 }
