@@ -183,6 +183,14 @@ export default function UserLayout() {
   })
 
   useEffect(() => {
+    try {
+      if (localStorage.getItem('eatiefy_onboarding_completed') === 'true') {
+        setShowOnboarding(false);
+      }
+    } catch (_) {}
+  }, [location.pathname])
+
+  useEffect(() => {
     // Reset scroll to top whenever location changes (pathname, search, or hash).
     // Skip when Home has a pending scroll position to restore (in-app back uses PUSH).
     if (shouldSkipScrollResetForHome(location.pathname)) return;
@@ -265,11 +273,10 @@ export default function UserLayout() {
                   <Outlet />
                 </main>
                 {showBottomNav && <BottomNavigation />}
-                {showOnboarding && (
+                {showOnboarding && !location.pathname.includes("/auth/") && (
                   <OnboardingSplash 
                     onComplete={() => setShowOnboarding(false)} 
                     onSignInClick={() => {
-                      setShowOnboarding(false);
                       navigate("/food/user/auth/login");
                     }}
                   />
