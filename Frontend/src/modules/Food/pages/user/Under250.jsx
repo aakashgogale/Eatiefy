@@ -387,7 +387,7 @@ export default function Under250() {
 
   // Fetch under-250 banner from public API
   const displayBanners = useMemo(() => {
-    return bannerImages.length > 0 ? bannerImages : [switch99PromoBanner1, switch99PromoBanner2];
+    return bannerImages;
   }, [bannerImages]);
 
   useEffect(() => {
@@ -1031,54 +1031,58 @@ export default function Under250() {
       </div>
 
       {/* Dynamic Switch 99 Hero Banner Section */}
-      <div
-        ref={bannerShellRef}
-        data-banner-shell="true"
-        className="relative w-full overflow-hidden h-[clamp(240px,40vw,520px)] bg-white"
-      >
+      {loadingBanner ? (
+        <div className="relative w-full overflow-hidden h-[clamp(240px,40vw,520px)] bg-gray-100 dark:bg-gray-900 animate-pulse flex items-center justify-center" />
+      ) : displayBanners.length > 0 ? (
         <div
-          className="absolute inset-0 z-0 overflow-hidden"
-          onTouchStart={handleBannerTouchStart}
-          onTouchMove={handleBannerTouchMove}
-          onTouchEnd={handleBannerTouchEnd}
+          ref={bannerShellRef}
+          data-banner-shell="true"
+          className="relative w-full overflow-hidden h-[clamp(240px,40vw,520px)] bg-white"
         >
           <div
-            className="flex h-full w-full transition-transform duration-500 ease-out"
-            style={{ transform: `translateX(-${currentBannerIndex * 100}%)` }}
+            className="absolute inset-0 z-0 overflow-hidden"
+            onTouchStart={handleBannerTouchStart}
+            onTouchMove={handleBannerTouchMove}
+            onTouchEnd={handleBannerTouchEnd}
           >
-            {displayBanners.map((bannerSrc, index) => (
-              <div key={`${bannerSrc}-${index}`} className="relative h-full w-full shrink-0">
-                <OptimizedImage
-                  src={bannerSrc}
-                  alt={`Switch 99 Banner ${index + 1}`}
-                  className="w-full h-full"
-                  objectFit="cover"
-                  priority={index === 0}
-                  sizes="100vw"
-                />
-              </div>
-            ))}
+            <div
+              className="flex h-full w-full transition-transform duration-500 ease-out"
+              style={{ transform: `translateX(-${currentBannerIndex * 100}%)` }}
+            >
+              {displayBanners.map((bannerSrc, index) => (
+                <div key={`${bannerSrc}-${index}`} className="relative h-full w-full shrink-0">
+                  <OptimizedImage
+                    src={bannerSrc}
+                    alt={`Switch 99 Banner ${index + 1}`}
+                    className="w-full h-full"
+                    objectFit="cover"
+                    priority={index === 0}
+                    sizes="100vw"
+                  />
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
 
-        {/* Dynamic Pagination Indicators */}
-        {displayBanners.length > 1 && (
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2">
-            {displayBanners.map((_, index) => (
-              <button
-                key={`banner-dot-${index}`}
-                onClick={() => {
-                  setCurrentBannerIndex(index)
-                  resetBannerAutoSlide()
-                }}
-                className={`transition-all duration-300 rounded-full h-1.5 ${
-                  currentBannerIndex === index ? "w-6 bg-[#E2AD4B]" : "w-1.5 bg-black/20"
-                }`}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+          {/* Dynamic Pagination Indicators */}
+          {displayBanners.length > 1 && (
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2">
+              {displayBanners.map((_, index) => (
+                <button
+                  key={`banner-dot-${index}`}
+                  onClick={() => {
+                    setCurrentBannerIndex(index)
+                    resetBannerAutoSlide()
+                  }}
+                  className={`transition-all duration-300 rounded-full h-1.5 ${
+                    currentBannerIndex === index ? "w-6 bg-[#E2AD4B]" : "w-1.5 bg-black/20"
+                  }`}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {/* Content Section */}
       <div className="relative max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 xl:px-12 space-y-0 pt-2 sm:pt-3 md:pt-4 lg:pt-6 pb-24 md:pb-8 lg:pb-10">
