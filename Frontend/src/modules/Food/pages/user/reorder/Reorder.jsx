@@ -141,7 +141,7 @@ export default function Reorder() {
       <main className="max-w-2xl mx-auto px-4 py-6">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-gray-500">
-            <Loader2 className="w-8 h-8 animate-spin text-[#E2AD4B]" />
+            <Loader2 className="w-8 h-8 animate-spin theme-text" />
             <p className="text-sm font-medium">Loading your orders...</p>
           </div>
         ) : orders.length === 0 ? (
@@ -166,7 +166,7 @@ export default function Reorder() {
 
             <Link
               to="/food/user"
-              className="inline-flex items-center justify-center px-8 py-3 rounded-xl bg-[#E2AD4B] hover:bg-[#d69f3d] text-white font-semibold text-sm shadow-md hover:shadow-lg transition-all transform active:scale-95"
+              className="inline-flex items-center justify-center px-8 py-3 rounded-xl theme-bg text-white font-semibold text-sm shadow-md hover:shadow-lg transition-all transform active:scale-95"
             >
               Order Now
             </Link>
@@ -209,7 +209,7 @@ export default function Reorder() {
                   {/* Restaurant & Date Header */}
                   <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-amber-50 dark:bg-amber-950/40 text-[#E2AD4B] flex items-center justify-center font-bold text-base">
+                      <div className="w-10 h-10 rounded-full bg-amber-50 dark:bg-amber-950/40 theme-text flex items-center justify-center font-bold text-base">
                         <Utensils className="w-5 h-5" />
                       </div>
                       <div>
@@ -277,7 +277,7 @@ export default function Reorder() {
 
                     <button
                       onClick={() => handleReorder(order)}
-                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#E2AD4B] hover:bg-[#d69f3d] text-white font-semibold text-sm shadow-sm hover:shadow transition-all active:scale-95"
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl theme-bg text-white font-semibold text-sm shadow-sm hover:shadow transition-all active:scale-95"
                     >
                       <RotateCcw className="w-4 h-4" />
                       Reorder

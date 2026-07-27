@@ -44,6 +44,9 @@ const LEGACY_BRAND_HEXES = [
   "#D94F0C",
   "#C44409",
   "#FF8100",
+  "#E2AD4B",
+  "#d69f3d",
+  "#C59132",
 ];
 const LEGACY_BRAND_TAILWIND_COLORS = [
   "emerald-50", "emerald-100", "emerald-200", "emerald-300", "emerald-400", "emerald-500", "emerald-600", "emerald-700", "emerald-800", "emerald-900",

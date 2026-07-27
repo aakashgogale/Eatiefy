@@ -25,8 +25,8 @@ export function DualMoney({
   showDiscountTag = true,
   className = "",
   strikeClassName = "text-sm text-gray-400 line-through tabular-nums",
-  saleClassName = "inline-flex items-center rounded-full border border-[#E2AD4B] bg-[#E2AD4B]/10 px-2 py-0.5 text-sm font-bold text-[#E2AD4B] tabular-nums",
-  offClassName = "inline-flex items-center rounded-full bg-[#E2AD4B] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white tabular-nums",
+  saleClassName = "inline-flex items-center rounded-full px-2 py-0.5 text-sm font-bold tabular-nums theme-text theme-bg-soft",
+  offClassName = "inline-flex items-center rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white tabular-nums",
   plainClassName = "font-semibold text-gray-900 dark:text-white tabular-nums",
 }) {
   const price = Number(amount) || 0
@@ -74,8 +74,8 @@ export default function FoodPriceDisplay({
   showDiscountTag = true,
   className = "",
   strikeClassName = "text-sm text-gray-400 line-through tabular-nums",
-  saleClassName = "inline-flex items-center rounded-full border border-[#E2AD4B] bg-[#E2AD4B]/10 px-2 py-0.5 text-sm font-bold text-[#E2AD4B] tabular-nums",
-  offClassName = "inline-flex items-center rounded-full bg-[#E2AD4B] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white tabular-nums",
+  saleClassName = "inline-flex items-center rounded-full px-2 py-0.5 text-sm font-bold tabular-nums theme-text theme-bg-soft",
+  offClassName = "inline-flex items-center rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white tabular-nums",
   plainClassName = "font-semibold text-gray-900 dark:text-white tabular-nums",
 }) {
   const price = Math.round(
