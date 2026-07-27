@@ -310,7 +310,7 @@ export default function FeeSettings() {
       {/* Header Section */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center">
             <DollarSign className="w-6 h-6 text-white" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900">Delivery & Platform Fee</h1>
@@ -333,7 +333,7 @@ export default function FeeSettings() {
             <Button
               onClick={handleSaveFeeSettings}
               disabled={savingFeeSettings || loadingFeeSettings}
-              className="bg-green-600 hover:bg-green-700 text-white flex items-center gap-2"
+              className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2"
             >
               {savingFeeSettings ? (
                 <>
@@ -351,7 +351,7 @@ export default function FeeSettings() {
 
           {loadingFeeSettings ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-6 h-6 animate-spin text-green-600" />
+              <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
             </div>
           ) : (
             <>
@@ -418,7 +418,7 @@ export default function FeeSettings() {
                                     <>{range.max} km</>
                                   )}
                                 </td>
-                                <td className="px-4 py-3 text-sm font-medium text-green-600 border-b border-slate-100">
+                                <td className="px-4 py-3 text-sm font-medium text-blue-600 border-b border-slate-100">
                                   {isEditing ? (
                                     <div className="flex items-center gap-1">
                                       <span className="text-slate-400">₹</span>
@@ -426,7 +426,7 @@ export default function FeeSettings() {
                                         type="number"
                                         value={newRange.fee}
                                         onChange={(e) => setNewRange({ ...newRange, fee: e.target.value })}
-                                        className="w-20 px-2 py-1 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-green-600 font-medium"
+                                        className="w-20 px-2 py-1 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-blue-600 font-medium"
                                       />
                                     </div>
                                   ) : (
@@ -473,7 +473,7 @@ export default function FeeSettings() {
                                       <>
                                         <button
                                           onClick={handleSaveEditRange}
-                                          className="p-1.5 text-green-600 hover:bg-green-100 rounded transition-colors"
+                                          className="p-1.5 text-blue-600 hover:bg-blue-100 rounded transition-colors"
                                           title="Save"
                                         >
                                           <Check className="w-4 h-4" />
@@ -520,7 +520,7 @@ export default function FeeSettings() {
                       {editingRangeIndex !== null ? (
                         <Edit className="w-4 h-4 text-blue-600" />
                       ) : (
-                        <Plus className="w-4 h-4 text-green-600" />
+                        <Plus className="w-4 h-4 text-blue-600" />
                       )}
                     <h4 className="text-sm font-semibold text-slate-700">
                       {editingRangeIndex !== null ? 'Edit Range' : 'Add New Range'}
@@ -535,7 +535,7 @@ export default function FeeSettings() {
                         onChange={(e) => setNewRange({ ...newRange, min: e.target.value })}
                         min="0"
                         step="0.1"
-                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none transition-all"
+                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                         placeholder="0"
                       />
                     </div>
@@ -547,7 +547,7 @@ export default function FeeSettings() {
                         onChange={(e) => setNewRange({ ...newRange, max: e.target.value })}
                         min="0"
                         step="0.1"
-                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none transition-all"
+                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                         placeholder="5"
                       />
                     </div>
@@ -559,7 +559,7 @@ export default function FeeSettings() {
                         onChange={(e) => setNewRange({ ...newRange, fee: e.target.value })}
                         min="0"
                         step="1"
-                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none transition-all"
+                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                         placeholder="0"
                       />
                     </div>
@@ -572,7 +572,7 @@ export default function FeeSettings() {
                         onChange={(e) => setNewRange({ ...newRange, deliveryBoyPerKm: e.target.value, deliveryBoyBasePay: '0' })}
                         min="0"
                         step="1"
-                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none transition-all disabled:bg-slate-100 disabled:cursor-not-allowed"
+                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all disabled:bg-slate-100 disabled:cursor-not-allowed"
                         placeholder="0"
                       />
                     </div>
@@ -585,14 +585,14 @@ export default function FeeSettings() {
                         onChange={(e) => setNewRange({ ...newRange, deliveryBoyBasePay: e.target.value, deliveryBoyPerKm: '0' })}
                         min="0"
                         step="1"
-                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none transition-all disabled:bg-slate-100 disabled:cursor-not-allowed"
+                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all disabled:bg-slate-100 disabled:cursor-not-allowed"
                         placeholder="0"
                       />
                     </div>
                     <div className="flex items-end gap-2">
                       <Button
                         onClick={editingRangeIndex !== null ? handleSaveEditRange : handleAddRange}
-                        className={`${editingRangeIndex !== null ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'} text-white text-sm flex-1 flex items-center justify-center gap-2`}
+                        className="bg-blue-600 hover:bg-blue-700 text-white text-sm flex-1 flex items-center justify-center gap-2"
                       >
                         {editingRangeIndex !== null ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
                         {editingRangeIndex !== null ? 'Update' : 'Add Range'}
@@ -627,7 +627,7 @@ export default function FeeSettings() {
                     onChange={(e) => setFeeSettings({ ...feeSettings, platformFee: e.target.value })}
                     min="0"
                     step="1"
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none transition-all"
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                     placeholder="5"
                   />
                   <p className="text-xs text-slate-500">
@@ -646,7 +646,7 @@ export default function FeeSettings() {
                     onChange={(e) => setFeeSettings({ ...feeSettings, quickDeliveryFee: e.target.value })}
                     min="0"
                     step="1"
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none transition-all"
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                     placeholder="15"
                   />
                   <p className="text-xs text-slate-500">
@@ -666,7 +666,7 @@ export default function FeeSettings() {
                     min="0"
                     max="100"
                     step="0.1"
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none transition-all"
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                     placeholder="5"
                   />
                   <p className="text-xs text-slate-500">
