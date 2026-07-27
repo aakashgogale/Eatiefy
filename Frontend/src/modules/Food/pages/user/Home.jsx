@@ -3603,7 +3603,7 @@ export default function Home() {
                   className="text-xs sm:text-sm font-bold flex items-center gap-0.5 transition-all hover:opacity-80 active:scale-95"
                   style={{ color: "var(--module-theme-color, #E2AD4B)" }}
                 >
-                  See All <ArrowRight className="h-3.5 w-3.5" />
+                  See more
                 </Link>
               </div>
 
