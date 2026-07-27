@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom"
 import { useState, useEffect, useRef, useMemo } from "react"
-import { ChevronDown, ShoppingCart, Wallet } from "lucide-react"
+import { ChevronDown, Bell, Menu } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { useDeliveryLocation } from "@food/context/DeliveryLocationContext"
 import { useCart } from "@food/context/CartContext"
@@ -1056,56 +1056,33 @@ export default function PageNavbar({
           </Button>
         </div>
 
-        {/* Right: Actions (Wallet & Cart) */}
+        {/* Right: Actions (Bell & Menu) */}
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-auto">
-          <Link to="/user/wallet">
+          <Link to="/food/user/notifications">
             <Button
               variant="ghost"
               size="icon"
               className="h-8 w-8 sm:h-9 sm:w-9 rounded-full p-0 hover:opacity-80 transition-opacity"
-              title="Wallet"
+              title="Notifications"
             >
               <div className={`h-full w-full rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center`}>
-                <Wallet className={`h-4 w-4 sm:h-5 sm:w-5 ${textColor === "white" ? "text-black dark:text-white" : "text-gray-900 dark:text-white"}`} strokeWidth={2} />
+                <Bell className={`h-4 w-4 sm:h-5 sm:w-5 ${textColor === "white" ? "text-black dark:text-white" : "text-gray-900 dark:text-white"}`} strokeWidth={2} />
               </div>
             </Button>
           </Link>
 
-          <Link to="/user/cart">
+          <Link to="/food/user/profile">
             <Button
               variant="ghost"
               size="icon"
-              className="relative h-8 w-8 sm:h-9 sm:w-9 rounded-full p-0 hover:opacity-80 transition-opacity"
-              title="Cart"
+              className="h-8 w-8 sm:h-9 sm:w-9 rounded-full p-0 hover:opacity-80 transition-opacity"
+              title="Menu"
             >
               <div className={`h-full w-full rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center`}>
-                <ShoppingCart className={`h-4 w-4 sm:h-5 sm:w-5 ${textColor === "white" ? "text-black dark:text-white" : "text-gray-900 dark:text-white"}`} strokeWidth={2} />
+                <Menu className={`h-4 w-4 sm:h-5 sm:w-5 ${textColor === "white" ? "text-black dark:text-white" : "text-gray-900 dark:text-white"}`} strokeWidth={2} />
               </div>
-              {cartCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center ring-2 ring-white">
-                  <span className="text-[9px] font-bold text-white">{cartCount > 99 ? "99+" : cartCount}</span>
-                </span>
-              )}
             </Button>
           </Link>
-
-          {/* Profile - Only shown if showProfile is true */}
-          {showProfile && (
-            <Link to="/user/profile">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 sm:h-9 sm:w-9 rounded-full p-0 hover:opacity-80 transition-opacity"
-                title="Profile"
-              >
-                <div className={`h-full w-full rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center shadow-sm`}>
-                  <span className={`text-xs sm:text-sm font-extrabold ${textColor === "white" ? "text-black" : "text-gray-900"}`}>
-                    A
-                  </span>
-                </div>
-              </Button>
-            </Link>
-          )}
         </div>
       </div>
     </nav>
