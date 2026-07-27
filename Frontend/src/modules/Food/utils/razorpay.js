@@ -3,6 +3,8 @@
  * Handles Razorpay payment initialization and verification
  */
 
+import { getCompanyName, getModuleLogoUrl, getModulePowerScanning } from "./businessSettings";
+
 let razorpayLoaded = false;
 
 const isLikelyWebView = () => {
@@ -14,6 +16,14 @@ const isLikelyWebView = () => {
     /; wv\)/i.test(ua) ||
     /Version\/[\d.]+.*Chrome\/[\d.]+ Mobile/i.test(ua)
   );
+};
+
+const getActiveModule = () => {
+  if (typeof window === "undefined") return "user";
+  const path = window.location.pathname;
+  if (path.includes("/restaurant")) return "restaurant";
+  if (path.includes("/delivery")) return "delivery";
+  return "user";
 };
 
 /**
@@ -45,7 +55,7 @@ export const loadRazorpayScript = () => {
     // Add timeout to prevent freeze
     const timeout = setTimeout(() => {
       reject(new Error('Razorpay script load timeout'));
-    }, 10000);
+    }, 15000);
 
     script.onload = () => {
       clearTimeout(timeout);
@@ -95,18 +105,23 @@ export const initRazorpayPayment = async (options) => {
       }
     };
 
+    const activeModule = getActiveModule();
+    const brandName = getCompanyName() || 'Eatiefy';
+    const brandLogo = getModuleLogoUrl(activeModule) || '/switcheats-logo.png';
+    const brandColor = getModulePowerScanning(activeModule)?.themeColor || '#618E17';
+
     const razorpayOptions = {
       key: options.key,
       amount: options.amount,
       currency: options.currency || 'INR',
       order_id: options.order_id,
-      name: options.name || 'Switcheats',
+      name: options.name || brandName,
       description: options.description || 'Order Payment',
-      image: options.image || '/switcheats-logo.png',
+      image: options.image || brandLogo,
       prefill: options.prefill || {},
       notes: options.notes || {},
       theme: {
-        color: options.theme?.color || '#E23744'
+        color: options.theme?.color || brandColor
       },
       handler: function(response) {
         restoreIfNeeded();
