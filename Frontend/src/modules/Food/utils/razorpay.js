@@ -26,6 +26,21 @@ const getActiveModule = () => {
   return "user";
 };
 
+const getSquareLogoUrl = (url) => {
+  if (!url) return url;
+  // If it's a Cloudinary URL, we can inject c_fill,g_center,w_200,h_200 to crop it to a perfect square!
+  if (/res\.cloudinary\.com/i.test(url)) {
+    if (url.includes('/image/upload/')) {
+      return url.replace(/\/image\/upload\/(v\d+\/)?/i, (match) => {
+        return match.includes('/v') 
+          ? match.replace('/v', '/c_fill,g_center,w_200,h_200,f_auto,q_auto/v')
+          : match + 'c_fill,g_center,w_200,h_200,f_auto,q_auto/';
+      });
+    }
+  }
+  return url;
+};
+
 /**
  * Load Razorpay checkout script
  */
@@ -107,7 +122,8 @@ export const initRazorpayPayment = async (options) => {
 
     const activeModule = getActiveModule();
     const brandName = getCompanyName() || 'Eatiefy';
-    const brandLogo = getModuleLogoUrl(activeModule) || '/switcheats-logo.png';
+    const brandLogoRaw = getModuleLogoUrl(activeModule) || '/switcheats-logo.png';
+    const brandLogo = getSquareLogoUrl(brandLogoRaw);
     const brandColor = getModulePowerScanning(activeModule)?.themeColor || '#618E17';
 
     const razorpayOptions = {
