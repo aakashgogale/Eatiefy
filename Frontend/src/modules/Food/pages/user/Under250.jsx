@@ -1101,7 +1101,10 @@ export default function Under250() {
                 whileTap={{ scale: 0.95 }}
                 transition={{ type: "spring", stiffness: 300, damping: 20 }}
               >
-                <div className={`w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full overflow-hidden shadow-md transition-all ${!activeCategory ? 'ring-2 ring-[#EB590E] ring-offset-2' : ''}`}>
+                <div 
+                  className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full overflow-hidden shadow-md transition-all"
+                  style={!activeCategory ? { boxShadow: "0 0 0 2px var(--window-bg-color, #fff), 0 0 0 4px var(--module-theme-color, #E2AD4B)" } : {}}
+                >
                   <OptimizedImage
                     src={offerImage}
                     alt="All"
@@ -1111,7 +1114,10 @@ export default function Under250() {
                     placeholder="blur"
                   />
                 </div>
-                <span className={`text-xs sm:text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 text-center pb-1 ${!activeCategory ? 'text-[#EB590E]' : ''}`}>
+                <span 
+                  className="text-xs sm:text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 text-center pb-1"
+                  style={!activeCategory ? { color: "var(--module-theme-color, #E2AD4B)" } : {}}
+                >
                   All
                 </span>
               </motion.div>
@@ -1126,7 +1132,10 @@ export default function Under250() {
                     whileTap={{ scale: 0.95 }}
                     transition={{ type: "spring", stiffness: 300, damping: 20 }}
                   >
-                    <div className={`w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full overflow-hidden shadow-md transition-all ${isActive ? 'ring-2 ring-[#EB590E] ring-offset-2' : ''}`}>
+                    <div 
+                      className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full overflow-hidden shadow-md transition-all"
+                      style={isActive ? { boxShadow: "0 0 0 2px var(--window-bg-color, #fff), 0 0 0 4px var(--module-theme-color, #E2AD4B)" } : {}}
+                    >
                       <OptimizedImage
                         src={category.image}
                         alt={category.name}
@@ -1136,7 +1145,10 @@ export default function Under250() {
                         placeholder="blur"
                       />
                     </div>
-                    <span className={`text-xs sm:text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 text-center pb-1 ${isActive ? 'text-[#EB590E]' : ''}`}>
+                    <span 
+                      className="text-xs sm:text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 text-center pb-1"
+                      style={isActive ? { color: "var(--module-theme-color, #E2AD4B)" } : {}}
+                    >
                       {category.name.length > 7 ? `${category.name.slice(0, 7)}...` : category.name}
                     </span>
                   </motion.div>
@@ -1163,9 +1175,10 @@ export default function Under250() {
               variant="outline"
               onClick={() => setUnder30MinsFilter(!under30MinsFilter)}
               className={`h-8 sm:h-9 md:h-10 px-3 sm:px-4 md:px-5 rounded-md flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 font-medium transition-all text-sm md:text-base ${under30MinsFilter
-                ? 'bg-[#EB590E] text-white border border-[#EB590E] hover:bg-[#D94F0C]'
+                ? 'text-white'
                 : 'bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300'
                 }`}
+              style={under30MinsFilter ? { backgroundColor: "var(--module-theme-color, #E2AD4B)", borderColor: "var(--module-theme-color, #E2AD4B)" } : {}}
             >
               <Timer className="h-3 w-3 sm:h-4 sm:w-4 md:h-5 md:w-5" />
               <span className="text-xs sm:text-sm md:text-base font-medium">Under 30 mins</span>
@@ -1242,101 +1255,139 @@ export default function Under250() {
                         return (
                           <motion.div
                             key={item.id}
-                            className="flex-shrink-0 w-[200px] sm:w-[220px] md:w-full bg-white dark:bg-[#1a1a1a] rounded-lg md:rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden cursor-pointer"
-                            onClick={() => handleItemClick(item, restaurant)}
+                            className={`flex-shrink-0 w-[150px] sm:w-[170px] md:w-[200px] lg:w-full bg-transparent overflow-visible relative ${shouldShowGrayscale ? 'cursor-default' : 'cursor-pointer'}`}
+                            onClick={() => {
+                              if (!shouldShowGrayscale) {
+                                handleItemClick(item, restaurant)
+                              }
+                            }}
                             initial={{ opacity: 0, y: 20 }}
                             whileInView={{ opacity: 1, y: 0 }}
                             viewport={{ once: true, margin: "-50px" }}
                             transition={{ duration: 0.4, delay: itemIndex * 0.05 }}
                             whileHover={{ y: -8, scale: 1.02 }}
-                            style={{ boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)" }}
                           >
-                            {/* Item Image */}
-                            <div className="relative w-full h-32 sm:h-36 md:h-40 lg:h-48 xl:h-52 overflow-hidden">
+                            {/* Item Image Container */}
+                            <div className="relative w-full h-[110px] sm:h-[130px] md:h-[150px] lg:h-[170px] xl:h-[190px] rounded-[24px] overflow-hidden shadow-sm border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-neutral-900">
                               <motion.div
-                                className="absolute inset-0"
-                                whileHover={{ scale: 1.1 }}
-                                transition={{ duration: 0.5, ease: "easeOut" }}
+                                className="absolute inset-0 w-full h-full"
+                                whileHover={{ scale: 1.08 }}
+                                transition={{ duration: 0.4, ease: "easeOut" }}
                               >
                                 <OptimizedImage
                                   src={item.image}
                                   alt={item.name}
                                   className="w-full h-full"
                                   objectFit="cover"
-                                  sizes="(max-width: 640px) 200px, (max-width: 768px) 220px, 100vw"
+                                  sizes="(max-width: 640px) 150px, (max-width: 768px) 170px, 100vw"
                                   placeholder="blur"
                                   priority={itemIndex < 4}
                                 />
                               </motion.div>
-                              {/* Gradient Overlay on Hover */}
-                              <motion.div
-                                className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent"
-                                initial={{ opacity: 0 }}
-                                whileHover={{ opacity: 1 }}
-                                transition={{ duration: 0.3 }}
-                              />
-                              {/* Veg Indicator */}
-                              {item.isVeg && (
-                                <motion.div
-                                  className="absolute top-2 left-2 md:top-3 md:left-3 h-4 w-4 md:h-5 md:w-5 lg:h-6 lg:w-6 rounded border-2 bg-white flex items-center justify-center z-10"
-                                  style={{ borderColor: "#16A34A", backgroundColor: "#FFFFFF" }}
-                                  whileHover={{ scale: 1.2, rotate: 5 }}
-                                  transition={{ duration: 0.2 }}
+
+                              {/* Rating Badge (bottom-left) */}
+                              <div className="absolute bottom-2 left-2.5 z-10 flex items-center gap-0.5 bg-[#e8f5e9] dark:bg-green-950/80 text-[#2e7d32] dark:text-green-400 px-1.5 py-0.5 rounded-full shadow-sm text-[9px] sm:text-[10px] font-bold">
+                                <span>★</span>
+                                <span>{item.rating ?? restaurant.rating ?? 4.2}</span>
+                              </div>
+
+                              {/* Floating Action Button (bottom-right) */}
+                              {quantity > 0 ? (
+                                <div
+                                  className="absolute bottom-2 right-2.5 z-20 flex items-center justify-between gap-1 sm:gap-2 px-1.5 sm:px-2 py-0.5 rounded-full bg-white dark:bg-gray-800 shadow-[0_4px_12px_rgba(0,0,0,0.15)] border border-gray-100 dark:border-gray-700 h-7 sm:h-8 min-w-[55px] sm:min-w-[70px]"
+                                  onClick={(e) => e.stopPropagation()}
                                 >
-                                  <div className="h-2 w-2 md:h-2.5 md:w-2.5 lg:h-3 lg:w-3 rounded-full" style={{ backgroundColor: "#16A34A" }} />
-                                </motion.div>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      updateItemQuantity(
+                                        { ...item, restaurant: restaurant.name, restaurantId: restaurant.restaurantId || restaurant.id || "" },
+                                        quantity - 1,
+                                        e
+                                      )
+                                    }}
+                                    className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 p-0.5"
+                                  >
+                                    <Minus className="h-3 w-3" strokeWidth={3} />
+                                  </button>
+                                  <span className="text-[11px] sm:text-xs font-bold text-gray-800 dark:text-gray-200">
+                                    {quantity}
+                                  </span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      updateItemQuantity(
+                                        { ...item, restaurant: restaurant.name, restaurantId: restaurant.restaurantId || restaurant.id || "" },
+                                        quantity + 1,
+                                        e
+                                      )
+                                    }}
+                                    className="hover:opacity-85 p-0.5"
+                                    style={{ color: "var(--module-theme-color, #E2AD4B)" }}
+                                  >
+                                    <Plus className="h-3 w-3" strokeWidth={3} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  disabled={shouldShowGrayscale}
+                                  className={`absolute bottom-2 right-2.5 z-20 h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-white dark:bg-gray-800 shadow-[0_4px_12px_rgba(0,0,0,0.15)] flex items-center justify-center hover:scale-105 transition-transform duration-200 border border-gray-100 dark:border-gray-700 ${
+                                    shouldShowGrayscale ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                                  }`}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (!shouldShowGrayscale) {
+                                      handleAddButtonClick(item, restaurant, e)
+                                    }
+                                  }}
+                                >
+                                  <Plus className="h-4 w-4 sm:h-5 sm:w-5" style={{ color: "var(--module-theme-color, #E2AD4B)" }} strokeWidth={3} />
+                                </button>
                               )}
                             </div>
 
-                            {/* Item Details */}
-                            <div className="p-3 md:p-4 lg:p-5">
-                              <div className="flex items-center gap-1 md:gap-2 mb-1 md:mb-2 lg:mb-3">
-                                {item.isVeg && (
-                                  <div className="h-3 w-3 md:h-4 md:w-4 lg:h-5 lg:w-5 rounded border flex items-center justify-center" style={{ borderColor: "#16A34A", backgroundColor: "#F0FDF4" }}>
-                                    <div className="h-1.5 w-1.5 md:h-2 md:w-2 lg:h-2.5 lg:w-2.5 rounded-full" style={{ backgroundColor: "#16A34A" }} />
-                                  </div>
-                                )}
-                                <span className="text-sm md:text-base lg:text-lg font-semibold text-gray-900 dark:text-white">
-                                  1 x {item.name}
+                            {/* Item Details below image */}
+                            <div className="pt-2 px-1 pb-1">
+                              {/* Restaurant Name */}
+                              <div className="text-[10px] sm:text-xs font-medium text-gray-500 dark:text-gray-400 truncate">
+                                {restaurant.name}
+                              </div>
+
+                              {/* Item Name Row with Veg Icon */}
+                              <div className="flex items-center gap-1 sm:gap-1.5 mt-0.5">
+                                <div 
+                                  className="h-3 w-3 rounded border flex items-center justify-center flex-shrink-0"
+                                  style={{
+                                    borderColor: item.isVeg ? "#16A34A" : "#dc2626",
+                                    backgroundColor: item.isVeg ? "#F0FDF4" : "#FEF2F2"
+                                  }}
+                                >
+                                  <div 
+                                    className="h-1.5 w-1.5 rounded-full" 
+                                    style={{
+                                      backgroundColor: item.isVeg ? "#16A34A" : "#dc2626"
+                                    }}
+                                  />
+                                </div>
+                                <span className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white truncate flex-1">
+                                  {item.name}
                                 </span>
                               </div>
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <div className="text-base md:text-lg lg:text-xl xl:text-2xl">
-                                    <FoodPriceDisplay item={item} />
-                                  </div>
-                                  {item.bestPrice && (
-                                    <p className="text-xs md:text-sm lg:text-base text-gray-500 dark:text-gray-400">Best price</p>
-                                  )}
-                                </div>
-                                {quantity > 0 ? (
-                                  <Link to="/user/cart" onClick={(e) => e.stopPropagation()}>
-                                    <Button
-                                      variant={"outline"}
-                                      size="sm"
-                                      className="bg-[#FFF2EB] text-[#EB590E] border-[#EB590E] hover:bg-[#EB590E] hover:text-white h-7 md:h-8 lg:h-9 px-3 md:px-4 lg:px-5 text-xs md:text-sm lg:text-base"
-                                    >
-                                      View cart
-                                    </Button>
-                                  </Link>
-                                ) : (
-                                  <Button
-                                    variant={"outline"}
-                                    size="sm"
-                                    disabled={shouldShowGrayscale}
-                                    className={`h-7 md:h-8 lg:h-9 px-3 md:px-4 lg:px-5 text-xs md:text-sm lg:text-base ${shouldShowGrayscale
-                                      ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 border-gray-300 dark:border-gray-700 cursor-not-allowed opacity-50'
-                                      : 'bg-[#FFF2EB] text-[#EB590E] border-[#EB590E] hover:bg-[#EB590E] hover:text-white'
-                                      }`}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      if (!shouldShowGrayscale) {
-                                        handleAddButtonClick(item, restaurant, e)
-                                      }
-                                    }}
+
+                              {/* Price and Optional View Cart Link */}
+                              <div className="flex items-baseline justify-between mt-0.5">
+                                <span className="text-sm sm:text-base font-extrabold text-gray-950 dark:text-white">
+                                  <FoodPriceDisplay item={item} />
+                                </span>
+                                {quantity > 0 && (
+                                  <Link 
+                                    to="/food/user/cart" 
+                                    onClick={(e) => e.stopPropagation()} 
+                                    className="text-[9px] sm:text-[10px] font-bold hover:underline"
+                                    style={{ color: "var(--module-theme-color, #E2AD4B)" }}
                                   >
-                                    Add
-                                  </Button>
+                                    View cart
+                                  </Link>
                                 )}
                               </div>
                             </div>
@@ -1346,7 +1397,7 @@ export default function Under250() {
                     </div>
 
                     {/* View Full Menu Button */}
-                    <Link className="flex justify-center mt-2 md:mt-3 lg:mt-4" to={`/user/restaurants/${restaurantSlug}?under250=true`}>
+                    <Link className="flex justify-center mt-2 md:mt-3 lg:mt-4" to={`/food/user/restaurants/${restaurantSlug}?under250=true`}>
                       <Button
                         variant="outline"
                         className="w-min align-center text-center rounded-lg md:rounded-xl mx-auto bg-gray-50 dark:bg-[#1a1a1a] hover:bg-gray-100 dark:hover:bg-gray-800 dark:text-white text-gray-700 border-gray-200 dark:border-gray-800 h-9 md:h-10 lg:h-11 px-4 md:px-6 lg:px-8 text-sm md:text-base lg:text-lg"

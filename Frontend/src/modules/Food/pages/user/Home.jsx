@@ -36,9 +36,13 @@ import {
   AlertCircle,
   Loader2,
   Plus,
+  Minus,
+  ArrowRight,
   Check,
   Share2,
 } from "lucide-react";
+import { toast } from "sonner";
+import { buildCartLineId } from "@food/utils/foodVariants";
 import { motion, AnimatePresence } from "framer-motion";
 import Footer from "@food/components/user/Footer";
 import AddToCartButton from "@food/components/user/AddToCartButton";
@@ -955,6 +959,8 @@ export default function Home() {
   const [hasScrolledPastBanner, setHasScrolledPastBanner] = useState(false);
   const [isCategoryStuck, setIsCategoryStuck] = useState(false);
   const isCategoryStuckRef = useRef(false);
+  const [mealsUnder99, setMealsUnder99] = useState([]);
+  const [loadingMealsUnder99, setLoadingMealsUnder99] = useState(true);
   const [landingCategories, setLandingCategories] = useState([]);
   const [landingExploreMore, setLandingExploreMore] = useState([]);
   const [exploreMoreHeading, setExploreMoreHeading] = useState("Explore More");
@@ -1759,7 +1765,7 @@ export default function Home() {
     isFavorite,
     getFavorites,
   } = profileContext;
-  const { addToCart, cart } = useCart();
+  const { addToCart, updateQuantity, removeFromCart, getCartItem, cart } = useCart();
   const {
     effectiveLocation,
     deliveryAddressMode,
@@ -1777,6 +1783,197 @@ export default function Home() {
       setLandingExploreMore(exploreIcons);
     }
   }, [exploreIcons]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchMealsUnder99 = async () => {
+      try {
+        setLoadingMealsUnder99(true);
+        if (!zoneId) {
+          setMealsUnder99([]);
+          return;
+        }
+
+        const [restaurantsResponse, foodsResponse] = await Promise.all([
+          restaurantAPI.getRestaurants({ zoneId, limit: 1000 }),
+          restaurantAPI.getPublicFoods({ zoneId, limit: 1000 }),
+        ]);
+
+        if (cancelled) return;
+
+        const restaurantsRaw = Array.isArray(restaurantsResponse?.data?.data?.restaurants)
+          ? restaurantsResponse.data.data.restaurants
+          : [];
+        
+        const foodsRaw = Array.isArray(foodsResponse?.data?.data?.foods)
+          ? foodsResponse.data.data.foods
+          : [];
+
+        const restaurantsMap = new Map();
+        restaurantsRaw.forEach((r) => {
+          const id = String(r?.restaurantId || r?._id || r?.id || "").trim();
+          if (id) {
+            restaurantsMap.set(id, r);
+          }
+        });
+
+        const filteredMeals = foodsRaw
+          .filter((food) => {
+            const price = Number(food?.price || 0);
+            return price > 0 && price <= 99 && food?.isAvailable !== false;
+          })
+          .map((food) => {
+            const rId = String(food?.restaurantId || "").trim();
+            const restaurant = restaurantsMap.get(rId);
+            const foodType = String(food?.foodType || "").toLowerCase();
+            const isVeg = foodType.includes("veg") && !foodType.includes("non");
+            
+            return {
+              ...food,
+              id: String(food?.id || food?._id || `${rId}-${food?.name || "dish"}`),
+              price: Number(food?.price || 0),
+              isVeg,
+              restaurantName: restaurant?.restaurantName || restaurant?.name || "Restaurant",
+              restaurantId: rId,
+              rating: Number(restaurant?.rating || 4.2),
+              image:
+                food?.image ||
+                restaurant?.coverImages?.[0]?.url ||
+                restaurant?.coverImages?.[0] ||
+                restaurant?.menuImages?.[0]?.url ||
+                restaurant?.menuImages?.[0] ||
+                restaurant?.profileImage?.url ||
+                "",
+            };
+          });
+
+        const uniqueMeals = [];
+        const seenNames = new Set();
+        for (const meal of filteredMeals) {
+          const nameKey = meal.name.toLowerCase().trim();
+          if (!seenNames.has(nameKey)) {
+            seenNames.add(nameKey);
+            uniqueMeals.push(meal);
+          }
+        }
+
+        if (!cancelled) {
+          setMealsUnder99(uniqueMeals.slice(0, 15));
+        }
+      } catch (error) {
+        console.error("Error fetching meals under 99:", error);
+      } finally {
+        if (!cancelled) {
+          setLoadingMealsUnder99(false);
+        }
+      }
+    };
+
+    fetchMealsUnder99();
+    return () => {
+      cancelled = true;
+    };
+  }, [zoneId]);
+
+  const getCartItemQuantity = (dish) => {
+    const variants = dish.variants || [];
+    const resolvedVariant = variants.length > 0 ? variants[0] : null;
+    const lineItemId = buildCartLineId(dish.id || dish._id || "", resolvedVariant?.id || resolvedVariant?._id || "");
+    const item = getCartItem(lineItemId);
+    return item ? item.quantity : 0;
+  };
+
+  const handleIncreaseQuantity = (dish, event = null) => {
+    const variants = dish.variants || [];
+    const resolvedVariant = variants.length > 0 ? variants[0] : null;
+    const lineItemId = buildCartLineId(dish.id || dish._id || "", resolvedVariant?.id || resolvedVariant?._id || "");
+    const existingCartItem = getCartItem(lineItemId);
+    
+    if (isOutOfService) {
+      toast.error('You are outside the service zone. Please select a location within the service area.');
+      return;
+    }
+    
+    const cartItem = {
+      id: lineItemId,
+      lineItemId,
+      itemId: dish.id || dish._id,
+      name: dish.name,
+      price: resolvedVariant?.price ?? dish.price,
+      variantId: resolvedVariant?.id || "",
+      variantName: resolvedVariant?.name || "",
+      variantPrice: resolvedVariant?.price ?? dish.price,
+      image: dish.image,
+      restaurant: dish.restaurantName || "Restaurant",
+      restaurantId: dish.restaurantId || undefined,
+      description: dish.description || "",
+      originalPrice: dish.originalPrice || dish.price,
+      foodType: dish.foodType,
+      isVeg: dish.isVeg,
+    };
+    
+    let sourcePosition = null;
+    if (event) {
+      const buttonElement = event.currentTarget;
+      if (buttonElement) {
+        const rect = buttonElement.getBoundingClientRect();
+        sourcePosition = {
+          viewportX: rect.left + rect.width / 2,
+          viewportY: rect.top + rect.height / 2,
+          scrollX: window.scrollX || 0,
+          scrollY: window.scrollY || 0,
+          itemId: lineItemId,
+        };
+      }
+    }
+
+    if (existingCartItem) {
+      addToCart(cartItem, sourcePosition, { quantity: 1 });
+    } else {
+      const result = addToCart(cartItem, sourcePosition, { quantity: 1 });
+      if (result?.ok === false) {
+        if (result.needsConfirmation) return;
+        toast.error(result.error || 'Cannot add item from different restaurant. Please clear cart first.');
+      }
+    }
+  };
+
+  const handleDecreaseQuantity = (dish, event = null) => {
+    const variants = dish.variants || [];
+    const resolvedVariant = variants.length > 0 ? variants[0] : null;
+    const lineItemId = buildCartLineId(dish.id || dish._id || "", resolvedVariant?.id || resolvedVariant?._id || "");
+    const existingCartItem = getCartItem(lineItemId);
+    if (!existingCartItem) return;
+
+    const newQuantity = existingCartItem.quantity - 1;
+
+    let sourcePosition = null;
+    if (event) {
+      const buttonElement = event.currentTarget;
+      if (buttonElement) {
+        const rect = buttonElement.getBoundingClientRect();
+        sourcePosition = {
+          viewportX: rect.left + rect.width / 2,
+          viewportY: rect.top + rect.height / 2,
+          scrollX: window.scrollX || 0,
+          scrollY: window.scrollY || 0,
+          itemId: lineItemId,
+        };
+      }
+    }
+
+    const productInfo = {
+      id: lineItemId,
+      name: dish.name,
+      imageUrl: dish.image,
+    };
+
+    if (newQuantity <= 0) {
+      removeFromCart(lineItemId, sourcePosition, productInfo);
+    } else {
+      updateQuantity(lineItemId, newQuantity, sourcePosition, productInfo);
+    }
+  };
 
   // Landing settings (zone-specific) from centralized public config
   useEffect(() => {
@@ -3374,6 +3571,184 @@ export default function Home() {
 
         <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full">
           <PromotionBannerCarousel zoneId={zoneId} />
+
+          {/* Meals under 99 Section */}
+          {(loadingMealsUnder99 || mealsUnder99.length > 0) && (
+            <motion.section
+              className="content-auto space-y-4 pt-4 sm:pt-6"
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5 }}
+            >
+              <div className="px-4 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <h2 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 dark:text-white tracking-tight">
+                    Meals under
+                  </h2>
+                  <span className="flex items-center justify-center border-[1.5px] border-gray-900 dark:border-white rounded-full px-2 py-0.5 text-xs sm:text-sm font-black text-gray-900 dark:text-white leading-none">
+                    ₹99
+                  </span>
+                </div>
+                <Link
+                  to="/food/user/under-250"
+                  className="text-xs sm:text-sm font-bold flex items-center gap-0.5 transition-all hover:opacity-80 active:scale-95"
+                  style={{ color: "var(--module-theme-color, #E2AD4B)" }}
+                >
+                  See All <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+
+              {loadingMealsUnder99 ? (
+                <div className="flex gap-3 sm:gap-4 px-4 pb-2 overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <div key={i} className="flex-shrink-0 w-[140px] flex flex-col gap-2">
+                      <div className="w-full h-[140px] rounded-2xl bg-gray-100 dark:bg-neutral-800 animate-pulse" />
+                      <div className="h-3 w-12 bg-gray-100 dark:bg-neutral-800 animate-pulse rounded" />
+                      <div className="h-4 w-full bg-gray-100 dark:bg-neutral-800 animate-pulse rounded" />
+                      <div className="h-4 w-1/2 bg-gray-100 dark:bg-neutral-800 animate-pulse rounded" />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div 
+                  className="flex gap-3 sm:gap-4 px-4 pb-2 overflow-x-auto scrollbar-hide scroll-smooth"
+                  style={{
+                    scrollbarWidth: "none",
+                    msOverflowStyle: "none",
+                    touchAction: "pan-x pan-y pinch-zoom",
+                  }}
+                >
+                  {mealsUnder99.map((dish) => {
+                    const variants = dish.variants || [];
+                    const hasVariants = variants && variants.length > 0;
+                    const totalQty = getCartItemQuantity(dish);
+                    return (
+                      <div
+                        key={dish.id}
+                        className="flex-shrink-0 w-[140px] flex flex-col gap-2 group cursor-pointer"
+                      >
+                        {/* Image container */}
+                        <div className="relative w-full h-[140px] rounded-2xl bg-gray-50 dark:bg-neutral-900 border border-gray-100 dark:border-gray-800 shadow-sm">
+                          <div className="w-full h-full rounded-2xl overflow-hidden relative">
+                            <img
+                              src={dish.image}
+                              alt={dish.name}
+                              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                              loading="lazy"
+                            />
+                          </div>
+                          
+                          {/* Rating Badge Overlay */}
+                          <div className="absolute -bottom-[1px] -left-[1px] bg-white dark:bg-[#1a1a1a] pt-[3px] pr-[5px] rounded-tr-lg rounded-bl-2xl flex items-center justify-center z-10">
+                            <div className="flex items-center gap-[2px] bg-[#EAFBF1] dark:bg-emerald-950/90 text-[#2E7D32] dark:text-emerald-400 text-[10.5px] font-bold px-[5px] py-[2px] rounded-[4px] shadow-sm">
+                              <span className="text-[11px] leading-none">★</span>
+                              <span className="leading-none">{dish.rating || 4.2}</span>
+                            </div>
+                          </div>
+                          
+                          {/* Popular Badge */}
+                          <div 
+                            className="absolute top-2 left-2 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded-md shadow-sm"
+                            style={{ backgroundColor: "#379702" }}
+                          >
+                            Popular
+                          </div>
+
+                          {/* Plus Button or Quantity Selector Overlay */}
+                          {totalQty > 0 ? (
+                            <div
+                              className="absolute bottom-2 right-2 h-8 rounded-full bg-white dark:bg-gray-900 shadow-md flex items-center justify-between border px-1.5 gap-1.5 border-gray-200 dark:border-gray-800"
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                            >
+                              <button
+                                type="button"
+                                onClick={(e) => handleDecreaseQuantity(dish, e)}
+                                className="w-5 h-5 flex items-center justify-center hover:opacity-80 transition-all active:scale-75"
+                                style={{ color: "var(--module-theme-color, #E2AD4B)" }}
+                              >
+                                <Minus className="h-3.5 w-3.5" strokeWidth={3.5} />
+                              </button>
+                              <span className="text-[12px] font-black text-gray-950 dark:text-white min-w-[12px] text-center select-none">
+                                {totalQty}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => handleIncreaseQuantity(dish, e)}
+                                className="w-5 h-5 flex items-center justify-center hover:opacity-80 transition-all active:scale-75"
+                                style={{ color: "var(--module-theme-color, #E2AD4B)" }}
+                              >
+                                <Plus className="h-3.5 w-3.5" strokeWidth={3.5} />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => handleIncreaseQuantity(dish, e)}
+                              className="absolute bottom-2 right-2 w-8 h-8 rounded-full bg-white dark:bg-gray-900 shadow-md flex items-center justify-center border transition-all active:scale-90 border-gray-200 dark:border-gray-800"
+                            >
+                              <Plus className="h-4 w-4" style={{ color: "var(--module-theme-color, #E2AD4B)" }} strokeWidth={3} />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Content info */}
+                        <div className="flex flex-col gap-1 min-w-0 mt-2.5">
+                          {/* Restaurant */}
+                          <div className="flex items-center min-w-0">
+                            <span className="text-[10px] text-gray-500 dark:text-gray-400 font-bold truncate">
+                              {dish.restaurantName}
+                            </span>
+                          </div>
+
+                          {/* Veg/Non-veg Dot & Name */}
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <div className="shrink-0 w-3.5 h-3.5 border border-gray-300 dark:border-gray-700 rounded flex items-center justify-center p-[2.5px] bg-white">
+                              <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: dish.isVeg ? "#22c55e" : "#dc2626" }} />
+                            </div>
+                            <span className="text-[12px] font-bold text-gray-900 dark:text-white truncate">
+                              {dish.name}
+                            </span>
+                          </div>
+
+                          {/* Price */}
+                          <div className="flex items-center justify-between w-full pr-1">
+                            <div className="flex items-center gap-1.5">
+                              {dish.originalPrice && dish.originalPrice > dish.price ? (
+                                <>
+                                  <span className="text-[10px] text-gray-400 line-through">
+                                    ₹{dish.originalPrice}
+                                  </span>
+                                  <span 
+                                    className="text-[11px] font-black px-1.5 py-0.5 rounded-md"
+                                    style={{ 
+                                      color: "var(--module-theme-color, #E2AD4B)", 
+                                      backgroundColor: "color-mix(in srgb, var(--module-theme-color, #E2AD4B) 10%, transparent)" 
+                                    }}
+                                  >
+                                    ₹{dish.price}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="text-[12px] font-black text-gray-950 dark:text-white">
+                                  ₹{dish.price}
+                                </span>
+                              )}
+                            </div>
+                            {hasVariants && (
+                              <span className="text-[8px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                                Customisable
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </motion.section>
+          )}
 
           {recommendedForYouRestaurants.length > 0 && (
             <motion.section
