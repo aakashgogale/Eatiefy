@@ -157,11 +157,11 @@ export default function RestaurantLogin() {
           <motion.div {...formMotion} className="my-auto w-full max-w-[380px]">
             <div className="mb-7 text-center lg:text-left">
               <div className="mb-5 flex justify-center lg:justify-start">
-                <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-200">
+                <div className="flex h-16 items-center justify-center">
                   <img
                     src={logoUrl}
                     alt={`${companyName} logo`}
-                    className="h-full w-full scale-[1.65] object-contain"
+                    className="h-full w-auto object-contain"
                     loading="lazy"
                     onError={(e) => {
                       if (e.target.src !== quickSpicyLogo) e.target.src = quickSpicyLogo
