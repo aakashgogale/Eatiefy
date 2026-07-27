@@ -858,7 +858,7 @@ export default function AddressSelectorPage() {
 
             {mapLoading && (
               <div className="absolute inset-0 flex items-center justify-center bg-white/50 backdrop-blur-sm z-10">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#EB590E]" />
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#659116]" />
               </div>
             )}
             
@@ -867,16 +867,16 @@ export default function AddressSelectorPage() {
                   onClick={handleUseCurrentLocation} 
                   className="bg-white text-black hover:bg-gray-100 shadow-xl border border-gray-200 rounded-full h-12 px-6"
               >
-                <Navigation className="h-4 w-4 mr-2 text-[#EB590E]" /> Use My Location
+                <Navigation className="h-4 w-4 mr-2 text-[#659116]" /> Use My Location
               </Button>
             </div>
           </div>
 
           <div className="relative bg-white dark:bg-[#0a0a0a] rounded-t-[32px] -mt-8 z-10 p-4 space-y-6 shadow-[0_-12px_24px_-10px_rgba(0,0,0,0.1)]">
-            <div className="bg-orange-50/50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-900/20 rounded-xl p-4 flex gap-3">
-               <MapPin className="h-5 w-5 text-[#EB590E] mt-0.5" />
+            <div className="bg-[#659116]/10 dark:bg-[#659116]/20 border border-[#659116]/20 rounded-xl p-4 flex gap-3">
+               <MapPin className="h-5 w-5 text-[#659116] mt-0.5" />
                <div className="min-w-0">
-                  <p className="text-xs font-bold text-orange-800 dark:text-orange-200 uppercase mb-1">Pinnned Location</p>
+                  <p className="text-xs font-bold text-[#659116] dark:text-[#8cc63f] uppercase mb-1">Pinnned Location</p>
                   <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">{currentAddress || "Select a location on map"}</p>
                </div>
             </div>
@@ -893,14 +893,14 @@ export default function AddressSelectorPage() {
                 required
               />
 
-              <Label className="text-sm font-bold mb-2 block text-orange-600 dark:text-orange-400">Secondary Address (House No. / Flat / Floor)</Label>
+              <Label className="text-sm font-bold mb-2 block text-[#659116] dark:text-[#8cc63f]">Secondary Address (House No. / Flat / Floor)</Label>
               <Input 
                 placeholder="E.g. Flat 402, 4th Floor, SwitchEats Building" 
                 value={addressFormData.additionalDetails} 
                 onChange={e => setAddressFormData({...addressFormData, additionalDetails: e.target.value})}
                 onFocus={() => scrollFieldIntoView("additionalDetails")}
                 ref={(el) => { manualFieldRefs.current.additionalDetails = el }}
-                className="h-12 rounded-xl border-orange-200 dark:border-orange-900/40 focus:ring-orange-500"
+                className="h-12 rounded-xl border-[#659116]/40 dark:border-[#659116]/40 focus:ring-[#659116]"
               />
             </div>
 
@@ -950,7 +950,7 @@ export default function AddressSelectorPage() {
                      variant={addressFormData.label === l ? "default" : "outline"}
                      onClick={() => setAddressFormData({...addressFormData, label: l})}
                      className="flex-1"
-                     style={addressFormData.label === l ? {backgroundColor: '#EB590E', color: 'white'} : {}}
+                     style={addressFormData.label === l ? {backgroundColor: '#659116', color: 'white'} : {}}
                    >
                      {l}
                    </Button>

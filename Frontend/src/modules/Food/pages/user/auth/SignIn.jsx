@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef } from "react"
 import { useNavigate, Link, useSearchParams } from "react-router-dom"
-import { AlertCircle, Loader2, ArrowRight, ShieldCheck } from "lucide-react"
+import { AlertCircle, Loader2, ArrowRight, ShieldCheck, ArrowLeft } from "lucide-react"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Input } from "@food/components/ui/input"
 import { authAPI } from "@food/api"
 import { motion, AnimatePresence } from "framer-motion"
 import logoImg from "@food/assets/switcheats-logo copy.png"
+import burgerImg from "@food/assets/login_burger.png"
+import sushiImg from "@food/assets/login_sushi.png"
+import bagImg from "@food/assets/login_bag.png"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
 
 const debugError = (...args) => { }
@@ -137,28 +140,38 @@ export default function SignIn() {
     <AnimatedPage className="min-h-[100dvh] bg-white dark:bg-[#0A0A0B] flex flex-col font-sans overflow-hidden select-none">
       {/* Top Branding Section */}
       <div
-        className="relative h-[40dvh] min-h-[250px] w-full overflow-hidden flex flex-col items-center justify-center"
+        className="relative h-[46dvh] min-h-[310px] w-full overflow-hidden flex flex-col items-center justify-between pt-6 pb-0 px-4"
         style={{
-          background: "linear-gradient(135deg, #659116 0%, #588114 100%)",
+          background: "linear-gradient(180deg, #588114 0%, #659116 65%, #659116 100%)",
         }}
       >
-        {/* Subtle Decorative Curves */}
-        <div className="absolute inset-0 opacity-20 pointer-events-none">
-          <div className="absolute top-[-30%] right-[-20%] w-[320px] h-[320px] border border-white rounded-full" />
-          <div className="absolute bottom-[-20%] left-[-15%] w-[260px] h-[260px] border border-white rounded-full" />
+        {/* Top Left Back Button (Direct Guest Entry to Home) */}
+        <button
+          onClick={() => navigate("/food/user")}
+          className="absolute top-4 left-4 z-40 p-2.5 bg-white/20 hover:bg-white/30 backdrop-blur-md rounded-full text-white transition-all active:scale-95 shadow-md flex items-center justify-center cursor-pointer"
+          aria-label="Continue as Guest"
+        >
+          <ArrowLeft className="w-6 h-6 stroke-[2.5]" />
+        </button>
+
+        {/* Subtle Decorative Gradient Glows */}
+        <div className="absolute inset-0 opacity-25 pointer-events-none">
+          <div className="absolute top-[-20%] right-[-10%] w-[280px] h-[280px] bg-white/20 rounded-full blur-3xl" />
+          <div className="absolute bottom-[20%] left-[-10%] w-[240px] h-[240px] bg-[#8cc63f]/30 rounded-full blur-2xl" />
         </div>
 
+        {/* Top Logo Container - Zero White Space Padding */}
         <motion.div
-          initial={{ y: 20, opacity: 0 }}
+          initial={{ y: -15, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
-          className="relative z-10 flex flex-col items-center gap-3 text-center"
+          transition={{ duration: 0.5, ease: "easeOut" }}
+          className="relative z-10 flex flex-col items-center gap-1.5 text-center mt-2"
         >
-          <div className="w-22 h-22 sm:w-24 sm:h-24 bg-white rounded-3xl flex items-center justify-center shadow-xl border border-white/20 overflow-hidden p-2">
+          <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-2xl flex items-center justify-center shadow-xl border border-white/20 overflow-hidden bg-black p-0">
             <img
               src={logoUrl || logoImg}
               alt="Logo"
-              className="w-full h-full object-contain"
+              className="w-full h-full object-cover"
               crossOrigin="anonymous"
               onError={(e) => {
                 if (e.target.src !== logoImg) {
@@ -167,13 +180,52 @@ export default function SignIn() {
               }}
             />
           </div>
-          <div className="text-center">
-            <h1 className="text-white font-extrabold text-3xl sm:text-4xl tracking-tight leading-none mb-1">
-              {companyName || "Eatiefy"}
-            </h1>
-            <p className="text-white/90 text-xs font-black uppercase tracking-widest">
-              FOOD DELIVERY &amp; MORE
-            </p>
+        </motion.div>
+
+        {/* Hero Headline - Food Dedicated Tagline */}
+        <motion.div
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.6, delay: 0.1 }}
+          className="relative z-10 text-center px-4 max-w-xs sm:max-w-sm my-auto"
+        >
+          <h1 className="text-white font-black text-2xl sm:text-3xl tracking-tight leading-snug drop-shadow-sm">
+            Delicious food delivered to your doorstep in mins!
+          </h1>
+        </motion.div>
+
+        {/* Food Showcase PNG Graphics - Custom Sized Elements */}
+        <motion.div
+          initial={{ y: 30, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ duration: 0.7, delay: 0.2 }}
+          className="relative z-30 flex items-end justify-between w-full max-w-sm px-4 pt-2 -mb-2"
+        >
+          {/* Left item - Biryani/Food Dish (Made larger) */}
+          <div className="w-28 sm:w-34 flex justify-center items-end z-20">
+            <img
+              src={sushiImg}
+              alt="Biryani Dish"
+              className="w-full h-auto max-h-34 sm:max-h-40 object-contain filter drop-shadow-xl scale-110"
+            />
+          </div>
+
+          {/* Center item - Burger (Hero element) */}
+          <div className="w-28 sm:w-34 flex justify-center items-end z-30 -mb-1">
+            <img
+              src={burgerImg}
+              alt="Burger"
+              className="w-full h-auto max-h-32 sm:max-h-38 object-contain filter drop-shadow-2xl scale-105"
+            />
+          </div>
+
+          {/* Right item - Takeaway Bag (Lifted slightly up) */}
+          <div className="w-24 sm:w-28 flex justify-center items-end z-10 -mb-1">
+            <img
+              src={bagImg}
+              alt="Takeaway Bag"
+              className="w-full h-auto max-h-26 sm:max-h-30 object-contain filter drop-shadow-xl"
+            />
           </div>
         </motion.div>
       </div>
