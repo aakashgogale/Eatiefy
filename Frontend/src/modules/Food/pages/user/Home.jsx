@@ -3391,8 +3391,8 @@ export default function Home() {
                       placeholder="blur"
                     />
                   </div>
-                  <span className="text-xs sm:text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 text-center pb-1">
-                    {category.name.length > 7 ? `${category.name.slice(0, 7)}...` : category.name}
+                  <span className="text-[10px] sm:text-xs md:text-sm font-semibold text-gray-800 dark:text-gray-200 text-center leading-tight whitespace-nowrap pb-1">
+                    {category.name}
                   </span>
                 </motion.div>
               </Link>

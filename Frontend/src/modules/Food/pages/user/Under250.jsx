@@ -1146,10 +1146,10 @@ export default function Under250() {
                       />
                     </div>
                     <span 
-                      className="text-xs sm:text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 text-center pb-1"
+                      className="text-[10px] sm:text-xs md:text-sm font-semibold text-gray-800 dark:text-gray-200 text-center leading-tight whitespace-nowrap pb-1"
                       style={isActive ? { color: "var(--module-theme-color, #E2AD4B)" } : {}}
                     >
-                      {category.name.length > 7 ? `${category.name.slice(0, 7)}...` : category.name}
+                      {category.name}
                     </span>
                   </motion.div>
                 </div>
