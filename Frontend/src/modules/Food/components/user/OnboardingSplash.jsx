@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import onboardingSalad from '../../assets/onboarding_salad.png';
+import onboardingBurger from '../../assets/onboarding_burger.png';
 
 export default function OnboardingSplash({ onComplete, onSignInClick }) {
   const handleGetStarted = () => {
@@ -116,14 +116,14 @@ export default function OnboardingSplash({ onComplete, onSignInClick }) {
         <div className="flex-1 flex flex-col relative z-10 w-full h-full">
           
           {/* Salad Bowl Image Container */}
-          <div className="relative w-[92%] mt-8 -ml-6 overflow-visible shrink-0 pointer-events-none">
+          <div className="relative w-full mt-16 mx-auto overflow-visible shrink-0 pointer-events-none flex justify-center">
             <motion.img
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.5, ease: "easeOut" }}
-              src={onboardingSalad}
-              alt="Onboarding Healthy Food"
-              className="w-full h-full object-contain drop-shadow-[0_16px_32px_rgba(0,0,0,0.06)] dark:drop-shadow-[0_16px_32px_rgba(0,0,0,0.4)]"
+              src={onboardingBurger}
+              alt="Onboarding Delicious Burger"
+              className="w-[98%] h-full object-contain drop-shadow-[0_16px_32px_rgba(0,0,0,0.06)] dark:drop-shadow-[0_16px_32px_rgba(0,0,0,0.4)]"
             />
           </div>
 
@@ -139,14 +139,14 @@ export default function OnboardingSplash({ onComplete, onSignInClick }) {
 
             {/* Headlines */}
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white text-left leading-[1.25] tracking-tight mb-3">
-              Feel Good, <br />
-              <span className="text-[#659116] dark:text-[#7BD128]">
-                Eat Healthy
+              Satisfy Your <br />
+              <span style={{ color: "var(--module-theme-color, #659116)" }}>
+                Cravings
               </span>
             </h1>
 
             <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 text-left leading-relaxed max-w-[300px]">
-              Delicious meals made with real ingredients, delivered right to your door.
+              Delicious meals, hot burgers, and street foods delivered fresh to your doorstep.
             </p>
 
             {/* Spacer — pushes button to bottom */}
@@ -158,7 +158,8 @@ export default function OnboardingSplash({ onComplete, onSignInClick }) {
                 whileHover={{ scale: 1.01 }}
                 whileTap={{ scale: 0.99 }}
                 onClick={handleGetStarted}
-                className="w-full bg-[#659116] hover:bg-[#577D13] text-white font-bold py-3.5 px-6 rounded-2xl flex items-center justify-center transition-colors text-base shadow-sm"
+                className="w-full text-white font-bold py-3.5 px-6 rounded-2xl flex items-center justify-center transition-opacity text-base shadow-sm hover:opacity-90"
+                style={{ backgroundColor: "var(--module-theme-color, #659116)" }}
               >
                 <span>Get Started</span>
               </motion.button>
@@ -174,7 +175,8 @@ export default function OnboardingSplash({ onComplete, onSignInClick }) {
                     localStorage.setItem('eatiefy_onboarding_completed', 'true');
                     onSignInClick();
                   }}
-                  className="text-xs font-bold text-[#659116] hover:text-[#577D13] transition-colors"
+                  className="text-xs font-bold hover:opacity-85 transition-opacity"
+                  style={{ color: "var(--module-theme-color, #659116)" }}
                 >
                   Sign In
                 </button>
