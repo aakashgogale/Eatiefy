@@ -1,6 +1,8 @@
 import { useState, useMemo } from "react"
-import { useParams, Link, useNavigate } from "react-router-dom"
+import { useParams, Link, useNavigate, useLocation } from "react-router-dom"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
+import { isModuleAuthenticated } from "@food/utils/auth"
+import { toast } from "sonner"
 
 import { ArrowLeft, Star, Clock, MapPin, ShoppingBag, Plus, Minus, Calendar, ThumbsUp, MessageCircle, Send } from "lucide-react"
 import AnimatedPage from "@food/components/user/AnimatedPage"
@@ -127,7 +129,13 @@ export default function ProductDetail() {
     return Math.round((sum / reviews.length) * 10) / 10
   }, [reviews, product])
 
+  const location = useLocation()
   const handleAddToCart = () => {
+    if (!isModuleAuthenticated('user')) {
+      toast.error("Please login to add items to cart")
+      navigate('/food/user/auth/login', { state: { from: location.pathname } })
+      return
+    }
     if (product) {
       const cartItem = {
         ...product,

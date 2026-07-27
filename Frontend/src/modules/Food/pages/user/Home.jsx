@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { buildCartLineId } from "@food/utils/foodVariants";
+import { isModuleAuthenticated } from "@food/utils/auth";
 import { motion, AnimatePresence } from "framer-motion";
 import Footer from "@food/components/user/Footer";
 import AddToCartButton from "@food/components/user/AddToCartButton";
@@ -1884,6 +1885,13 @@ export default function Home() {
   };
 
   const handleIncreaseQuantity = (dish, event = null) => {
+    // Check authentication
+    if (!isModuleAuthenticated('user')) {
+      toast.error("Please login to add items to cart");
+      navigate('/food/user/auth/login', { state: { from: window.location.pathname } });
+      return;
+    }
+
     const variants = dish.variants || [];
     const resolvedVariant = variants.length > 0 ? variants[0] : null;
     const lineItemId = buildCartLineId(dish.id || dish._id || "", resolvedVariant?.id || resolvedVariant?._id || "");

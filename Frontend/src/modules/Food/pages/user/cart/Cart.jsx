@@ -16,6 +16,7 @@ import { orderAPI, restaurantAPI, adminAPI, userAPI, API_ENDPOINTS } from "@food
 import { API_BASE_URL } from "@food/api/config"
 import { initRazorpayPayment } from "@food/utils/razorpay"
 import { toast } from "sonner"
+import { isModuleAuthenticated } from "@food/utils/auth"
 import { getCompanyNameAsync } from "@food/utils/businessSettings"
 import { getCachedFeeSettings, loadCorePublicAppConfig } from "@food/services/publicAppConfig"
 import { useCompanyName } from "@food/hooks/useCompanyName"
@@ -1945,6 +1946,12 @@ export default function Cart() {
 
 
   const handlePlaceOrder = async () => {
+    if (!isModuleAuthenticated('user')) {
+      toast.error("Please login to place order")
+      navigate('/food/user/auth/login', { state: { from: '/food/user/cart' } })
+      return
+    }
+
     if (!hasSavedAddress) {
       toast.error("Please choose a delivery location to continue")
       setShowAddressSheet(true)
@@ -2791,6 +2798,12 @@ export default function Cart() {
                                   });
                                   toast.error('Restaurant information is missing. Please refresh the page.');
                                   return;
+                                }
+
+                                if (!isModuleAuthenticated('user')) {
+                                  toast.error("Please login to add items to cart")
+                                  navigate('/food/user/auth/login', { state: { from: '/food/user/cart' } })
+                                  return
                                 }
 
                                 addToCart({
