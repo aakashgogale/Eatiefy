@@ -13,6 +13,36 @@ const formatCurrency = (amount) => {
   return `\u20B9${numericAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
+// Avatar component that handles broken image fallback gracefully by showing name initials
+function Avatar({ src, alt }) {
+  const [hasError, setHasError] = useState(false)
+
+  const getInitials = (name) => {
+    if (!name || typeof name !== "string") return "?"
+    const parts = name.trim().split(/\s+/).filter(Boolean)
+    if (parts.length === 0) return "?"
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase()
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase()
+  }
+
+  if (hasError || !src) {
+    return (
+      <span className="text-sm font-medium text-slate-500">
+        {getInitials(alt)}
+      </span>
+    )
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="w-full h-full object-cover"
+      onError={() => setHasError(true)}
+    />
+  )
+}
+
 export default function DeliverymanList() {
   const [searchQuery, setSearchQuery] = useState("")
   const [deliverymen, setDeliverymen] = useState([])
@@ -561,17 +591,10 @@ availableCashLimit: deliveryman.availableCashLimit || 0,
                                 className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center shrink-0 overflow-hidden cursor-pointer hover:opacity-80 transition-all border border-slate-100"
                                 onClick={() => handleView(dm)}
                               >
-                                {(dm.profileImage?.url ?? dm.profilePhoto) ? (
-                                  <img
-                                    src={dm.profileImage?.url ?? dm.profilePhoto}
-                                    alt={dm.name}
-                                    className="w-full h-full object-cover"
-                                  />
-                                ) : (
-                                  <span className="text-sm font-medium text-slate-500">
-                                    {dm.name?.trim() ? dm.name.slice(0, 2).toUpperCase() : "?"}
-                                  </span>
-                                )}
+                                <Avatar
+                                  src={dm.profileImage?.url ?? dm.profilePhoto}
+                                  alt={dm.name}
+                                />
                               </div>
                               <div className="flex items-center gap-2">
                                 <span 

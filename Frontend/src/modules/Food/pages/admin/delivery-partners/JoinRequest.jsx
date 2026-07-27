@@ -8,6 +8,36 @@ const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
 
+// Avatar component that handles broken image fallback gracefully by showing name initials
+function Avatar({ src, alt }) {
+  const [hasError, setHasError] = useState(false)
+
+  const getInitials = (name) => {
+    if (!name || typeof name !== "string") return "?"
+    const parts = name.trim().split(/\s+/).filter(Boolean)
+    if (parts.length === 0) return "?"
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase()
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase()
+  }
+
+  if (hasError || !src) {
+    return (
+      <span className="text-sm font-medium text-slate-500">
+        {getInitials(alt)}
+      </span>
+    )
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="w-full h-full object-cover"
+      onError={() => setHasError(true)}
+    />
+  )
+}
+
 export default function JoinRequest() {
   const [activeTab, setActiveTab] = useState("pending")
   const [searchQuery, setSearchQuery] = useState("")
@@ -395,17 +425,10 @@ export default function JoinRequest() {
                               className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center shrink-0 overflow-hidden cursor-pointer hover:opacity-80 transition-all border border-slate-100"
                               onClick={() => handleView(request)}
                             >
-                              {(request.profileImage?.url || request.profilePhoto) ? (
-                                <img
-                                  src={request.profileImage?.url || request.profilePhoto}
-                                  alt={request.name}
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : (
-                                <span className="text-sm font-medium text-slate-500">
-                                  {request.name?.trim() ? request.name.slice(0, 2).toUpperCase() : "?"}
-                                </span>
-                              )}
+                              <Avatar
+                                src={request.profileImage?.url || request.profilePhoto}
+                                alt={request.name}
+                              />
                             </div>
                             <span 
                               className="text-sm font-medium text-slate-900 cursor-pointer hover:text-blue-600 transition-colors"
