@@ -42,12 +42,12 @@ export default function RestaurantOnboardingShell({
       className="min-h-screen w-full bg-[#F0F2F5]"
       style={{ fontFamily: ONBOARDING_FONT }}
     >
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[400px] flex-col border-r border-gray-200/80 xl:w-[440px] lg:flex">
-        <div className="flex h-full min-h-0 flex-col">
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <RestaurantPartnerHero compact themeColor={RESTAURANT_BRAND} />
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[400px] border-r border-gray-200/80 bg-[#0f0b14] xl:w-[440px] lg:flex overflow-y-auto">
+        <div className="flex w-full flex-col min-h-full">
+          <div className="shrink-0">
+            <RestaurantPartnerHero compact themeColor="#E2AD4B" />
           </div>
-          <div className="shrink-0 border-t border-white/10 bg-[#0f0b14] px-6 py-6 xl:px-8">
+          <div className="flex-1 border-t border-white/10 bg-[#0f0b14] px-6 py-6 xl:px-8">
             <div className="mb-5 rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
               <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/50">
                 Current step

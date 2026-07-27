@@ -526,6 +526,16 @@ export default function RestaurantOnboarding() {
   }, [searchParams, step])
 
   useEffect(() => {
+    try {
+      const hasCleared = localStorage.getItem("eatiefy_onboarding_theme_cleared_v1")
+      if (!hasCleared) {
+        localStorage.removeItem("eatiefy_business_settings")
+        localStorage.setItem("eatiefy_onboarding_theme_cleared_v1", "true")
+        window.location.reload()
+        return
+      }
+    } catch (e) {}
+
     const loadLogo = async () => {
       try {
         await loadBusinessSettings()

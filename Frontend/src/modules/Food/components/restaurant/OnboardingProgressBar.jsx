@@ -24,15 +24,15 @@ function StepCircle({ stepId, currentStep, compact = false, variant = "default" 
 
   return (
     <div
-      className={`relative flex shrink-0 items-center justify-center rounded-full border-2 font-bold text-white transition-all duration-300 ${
+      className={`relative flex shrink-0 items-center justify-center rounded-full border-2 font-bold transition-all duration-300 ${
         compact ? "h-8 w-8 text-xs" : "h-10 w-10 text-sm"
       } ${
         isCompleted
-          ? ""
+          ? "text-white"
           : isActive
             ? isSidebar
-              ? "border-white bg-white text-[#E2AD4B] shadow-lg shadow-black/20"
-              : "border-[#E2AD4B] bg-[#E2AD4B] text-white shadow-lg shadow-[#E2AD4B]/25 motion-safe:scale-105"
+              ? "border-white bg-white text-[var(--module-theme-color)] shadow-lg shadow-black/20"
+              : "border-[var(--module-theme-color)] bg-[var(--module-theme-color)] text-white shadow-lg motion-safe:scale-105"
             : isSidebar
               ? "border-white/35 bg-white/10 text-white/60"
               : "border-slate-200 bg-white text-slate-400"

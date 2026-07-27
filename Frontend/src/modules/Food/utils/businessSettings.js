@@ -37,8 +37,6 @@ const FONT_STACKS = {
 };
 
 const LEGACY_BRAND_HEXES = [
-  "#E2AD4B",
-  "#C59132",
   "#00B761",
   "#2563EB",
   "#DC2626",
@@ -500,7 +498,13 @@ export const applyModuleBranding = (moduleName = "user", settingsOverride = null
 
 export const getModulePowerScanning = (moduleName = "user", settingsOverride = null) => {
   const settings = settingsOverride || cachedSettings || {};
-  const moduleKey = String(moduleName || "user").trim().toLowerCase();
+  let moduleKey = String(moduleName || "user").trim().toLowerCase();
+  
+  // Centralize restaurant and delivery module colors to match the main brand color ('user')
+  if (moduleKey === "restaurant" || moduleKey === "delivery") {
+    moduleKey = "user";
+  }
+  
   const moduleConfig = settings?.powerScanning?.[moduleKey] || DEFAULT_MODULE_POWER_SCANNING[moduleKey] || DEFAULT_MODULE_POWER_SCANNING.user;
 
   const rawColor = String(moduleConfig?.themeColor || "").trim();

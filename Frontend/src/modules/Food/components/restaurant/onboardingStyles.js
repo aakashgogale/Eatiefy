@@ -1,6 +1,6 @@
-export const RESTAURANT_BRAND = "#E2AD4B"
-export const RESTAURANT_BRAND_RGB = "226,173,75"
-export const RESTAURANT_BRAND_HOVER = "#D90263"
+export const RESTAURANT_BRAND = "var(--module-theme-color, #618E17)"
+export const RESTAURANT_BRAND_RGB = "var(--module-theme-rgb, '97,142,23')"
+export const RESTAURANT_BRAND_HOVER = "var(--module-theme-hover-color, #4f7512)"
 
 export const ONBOARDING_FONT =
   "'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
@@ -30,22 +30,22 @@ export const ONBOARDING_LABEL = "text-sm font-medium text-gray-700"
 export const ONBOARDING_HINT = "text-xs text-gray-500 leading-relaxed mt-1.5"
 
 export const ONBOARDING_INPUT =
-  "mt-2 h-11 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 shadow-sm transition-all placeholder:text-gray-400 focus-visible:ring-2 focus-visible:ring-[#E2AD4B]/20 focus-visible:border-[#E2AD4B]/50 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
+  "mt-2 h-11 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 shadow-sm transition-all placeholder:text-gray-400 focus-visible:ring-2 focus-visible:ring-[rgba(var(--module-theme-rgb),0.2)] focus-visible:border-[var(--module-theme-color)] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
 
 export const ONBOARDING_TEXTAREA =
-  "mt-2 min-h-[96px] rounded-xl border border-gray-200 bg-white text-sm text-gray-900 shadow-sm transition-all placeholder:text-gray-400 focus-visible:ring-2 focus-visible:ring-[#E2AD4B]/20 focus-visible:border-[#E2AD4B]/50 disabled:bg-gray-50"
+  "mt-2 min-h-[96px] rounded-xl border border-gray-200 bg-white text-sm text-gray-900 shadow-sm transition-all placeholder:text-gray-400 focus-visible:ring-2 focus-visible:ring-[rgba(var(--module-theme-rgb),0.2)] focus-visible:border-[var(--module-theme-color)] disabled:bg-gray-50"
 
 export const ONBOARDING_CHIP_BASE =
   "px-4 py-2 text-sm font-medium rounded-xl border transition-all duration-200"
 
 export const ONBOARDING_CHIP_ACTIVE =
-  "bg-[#E2AD4B] text-white border-[#E2AD4B] shadow-sm shadow-[#E2AD4B]/20"
+  "bg-[var(--module-theme-color)] text-white border-[var(--module-theme-color)] shadow-sm shadow-[rgba(var(--module-theme-rgb),0.2)]"
 
 export const ONBOARDING_CHIP_INACTIVE =
   "bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50"
 
 export const ONBOARDING_DAY_ACTIVE =
-  "bg-[#E2AD4B] text-white border-[#E2AD4B] shadow-sm shadow-[#E2AD4B]/15"
+  "bg-[var(--module-theme-color)] text-white border-[var(--module-theme-color)] shadow-sm shadow-[rgba(var(--module-theme-rgb),0.15)]"
 
 export const ONBOARDING_DAY_INACTIVE =
   "bg-gray-50 text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-white"
