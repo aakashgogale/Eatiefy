@@ -4500,15 +4500,15 @@ export default function Home() {
                     </div>
                   </label>
 
-                  {/* Non-veg choices only */}
+                  {/* Non-veg restaurants only */}
                   <label
                     className="flex items-center justify-between cursor-pointer py-1 hover:bg-gray-50/50 dark:hover:bg-gray-800/35 transition-colors w-full"
                     onClick={() => setVegModeOption("non-veg")}
                   >
                     <span className={`text-sm font-semibold transition-colors ${
-                      vegModeOption === "non-veg" ? "text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
+                       vegModeOption === "non-veg" ? "text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
                     }`}>
-                      Non-veg choices only
+                      Non-veg restaurants only
                     </span>
                     <div className="relative flex items-center justify-center">
                       <input
