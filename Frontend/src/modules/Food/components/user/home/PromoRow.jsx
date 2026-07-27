@@ -62,7 +62,7 @@ export default function PromoRow({ handleVegModeChange, navigate, isVegMode, tog
   });
 
   return (
-    <div className="grid grid-cols-4 gap-2 px-3 pt-1 pb-2 bg-transparent justify-items-center w-full max-w-[500px] mx-auto">
+    <div className="grid grid-cols-4 md:flex md:flex-row md:justify-start md:gap-10 gap-2 px-3 md:px-4 pt-1 pb-2 bg-transparent justify-items-center w-full max-w-[500px] md:max-w-none mx-auto md:mx-0">
       {promoCardsData.map((promo, idx) => (
         <motion.div
           key={idx}
@@ -72,7 +72,7 @@ export default function PromoRow({ handleVegModeChange, navigate, isVegMode, tog
           transition={{ delay: idx * 0.05, duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
           whileHover={{ y: -4 }}
           whileTap={{ scale: 0.95 }}
-          className="flex flex-col items-center gap-1.5 group cursor-pointer w-full"
+          className="flex flex-col items-center gap-1.5 group cursor-pointer w-full md:w-24"
           onClick={() => {
             navigate(promo.path);
           }}
