@@ -2526,11 +2526,11 @@ export default function Cart() {
       <div className="sticky top-0 z-20 flex-shrink-0 text-white">
         <div style={{ backgroundColor: "var(--module-theme-color, #E2AD4B)" }}>
           <div className="max-w-7xl mx-auto px-3 md:px-6 pt-4 pb-4 md:pt-5 md:pb-5">
-            <div className="flex items-start gap-2.5">
+            <div className="flex items-center gap-2.5">
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 shrink-0 text-white hover:bg-white/15 mt-0.5"
+                className="h-9 w-9 shrink-0 text-white hover:bg-white/15"
                 onClick={handleBack}
               >
                 <ArrowLeft className="h-5 w-5" />
@@ -2544,7 +2544,7 @@ export default function Cart() {
                   {restaurantName}
                 </p>
                 <div className="mt-1.5 flex items-center gap-1.5 text-[12px] md:text-[13px] text-white/90">
-                  <Home className="h-3.5 w-3.5 shrink-0" />
+                  <MapPin className="h-3.5 w-3.5 shrink-0" />
                   <span className="truncate">
                     {headerDeliveryTime} to <span className="font-semibold">{headerAddressLabel}</span>
                     {headerAddressText ? ` | ${headerAddressText}` : ""}
@@ -2555,7 +2555,7 @@ export default function Cart() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 shrink-0 text-white hover:bg-white/15 mt-0.5"
+                className="h-9 w-9 shrink-0 text-white hover:bg-white/15"
                 onClick={handleShare}
               >
                 <Share2 className="h-4 w-4" />
