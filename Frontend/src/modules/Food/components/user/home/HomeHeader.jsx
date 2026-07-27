@@ -38,6 +38,17 @@ export default function HomeHeader({
   const { startVoiceSearch } = useSearchOverlay();
   const navigate = useNavigate();
 
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 10);
+    };
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
   const [notifications, setNotifications] = useState(() => {
     const saved = localStorage.getItem('food_user_notifications');
     return saved ? JSON.parse(saved) : [];
@@ -285,7 +296,11 @@ export default function HomeHeader({
           className={`z-[60] transition-all duration-300 md:hidden ${
             isCategoryStuck 
               ? 'fixed top-0 left-0 right-0 h-[72px] flex items-end pb-2.5 px-4 bg-white dark:bg-[#1a1a1a] border-none shadow-none outline-none' 
-              : 'sticky top-2 px-4 pb-3 pt-0 bg-transparent'
+              : `sticky top-0 px-4 pt-2.5 pb-3 ${
+                  isScrolled 
+                    ? 'bg-white/95 dark:bg-[#1a1a1a]/95 backdrop-blur-md border-b border-gray-100 dark:border-gray-800/80 shadow-sm' 
+                    : 'bg-transparent'
+                }`
           }`}
         >
           <div className="flex items-center gap-2 w-full">
