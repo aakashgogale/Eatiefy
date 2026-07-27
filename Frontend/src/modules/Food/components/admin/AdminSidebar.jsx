@@ -611,6 +611,56 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
     }
   }, [expandedSections])
 
+  // Auto-expand section containing the active path on mount or route change
+  useEffect(() => {
+    const currentPath = location.pathname.replace(/\/+$/, "") || "/"
+    let activeSectionKey = null
+
+    menuData.forEach((section) => {
+      if (!section || section.type !== "section" || !Array.isArray(section.items)) return
+      section.items.forEach((item) => {
+        if (item.type === "expandable" && Array.isArray(item.subItems)) {
+          const hasActiveSubItem = item.subItems.some((subItem) => {
+            const subPath = String(subItem.path || "").replace(/\/+$/, "")
+            return currentPath === subPath || currentPath.startsWith(`${subPath}/`)
+          })
+          if (hasActiveSubItem) {
+            activeSectionKey = item.label.toLowerCase().replace(/\s+/g, "")
+          }
+        }
+      })
+    })
+
+    if (activeSectionKey) {
+      setExpandedSections((prev) => {
+        if (prev[activeSectionKey]) return prev
+        const next = {}
+        Object.keys(prev).forEach((key) => {
+          next[key] = key === activeSectionKey
+        })
+        return next
+      })
+    }
+  }, [location.pathname, menuData])
+
+  // Scroll active item into view on mount or when pathname changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const container = document.querySelector('.admin-sidebar-scroll')
+      if (!container) return
+
+      const activeEl = container.querySelector('[data-active="true"]')
+      if (activeEl) {
+        activeEl.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest'
+        })
+      }
+    }, 150)
+
+    return () => clearTimeout(timer)
+  }, [location.pathname])
+
   const toggleSection = (sectionKey) => {
     setExpandedSections((prev) => {
       const isCurrentlyOpen = Boolean(prev[sectionKey])
@@ -652,6 +702,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
         <Link
           key={item.path || index}
           to={item.path}
+          data-active={isActive(item.path)}
           onClick={() => {
             if (window.innerWidth < 1024 && onClose) {
               onClose()
@@ -754,6 +805,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
                   <Link
                     key={subItem.path || `${index}-${subIndex}`}
                     to={subItem.path}
+                    data-active={isSubItemActive}
                     onClick={() => {
                       if (window.innerWidth < 1024 && onClose) {
                         onClose()

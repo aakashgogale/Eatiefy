@@ -64,7 +64,7 @@ export default function ProtectedRoute({ children }) {
     return () => {
       isMounted = false
     }
-  }, [location.pathname])
+  }, [])
 
   if (status === "checking") {
     return <div className="min-h-screen bg-neutral-100" />
