@@ -6,9 +6,7 @@ import { Input } from "@food/components/ui/input"
 import { authAPI } from "@food/api"
 import { motion, AnimatePresence } from "framer-motion"
 import logoImg from "@food/assets/switcheats-logo copy.png"
-import burgerImg from "@food/assets/login_burger.png"
-import sushiImg from "@food/assets/login_sushi.png"
-import bagImg from "@food/assets/login_bag.png"
+import loginBgImg from "@food/assets/login_bg.jpg"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
 
 const debugError = (...args) => { }
@@ -137,129 +135,99 @@ export default function SignIn() {
   const isValidPhone = formData.phone.length === 10
 
   return (
-    <AnimatedPage className="min-h-[100dvh] bg-white dark:bg-[#0A0A0B] flex flex-col font-sans overflow-hidden select-none">
-      {/* Top Branding Section */}
-      <div
-        className="relative h-[46dvh] min-h-[310px] w-full overflow-hidden flex flex-col items-center justify-between pt-6 pb-0 px-4"
-        style={{
-          background: "linear-gradient(180deg, #588114 0%, #659116 65%, #659116 100%)",
+    <AnimatedPage className="relative min-h-[100dvh] w-full flex flex-col items-center justify-between font-sans overflow-hidden select-none">
+      {/* Layer 1 – Original Background */}
+      <div 
+        className="absolute inset-0 bg-cover bg-center z-0"
+        style={{ 
+          backgroundImage: `url(${loginBgImg})`,
+          filter: 'blur(1.5px)',
+          transform: 'scale(1.02)'
         }}
-      >
-        {/* Top Left Back Button (Direct Guest Entry to Home) */}
-        <button
-          onClick={() => navigate("/food/user")}
-          className="absolute top-4 left-4 z-40 p-2.5 bg-white/20 hover:bg-white/30 backdrop-blur-md rounded-full text-white transition-all active:scale-95 shadow-md flex items-center justify-center cursor-pointer"
-          aria-label="Continue as Guest"
-        >
-          <ArrowLeft className="w-6 h-6 stroke-[2.5]" />
-        </button>
+      />
+      {/* Background Overlay */}
+      <div 
+        className="absolute inset-0 z-[5]"
+        style={{ background: "rgba(0, 0, 0, 0.18)" }}
+      />
 
-        {/* Subtle Decorative Gradient Glows */}
-        <div className="absolute inset-0 opacity-25 pointer-events-none">
-          <div className="absolute top-[-20%] right-[-10%] w-[280px] h-[280px] bg-white/20 rounded-full blur-3xl" />
-          <div className="absolute bottom-[20%] left-[-10%] w-[240px] h-[240px] bg-[#8cc63f]/30 rounded-full blur-2xl" />
+      {/* Layer 2 – Blurred Background */}
+      <div 
+        className="absolute inset-0 z-10"
+        style={{
+          backgroundImage: `url(${loginBgImg})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          filter: 'blur(7px)',
+          transform: 'scale(1.03)',
+          opacity: 0.45,
+          maskImage: 'linear-gradient(to bottom, transparent 0%, transparent 30%, black 55%, black 100%)',
+          WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, transparent 30%, black 55%, black 100%)'
+        }}
+      />
+
+      {/* Content Container */}
+      <div className="relative z-20 w-full min-h-[100dvh] flex flex-col justify-between py-6 px-4 sm:px-6">
+        {/* Top Header - Back Button */}
+        <div className="flex items-center justify-between w-full">
+          <button
+            onClick={() => navigate("/food/user")}
+            className="p-2.5 bg-black/35 hover:bg-black/45 backdrop-blur-md rounded-full text-white transition-all active:scale-95 shadow-md flex items-center justify-center cursor-pointer border border-white/10"
+            aria-label="Continue as Guest"
+          >
+            <ArrowLeft className="w-6 h-6 stroke-[2.5]" />
+          </button>
         </div>
 
-        {/* Top Logo Container - Zero White Space Padding */}
-        <motion.div
-          initial={{ y: -15, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.5, ease: "easeOut" }}
-          className="relative z-10 flex flex-col items-center gap-1.5 text-center mt-2"
-        >
-          <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-2xl flex items-center justify-center shadow-xl border border-white/20 overflow-hidden bg-black p-0">
-            <img
-              src={logoUrl || logoImg}
-              alt="Logo"
-              className="w-full h-full object-cover"
-              crossOrigin="anonymous"
-              onError={(e) => {
-                if (e.target.src !== logoImg) {
-                  e.target.src = logoImg
-                }
-              }}
-            />
-          </div>
-        </motion.div>
-
-        {/* Hero Headline - Food Dedicated Tagline */}
+        {/* Hero Tagline */}
         <motion.div
           initial={{ scale: 0.95, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ duration: 0.6, delay: 0.1 }}
-          className="relative z-10 text-center px-4 max-w-xs sm:max-w-sm my-auto"
+          className="text-center px-4 max-w-sm mx-auto my-auto flex items-center justify-center"
+          style={{ minHeight: "20vh" }}
         >
-          <h1 className="text-white font-black text-2xl sm:text-3xl tracking-tight leading-snug drop-shadow-sm">
-            Delicious food delivered to your doorstep in mins!
+          <h1 
+            className="text-white font-bold text-2xl sm:text-3xl tracking-tight leading-snug"
+            style={{ textShadow: '0 2px 10px rgba(0, 0, 0, 0.45)' }}
+          >
+            Delicious food, delivered fresh to your doorstep.
           </h1>
         </motion.div>
 
-        {/* Food Showcase PNG Graphics - Custom Sized Elements */}
+        {/* Floating Glassmorphic Form Card */}
         <motion.div
-          initial={{ y: 30, opacity: 0 }}
+          initial={{ y: 50, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.7, delay: 0.2 }}
-          className="relative z-30 flex items-end justify-between w-full max-w-sm px-4 pt-2 -mb-2"
+          transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+          className="w-full max-w-md mx-auto p-6 sm:p-8 flex flex-col justify-between mb-4 animate-fade-in"
+          style={{
+            background: "rgba(255, 255, 255, 0.85)",
+            border: "1px solid rgba(255, 255, 255, 0.45)",
+            borderRadius: "32px",
+            boxShadow: "0 24px 60px rgba(0, 0, 0, 0.18), 0 8px 20px rgba(0, 0, 0, 0.08)"
+          }}
         >
-          {/* Left item - Biryani/Food Dish (Made larger) */}
-          <div className="w-28 sm:w-34 flex justify-center items-end z-20">
-            <img
-              src={sushiImg}
-              alt="Biryani Dish"
-              className="w-full h-auto max-h-34 sm:max-h-40 object-contain filter drop-shadow-xl scale-110"
-            />
-          </div>
-
-          {/* Center item - Burger (Hero element) */}
-          <div className="w-28 sm:w-34 flex justify-center items-end z-30 -mb-1">
-            <img
-              src={burgerImg}
-              alt="Burger"
-              className="w-full h-auto max-h-32 sm:max-h-38 object-contain filter drop-shadow-2xl scale-105"
-            />
-          </div>
-
-          {/* Right item - Takeaway Bag (Lifted slightly up) */}
-          <div className="w-24 sm:w-28 flex justify-center items-end z-10 -mb-1">
-            <img
-              src={bagImg}
-              alt="Takeaway Bag"
-              className="w-full h-auto max-h-26 sm:max-h-30 object-contain filter drop-shadow-xl"
-            />
-          </div>
-        </motion.div>
-      </div>
-
-      {/* Bottom Form Section */}
-      <motion.div
-        initial={{ y: "100%" }}
-        animate={{ y: 0 }}
-        transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-        className="flex-1 bg-white dark:bg-[#121620] rounded-t-[40px] -mt-10 relative z-20 shadow-[0_-20px_40px_rgba(0,0,0,0.05)] px-6 pt-8 pb-6 flex flex-col justify-between"
-      >
-        <div className="max-w-md mx-auto w-full flex flex-col h-full justify-between">
           <div>
-            <div className="w-10 h-1 bg-gray-200 dark:bg-gray-700 rounded-full mx-auto mb-6" />
-
             <div className="space-y-1 mb-6">
-              <h2 className="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white tracking-tight">
+              <h2 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">
                 Get Started
               </h2>
-              <p className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400">
+              <p className="text-xs sm:text-sm font-medium text-gray-600">
                 Enter your mobile number to continue.
               </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="space-y-2">
-                <div className={`relative flex items-center bg-[#f4f4f5] dark:bg-gray-900 border-2 rounded-2xl transition-all duration-200 overflow-hidden shadow-sm ${
+                <div className={`relative flex items-center bg-white border-2 rounded-2xl transition-all duration-200 overflow-hidden shadow-sm ${
                   isValidPhone 
                     ? "border-[#659116] ring-4 ring-[#659116]/10" 
                     : error 
                     ? "border-red-500 ring-4 ring-red-500/10" 
                     : "border-[#659116] focus-within:ring-4 focus-within:ring-[#659116]/10"
                 }`}>
-                  <div className="flex items-center gap-1.5 px-4 py-4 bg-[#f4f4f5] dark:bg-gray-800 text-gray-900 dark:text-white font-black text-lg border-r border-[#659116]/30 flex-shrink-0 select-none">
+                  <div className="flex items-center gap-1.5 px-4 py-4 bg-white text-gray-900 font-black text-lg border-r border-[#659116]/30 flex-shrink-0 select-none">
                     <span>🇮🇳</span>
                     <span>+91</span>
                   </div>
@@ -273,7 +241,7 @@ export default function SignIn() {
                     placeholder="Mobile Number"
                     value={formData.phone}
                     onChange={handleChange}
-                    className="flex-1 h-16 text-lg font-black text-gray-900 dark:text-white bg-transparent border-0 outline-none ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 tracking-wider px-4 placeholder:text-gray-400 dark:placeholder:text-gray-600 placeholder:font-normal"
+                    className="flex-1 h-16 text-lg font-black text-gray-900 bg-transparent border-0 outline-none ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 tracking-wider px-4 placeholder:text-gray-400 placeholder:font-normal"
                   />
 
                   {isValidPhone && (
@@ -300,8 +268,8 @@ export default function SignIn() {
                 disabled={isLoading || !isValidPhone}
                 className={`w-full h-16 rounded-2xl font-black text-base uppercase tracking-widest flex items-center justify-center gap-2 transition-all duration-300 shadow-md ${
                   isValidPhone && !isLoading
-                    ? "bg-[#659116] hover:bg-[#588114] text-white shadow-[0_8px_20px_rgba(101,145,22,0.35)] active:scale-[0.98] cursor-pointer"
-                    : "bg-[#659116]/60 text-white/80 cursor-not-allowed shadow-none opacity-80"
+                    ? "bg-[#a6cb82] hover:bg-[#95b873] text-white shadow-[0_8px_20px_rgba(166,203,130,0.3)] active:scale-[0.98] cursor-pointer"
+                    : "bg-[#a6cb82]/60 text-white/80 cursor-not-allowed shadow-none opacity-80"
                 }`}
               >
                 {isLoading ? (
@@ -319,16 +287,16 @@ export default function SignIn() {
             </form>
           </div>
 
-          <footer className="mt-8 text-center border-t border-gray-100 dark:border-gray-800/80 pt-4 space-y-1">
-            <p className="text-[10px] text-gray-400 dark:text-gray-500 font-bold tracking-wide uppercase">
+          <footer className="mt-8 text-center border-t border-gray-200 pt-4 space-y-1">
+            <p className="text-[10px] text-gray-500 font-bold tracking-wide uppercase">
               BY JOINING, YOU AGREE TO OUR POLICIES
             </p>
-            <p className="text-[10px] text-gray-400 dark:text-gray-500 font-extrabold uppercase tracking-widest">
+            <p className="text-[10px] text-gray-500 font-extrabold uppercase tracking-widest">
               <Link to="/food/user/profile/terms" className="hover:text-[#659116]">TERMS</Link> • <Link to="/food/user/profile/privacy" className="hover:text-[#659116]">PRIVACY</Link> • <Link to="/food/user/profile/help-content" className="hover:text-[#659116]">SUPPORT</Link>
             </p>
           </footer>
-        </div>
-      </motion.div>
+        </motion.div>
+      </div>
     </AnimatedPage>
   )
 }
