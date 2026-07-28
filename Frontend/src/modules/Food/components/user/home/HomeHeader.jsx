@@ -19,6 +19,112 @@ const ICON_MAP = {
 
 
 
+export function SearchBarRow({
+  handleSearchFocus,
+  placeholderIndex,
+  placeholders,
+  handleVegModeChange,
+  isVegMode,
+  vegModeToggleRef,
+  navigate,
+  showVegToggle = true,
+  isCompact = false,
+}) {
+  return (
+    <div className="flex items-center gap-2 w-full">
+      <div 
+        className={`relative z-[60] flex-1 rounded-[1.5rem] flex items-center px-4 border cursor-pointer active:scale-[0.98] group pointer-events-auto transition-all duration-200 ${
+          isCompact
+            ? "py-1.5 bg-white dark:bg-[#1a1a1a] border-gray-100 dark:border-gray-800 shadow-sm"
+            : "py-2 bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-800 shadow-sm"
+        }`}
+        onClick={handleSearchFocus}
+        onTouchStart={handleSearchFocus}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            handleSearchFocus();
+          }
+        }}
+      >
+        <Search className="h-5 w-5 text-gray-400 mr-3 group-hover:text-[#E2AD4B] transition-colors duration-300 dark:text-gray-500" strokeWidth={2.5} />
+        <div className="flex-1 overflow-hidden relative h-5">
+          <input
+            type="text"
+            readOnly
+            aria-label="Search"
+            onFocus={handleSearchFocus}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          />
+          <AnimatePresence mode="wait">
+            <motion.span
+              key={placeholderIndex}
+              initial={{ y: 15, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: -15, opacity: 0 }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
+              className="absolute inset-0 text-[14px] font-bold text-gray-500 dark:text-gray-400"
+            >
+              {placeholders?.[placeholderIndex] || 'Search "pizza"'}
+            </motion.span>
+          </AnimatePresence>
+        </div>
+        <div 
+          className="bg-[#E2AD4B]/5 dark:bg-[#E2AD4B]/10 p-1.5 rounded-full border border-[#E2AD4B]/10 ml-2 group-hover:bg-[#E2AD4B]/10 transition-all flex items-center justify-center"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (navigate) navigate('/user/search?voice=true');
+          }}
+          onTouchStart={(e) => {
+            e.stopPropagation();
+            if (navigate) navigate('/user/search?voice=true');
+          }}
+        >
+          <Mic className="h-4 w-4 text-[#E2AD4B]" strokeWidth={2.5} />
+        </div>
+      </div>
+
+      {showVegToggle && (
+        <div 
+          className={`flex flex-col items-center justify-center w-[50px] h-[50px] rounded-full border cursor-pointer active:scale-95 transition-all duration-200 flex-shrink-0 shadow-sm ${
+            isVegMode 
+              ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/50' 
+              : 'bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-800'
+          }`}
+          onClick={() => handleVegModeChange && handleVegModeChange(!isVegMode)}
+          ref={vegModeToggleRef}
+        >
+          <span className={`text-[9px] font-black uppercase tracking-wider leading-none mb-1.5 ${
+            isVegMode ? 'text-emerald-700 dark:text-emerald-400' : 'text-gray-500 dark:text-gray-400'
+          }`}>
+            Veg
+          </span>
+          
+          <div className={`w-8 h-4.5 rounded-full p-[1px] relative transition-colors duration-200 ${
+            isVegMode ? 'bg-emerald-200 dark:bg-emerald-900/50' : 'bg-gray-200 dark:bg-zinc-800'
+          }`}>
+            <div
+              className={`w-3.5 h-3.5 rounded-[3px] bg-white border flex items-center justify-center p-[1px] absolute top-[1px] transition-all duration-200 ${
+                isVegMode 
+                  ? 'translate-x-[14px] border-green-600' 
+                  : 'translate-x-[1px] border-green-600/60 dark:border-green-600/40'
+              }`}
+            >
+              <div
+                className={`w-1.5 h-1.5 rounded-full ${
+                  isVegMode ? 'bg-green-600' : 'bg-green-600/60 dark:bg-green-600/40'
+                }`}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function HomeHeader({ 
   activeTab,
   setActiveTab,
@@ -291,112 +397,17 @@ export default function HomeHeader({
           </div>
         </div>
 
-        {/* Sticky Search Bar (Clean flow) */}
-        <div
-          className={`z-[60] transition-all duration-300 md:hidden ${
-            isCategoryStuck 
-              ? 'fixed top-0 left-0 right-0 h-[72px] flex items-end pb-2.5 px-4 bg-white dark:bg-[#1a1a1a] border-none shadow-none outline-none' 
-              : `sticky top-0 px-4 pt-2.5 pb-3 ${
-                  isScrolled 
-                    ? 'bg-white/95 dark:bg-[#1a1a1a]/95 backdrop-blur-md border-b border-gray-100 dark:border-gray-800/80 shadow-sm' 
-                    : 'bg-transparent'
-                }`
-          }`}
-        >
-          <div className="flex items-center gap-2 w-full">
-            <div 
-              className={`relative z-[60] flex-1 rounded-[1.5rem] flex items-center px-4 border cursor-pointer active:scale-[0.98] group pointer-events-auto ${
-                isCategoryStuck
-                  ? "py-1.5 bg-white dark:bg-[#1a1a1a] border-gray-100 dark:border-gray-800 shadow-sm"
-                  : "py-2 bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-800 shadow-sm"
-              }`}
-              onClick={handleSearchFocus}
-              onTouchStart={handleSearchFocus}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  handleSearchFocus();
-                }
-              }}
-            >
-              <Search className="h-5 w-5 text-gray-400 mr-3 group-hover:text-[#E2AD4B] transition-colors duration-300 dark:text-gray-500" strokeWidth={2.5} />
-              <div className="flex-1 overflow-hidden relative h-5">
-                <input
-                  type="text"
-                  readOnly
-                  aria-label="Search"
-                  onFocus={handleSearchFocus}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                />
-                <AnimatePresence mode="wait">
-                  <motion.span
-                    key={placeholderIndex}
-                    initial={{ y: 15, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    exit={{ y: -15, opacity: 0 }}
-                    transition={{ duration: 0.25, ease: 'easeOut' }}
-                    className="absolute inset-0 text-[14px] font-bold text-gray-500 dark:text-gray-400"
-                  >
-                    {placeholders?.[placeholderIndex] || 'Search "pizza"'}
-                  </motion.span>
-                </AnimatePresence>
-              </div>
-              <div 
-                className="bg-[#E2AD4B]/5 dark:bg-[#E2AD4B]/10 p-1.5 rounded-full border border-[#E2AD4B]/10 ml-2 group-hover:bg-[#E2AD4B]/10 transition-all flex items-center justify-center"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate('/user/search?voice=true');
-                }}
-                onTouchStart={(e) => {
-                  e.stopPropagation();
-                  navigate('/user/search?voice=true');
-                }}
-              >
-                <Mic className="h-4 w-4 text-[#E2AD4B]" strokeWidth={2.5} />
-              </div>
-            </div>
-
-            {/* Veg Mode Toggle next to search bar */}
-            {!isCategoryStuck && (
-              <div 
-                className={`flex flex-col items-center justify-center w-[50px] h-[50px] rounded-full border cursor-pointer active:scale-95 transition-all duration-200 flex-shrink-0 shadow-sm ${
-                  isVegMode 
-                    ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/50' 
-                    : 'bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-800'
-                }`}
-                onClick={() => handleVegModeChange && handleVegModeChange(!isVegMode)}
-                ref={vegModeToggleRef}
-              >
-                <span className={`text-[9px] font-black uppercase tracking-wider leading-none mb-1.5 ${
-                  isVegMode ? 'text-emerald-700 dark:text-emerald-400' : 'text-gray-500 dark:text-gray-400'
-                }`}>
-                  Veg
-                </span>
-                
-                {/* Horizontal Switch Track */}
-                <div className={`w-8 h-4.5 rounded-full p-[1px] relative transition-colors duration-200 ${
-                  isVegMode ? 'bg-emerald-200 dark:bg-emerald-900/50' : 'bg-gray-200 dark:bg-zinc-800'
-                }`}>
-                  {/* Slider Knob (Veg Symbol) */}
-                  <div
-                    className={`w-3.5 h-3.5 rounded-[3px] bg-white border flex items-center justify-center p-[1px] absolute top-[1px] transition-all duration-200 ${
-                      isVegMode 
-                        ? 'translate-x-[14px] border-green-600' 
-                        : 'translate-x-[1px] border-green-600/60 dark:border-green-600/40'
-                    }`}
-                  >
-                    <div
-                      className={`w-1.5 h-1.5 rounded-full ${
-                        isVegMode ? 'bg-green-600' : 'bg-green-600/60 dark:bg-green-600/40'
-                      }`}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+        {/* Static Search Bar Row (Clean flow) */}
+        <div className="px-4 pt-2.5 pb-3">
+          <SearchBarRow
+            handleSearchFocus={handleSearchFocus}
+            placeholderIndex={placeholderIndex}
+            placeholders={placeholders}
+            handleVegModeChange={handleVegModeChange}
+            isVegMode={isVegMode}
+            vegModeToggleRef={vegModeToggleRef}
+            navigate={navigate}
+          />
         </div>
 
         {/* Sliding Banner Carousel (Below Search Bar) */}

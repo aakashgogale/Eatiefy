@@ -93,9 +93,9 @@ import {
   formatDistanceLabel,
 } from "@food/utils/roadDistance";
 
-const debugLog = (...args) => {};
-const debugWarn = (...args) => {};
-const debugError = (...args) => {};
+const debugLog = (...args) => { };
+const debugWarn = (...args) => { };
+const debugError = (...args) => { };
 const VEG_MODE_OPTION_STORAGE_KEY = "food_user_veg_mode_option";
 
 // Import shared food images - prevents duplication
@@ -116,7 +116,7 @@ import { usePublicAppConfig } from "@food/context/PublicAppConfigContext";
 import { API_BASE_URL } from "@food/api/config";
 import OptimizedImage from "@food/components/OptimizedImage";
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability";
-import HomeHeader from "@food/components/user/home/HomeHeader";
+import HomeHeader, { SearchBarRow } from "@food/components/user/home/HomeHeader";
 import QuickSection from "@food/components/user/home/QuickSection";
 import PromoRow from "@food/components/user/home/PromoRow";
 import PromotionBannerCarousel from "@food/components/user/home/PromotionBannerCarousel";
@@ -219,7 +219,7 @@ const RestaurantImageCarousel = React.memo(
     const images = useMemo(() => {
       const list = [];
       const hasRecommended = Array.isArray(restaurant.recommendedItems) && restaurant.recommendedItems.length > 0;
-      
+
       if (hasRecommended) {
         restaurant.recommendedItems.forEach(item => {
           if (item && item.image) list.push(item.image);
@@ -248,7 +248,7 @@ const RestaurantImageCarousel = React.memo(
 
     const [internalIndex, setInternalIndex] = useState(0);
     const currentIndex = externalIndex !== null ? externalIndex : internalIndex;
-    
+
     const setCurrentIndex = useCallback((val) => {
       const nextIndex = typeof val === 'function' ? val(currentIndex) : val;
       if (onIndexChange) {
@@ -263,7 +263,7 @@ const RestaurantImageCarousel = React.memo(
     const [isImageUnavailable, setIsImageUnavailable] = useState(false);
     const [showShimmer, setShowShimmer] = useState(true);
     const [lastGoodSrc, setLastGoodSrc] = useState("");
-    
+
     const sliderRef = useRef(null);
     const containerRef = useRef(null);
     const touchStartX = useRef(0);
@@ -428,7 +428,7 @@ const RestaurantImageCarousel = React.memo(
         }
 
         containerNode.style.transform = `translateX(-${newIdx * 100}%)`;
-        
+
         setTimeout(() => {
           setCurrentIndex(newIdx);
         }, 300);
@@ -597,11 +597,10 @@ const RestaurantImageCarousel = React.memo(
                   aria-label={`Go to image ${index + 1}`}>
                   <span
                     aria-hidden="true"
-                    className={`block rounded-full transition-[width,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-                      isActive
+                    className={`block rounded-full transition-[width,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${isActive
                         ? "h-[5px] w-[13px] bg-white opacity-100"
                         : "h-[5px] w-[5px] bg-white opacity-[0.35]"
-                    }`}
+                      }`}
                   />
                 </button>
               );
@@ -639,8 +638,8 @@ const RestaurantCard = React.memo(({
   const rotatingOffers = useMemo(() => {
     const summaries = Array.isArray(restaurant.activeOffers)
       ? restaurant.activeOffers
-          .map((offer) => String(offer?.summary || "").trim())
-          .filter(Boolean)
+        .map((offer) => String(offer?.summary || "").trim())
+        .filter(Boolean)
       : [];
 
     if (!summaries.length && restaurant.offer) {
@@ -653,11 +652,11 @@ const RestaurantCard = React.memo(({
 
   const hasRecommended = validRecommendedItems.length > 0;
   const currentOffer = rotatingOffers[offerIndex] || null;
-  
+
   const currentDish = hasRecommended ? validRecommendedItems[slideIndex] : null;
   const name = currentDish ? currentDish.name : restaurant.featuredDish;
   const price = currentDish ? currentDish.price : restaurant.featuredPrice;
-  
+
   const availability = getRestaurantAvailabilityStatus(
     restaurant,
     new Date(availabilityTick),
@@ -672,7 +671,7 @@ const RestaurantCard = React.memo(({
       .replace(/\s+/g, "-");
   }, [propRestaurantSlug, restaurant.slug, restaurant.name, restaurant.restaurantName]);
 
-  const targetUrl = currentDish 
+  const targetUrl = currentDish
     ? `/food/user/restaurants/${restaurantSlug}?dish=${currentDish.id}`
     : `/food/user/restaurants/${restaurantSlug}`;
 
@@ -702,17 +701,16 @@ const RestaurantCard = React.memo(({
       }}>
       <div className="h-full group">
         <Card
-          className={`overflow-hidden gap-0 border-0 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] border-background transition-all duration-500 py-0 rounded-[28px] flex flex-col h-full w-full relative shadow-sm hover:shadow-xl ${
-            isOutOfService || !availability.isOpen
+          className={`overflow-hidden gap-0 border-0 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] border-background transition-all duration-500 py-0 rounded-[28px] flex flex-col h-full w-full relative shadow-sm hover:shadow-xl ${isOutOfService || !availability.isOpen
               ? "grayscale opacity-75"
               : ""
-          }`}>
+            }`}>
           {/* Image Section with Carousel - Deep links to dish */}
           <div
             className="relative block cursor-pointer"
             onClick={(e) => {
               if (e.defaultPrevented) return;
-              try { onNavigateAway?.(e); } catch (_) {}
+              try { onNavigateAway?.(e); } catch (_) { }
               navigate(targetUrl);
             }}
           >
@@ -761,15 +759,13 @@ const RestaurantCard = React.memo(({
                   ? "Remove from favorites"
                   : "Add to favorites"
               }
-              className={`h-11 w-11 rounded-[20px] shadow-xl flex items-center justify-center transition-all duration-300 ${
-                favorite
+              className={`h-11 w-11 rounded-[20px] shadow-xl flex items-center justify-center transition-all duration-300 ${favorite
                   ? "bg-red-500 text-white"
                   : "bg-white/90 backdrop-blur-sm text-gray-800 hover:bg-white"
-              }`}>
+                }`}>
               <Bookmark
-                className={`h-5 w-5 transition-all duration-300 ${
-                  favorite ? "fill-white" : ""
-                }`}
+                className={`h-5 w-5 transition-all duration-300 ${favorite ? "fill-white" : ""
+                  }`}
               />
             </Button>
           </div>
@@ -782,7 +778,7 @@ const RestaurantCard = React.memo(({
               onNavigateAway?.();
               try {
                 sessionStorage.removeItem("food_last_opened_restaurant_distance")
-              } catch (_) {}
+              } catch (_) { }
             }}
             className="flex-grow"
           >
@@ -1098,6 +1094,13 @@ export default function Home() {
   const heroShellRef = useRef(null);
   const stickyHeaderRef = useRef(null);
   const categoryAnchorRef = useRef(null);
+  const filtersSentinelRef = useRef(null);
+  const lastScrollYRef = useRef(0);
+  const tickingRef = useRef(false);
+  const [isSmartStickyActive, setIsSmartStickyActive] = useState(false);
+  const [smartScrollDirection, setSmartScrollDirection] = useState("down");
+  const [isFiltersCrossed, setIsFiltersCrossed] = useState(false);
+  const [isCategoriesCrossed, setIsCategoriesCrossed] = useState(false);
   const slugifyCategory = useCallback(
     (value) =>
       String(value || "")
@@ -1426,6 +1429,55 @@ export default function Home() {
     };
   }, []);
 
+  // Smart Scroll-Aware Sticky Header Listener
+  useEffect(() => {
+    const handleScroll = () => {
+      if (!tickingRef.current) {
+        requestAnimationFrame(() => {
+          const currentScrollY = window.scrollY || document.documentElement.scrollTop;
+          const deltaY = currentScrollY - lastScrollYRef.current;
+
+          // Activate sticky header when scrolled past top header (70px)
+          const activeThreshold = 70;
+          const newIsSticky = currentScrollY > activeThreshold;
+          setIsSmartStickyActive(newIsSticky);
+
+          // Scroll direction detection with hysteresis threshold (3px)
+          if (Math.abs(deltaY) > 3) {
+            setSmartScrollDirection(deltaY > 0 ? "up" : "down");
+          }
+
+          // Detect if original filters sentinel has reached/crossed top area
+          if (filtersSentinelRef.current) {
+            const rect = filtersSentinelRef.current.getBoundingClientRect();
+            setIsFiltersCrossed(rect.top <= 140);
+          } else {
+            setIsFiltersCrossed(false);
+          }
+
+          // Detect if category sentinel has reached/crossed top area
+          if (categoryAnchorRef.current) {
+            const rect = categoryAnchorRef.current.getBoundingClientRect();
+            setIsCategoriesCrossed(rect.top <= 70);
+          } else {
+            setIsCategoriesCrossed(false);
+          }
+
+          lastScrollYRef.current = currentScrollY;
+          tickingRef.current = false;
+        });
+        tickingRef.current = true;
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true, capture: true });
+    handleScroll();
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll, { capture: true });
+    };
+  }, []);
+
 
   // Merge API explore items with fallback to ensure all 4 cards are shown
   const finalExploreItems = useMemo(() => {
@@ -1512,7 +1564,7 @@ export default function Home() {
   useEffect(() => {
     try {
       localStorage.setItem(VEG_MODE_OPTION_STORAGE_KEY, vegModeOption);
-    } catch (_) {}
+    } catch (_) { }
   }, [vegModeOption]);
 
   // Keep persisted Veg Mode preference; only reset popup UI state on mount.
@@ -1537,12 +1589,12 @@ export default function Home() {
         const rect = vegModeToggleRef.current.getBoundingClientRect();
         const screenWidth = window.innerWidth;
         const popupWidth = Math.min(screenWidth - 32, 320); // 320 is max-w-xs
-        
+
         let left = rect.left + rect.width / 2 - popupWidth / 2;
         left = Math.max(16, Math.min(left, screenWidth - popupWidth - 16));
-        
+
         const triangleLeft = rect.left + rect.width / 2 - left;
-        
+
         setPopupPosition({
           top: rect.bottom + 10,
           left: left,
@@ -1572,12 +1624,12 @@ export default function Home() {
         const rect = vegModeToggleRef.current.getBoundingClientRect();
         const screenWidth = window.innerWidth;
         const popupWidth = Math.min(screenWidth - 32, 320);
-        
+
         let left = rect.left + rect.width / 2 - popupWidth / 2;
         left = Math.max(16, Math.min(left, screenWidth - popupWidth - 16));
-        
+
         const triangleLeft = rect.left + rect.width / 2 - left;
-        
+
         setPopupPosition({
           top: rect.bottom + 10,
           left: left,
@@ -1866,7 +1918,7 @@ export default function Home() {
         const restaurantsRaw = Array.isArray(restaurantsResponse?.data?.data?.restaurants)
           ? restaurantsResponse.data.data.restaurants
           : [];
-        
+
         const foodsRaw = Array.isArray(foodsResponse?.data?.data?.foods)
           ? foodsResponse.data.data.foods
           : [];
@@ -1889,7 +1941,7 @@ export default function Home() {
             const restaurant = restaurantsMap.get(rId);
             const foodType = String(food?.foodType || "").toLowerCase();
             const isVeg = foodType.includes("veg") && !foodType.includes("non");
-            
+
             return {
               ...food,
               id: String(food?.id || food?._id || `${rId}-${food?.name || "dish"}`),
@@ -1957,12 +2009,12 @@ export default function Home() {
     const resolvedVariant = variants.length > 0 ? variants[0] : null;
     const lineItemId = buildCartLineId(dish.id || dish._id || "", resolvedVariant?.id || resolvedVariant?._id || "");
     const existingCartItem = getCartItem(lineItemId);
-    
+
     if (isOutOfService) {
       toast.error('You are outside the service zone. Please select a location within the service area.');
       return;
     }
-    
+
     const cartItem = {
       id: lineItemId,
       lineItemId,
@@ -1980,7 +2032,7 @@ export default function Home() {
       foodType: dish.foodType,
       isVeg: dish.isVeg,
     };
-    
+
     let sourcePosition = null;
     if (event) {
       const buttonElement = event.currentTarget;
@@ -2103,15 +2155,15 @@ export default function Home() {
             []
           const categories = Array.isArray(list)
             ? list.map((cat, idx) => ({
-                id: String(cat?.id || cat?._id || cat?.slug || idx),
-                name: cat?.name || "",
-                slug: cat?.slug || String(cat?.name || "").toLowerCase().replace(/\s+/g, "-"),
-                image:
-                  normalizeImageUrl(cat?.image || cat?.imageUrl) ||
-                  foodImages[idx % foodImages.length] ||
-                  foodImages[0],
-                type: cat?.type || "",
-              }))
+              id: String(cat?.id || cat?._id || cat?.slug || idx),
+              name: cat?.name || "",
+              slug: cat?.slug || String(cat?.name || "").toLowerCase().replace(/\s+/g, "-"),
+              image:
+                normalizeImageUrl(cat?.image || cat?.imageUrl) ||
+                foodImages[idx % foodImages.length] ||
+                foodImages[0],
+              type: cat?.type || "",
+            }))
             : []
 
           publicCategoriesCacheRef.current.set(zoneKey, categories)
@@ -2475,7 +2527,7 @@ export default function Home() {
                 recommendedItems: Array.isArray(restaurant.recommendedItems) ? restaurant.recommendedItems : [],
               };
             },
-          );
+            );
 
           const sortRestaurantsForDisplay = (restaurants) => {
             if (!userLat || !userLng) return restaurants;
@@ -3115,7 +3167,7 @@ export default function Home() {
           if (
             !restore.appliedVisible ||
             visibleRestaurantCountRef.current <
-              Math.min(restore.targetCount, filteredRestaurants.length)
+            Math.min(restore.targetCount, filteredRestaurants.length)
           ) {
             setVisibleRestaurantCount(
               Math.min(restore.targetCount, filteredRestaurants.length),
@@ -3341,12 +3393,12 @@ export default function Home() {
     // Keep admin-selected order when IDs exist.
     const orderedFromSettings = hasIds
       ? idsInOrder
-          .map((id) =>
-            fromSettingsMapped.find(
-              (restaurant) => String(restaurant.mongoId) === id,
-            ),
-          )
-          .filter(Boolean)
+        .map((id) =>
+          fromSettingsMapped.find(
+            (restaurant) => String(restaurant.mongoId) === id,
+          ),
+        )
+        .filter(Boolean)
       : fromSettingsMapped;
 
     // Fallback: if settings payload misses some entries, recover them from fetched restaurant list by ID.
@@ -3457,13 +3509,13 @@ export default function Home() {
           <div className="absolute inset-0 z-0">
             {/* Shining Glint Effect */}
             <div className="absolute inset-0 z-10 pointer-events-none overflow-hidden">
-              <motion.div 
-                animate={{ 
+              <motion.div
+                animate={{
                   x: ['-200%', '200%'],
                 }}
-                transition={{ 
-                  duration: 2.5, 
-                  repeat: Infinity, 
+                transition={{
+                  duration: 2.5,
+                  repeat: Infinity,
                   repeatDelay: 5,
                   ease: "easeInOut"
                 }}
@@ -3515,9 +3567,8 @@ export default function Home() {
                   e.stopPropagation();
                   setCurrentBannerIndex(index);
                 }}
-                className={`h-1.5 rounded-full transition-all duration-300 ${
-                  currentBannerIndex === index ? "bg-white w-5" : "bg-white/40 w-1.5"
-                }`}
+                className={`h-1.5 rounded-full transition-all duration-300 ${currentBannerIndex === index ? "bg-white w-5" : "bg-white/40 w-1.5"
+                  }`}
               />
             ))}
           </div>
@@ -3734,90 +3785,329 @@ export default function Home() {
             }
           }
         `}</style>
-      </div>
-
-      <div className="relative z-10">
-        <HomeHeader topBanners={topBannersData}
-          topBannersLoaded={topBannersLoaded}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          location={effectiveLocation}
-          savedAddressText={headerSavedAddressText}
-          handleLocationClick={handleLocationClick}
-          handleSearchFocus={handleSearchFocus}
-          placeholderIndex={placeholderIndex}
-          placeholders={placeholders}
-          handleVegModeChange={handleVegModeChange}
-          isVegMode={vegMode}
-          vegModeToggleRef={vegModeToggleRef}
-          isCategoryStuck={isCategoryStuck}
-        />
-
-
-
-        <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full">
-          {CategoryRailHeader}
         </div>
 
-        {/* Category sticky anchor sentinel — must be immediately before the category rail */}
-        <div ref={categoryAnchorRef} aria-hidden="true" />
-
-        {/* Category Rail — permanently sticky using native CSS for 0 latency. */}
-        <div className={`sticky top-[71px] z-[50] -mt-px transition-all duration-300 ${
-          isCategoryStuck 
-            ? 'bg-white dark:bg-[#1a1a1a] border-none shadow-none outline-none' 
-            : 'bg-transparent border-none shadow-none outline-none'
-        }`}>
-          {CategoryRailSection}
-        </div>
-
-        <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full">
-          <PromotionBannerCarousel zoneId={zoneId} />
-
-          {/* Meals under 99 Section */}
-          {(loadingMealsUnder99 || mealsUnder99.length > 0) && (
-            <motion.section
-              className="content-auto space-y-4 pt-4 sm:pt-6"
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5 }}
+        {/* Unified Smart Scroll-Aware Sticky Header Overlay (Swiggy / Zomato style) */}
+        <div
+          ref={stickyHeaderRef}
+          className={`fixed top-0 left-0 right-0 z-[100] bg-white/95 dark:bg-[#1a1a1a]/95 backdrop-blur-md border-b border-gray-100 dark:border-gray-800/80 shadow-md transition-all duration-300 ease-in-out ${isSmartStickyActive
+              ? 'translate-y-0 opacity-100 pointer-events-auto'
+              : '-translate-y-full opacity-0 pointer-events-none'
+            }`}
+        >
+          <div className="w-full flex flex-col">
+            {/* Top Row: Search Bar & Veg Toggle (Expanded on Scroll DOWN, Collapsed on Scroll UP) */}
+            <div
+              className={`transition-all duration-300 ease-in-out overflow-hidden origin-top px-4 ${smartScrollDirection === 'down'
+                  ? 'max-h-[70px] opacity-100 py-2.5 scale-y-100'
+                  : 'max-h-0 opacity-0 py-0 scale-y-95 pointer-events-none'
+                }`}
             >
-              <div className="px-4 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <h2 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 dark:text-white tracking-tight">
-                    Meals under
-                  </h2>
-                  <span className="flex items-center justify-center border-[1.5px] border-gray-900 dark:border-white rounded-full px-2 py-0.5 text-xs sm:text-sm font-black text-gray-900 dark:text-white leading-none">
-                    ₹99
-                  </span>
-                </div>
-                <Link
-                  to="/food/user/under-250"
-                  className="text-xs sm:text-sm font-bold flex items-center gap-0.5 transition-all hover:opacity-80 active:scale-95"
-                  style={{ color: "var(--module-theme-color, #E2AD4B)" }}
-                >
-                  See more
-                </Link>
-              </div>
+              <SearchBarRow
+                handleSearchFocus={handleSearchFocus}
+                placeholderIndex={placeholderIndex}
+                placeholders={placeholders}
+                handleVegModeChange={handleVegModeChange}
+                isVegMode={vegMode}
+                vegModeToggleRef={vegModeToggleRef}
+                navigate={navigate}
+                isCompact={true}
+              />
+            </div>
 
-              {loadingMealsUnder99 ? (
-                <div className="flex gap-3 sm:gap-4 px-4 pb-2 overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-                  {[1, 2, 3, 4, 5].map((i) => (
-                    <div key={i} className="flex-shrink-0 w-[140px] flex flex-col gap-2">
-                      <div className="w-full h-[140px] rounded-2xl bg-gray-100 dark:bg-neutral-800 animate-pulse" />
-                      <div className="h-3 w-12 bg-gray-100 dark:bg-neutral-800 animate-pulse rounded" />
-                      <div className="h-4 w-full bg-gray-100 dark:bg-neutral-800 animate-pulse rounded" />
-                      <div className="h-4 w-1/2 bg-gray-100 dark:bg-neutral-800 animate-pulse rounded" />
-                    </div>
-                  ))}
+            {/* Middle Row: Category Rail (Appears when Category section is crossed) */}
+            <div
+              className={`transition-all duration-300 ease-in-out overflow-hidden ${isCategoriesCrossed
+                  ? 'max-h-[100px] opacity-100 py-1'
+                  : 'max-h-0 opacity-0 py-0'
+                }`}
+            >
+              {CategoryRailSection}
+            </div>
+
+            {/* Bottom Row: Filters Bar (Appears when original Filters section is crossed) */}
+            <div
+              className={`transition-all duration-300 ease-in-out overflow-hidden ${isFiltersCrossed
+                  ? 'max-h-[60px] opacity-100 py-1.5'
+                  : 'max-h-0 opacity-0 py-0'
+                }`}
+            >
+              <FoodFilterBar
+                sortBy={sortBy || "relevance"}
+                onSortChange={(val) => setSortBy(val === "relevance" ? null : val)}
+                isVeg={activeFilters.has("veg")}
+                onVegToggle={() => toggleHomeFilter("veg")}
+                isNonVeg={activeFilters.has("non-veg")}
+                onNonVegToggle={() => toggleHomeFilter("non-veg")}
+                rating4Plus={activeFilters.has("rating-4plus")}
+                onRating4PlusToggle={() => toggleHomeFilter("rating-4plus")}
+                hasOffers={activeFilters.has("has-offers")}
+                onOffersToggle={() => toggleHomeFilter("has-offers")}
+                under30Mins={activeFilters.has("delivery-under-30")}
+                onUnder30MinsToggle={() => toggleHomeFilter("delivery-under-30")}
+                onFilterButtonClick={() => setIsFilterOpen(true)}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="relative z-10">
+          <HomeHeader topBanners={topBannersData}
+            topBannersLoaded={topBannersLoaded}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            location={effectiveLocation}
+            savedAddressText={headerSavedAddressText}
+            handleLocationClick={handleLocationClick}
+            handleSearchFocus={handleSearchFocus}
+            placeholderIndex={placeholderIndex}
+            placeholders={placeholders}
+            handleVegModeChange={handleVegModeChange}
+            isVegMode={vegMode}
+            vegModeToggleRef={vegModeToggleRef}
+            isCategoryStuck={isCategoryStuck}
+          />
+
+
+
+          <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full">
+            {CategoryRailHeader}
+          </div>
+
+          {/* Category sticky anchor sentinel */}
+          <div ref={categoryAnchorRef} aria-hidden="true" />
+
+          {/* Category Rail (In-flow layout) */}
+          <div
+            className={`transition-opacity duration-200 ${isSmartStickyActive && isCategoriesCrossed ? 'opacity-0 pointer-events-none' : 'opacity-100'
+              }`}
+          >
+            {CategoryRailSection}
+          </div>
+
+          <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full">
+            <PromotionBannerCarousel zoneId={zoneId} />
+
+            {/* Meals under 99 Section */}
+            {(loadingMealsUnder99 || mealsUnder99.length > 0) && (
+              <motion.section
+                className="content-auto space-y-4 pt-4 sm:pt-6"
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5 }}
+              >
+                <div className="px-4 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <h2 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 dark:text-white tracking-tight">
+                      Meals under
+                    </h2>
+                    <span className="flex items-center justify-center border-[1.5px] border-gray-900 dark:border-white rounded-full px-2 py-0.5 text-xs sm:text-sm font-black text-gray-900 dark:text-white leading-none">
+                      ₹99
+                    </span>
+                  </div>
+                  <Link
+                    to="/food/user/under-250"
+                    className="text-xs sm:text-sm font-bold flex items-center gap-0.5 transition-all hover:opacity-80 active:scale-95"
+                    style={{ color: "var(--module-theme-color, #E2AD4B)" }}
+                  >
+                    See more
+                  </Link>
                 </div>
-              ) : filteredMealsUnder99.length === 0 ? (
-                <div className="px-4 py-6 text-center text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                  No meals under ₹99 match the selected filters.
+
+                {loadingMealsUnder99 ? (
+                  <div className="flex gap-3 sm:gap-4 px-4 pb-2 overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <div key={i} className="flex-shrink-0 w-[140px] flex flex-col gap-2">
+                        <div className="w-full h-[140px] rounded-2xl bg-gray-100 dark:bg-neutral-800 animate-pulse" />
+                        <div className="h-3 w-12 bg-gray-100 dark:bg-neutral-800 animate-pulse rounded" />
+                        <div className="h-4 w-full bg-gray-100 dark:bg-neutral-800 animate-pulse rounded" />
+                        <div className="h-4 w-1/2 bg-gray-100 dark:bg-neutral-800 animate-pulse rounded" />
+                      </div>
+                    ))}
+                  </div>
+                ) : filteredMealsUnder99.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+                    No meals under ₹99 match the selected filters.
+                  </div>
+                ) : (
+                  <div
+                    className="flex gap-3 sm:gap-4 px-4 pb-2 overflow-x-auto scrollbar-hide scroll-smooth"
+                    style={{
+                      scrollbarWidth: "none",
+                      msOverflowStyle: "none",
+                      touchAction: "pan-x pan-y pinch-zoom",
+                    }}
+                  >
+                    {filteredMealsUnder99.map((dish) => {
+                      const variants = dish.variants || [];
+                      const hasVariants = variants && variants.length > 0;
+                      const totalQty = getCartItemQuantity(dish);
+                      return (
+                        <div
+                          key={dish.id}
+                          className="flex-shrink-0 w-[140px] flex flex-col gap-2 group cursor-pointer"
+                        >
+                          {/* Image container */}
+                          <div className="relative w-full h-[140px] rounded-2xl bg-gray-50 dark:bg-neutral-900 border border-gray-100 dark:border-gray-800 shadow-sm">
+                            <div className="w-full h-full rounded-2xl overflow-hidden relative">
+                              <img
+                                src={dish.image}
+                                alt={dish.name}
+                                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                loading="lazy"
+                              />
+                            </div>
+
+                            {/* Rating Badge Overlay */}
+                            <div className="absolute -bottom-[1px] -left-[1px] bg-white dark:bg-[#1a1a1a] pt-[3px] pr-[5px] rounded-tr-lg rounded-bl-2xl flex items-center justify-center z-10">
+                              <div className="flex items-center gap-[2px] bg-[#EAFBF1] dark:bg-emerald-950/90 text-[#2E7D32] dark:text-emerald-400 text-[10.5px] font-bold px-[5px] py-[2px] rounded-[4px] shadow-sm">
+                                <span className="text-[11px] leading-none">★</span>
+                                <span className="leading-none">{dish.rating || 4.2}</span>
+                              </div>
+                            </div>
+
+                            {/* Popular Badge */}
+                            <div
+                              className="absolute top-2 left-2 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded-md shadow-sm"
+                              style={{ backgroundColor: "#379702" }}
+                            >
+                              Popular
+                            </div>
+
+                            {/* Plus Button or Quantity Selector Overlay */}
+                            {totalQty > 0 ? (
+                              <div
+                                className="absolute bottom-2 right-2 h-8 rounded-full bg-white dark:bg-gray-900 shadow-md flex items-center justify-between border px-1.5 gap-1.5 border-gray-200 dark:border-gray-800"
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleDecreaseQuantity(dish, e)}
+                                  className="w-5 h-5 flex items-center justify-center hover:opacity-80 transition-all active:scale-75"
+                                  style={{ color: "var(--module-theme-color, #E2AD4B)" }}
+                                >
+                                  <Minus className="h-3.5 w-3.5" strokeWidth={3.5} />
+                                </button>
+                                <span className="text-[12px] font-black text-gray-950 dark:text-white min-w-[12px] text-center select-none">
+                                  {totalQty}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleIncreaseQuantity(dish, e)}
+                                  className="w-5 h-5 flex items-center justify-center hover:opacity-80 transition-all active:scale-75"
+                                  style={{ color: "var(--module-theme-color, #E2AD4B)" }}
+                                >
+                                  <Plus className="h-3.5 w-3.5" strokeWidth={3.5} />
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => handleIncreaseQuantity(dish, e)}
+                                className="absolute bottom-2 right-2 w-8 h-8 rounded-full bg-white dark:bg-gray-900 shadow-md flex items-center justify-center border transition-all active:scale-90 border-gray-200 dark:border-gray-800"
+                              >
+                                <Plus className="h-4 w-4" style={{ color: "var(--module-theme-color, #E2AD4B)" }} strokeWidth={3} />
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Content info */}
+                          <div className="flex flex-col gap-1 min-w-0 mt-2.5">
+                            {/* Restaurant */}
+                            <div className="flex items-center min-w-0">
+                              <span className="text-[10px] text-gray-500 dark:text-gray-400 font-bold truncate">
+                                {dish.restaurantName}
+                              </span>
+                            </div>
+
+                            {/* Veg/Non-veg Dot & Name */}
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <div className="shrink-0 w-3.5 h-3.5 border border-gray-300 dark:border-gray-700 rounded flex items-center justify-center p-[2.5px] bg-white">
+                                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: dish.isVeg ? "#22c55e" : "#dc2626" }} />
+                              </div>
+                              <span className="text-[12px] font-bold text-gray-900 dark:text-white truncate">
+                                {dish.name}
+                              </span>
+                            </div>
+
+                            {/* Price */}
+                            <div className="flex items-center justify-between w-full pr-1">
+                              <div className="flex items-center gap-1.5">
+                                {dish.originalPrice && dish.originalPrice > dish.price ? (
+                                  <>
+                                    <span className="text-[10px] text-gray-400 line-through">
+                                      ₹{dish.originalPrice}
+                                    </span>
+                                    <span
+                                      className="text-[11px] font-black px-1.5 py-0.5 rounded-md"
+                                      style={{
+                                        color: "var(--module-theme-color, #E2AD4B)",
+                                        backgroundColor: "color-mix(in srgb, var(--module-theme-color, #E2AD4B) 10%, transparent)"
+                                      }}
+                                    >
+                                      ₹{dish.price}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="text-[12px] font-black text-gray-950 dark:text-white">
+                                    ₹{dish.price}
+                                  </span>
+                                )}
+                              </div>
+                              {hasVariants && (
+                                <span className="text-[8px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                                  Customisable
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </motion.section>
+            )}
+
+            {/* Filters sentinel to detect when original Filters section is crossed */}
+            <div ref={filtersSentinelRef} aria-hidden="true" />
+
+            {/* Main Food & Restaurant Filter Bar */}
+            <div
+              className={`pt-4 px-0 transition-opacity duration-200 ${isSmartStickyActive && isFiltersCrossed ? 'opacity-0 pointer-events-none' : 'opacity-100'
+                }`}
+            >
+              <FoodFilterBar
+                sortBy={sortBy || "relevance"}
+                onSortChange={(val) => setSortBy(val === "relevance" ? null : val)}
+                isVeg={activeFilters.has("veg")}
+                onVegToggle={() => toggleHomeFilter("veg")}
+                isNonVeg={activeFilters.has("non-veg")}
+                onNonVegToggle={() => toggleHomeFilter("non-veg")}
+                rating4Plus={activeFilters.has("rating-4plus")}
+                onRating4PlusToggle={() => toggleHomeFilter("rating-4plus")}
+                hasOffers={activeFilters.has("has-offers")}
+                onOffersToggle={() => toggleHomeFilter("has-offers")}
+                under30Mins={activeFilters.has("delivery-under-30")}
+                onUnder30MinsToggle={() => toggleHomeFilter("delivery-under-30")}
+                onFilterButtonClick={() => setIsFilterOpen(true)}
+              />
+            </div>
+
+            {filteredRecommendedForYou.length > 0 && (
+              <motion.section
+                className="content-auto space-y-4 pt-4 sm:pt-6"
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5 }}>
+                <div className="px-4 flex items-center justify-between">
+                  <h2 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 dark:text-white tracking-tight">
+                    Recommended for you
+                  </h2>
                 </div>
-              ) : (
-                <div 
+                <div
                   className="flex gap-3 sm:gap-4 px-4 pb-2 overflow-x-auto scrollbar-hide scroll-smooth"
                   style={{
                     scrollbarWidth: "none",
@@ -3825,176 +4115,6 @@ export default function Home() {
                     touchAction: "pan-x pan-y pinch-zoom",
                   }}
                 >
-                  {filteredMealsUnder99.map((dish) => {
-                    const variants = dish.variants || [];
-                    const hasVariants = variants && variants.length > 0;
-                    const totalQty = getCartItemQuantity(dish);
-                    return (
-                      <div
-                        key={dish.id}
-                        className="flex-shrink-0 w-[140px] flex flex-col gap-2 group cursor-pointer"
-                      >
-                        {/* Image container */}
-                        <div className="relative w-full h-[140px] rounded-2xl bg-gray-50 dark:bg-neutral-900 border border-gray-100 dark:border-gray-800 shadow-sm">
-                          <div className="w-full h-full rounded-2xl overflow-hidden relative">
-                            <img
-                              src={dish.image}
-                              alt={dish.name}
-                              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                              loading="lazy"
-                            />
-                          </div>
-                          
-                          {/* Rating Badge Overlay */}
-                          <div className="absolute -bottom-[1px] -left-[1px] bg-white dark:bg-[#1a1a1a] pt-[3px] pr-[5px] rounded-tr-lg rounded-bl-2xl flex items-center justify-center z-10">
-                            <div className="flex items-center gap-[2px] bg-[#EAFBF1] dark:bg-emerald-950/90 text-[#2E7D32] dark:text-emerald-400 text-[10.5px] font-bold px-[5px] py-[2px] rounded-[4px] shadow-sm">
-                              <span className="text-[11px] leading-none">★</span>
-                              <span className="leading-none">{dish.rating || 4.2}</span>
-                            </div>
-                          </div>
-                          
-                          {/* Popular Badge */}
-                          <div 
-                            className="absolute top-2 left-2 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded-md shadow-sm"
-                            style={{ backgroundColor: "#379702" }}
-                          >
-                            Popular
-                          </div>
-
-                          {/* Plus Button or Quantity Selector Overlay */}
-                          {totalQty > 0 ? (
-                            <div
-                              className="absolute bottom-2 right-2 h-8 rounded-full bg-white dark:bg-gray-900 shadow-md flex items-center justify-between border px-1.5 gap-1.5 border-gray-200 dark:border-gray-800"
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                            >
-                              <button
-                                type="button"
-                                onClick={(e) => handleDecreaseQuantity(dish, e)}
-                                className="w-5 h-5 flex items-center justify-center hover:opacity-80 transition-all active:scale-75"
-                                style={{ color: "var(--module-theme-color, #E2AD4B)" }}
-                              >
-                                <Minus className="h-3.5 w-3.5" strokeWidth={3.5} />
-                              </button>
-                              <span className="text-[12px] font-black text-gray-950 dark:text-white min-w-[12px] text-center select-none">
-                                {totalQty}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={(e) => handleIncreaseQuantity(dish, e)}
-                                className="w-5 h-5 flex items-center justify-center hover:opacity-80 transition-all active:scale-75"
-                                style={{ color: "var(--module-theme-color, #E2AD4B)" }}
-                              >
-                                <Plus className="h-3.5 w-3.5" strokeWidth={3.5} />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={(e) => handleIncreaseQuantity(dish, e)}
-                              className="absolute bottom-2 right-2 w-8 h-8 rounded-full bg-white dark:bg-gray-900 shadow-md flex items-center justify-center border transition-all active:scale-90 border-gray-200 dark:border-gray-800"
-                            >
-                              <Plus className="h-4 w-4" style={{ color: "var(--module-theme-color, #E2AD4B)" }} strokeWidth={3} />
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Content info */}
-                        <div className="flex flex-col gap-1 min-w-0 mt-2.5">
-                          {/* Restaurant */}
-                          <div className="flex items-center min-w-0">
-                            <span className="text-[10px] text-gray-500 dark:text-gray-400 font-bold truncate">
-                              {dish.restaurantName}
-                            </span>
-                          </div>
-
-                          {/* Veg/Non-veg Dot & Name */}
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <div className="shrink-0 w-3.5 h-3.5 border border-gray-300 dark:border-gray-700 rounded flex items-center justify-center p-[2.5px] bg-white">
-                              <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: dish.isVeg ? "#22c55e" : "#dc2626" }} />
-                            </div>
-                            <span className="text-[12px] font-bold text-gray-900 dark:text-white truncate">
-                              {dish.name}
-                            </span>
-                          </div>
-
-                          {/* Price */}
-                          <div className="flex items-center justify-between w-full pr-1">
-                            <div className="flex items-center gap-1.5">
-                              {dish.originalPrice && dish.originalPrice > dish.price ? (
-                                <>
-                                  <span className="text-[10px] text-gray-400 line-through">
-                                    ₹{dish.originalPrice}
-                                  </span>
-                                  <span 
-                                    className="text-[11px] font-black px-1.5 py-0.5 rounded-md"
-                                    style={{ 
-                                      color: "var(--module-theme-color, #E2AD4B)", 
-                                      backgroundColor: "color-mix(in srgb, var(--module-theme-color, #E2AD4B) 10%, transparent)" 
-                                    }}
-                                  >
-                                    ₹{dish.price}
-                                  </span>
-                                </>
-                              ) : (
-                                <span className="text-[12px] font-black text-gray-950 dark:text-white">
-                                  ₹{dish.price}
-                                </span>
-                              )}
-                            </div>
-                            {hasVariants && (
-                              <span className="text-[8px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-                                Customisable
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </motion.section>
-          )}
-
-          {/* Main Food & Restaurant Filter Bar */}
-          <div className="pt-4 px-0">
-            <FoodFilterBar
-              sortBy={sortBy || "relevance"}
-              onSortChange={(val) => setSortBy(val === "relevance" ? null : val)}
-              isVeg={activeFilters.has("veg")}
-              onVegToggle={() => toggleHomeFilter("veg")}
-              isNonVeg={activeFilters.has("non-veg")}
-              onNonVegToggle={() => toggleHomeFilter("non-veg")}
-              rating4Plus={activeFilters.has("rating-4plus")}
-              onRating4PlusToggle={() => toggleHomeFilter("rating-4plus")}
-              hasOffers={activeFilters.has("has-offers")}
-              onOffersToggle={() => toggleHomeFilter("has-offers")}
-              under30Mins={activeFilters.has("delivery-under-30")}
-              onUnder30MinsToggle={() => toggleHomeFilter("delivery-under-30")}
-              onFilterButtonClick={() => setIsFilterOpen(true)}
-            />
-          </div>
-
-          {filteredRecommendedForYou.length > 0 && (
-            <motion.section
-              className="content-auto space-y-4 pt-4 sm:pt-6"
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5 }}>
-              <div className="px-4 flex items-center justify-between">
-                <h2 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 dark:text-white tracking-tight">
-                  Recommended for you
-                </h2>
-              </div>
-              <div
-                className="flex gap-3 sm:gap-4 px-4 pb-2 overflow-x-auto scrollbar-hide scroll-smooth"
-                style={{
-                  scrollbarWidth: "none",
-                  msOverflowStyle: "none",
-                  touchAction: "pan-x pan-y pinch-zoom",
-                }}
-              >
                   {filteredRecommendedForYou.map((restaurant, index) => {
                     const restaurantSlug =
                       restaurant.slug ||
@@ -4010,7 +4130,7 @@ export default function Home() {
                         <div
                           onClick={(e) => {
                             if (e.defaultPrevented) return;
-                            try { captureHomeScrollBeforeLeave(); } catch (_) {}
+                            try { captureHomeScrollBeforeLeave(); } catch (_) { }
                             navigate(`/food/user/restaurants/${restaurantSlug}`);
                           }}
                           className="block rounded-[20px] overflow-hidden border border-gray-100 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] shadow-sm hover:shadow-md transition-shadow cursor-pointer">
@@ -4049,936 +4169,915 @@ export default function Home() {
               </motion.section>
             )}
 
-          <div className="py-4">
-            <PromoRow 
-              handleVegModeChange={handleVegModeChange}
-              navigate={navigate}
-              isVegMode={vegMode}
-              toggleRef={vegModeToggleRef}
-            />
-          </div>
-
-          {HeroBannerSection}
-
-          {/* Restaurants - Enhanced with Animations */}
-          <motion.section
-            className="content-auto space-y-0 pt-3 sm:pt-4 lg:pt-6 pb-8 md:pb-10"
-            initial={false}
-            animate={{ opacity: 1 }}>
-            <div className="px-4 mb-3 lg:mb-4">
-              <div className="flex flex-col gap-0.5 lg:gap-1">
-                <h2 className="text-xs sm:text-sm lg:text-base font-semibold text-gray-400 tracking-widest uppercase">
-                  {filteredRestaurants.length} Restaurants Delivering to You
-                </h2>
-                <span className="text-base sm:text-lg lg:text-2xl text-gray-500 font-normal">
-                  Featured
-                </span>
-              </div>
+            <div className="py-4">
+              <PromoRow
+                handleVegModeChange={handleVegModeChange}
+                navigate={navigate}
+                isVegMode={vegMode}
+                toggleRef={vegModeToggleRef}
+              />
             </div>
-            <div
-              className={`relative ${showRestaurantSkeleton ? "min-h-[360px] sm:min-h-[420px]" : ""}`}>
-              {/* Loading Overlay */}
-              <AnimatePresence>
-                {showRestaurantSkeleton && (
-                  <motion.div
-                    className="absolute inset-0 z-10 rounded-lg bg-white/94 dark:bg-[#1a1a1a]/94"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.25 }}>
-                    <LoadingSkeletonRegion label="Loading restaurants" className="h-full p-1 sm:p-2">
-                      <RestaurantGridSkeleton
-                        count={3}
-                        className="grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3"
-                        compact
-                      />
-                    </LoadingSkeletonRegion>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+
+            {HeroBannerSection}
+
+            {/* Restaurants - Enhanced with Animations */}
+            <motion.section
+              className="content-auto space-y-0 pt-3 sm:pt-4 lg:pt-6 pb-8 md:pb-10"
+              initial={false}
+              animate={{ opacity: 1 }}>
+              <div className="px-4 mb-3 lg:mb-4">
+                <div className="flex flex-col gap-0.5 lg:gap-1">
+                  <h2 className="text-xs sm:text-sm lg:text-base font-semibold text-gray-400 tracking-widest uppercase">
+                    {filteredRestaurants.length} Restaurants Delivering to You
+                  </h2>
+                  <span className="text-base sm:text-lg lg:text-2xl text-gray-500 font-normal">
+                    Featured
+                  </span>
+                </div>
+              </div>
               <div
-                className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-4 lg:gap-5 xl:gap-6 px-4 pt-1 sm:pt-1.5 lg:pt-2 items-stretch ${isLoadingFilterResults || loadingRestaurants ? "opacity-50" : "opacity-100"} transition-opacity duration-300`}>
-                {visibleRestaurants.map((restaurant, index) => {
-                  const nameStr =
-                    typeof restaurant?.name === "string"
-                      ? restaurant.name.trim()
-                      : "";
-                  const fallbackSlugSource =
-                    nameStr ||
-                    (typeof restaurant?.restaurantName === "string"
-                      ? restaurant.restaurantName.trim()
-                      : "") ||
-                    String(
-                      restaurant?.slug ||
+                className={`relative ${showRestaurantSkeleton ? "min-h-[360px] sm:min-h-[420px]" : ""}`}>
+                {/* Loading Overlay */}
+                <AnimatePresence>
+                  {showRestaurantSkeleton && (
+                    <motion.div
+                      className="absolute inset-0 z-10 rounded-lg bg-white/94 dark:bg-[#1a1a1a]/94"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.25 }}>
+                      <LoadingSkeletonRegion label="Loading restaurants" className="h-full p-1 sm:p-2">
+                        <RestaurantGridSkeleton
+                          count={3}
+                          className="grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3"
+                          compact
+                        />
+                      </LoadingSkeletonRegion>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <div
+                  className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-4 lg:gap-5 xl:gap-6 px-4 pt-1 sm:pt-1.5 lg:pt-2 items-stretch ${isLoadingFilterResults || loadingRestaurants ? "opacity-50" : "opacity-100"} transition-opacity duration-300`}>
+                  {visibleRestaurants.map((restaurant, index) => {
+                    const nameStr =
+                      typeof restaurant?.name === "string"
+                        ? restaurant.name.trim()
+                        : "";
+                    const fallbackSlugSource =
+                      nameStr ||
+                      (typeof restaurant?.restaurantName === "string"
+                        ? restaurant.restaurantName.trim()
+                        : "") ||
+                      String(
+                        restaurant?.slug ||
                         restaurant?.id ||
                         restaurant?._id ||
                         `restaurant-${index}`,
+                      );
+
+                    const restaurantSlug =
+                      typeof restaurant?.slug === "string" &&
+                        restaurant.slug.trim()
+                        ? restaurant.slug.trim()
+                        : fallbackSlugSource.toLowerCase().replace(/\s+/g, "-");
+
+                    const favorite = isFavorite(restaurantSlug);
+
+                    const handleToggleFavorite = (slug, res) => {
+                      if (favorite) {
+                        setSelectedRestaurantSlug(slug);
+                        setShowManageCollections(true);
+                      } else {
+                        addFavorite({
+                          slug: slug,
+                          name: res.name,
+                          cuisine: res.cuisine,
+                          rating: res.rating,
+                          deliveryTime: res.deliveryTime,
+                          distance: res.distance,
+                          priceRange: res.priceRange,
+                          image: res.image,
+                        });
+                        setShowToast(true);
+                        setTimeout(() => {
+                          setShowToast(false);
+                        }, 3000);
+                      }
+                    };
+
+                    return (
+                      <RestaurantCard
+                        key={restaurant?.id || restaurant?._id || restaurantSlug || index}
+                        restaurant={restaurant}
+                        index={index}
+                        availabilityTick={availabilityTick}
+                        isOutOfService={isOutOfService}
+                        favorite={favorite}
+                        onToggleFavorite={handleToggleFavorite}
+                        BACKEND_ORIGIN={BACKEND_ORIGIN}
+                        restaurantSlug={restaurantSlug}
+                        onNavigateAway={captureHomeScrollBeforeLeave}
+                      />
                     );
+                  })}
+                </div>
+                {filteredRestaurants.length === 0 && !showRestaurantSkeleton && (
+                  <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                    <div className="w-16 h-16 rounded-full bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center mb-3">
+                      <SlidersHorizontal className="w-8 h-8 text-[#659116]" />
+                    </div>
+                    <h3 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white mb-1">
+                      No restaurants match your filters
+                    </h3>
+                    <p className="text-xs sm:text-sm text-gray-500 max-w-xs mb-4">
+                      Try clearing or adjusting your selected filters to see more restaurants.
+                    </p>
+                    <button
+                      onClick={() => {
+                        setActiveFilters(new Set());
+                        setSortBy(null);
+                        setSelectedCuisine(null);
+                      }}
+                      className="px-4 py-2 rounded-xl bg-[#659116] text-white text-xs sm:text-sm font-bold shadow-sm hover:opacity-90 transition-opacity"
+                    >
+                      Clear All Filters
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col items-center pt-2 sm:pt-3 gap-2 px-4">
+                {hasMoreRestaurants && (
+                  <Button
+                    variant="outline"
+                    onClick={loadMoreRestaurants}
+                    className="text-sm font-medium border-gray-300 hover:border-gray-400">
+                    Load more restaurants
+                  </Button>
+                )}
+                <div
+                  ref={restaurantLoadMoreRef}
+                  className="h-1 w-full"
+                  aria-hidden="true"
+                />
+              </div>
+            </motion.section>
+          </div>
+        </div>
+      </div>
 
-                  const restaurantSlug =
-                    typeof restaurant?.slug === "string" &&
-                    restaurant.slug.trim()
-                      ? restaurant.slug.trim()
-                      : fallbackSlugSource.toLowerCase().replace(/\s+/g, "-");
-                  
-                  const favorite = isFavorite(restaurantSlug);
+      {/* Filter Modal - Bottom Sheet */}
+      <AnimatePresence>
+        {isFilterOpen && (
+          <div className="fixed inset-0 z-[100]">
+            {/* Backdrop */}
+            <motion.div
+              className="absolute inset-0 bg-black/50"
+              onClick={() => setIsFilterOpen(false)}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+            />
 
-                  const handleToggleFavorite = (slug, res) => {
-                    if (favorite) {
-                      setSelectedRestaurantSlug(slug);
-                      setShowManageCollections(true);
-                    } else {
-                      addFavorite({
-                        slug: slug,
-                        name: res.name,
-                        cuisine: res.cuisine,
-                        rating: res.rating,
-                        deliveryTime: res.deliveryTime,
-                        distance: res.distance,
-                        priceRange: res.priceRange,
-                        image: res.image,
-                      });
-                      setShowToast(true);
-                      setTimeout(() => {
-                        setShowToast(false);
-                      }, 3000);
-                    }
-                  };
+            {/* Modal Content */}
+            <motion.div
+              className="absolute bottom-0 left-0 right-0 bg-white dark:bg-[#1a1a1a] rounded-t-3xl max-h-[85vh] flex flex-col"
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{
+                type: "spring",
+                damping: 30,
+                stiffness: 400,
+                duration: 0.3,
+              }}>
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 py-4 border-b dark:border-gray-800">
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                  Filters and sorting
+                </h2>
+                <button
+                  onClick={() => {
+                    setActiveFilters(new Set());
+                    setSortBy(null);
+                    setSelectedCuisine(null);
+                  }}
+                  className="text-[#659116] font-bold text-sm">
+                  Clear all
+                </button>
+              </div>
 
-                  return (
-                    <RestaurantCard
-                      key={restaurant?.id || restaurant?._id || restaurantSlug || index}
-                      restaurant={restaurant}
-                      index={index}
-                      availabilityTick={availabilityTick}
-                      isOutOfService={isOutOfService}
-                      favorite={favorite}
-                      onToggleFavorite={handleToggleFavorite}
-                      BACKEND_ORIGIN={BACKEND_ORIGIN}
-                      restaurantSlug={restaurantSlug}
-                      onNavigateAway={captureHomeScrollBeforeLeave}
+              {/* Body */}
+              <div className="flex flex-1 overflow-hidden">
+                {/* Left Sidebar - Tabs */}
+                <div className="w-24 sm:w-28 bg-gray-50 dark:bg-[#0a0a0a] border-r dark:border-gray-800 flex flex-col">
+                  {[
+                    { id: "sort", label: "Sort By", icon: ArrowDownUp },
+                    { id: "time", label: "Time", icon: Timer },
+                    { id: "rating", label: "Rating", icon: Star },
+                    { id: "distance", label: "Distance", icon: MapPin },
+                    { id: "price", label: "Dish Price", icon: IndianRupee },
+                    { id: "offers", label: "Offers", icon: BadgePercent },
+                    { id: "trust", label: "Trust", icon: ShieldCheck },
+                  ].map((tab) => {
+                    const Icon = tab.icon;
+                    const isActive =
+                      activeScrollSection === tab.id ||
+                      activeFilterTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() => {
+                          setActiveFilterTab(tab.id);
+                          const section = filterSectionRefs.current[tab.id];
+                          if (section) {
+                            section.scrollIntoView({
+                              behavior: "smooth",
+                              block: "start",
+                            });
+                          }
+                        }}
+                        className={`flex flex-col items-center gap-1 py-4 px-2 text-center relative transition-colors ${isActive
+                            ? "bg-white dark:bg-[#1a1a1a] text-[#659116] font-bold"
+                            : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+                          }`}>
+                        {isActive && (
+                          <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#659116] rounded-r" />
+                        )}
+                        <Icon className="h-5 w-5" strokeWidth={1.5} />
+                        <span className="text-xs font-medium leading-tight">
+                          {tab.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Right Content Area - Scrollable */}
+                <div
+                  ref={rightContentRef}
+                  className="flex-1 overflow-y-auto p-4">
+                  {/* Sort By Tab */}
+                  <div
+                    ref={(el) => (filterSectionRefs.current["sort"] = el)}
+                    data-section-id="sort"
+                    className="space-y-4 mb-8">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                      Sort by
+                    </h3>
+                    <div className="flex flex-col gap-3">
+                      {[
+                        { id: null, label: "Relevance" },
+                        { id: "price-low", label: "Price: Low to High" },
+                        { id: "price-high", label: "Price: High to Low" },
+                        { id: "rating-high", label: "Rating: High to Low" },
+                        { id: "rating-low", label: "Rating: Low to High" },
+                      ].map((option) => (
+                        <button
+                          key={option.id || "relevance"}
+                          onClick={() => setSortBy(option.id)}
+                          className={`px-4 py-3 rounded-xl border text-left transition-colors ${sortBy === option.id
+                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30 font-bold text-[#659116]"
+                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
+                            }`}>
+                          <span
+                            className={`text-sm font-medium ${sortBy === option.id ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                            {option.label}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Time Tab */}
+                  <div
+                    ref={(el) => (filterSectionRefs.current["time"] = el)}
+                    data-section-id="time"
+                    className="space-y-4 mb-8">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                      Estimated Time
+                    </h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => toggleFilter("delivery-under-30")}
+                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${activeFilters.has("delivery-under-30")
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
+                          }`}>
+                        <Timer
+                          className={`h-6 w-6 ${activeFilters.has("delivery-under-30") ? "text-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
+                          strokeWidth={1.5}
+                        />
+                        <span
+                          className={`text-sm font-medium ${activeFilters.has("delivery-under-30") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          Under 30 mins
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => toggleFilter("delivery-under-45")}
+                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${activeFilters.has("delivery-under-45")
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
+                          }`}>
+                        <Timer
+                          className={`h-6 w-6 ${activeFilters.has("delivery-under-45") ? "text-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
+                          strokeWidth={1.5}
+                        />
+                        <span
+                          className={`text-sm font-medium ${activeFilters.has("delivery-under-45") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          Under 45 mins
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Rating Tab */}
+                  <div
+                    ref={(el) => (filterSectionRefs.current["rating"] = el)}
+                    data-section-id="rating"
+                    className="space-y-4 mb-8">
+                    <h3 className="text-lg font-semibold text-gray-900  dark:text-white mb-4">
+                      Restaurant Rating
+                    </h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => toggleFilter("rating-35-plus")}
+                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${activeFilters.has("rating-35-plus")
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
+                          }`}>
+                        <Star
+                          className={`h-6 w-6 ${activeFilters.has("rating-35-plus") ? "text-[#659116] fill-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
+                          strokeWidth={1.5}
+                        />
+                        <span
+                          className={`text-sm font-medium ${activeFilters.has("rating-35-plus") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          3.5+ Rating
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => toggleFilter("rating-4-plus")}
+                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${activeFilters.has("rating-4-plus")
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
+                          }`}>
+                        <Star
+                          className={`h-6 w-6 ${activeFilters.has("rating-4-plus") ? "text-[#659116] fill-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
+                          strokeWidth={1.5}
+                        />
+                        <span
+                          className={`text-sm font-medium ${activeFilters.has("rating-4-plus") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          4.0+ Rating
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => toggleFilter("rating-45-plus")}
+                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${activeFilters.has("rating-45-plus")
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
+                          }`}>
+                        <Star
+                          className={`h-6 w-6 ${activeFilters.has("rating-45-plus") ? "text-[#659116] fill-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
+                          strokeWidth={1.5}
+                        />
+                        <span
+                          className={`text-sm font-medium ${activeFilters.has("rating-45-plus") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          4.5+ Rating
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Distance Tab */}
+                  <div
+                    ref={(el) => (filterSectionRefs.current["distance"] = el)}
+                    data-section-id="distance"
+                    className="space-y-4 mb-8">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                      Distance
+                    </h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => toggleFilter("distance-under-1km")}
+                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${activeFilters.has("distance-under-1km")
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
+                          }`}>
+                        <MapPin
+                          className={`h-6 w-6 ${activeFilters.has("distance-under-1km") ? "text-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
+                          strokeWidth={1.5}
+                        />
+                        <span
+                          className={`text-sm font-medium ${activeFilters.has("distance-under-1km") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          Under 1 km
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => toggleFilter("distance-under-2km")}
+                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${activeFilters.has("distance-under-2km")
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
+                          }`}>
+                        <MapPin
+                          className={`h-6 w-6 ${activeFilters.has("distance-under-2km") ? "text-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
+                          strokeWidth={1.5}
+                        />
+                        <span
+                          className={`text-sm font-medium ${activeFilters.has("distance-under-2km") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          Under 2 km
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Price Tab */}
+                  <div
+                    ref={(el) => (filterSectionRefs.current["price"] = el)}
+                    data-section-id="price"
+                    className="space-y-4 mb-8">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                      Dish Price
+                    </h3>
+                    <div className="flex flex-col gap-3">
+                      <button
+                        onClick={() => toggleFilter("price-under-200")}
+                        className={`px-4 py-3 rounded-xl border text-left transition-colors ${activeFilters.has("price-under-200")
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
+                          }`}>
+                        <span
+                          className={`text-sm font-medium ${activeFilters.has("price-under-200") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          Under ₹200
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => toggleFilter("price-under-500")}
+                        className={`px-4 py-3 rounded-xl border text-left transition-colors ${activeFilters.has("price-under-500")
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
+                          }`}>
+                        <span
+                          className={`text-sm font-medium ${activeFilters.has("price-under-500") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          Under ₹500
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+
+
+                  {/* Trust Markers Tab */}
+                  <div
+                    ref={(el) => (filterSectionRefs.current["trust"] = el)}
+                    data-section-id="trust"
+                    className="space-y-4 mb-8">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                      Trust Markers
+                    </h3>
+                    <div className="flex flex-col gap-3">
+                      <button
+                        onClick={() => toggleFilter("top-rated")}
+                        className={`px-4 py-3 rounded-xl border text-left transition-colors ${activeFilters.has("top-rated")
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
+                          }`}>
+                        <span
+                          className={`text-sm font-medium ${activeFilters.has("top-rated") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          Top Rated
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => toggleFilter("trusted")}
+                        className={`px-4 py-3 rounded-xl border text-left transition-colors ${activeFilters.has("trusted")
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
+                          }`}>
+                        <span
+                          className={`text-sm font-medium ${activeFilters.has("trusted") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          Trusted by 1000+ users
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Offers Tab */}
+                  <div
+                    ref={(el) => (filterSectionRefs.current["offers"] = el)}
+                    data-section-id="offers"
+                    className="space-y-4 mb-8">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                      Offers
+                    </h3>
+                    <div className="flex flex-col gap-3">
+                      <button
+                        onClick={() => toggleFilter("has-offers")}
+                        className={`px-4 py-3 rounded-xl border text-left transition-colors ${activeFilters.has("has-offers")
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
+                          }`}>
+                        <span
+                          className={`text-sm font-medium ${activeFilters.has("has-offers") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          Restaurants with offers
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center gap-4 px-4 py-4 border-t dark:border-gray-800 bg-white dark:bg-[#1a1a1a]">
+                <button
+                  onClick={() => setIsFilterOpen(false)}
+                  className="flex-1 py-3 text-center font-semibold text-gray-700 dark:text-gray-300">
+                  Close
+                </button>
+                <button
+                  onClick={async () => {
+                    setIsFilterOpen(false);
+                    await applyFiltersAndRefetch(
+                      activeFilters,
+                      sortBy,
+                      selectedCuisine,
+                    );
+                  }}
+                  className={`flex-1 py-3 font-semibold rounded-xl transition-colors ${activeFilters.size > 0 || sortBy || selectedCuisine
+                      ? "bg-[#659116] text-white hover:bg-[#5ECC11]"
+                      : "bg-gray-200 text-gray-500"
+                    }`}
+                  disabled={isLoadingFilterResults}>
+                  {isLoadingFilterResults
+                    ? "Loading..."
+                    : activeFilters.size > 0 || sortBy || selectedCuisine
+                      ? `Show results`
+                      : "Show results"}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Veg Mode Popup */}
+      <AnimatePresence>
+        {showVegModePopup && (
+          <motion.div
+            key="veg-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => {
+              setShowVegModePopup(false);
+              // Revert veg mode to OFF if popup is closed without applying
+              setVegModeContext(false);
+              setPrevVegMode(false);
+            }}
+            className="fixed inset-0 bg-black/30 z-[9998] backdrop-blur-sm"
+          />
+        )}
+        {showVegModePopup && (
+          /* Popup */
+          <motion.div
+            key="veg-popup"
+            initial={{ opacity: 0, scale: 0.9, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 10 }}
+            transition={{
+              type: "spring",
+              damping: 25,
+              stiffness: 300,
+              mass: 0.8,
+            }}
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl p-6 pt-7 w-[85%] max-w-xs relative border border-gray-100 dark:border-gray-800">
+              {/* Food Illustration in Top Right Corner */}
+              <div className="absolute top-2.5 right-10 w-16 h-16 pointer-events-none select-none z-10">
+                <img
+                  src="/food_popup_ill2.png"
+                  alt="Food illustration"
+                  className="w-full h-full object-contain"
+                />
+              </div>
+
+              <button
+                type="button"
+                aria-label="Close veg mode popup"
+                onClick={() => {
+                  setShowVegModePopup(false);
+                  setVegModeContext(false);
+                  setPrevVegMode(false);
+                }}
+                className="absolute top-4 right-4 p-0.5 text-gray-450 hover:text-gray-700 dark:text-gray-450 dark:hover:text-gray-200 transition-colors z-20"
+              >
+                <X className="h-4.5 w-4.5" strokeWidth={2.5} />
+              </button>
+
+              {/* Title */}
+              <h3 className="text-base sm:text-lg font-black text-gray-900 dark:text-white mb-4 pr-24 leading-snug">
+                I want to see choices from
+              </h3>
+
+              {/* Radio Options */}
+              <div className="space-y-3 mb-5">
+                {/* All restaurants */}
+                <label
+                  className="flex items-center justify-between cursor-pointer py-1 hover:bg-gray-50/50 dark:hover:bg-gray-800/35 transition-colors w-full"
+                  onClick={() => setVegModeOption("all")}
+                >
+                  <span className={`text-sm font-semibold transition-colors ${vegModeOption === "all" ? "text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
+                    }`}>
+                    All restaurants
+                  </span>
+                  <div className="relative flex items-center justify-center">
+                    <input
+                      type="radio"
+                      name="vegModeOption"
+                      value="all"
+                      checked={vegModeOption === "all"}
+                      onChange={() => setVegModeOption("all")}
+                      className="sr-only"
                     />
+                    <div
+                      className={`w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center transition-all ${vegModeOption === "all"
+                          ? "border-[#659116] bg-[#659116]"
+                          : "border-gray-300 dark:border-gray-600 bg-white dark:bg-[#2a2a2a]"
+                        }`}
+                    >
+                      {vegModeOption === "all" && (
+                        <div className="w-2 h-2 rounded-full bg-white" />
+                      )}
+                    </div>
+                  </div>
+                </label>
+
+                {/* Pure Veg restaurants only */}
+                <label
+                  className="flex items-center justify-between cursor-pointer py-1 hover:bg-gray-50/50 dark:hover:bg-gray-800/35 transition-colors w-full"
+                  onClick={() => setVegModeOption("pure-veg")}
+                >
+                  <span className={`text-sm font-semibold transition-colors ${vegModeOption === "pure-veg" ? "text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
+                    }`}>
+                    Pure veg restaurants only
+                  </span>
+                  <div className="relative flex items-center justify-center">
+                    <input
+                      type="radio"
+                      name="vegModeOption"
+                      value="pure-veg"
+                      checked={vegModeOption === "pure-veg"}
+                      onChange={() => setVegModeOption("pure-veg")}
+                      className="sr-only"
+                    />
+                    <div
+                      className={`w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center transition-all ${vegModeOption === "pure-veg"
+                          ? "border-[#659116] bg-[#659116]"
+                          : "border-gray-300 dark:border-gray-600 bg-white dark:bg-[#2a2a2a]"
+                        }`}
+                    >
+                      {vegModeOption === "pure-veg" && (
+                        <div className="w-2 h-2 rounded-full bg-white" />
+                      )}
+                    </div>
+                  </div>
+                </label>
+
+                {/* Non-veg restaurants only */}
+                <label
+                  className="flex items-center justify-between cursor-pointer py-1 hover:bg-gray-50/50 dark:hover:bg-gray-800/35 transition-colors w-full"
+                  onClick={() => setVegModeOption("non-veg")}
+                >
+                  <span className={`text-sm font-semibold transition-colors ${vegModeOption === "non-veg" ? "text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
+                    }`}>
+                    Non-veg restaurants only
+                  </span>
+                  <div className="relative flex items-center justify-center">
+                    <input
+                      type="radio"
+                      name="vegModeOption"
+                      value="non-veg"
+                      checked={vegModeOption === "non-veg"}
+                      onChange={() => setVegModeOption("non-veg")}
+                      className="sr-only"
+                    />
+                    <div
+                      className={`w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center transition-all ${vegModeOption === "non-veg"
+                          ? "border-[#659116] bg-[#659116]"
+                          : "border-gray-300 dark:border-gray-600 bg-white dark:bg-[#2a2a2a]"
+                        }`}
+                    >
+                      {vegModeOption === "non-veg" && (
+                        <div className="w-2 h-2 rounded-full bg-white" />
+                      )}
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              {/* Apply Button */}
+              <button
+                onClick={() => {
+                  setShowVegModePopup(false);
+                  setIsApplyingVegMode(true);
+                  // Confirm veg mode is ON by updating context and prevVegMode
+                  setVegModeContext(true);
+                  setPrevVegMode(true);
+                  // Simulate applying veg mode settings
+                  setTimeout(() => {
+                    setIsApplyingVegMode(false);
+                  }, 1000);
+                }}
+                className="w-full bg-[#659116] hover:bg-[#5ECC11] text-white font-bold py-2.5 rounded-xl transition-colors mb-1 text-sm shadow-md shadow-emerald-500/10 active:scale-[0.98]"
+              >
+                Show restaurants
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Switch Off Veg Mode Popup */}
+      <AnimatePresence>
+        {showSwitchOffPopup && (
+          <motion.div
+            key="off-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => {
+              setShowSwitchOffPopup(false);
+              isHandlingSwitchOff.current = false;
+              setVegModeContext(true);
+              // prevVegMode stays true (from before), which is correct
+            }}
+            className="fixed inset-0 bg-black/50 z-[9998] backdrop-blur-sm"
+          />
+        )}
+        {showSwitchOffPopup && (
+          <motion.div
+            key="off-popup"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            transition={{
+              type: "spring",
+              damping: 25,
+              stiffness: 300,
+              mass: 0.8,
+            }}
+            className="fixed inset-0 z-[9999] flex dark:bg-[#lalala] dark:text-white items-center justify-center p-4"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="bg-white dark:bg-[#lalala] dark:text-white rounded-2xl shadow-2xl w-[85%] max-w-sm p-6">
+              {/* Warning Icon */}
+              <div className="flex justify-center mb-4">
+                <div className="w-20 h-20 rounded-full bg-pink-100 flex items-center justify-center">
+                  <AlertCircle
+                    className="w-20 h-20 text-white bg-red-500/90 rounded-full p-2"
+                    strokeWidth={2.5}
+                  />
+                </div>
+              </div>
+
+              {/* Title */}
+              <h2 className="text-2xl font-bold text-gray-900  text-center mb-2">
+                Switch off Veg Mode?
+              </h2>
+
+              {/* Description */}
+              <p className="text-gray-600 text-center mb-6 text-sm">
+                You'll see all restaurants, including those serving non-veg
+                dishes
+              </p>
+
+              {/* Buttons */}
+              <div className="space-y-3">
+                <button
+                  onClick={() => {
+                    setShowSwitchOffPopup(false);
+                    setIsSwitchingOffVegMode(true);
+                    // Simulate switching off veg mode
+                    setTimeout(() => {
+                      setIsSwitchingOffVegMode(false);
+                      isHandlingSwitchOff.current = false;
+                      setVegModeContext(false);
+                      setPrevVegMode(false); // Set to false to match current state (veg mode is OFF)
+                    }, 2000);
+                  }}
+                  className="w-full bg-transparent text-red-600 font-normal py-1 text-normal rounded-xl hover:bg-red-50 transition-colors text-base">
+                  Switch off
+                </button>
+
+                <button
+                  onClick={() => {
+                    setShowSwitchOffPopup(false);
+                    isHandlingSwitchOff.current = false;
+                    setVegModeContext(true);
+                    // prevVegMode stays true (from before), which is correct
+                  }}
+                  className="w-full text-gray-900 font-normal py-1 text-center rounded-xl hover:bg-gray-200 transition-colors text-base">
+                  Keep using this mode
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* All Categories Modal */}
+      <AnimatePresence>
+        {showAllCategoriesModal && (
+          <motion.div
+            key="cat-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => setShowAllCategoriesModal(false)}
+            className="fixed inset-0 bg-black/40 z-[9998] backdrop-blur-sm"
+          />
+        )}
+        {showAllCategoriesModal && (
+          <motion.div
+            key="cat-modal"
+            initial={{ opacity: 0, y: "100%" }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: "100%" }}
+            transition={{
+              type: "spring",
+              damping: 30,
+              stiffness: 300,
+            }}
+            className="fixed inset-x-0 bottom-0 top-12 sm:top-16 md:top-20 z-[9999] bg-white dark:bg-[#1a1a1a] rounded-t-3xl shadow-2xl overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 sm:px-6 sm:py-5 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
+              <h2 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
+                All Categories
+              </h2>
+              <button
+                onClick={() => setShowAllCategoriesModal(false)}
+                className="p-1.5 sm:p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                aria-label="Close">
+                <X className="w-5 h-5 sm:w-6 sm:h-6 text-gray-600 dark:text-gray-400" />
+              </button>
+            </div>
+
+            {/* Categories Grid - Scrollable */}
+            <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 sm:py-5">
+              <div className="grid grid-cols-3 gap-4 sm:gap-5 md:gap-6">
+                {displayCategories.map((category, index) => {
+                  const categoryData = {
+                    name: category.name || category.label,
+                    image: category.image || category.imageUrl,
+                    slug: category.slug,
+                  };
+                  return (
+                    <motion.div
+                      key={category.id || index}
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{
+                        duration: 0.3,
+                        delay: index * 0.02,
+                        type: "spring",
+                        stiffness: 100,
+                      }}
+                      whileTap={{ scale: 0.95 }}>
+                      <Link
+                        to={`/user/category/${categoryData.slug || categoryData.name.toLowerCase().replace(/\s+/g, "-")}`}
+                        onClick={() => setShowAllCategoriesModal(false)}
+                        className="block">
+                        <div className="flex flex-col items-center gap-2 sm:gap-2.5 cursor-pointer w-full">
+                          <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full overflow-hidden shadow-md transition-all hover:shadow-lg flex-shrink-0">
+                            <OptimizedImage
+                              src={categoryData.image}
+                              alt={categoryData.name}
+                              className="w-full h-full bg-white rounded-full"
+                              sizes="(max-width: 640px) 80px, (max-width: 768px) 96px, 112px"
+                              objectFit="cover"
+                              placeholder="blur"
+                              onError={() => { }}
+                            />
+                          </div>
+                          <span className="text-xs sm:text-sm font-medium text-gray-800 dark:text-gray-200 text-center leading-tight px-1 break-words w-full min-w-0">
+                            {categoryData.name}
+                          </span>
+                        </div>
+                      </Link>
+                    </motion.div>
                   );
                 })}
               </div>
-              {filteredRestaurants.length === 0 && !showRestaurantSkeleton && (
-                <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-                  <div className="w-16 h-16 rounded-full bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center mb-3">
-                    <SlidersHorizontal className="w-8 h-8 text-[#659116]" />
-                  </div>
-                  <h3 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white mb-1">
-                    No restaurants match your filters
-                  </h3>
-                  <p className="text-xs sm:text-sm text-gray-500 max-w-xs mb-4">
-                    Try clearing or adjusting your selected filters to see more restaurants.
-                  </p>
-                  <button
-                    onClick={() => {
-                      setActiveFilters(new Set());
-                      setSortBy(null);
-                      setSelectedCuisine(null);
-                    }}
-                    className="px-4 py-2 rounded-xl bg-[#659116] text-white text-xs sm:text-sm font-bold shadow-sm hover:opacity-90 transition-opacity"
-                  >
-                    Clear All Filters
-                  </button>
-                </div>
-              )}
             </div>
-            <div className="flex flex-col items-center pt-2 sm:pt-3 gap-2 px-4">
-              {hasMoreRestaurants && (
-                <Button
-                  variant="outline"
-                  onClick={loadMoreRestaurants}
-                  className="text-sm font-medium border-gray-300 hover:border-gray-400">
-                  Load more restaurants
-                </Button>
-              )}
-              <div
-                ref={restaurantLoadMoreRef}
-                className="h-1 w-full"
-                aria-hidden="true"
-              />
-            </div>
-          </motion.section>
-        </div>
-      </div>
-    </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-        {/* Filter Modal - Bottom Sheet */}
-        <AnimatePresence>
-          {isFilterOpen && (
-            <div className="fixed inset-0 z-[100]">
-              {/* Backdrop */}
-              <motion.div
-                className="absolute inset-0 bg-black/50"
-                onClick={() => setIsFilterOpen(false)}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
-              />
-
-              {/* Modal Content */}
-              <motion.div
-                className="absolute bottom-0 left-0 right-0 bg-white dark:bg-[#1a1a1a] rounded-t-3xl max-h-[85vh] flex flex-col"
-                initial={{ y: "100%" }}
-                animate={{ y: 0 }}
-                exit={{ y: "100%" }}
-                transition={{
-                  type: "spring",
-                  damping: 30,
-                  stiffness: 400,
-                  duration: 0.3,
-                }}>
-                {/* Header */}
-                <div className="flex items-center justify-between px-4 py-4 border-b dark:border-gray-800">
-                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-                    Filters and sorting
-                  </h2>
-                  <button
-                    onClick={() => {
-                      setActiveFilters(new Set());
-                      setSortBy(null);
-                      setSelectedCuisine(null);
-                    }}
-                    className="text-[#659116] font-bold text-sm">
-                    Clear all
-                  </button>
-                </div>
-
-                {/* Body */}
-                <div className="flex flex-1 overflow-hidden">
-                  {/* Left Sidebar - Tabs */}
-                  <div className="w-24 sm:w-28 bg-gray-50 dark:bg-[#0a0a0a] border-r dark:border-gray-800 flex flex-col">
-                    {[
-                      { id: "sort", label: "Sort By", icon: ArrowDownUp },
-                      { id: "time", label: "Time", icon: Timer },
-                      { id: "rating", label: "Rating", icon: Star },
-                      { id: "distance", label: "Distance", icon: MapPin },
-                      { id: "price", label: "Dish Price", icon: IndianRupee },
-                      { id: "offers", label: "Offers", icon: BadgePercent },
-                      { id: "trust", label: "Trust", icon: ShieldCheck },
-                    ].map((tab) => {
-                      const Icon = tab.icon;
-                      const isActive =
-                        activeScrollSection === tab.id ||
-                        activeFilterTab === tab.id;
-                      return (
-                        <button
-                          key={tab.id}
-                          onClick={() => {
-                            setActiveFilterTab(tab.id);
-                            const section = filterSectionRefs.current[tab.id];
-                            if (section) {
-                              section.scrollIntoView({
-                                behavior: "smooth",
-                                block: "start",
-                              });
-                            }
-                          }}
-                          className={`flex flex-col items-center gap-1 py-4 px-2 text-center relative transition-colors ${
-                            isActive
-                              ? "bg-white dark:bg-[#1a1a1a] text-[#659116] font-bold"
-                              : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
-                          }`}>
-                          {isActive && (
-                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#659116] rounded-r" />
-                          )}
-                          <Icon className="h-5 w-5" strokeWidth={1.5} />
-                          <span className="text-xs font-medium leading-tight">
-                            {tab.label}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Right Content Area - Scrollable */}
-                  <div
-                    ref={rightContentRef}
-                    className="flex-1 overflow-y-auto p-4">
-                    {/* Sort By Tab */}
-                    <div
-                      ref={(el) => (filterSectionRefs.current["sort"] = el)}
-                      data-section-id="sort"
-                      className="space-y-4 mb-8">
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                        Sort by
-                      </h3>
-                      <div className="flex flex-col gap-3">
-                        {[
-                          { id: null, label: "Relevance" },
-                          { id: "price-low", label: "Price: Low to High" },
-                          { id: "price-high", label: "Price: High to Low" },
-                          { id: "rating-high", label: "Rating: High to Low" },
-                          { id: "rating-low", label: "Rating: Low to High" },
-                        ].map((option) => (
-                          <button
-                            key={option.id || "relevance"}
-                            onClick={() => setSortBy(option.id)}
-                            className={`px-4 py-3 rounded-xl border text-left transition-colors ${
-                              sortBy === option.id
-                                ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30 font-bold text-[#659116]"
-                                : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
-                            }`}>
-                            <span
-                              className={`text-sm font-medium ${sortBy === option.id ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
-                              {option.label}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Time Tab */}
-                    <div
-                      ref={(el) => (filterSectionRefs.current["time"] = el)}
-                      data-section-id="time"
-                      className="space-y-4 mb-8">
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                        Estimated Time
-                      </h3>
-                      <div className="grid grid-cols-2 gap-3">
-                        <button
-                          onClick={() => toggleFilter("delivery-under-30")}
-                          className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${
-                            activeFilters.has("delivery-under-30")
-                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
-                          }`}>
-                          <Timer
-                            className={`h-6 w-6 ${activeFilters.has("delivery-under-30") ? "text-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
-                            strokeWidth={1.5}
-                          />
-                          <span
-                            className={`text-sm font-medium ${activeFilters.has("delivery-under-30") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
-                            Under 30 mins
-                          </span>
-                        </button>
-                        <button
-                          onClick={() => toggleFilter("delivery-under-45")}
-                          className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${
-                            activeFilters.has("delivery-under-45")
-                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
-                          }`}>
-                          <Timer
-                            className={`h-6 w-6 ${activeFilters.has("delivery-under-45") ? "text-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
-                            strokeWidth={1.5}
-                          />
-                          <span
-                            className={`text-sm font-medium ${activeFilters.has("delivery-under-45") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
-                            Under 45 mins
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Rating Tab */}
-                    <div
-                      ref={(el) => (filterSectionRefs.current["rating"] = el)}
-                      data-section-id="rating"
-                      className="space-y-4 mb-8">
-                      <h3 className="text-lg font-semibold text-gray-900  dark:text-white mb-4">
-                        Restaurant Rating
-                      </h3>
-                      <div className="grid grid-cols-2 gap-3">
-                        <button
-                          onClick={() => toggleFilter("rating-35-plus")}
-                          className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${
-                            activeFilters.has("rating-35-plus")
-                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
-                          }`}>
-                          <Star
-                            className={`h-6 w-6 ${activeFilters.has("rating-35-plus") ? "text-[#659116] fill-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
-                            strokeWidth={1.5}
-                          />
-                          <span
-                            className={`text-sm font-medium ${activeFilters.has("rating-35-plus") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
-                            3.5+ Rating
-                          </span>
-                        </button>
-                        <button
-                          onClick={() => toggleFilter("rating-4-plus")}
-                          className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${
-                            activeFilters.has("rating-4-plus")
-                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
-                          }`}>
-                          <Star
-                            className={`h-6 w-6 ${activeFilters.has("rating-4-plus") ? "text-[#659116] fill-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
-                            strokeWidth={1.5}
-                          />
-                          <span
-                            className={`text-sm font-medium ${activeFilters.has("rating-4-plus") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
-                            4.0+ Rating
-                          </span>
-                        </button>
-                        <button
-                          onClick={() => toggleFilter("rating-45-plus")}
-                          className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${
-                            activeFilters.has("rating-45-plus")
-                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
-                          }`}>
-                          <Star
-                            className={`h-6 w-6 ${activeFilters.has("rating-45-plus") ? "text-[#659116] fill-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
-                            strokeWidth={1.5}
-                          />
-                          <span
-                            className={`text-sm font-medium ${activeFilters.has("rating-45-plus") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
-                            4.5+ Rating
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Distance Tab */}
-                    <div
-                      ref={(el) => (filterSectionRefs.current["distance"] = el)}
-                      data-section-id="distance"
-                      className="space-y-4 mb-8">
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                        Distance
-                      </h3>
-                      <div className="grid grid-cols-2 gap-3">
-                        <button
-                          onClick={() => toggleFilter("distance-under-1km")}
-                          className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${
-                            activeFilters.has("distance-under-1km")
-                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
-                          }`}>
-                          <MapPin
-                            className={`h-6 w-6 ${activeFilters.has("distance-under-1km") ? "text-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
-                            strokeWidth={1.5}
-                          />
-                          <span
-                            className={`text-sm font-medium ${activeFilters.has("distance-under-1km") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
-                            Under 1 km
-                          </span>
-                        </button>
-                        <button
-                          onClick={() => toggleFilter("distance-under-2km")}
-                          className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${
-                            activeFilters.has("distance-under-2km")
-                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
-                          }`}>
-                          <MapPin
-                            className={`h-6 w-6 ${activeFilters.has("distance-under-2km") ? "text-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
-                            strokeWidth={1.5}
-                          />
-                          <span
-                            className={`text-sm font-medium ${activeFilters.has("distance-under-2km") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
-                            Under 2 km
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Price Tab */}
-                    <div
-                      ref={(el) => (filterSectionRefs.current["price"] = el)}
-                      data-section-id="price"
-                      className="space-y-4 mb-8">
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                        Dish Price
-                      </h3>
-                      <div className="flex flex-col gap-3">
-                        <button
-                          onClick={() => toggleFilter("price-under-200")}
-                          className={`px-4 py-3 rounded-xl border text-left transition-colors ${
-                            activeFilters.has("price-under-200")
-                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
-                          }`}>
-                          <span
-                            className={`text-sm font-medium ${activeFilters.has("price-under-200") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
-                            Under ₹200
-                          </span>
-                        </button>
-                        <button
-                          onClick={() => toggleFilter("price-under-500")}
-                          className={`px-4 py-3 rounded-xl border text-left transition-colors ${
-                            activeFilters.has("price-under-500")
-                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
-                          }`}>
-                          <span
-                            className={`text-sm font-medium ${activeFilters.has("price-under-500") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
-                            Under ₹500
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-
-                    
-
-                    {/* Trust Markers Tab */}
-                    <div
-                      ref={(el) => (filterSectionRefs.current["trust"] = el)}
-                      data-section-id="trust"
-                      className="space-y-4 mb-8">
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                        Trust Markers
-                      </h3>
-                      <div className="flex flex-col gap-3">
-                        <button
-                          onClick={() => toggleFilter("top-rated")}
-                          className={`px-4 py-3 rounded-xl border text-left transition-colors ${
-                            activeFilters.has("top-rated")
-                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
-                          }`}>
-                          <span
-                            className={`text-sm font-medium ${activeFilters.has("top-rated") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
-                            Top Rated
-                          </span>
-                        </button>
-                        <button
-                          onClick={() => toggleFilter("trusted")}
-                          className={`px-4 py-3 rounded-xl border text-left transition-colors ${
-                            activeFilters.has("trusted")
-                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
-                          }`}>
-                          <span
-                            className={`text-sm font-medium ${activeFilters.has("trusted") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
-                            Trusted by 1000+ users
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Offers Tab */}
-                    <div
-                      ref={(el) => (filterSectionRefs.current["offers"] = el)}
-                      data-section-id="offers"
-                      className="space-y-4 mb-8">
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                        Offers
-                      </h3>
-                      <div className="flex flex-col gap-3">
-                        <button
-                          onClick={() => toggleFilter("has-offers")}
-                          className={`px-4 py-3 rounded-xl border text-left transition-colors ${
-                            activeFilters.has("has-offers")
-                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
-                          }`}>
-                          <span
-                            className={`text-sm font-medium ${activeFilters.has("has-offers") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
-                            Restaurants with offers
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Footer */}
-                <div className="flex items-center gap-4 px-4 py-4 border-t dark:border-gray-800 bg-white dark:bg-[#1a1a1a]">
-                  <button
-                    onClick={() => setIsFilterOpen(false)}
-                    className="flex-1 py-3 text-center font-semibold text-gray-700 dark:text-gray-300">
-                    Close
-                  </button>
-                  <button
-                    onClick={async () => {
-                      setIsFilterOpen(false);
-                      await applyFiltersAndRefetch(
-                        activeFilters,
-                        sortBy,
-                        selectedCuisine,
-                      );
-                    }}
-                    className={`flex-1 py-3 font-semibold rounded-xl transition-colors ${
-                      activeFilters.size > 0 || sortBy || selectedCuisine
-                        ? "bg-[#659116] text-white hover:bg-[#5ECC11]"
-                        : "bg-gray-200 text-gray-500"
-                    }`}
-                    disabled={isLoadingFilterResults}>
-                    {isLoadingFilterResults
-                      ? "Loading..."
-                      : activeFilters.size > 0 || sortBy || selectedCuisine
-                        ? `Show results`
-                        : "Show results"}
-                  </button>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-
-        {/* Veg Mode Popup */}
-        <AnimatePresence>
-          {showVegModePopup && (
-            <motion.div
-              key="veg-backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              onClick={() => {
-                setShowVegModePopup(false);
-                // Revert veg mode to OFF if popup is closed without applying
-                setVegModeContext(false);
-                setPrevVegMode(false);
-              }}
-              className="fixed inset-0 bg-black/30 z-[9998] backdrop-blur-sm"
-            />
-          )}
-          {showVegModePopup && (
-            /* Popup */
-            <motion.div
-              key="veg-popup"
-              initial={{ opacity: 0, scale: 0.9, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 10 }}
-              transition={{
-                type: "spring",
-                damping: 25,
-                stiffness: 300,
-                mass: 0.8,
-              }}
-              className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl p-6 pt-7 w-[85%] max-w-xs relative border border-gray-100 dark:border-gray-800">
-                {/* Food Illustration in Top Right Corner */}
-                <div className="absolute top-2.5 right-10 w-16 h-16 pointer-events-none select-none z-10">
-                  <img 
-                    src="/food_popup_ill2.png" 
-                    alt="Food illustration" 
-                    className="w-full h-full object-contain"
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  aria-label="Close veg mode popup"
-                  onClick={() => {
-                    setShowVegModePopup(false);
-                    setVegModeContext(false);
-                    setPrevVegMode(false);
-                  }}
-                  className="absolute top-4 right-4 p-0.5 text-gray-450 hover:text-gray-700 dark:text-gray-450 dark:hover:text-gray-200 transition-colors z-20"
-                >
-                  <X className="h-4.5 w-4.5" strokeWidth={2.5} />
-                </button>
-
-                {/* Title */}
-                <h3 className="text-base sm:text-lg font-black text-gray-900 dark:text-white mb-4 pr-24 leading-snug">
-                  I want to see choices from
-                </h3>
-
-                {/* Radio Options */}
-                <div className="space-y-3 mb-5">
-                  {/* All restaurants */}
-                  <label
-                    className="flex items-center justify-between cursor-pointer py-1 hover:bg-gray-50/50 dark:hover:bg-gray-800/35 transition-colors w-full"
-                    onClick={() => setVegModeOption("all")}
-                  >
-                    <span className={`text-sm font-semibold transition-colors ${
-                      vegModeOption === "all" ? "text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
-                    }`}>
-                      All restaurants
-                    </span>
-                    <div className="relative flex items-center justify-center">
-                      <input
-                        type="radio"
-                        name="vegModeOption"
-                        value="all"
-                        checked={vegModeOption === "all"}
-                        onChange={() => setVegModeOption("all")}
-                        className="sr-only"
-                      />
-                      <div
-                        className={`w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center transition-all ${
-                          vegModeOption === "all"
-                            ? "border-[#659116] bg-[#659116]"
-                            : "border-gray-300 dark:border-gray-600 bg-white dark:bg-[#2a2a2a]"
-                        }`}
-                      >
-                        {vegModeOption === "all" && (
-                          <div className="w-2 h-2 rounded-full bg-white" />
-                        )}
-                      </div>
-                    </div>
-                  </label>
-
-                  {/* Pure Veg restaurants only */}
-                  <label
-                    className="flex items-center justify-between cursor-pointer py-1 hover:bg-gray-50/50 dark:hover:bg-gray-800/35 transition-colors w-full"
-                    onClick={() => setVegModeOption("pure-veg")}
-                  >
-                    <span className={`text-sm font-semibold transition-colors ${
-                      vegModeOption === "pure-veg" ? "text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
-                    }`}>
-                      Pure veg restaurants only
-                    </span>
-                    <div className="relative flex items-center justify-center">
-                      <input
-                        type="radio"
-                        name="vegModeOption"
-                        value="pure-veg"
-                        checked={vegModeOption === "pure-veg"}
-                        onChange={() => setVegModeOption("pure-veg")}
-                        className="sr-only"
-                      />
-                      <div
-                        className={`w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center transition-all ${
-                          vegModeOption === "pure-veg"
-                            ? "border-[#659116] bg-[#659116]"
-                            : "border-gray-300 dark:border-gray-600 bg-white dark:bg-[#2a2a2a]"
-                        }`}
-                      >
-                        {vegModeOption === "pure-veg" && (
-                          <div className="w-2 h-2 rounded-full bg-white" />
-                        )}
-                      </div>
-                    </div>
-                  </label>
-
-                  {/* Non-veg restaurants only */}
-                  <label
-                    className="flex items-center justify-between cursor-pointer py-1 hover:bg-gray-50/50 dark:hover:bg-gray-800/35 transition-colors w-full"
-                    onClick={() => setVegModeOption("non-veg")}
-                  >
-                    <span className={`text-sm font-semibold transition-colors ${
-                       vegModeOption === "non-veg" ? "text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
-                    }`}>
-                      Non-veg restaurants only
-                    </span>
-                    <div className="relative flex items-center justify-center">
-                      <input
-                        type="radio"
-                        name="vegModeOption"
-                        value="non-veg"
-                        checked={vegModeOption === "non-veg"}
-                        onChange={() => setVegModeOption("non-veg")}
-                        className="sr-only"
-                      />
-                      <div
-                        className={`w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center transition-all ${
-                          vegModeOption === "non-veg"
-                            ? "border-[#659116] bg-[#659116]"
-                            : "border-gray-300 dark:border-gray-600 bg-white dark:bg-[#2a2a2a]"
-                        }`}
-                      >
-                        {vegModeOption === "non-veg" && (
-                          <div className="w-2 h-2 rounded-full bg-white" />
-                        )}
-                      </div>
-                    </div>
-                  </label>
-                </div>
-
-                {/* Apply Button */}
-                <button
-                  onClick={() => {
-                    setShowVegModePopup(false);
-                    setIsApplyingVegMode(true);
-                    // Confirm veg mode is ON by updating context and prevVegMode
-                    setVegModeContext(true);
-                    setPrevVegMode(true);
-                    // Simulate applying veg mode settings
-                    setTimeout(() => {
-                      setIsApplyingVegMode(false);
-                    }, 1000);
-                  }}
-                  className="w-full bg-[#659116] hover:bg-[#5ECC11] text-white font-bold py-2.5 rounded-xl transition-colors mb-1 text-sm shadow-md shadow-emerald-500/10 active:scale-[0.98]"
-                >
-                  Show restaurants
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Switch Off Veg Mode Popup */}
-        <AnimatePresence>
-          {showSwitchOffPopup && (
-            <motion.div
-              key="off-backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              onClick={() => {
-                setShowSwitchOffPopup(false);
-                isHandlingSwitchOff.current = false;
-                setVegModeContext(true);
-                // prevVegMode stays true (from before), which is correct
-              }}
-              className="fixed inset-0 bg-black/50 z-[9998] backdrop-blur-sm"
-            />
-          )}
-          {showSwitchOffPopup && (
-            <motion.div
-              key="off-popup"
-              initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                transition={{
-                  type: "spring",
-                  damping: 25,
-                  stiffness: 300,
-                  mass: 0.8,
-                }}
-                className="fixed inset-0 z-[9999] flex dark:bg-[#lalala] dark:text-white items-center justify-center p-4"
-                onClick={(e) => e.stopPropagation()}>
-                <div className="bg-white dark:bg-[#lalala] dark:text-white rounded-2xl shadow-2xl w-[85%] max-w-sm p-6">
-                  {/* Warning Icon */}
-                  <div className="flex justify-center mb-4">
-                    <div className="w-20 h-20 rounded-full bg-pink-100 flex items-center justify-center">
-                      <AlertCircle
-                        className="w-20 h-20 text-white bg-red-500/90 rounded-full p-2"
-                        strokeWidth={2.5}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Title */}
-                  <h2 className="text-2xl font-bold text-gray-900  text-center mb-2">
-                    Switch off Veg Mode?
-                  </h2>
-
-                  {/* Description */}
-                  <p className="text-gray-600 text-center mb-6 text-sm">
-                    You'll see all restaurants, including those serving non-veg
-                    dishes
-                  </p>
-
-                  {/* Buttons */}
-                  <div className="space-y-3">
-                    <button
-                      onClick={() => {
-                        setShowSwitchOffPopup(false);
-                        setIsSwitchingOffVegMode(true);
-                        // Simulate switching off veg mode
-                        setTimeout(() => {
-                          setIsSwitchingOffVegMode(false);
-                          isHandlingSwitchOff.current = false;
-                          setVegModeContext(false);
-                          setPrevVegMode(false); // Set to false to match current state (veg mode is OFF)
-                        }, 2000);
-                      }}
-                      className="w-full bg-transparent text-red-600 font-normal py-1 text-normal rounded-xl hover:bg-red-50 transition-colors text-base">
-                      Switch off
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setShowSwitchOffPopup(false);
-                        isHandlingSwitchOff.current = false;
-                        setVegModeContext(true);
-                        // prevVegMode stays true (from before), which is correct
-                      }}
-                      className="w-full text-gray-900 font-normal py-1 text-center rounded-xl hover:bg-gray-200 transition-colors text-base">
-                      Keep using this mode
-                    </button>
-                  </div>
-                </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* All Categories Modal */}
-        <AnimatePresence>
-          {showAllCategoriesModal && (
-            <motion.div
-              key="cat-backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              onClick={() => setShowAllCategoriesModal(false)}
-              className="fixed inset-0 bg-black/40 z-[9998] backdrop-blur-sm"
-            />
-          )}
-          {showAllCategoriesModal && (
-            <motion.div
-              key="cat-modal"
-              initial={{ opacity: 0, y: "100%" }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: "100%" }}
-                transition={{
-                  type: "spring",
-                  damping: 30,
-                  stiffness: 300,
-                }}
-                className="fixed inset-x-0 bottom-0 top-12 sm:top-16 md:top-20 z-[9999] bg-white dark:bg-[#1a1a1a] rounded-t-3xl shadow-2xl overflow-hidden flex flex-col"
-                onClick={(e) => e.stopPropagation()}>
-                {/* Header */}
-                <div className="flex items-center justify-between px-5 py-4 sm:px-6 sm:py-5 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
-                  <h2 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
-                    All Categories
-                  </h2>
-                  <button
-                    onClick={() => setShowAllCategoriesModal(false)}
-                    className="p-1.5 sm:p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                    aria-label="Close">
-                    <X className="w-5 h-5 sm:w-6 sm:h-6 text-gray-600 dark:text-gray-400" />
-                  </button>
-                </div>
-
-                {/* Categories Grid - Scrollable */}
-                <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 sm:py-5">
-                  <div className="grid grid-cols-3 gap-4 sm:gap-5 md:gap-6">
-                    {displayCategories.map((category, index) => {
-                      const categoryData = {
-                        name: category.name || category.label,
-                        image: category.image || category.imageUrl,
-                        slug: category.slug,
-                      };
-                      return (
-                        <motion.div
-                          key={category.id || index}
-                          initial={{ opacity: 0, scale: 0.9 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          transition={{
-                            duration: 0.3,
-                            delay: index * 0.02,
-                            type: "spring",
-                            stiffness: 100,
-                          }}
-                          whileTap={{ scale: 0.95 }}>
-                          <Link
-                            to={`/user/category/${categoryData.slug || categoryData.name.toLowerCase().replace(/\s+/g, "-")}`}
-                            onClick={() => setShowAllCategoriesModal(false)}
-                            className="block">
-                            <div className="flex flex-col items-center gap-2 sm:gap-2.5 cursor-pointer w-full">
-                              <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full overflow-hidden shadow-md transition-all hover:shadow-lg flex-shrink-0">
-                                <OptimizedImage
-                                  src={categoryData.image}
-                                  alt={categoryData.name}
-                                  className="w-full h-full bg-white rounded-full"
-                                  sizes="(max-width: 640px) 80px, (max-width: 768px) 96px, 112px"
-                                  objectFit="cover"
-                                  placeholder="blur"
-                                  onError={() => {}}
-                                />
-                              </div>
-                              <span className="text-xs sm:text-sm font-medium text-gray-800 dark:text-gray-200 text-center leading-tight px-1 break-words w-full min-w-0">
-                                {categoryData.name}
-                              </span>
-                            </div>
-                          </Link>
-                        </motion.div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Loading Screen - Applying Veg Mode */}
-        {/* <AnimatePresence>
+      {/* Loading Screen - Applying Veg Mode */}
+      {/* <AnimatePresence>
         {isApplyingVegMode && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -5060,95 +5159,95 @@ export default function Home() {
         )}
       </AnimatePresence> */}
 
-        <AnimatePresence>
-          {isApplyingVegMode && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.3 }}
-              className="fixed inset-0 z-[10000] bg-white dark:bg-[#0a0a0a] flex items-center justify-center">
-              <div className="relative w-32 h-32 flex items-center justify-center w-full">
-                {/* Animated circles - positioned absolutely at the center */}
-                {[...Array(8)].map((_, i) => {
-                  const baseSize = 112;
-                  const maxSize = 600;
-                  return (
-                    <motion.div
-                      key={i}
-                      initial={{
-                        scale: 1,
-                        opacity: 0,
-                      }}
-                      animate={{
-                        scale: maxSize / baseSize,
-                        opacity: [0, 0.4, 0.2, 0],
-                      }}
-                      transition={{
-                        duration: 2.5,
-                        repeat: Number.POSITIVE_INFINITY,
-                        ease: "easeOut",
-                        delay: i * 0.15,
-                      }}
-                      className="absolute rounded-full border border-green-300 dark:border-green-600"
-                      style={{
-                        width: baseSize,
-                        height: baseSize,
-                        // left: "50%",
-                        // top: "50%",
-                        // transform: "translate(-50%, -50%)",
-                        // transformOrigin: "center center",
-                      }}
-                    />
-                  );
-                })}
-
-                {/* 100% VEG badge - absolute positioning at exact center */}
-                <motion.div
-                  initial={{ scale: 0, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{
-                    type: "spring",
-                    stiffness: 200,
-                    damping: 15,
-                    delay: 0.1,
-                  }}
-                  className="absolute z-10 w-28 h-28 rounded-full border-2 border-green-600 dark:border-green-500 bg-white dark:bg-[#1a1a1a] flex flex-col items-center justify-center shadow-sm"
-                  style={
-                    {
+      <AnimatePresence>
+        {isApplyingVegMode && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="fixed inset-0 z-[10000] bg-white dark:bg-[#0a0a0a] flex items-center justify-center">
+            <div className="relative w-32 h-32 flex items-center justify-center w-full">
+              {/* Animated circles - positioned absolutely at the center */}
+              {[...Array(8)].map((_, i) => {
+                const baseSize = 112;
+                const maxSize = 600;
+                return (
+                  <motion.div
+                    key={i}
+                    initial={{
+                      scale: 1,
+                      opacity: 0,
+                    }}
+                    animate={{
+                      scale: maxSize / baseSize,
+                      opacity: [0, 0.4, 0.2, 0],
+                    }}
+                    transition={{
+                      duration: 2.5,
+                      repeat: Number.POSITIVE_INFINITY,
+                      ease: "easeOut",
+                      delay: i * 0.15,
+                    }}
+                    className="absolute rounded-full border border-green-300 dark:border-green-600"
+                    style={{
+                      width: baseSize,
+                      height: baseSize,
                       // left: "50%",
                       // top: "50%",
                       // transform: "translate(-50%, -50%)",
-                    }
-                  }>
-                  <motion.div
-                    className="flex flex-col items-center"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.3 }}>
-                    <span className="text-green-600 dark:text-green-400 font-extrabold text-3xl leading-none">
-                      100%
-                    </span>
-                    <span className="text-green-600 dark:text-green-400 font-extrabold text-3xl leading-none mt-0.5">
-                      VEG
-                    </span>
-                  </motion.div>
-                </motion.div>
+                      // transformOrigin: "center center",
+                    }}
+                  />
+                );
+              })}
 
-                {/* Text below badge */}
-                <motion.p
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 }}
-                  className="text-xl font-normal text-gray-800 dark:text-gray-200 text-center relative z-10 mt-56 w-full">
-                  {vegModeOption === "pure-veg"
-                    ? "Explore pure veg restaurants only"
-                    : "Explore veg dishes from all restaurants"}
-                </motion.p>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+              {/* 100% VEG badge - absolute positioning at exact center */}
+              <motion.div
+                initial={{ scale: 0, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{
+                  type: "spring",
+                  stiffness: 200,
+                  damping: 15,
+                  delay: 0.1,
+                }}
+                className="absolute z-10 w-28 h-28 rounded-full border-2 border-green-600 dark:border-green-500 bg-white dark:bg-[#1a1a1a] flex flex-col items-center justify-center shadow-sm"
+                style={
+                  {
+                    // left: "50%",
+                    // top: "50%",
+                    // transform: "translate(-50%, -50%)",
+                  }
+                }>
+                <motion.div
+                  className="flex flex-col items-center"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.3 }}>
+                  <span className="text-green-600 dark:text-green-400 font-extrabold text-3xl leading-none">
+                    100%
+                  </span>
+                  <span className="text-green-600 dark:text-green-400 font-extrabold text-3xl leading-none mt-0.5">
+                    VEG
+                  </span>
+                </motion.div>
+              </motion.div>
+
+              {/* Text below badge */}
+              <motion.p
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.4 }}
+                className="text-xl font-normal text-gray-800 dark:text-gray-200 text-center relative z-10 mt-56 w-full">
+                {vegModeOption === "pure-veg"
+                  ? "Explore pure veg restaurants only"
+                  : "Explore veg dishes from all restaurants"}
+              </motion.p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Loading Screen - Switching Off Veg Mode */}
       <AnimatePresence>
