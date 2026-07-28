@@ -1363,7 +1363,7 @@ export default function LandingPageManagement() {
   const tabs = [
     { id: 'top-banners', label: 'Top Banners', icon: ImageIcon },
     { id: 'banners', label: 'Hero Banners', icon: ImageIcon },
-    { id: 'under-250', label: 'Switch 99 Banner', icon: Tag },
+    { id: 'under-250', label: 'Eatiefy 99 Banner', icon: Tag },
     // { id: 'dining', label: 'Dining', icon: UtensilsCrossed },
     { id: 'explore-more', label: 'Explore More', icon: Layout },
   ]
@@ -1572,7 +1572,7 @@ export default function LandingPageManagement() {
           </>
         )}
 
-        {/* Switch 99 Banner Tab */}
+        {/* Eatiefy 99 Banner Tab */}
         
         {activeTab === 'banners' && (
           <>
@@ -1719,7 +1719,7 @@ export default function LandingPageManagement() {
           </>
         )}
 
-        {/* Switch 99 Banner Tab */}
+        {/* Eatiefy 99 Banner Tab */}
         {activeTab === 'under-250' && (
           <>
             {/* Upload Section */}
