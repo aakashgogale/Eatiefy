@@ -140,6 +140,20 @@ export default function EditProfile() {
   const hydratedFromDraftRef = useRef(Boolean(draftProfile))
   const [dobOpen, setDobOpen] = useState(false)
   const [anniversaryOpen, setAnniversaryOpen] = useState(false)
+  const [tempDob, setTempDob] = useState("")
+  const [tempAnniversary, setTempAnniversary] = useState("")
+
+  useEffect(() => {
+    if (dobOpen) {
+      setTempDob(formData.dateOfBirth || "")
+    }
+  }, [dobOpen, formData.dateOfBirth])
+
+  useEffect(() => {
+    if (anniversaryOpen) {
+      setTempAnniversary(formData.anniversary || "")
+    }
+  }, [anniversaryOpen, formData.anniversary])
 
   // Update form data when profile changes
   useEffect(() => {
@@ -655,32 +669,15 @@ export default function EditProfile() {
                       <span className={formData.dateOfBirth ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-500'}>
                         {formData.dateOfBirth ? dayjs(formData.dateOfBirth).format('DD-MM-YYYY') : 'Select date'}
                       </span>
-                      <div className="flex items-center gap-1.5">
-                        {formData.dateOfBirth && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleChange('dateOfBirth', '')
-                            }}
-                            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full cursor-pointer"
-                          >
-                            <X className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-                          </button>
-                        )}
-                        <CalendarIcon className="w-5 h-5 text-gray-400 dark:text-gray-500" />
-                      </div>
+                      <CalendarIcon className="w-5 h-5 text-gray-400 dark:text-gray-500" />
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0 bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl z-50" align="start">
+                  <PopoverContent className="w-auto p-0 bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl z-50 flex flex-col overflow-hidden" align="start">
                     <Calendar
                       mode="single"
-                      selected={formData.dateOfBirth ? dayjs(formData.dateOfBirth).toDate() : undefined}
+                      selected={tempDob ? dayjs(tempDob).toDate() : undefined}
                       onSelect={(date) => {
-                        if (date) {
-                          handleChange('dateOfBirth', dayjs(date).format('YYYY-MM-DD'))
-                          setDobOpen(false)
-                        }
+                        setTempDob(date ? dayjs(date).format('YYYY-MM-DD') : "")
                       }}
                       disabled={(date) => dayjs(date).isAfter(dayjs(), 'day')}
                       captionLayout="dropdown"
@@ -691,6 +688,28 @@ export default function EditProfile() {
                       }}
                       initialFocus
                     />
+                    <div className="flex items-center justify-between border-t border-gray-100 dark:border-gray-800 p-3 bg-gray-50/50 dark:bg-neutral-900/50 rounded-b-2xl gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleChange('dateOfBirth', '')
+                          setDobOpen(false)
+                        }}
+                        className="flex-1 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer text-center"
+                      >
+                        Reset
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleChange('dateOfBirth', tempDob)
+                          setDobOpen(false)
+                        }}
+                        className="flex-1 py-2 text-xs font-semibold bg-[#EB590E] hover:bg-[#D94F0C] text-white rounded-lg cursor-pointer text-center"
+                      >
+                        Apply
+                      </button>
+                    </div>
                   </PopoverContent>
                 </Popover>
               </div>
@@ -714,32 +733,15 @@ export default function EditProfile() {
                       <span className={formData.anniversary ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-500'}>
                         {formData.anniversary ? dayjs(formData.anniversary).format('DD-MM-YYYY') : 'Select date'}
                       </span>
-                      <div className="flex items-center gap-1.5">
-                        {formData.anniversary && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleChange('anniversary', '')
-                            }}
-                            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full cursor-pointer"
-                          >
-                            <X className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-                          </button>
-                        )}
-                        <CalendarIcon className="w-5 h-5 text-gray-400 dark:text-gray-500" />
-                      </div>
+                      <CalendarIcon className="w-5 h-5 text-gray-400 dark:text-gray-500" />
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0 bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl z-50" align="start">
+                  <PopoverContent className="w-auto p-0 bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl z-50 flex flex-col overflow-hidden" align="start">
                     <Calendar
                       mode="single"
-                      selected={formData.anniversary ? dayjs(formData.anniversary).toDate() : undefined}
+                      selected={tempAnniversary ? dayjs(tempAnniversary).toDate() : undefined}
                       onSelect={(date) => {
-                        if (date) {
-                          handleChange('anniversary', dayjs(date).format('YYYY-MM-DD'))
-                          setAnniversaryOpen(false)
-                        }
+                        setTempAnniversary(date ? dayjs(date).format('YYYY-MM-DD') : "")
                       }}
                       disabled={(date) => dayjs(date).isAfter(dayjs(), 'day')}
                       captionLayout="dropdown"
@@ -750,6 +752,28 @@ export default function EditProfile() {
                       }}
                       initialFocus
                     />
+                    <div className="flex items-center justify-between border-t border-gray-100 dark:border-gray-800 p-3 bg-gray-50/50 dark:bg-neutral-900/50 rounded-b-2xl gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleChange('anniversary', '')
+                          setAnniversaryOpen(false)
+                        }}
+                        className="flex-1 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer text-center"
+                      >
+                        Reset
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleChange('anniversary', tempAnniversary)
+                          setAnniversaryOpen(false)
+                        }}
+                        className="flex-1 py-2 text-xs font-semibold bg-[#EB590E] hover:bg-[#D94F0C] text-white rounded-lg cursor-pointer text-center"
+                      >
+                        Apply
+                      </button>
+                    </div>
                   </PopoverContent>
                 </Popover>
               </div>
