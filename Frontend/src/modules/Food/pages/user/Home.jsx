@@ -961,6 +961,18 @@ export default function Home() {
   const filteredMealsUnder99 = useMemo(() => {
     let result = [...mealsUnder99];
 
+    // Apply global veg mode filter first
+    if (vegMode) {
+      if (vegModeOption === "non-veg") {
+        // "Only Non-Veg Restaurants" is active → show only non-veg food
+        result = result.filter((m) => !m.isVeg);
+      } else if (vegModeOption === "pure-veg") {
+        // "Pure Veg" is active → show only veg food
+        result = result.filter((m) => m.isVeg);
+      }
+      // vegModeOption === "all" → no additional restriction
+    }
+
     if (meals99IsVeg) {
       result = result.filter((m) => m.isVeg);
     }
@@ -998,6 +1010,8 @@ export default function Home() {
     meals99Rating4Plus,
     meals99HasOffers,
     meals99Under30Mins,
+    vegMode,
+    vegModeOption,
   ]);
   const [landingCategories, setLandingCategories] = useState([]);
   const [landingExploreMore, setLandingExploreMore] = useState([]);

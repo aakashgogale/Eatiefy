@@ -180,7 +180,7 @@ export default function FoodApproval() {
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
         <div className="flex items-center gap-2">
-          <CheckCircle2 className="w-5 h-5 text-green-500" />
+          <CheckCircle2 className="w-5 h-5 text-emerald-600" />
           <h1 className="text-lg sm:text-xl font-semibold text-gray-900">
             Food Approval
           </h1>
@@ -216,7 +216,8 @@ export default function FoodApproval() {
                   }
                 }}
                 disabled={processing}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-bold rounded-xl hover:bg-green-700 transition-all shadow-lg shadow-green-100 disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 text-white text-sm font-bold rounded-xl transition-all shadow-lg disabled:opacity-50 hover:scale-105 active:scale-95"
+                style={{ backgroundColor: "#10b981" }}
               >
                 <CheckCircle2 className="w-4 h-4" />
                 Bulk Approve All
@@ -315,7 +316,7 @@ export default function FoodApproval() {
                               request.isActionable
                                 ? 'bg-amber-100 text-amber-700'
                                 : String(request.approvalStatus || '').toLowerCase() === 'approved'
-                                  ? 'bg-green-100 text-green-700'
+                                  ? 'bg-emerald-100 text-emerald-700'
                                   : 'bg-gray-100 text-gray-700'
                             }`}>
                               {request.approvalStatus || (request.isActionable ? 'pending' : 'active')}
@@ -331,7 +332,7 @@ export default function FoodApproval() {
                             <div className="flex justify-end gap-1.5">
                               <button
                                 onClick={() => handleViewDetails(request)}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-white transition-colors"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-white transition-all hover:scale-105 active:scale-95"
                                 style={{ backgroundColor: "#006fbd" }}
                                 title="View Details"
                               >
@@ -340,7 +341,8 @@ export default function FoodApproval() {
                               <button
                                 onClick={() => handleApprove(request)}
                                 disabled={processing || !request.isActionable}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-white transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                                style={{ backgroundColor: "#10b981" }}
                                 title="Approve"
                               >
                                 <CheckCircle2 className="w-4 h-4" />
@@ -348,7 +350,8 @@ export default function FoodApproval() {
                               <button
                                 onClick={() => handleRejectClick(request)}
                                 disabled={processing || !request.isActionable}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-white transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                                style={{ backgroundColor: "#ef4444" }}
                                 title="Reject"
                               >
                                 <XCircle className="w-4 h-4" />
@@ -404,7 +407,7 @@ export default function FoodApproval() {
                     </div>
                     <div>
                         <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Price</label>
-                        <p className="text-sm font-bold text-green-600">{selectedRequest.price !== null && selectedRequest.price !== undefined ? `₹${selectedRequest.price}` : '-'}</p>
+                        <p className="text-sm font-bold text-emerald-600">{selectedRequest.price !== null && selectedRequest.price !== undefined ? `₹${selectedRequest.price}` : '-'}</p>
                     </div>
                     <div>
                         <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Status</label>
@@ -485,7 +488,8 @@ export default function FoodApproval() {
                   type="button"
                   onClick={() => handleApprove(selectedRequest)}
                   disabled={processing}
-                  className="px-6 py-2 text-sm font-semibold text-white bg-green-500 rounded-xl hover:bg-green-600 shadow-lg shadow-green-200 transition-all active:scale-95 disabled:opacity-50"
+                  className="px-6 py-2 text-sm font-semibold text-white rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50 hover:scale-105"
+                  style={{ backgroundColor: "#10b981" }}
                 >
                   {processing ? "Processing..." : "Approve Item"}
                 </button>
