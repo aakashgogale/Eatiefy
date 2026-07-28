@@ -200,7 +200,7 @@ export default function SignIn() {
           initial={{ y: 50, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-          className="w-full max-w-md mx-auto p-6 sm:p-8 flex flex-col justify-between mb-4 animate-fade-in"
+          className="w-full max-w-md mx-auto p-6 sm:p-8 flex flex-col justify-between mb-14 animate-fade-in"
           style={{
             background: "rgba(255, 255, 255, 0.85)",
             border: "1px solid rgba(255, 255, 255, 0.45)",
