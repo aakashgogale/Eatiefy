@@ -397,8 +397,8 @@ export default function HomeHeader({
           </div>
         </div>
 
-        {/* Static Search Bar Row (Clean flow) */}
-        <div className="px-4 pt-2.5 pb-3">
+        {/* Static Search Bar Row (Clean flow) - Hidden on desktop web view, visible on mobile */}
+        <div className="px-4 pt-2.5 pb-3 md:hidden">
           <SearchBarRow
             handleSearchFocus={handleSearchFocus}
             placeholderIndex={placeholderIndex}

@@ -1615,6 +1615,17 @@ export default function Home() {
     }
   };
 
+  // Listen for top VEG MODE switch clicks from DesktopNavbar
+  useEffect(() => {
+    const handleTrigger = (e) => {
+      e.preventDefault();
+      const targetVal = e.detail?.newValue !== undefined ? e.detail.newValue : !vegMode;
+      handleVegModeChange(targetVal);
+    };
+    window.addEventListener("triggerVegModePopup", handleTrigger);
+    return () => window.removeEventListener("triggerVegModePopup", handleTrigger);
+  }, [handleVegModeChange, vegMode]);
+
   // Update popup position on scroll/resize
   useEffect(() => {
     if (!showVegModePopup) return;

@@ -252,16 +252,38 @@ export default function DesktopNavbar({ showLogo = true }) {
                                 </div>
                             </div>
 
-                            {/* VEG MODE Toggle - Moved here */}
-                            <div className="flex items-center gap-2 flex-shrink-0">
+                            {/* VEG MODE Toggle - Triggers Veg Mode Choice Popup */}
+                            <div 
+                                className="flex items-center gap-2 flex-shrink-0 cursor-pointer"
+                                onClick={() => {
+                                    const nextVal = !vegMode
+                                    const event = new CustomEvent("triggerVegModePopup", {
+                                        detail: { newValue: nextVal },
+                                        cancelable: true
+                                    })
+                                    window.dispatchEvent(event)
+                                    if (!event.defaultPrevented) {
+                                        setVegMode(nextVal)
+                                    }
+                                }}
+                            >
                                 <div className="flex flex-col items-end">
                                     <span className="text-[10px] font-bold text-gray-700 dark:text-gray-300 leading-none">VEG</span>
                                     <span className="text-[8px] font-bold text-gray-500 dark:text-gray-400 leading-none">MODE</span>
                                 </div>
                                 <Switch
                                     checked={vegMode}
-                                    onCheckedChange={setVegMode}
-                                    className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-gray-300 dark:data-[state=unchecked]:bg-gray-600 h-5 w-9"
+                                    onCheckedChange={(checked) => {
+                                        const event = new CustomEvent("triggerVegModePopup", {
+                                            detail: { newValue: checked },
+                                            cancelable: true
+                                        })
+                                        window.dispatchEvent(event)
+                                        if (!event.defaultPrevented) {
+                                            setVegMode(checked)
+                                        }
+                                    }}
+                                    className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-gray-300 dark:data-[state=unchecked]:bg-gray-600 h-5 w-9 pointer-events-none"
                                 />
                             </div>
                         </div>
