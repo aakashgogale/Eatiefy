@@ -2231,6 +2231,8 @@ export default function Home() {
   const filterSectionRefs = useRef({});
   const [activeScrollSection, setActiveScrollSection] = useState("sort");
   const rightContentRef = useRef(null);
+  const isProgrammaticScrollRef = useRef(false);
+  const scrollTimeoutRef = useRef(null);
   const restaurantsRequestSeqRef = useRef(0);
   const menuUnionRequestSeqRef = useRef(0);
   const menuUnionCacheRef = useRef(new Map());
@@ -2246,6 +2248,7 @@ export default function Home() {
     };
 
     const observer = new IntersectionObserver((entries) => {
+      if (isProgrammaticScrollRef.current) return;
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
           const sectionId = entry.target.getAttribute("data-section-id");
@@ -4367,21 +4370,28 @@ export default function Home() {
                     { id: "trust", label: "Trust", icon: ShieldCheck },
                   ].map((tab) => {
                     const Icon = tab.icon;
-                    const isActive =
-                      activeScrollSection === tab.id ||
-                      activeFilterTab === tab.id;
+                    const isActive = activeFilterTab === tab.id;
                     return (
                       <button
                         key={tab.id}
                         onClick={() => {
                           setActiveFilterTab(tab.id);
+                          isProgrammaticScrollRef.current = true;
+                          if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+                          
+                          const container = rightContentRef.current;
                           const section = filterSectionRefs.current[tab.id];
-                          if (section) {
-                            section.scrollIntoView({
-                              behavior: "smooth",
-                              block: "start",
+                          if (container && section) {
+                            const offset = section.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+                            container.scrollTo({
+                              top: offset,
+                              behavior: "smooth"
                             });
                           }
+
+                          scrollTimeoutRef.current = setTimeout(() => {
+                            isProgrammaticScrollRef.current = false;
+                          }, 800);
                         }}
                         className={`flex flex-col items-center gap-1 py-4 px-2 text-center relative transition-colors ${isActive
                             ? "bg-white dark:bg-[#1a1a1a] text-[#659116] font-bold"
@@ -4612,6 +4622,29 @@ export default function Home() {
 
 
 
+                  {/* Offers Tab */}
+                  <div
+                    ref={(el) => (filterSectionRefs.current["offers"] = el)}
+                    data-section-id="offers"
+                    className="space-y-4 mb-8">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                      Offers
+                    </h3>
+                    <div className="flex flex-col gap-3">
+                      <button
+                        onClick={() => toggleFilter("has-offers")}
+                        className={`px-4 py-3 rounded-xl border text-left transition-colors ${activeFilters.has("has-offers")
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
+                          }`}>
+                        <span
+                          className={`text-sm font-medium ${activeFilters.has("has-offers") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          Restaurants with offers
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
                   {/* Trust Markers Tab */}
                   <div
                     ref={(el) => (filterSectionRefs.current["trust"] = el)}
@@ -4641,29 +4674,6 @@ export default function Home() {
                         <span
                           className={`text-sm font-medium ${activeFilters.has("trusted") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
                           Trusted by 1000+ users
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Offers Tab */}
-                  <div
-                    ref={(el) => (filterSectionRefs.current["offers"] = el)}
-                    data-section-id="offers"
-                    className="space-y-4 mb-8">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                      Offers
-                    </h3>
-                    <div className="flex flex-col gap-3">
-                      <button
-                        onClick={() => toggleFilter("has-offers")}
-                        className={`px-4 py-3 rounded-xl border text-left transition-colors ${activeFilters.has("has-offers")
-                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
-                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
-                          }`}>
-                        <span
-                          className={`text-sm font-medium ${activeFilters.has("has-offers") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
-                          Restaurants with offers
                         </span>
                       </button>
                     </div>

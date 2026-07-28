@@ -54,6 +54,8 @@ export default function CategoryPage() {
   const filterSectionRefs = useRef({})
   const rightContentRef = useRef(null)
   const categoryScrollRef = useRef(null)
+  const isProgrammaticScrollRef = useRef(false)
+  const scrollTimeoutRef = useRef(null)
   const hasRestoredCategoryFiltersRef = useRef(false)
 
   // State for categories from admin
@@ -777,6 +779,7 @@ export default function CategoryPage() {
     }
 
     const observer = new IntersectionObserver((entries) => {
+      if (isProgrammaticScrollRef.current) return
       entries.forEach(entry => {
         if (entry.isIntersecting) {
           const sectionId = entry.target.getAttribute('data-section-id')
@@ -1391,16 +1394,29 @@ export default function CategoryPage() {
                         { id: 'trust', label: 'Trust', icon: ShieldCheck },
                       ].map((tab) => {
                         const Icon = tab.icon
-                        const isActive = activeScrollSection === tab.id || activeFilterTab === tab.id
+                        const isActive = activeFilterTab === tab.id
                         return (
-                          <button
+                           <button
                             key={tab.id}
                             onClick={() => {
                               setActiveFilterTab(tab.id)
+                              isProgrammaticScrollRef.current = true
+                              if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current)
+                              
+                              const container = rightContentRef.current
                               const section = filterSectionRefs.current[tab.id]
-                              if (section) {
-                                section.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                              
+                              if (container && section) {
+                                const offset = section.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop
+                                container.scrollTo({
+                                  top: offset,
+                                  behavior: "smooth"
+                                })
                               }
+                              
+                              scrollTimeoutRef.current = setTimeout(() => {
+                                isProgrammaticScrollRef.current = false
+                              }, 800)
                             }}
                             className={`flex flex-col items-center gap-1 py-4 px-2 text-center relative transition-colors ${isActive ? 'bg-white dark:bg-[#1a1a1a] text-[#EB590E]' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
                               }`}

@@ -4,7 +4,7 @@ import { SlidersHorizontal, ChevronDown, BadgePercent, Star, Timer, X } from "lu
 
 export const SORT_OPTIONS = [
   { id: "relevance", label: "Relevance (Default)" },
-  { id: "delivery_time", label: "Delivery Time" },
+  { id: "delivery_time", label: "Delivery Time - Fastest" },
   { id: "rating", label: "Rating" },
   { id: "cost_low_to_high", label: "Cost: Low to High" },
   { id: "cost_high_to_low", label: "Cost: High to Low" },
