@@ -39,7 +39,7 @@ const CategoryList = ({ loading, categories, onCategoryClick }) => {
                   className="w-full h-full object-cover rounded-full"
                 />
               </div>
-              <span className="text-[10px] sm:text-xs md:text-sm font-semibold text-gray-700 dark:text-gray-300 group-hover:text-primary-orange text-center whitespace-normal max-w-[80px] sm:max-w-[100px] leading-tight line-clamp-2 transition-colors duration-300">
+              <span className="text-xs sm:text-sm md:text-base font-bold text-gray-800 dark:text-gray-200 group-hover:text-primary-orange text-center whitespace-normal max-w-[84px] sm:max-w-[100px] leading-tight line-clamp-2 transition-colors duration-300">
                 {category.name}
               </span>
             </motion.div>

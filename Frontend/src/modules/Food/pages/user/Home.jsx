@@ -3375,7 +3375,7 @@ export default function Home() {
                 className="flex-shrink-0"
               >
                 <motion.div
-                  className="flex flex-col items-center gap-2 w-[62px] sm:w-24 md:w-28"
+                  className="flex flex-col items-center gap-2 w-[72px] sm:w-24 md:w-28"
                   whileHover={{ scale: 1.1, y: -4 }}
                   whileTap={{ scale: 0.95 }}
                   transition={{ type: "spring", stiffness: 300, damping: 20 }}
@@ -3391,7 +3391,7 @@ export default function Home() {
                       placeholder="blur"
                     />
                   </div>
-                  <span className="text-[10px] sm:text-xs md:text-sm font-semibold text-gray-800 dark:text-gray-200 text-center leading-tight whitespace-nowrap pb-1">
+                  <span className="text-xs sm:text-sm md:text-base font-bold text-gray-800 dark:text-gray-200 text-center leading-tight whitespace-nowrap pb-1">
                     {category.name}
                   </span>
                 </motion.div>
@@ -3406,7 +3406,7 @@ export default function Home() {
               onClick={() => navigate("/food/user/categories")}
             >
               <motion.div
-                className="flex flex-col items-center gap-2 w-[62px] sm:w-24 md:w-28"
+                className="flex flex-col items-center gap-2 w-[72px] sm:w-24 md:w-28"
                 whileHover={{ scale: 1.1, y: -4 }}
                 whileTap={{ scale: 0.95 }}
                 transition={{ type: "spring", stiffness: 300, damping: 20 }}
@@ -3414,7 +3414,7 @@ export default function Home() {
                 <div className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/50 transition-all shadow-md">
                   <Plus className="w-6 h-6 text-[#659116]" style={{ color: "var(--module-theme-color, #659116)" }} />
                 </div>
-                <span className="text-xs sm:text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 text-center pb-1">
+                <span className="text-xs sm:text-sm md:text-base font-bold text-gray-800 dark:text-gray-200 text-center pb-1">
                   See more
                 </span>
               </motion.div>

@@ -1126,7 +1126,7 @@ export default function Under250() {
               return (
                 <div key={category.id} className="flex-shrink-0 cursor-pointer" onClick={() => setActiveCategory(isActive ? null : category.id)}>
                   <motion.div
-                    className="flex flex-col items-center gap-2 w-[62px] sm:w-24 md:w-28"
+                    className="flex flex-col items-center gap-2 w-[72px] sm:w-24 md:w-28"
                     whileHover={{ scale: 1.1, y: -4 }}
                     whileTap={{ scale: 0.95 }}
                     transition={{ type: "spring", stiffness: 300, damping: 20 }}
@@ -1145,7 +1145,7 @@ export default function Under250() {
                       />
                     </div>
                     <span 
-                      className="text-[10px] sm:text-xs md:text-sm font-semibold text-gray-800 dark:text-gray-200 text-center leading-tight whitespace-nowrap pb-1"
+                      className="text-xs sm:text-sm md:text-base font-bold text-gray-800 dark:text-gray-200 text-center leading-tight whitespace-nowrap pb-1"
                       style={isActive ? { color: "var(--module-theme-color, #E2AD4B)" } : {}}
                     >
                       {category.name}
