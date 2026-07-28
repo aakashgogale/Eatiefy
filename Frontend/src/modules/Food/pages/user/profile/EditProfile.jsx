@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
-import { ArrowLeft, X, Pencil, Loader2, Camera, Upload, Trash2, User } from "lucide-react"
+import { ArrowLeft, X, Pencil, Loader2, Camera, Upload, Trash2, User, Calendar as CalendarIcon } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
@@ -27,9 +27,8 @@ import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
 import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 import { resolveMediaUrl } from "@food/utils/common"
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
-import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
-import { DatePicker } from '@mui/x-date-pickers/DatePicker'
+import { Popover, PopoverContent, PopoverTrigger } from "@food/components/ui/popover"
+import { Calendar } from "@food/components/ui/calendar"
 import dayjs from 'dayjs'
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -139,6 +138,8 @@ export default function EditProfile() {
   })
   const fileInputRef = useRef(null)
   const hydratedFromDraftRef = useRef(Boolean(draftProfile))
+  const [dobOpen, setDobOpen] = useState(false)
+  const [anniversaryOpen, setAnniversaryOpen] = useState(false)
 
   // Update form data when profile changes
   useEffect(() => {
@@ -645,14 +646,53 @@ export default function EditProfile() {
                 Date of birth
               </Label>
               <div className="flex items-center gap-2">
-                <Input
-                  id="dateOfBirth"
-                  type="date"
-                  value={formData.dateOfBirth}
-                  onChange={(e) => handleChange('dateOfBirth', e.target.value)}
-                  max={dayjs().format('YYYY-MM-DD')}
-                  className="flex-1 h-12 text-base border border-gray-300 dark:border-gray-700 focus:border-[#EB590E] focus:ring-1 focus:ring-[#EB590E] rounded-lg bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-white [&::-webkit-calendar-picker-indicator]:dark:invert"
-                />
+                <Popover open={dobOpen} onOpenChange={setDobOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="w-full h-12 px-3.5 flex items-center justify-between text-base border border-gray-300 dark:border-gray-700 focus:border-[#EB590E] focus:outline-none focus:ring-1 focus:ring-[#EB590E]/50 rounded-lg bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-white text-left cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-neutral-900"
+                    >
+                      <span className={formData.dateOfBirth ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-500'}>
+                        {formData.dateOfBirth ? dayjs(formData.dateOfBirth).format('DD-MM-YYYY') : 'Select date'}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {formData.dateOfBirth && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleChange('dateOfBirth', '')
+                            }}
+                            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full cursor-pointer"
+                          >
+                            <X className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+                          </button>
+                        )}
+                        <CalendarIcon className="w-5 h-5 text-gray-400 dark:text-gray-500" />
+                      </div>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0 bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl z-50" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={formData.dateOfBirth ? dayjs(formData.dateOfBirth).toDate() : undefined}
+                      onSelect={(date) => {
+                        if (date) {
+                          handleChange('dateOfBirth', dayjs(date).format('YYYY-MM-DD'))
+                          setDobOpen(false)
+                        }
+                      }}
+                      disabled={(date) => dayjs(date).isAfter(dayjs(), 'day')}
+                      captionLayout="dropdown"
+                      startMonth={new Date(1920, 0)}
+                      endMonth={new Date()}
+                      classNames={{
+                        day: "data-[selected-single=true]:!bg-[#EB590E] data-[selected-single=true]:!text-white"
+                      }}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
               {fieldErrors.dateOfBirth && (
                 <p className="text-xs text-red-600">{fieldErrors.dateOfBirth}</p>
@@ -665,14 +705,53 @@ export default function EditProfile() {
                 Anniversary <span className="text-gray-400 dark:text-gray-500 font-normal">(Optional)</span>
               </Label>
               <div className="flex items-center gap-2">
-                <Input
-                  id="anniversary"
-                  type="date"
-                  value={formData.anniversary}
-                  onChange={(e) => handleChange('anniversary', e.target.value)}
-                  max={dayjs().format('YYYY-MM-DD')}
-                  className="flex-1 h-12 text-base border border-gray-300 dark:border-gray-700 focus:border-[#EB590E] focus:ring-1 focus:ring-[#EB590E] rounded-lg bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-white [&::-webkit-calendar-picker-indicator]:dark:invert"
-                />
+                <Popover open={anniversaryOpen} onOpenChange={setAnniversaryOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="w-full h-12 px-3.5 flex items-center justify-between text-base border border-gray-300 dark:border-gray-700 focus:border-[#EB590E] focus:outline-none focus:ring-1 focus:ring-[#EB590E]/50 rounded-lg bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-white text-left cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-neutral-900"
+                    >
+                      <span className={formData.anniversary ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-500'}>
+                        {formData.anniversary ? dayjs(formData.anniversary).format('DD-MM-YYYY') : 'Select date'}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {formData.anniversary && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleChange('anniversary', '')
+                            }}
+                            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full cursor-pointer"
+                          >
+                            <X className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+                          </button>
+                        )}
+                        <CalendarIcon className="w-5 h-5 text-gray-400 dark:text-gray-500" />
+                      </div>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0 bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl z-50" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={formData.anniversary ? dayjs(formData.anniversary).toDate() : undefined}
+                      onSelect={(date) => {
+                        if (date) {
+                          handleChange('anniversary', dayjs(date).format('YYYY-MM-DD'))
+                          setAnniversaryOpen(false)
+                        }
+                      }}
+                      disabled={(date) => dayjs(date).isAfter(dayjs(), 'day')}
+                      captionLayout="dropdown"
+                      startMonth={new Date(1920, 0)}
+                      endMonth={new Date()}
+                      classNames={{
+                        day: "data-[selected-single=true]:!bg-[#EB590E] data-[selected-single=true]:!text-white"
+                      }}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
 
