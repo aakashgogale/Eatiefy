@@ -8,9 +8,9 @@ import { Label } from "@food/components/ui/label"
 import { Button } from "@food/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@food/components/ui/dialog"
 import { Checkbox } from "@food/components/ui/checkbox"
-const debugLog = (...args) => {}
-const debugWarn = (...args) => {}
-const debugError = (...args) => {}
+const debugLog = (...args) => { }
+const debugWarn = (...args) => { }
+const debugError = (...args) => { }
 
 
 export default function LandingPageManagement() {
@@ -52,7 +52,7 @@ export default function LandingPageManagement() {
   const [exploreIconsUploading, setExploreIconsUploading] = useState({})
   const exploreMoreFileInputRef = useRef(null)
 
-  // Switch 99 Banners
+  // Eatiefy 99 Banners
   const [under250Banners, setUnder250Banners] = useState([])
   const [under250BannersLoading, setUnder250BannersLoading] = useState(true)
   const [under250BannersUploading, setUnder250BannersUploading] = useState(false)
@@ -929,7 +929,7 @@ export default function LandingPageManagement() {
     }
   }
 
-  // ==================== Switch 99 BANNERS ====================
+  // ==================== Eatiefy 99 BANNERS ====================
   const fetchUnder250Banners = async () => {
     try {
       setUnder250BannersLoading(true)
@@ -947,7 +947,7 @@ export default function LandingPageManagement() {
         setUnder250Banners([])
         setError(null)
       } else {
-        const errorMessage = err.response?.data?.message || 'Failed to load Switch 99 banners'
+        const errorMessage = err.response?.data?.message || 'Failed to load Eatiefy 99 banners'
         setErrorSafely(errorMessage)
       }
     } finally {
@@ -990,12 +990,12 @@ export default function LandingPageManagement() {
       }))
 
       if (response.data.success) {
-        setSuccess(`${response.data.data.banners?.length || files.length} Switch 99 banner(s) uploaded successfully!`)
+        setSuccess(`${response.data.data.banners?.length || files.length} Eatiefy 99 banner(s) uploaded successfully!`)
         await fetchUnder250Banners()
         setTimeout(() => setSuccess(null), 3000)
       }
     } catch (err) {
-      const errorMessage = err.response?.data?.message || 'Failed to upload Switch 99 banners'
+      const errorMessage = err.response?.data?.message || 'Failed to upload Eatiefy 99 banners'
       setErrorSafely(errorMessage)
 
       setUnder250BannersUploadProgress({ current: 0, total: 0 })
@@ -1005,14 +1005,14 @@ export default function LandingPageManagement() {
   }
 
   const handleDeleteUnder250Banner = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this Switch 99 banner?')) return
+    if (!window.confirm('Are you sure you want to delete this Eatiefy 99 banner?')) return
     try {
       setUnder250BannersDeleting(id)
       setError(null)
       setSuccess(null)
       const response = await api.delete(`/food/hero-banners/under-250/${id}`, getAuthConfig())
       if (response.data.success) {
-        setSuccess('Switch 99 banner deleted successfully!')
+        setSuccess('Eatiefy 99 banner deleted successfully!')
         await fetchUnder250Banners()
         setTimeout(() => setSuccess(null), 3000)
       }
@@ -1572,8 +1572,8 @@ export default function LandingPageManagement() {
           </>
         )}
 
-        {/* Eatiefy 99 Banner Tab */}
-        
+        {/* Hero Banners Tab */}
+
         {activeTab === 'banners' && (
           <>
             {/* Upload Section */}
@@ -1792,14 +1792,14 @@ export default function LandingPageManagement() {
               ) : under250Banners.length === 0 ? (
                 <div className="text-center py-12 text-slate-500">
                   <Tag className="w-12 h-12 mx-auto mb-3 text-slate-400" />
-                  <p>No Switch 99 banners uploaded yet.</p>
+                  <p>No Eatiefy 99 banners uploaded yet.</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {under250Banners.map((banner, index) => (
                     <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
                       <div className="relative aspect-video bg-slate-100">
-                        <img src={banner.imageUrl} alt={`Switch 99 Banner ${index + 1}`} className="w-full h-full object-cover" />
+                        <img src={banner.imageUrl} alt={`Eatiefy 99 Banner ${index + 1}`} className="w-full h-full object-cover" />
                         <div className="absolute top-2 right-2">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                             {banner.isActive ? 'Active' : 'Inactive'}
@@ -2030,7 +2030,7 @@ export default function LandingPageManagement() {
                             >
                               <div className="min-w-0">
                                 <p className="text-sm font-medium text-slate-800 truncate">{restaurant.name}</p>
-                                 <p className="text-xs text-slate-500 truncate">{restaurant._id || "No ID"}</p>
+                                <p className="text-xs text-slate-500 truncate">{restaurant._id || "No ID"}</p>
                               </div>
                               <Checkbox
                                 checked={isChecked}

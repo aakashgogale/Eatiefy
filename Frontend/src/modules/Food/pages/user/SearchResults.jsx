@@ -660,7 +660,7 @@ export default function SearchResults() {
       filtered = filtered.filter(r => r.offer && r.offer.includes('50%'))
     }
 
-    // Switch 99 filter - exclude closed restaurants
+    // Eatiefy 99 filter - exclude closed restaurants
     if (activeFilters.has('under-250')) {
       filtered = filtered.filter(r => {
         const availability = getRestaurantAvailabilityStatus(r, new Date(availabilityTick));
@@ -769,7 +769,7 @@ export default function SearchResults() {
     if (activeFilters.has('rating-4-plus')) {
       filtered = filtered.filter(r => r.rating && r.rating >= 4.0)
     }
-    // Switch 99 filter - exclude closed restaurants (already handled above but ensuring consistency if logic differs)
+    // Eatiefy 99 filter - exclude closed restaurants (already handled above but ensuring consistency if logic differs)
     if (activeFilters.has('under-250')) {
       filtered = filtered.filter(r => {
         const availability = getRestaurantAvailabilityStatus(r, new Date(availabilityTick));

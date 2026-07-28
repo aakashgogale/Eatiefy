@@ -1067,7 +1067,7 @@ export default function Under250() {
         </div>
       </div>
 
-      {/* Dynamic Switch 99 Hero Banner Section */}
+      {/* Dynamic Eatiefy 99 Hero Banner Section */}
       {loadingBanner ? (
         <div className="relative w-full overflow-hidden h-[clamp(240px,40vw,520px)] bg-gray-100 dark:bg-gray-900 animate-pulse flex items-center justify-center" />
       ) : displayBanners.length > 0 ? (
@@ -1090,7 +1090,7 @@ export default function Under250() {
                 <div key={`${bannerSrc}-${index}`} className="relative h-full w-full shrink-0">
                   <OptimizedImage
                     src={bannerSrc}
-                    alt={`Switch 99 Banner ${index + 1}`}
+                    alt={`Eatiefy 99 Banner ${index + 1}`}
                     className="w-full h-full"
                     objectFit="cover"
                     priority={index === 0}
