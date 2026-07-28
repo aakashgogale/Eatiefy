@@ -915,18 +915,10 @@ export default function Home() {
   const { openSearch, closeSearch, searchValue, setSearchValue } =
     useSearchOverlay();
   const { openLocationSelector } = useLocationSelector();
-  const { vegMode, setVegMode: setVegModeContext } = useProfile();
+  const { vegMode, setVegMode: setVegModeContext, vegModeOption, setVegModeOption } = useProfile();
   const [prevVegMode, setPrevVegMode] = useState(vegMode);
   const [showVegModePopup, setShowVegModePopup] = useState(false);
   const [showSwitchOffPopup, setShowSwitchOffPopup] = useState(false);
-  const [vegModeOption, setVegModeOption] = useState(() => {
-    try {
-      const saved = localStorage.getItem(VEG_MODE_OPTION_STORAGE_KEY);
-      return saved === "pure-veg" ? "pure-veg" : "all";
-    } catch (_) {
-      return "all";
-    }
-  }); // "all" or "pure-veg"
   const [isApplyingVegMode, setIsApplyingVegMode] = useState(false);
   const [isSwitchingOffVegMode, setIsSwitchingOffVegMode] = useState(false);
   const [popupPosition, setPopupPosition] = useState({ top: 0, left: 0, triangleLeft: 0 });
@@ -1560,12 +1552,6 @@ export default function Home() {
       setPrevVegMode(vegMode);
     }
   }, [vegMode]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(VEG_MODE_OPTION_STORAGE_KEY, vegModeOption);
-    } catch (_) { }
-  }, [vegModeOption]);
 
   // Keep persisted Veg Mode preference; only reset popup UI state on mount.
   useEffect(() => {
@@ -4729,8 +4715,7 @@ export default function Home() {
             transition={{ duration: 0.2 }}
             onClick={() => {
               setShowVegModePopup(false);
-              // Revert veg mode to OFF if popup is closed without applying
-              setVegModeContext(false);
+              setVegModeOption("all");
               setPrevVegMode(false);
             }}
             className="fixed inset-0 bg-black/30 z-[9998] backdrop-blur-sm"
@@ -4767,7 +4752,7 @@ export default function Home() {
                 aria-label="Close veg mode popup"
                 onClick={() => {
                   setShowVegModePopup(false);
-                  setVegModeContext(false);
+                  setVegModeOption("all");
                   setPrevVegMode(false);
                 }}
                 className="absolute top-4 right-4 p-0.5 text-gray-450 hover:text-gray-700 dark:text-gray-450 dark:hover:text-gray-200 transition-colors z-20"
@@ -4881,9 +4866,10 @@ export default function Home() {
                 onClick={() => {
                   setShowVegModePopup(false);
                   setIsApplyingVegMode(true);
-                  // Confirm veg mode is ON by updating context and prevVegMode
-                  setVegModeContext(true);
-                  setPrevVegMode(true);
+                  // Save preference to context
+                  setVegModeOption(vegModeOption);
+                  const isEnabled = vegModeOption !== "all";
+                  setPrevVegMode(isEnabled);
                   // Simulate applying veg mode settings
                   setTimeout(() => {
                     setIsApplyingVegMode(false);
@@ -4942,14 +4928,15 @@ export default function Home() {
               </div>
 
               {/* Title */}
-              <h2 className="text-2xl font-bold text-gray-900  text-center mb-2">
-                Switch off Veg Mode?
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white text-center mb-2">
+                {vegModeOption === "non-veg" ? "Switch off Non-Veg Mode?" : "Switch off Veg Mode?"}
               </h2>
 
               {/* Description */}
-              <p className="text-gray-600 text-center mb-6 text-sm">
-                You'll see all restaurants, including those serving non-veg
-                dishes
+              <p className="text-gray-600 dark:text-gray-400 text-center mb-6 text-sm">
+                {vegModeOption === "non-veg"
+                  ? "You'll see all restaurants, including those serving veg dishes"
+                  : "You'll see all restaurants, including those serving non-veg dishes"}
               </p>
 
               {/* Buttons */}
@@ -4962,7 +4949,7 @@ export default function Home() {
                     setTimeout(() => {
                       setIsSwitchingOffVegMode(false);
                       isHandlingSwitchOff.current = false;
-                      setVegModeContext(false);
+                      setVegModeOption("all");
                       setPrevVegMode(false); // Set to false to match current state (veg mode is OFF)
                     }, 2000);
                   }}
@@ -4974,10 +4961,9 @@ export default function Home() {
                   onClick={() => {
                     setShowSwitchOffPopup(false);
                     isHandlingSwitchOff.current = false;
-                    setVegModeContext(true);
-                    // prevVegMode stays true (from before), which is correct
+                    // prevVegMode and vegModeOption stay as they were, which is correct
                   }}
-                  className="w-full text-gray-900 font-normal py-1 text-center rounded-xl hover:bg-gray-200 transition-colors text-base">
+                  className="w-full text-gray-900 dark:text-white font-normal py-1 text-center rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors text-base">
                   Keep using this mode
                 </button>
               </div>
@@ -5076,102 +5062,21 @@ export default function Home() {
         )}
       </AnimatePresence>
 
-      {/* Loading Screen - Applying Veg Mode */}
-      {/* <AnimatePresence>
-        {isApplyingVegMode && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="fixed inset-0 z-[10000] bg-white/95 backdrop-blur-md flex items-center justify-center"
-          >
-            <div className="flex flex-col items-center gap-6">
-              <div className="relative w-32 h-32 flex items-center justify-center">
-                {[...Array(8)].map((_, i) => {
-                  const baseSize = 112 // Starting size (w-28 = 112px)
-                  const maxSize = 600 // Maximum size to expand to
-                  return (
-                    <motion.div
-                      key={i}
-                      initial={{ 
-                        scale: 1,
-                        opacity: 0
-                      }}
-                      animate={{ 
-                        scale: maxSize / baseSize,
-                        opacity: [0, 0.4, 0.2, 0]
-                      }}
-                      transition={{
-                        duration: 2.5,
-                        repeat: Infinity,
-                        ease: "easeOut",
-                        delay: i * 0.3 // Stagger each circle by 0.3s so they appear one at a time
-                      }}
-                      className="absolute rounded-full border border-green-300"
-                      style={{
-                        width: baseSize,
-                        height: baseSize,
-                        left: '50%',
-                        top: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        transformOrigin: 'center center'
-                      }}
-                    />
-                  )
-                })}
-                
-                <motion.div
-                  initial={{ scale: 0, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{
-                    type: "spring",
-                    stiffness: 200,
-                    damping: 15,
-                    delay: 0.1
-                  }}
-                  className="relative z-10 w-28 h-28 rounded-full border-2 border-green-300 bg-white flex flex-col items-center justify-center shadow-sm"
-                >
-                  <motion.div
-                    className="flex flex-col items-center"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.3 }}
-                  >
-                    <span className="text-green-700 font-bold text-xs leading-none">100%</span>
-                    <span className="text-green-700 font-bold text-xl leading-none mt-0.5">VEG</span>
-                  </motion.div>
-                </motion.div>
-              </div>
-              
-              <motion.p
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.4 }}
-                className="text-gray-800 font-normal text-base text-center relative z-10"
-              >
-                {vegModeOption === "pure-veg"
-                  ? "Explore pure veg restaurants only"
-                  : "Explore veg dishes from all restaurants"}
-              </motion.p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence> */}
 
-      <AnimatePresence>
+          <AnimatePresence>
         {isApplyingVegMode && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="fixed inset-0 z-[10000] bg-white dark:bg-[#0a0a0a] flex items-center justify-center">
-            <div className="relative w-32 h-32 flex items-center justify-center w-full">
+            className="fixed inset-0 z-[10000] bg-white dark:bg-[#0a0a0a] flex flex-col items-center justify-center gap-12">
+            <div className="relative w-32 h-32 flex items-center justify-center">
               {/* Animated circles - positioned absolutely at the center */}
               {[...Array(8)].map((_, i) => {
                 const baseSize = 112;
                 const maxSize = 600;
+                const isNonVeg = vegModeOption === "non-veg";
                 return (
                   <motion.div
                     key={i}
@@ -5189,20 +5094,22 @@ export default function Home() {
                       ease: "easeOut",
                       delay: i * 0.15,
                     }}
-                    className="absolute rounded-full border border-green-300 dark:border-green-600"
+                    className={`absolute rounded-full border ${
+                      isNonVeg
+                        ? "border-red-300 dark:border-red-650"
+                        : vegModeOption === "all"
+                          ? "border-gray-300 dark:border-gray-650"
+                          : "border-green-300 dark:border-green-650"
+                    }`}
                     style={{
                       width: baseSize,
                       height: baseSize,
-                      // left: "50%",
-                      // top: "50%",
-                      // transform: "translate(-50%, -50%)",
-                      // transformOrigin: "center center",
                     }}
                   />
                 );
               })}
 
-              {/* 100% VEG badge - absolute positioning at exact center */}
+              {/* Diet Mode badge - absolute positioning at exact center */}
               <motion.div
                 initial={{ scale: 0, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
@@ -5212,39 +5119,53 @@ export default function Home() {
                   damping: 15,
                   delay: 0.1,
                 }}
-                className="absolute z-10 w-28 h-28 rounded-full border-2 border-green-600 dark:border-green-500 bg-white dark:bg-[#1a1a1a] flex flex-col items-center justify-center shadow-sm"
-                style={
-                  {
-                    // left: "50%",
-                    // top: "50%",
-                    // transform: "translate(-50%, -50%)",
-                  }
-                }>
+                className={`absolute z-10 w-28 h-28 rounded-full border-2 bg-white dark:bg-[#1a1a1a] flex flex-col items-center justify-center shadow-sm ${
+                  vegModeOption === "non-veg"
+                    ? "border-red-600 dark:border-red-500"
+                    : vegModeOption === "all"
+                      ? "border-gray-650 dark:border-gray-500"
+                      : "border-green-600 dark:border-green-500"
+                }`}
+              >
                 <motion.div
-                  className="flex flex-col items-center"
+                  className="flex flex-col items-center justify-center w-full"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.3 }}>
-                  <span className="text-green-600 dark:text-green-400 font-extrabold text-3xl leading-none">
+                  <span className={`font-extrabold leading-none ${
+                    vegModeOption === "non-veg"
+                      ? "text-red-600 dark:text-red-400 text-2xl"
+                      : vegModeOption === "all"
+                        ? "text-gray-700 dark:text-gray-400 text-3xl"
+                        : "text-green-600 dark:text-green-400 text-3xl"
+                  }`}>
                     100%
                   </span>
-                  <span className="text-green-600 dark:text-green-400 font-extrabold text-3xl leading-none mt-0.5">
-                    VEG
+                  <span className={`font-extrabold leading-none mt-1.5 whitespace-nowrap text-center ${
+                    vegModeOption === "non-veg"
+                      ? "text-red-600 dark:text-red-400 text-[13px] tracking-wider"
+                      : vegModeOption === "all"
+                        ? "text-gray-700 dark:text-gray-400 text-2xl"
+                        : "text-green-600 dark:text-green-400 text-3xl"
+                  }`}>
+                    {vegModeOption === "non-veg" ? "NON-VEG" : vegModeOption === "all" ? "ALL" : "VEG"}
                   </span>
                 </motion.div>
               </motion.div>
-
-              {/* Text below badge */}
-              <motion.p
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.4 }}
-                className="text-xl font-normal text-gray-800 dark:text-gray-200 text-center relative z-10 mt-56 w-full">
-                {vegModeOption === "pure-veg"
-                  ? "Explore pure veg restaurants only"
-                  : "Explore veg dishes from all restaurants"}
-              </motion.p>
             </div>
+
+            {/* Text below badge */}
+            <motion.p
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+              className="text-xl font-normal text-gray-800 dark:text-gray-200 text-center relative z-10 w-full px-6">
+              {vegModeOption === "pure-veg"
+                ? "Explore pure veg restaurants only"
+                : vegModeOption === "non-veg"
+                  ? "Explore non-veg restaurants only"
+                  : "Explore dishes from all restaurants"}
+            </motion.p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -5315,7 +5236,7 @@ export default function Home() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.5 }}>
-                  Veg Mode for you
+                  {vegModeOption === "non-veg" ? "Non-Veg Mode for you" : "Veg Mode for you"}
                 </motion.p>
               </motion.div>
             </div>

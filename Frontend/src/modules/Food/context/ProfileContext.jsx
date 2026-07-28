@@ -6,7 +6,7 @@ const debugError = (...args) => {}
 
 
 const ProfileContext = createContext(null)
-const USER_SESSION_PREFERENCE_KEYS = ["userVegMode", "food-under-250-filters"]
+const USER_SESSION_PREFERENCE_KEYS = ["userVegMode", "food_user_veg_mode_option", "food-under-250-filters"]
 
 export function ProfileProvider({ children }) {
   const getAddressId = (address) => address?.id || address?._id || null
@@ -76,12 +76,32 @@ export function ProfileProvider({ children }) {
     return saved ? JSON.parse(saved) : []
   })
 
-  // VegMode state - stored in localStorage for persistence
-  const [vegMode, setVegMode] = useState(() => {
-    const saved = localStorage.getItem("userVegMode")
-    // Default to false (OFF) if not set
-    return saved !== null ? saved === "true" : false
+  // VegMode Option state - stored in localStorage for persistence
+  const [vegModeOption, setVegModeOptionState] = useState(() => {
+    const saved = localStorage.getItem("food_user_veg_mode_option")
+    if (saved === "pure-veg" || saved === "non-veg" || saved === "all") {
+      return saved
+    }
+    const legacySaved = localStorage.getItem("userVegMode")
+    if (legacySaved === "true") return "pure-veg"
+    return "all"
   })
+
+  const vegMode = vegModeOption !== "all"
+
+  const setVegModeOption = useCallback((option) => {
+    if (option === "pure-veg" || option === "non-veg" || option === "all") {
+      setVegModeOptionState(option)
+      try {
+        localStorage.setItem("food_user_veg_mode_option", option)
+        localStorage.setItem("userVegMode", option !== "all" ? "true" : "false")
+      } catch (_) {}
+    }
+  }, [])
+
+  const setVegMode = useCallback((val) => {
+    setVegModeOption(val ? "pure-veg" : "all")
+  }, [setVegModeOption])
 
   // Helper to check if authenticated
   const isAuthenticated = useMemo(() => {
@@ -122,8 +142,9 @@ export function ProfileProvider({ children }) {
   useEffect(() => {
     if (isAuthenticated) {
       localStorage.setItem("userVegMode", vegMode.toString())
+      localStorage.setItem("food_user_veg_mode_option", vegModeOption)
     }
-  }, [vegMode, isAuthenticated])
+  }, [vegMode, vegModeOption, isAuthenticated])
 
   // Fetch user profile and addresses from API on mount and when authentication changes
   useEffect(() => {
@@ -406,6 +427,8 @@ export function ProfileProvider({ children }) {
       favorites,
       vegMode,
       setVegMode,
+      vegModeOption,
+      setVegModeOption,
       addAddress,
       updateAddress,
       deleteAddress,
@@ -438,6 +461,8 @@ export function ProfileProvider({ children }) {
       dishFavorites,
       vegMode,
       setVegMode,
+      vegModeOption,
+      setVegModeOption,
       addAddress,
       updateAddress,
       deleteAddress,
@@ -499,7 +524,9 @@ export function useProfile() {
       isDishFavorite: () => false,
       getDishFavorites: () => [],
       vegMode: false,
-      setVegMode: () => debugWarn("ProfileProvider not available")
+      setVegMode: () => debugWarn("ProfileProvider not available"),
+      vegModeOption: "all",
+      setVegModeOption: () => debugWarn("ProfileProvider not available")
     }
   }
   return context
