@@ -11,6 +11,7 @@ import { useSearchOverlay, useLocationSelector } from "@food/components/user/Use
 import { useDeliveryLocation } from "@food/context/DeliveryLocationContext"
 import { useCart } from "@food/context/CartContext"
 import PageNavbar from "@food/components/user/PageNavbar"
+import FoodFilterBar from "@food/components/user/FoodFilterBar"
 import offerImage from "@food/assets/offerimage.png"
 import switch99PromoBanner1 from "@food/assets/switch99_final_banner.png"
 import switch99PromoBanner2 from "@food/assets/switch99_banner_2.jpg"
@@ -173,6 +174,10 @@ export default function Under250() {
   const [selectedSort, setSelectedSort] = useState(initialFiltersRef.current.selectedSort)
   const [draftSelectedSort, setDraftSelectedSort] = useState(initialFiltersRef.current.selectedSort)
   const [under30MinsFilter, setUnder30MinsFilter] = useState(initialFiltersRef.current.under30MinsFilter)
+  const [isVeg, setIsVeg] = useState(false)
+  const [isNonVeg, setIsNonVeg] = useState(false)
+  const [rating4Plus, setRating4Plus] = useState(false)
+  const [hasOffers, setHasOffers] = useState(false)
   const [showItemDetail, setShowItemDetail] = useState(false)
   const [selectedItem, setSelectedItem] = useState(null)
   const [selectedVariantId, setSelectedVariantId] = useState("")
@@ -334,6 +339,44 @@ export default function Under250() {
       }
     }
 
+    // Apply Pure Veg filter
+    if (isVeg) {
+      filtered = filtered.map(restaurant => {
+        const vegItems = restaurant.menuItems.filter(item => {
+          const foodType = String(item.foodType || "").toLowerCase()
+          return item.isVeg || (foodType.includes("veg") && !foodType.includes("non"))
+        })
+        if (vegItems.length > 0) return { ...restaurant, menuItems: vegItems }
+        return null
+      }).filter(Boolean)
+    }
+
+    // Apply Non Veg filter
+    if (isNonVeg) {
+      filtered = filtered.map(restaurant => {
+        const nonVegItems = restaurant.menuItems.filter(item => {
+          const foodType = String(item.foodType || "").toLowerCase()
+          return item.isVeg === false || foodType.includes("non")
+        })
+        if (nonVegItems.length > 0) return { ...restaurant, menuItems: nonVegItems }
+        return null
+      }).filter(Boolean)
+    }
+
+    // Apply Ratings 4.0+ filter
+    if (rating4Plus) {
+      filtered = filtered.filter(restaurant => (restaurant.rating || 0) >= 4.0)
+    }
+
+    // Apply Offers filter
+    if (hasOffers) {
+      filtered = filtered.map(restaurant => {
+        const offerItems = restaurant.menuItems.filter(item => item.originalPrice && item.originalPrice > item.price)
+        if (offerItems.length > 0 || restaurant.offer) return restaurant
+        return null
+      }).filter(Boolean)
+    }
+
     // Apply "Under 30 mins" filter
     if (under30MinsFilter) {
       filtered = filtered.filter(restaurant => {
@@ -343,47 +386,46 @@ export default function Under250() {
     }
 
     // Apply sorting
-    if (selectedSort === 'rating-high') {
+    if (selectedSort === 'rating-high' || selectedSort === 'rating') {
       filtered.sort((a, b) => {
         const ratingA = a.rating || 0
         const ratingB = b.rating || 0
         if (ratingB !== ratingA) {
           return ratingB - ratingA
         }
-        // Secondary sort by number of dishes
         return (b.menuItems?.length || 0) - (a.menuItems?.length || 0)
       })
-    } else if (selectedSort === 'delivery-time-low') {
+    } else if (selectedSort === 'delivery-time-low' || selectedSort === 'delivery_time') {
       filtered.sort((a, b) => {
         const timeA = parseDeliveryTime(a.deliveryTime)
         const timeB = parseDeliveryTime(b.deliveryTime)
         if (timeA !== timeB) {
           return timeA - timeB
         }
-        if ((b.rating || 0) !== (a.rating || 0)) {
-          return (b.rating || 0) - (a.rating || 0)
-        }
-        return (a.originalIndex || 0) - (b.originalIndex || 0)
+        return (b.rating || 0) - (a.rating || 0)
+      })
+    } else if (selectedSort === 'cost_low_to_high') {
+      filtered.sort((a, b) => {
+        const minA = a.menuItems?.length ? Math.min(...a.menuItems.map(i => Number(i.price || 0))) : 999
+        const minB = b.menuItems?.length ? Math.min(...b.menuItems.map(i => Number(i.price || 0))) : 999
+        return minA - minB
+      })
+    } else if (selectedSort === 'cost_high_to_low') {
+      filtered.sort((a, b) => {
+        const maxA = a.menuItems?.length ? Math.max(...a.menuItems.map(i => Number(i.price || 0))) : 0
+        const maxB = b.menuItems?.length ? Math.max(...b.menuItems.map(i => Number(i.price || 0))) : 0
+        return maxB - maxA
       })
     } else if (selectedSort === 'distance-low') {
       filtered.sort((a, b) => {
         const distA = Number.isFinite(a.distanceInKm) ? a.distanceInKm : parseDistance(a.distance)
         const distB = Number.isFinite(b.distanceInKm) ? b.distanceInKm : parseDistance(b.distance)
-        if (distA !== distB) {
-          return distA - distB
-        }
-        if ((b.rating || 0) !== (a.rating || 0)) {
-          return (b.rating || 0) - (a.rating || 0)
-        }
-        return (a.originalIndex || 0) - (b.originalIndex || 0)
+        return distA - distB
       })
-    } else {
-      // Default: Relevance (keep original order from backend - already sorted by rating)
-      // No additional sorting needed
     }
 
     return filtered
-  }, [under250Restaurants, selectedSort, under30MinsFilter, activeCategory, categories, availabilityTick])
+  }, [under250Restaurants, selectedSort, under30MinsFilter, isVeg, isNonVeg, rating4Plus, hasOffers, activeCategory, categories, availabilityTick])
 
   // Fetch under-250 banner from public API
   const displayBanners = useMemo(() => {
@@ -1157,32 +1199,21 @@ export default function Under250() {
           </div>
         </section>
 
-        <section className="py-2 sm:py-3 md:py-4">
-          <div className="flex items-center gap-2 md:gap-3">
-            <Button
-              variant="outline"
-              onClick={() => setShowSortPopup(true)}
-              className="h-8 sm:h-9 md:h-10 px-3 sm:px-4 md:px-5 rounded-md flex items-center gap-2 whitespace-nowrap flex-shrink-0 font-medium transition-all bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 text-sm md:text-base"
-            >
-              <ArrowDownUp className="h-4 w-4 md:h-5 md:w-5 rotate-90" />
-              <span className="text-sm md:text-base font-medium">
-                {selectedSort ? sortOptions.find(opt => opt.id === selectedSort)?.label : 'Sort'}
-              </span>
-              <ChevronDown className="h-3 w-3 md:h-4 md:w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setUnder30MinsFilter(!under30MinsFilter)}
-              className={`h-8 sm:h-9 md:h-10 px-3 sm:px-4 md:px-5 rounded-md flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 font-medium transition-all text-sm md:text-base ${under30MinsFilter
-                ? 'text-white'
-                : 'bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300'
-                }`}
-              style={under30MinsFilter ? { backgroundColor: "var(--module-theme-color, #E2AD4B)", borderColor: "var(--module-theme-color, #E2AD4B)" } : {}}
-            >
-              <Timer className="h-3 w-3 sm:h-4 sm:w-4 md:h-5 md:w-5" />
-              <span className="text-xs sm:text-sm md:text-base font-medium">Under 30 mins</span>
-            </Button>
-          </div>
+        <section className="py-2 sm:py-3">
+          <FoodFilterBar
+            sortBy={selectedSort}
+            onSortChange={setSelectedSort}
+            isVeg={isVeg}
+            onVegToggle={() => setIsVeg((prev) => !prev)}
+            isNonVeg={isNonVeg}
+            onNonVegToggle={() => setIsNonVeg((prev) => !prev)}
+            rating4Plus={rating4Plus}
+            onRating4PlusToggle={() => setRating4Plus((prev) => !prev)}
+            hasOffers={hasOffers}
+            onOffersToggle={() => setHasOffers((prev) => !prev)}
+            under30Mins={under30MinsFilter}
+            onUnder30MinsToggle={() => setUnder30MinsFilter((prev) => !prev)}
+          />
         </section>
 
 

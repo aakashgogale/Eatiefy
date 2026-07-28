@@ -46,6 +46,7 @@ import { buildCartLineId } from "@food/utils/foodVariants";
 import { isModuleAuthenticated } from "@food/utils/auth";
 import { motion, AnimatePresence } from "framer-motion";
 import Footer from "@food/components/user/Footer";
+import FoodFilterBar from "@food/components/user/FoodFilterBar";
 import AddToCartButton from "@food/components/user/AddToCartButton";
 import FloatingHomeDock from "@food/components/user/FloatingHomeDock";
 import BackToTopButton from "@food/components/user/BackToTopButton";
@@ -962,6 +963,54 @@ export default function Home() {
   const isCategoryStuckRef = useRef(false);
   const [mealsUnder99, setMealsUnder99] = useState([]);
   const [loadingMealsUnder99, setLoadingMealsUnder99] = useState(true);
+  const [meals99SortBy, setMeals99SortBy] = useState("relevance");
+  const [meals99IsVeg, setMeals99IsVeg] = useState(false);
+  const [meals99IsNonVeg, setMeals99IsNonVeg] = useState(false);
+  const [meals99Rating4Plus, setMeals99Rating4Plus] = useState(false);
+  const [meals99HasOffers, setMeals99HasOffers] = useState(false);
+  const [meals99Under30Mins, setMeals99Under30Mins] = useState(false);
+
+  const filteredMealsUnder99 = useMemo(() => {
+    let result = [...mealsUnder99];
+
+    if (meals99IsVeg) {
+      result = result.filter((m) => m.isVeg);
+    }
+    if (meals99IsNonVeg) {
+      result = result.filter((m) => !m.isVeg);
+    }
+    if (meals99Rating4Plus) {
+      result = result.filter((m) => (m.rating || 4.2) >= 4.0);
+    }
+    if (meals99HasOffers) {
+      result = result.filter(
+        (m) => (m.originalPrice && m.originalPrice > m.price) || m.discount > 0 || m.offer
+      );
+    }
+    if (meals99Under30Mins) {
+      result = result.filter((m) => (m.preparationTime || 25) <= 30);
+    }
+
+    if (meals99SortBy === "rating") {
+      result.sort((a, b) => (b.rating || 4.2) - (a.rating || 4.2));
+    } else if (meals99SortBy === "cost_low_to_high") {
+      result.sort((a, b) => a.price - b.price);
+    } else if (meals99SortBy === "cost_high_to_low") {
+      result.sort((a, b) => b.price - a.price);
+    } else if (meals99SortBy === "delivery_time") {
+      result.sort((a, b) => (a.preparationTime || 25) - (b.preparationTime || 25));
+    }
+
+    return result;
+  }, [
+    mealsUnder99,
+    meals99SortBy,
+    meals99IsVeg,
+    meals99IsNonVeg,
+    meals99Rating4Plus,
+    meals99HasOffers,
+    meals99Under30Mins,
+  ]);
   const [landingCategories, setLandingCategories] = useState([]);
   const [landingExploreMore, setLandingExploreMore] = useState([]);
   const [exploreMoreHeading, setExploreMoreHeading] = useState("Explore More");
@@ -1006,7 +1055,7 @@ export default function Home() {
   const [loadingRealCategories, setLoadingRealCategories] = useState(true);
   const [menuCategories, setMenuCategories] = useState([]);
   const [loadingMenuCategories, setLoadingMenuCategories] = useState(false);
-  const [, setRestaurantDietMeta] = useState({});
+  const [restaurantDietMeta, setRestaurantDietMeta] = useState({});
   const [showAllCategoriesModal, setShowAllCategoriesModal] = useState(false);
   const [availabilityTick, setAvailabilityTick] = useState(Date.now());
   const RESTAURANTS_BATCH_SIZE = 9;
@@ -1728,6 +1777,18 @@ export default function Home() {
   });
   const [isLoadingFilterResults, setIsLoadingFilterResults] = useState(false);
   const [activeFilterTab, setActiveFilterTab] = useState("sort");
+
+  const toggleHomeFilter = useCallback((filterKey) => {
+    setActiveFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(filterKey)) {
+        next.delete(filterKey);
+      } else {
+        next.add(filterKey);
+      }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     homeUiStateRef.current = {
@@ -2888,12 +2949,141 @@ export default function Home() {
     [vegMode, vegModeOption],
   );
 
-    // Filter restaurants and foods based on active filters
+  const applyClientFilters = useCallback(
+    (list) => {
+      if (!Array.isArray(list)) return [];
+
+      let result = list.filter(matchesVegMode);
+
+      // Veg filter
+      if (activeFilters.has("veg")) {
+        result = result.filter((r) => {
+          const rId = String(r.id || r._id || r.mongoId || "");
+          const meta = restaurantDietMeta[rId];
+          return r.pureVegRestaurant === true || r.isVeg === true || meta?.isPureVeg === true;
+        });
+      }
+
+      // Non-Veg filter
+      if (activeFilters.has("non-veg")) {
+        result = result.filter((r) => {
+          const rId = String(r.id || r._id || r.mongoId || "");
+          const meta = restaurantDietMeta[rId];
+          return r.pureVegRestaurant === false || meta?.hasNonVeg === true;
+        });
+      }
+
+      // Rating filters
+      if (activeFilters.has("rating-4plus") || activeFilters.has("rating-4-plus")) {
+        result = result.filter((r) => (Number(r.rating) || 4.2) >= 4.0);
+      }
+      if (activeFilters.has("rating-35-plus")) {
+        result = result.filter((r) => (Number(r.rating) || 4.2) >= 3.5);
+      }
+      if (activeFilters.has("rating-45-plus")) {
+        result = result.filter((r) => (Number(r.rating) || 4.2) >= 4.5);
+      }
+
+      // Offers filters
+      if (
+        activeFilters.has("has-offers") ||
+        activeFilters.has("offers") ||
+        activeFilters.has("offer-50-percent") ||
+        activeFilters.has("offer-40-percent") ||
+        activeFilters.has("offer-30-percent") ||
+        activeFilters.has("offer-free-delivery") ||
+        activeFilters.has("offer-bogo") ||
+        activeFilters.has("offer-under-99") ||
+        activeFilters.has("offer-under-250")
+      ) {
+        result = result.filter((r) => {
+          if (activeFilters.has("offer-50-percent")) {
+            return (r.discount || 0) >= 50 || String(r.offer || "").includes("50");
+          }
+          if (activeFilters.has("offer-40-percent")) {
+            return (r.discount || 0) >= 40 || String(r.offer || "").includes("40");
+          }
+          if (activeFilters.has("offer-30-percent")) {
+            return (r.discount || 0) >= 30 || String(r.offer || "").includes("30");
+          }
+          if (activeFilters.has("offer-free-delivery")) {
+            return r.freeDelivery === true || r.deliveryFee === 0;
+          }
+          if (activeFilters.has("offer-under-99")) {
+            return (r.price || r.avgPrice || 99) <= 99;
+          }
+          if (activeFilters.has("offer-under-250")) {
+            return (r.price || r.avgPrice || 150) <= 250;
+          }
+          return Boolean(r.offer || r.discount || r.hasOffers || (Array.isArray(r.offers) && r.offers.length > 0));
+        });
+      }
+
+      // Delivery time filters
+      if (activeFilters.has("delivery-under-30") || activeFilters.has("delivery-30min")) {
+        result = result.filter((r) => {
+          const mins = parseInt(String(r.deliveryTime || "").match(/\d+/)?.[0] || "30", 10);
+          return mins <= 30;
+        });
+      }
+      if (activeFilters.has("delivery-under-45")) {
+        result = result.filter((r) => {
+          const mins = parseInt(String(r.deliveryTime || "").match(/\d+/)?.[0] || "30", 10);
+          return mins <= 45;
+        });
+      }
+
+      // Distance filters
+      if (activeFilters.has("distance-under-1km")) {
+        result = result.filter((r) => {
+          const dist = parseFloat(String(r.distance || "").replace(/[^0-9.]/g, "") || "1.0");
+          return dist <= 1.0;
+        });
+      }
+      if (activeFilters.has("distance-under-2km")) {
+        result = result.filter((r) => {
+          const dist = parseFloat(String(r.distance || "").replace(/[^0-9.]/g, "") || "2.0");
+          return dist <= 2.0;
+        });
+      }
+
+      // Dish Price filters
+      if (activeFilters.has("price-under-200")) {
+        result = result.filter((r) => (r.price || r.avgPrice || 150) <= 200);
+      }
+      if (activeFilters.has("price-under-500")) {
+        result = result.filter((r) => (r.price || r.avgPrice || 150) <= 500);
+      }
+
+      // Sorting
+      if (sortBy) {
+        result = [...result];
+        if (sortBy === "price-low" || sortBy === "cost_low_to_high") {
+          result.sort((a, b) => (a.price || a.avgPrice || 0) - (b.price || b.avgPrice || 0));
+        } else if (sortBy === "price-high" || sortBy === "cost_high_to_low") {
+          result.sort((a, b) => (b.price || b.avgPrice || 0) - (a.price || a.avgPrice || 0));
+        } else if (sortBy === "rating-high" || sortBy === "rating") {
+          result.sort((a, b) => (Number(b.rating) || 0) - (Number(a.rating) || 0));
+        } else if (sortBy === "rating-low") {
+          result.sort((a, b) => (Number(a.rating) || 0) - (Number(b.rating) || 0));
+        } else if (sortBy === "delivery_time" || sortBy === "delivery-time-low") {
+          result.sort((a, b) => {
+            const timeA = parseInt(String(a.deliveryTime || "").match(/\d+/)?.[0] || "30", 10);
+            const timeB = parseInt(String(b.deliveryTime || "").match(/\d+/)?.[0] || "30", 10);
+            return timeA - timeB;
+          });
+        }
+      }
+
+      return result;
+    },
+    [activeFilters, sortBy, matchesVegMode, restaurantDietMeta]
+  );
+
+  // Filter restaurants and foods based on active filters
   const filteredRestaurants = useMemo(() => {
-    // Rely on API data which is already filtered and sorted by the backend.
-    // We only apply client-side Veg Mode filtering here.
-    return (restaurantsData || []).filter(matchesVegMode);
-  }, [restaurantsData, matchesVegMode]);
+    return applyClientFilters(restaurantsData || []);
+  }, [restaurantsData, applyClientFilters]);
 
   const restaurantLazyLoadResetKey = useMemo(() => {
     const activeFilterKey = Array.from(activeFilters).sort().join("|");
@@ -3183,6 +3373,10 @@ export default function Home() {
     normalizeImageUrl,
     matchesVegMode,
   ]);
+
+  const filteredRecommendedForYou = useMemo(() => {
+    return applyClientFilters(recommendedForYouRestaurants || []);
+  }, [recommendedForYouRestaurants, applyClientFilters]);
 
   // Featured foods removed - will be handled by restaurants data from API
   const filteredFeaturedFoods = useMemo(() => {
@@ -3618,6 +3812,10 @@ export default function Home() {
                     </div>
                   ))}
                 </div>
+              ) : filteredMealsUnder99.length === 0 ? (
+                <div className="px-4 py-6 text-center text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+                  No meals under ₹99 match the selected filters.
+                </div>
               ) : (
                 <div 
                   className="flex gap-3 sm:gap-4 px-4 pb-2 overflow-x-auto scrollbar-hide scroll-smooth"
@@ -3627,7 +3825,7 @@ export default function Home() {
                     touchAction: "pan-x pan-y pinch-zoom",
                   }}
                 >
-                  {mealsUnder99.map((dish) => {
+                  {filteredMealsUnder99.map((dish) => {
                     const variants = dish.variants || [];
                     const hasVariants = variants && variants.length > 0;
                     const totalQty = getCartItemQuantity(dish);
@@ -3758,7 +3956,26 @@ export default function Home() {
             </motion.section>
           )}
 
-          {recommendedForYouRestaurants.length > 0 && (
+          {/* Main Food & Restaurant Filter Bar */}
+          <div className="pt-4 px-0">
+            <FoodFilterBar
+              sortBy={sortBy || "relevance"}
+              onSortChange={(val) => setSortBy(val === "relevance" ? null : val)}
+              isVeg={activeFilters.has("veg")}
+              onVegToggle={() => toggleHomeFilter("veg")}
+              isNonVeg={activeFilters.has("non-veg")}
+              onNonVegToggle={() => toggleHomeFilter("non-veg")}
+              rating4Plus={activeFilters.has("rating-4plus")}
+              onRating4PlusToggle={() => toggleHomeFilter("rating-4plus")}
+              hasOffers={activeFilters.has("has-offers")}
+              onOffersToggle={() => toggleHomeFilter("has-offers")}
+              under30Mins={activeFilters.has("delivery-under-30")}
+              onUnder30MinsToggle={() => toggleHomeFilter("delivery-under-30")}
+              onFilterButtonClick={() => setIsFilterOpen(true)}
+            />
+          </div>
+
+          {filteredRecommendedForYou.length > 0 && (
             <motion.section
               className="content-auto space-y-4 pt-4 sm:pt-6"
               initial={{ opacity: 0, y: 20 }}
@@ -3778,7 +3995,7 @@ export default function Home() {
                   touchAction: "pan-x pan-y pinch-zoom",
                 }}
               >
-                  {recommendedForYouRestaurants.map((restaurant, index) => {
+                  {filteredRecommendedForYou.map((restaurant, index) => {
                     const restaurantSlug =
                       restaurant.slug ||
                       restaurant.name.toLowerCase().replace(/\s+/g, "-");
@@ -3944,6 +4161,29 @@ export default function Home() {
                   );
                 })}
               </div>
+              {filteredRestaurants.length === 0 && !showRestaurantSkeleton && (
+                <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                  <div className="w-16 h-16 rounded-full bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center mb-3">
+                    <SlidersHorizontal className="w-8 h-8 text-[#659116]" />
+                  </div>
+                  <h3 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white mb-1">
+                    No restaurants match your filters
+                  </h3>
+                  <p className="text-xs sm:text-sm text-gray-500 max-w-xs mb-4">
+                    Try clearing or adjusting your selected filters to see more restaurants.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setActiveFilters(new Set());
+                      setSortBy(null);
+                      setSelectedCuisine(null);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-[#659116] text-white text-xs sm:text-sm font-bold shadow-sm hover:opacity-90 transition-opacity"
+                  >
+                    Clear All Filters
+                  </button>
+                </div>
+              )}
             </div>
             <div className="flex flex-col items-center pt-2 sm:pt-3 gap-2 px-4">
               {hasMoreRestaurants && (
@@ -4002,7 +4242,7 @@ export default function Home() {
                       setSortBy(null);
                       setSelectedCuisine(null);
                     }}
-                    className="text-[#EB590E] font-medium text-sm">
+                    className="text-[#659116] font-bold text-sm">
                     Clear all
                   </button>
                 </div>
@@ -4039,11 +4279,11 @@ export default function Home() {
                           }}
                           className={`flex flex-col items-center gap-1 py-4 px-2 text-center relative transition-colors ${
                             isActive
-                              ? "bg-white dark:bg-[#1a1a1a] text-[#EB590E]"
+                              ? "bg-white dark:bg-[#1a1a1a] text-[#659116] font-bold"
                               : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
                           }`}>
                           {isActive && (
-                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#EB590E] rounded-r" />
+                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#659116] rounded-r" />
                           )}
                           <Icon className="h-5 w-5" strokeWidth={1.5} />
                           <span className="text-xs font-medium leading-tight">
@@ -4079,11 +4319,11 @@ export default function Home() {
                             onClick={() => setSortBy(option.id)}
                             className={`px-4 py-3 rounded-xl border text-left transition-colors ${
                               sortBy === option.id
-                                ? "border-[#EB590E] bg-[#FFF2EB] dark:bg-green-900/20"
-                                : "border-gray-200 dark:border-gray-800 hover:border-[#EB590E]"
+                                ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30 font-bold text-[#659116]"
+                                : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                             }`}>
                             <span
-                              className={`text-sm font-medium ${sortBy === option.id ? "text-[#EB590E]" : "text-gray-700 dark:text-gray-300"}`}>
+                              className={`text-sm font-medium ${sortBy === option.id ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
                               {option.label}
                             </span>
                           </button>
@@ -4104,15 +4344,15 @@ export default function Home() {
                           onClick={() => toggleFilter("delivery-under-30")}
                           className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${
                             activeFilters.has("delivery-under-30")
-                              ? "border-[#EB590E] bg-[#FFF2EB] dark:bg-green-900/20"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#EB590E]"
+                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                           <Timer
-                            className={`h-6 w-6 ${activeFilters.has("delivery-under-30") ? "text-[#EB590E]" : "text-gray-600 dark:text-gray-400"}`}
+                            className={`h-6 w-6 ${activeFilters.has("delivery-under-30") ? "text-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
                             strokeWidth={1.5}
                           />
                           <span
-                            className={`text-sm font-medium ${activeFilters.has("delivery-under-30") ? "text-[#EB590E]" : "text-gray-700 dark:text-gray-300"}`}>
+                            className={`text-sm font-medium ${activeFilters.has("delivery-under-30") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
                             Under 30 mins
                           </span>
                         </button>
@@ -4120,15 +4360,15 @@ export default function Home() {
                           onClick={() => toggleFilter("delivery-under-45")}
                           className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${
                             activeFilters.has("delivery-under-45")
-                              ? "border-[#EB590E] bg-[#FFF2EB] dark:bg-green-900/20"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#EB590E]"
+                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                           <Timer
-                            className={`h-6 w-6 ${activeFilters.has("delivery-under-45") ? "text-[#EB590E]" : "text-gray-600 dark:text-gray-400"}`}
+                            className={`h-6 w-6 ${activeFilters.has("delivery-under-45") ? "text-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
                             strokeWidth={1.5}
                           />
                           <span
-                            className={`text-sm font-medium ${activeFilters.has("delivery-under-45") ? "text-[#EB590E]" : "text-gray-700 dark:text-gray-300"}`}>
+                            className={`text-sm font-medium ${activeFilters.has("delivery-under-45") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
                             Under 45 mins
                           </span>
                         </button>
@@ -4148,45 +4388,48 @@ export default function Home() {
                           onClick={() => toggleFilter("rating-35-plus")}
                           className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${
                             activeFilters.has("rating-35-plus")
-                              ? "border-[#EB590E] bg-[#FFF2EB] dark:bg-green-900/20"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#EB590E]"
+                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                           <Star
-                            className={`h-6 w-6 ${activeFilters.has("rating-35-plus") ? "text-[#EB590E] fill-[#EB590E]" : "text-gray-400 dark:text-gray-500"}`}
+                            className={`h-6 w-6 ${activeFilters.has("rating-35-plus") ? "text-[#659116] fill-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
+                            strokeWidth={1.5}
                           />
                           <span
-                            className={`text-sm font-medium ${activeFilters.has("rating-35-plus") ? "text-[#EB590E]" : "text-gray-700 dark:text-gray-300"}`}>
-                            Rated 3.5+
+                            className={`text-sm font-medium ${activeFilters.has("rating-35-plus") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                            3.5+ Rating
                           </span>
                         </button>
                         <button
                           onClick={() => toggleFilter("rating-4-plus")}
                           className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${
                             activeFilters.has("rating-4-plus")
-                              ? "border-[#EB590E] bg-[#FFF2EB] dark:bg-green-900/20"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#EB590E]"
+                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                           <Star
-                            className={`h-6 w-6 ${activeFilters.has("rating-4-plus") ? "text-[#EB590E] fill-[#EB590E]" : "text-gray-400 dark:text-gray-500"}`}
+                            className={`h-6 w-6 ${activeFilters.has("rating-4-plus") ? "text-[#659116] fill-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
+                            strokeWidth={1.5}
                           />
                           <span
-                            className={`text-sm font-medium ${activeFilters.has("rating-4-plus") ? "text-[#EB590E]" : "text-gray-700 dark:text-gray-300"}`}>
-                            Rated 4.0+
+                            className={`text-sm font-medium ${activeFilters.has("rating-4-plus") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                            4.0+ Rating
                           </span>
                         </button>
                         <button
                           onClick={() => toggleFilter("rating-45-plus")}
                           className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${
                             activeFilters.has("rating-45-plus")
-                              ? "border-[#EB590E] bg-[#FFF2EB] dark:bg-green-900/20"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#EB590E]"
+                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                           <Star
-                            className={`h-6 w-6 ${activeFilters.has("rating-45-plus") ? "text-[#EB590E] fill-[#EB590E]" : "text-gray-400 dark:text-gray-500"}`}
+                            className={`h-6 w-6 ${activeFilters.has("rating-45-plus") ? "text-[#659116] fill-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
+                            strokeWidth={1.5}
                           />
                           <span
-                            className={`text-sm font-medium ${activeFilters.has("rating-45-plus") ? "text-[#EB590E]" : "text-gray-700 dark:text-gray-300"}`}>
-                            Rated 4.5+
+                            className={`text-sm font-medium ${activeFilters.has("rating-45-plus") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                            4.5+ Rating
                           </span>
                         </button>
                       </div>
@@ -4205,15 +4448,15 @@ export default function Home() {
                           onClick={() => toggleFilter("distance-under-1km")}
                           className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${
                             activeFilters.has("distance-under-1km")
-                              ? "border-[#EB590E] bg-[#FFF2EB] dark:bg-green-900/20"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#EB590E]"
+                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                           <MapPin
-                            className={`h-6 w-6 ${activeFilters.has("distance-under-1km") ? "text-[#EB590E]" : "text-gray-600 dark:text-gray-400"}`}
+                            className={`h-6 w-6 ${activeFilters.has("distance-under-1km") ? "text-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
                             strokeWidth={1.5}
                           />
                           <span
-                            className={`text-sm font-medium ${activeFilters.has("distance-under-1km") ? "text-[#EB590E]" : "text-gray-700 dark:text-gray-300"}`}>
+                            className={`text-sm font-medium ${activeFilters.has("distance-under-1km") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
                             Under 1 km
                           </span>
                         </button>
@@ -4221,15 +4464,15 @@ export default function Home() {
                           onClick={() => toggleFilter("distance-under-2km")}
                           className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${
                             activeFilters.has("distance-under-2km")
-                              ? "border-[#EB590E] bg-[#FFF2EB] dark:bg-green-900/20"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#EB590E]"
+                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                           <MapPin
-                            className={`h-6 w-6 ${activeFilters.has("distance-under-2km") ? "text-[#EB590E]" : "text-gray-600 dark:text-gray-400"}`}
+                            className={`h-6 w-6 ${activeFilters.has("distance-under-2km") ? "text-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
                             strokeWidth={1.5}
                           />
                           <span
-                            className={`text-sm font-medium ${activeFilters.has("distance-under-2km") ? "text-[#EB590E]" : "text-gray-700 dark:text-gray-300"}`}>
+                            className={`text-sm font-medium ${activeFilters.has("distance-under-2km") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
                             Under 2 km
                           </span>
                         </button>
@@ -4249,11 +4492,11 @@ export default function Home() {
                           onClick={() => toggleFilter("price-under-200")}
                           className={`px-4 py-3 rounded-xl border text-left transition-colors ${
                             activeFilters.has("price-under-200")
-                              ? "border-[#EB590E] bg-[#FFF2EB] dark:bg-green-900/20"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#EB590E]"
+                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                           <span
-                            className={`text-sm font-medium ${activeFilters.has("price-under-200") ? "text-[#EB590E]" : "text-gray-700 dark:text-gray-300"}`}>
+                            className={`text-sm font-medium ${activeFilters.has("price-under-200") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
                             Under ₹200
                           </span>
                         </button>
@@ -4261,11 +4504,11 @@ export default function Home() {
                           onClick={() => toggleFilter("price-under-500")}
                           className={`px-4 py-3 rounded-xl border text-left transition-colors ${
                             activeFilters.has("price-under-500")
-                              ? "border-[#EB590E] bg-[#FFF2EB] dark:bg-green-900/20"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#EB590E]"
+                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                           <span
-                            className={`text-sm font-medium ${activeFilters.has("price-under-500") ? "text-[#EB590E]" : "text-gray-700 dark:text-gray-300"}`}>
+                            className={`text-sm font-medium ${activeFilters.has("price-under-500") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
                             Under ₹500
                           </span>
                         </button>
@@ -4287,11 +4530,11 @@ export default function Home() {
                           onClick={() => toggleFilter("top-rated")}
                           className={`px-4 py-3 rounded-xl border text-left transition-colors ${
                             activeFilters.has("top-rated")
-                              ? "border-[#EB590E] bg-[#FFF2EB] dark:bg-green-900/20"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#EB590E]"
+                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                           <span
-                            className={`text-sm font-medium ${activeFilters.has("top-rated") ? "text-[#EB590E]" : "text-gray-700 dark:text-gray-300"}`}>
+                            className={`text-sm font-medium ${activeFilters.has("top-rated") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
                             Top Rated
                           </span>
                         </button>
@@ -4299,11 +4542,11 @@ export default function Home() {
                           onClick={() => toggleFilter("trusted")}
                           className={`px-4 py-3 rounded-xl border text-left transition-colors ${
                             activeFilters.has("trusted")
-                              ? "border-[#EB590E] bg-[#FFF2EB] dark:bg-green-900/20"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#EB590E]"
+                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                           <span
-                            className={`text-sm font-medium ${activeFilters.has("trusted") ? "text-[#EB590E]" : "text-gray-700 dark:text-gray-300"}`}>
+                            className={`text-sm font-medium ${activeFilters.has("trusted") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
                             Trusted by 1000+ users
                           </span>
                         </button>
@@ -4323,11 +4566,11 @@ export default function Home() {
                           onClick={() => toggleFilter("has-offers")}
                           className={`px-4 py-3 rounded-xl border text-left transition-colors ${
                             activeFilters.has("has-offers")
-                              ? "border-[#EB590E] bg-[#FFF2EB] dark:bg-green-900/20"
-                              : "border-gray-200 dark:border-gray-800 hover:border-[#EB590E]"
+                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                           <span
-                            className={`text-sm font-medium ${activeFilters.has("has-offers") ? "text-[#EB590E]" : "text-gray-700 dark:text-gray-300"}`}>
+                            className={`text-sm font-medium ${activeFilters.has("has-offers") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
                             Restaurants with offers
                           </span>
                         </button>
@@ -4354,7 +4597,7 @@ export default function Home() {
                     }}
                     className={`flex-1 py-3 font-semibold rounded-xl transition-colors ${
                       activeFilters.size > 0 || sortBy || selectedCuisine
-                        ? "bg-[#EB590E] text-white hover:bg-[#D94F0C]"
+                        ? "bg-[#659116] text-white hover:bg-[#5ECC11]"
                         : "bg-gray-200 text-gray-500"
                     }`}
                     disabled={isLoadingFilterResults}>
