@@ -264,9 +264,24 @@ export default function OTP() {
   if (!authData) return null
 
   return (
-    <AnimatedPage className="min-h-[100dvh] bg-white dark:bg-[#0A0A0B] flex flex-col font-sans overflow-hidden select-none">
-      {/* Top Header Section */}
-      <div className="relative h-[36dvh] min-h-[250px] w-full overflow-hidden flex flex-col items-center justify-center">
+    <AnimatedPage className="relative min-h-[100dvh] w-full flex flex-col items-center justify-center font-sans overflow-hidden select-none bg-gray-50 dark:bg-[#0A0A0B]">
+      {/* Background image for desktop view - fills the screen behind the card */}
+      <div 
+        className="absolute inset-0 bg-cover bg-center z-0 hidden sm:block"
+        style={{ 
+          backgroundImage: `url(${loginBgImg})`,
+          filter: 'blur(10px)',
+          transform: 'scale(1.05)',
+          opacity: 0.35
+        }}
+      />
+      {/* Dark overlay behind card on desktop */}
+      <div className="absolute inset-0 bg-black/10 dark:bg-black/40 z-[1] hidden sm:block" />
+
+      {/* Main Container - behaves like a normal page on mobile, and a premium card on desktop */}
+      <div className="relative z-10 w-full sm:max-w-md sm:h-[680px] bg-white dark:bg-[#121620] sm:rounded-[32px] sm:shadow-2xl overflow-hidden flex flex-col min-h-[100dvh] sm:min-h-0 sm:border sm:border-gray-100 sm:dark:border-gray-800">
+        {/* Top Header Section */}
+        <div className="relative h-[36dvh] min-h-[250px] sm:h-[240px] sm:min-h-0 w-full overflow-hidden flex flex-col items-center justify-center">
         {/* Background Food Image */}
         <div 
           className="absolute inset-0 bg-cover bg-center z-0"
@@ -504,6 +519,7 @@ export default function OTP() {
           </footer>
         </div>
       </motion.div>
+      </div>
     </AnimatedPage>
   )
 }
