@@ -7,6 +7,7 @@ import apiClient, { authAPI } from "@food/api"
 import { setAuthData as setUserAuthData } from "@food/utils/auth"
 import { resolveDeviceFcmToken, registerWebPushForCurrentModule } from "@food/utils/firebaseMessaging"
 import { motion, AnimatePresence } from "framer-motion"
+import loginBgImg from "@food/assets/login_bg.jpg"
 
 const FULL_NAME_REGEX = /^[A-Za-z ]+$/
 
@@ -265,12 +266,24 @@ export default function OTP() {
   return (
     <AnimatedPage className="min-h-[100dvh] bg-white dark:bg-[#0A0A0B] flex flex-col font-sans overflow-hidden select-none">
       {/* Top Header Section */}
-      <div 
-        className="relative h-[36dvh] min-h-[250px] w-full overflow-hidden flex flex-col items-center justify-center"
-        style={{
-          background: "linear-gradient(135deg, #659116 0%, #588114 100%)",
-        }}
-      >
+      <div className="relative h-[36dvh] min-h-[250px] w-full overflow-hidden flex flex-col items-center justify-center">
+        {/* Background Food Image */}
+        <div 
+          className="absolute inset-0 bg-cover bg-center z-0"
+          style={{ 
+            backgroundImage: `url(${loginBgImg})`,
+            filter: 'blur(0.5px)',
+            transform: 'scale(1.02)'
+          }}
+        />
+        {/* Dark overlay to match the login screen and keep text highly readable */}
+        <div 
+          className="absolute inset-0 z-[5]"
+          style={{
+            background: "linear-gradient(135deg, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0.65) 100%)"
+          }}
+        />
+
         {/* Back button */}
         <button
           onClick={() => navigate("/food/user/auth/login")}
@@ -280,7 +293,7 @@ export default function OTP() {
         </button>
 
         {/* Background Decorative Circles */}
-        <div className="absolute inset-0 opacity-20 pointer-events-none">
+        <div className="absolute inset-0 opacity-20 pointer-events-none z-10">
           <div className="absolute top-[-30%] right-[-20%] w-[320px] h-[320px] border border-white rounded-full" />
           <div className="absolute bottom-[-20%] left-[-15%] w-[260px] h-[260px] border border-white rounded-full" />
         </div>
