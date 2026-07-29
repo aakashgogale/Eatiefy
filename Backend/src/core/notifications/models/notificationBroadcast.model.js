@@ -56,6 +56,12 @@ const notificationBroadcastSchema = new mongoose.Schema(
             default: '',
             trim: true
         },
+        zoneId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'FoodZone',
+            default: null,
+            index: true
+        },
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'FoodAdmin',

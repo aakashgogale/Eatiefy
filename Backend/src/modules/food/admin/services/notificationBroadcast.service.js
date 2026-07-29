@@ -8,6 +8,7 @@ import { FoodNotification } from '../../../../core/notifications/models/notifica
 import { createInboxNotifications } from '../../../../core/notifications/notification.service.js';
 import { notifyOwnersSafely } from '../../../../core/notifications/firebase.service.js';
 import { getIO, rooms } from '../../../../config/socket.js';
+import { FoodZone } from '../models/zone.model.js';
 
 const TARGET_TYPE_MAP = {
     ALL: 'ALL',
@@ -105,12 +106,65 @@ const dedupeTargets = (targets = []) => {
     return [...map.values()];
 };
 
-const loadTargetsByOwnerType = async (ownerType) => {
+const isPointInZonePolygon = (lat, lng, polygon = []) => {
+    if (!Array.isArray(polygon) || polygon.length < 3) return false;
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = Number(polygon[i]?.longitude);
+        const yi = Number(polygon[i]?.latitude);
+        const xj = Number(polygon[j]?.longitude);
+        const yj = Number(polygon[j]?.latitude);
+        if (![xi, yi, xj, yj].every(Number.isFinite)) continue;
+        const intersect =
+            yi > lat !== yj > lat &&
+            lng < ((xj - xi) * (lat - yi)) / (yj - yi + 0.0) + xi;
+        if (intersect) inside = !inside;
+    }
+    return inside;
+};
+
+const loadTargetsByOwnerType = async (ownerType, zone = null) => {
     const config = modelConfigMap[ownerType];
     if (!config) return [];
 
-    const rows = await config.model.find(config.query).select(config.select).lean();
-    return rows.map((row) => ({
+    const query = { ...config.query };
+    if (zone && ownerType === 'RESTAURANT') {
+        query.zoneId = zone._id;
+    }
+
+    const select = ownerType === 'USER' ? `${config.select} addresses` : config.select;
+    const rows = await config.model.find(query).select(select).lean();
+
+    let filteredRows = rows;
+    if (zone && ownerType !== 'RESTAURANT') {
+        const zoneNameLower = String(zone.name || '').trim().toLowerCase();
+        filteredRows = rows.filter((row) => {
+            if (ownerType === 'USER') {
+                const defaultAddr = row.addresses?.find((a) => a.isDefault) || row.addresses?.[0];
+                if (!defaultAddr) return false;
+                const lat = defaultAddr?.location?.coordinates?.[1];
+                const lng = defaultAddr?.location?.coordinates?.[0];
+                if (lat != null && lng != null) {
+                    if (isPointInZonePolygon(lat, lng, zone.coordinates)) return true;
+                }
+                const city = String(defaultAddr.city || '').trim().toLowerCase();
+                return city === zoneNameLower;
+            }
+            if (ownerType === 'DELIVERY_PARTNER') {
+                const lat = row.lastLat ?? row.lastLocation?.coordinates?.[1];
+                const lng = row.lastLng ?? row.lastLocation?.coordinates?.[0];
+                if (lat != null && lng != null) {
+                    if (isPointInZonePolygon(lat, lng, zone.coordinates)) return true;
+                }
+                const city = String(row.city || '').trim().toLowerCase();
+                const address = String(row.address || '').trim().toLowerCase();
+                return city === zoneNameLower || address.includes(zoneNameLower);
+            }
+            return true;
+        });
+    }
+
+    return filteredRows.map((row) => ({
         ownerType,
         ownerId: String(row._id),
         ...config.buildLabel(row)
@@ -134,19 +188,19 @@ const resolveCustomTargets = async ({ targets = [], targetIds = [] } = {}) => {
     }));
 };
 
-const resolveTargets = async ({ targetType, targetIds = [], targets = [] } = {}) => {
+const resolveTargets = async ({ targetType, targetIds = [], targets = [], zone = null } = {}) => {
     if (targetType === 'ALL') {
         const [users, restaurants, deliveryPartners] = await Promise.all([
-            loadTargetsByOwnerType('USER'),
-            loadTargetsByOwnerType('RESTAURANT'),
-            loadTargetsByOwnerType('DELIVERY_PARTNER')
+            loadTargetsByOwnerType('USER', zone),
+            loadTargetsByOwnerType('RESTAURANT', zone),
+            loadTargetsByOwnerType('DELIVERY_PARTNER', zone)
         ]);
         return [...users, ...restaurants, ...deliveryPartners];
     }
 
-    if (targetType === 'USER') return loadTargetsByOwnerType('USER');
-    if (targetType === 'RESTAURANT') return loadTargetsByOwnerType('RESTAURANT');
-    if (targetType === 'DELIVERY') return loadTargetsByOwnerType('DELIVERY_PARTNER');
+    if (targetType === 'USER') return loadTargetsByOwnerType('USER', zone);
+    if (targetType === 'RESTAURANT') return loadTargetsByOwnerType('RESTAURANT', zone);
+    if (targetType === 'DELIVERY') return loadTargetsByOwnerType('DELIVERY_PARTNER', zone);
     if (targetType === 'CUSTOM') return resolveCustomTargets({ targets, targetIds });
 
     throw new ValidationError('Unsupported targetType');
@@ -211,14 +265,26 @@ export const createBroadcastNotification = async ({ body = {}, adminId } = {}) =
     const message = normalizeText(body?.message, 'message');
     const link = normalizeText(body?.link, 'link', false);
     const targetType = normalizeTargetType(body?.targetType);
+
+    let zone = null;
+    let zoneId = null;
+    if (body?.zoneId && mongoose.Types.ObjectId.isValid(String(body.zoneId))) {
+        zoneId = new mongoose.Types.ObjectId(String(body.zoneId));
+        zone = await FoodZone.findOne({ _id: zoneId, isActive: true }).lean();
+        if (!zone) {
+            throw new ValidationError('Selected zone is invalid or inactive');
+        }
+    }
+
     const resolvedTargets = await resolveTargets({
         targetType,
         targetIds: body?.targetIds,
-        targets: body?.targets
+        targets: body?.targets,
+        zone
     });
 
     if (!resolvedTargets.length) {
-        throw new ValidationError(`No recipients found for ${targetType.toLowerCase()} broadcast`);
+        throw new ValidationError(`No recipients found for ${targetType.toLowerCase()} broadcast in the selected zone`);
     }
 
     const targetIds = resolvedTargets.map((target) => toObjectId(target.ownerId, 'targetId'));
@@ -236,7 +302,8 @@ export const createBroadcastNotification = async ({ body = {}, adminId } = {}) =
         })),
         link,
         createdBy: toObjectId(adminId, 'createdBy'),
-        targetCount: resolvedTargets.length
+        targetCount: resolvedTargets.length,
+        zoneId
     });
 
     await createInboxNotifications({
@@ -284,6 +351,7 @@ export const getBroadcastNotifications = async ({ page = 1, limit = 10 } = {}) =
             .skip(skip)
             .limit(meta.limit)
             .populate('createdBy', 'name email')
+            .populate('zoneId', 'name zoneName')
             .lean(),
         BroadcastNotification.countDocuments({})
     ]);
