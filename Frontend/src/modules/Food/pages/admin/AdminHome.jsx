@@ -23,7 +23,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import { Activity, ArrowUpRight, ShoppingBag, CreditCard, Truck, Receipt, DollarSign, Store, UserCheck, Package, UserCircle, Clock, CheckCircle, Plus, XCircle } from "lucide-react"
+import { Activity, ArrowUpRight, ShoppingBag, CreditCard, Truck, Receipt, DollarSign, Store, UserCheck, Package, UserCircle, Clock, CheckCircle, Plus, XCircle, Trophy, Gift } from "lucide-react"
 import { adminAPI } from "@food/api"
 const debugLog = () => {}
 const debugError = () => {}
@@ -44,6 +44,7 @@ export default function AdminHome() {
   const [isLoading, setIsLoading] = useState(true)
   const [dashboardData, setDashboardData] = useState(null)
   const [zones, setZones] = useState([])
+  const [bonusSummary, setBonusSummary] = useState({ eligible: 0, bonusGiven: 0, total: 0 })
 
   // Fetch zone list for filter
   useEffect(() => {
@@ -88,6 +89,13 @@ export default function AdminHome() {
 
     fetchDashboardStats()
   }, [selectedZone, selectedPeriod])
+
+  // Fetch today's bonus eligibility summary
+  useEffect(() => {
+    adminAPI.getEligibleBonusSummary()
+      .then((res) => { if (res.data?.data) setBonusSummary(res.data.data) })
+      .catch(() => {})
+  }, [])
 
   // Get order stats from real data
   const getOrderStats = () => {
@@ -610,6 +618,44 @@ export default function AdminHome() {
               </CardContent>
             </Card>
           </div>
+        </div>
+      </div>
+
+      {/* Today's Bonus Eligibility Widget */}
+      <div className="mt-4 bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl p-5 text-white shadow-lg">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-white/20 rounded-xl">
+              <Trophy className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h3 className="font-bold text-base">Today's Bonus Eligibility</h3>
+              <p className="text-indigo-200 text-xs mt-0.5">Delivery partners who hit their daily target</p>
+            </div>
+          </div>
+          <button
+            onClick={() => navigate("/admin/food/delivery-partners/eligible-bonuses")}
+            className="text-xs text-indigo-200 hover:text-white transition-colors flex items-center gap-1"
+          >
+            View All <ArrowUpRight className="w-3 h-3" />
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-white/15 rounded-xl p-3.5 text-center">
+            <p className="text-2xl font-bold">{bonusSummary.total}</p>
+            <p className="text-xs text-indigo-200 mt-1">Total Eligible</p>
+          </div>
+          <div className="bg-white/15 rounded-xl p-3.5 text-center">
+            <p className="text-2xl font-bold text-emerald-300">{bonusSummary.bonusGiven}</p>
+            <p className="text-xs text-indigo-200 mt-1">Approved</p>
+          </div>
+          <button
+            onClick={() => navigate("/admin/food/delivery-partners/eligible-bonuses?status=eligible")}
+            className="bg-amber-400/30 hover:bg-amber-400/50 border border-amber-300/40 rounded-xl p-3.5 text-center transition-all cursor-pointer"
+          >
+            <p className="text-2xl font-bold text-amber-200">{bonusSummary.eligible}</p>
+            <p className="text-xs text-amber-200 mt-1">Pending ↗</p>
+          </button>
         </div>
       </div>
     </div>

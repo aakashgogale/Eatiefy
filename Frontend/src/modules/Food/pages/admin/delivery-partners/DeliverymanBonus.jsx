@@ -21,7 +21,7 @@ const formatBonusAmount = (transaction) => {
   
   // Clean the bonus string - remove superscript characters
   let cleaned = transaction.bonus.toString()
-    .replace(/¹/g, '') // Remove superscript 1
+    .replace(/ï¿½/g, '') // Remove superscript 1
     .replace(/[\u2070-\u207F\u2080-\u208F]/g, '') // Remove all superscript characters
     .trim()
   
@@ -464,6 +464,7 @@ export default function DeliverymanBonus() {
                     {visibleColumns.deliveryBoyId && <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Delivery Boy ID</th>}
                     {visibleColumns.deliveryman && <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">DeliveryMan</th>}
                     {visibleColumns.bonus && <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Bonus</th>}
+                    <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Type</th>
                     {visibleColumns.reference && <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Reference</th>}
                     {visibleColumns.createdAt && <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Created At</th>}
                   </tr>
@@ -496,6 +497,13 @@ export default function DeliverymanBonus() {
                           <span className="text-sm font-medium text-slate-900">{formatBonusAmount(transaction)}</span>
                         </td>
                       )}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {transaction.bonusType === 'target' ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700">Target Bonus</span>
+                        ) : (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">Manual Bonus</span>
+                        )}
+                      </td>
                       {visibleColumns.createdAt && (
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className="text-sm text-slate-700">{transaction.createdAt}</span>
@@ -587,4 +595,5 @@ export default function DeliverymanBonus() {
     </div>
   )
 }
+
 

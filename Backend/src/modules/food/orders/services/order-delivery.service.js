@@ -1022,6 +1022,12 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
     prevPayStatus,
     paymentStatus: order.payment?.status,
   });
+
+  // Fire-and-forget: check if this delivery partner has hit a target bonus
+  import('../../admin/services/admin.service.js')
+    .then(({ checkAndMarkEligibility }) => checkAndMarkEligibility(deliveryPartnerId, order._id))
+    .catch((err) => console.error('[TargetBonus] eligibility check error:', err));
+
   return sanitizeOrderForDeliveryPartner(order);
 }
 

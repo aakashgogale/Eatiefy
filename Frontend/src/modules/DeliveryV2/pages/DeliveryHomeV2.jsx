@@ -28,7 +28,7 @@ import {
   Bell, HelpCircle, AlertTriangle,
   Wallet, History, User as UserIcon, LayoutGrid,
   Plus, Minus, Navigation2, Target, Play, CheckCircle2, Clock, ChevronDown, Phone,
-  Contact, Package, Ambulance, Shield, ShieldCheck, Navigation
+  Contact, Package, Ambulance, Shield, ShieldCheck, Navigation, Trophy, X
 } from 'lucide-react';
 
 import { getHaversineDistance, calculateETA, calculateHeading } from '@/modules/DeliveryV2/utils/geo';
@@ -138,11 +138,36 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   const lastAutoArrivalRef = useRef({ PICKING_UP: false, PICKED_UP: false });
   const [zoom, setZoom] = useState(14);
   const [isSimMode, setIsSimMode] = useState(false);
+  const [isBonusExpanded, setIsBonusExpanded] = useState(false);
+  const [bonusBanner, setBonusBanner] = useState(null); // { name, remaining, bonusAmount, isEligible, isPending }
   const [simPath, setSimPath] = useState([]);
   const [simIndex, setSimIndex] = useState(0);
   const [simProgress, setSimProgress] = useState(0); // 0 to 1 between points
   const [activePolyline, setActivePolyline] = useState(null);
   const mapRef = useRef(null);
+
+  // Fetch bonus banner once on mount
+  useEffect(() => {
+    deliveryAPI.getMyBonusStatus()
+      .then(res => {
+        const list = res.data?.data?.bonusStatus || [];
+        // Pick the first daily rule to show in banner
+        const active = list.find(b => b.rule?.targetType === 'daily') || list[0];
+        if (active) {
+          setBonusBanner({
+            name: active.rule?.name || 'Daily Bonus',
+            remaining: Math.max(0, active.targetOrders - active.ordersCompleted),
+            bonusAmount: active.bonusAmount,
+            isEligible: active.isEligible,
+            isPending: active.approvalStatus === 'eligible',
+            isApproved: active.approvalStatus === 'bonus_given',
+            ordersCompleted: active.ordersCompleted,
+            targetOrders: active.targetOrders,
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const isLoggingOut = useRef(false);
   const handleLogout = useCallback(async () => {
@@ -799,6 +824,84 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* BONUS BANNER OR TOGGLE — shown on feed tab when no active order */}
+          <AnimatePresence>
+            {currentTab === 'feed' && !activeOrder && bonusBanner && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="px-4 mt-2 pointer-events-auto flex justify-end"
+              >
+                {!isBonusExpanded ? (
+                  /* Collapsed Toggle Button */
+                  <button
+                    onClick={() => setIsBonusExpanded(true)}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-[#111111]/95 border border-white/10 backdrop-blur-md shadow-lg text-white text-[11px] font-bold uppercase tracking-wider active:scale-95 transition-all shrink-0"
+                  >
+                    <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Bonus Target</span>
+                  </button>
+                ) : (
+                  /* Expanded Slim Card (Same style as Finding Orders near you) */
+                  <div
+                    onClick={() => navigate('/food/delivery/my-bonus-status')}
+                    className="w-full flex items-center gap-3.5 p-4 rounded-[24px] backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.4)] border border-white/10 cursor-pointer active:scale-[0.99] transition-all"
+                    style={{
+                      background: bonusBanner.isApproved
+                        ? 'rgba(0,183,97,0.95)'
+                        : bonusBanner.isPending
+                        ? 'rgba(245,158,11,0.95)'
+                        : 'rgba(17,17,17,0.95)',
+                    }}
+                  >
+                    {/* Icon */}
+                    <div
+                      className="w-9 h-9 rounded-full bg-white/15 flex items-center justify-center shrink-0"
+                    >
+                      <Trophy className="w-4.5 h-4.5 text-white" />
+                    </div>
+
+                    {/* Text */}
+                    <div className="flex-1 min-w-0 flex flex-col text-left">
+                      {bonusBanner.isApproved ? (
+                        <>
+                          <h4 className="text-white text-[15px] font-bold tracking-tight leading-none mb-1.5">Bonus Approved! 🎉</h4>
+                          <p className="text-white/70 text-[13px] font-medium leading-none">₹{bonusBanner.bonusAmount} credited to wallet</p>
+                        </>
+                      ) : bonusBanner.isPending ? (
+                        <>
+                          <h4 className="text-white text-[15px] font-bold tracking-tight leading-none mb-1.5">Target Achieved!</h4>
+                          <p className="text-white/80 text-[13px] font-medium leading-none">₹{bonusBanner.bonusAmount} bonus pending approval</p>
+                        </>
+                      ) : (
+                        <>
+                          <h4 className="text-white text-[15px] font-bold tracking-tight leading-none mb-1.5">
+                            {bonusBanner.remaining === 0 ? 'Target hit! 🎯' : `${bonusBanner.remaining} more to earn ₹${bonusBanner.bonusAmount}`}
+                          </h4>
+                          <p className="text-gray-400 text-[13px] font-medium leading-none">
+                            {bonusBanner.name} · {bonusBanner.ordersCompleted}/{bonusBanner.targetOrders} done
+                          </p>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Close / Collapse button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation(); // prevent navigation
+                        setIsBonusExpanded(false);
+                      }}
+                      className="p-1 rounded-full bg-white/10 hover:bg-white/20 text-white/70 hover:text-white transition-all shrink-0 active:scale-90"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       )}
 
@@ -823,7 +926,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
 
             {/* SIMULATION INDICATOR (Removed from top) */}
 
-            <div className="absolute right-4 bottom-[200px] transition-all duration-500 flex flex-col items-end gap-3 z-[120] pointer-events-none">
+            <div className={`absolute right-4 ${activeOrder ? 'bottom-[200px]' : 'bottom-[96px]'} transition-all duration-500 flex flex-col items-end gap-3 z-[120] pointer-events-none`}>
 
               {/* Compact Simulation Pill */}
               <AnimatePresence>

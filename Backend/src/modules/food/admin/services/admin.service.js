@@ -14,6 +14,8 @@ import { FoodItem } from '../models/food.model.js';
 import { FoodOffer } from '../models/offer.model.js';
 import { FoodOfferUsage } from '../models/offerUsage.model.js';
 import { DeliveryBonusTransaction } from '../models/deliveryBonusTransaction.model.js';
+import { TargetBonusRule } from '../models/targetBonusRule.model.js';
+import { DeliveryTargetEligibility } from '../models/deliveryTargetEligibility.model.js';
 import { FoodEarningAddon } from '../models/earningAddon.model.js';
 import { FoodEarningAddonHistory } from '../models/earningAddonHistory.model.js';
 import { FoodRestaurantCommission } from '../models/restaurantCommission.model.js';
@@ -4930,6 +4932,7 @@ export async function getDeliveryPartnerBonusTransactions(query = {}) {
             amount: t.amount,
             bonus: t.amount, // legacy compatibility
             reference: t.reference || '',
+            bonusType: t.bonusType || 'manual',
             createdAt: t.createdAt
         };
     });
@@ -4971,7 +4974,9 @@ export async function addDeliveryPartnerBonus(body, adminUser) {
         transactionId,
         amount: amountToCredit,
         reference: body.reference || '',
-        createdByAdminId: adminUser?._id
+        createdByAdminId: adminUser?._id,
+        bonusType: body.bonusType === 'target' ? 'target' : 'manual',
+        eligibilityId: body.eligibilityId || null,
     });
 
     // Keep wallet ledger in sync so pocket balance updates immediately in delivery app.
@@ -6363,3 +6368,324 @@ export function getAdminPermissionCatalog() {
         })),
     };
 }
+
+// ===== TARGET BONUS RULES =====
+
+/**
+ * Returns the IST-based date string (YYYY-MM-DD) for a given JS Date object.
+ * Used to build the eligibility window for daily rules.
+ */
+function toISTDateString(date = new Date()) {
+    // IST = UTC+5:30
+    const ist = new Date(date.getTime() + 5.5 * 60 * 60 * 1000);
+    return ist.toISOString().slice(0, 10);
+}
+
+/**
+ * Compute the "window start" date string for a rule's targetType.
+ * daily   → today (YYYY-MM-DD)
+ * weekly  → Monday of current week
+ * monthly → 1st of current month
+ */
+function getWindowDateString(targetType) {
+    const now = new Date();
+    const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+    if (targetType === 'daily') {
+        return istNow.toISOString().slice(0, 10);
+    }
+    if (targetType === 'weekly') {
+        const day = istNow.getUTCDay(); // 0=Sun
+        const diff = day === 0 ? 6 : day - 1; // days since Monday
+        const monday = new Date(istNow);
+        monday.setUTCDate(monday.getUTCDate() - diff);
+        return monday.toISOString().slice(0, 10);
+    }
+    // monthly
+    return `${istNow.toISOString().slice(0, 7)}-01`;
+}
+
+export async function getTargetBonusRules(query = {}) {
+    const filter = {};
+    if (query.status) filter.status = query.status;
+    if (query.targetType) filter.targetType = query.targetType;
+
+    const rules = await TargetBonusRule.find(filter).sort({ createdAt: -1 }).lean();
+    return rules;
+}
+
+export async function createTargetBonusRule(body, adminUser) {
+    const { name, targetType, minimumOrders, bonusAmount, status = 'active' } = body;
+    if (!name || !name.trim()) throw new ValidationError('Rule name is required');
+    if (!['daily', 'weekly', 'monthly'].includes(targetType)) throw new ValidationError('Invalid target type');
+    if (!minimumOrders || minimumOrders < 1) throw new ValidationError('Minimum orders must be at least 1');
+    if (bonusAmount == null || bonusAmount < 0) throw new ValidationError('Bonus amount must be non-negative');
+
+    // Enforce: only one active rule per type
+    if (status === 'active') {
+        const existing = await TargetBonusRule.findOne({ targetType, status: 'active' }).lean();
+        if (existing) {
+            throw new ValidationError(`An active ${targetType} rule already exists. Please deactivate it first.`);
+        }
+    }
+
+    const rule = await TargetBonusRule.create({
+        name: name.trim(),
+        targetType,
+        minimumOrders: Number(minimumOrders),
+        bonusAmount: Number(bonusAmount),
+        status,
+        createdByAdminId: adminUser?._id,
+    });
+    return rule.toObject();
+}
+
+export async function updateTargetBonusRule(id, body, adminUser) {
+    const rule = await TargetBonusRule.findById(id);
+    if (!rule) throw new ValidationError('Target bonus rule not found');
+
+    const { name, targetType, minimumOrders, bonusAmount, status } = body;
+
+    // Check for one-active-per-type conflict (if activating or changing type)
+    const newStatus = status !== undefined ? status : rule.status;
+    const newType = targetType || rule.targetType;
+    if (newStatus === 'active') {
+        const conflict = await TargetBonusRule.findOne({
+            _id: { $ne: id },
+            targetType: newType,
+            status: 'active',
+        }).lean();
+        if (conflict) {
+            throw new ValidationError(`An active ${newType} rule already exists. Deactivate it first.`);
+        }
+    }
+
+    if (name !== undefined) rule.name = name.trim();
+    if (targetType !== undefined) rule.targetType = targetType;
+    if (minimumOrders !== undefined) rule.minimumOrders = Number(minimumOrders);
+    if (bonusAmount !== undefined) rule.bonusAmount = Number(bonusAmount);
+    if (status !== undefined) rule.status = status;
+
+    await rule.save();
+    return rule.toObject();
+}
+
+export async function deleteTargetBonusRule(id) {
+    const rule = await TargetBonusRule.findByIdAndDelete(id).lean();
+    if (!rule) throw new ValidationError('Target bonus rule not found');
+    return rule;
+}
+
+export async function toggleTargetBonusRuleStatus(id) {
+    const rule = await TargetBonusRule.findById(id);
+    if (!rule) throw new ValidationError('Target bonus rule not found');
+
+    if (rule.status === 'inactive') {
+        // Activating: check for conflict
+        const conflict = await TargetBonusRule.findOne({
+            _id: { $ne: id },
+            targetType: rule.targetType,
+            status: 'active',
+        }).lean();
+        if (conflict) {
+            throw new ValidationError(`An active ${rule.targetType} rule already exists. Deactivate it first.`);
+        }
+        rule.status = 'active';
+    } else {
+        rule.status = 'inactive';
+    }
+
+    await rule.save();
+    return rule.toObject();
+}
+
+// ===== ELIGIBILITY TRACKING =====
+
+/**
+ * Called fire-and-forget when an order status becomes "delivered".
+ * Counts how many orders this partner delivered in the current window
+ * for each active rule, and upserts the eligibility record.
+ * Never credits the wallet — only marks as eligible.
+ */
+export async function checkAndMarkEligibility(deliveryPartnerId, orderId) {
+    try {
+        const activeRules = await TargetBonusRule.find({ status: 'active' }).lean();
+        if (!activeRules.length) return;
+
+        for (const rule of activeRules) {
+            const windowDate = getWindowDateString(rule.targetType);
+
+            // Build the time window boundaries
+            const windowStart = new Date(windowDate + 'T00:00:00.000+05:30');
+            let windowEnd;
+            if (rule.targetType === 'daily') {
+                windowEnd = new Date(windowDate + 'T23:59:59.999+05:30');
+            } else if (rule.targetType === 'weekly') {
+                const end = new Date(windowStart);
+                end.setUTCDate(end.getUTCDate() + 6);
+                end.setUTCHours(23, 59, 59, 999);
+                windowEnd = end;
+            } else {
+                // monthly — last day of the month
+                const nextMonth = new Date(windowStart);
+                nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+                nextMonth.setUTCDate(0);
+                nextMonth.setUTCHours(23, 59, 59, 999);
+                windowEnd = nextMonth;
+            }
+
+            // Count delivered orders in the window for this partner
+            const ordersCompleted = await FoodOrder.countDocuments({
+                'dispatch.deliveryPartnerId': deliveryPartnerId,
+                orderStatus: 'delivered',
+                updatedAt: { $gte: windowStart, $lte: windowEnd },
+            });
+
+            if (ordersCompleted < rule.minimumOrders) continue; // Not eligible yet
+
+            // Upsert eligibility record (ignore if already bonus_given)
+            const existing = await DeliveryTargetEligibility.findOne({
+                deliveryPartnerId,
+                ruleId: rule._id,
+                date: windowDate,
+            }).lean();
+
+            if (existing && existing.status === 'bonus_given') continue; // Already processed
+
+            await DeliveryTargetEligibility.findOneAndUpdate(
+                { deliveryPartnerId, ruleId: rule._id, date: windowDate },
+                {
+                    $set: {
+                        ordersCompleted,
+                        targetOrders: rule.minimumOrders,
+                        bonusAmount: rule.bonusAmount,
+                        status: 'eligible',
+                    },
+                },
+                { upsert: true, new: true }
+            );
+        }
+    } catch (err) {
+        console.error('[checkAndMarkEligibility] Error:', err);
+    }
+}
+
+// ===== ELIGIBLE BONUSES (ADMIN VIEW) =====
+
+export async function getEligibleBonuses(query = {}) {
+    const filter = {};
+
+    // Date filter
+    const dateStr = query.date || toISTDateString();
+    filter.date = dateStr;
+
+    if (query.status && ['eligible', 'bonus_given'].includes(query.status)) {
+        filter.status = query.status;
+    }
+
+    const rawRecords = await DeliveryTargetEligibility.find(filter)
+        .populate('deliveryPartnerId', 'name phone deliveryId profileImage')
+        .populate('ruleId', 'name targetType minimumOrders bonusAmount')
+        .sort({ createdAt: -1 })
+        .lean();
+
+    // Apply search filter
+    let records = rawRecords;
+    if (query.search) {
+        const q = query.search.toLowerCase();
+        records = rawRecords.filter((r) => {
+            const name = r.deliveryPartnerId?.name?.toLowerCase() || '';
+            const id = r.deliveryPartnerId?.deliveryId?.toLowerCase() || '';
+            return name.includes(q) || id.includes(q);
+        });
+    }
+
+    return records;
+}
+
+export async function getEligibleBonusSummary() {
+    const dateStr = toISTDateString();
+    const [eligible, bonusGiven] = await Promise.all([
+        DeliveryTargetEligibility.countDocuments({ date: dateStr, status: 'eligible' }),
+        DeliveryTargetEligibility.countDocuments({ date: dateStr, status: 'bonus_given' }),
+    ]);
+    return { eligible, bonusGiven, total: eligible + bonusGiven };
+}
+
+export async function markBonusGiven(eligibilityId, bonusTransactionId, adminUser) {
+    const record = await DeliveryTargetEligibility.findById(eligibilityId);
+    if (!record) throw new ValidationError('Eligibility record not found');
+    if (record.status === 'bonus_given') throw new ValidationError('Bonus already marked as given');
+
+    record.status = 'bonus_given';
+    record.bonusTransactionId = bonusTransactionId || null;
+    record.approvedByAdminId = adminUser?._id || null;
+    record.approvedAt = new Date();
+    await record.save();
+    return record.toObject();
+}
+
+// ===== DELIVERY PARTNER — MY BONUS STATUS =====
+
+export async function getDeliveryPartnerMyBonusStatus(deliveryPartnerId) {
+    const dateStr = toISTDateString();
+
+    // Get all active rules to show target
+    const activeRules = await TargetBonusRule.find({ status: 'active' }).lean();
+
+    const results = [];
+
+    for (const rule of activeRules) {
+        const windowDate = getWindowDateString(rule.targetType);
+
+        // Count orders completed today/this week/this month
+        const windowStart = new Date(windowDate + 'T00:00:00.000+05:30');
+        let windowEnd;
+        if (rule.targetType === 'daily') {
+            windowEnd = new Date(windowDate + 'T23:59:59.999+05:30');
+        } else if (rule.targetType === 'weekly') {
+            const end = new Date(windowStart);
+            end.setUTCDate(end.getUTCDate() + 6);
+            end.setUTCHours(23, 59, 59, 999);
+            windowEnd = end;
+        } else {
+            const nextMonth = new Date(windowStart);
+            nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+            nextMonth.setUTCDate(0);
+            nextMonth.setUTCHours(23, 59, 59, 999);
+            windowEnd = nextMonth;
+        }
+
+        const ordersCompleted = await FoodOrder.countDocuments({
+            'dispatch.deliveryPartnerId': deliveryPartnerId,
+            orderStatus: 'delivered',
+            updatedAt: { $gte: windowStart, $lte: windowEnd },
+        });
+
+        // Check eligibility record
+        const eligibility = await DeliveryTargetEligibility.findOne({
+            deliveryPartnerId,
+            ruleId: rule._id,
+            date: windowDate,
+        }).lean();
+
+        results.push({
+            rule: {
+                _id: rule._id,
+                name: rule.name,
+                targetType: rule.targetType,
+                minimumOrders: rule.minimumOrders,
+                bonusAmount: rule.bonusAmount,
+            },
+            windowDate,
+            ordersCompleted,
+            targetOrders: rule.minimumOrders,
+            bonusAmount: rule.bonusAmount,
+            isEligible: ordersCompleted >= rule.minimumOrders,
+            approvalStatus: eligibility?.status || null, // null = not yet eligible, 'eligible' = pending, 'bonus_given' = approved
+            approvedAt: eligibility?.approvedAt || null,
+        });
+    }
+
+    return results;
+}
+

@@ -333,6 +333,18 @@ router.patch('/delivery/wallets', adminController.updateDeliveryBoyWallet);
 router.get('/delivery/bonus-transactions', adminController.getDeliveryPartnerBonusTransactions);
 router.get('/delivery/earnings', adminController.getDeliveryEarnings);
 router.post('/delivery/bonus', adminController.addDeliveryPartnerBonus);
+
+// ----- Target Bonus Rules -----
+router.get('/delivery/target-bonus-rules', adminController.getTargetBonusRules);
+router.post('/delivery/target-bonus-rules', adminController.createTargetBonusRule);
+router.patch('/delivery/target-bonus-rules/:id', adminController.updateTargetBonusRule);
+router.delete('/delivery/target-bonus-rules/:id', adminController.deleteTargetBonusRule);
+router.patch('/delivery/target-bonus-rules/:id/status', adminController.toggleTargetBonusRuleStatus);
+
+// ----- Eligible Bonuses -----
+router.get('/delivery/eligible-bonuses', adminController.getEligibleBonuses);
+router.get('/delivery/eligible-bonuses/summary', adminController.getEligibleBonusSummary);
+router.patch('/delivery/eligible-bonuses/:id/mark-given', adminController.markBonusGiven);
 router.get('/delivery/commission-rules', adminController.getDeliveryCommissionRules);
 router.post('/delivery/commission-rules', adminController.createDeliveryCommissionRule);
 router.patch('/delivery/commission-rules/:id', adminController.updateDeliveryCommissionRule);

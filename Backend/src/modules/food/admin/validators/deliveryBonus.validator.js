@@ -25,7 +25,9 @@ export const validateAddDeliveryBonusDto = (body) => {
     return {
         deliveryPartnerId: result.data.deliveryPartnerId,
         amount: result.data.amount,
-        reference: result.data.reference ? result.data.reference.trim() : ''
+        reference: result.data.reference ? result.data.reference.trim() : '',
+        bonusType: body?.bonusType === 'target' ? 'target' : 'manual',
+        eligibilityId: body?.eligibilityId ? String(body.eligibilityId) : null,
     };
 };
 

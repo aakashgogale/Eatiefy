@@ -1793,3 +1793,79 @@ export async function updateFeatureSetting(req, res, next) {
         next(error);
     }
 }
+
+// ===== TARGET BONUS RULES =====
+export async function getTargetBonusRules(req, res, next) {
+    try {
+        const data = await adminService.getTargetBonusRules(req.query || {});
+        res.status(200).json({ success: true, message: 'Target bonus rules fetched', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function createTargetBonusRule(req, res, next) {
+    try {
+        const data = await adminService.createTargetBonusRule(req.body || {}, req.user);
+        res.status(201).json({ success: true, message: 'Target bonus rule created', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function updateTargetBonusRule(req, res, next) {
+    try {
+        const data = await adminService.updateTargetBonusRule(req.params.id, req.body || {}, req.user);
+        res.status(200).json({ success: true, message: 'Target bonus rule updated', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function deleteTargetBonusRule(req, res, next) {
+    try {
+        await adminService.deleteTargetBonusRule(req.params.id);
+        res.status(200).json({ success: true, message: 'Target bonus rule deleted' });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function toggleTargetBonusRuleStatus(req, res, next) {
+    try {
+        const data = await adminService.toggleTargetBonusRuleStatus(req.params.id);
+        res.status(200).json({ success: true, message: 'Status toggled', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// ===== ELIGIBLE BONUSES =====
+export async function getEligibleBonuses(req, res, next) {
+    try {
+        const data = await adminService.getEligibleBonuses(req.query || {});
+        res.status(200).json({ success: true, message: 'Eligible bonuses fetched', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function getEligibleBonusSummary(req, res, next) {
+    try {
+        const data = await adminService.getEligibleBonusSummary();
+        res.status(200).json({ success: true, message: 'Eligible bonus summary fetched', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function markBonusGiven(req, res, next) {
+    try {
+        const { bonusTransactionId } = req.body || {};
+        const data = await adminService.markBonusGiven(req.params.id, bonusTransactionId, req.user);
+        res.status(200).json({ success: true, message: 'Bonus marked as given', data });
+    } catch (error) {
+        next(error);
+    }
+}
+

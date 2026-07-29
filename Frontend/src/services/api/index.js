@@ -953,14 +953,40 @@ export const adminAPI = {
       params,
       contextModule: "admin",
     }),
-  addDeliveryPartnerBonus: (deliveryPartnerId, amount, reference = "") =>
+  addDeliveryPartnerBonus: (deliveryPartnerId, amount, reference = "", bonusType = "manual", eligibilityId = null) =>
     apiClient.post(
       "/food/admin/delivery/bonus",
       {
         deliveryPartnerId: String(deliveryPartnerId),
         amount: Number(amount),
         reference: String(reference || ""),
+        bonusType,
+        ...(eligibilityId ? { eligibilityId } : {}),
       },
+      { contextModule: "admin" },
+    ),
+
+  /** Target Bonus Rules (admin) */
+  getTargetBonusRules: (params = {}) =>
+    apiClient.get("/food/admin/delivery/target-bonus-rules", { params, contextModule: "admin" }),
+  createTargetBonusRule: (body) =>
+    apiClient.post("/food/admin/delivery/target-bonus-rules", body ?? {}, { contextModule: "admin" }),
+  updateTargetBonusRule: (id, body) =>
+    apiClient.patch(`/food/admin/delivery/target-bonus-rules/${String(id)}`, body ?? {}, { contextModule: "admin" }),
+  deleteTargetBonusRule: (id) =>
+    apiClient.delete(`/food/admin/delivery/target-bonus-rules/${String(id)}`, { contextModule: "admin" }),
+  toggleTargetBonusRuleStatus: (id) =>
+    apiClient.patch(`/food/admin/delivery/target-bonus-rules/${String(id)}/status`, {}, { contextModule: "admin" }),
+
+  /** Eligible Bonuses (admin) */
+  getEligibleBonuses: (params = {}) =>
+    apiClient.get("/food/admin/delivery/eligible-bonuses", { params, contextModule: "admin" }),
+  getEligibleBonusSummary: () =>
+    apiClient.get("/food/admin/delivery/eligible-bonuses/summary", { contextModule: "admin" }),
+  markBonusGiven: (eligibilityId, bonusTransactionId) =>
+    apiClient.patch(
+      `/food/admin/delivery/eligible-bonuses/${String(eligibilityId)}/mark-given`,
+      { bonusTransactionId },
       { contextModule: "admin" },
     ),
 
@@ -2443,6 +2469,9 @@ export const deliveryAPI = {
       params: { lat, lng, radius: radiusKm },
       contextModule: "delivery",
     }),
+  /** Target Bonus Status for delivery partner */
+  getMyBonusStatus: () =>
+    apiClient.get("/food/delivery/my-bonus-status", { contextModule: "delivery" }),
 };
 
 export const userAPI = {

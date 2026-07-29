@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import {
   User, ArrowRight, Bike, Ticket, ChevronRight, 
-  Share2, LogOut, X, Loader2, Briefcase, Trash2, HelpCircle, History, ArrowLeft
+  Share2, LogOut, X, Loader2, Briefcase, Trash2, HelpCircle, History, ArrowLeft, Trophy
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { deliveryAPI } from "@food/api"
@@ -177,6 +177,28 @@ export const ProfileV2 = () => {
             <div className="flex-1 text-left">
                <span className="block text-base font-bold text-gray-900 mb-0.5">Trips History</span>
                <span className="block text-[10px] font-black uppercase tracking-widest text-gray-400">View your deliveries</span>
+            </div>
+            <ChevronRight className="w-5 h-5 text-gray-300" />
+          </button>
+
+          {/* My Bonus Target */}
+          <button
+            onClick={() => navigate("/food/delivery/my-bonus-status")}
+            className="bg-white rounded-[28px] p-5 flex items-center gap-4 border border-gray-100 shadow-[0_4px_20px_rgba(0,0,0,0.02)] active:scale-[0.98] transition-all group"
+          >
+            <div
+              className="w-14 h-14 rounded-[20px] flex items-center justify-center border transition-colors"
+              style={{
+                backgroundColor: "rgba(var(--module-theme-rgb, 0,183,97), 0.10)",
+                borderColor: "rgba(var(--module-theme-rgb, 0,183,97), 0.22)",
+                color: "var(--module-theme-color, #00B761)",
+              }}
+            >
+              <Trophy className="w-6 h-6" />
+            </div>
+            <div className="flex-1 text-left">
+               <span className="block text-base font-bold text-gray-900 mb-0.5">My Bonus Target</span>
+               <span className="block text-[10px] font-black uppercase tracking-widest text-gray-400">Track your rewards</span>
             </div>
             <ChevronRight className="w-5 h-5 text-gray-300" />
           </button>
