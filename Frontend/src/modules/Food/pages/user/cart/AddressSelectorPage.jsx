@@ -87,6 +87,7 @@ export default function AddressSelectorPage() {
   const [formScrollTop, setFormScrollTop] = useState(0)
   const [keyboardInset, setKeyboardInset] = useState(0)
   const [baseMapHeight, setBaseMapHeight] = useState(320)
+  const [isSearchFocused, setIsSearchFocused] = useState(false)
   const formBodyRef = useRef(null)
   const manualFieldRefs = useRef({})
   const placesAutocompleteServiceRef = useRef(null)
@@ -791,6 +792,11 @@ export default function AddressSelectorPage() {
                 <Input
                   value={addressAutocompleteValue}
                   onChange={(e) => setAddressAutocompleteValue(e.target.value)}
+                  onFocus={() => setIsSearchFocused(true)}
+                  onBlur={() => {
+                    // Small delay to allow click events on suggestions to fire before blur state hides them
+                    setTimeout(() => setIsSearchFocused(false), 200)
+                  }}
                   placeholder="Search area, street, landmark..."
                   className="pl-10 h-12 bg-white/95 dark:bg-[#1a1a1a]/95 backdrop-blur-md border-none rounded-xl shadow-lg focus:ring-2 focus:ring-[#EB590E] transition-all"
                 />
@@ -964,8 +970,10 @@ export default function AddressSelectorPage() {
         </div>
 
         <div
-          className="fixed left-0 right-0 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-white dark:bg-[#1a1a1a] border-t dark:border-gray-800 transition-[bottom] duration-150 z-30 shadow-[0_-4px_12px_rgba(0,0,0,0.05)]"
-          style={{ bottom: `${keyboardInset}px` }}
+          className={`fixed left-0 right-0 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-white dark:bg-[#1a1a1a] border-t dark:border-gray-800 transition-all duration-150 z-30 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] ${
+            isSearchFocused ? "opacity-0 pointer-events-none translate-y-full" : "opacity-100 translate-y-0"
+          }`}
+          style={{ bottom: `${isSearchFocused ? 0 : keyboardInset}px` }}
         >
           <Button 
             className="w-full h-12 text-white font-bold text-lg" 
