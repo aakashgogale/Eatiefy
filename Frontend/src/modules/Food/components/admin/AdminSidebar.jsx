@@ -315,9 +315,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
               if (!permissionSection && !isSuperAdmin(adminUser)) return null
               if (permissionSection && !canAdminAccess(adminUser, permissionSection, "view")) return null
             }
-            if (item.type === "link" && !codControlEnabled && (item.path === deliveryCashLimitPath || item.path === cashLimitSettlementPath)) {
-              return null
-            }
+
             if (item.type === "expandable" && Array.isArray(item.subItems)) {
               const filteredSubItems = item.subItems
                 .filter((sub) => {
