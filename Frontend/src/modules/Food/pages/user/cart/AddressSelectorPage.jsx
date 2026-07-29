@@ -879,7 +879,7 @@ export default function AddressSelectorPage() {
             </div>
           </div>
 
-          <div className="relative bg-white dark:bg-[#0a0a0a] rounded-t-[32px] -mt-8 z-10 p-4 space-y-6 shadow-[0_-12px_24px_-10px_rgba(0,0,0,0.1)]">
+          <div className="relative bg-white dark:bg-[#0a0a0a] rounded-t-[32px] -mt-8 z-10 pt-8 px-4 pb-4 space-y-6 shadow-[0_-12px_24px_-10px_rgba(0,0,0,0.1)]">
             <div className="bg-[#659116]/10 dark:bg-[#659116]/20 border border-[#659116]/20 rounded-xl p-4 flex gap-3">
                <MapPin className="h-5 w-5 text-[#659116] mt-0.5" />
                <div className="min-w-0">
