@@ -1423,6 +1423,10 @@ export default function Home() {
     };
 
     const syncStuckState = () => {
+      if (window.innerWidth >= 768) {
+        commitStuckState(false);
+        return;
+      }
       const anchor = categoryAnchorRef.current;
       if (!anchor) return;
       // Use sentinel directly so blur and sticky release on the same scroll tick.
@@ -1443,6 +1447,12 @@ export default function Home() {
   // Smart Scroll-Aware Sticky Header Listener
   useEffect(() => {
     const handleScroll = () => {
+      if (window.innerWidth >= 768) {
+        setIsSmartStickyActive(false);
+        setIsFiltersCrossed(false);
+        setIsCategoriesCrossed(false);
+        return;
+      }
       if (!tickingRef.current) {
         requestAnimationFrame(() => {
           const currentScrollY = window.scrollY || document.documentElement.scrollTop;
@@ -1482,10 +1492,12 @@ export default function Home() {
     };
 
     window.addEventListener("scroll", handleScroll, { passive: true, capture: true });
+    window.addEventListener("resize", handleScroll);
     handleScroll();
 
     return () => {
       window.removeEventListener("scroll", handleScroll, { capture: true });
+      window.removeEventListener("resize", handleScroll);
     };
   }, []);
 
@@ -3816,7 +3828,7 @@ export default function Home() {
         {/* Unified Smart Scroll-Aware Sticky Header Overlay (Swiggy / Zomato style) */}
         <div
           ref={stickyHeaderRef}
-          className={`fixed top-0 left-0 right-0 z-[100] bg-white/95 dark:bg-[#1a1a1a]/95 backdrop-blur-md border-b border-gray-100 dark:border-gray-800/80 shadow-md transition-all duration-300 ease-in-out ${isSmartStickyActive
+          className={`fixed top-0 left-0 right-0 z-[100] bg-white/95 dark:bg-[#1a1a1a]/95 backdrop-blur-md border-b border-gray-100 dark:border-gray-800/80 shadow-md transition-all duration-300 ease-in-out md:hidden ${isSmartStickyActive
               ? 'translate-y-0 opacity-100 pointer-events-auto'
               : '-translate-y-full opacity-0 pointer-events-none'
             }`}
