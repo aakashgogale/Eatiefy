@@ -3387,14 +3387,18 @@ export default function Cart() {
                 >
                   {/* Outer ring animation */}
                   <div
-                    className="absolute inset-0 w-32 h-32 rounded-full border-4 border-green-500 dark:border-green-400"
+                    className="absolute inset-0 w-32 h-32 rounded-full border-4"
                     style={{
+                      borderColor: '#22c55e',
                       animation: 'ringPulse 1.5s ease-out infinite',
                       opacity: 0.3
                     }}
                   />
                   {/* Main circle */}
-                  <div className="w-32 h-32 bg-gradient-to-br from-green-500 to-green-600 dark:from-green-500 dark:to-emerald-500 rounded-full flex items-center justify-center shadow-2xl shadow-green-200/60 dark:shadow-green-900/40">
+                  <div
+                    className="w-32 h-32 rounded-full flex items-center justify-center shadow-2xl shadow-green-200/60 dark:shadow-green-900/40"
+                    style={{ backgroundColor: '#22c55e' }}
+                  >
                     <svg
                       className="w-16 h-16 text-white"
                       viewBox="0 0 24 24"
@@ -3405,7 +3409,7 @@ export default function Cart() {
                       strokeLinejoin="round"
                       style={{ animation: 'checkDraw 0.5s ease-out 0.5s both' }}
                     >
-                      <path d="M5 12l5 5L19 7" className="check-path" />
+                      <path d="M5 12l5 5L19 7" className="check-path" stroke="#ffffff" />
                     </svg>
                   </div>
                   {/* Sparkles */}

@@ -160,7 +160,7 @@ export default function DeliveryCashLimit() {
                     {loading && (
                       <p className="text-xs text-emerald-700/80 mt-1 flex items-center gap-2">
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        Loading current limit…
+                        Loading current limitï¿½
                       </p>
                     )}
                   </div>
@@ -185,8 +185,7 @@ export default function DeliveryCashLimit() {
                   Minimum Withdrawal Amount (Global)
                 </div>
                 <div className="text-sm text-amber-800/80 mb-3">
-                  Delivery boy can withdraw only when withdrawable amount is <strong>above</strong> this value. Utni
-                  amount ke upar rahega tabhi withdrawal hoga.
+                  Delivery boy can withdraw only when withdrawable amount is <strong>above</strong> this value.
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
@@ -204,7 +203,7 @@ export default function DeliveryCashLimit() {
                     {loading && (
                       <p className="text-xs text-amber-700/80 mt-1 flex items-center gap-2">
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        Loading…
+                        Loadingï¿½
                       </p>
                     )}
                   </div>
@@ -225,5 +224,6 @@ export default function DeliveryCashLimit() {
     </div>
   )
 }
+
 
 
