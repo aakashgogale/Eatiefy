@@ -44,7 +44,7 @@ export default function LandingPage() {
   const [isRestaurantOpen, setIsRestaurantOpen] = useState(false);
   const [isDeliveryOpen, setIsDeliveryOpen] = useState(false);
   const [supportContact, setSupportContact] = useState({
-    email: "support@switcheats.com",
+    email: "support@eatiefy.com",
     mobile: "1-800-123-4567"
   });
   const [leadForm, setLeadForm] = useState({
@@ -67,7 +67,7 @@ export default function LandingPage() {
         const data = response?.data?.data || response?.data;
         if (data && (data.email || data.mobile)) {
           setSupportContact({
-            email: data.email || "support@switcheats.com",
+            email: data.email || "support@eatiefy.com",
             mobile: data.mobile || "1-800-123-4567"
           });
         }
