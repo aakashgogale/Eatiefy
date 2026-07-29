@@ -781,8 +781,8 @@ export default function AddressSelectorPage() {
             className={`flex-shrink-0 relative transition-[z-index] duration-150 ${isSearchActive ? "z-20" : "z-0"}`}
             style={{ 
               height: `${mapHeight}px`,
-              transform: `translateY(${formScrollTop * 0.4}px)`,
-              opacity: clamp(1 - (formScrollTop / 500), 0.4, 1)
+              transform: isSearchActive ? "none" : `translateY(${formScrollTop * 0.4}px)`,
+              opacity: isSearchActive ? 1 : clamp(1 - (formScrollTop / 500), 0.4, 1)
             }}
           >
             <div className="absolute top-4 left-4 right-4 z-20">
