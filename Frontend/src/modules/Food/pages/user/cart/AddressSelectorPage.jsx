@@ -772,7 +772,7 @@ export default function AddressSelectorPage() {
             setFormScrollTop(e.currentTarget.scrollTop)
           }}
           className="flex-1 overflow-y-auto"
-          style={{ paddingBottom: `${96 + keyboardInset}px` }}
+          style={{ paddingBottom: `${120 + keyboardInset}px` }}
         >
           {/* Map Section - Parallax enabled */}
           <div
@@ -961,12 +961,12 @@ export default function AddressSelectorPage() {
         </div>
 
         <div
-          className="fixed left-0 right-0 p-4 bg-white dark:bg-[#1a1a1a] border-t dark:border-gray-800 transition-[bottom] duration-150"
+          className="fixed left-0 right-0 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-white dark:bg-[#1a1a1a] border-t dark:border-gray-800 transition-[bottom] duration-150 z-30 shadow-[0_-4px_12px_rgba(0,0,0,0.05)]"
           style={{ bottom: `${keyboardInset}px` }}
         >
           <Button 
             className="w-full h-12 text-white font-bold text-lg" 
-            style={{backgroundColor: '#EB590E'}}
+            style={{backgroundColor: '#659116'}}
             onClick={handleAddressFormSubmit}
             disabled={loadingAddress}
           >
