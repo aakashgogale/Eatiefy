@@ -756,6 +756,7 @@ export default function AddressSelectorPage() {
 
   if (showAddressForm) {
     const mapHeight = baseMapHeight 
+    const isSearchActive = isSearchFocused || googlePlacesSuggestions.length > 0 || keywordAddressSuggestions.length > 0
     return (
       <AnimatedPage
         className="fixed inset-0 z-50 bg-white dark:bg-[#0a0a0a] flex flex-col h-screen overflow-hidden"
@@ -777,7 +778,7 @@ export default function AddressSelectorPage() {
         >
           {/* Map Section - Parallax enabled */}
           <div
-            className="flex-shrink-0 relative z-0"
+            className={`flex-shrink-0 relative transition-[z-index] duration-150 ${isSearchActive ? "z-20" : "z-0"}`}
             style={{ 
               height: `${mapHeight}px`,
               transform: `translateY(${formScrollTop * 0.4}px)`,
@@ -882,7 +883,7 @@ export default function AddressSelectorPage() {
             <div className="bg-[#659116]/10 dark:bg-[#659116]/20 border border-[#659116]/20 rounded-xl p-4 flex gap-3">
                <MapPin className="h-5 w-5 text-[#659116] mt-0.5" />
                <div className="min-w-0">
-                  <p className="text-xs font-bold text-[#659116] dark:text-[#8cc63f] uppercase mb-1">Pinnned Location</p>
+                  <p className="text-xs font-bold text-[#659116] dark:text-[#8cc63f] uppercase mb-1">Pinned Location</p>
                   <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">{currentAddress || "Select a location on map"}</p>
                </div>
             </div>
@@ -971,9 +972,9 @@ export default function AddressSelectorPage() {
 
         <div
           className={`fixed left-0 right-0 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-white dark:bg-[#1a1a1a] border-t dark:border-gray-800 transition-all duration-150 z-30 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] ${
-            isSearchFocused ? "opacity-0 pointer-events-none translate-y-full" : "opacity-100 translate-y-0"
+            isSearchActive ? "opacity-0 pointer-events-none translate-y-full" : "opacity-100 translate-y-0"
           }`}
-          style={{ bottom: `${isSearchFocused ? 0 : keyboardInset}px` }}
+          style={{ bottom: `${isSearchActive ? 0 : keyboardInset}px` }}
         >
           <Button 
             className="w-full h-12 text-white font-bold text-lg" 
