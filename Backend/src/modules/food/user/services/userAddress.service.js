@@ -16,8 +16,7 @@ const normalizeLabel = (label) => {
     if (v === 'Work') return 'Office';
     if (v === 'home' || v === 'Home') return 'Home';
     if (v === 'office' || v === 'Office') return 'Office';
-    if (v === 'other' || v === 'Other') return 'Other';
-    return 'Other';
+    return v || 'Other';
 };
 
 export const listAddresses = async (userId) => {

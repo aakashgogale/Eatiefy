@@ -950,18 +950,57 @@ export default function AddressSelectorPage() {
 
             <div>
                <Label className="text-sm font-bold mb-2 block">Save address as</Label>
-               <div className="flex gap-2">
-                 {["Home", "Work", "Other"].map(l => (
-                   <Button 
-                     key={l}
-                     variant={addressFormData.label === l ? "default" : "outline"}
-                     onClick={() => setAddressFormData({...addressFormData, label: l})}
-                     className="flex-1"
-                     style={addressFormData.label === l ? {backgroundColor: '#659116', color: 'white'} : {}}
-                   >
-                     {l}
-                   </Button>
-                 ))}
+               <div className="flex gap-2 items-center">
+                 {!(addressFormData.label !== "Home" && addressFormData.label !== "Work" && addressFormData.label !== "Office") ? (
+                   <>
+                     {["Home", "Work", "Other"].map(l => (
+                       <Button 
+                         key={l}
+                         variant={addressFormData.label === l || (l === "Work" && addressFormData.label === "Office") ? "default" : "outline"}
+                         onClick={() => {
+                           if (l === "Other") {
+                             setAddressFormData({...addressFormData, label: ""})
+                           } else {
+                             setAddressFormData({...addressFormData, label: l})
+                           }
+                         }}
+                         className="flex-1 h-11 rounded-xl font-bold"
+                         style={addressFormData.label === l || (l === "Work" && addressFormData.label === "Office") ? {backgroundColor: '#659116', color: 'white'} : {}}
+                       >
+                         {l}
+                       </Button>
+                     ))}
+                   </>
+                 ) : (
+                   <div className="flex w-full gap-2 items-center animate-in fade-in duration-200">
+                     <Button 
+                       variant="default"
+                       onClick={() => setAddressFormData({...addressFormData, label: "Home"})}
+                       className="h-11 rounded-xl flex items-center gap-1.5 px-4 font-bold"
+                       style={{backgroundColor: '#659116', color: 'white'}}
+                     >
+                       <MapPin className="h-4 w-4" /> Other
+                     </Button>
+                     <div className="relative flex-1">
+                       <Input
+                         placeholder="e.g. Gym, Friend's House"
+                         value={addressFormData.label}
+                         onChange={(e) => setAddressFormData({...addressFormData, label: e.target.value})}
+                         className="h-11 rounded-xl pr-10 border-[#659116]/40 focus:ring-[#659116] bg-gray-50 dark:bg-gray-800/50"
+                         maxLength={20}
+                         required
+                         autoFocus
+                       />
+                       <button
+                         type="button"
+                         onClick={() => setAddressFormData({...addressFormData, label: "Home"})}
+                         className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                       >
+                         <X className="h-4 w-4" />
+                       </button>
+                     </div>
+                   </div>
+                 )}
                </div>
             </div>
 

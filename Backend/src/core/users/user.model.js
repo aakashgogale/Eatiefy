@@ -4,7 +4,6 @@ const userAddressSchema = new mongoose.Schema(
     {
         label: {
             type: String,
-            enum: ['Home', 'Office', 'Other'],
             default: 'Home',
             index: true
         },

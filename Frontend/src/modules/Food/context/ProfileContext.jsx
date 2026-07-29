@@ -11,10 +11,12 @@ const USER_SESSION_PREFERENCE_KEYS = ["userVegMode", "food_user_veg_mode_option"
 export function ProfileProvider({ children }) {
   const getAddressId = (address) => address?.id || address?._id || null
   const normalizeAddressLabel = (label) => {
-    const normalized = String(label || "").trim().toLowerCase()
-    if (normalized === "home") return "Home"
-    if (normalized === "office" || normalized === "work") return "Office"
-    return "Other"
+    const normalized = String(label || "").trim()
+    const lower = normalized.toLowerCase()
+    if (lower === "home") return "Home"
+    if (lower === "office" || lower === "work") return "Office"
+    if (lower === "other") return "Other"
+    return normalized || "Other"
   }
   const normalizeAddress = (address) => {
     if (!address || typeof address !== "object") return null
