@@ -957,6 +957,9 @@ export default function AddressSelectorPage() {
                  ))}
                </div>
             </div>
+
+            {/* Spacer to allow scrolling past the fixed bottom button */}
+            <div style={{ height: `calc(100px + env(safe-area-inset-bottom, 0px))` }} />
           </div>
         </div>
 
