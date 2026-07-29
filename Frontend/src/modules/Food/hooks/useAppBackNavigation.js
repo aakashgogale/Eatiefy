@@ -151,6 +151,6 @@ export default function useAppBackNavigation() {
       navigate(-1)
       return
     }
-    navigate(backPath)
+    navigate(backPath, { replace: true })
   }, [location, navigate])
 }
