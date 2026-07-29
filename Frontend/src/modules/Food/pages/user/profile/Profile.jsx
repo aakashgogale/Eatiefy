@@ -58,7 +58,7 @@ import { registerWebPushForCurrentModule } from "@food/utils/firebaseMessaging";
 import DeleteAccountModal from "@food/components/DeleteAccountModal";
 
 export default function Profile() {
-  const { userProfile, vegMode, setVegMode, getDefaultAddress, addresses } =
+  const { userProfile, vegMode, setVegMode, vegModeOption, getDefaultAddress, addresses } =
     useProfile();
   const [isExiting, setIsExiting] = useState(false);
   const { openLocationSelector } = useLocationSelector();

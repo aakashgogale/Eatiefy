@@ -924,6 +924,11 @@ export default function Home() {
   const [popupPosition, setPopupPosition] = useState({ top: 0, left: 0, triangleLeft: 0 });
   const vegModeToggleRef = useRef(null);
 
+  const handleClearNonVegFilter = useCallback(() => {
+    setVegModeOption("all");
+    setPrevVegMode(false);
+  }, [setVegModeOption]);
+
   const [currentBannerIndex, setCurrentBannerIndex] = useState(0);
   const [topBannersData, setTopBannersData] = useState([]);
   const [topBannersLoaded, setTopBannersLoaded] = useState(false);
@@ -3004,15 +3009,22 @@ export default function Home() {
     (restaurant) => {
       if (!vegMode) return true;
       if (vegModeOption === "all") return true;
+      const rId = String(restaurant.id || restaurant._id || restaurant.mongoId || "");
+      const meta = restaurantDietMeta[rId];
+      const isPureVeg =
+        restaurant?.pureVegRestaurant === true ||
+        restaurant?.isVeg === true ||
+        meta?.isPureVeg === true;
+
       if (vegModeOption === "pure-veg") {
-        return restaurant?.pureVegRestaurant === true;
+        return isPureVeg;
       }
       if (vegModeOption === "non-veg") {
-        return restaurant?.pureVegRestaurant === false || !restaurant?.pureVegRestaurant;
+        return !isPureVeg;
       }
       return true;
     },
-    [vegMode, vegModeOption],
+    [vegMode, vegModeOption, restaurantDietMeta],
   );
 
   const applyClientFilters = useCallback(
@@ -3822,10 +3834,11 @@ export default function Home() {
                 placeholderIndex={placeholderIndex}
                 placeholders={placeholders}
                 handleVegModeChange={handleVegModeChange}
-                isVegMode={vegMode}
+                isVegMode={vegModeOption === "pure-veg" || vegModeOption === "non-veg"}
                 vegModeToggleRef={vegModeToggleRef}
                 navigate={navigate}
                 isCompact={true}
+                vegModeOption={vegModeOption}
               />
             </div>
 
@@ -3877,9 +3890,11 @@ export default function Home() {
             placeholderIndex={placeholderIndex}
             placeholders={placeholders}
             handleVegModeChange={handleVegModeChange}
-            isVegMode={vegMode}
+            isVegMode={vegModeOption === "pure-veg"}
             vegModeToggleRef={vegModeToggleRef}
             isCategoryStuck={isCategoryStuck}
+            vegModeOption={vegModeOption}
+            onClearNonVegFilter={handleClearNonVegFilter}
           />
 
 
@@ -4187,7 +4202,7 @@ export default function Home() {
               <PromoRow
                 handleVegModeChange={handleVegModeChange}
                 navigate={navigate}
-                isVegMode={vegMode}
+                isVegMode={vegModeOption === "pure-veg" || vegModeOption === "non-veg"}
                 toggleRef={vegModeToggleRef}
               />
             </div>

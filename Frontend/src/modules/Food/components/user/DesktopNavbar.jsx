@@ -29,7 +29,7 @@ export default function DesktopNavbar({ showLogo = true }) {
     const { getCartCount } = useCart()
     const { openLocationSelector } = useLocationSelector()
     const { setSearchValue } = useSearchOverlay()
-    const { vegMode, setVegMode } = useProfile()
+    const { vegMode, setVegMode, vegModeOption } = useProfile()
     const [heroSearch, setHeroSearch] = useState("")
     const [logoUrl, setLogoUrl] = useState(null)
     const [companyName, setCompanyName] = useState(null)
@@ -246,6 +246,7 @@ export default function DesktopNavbar({ showLogo = true }) {
                                             >
                                                 <span className="sr-only">Clear</span>
                                                 <span aria-hidden="true">�</span>
+                                                <span aria-hidden="true">×</span>
                                             </Button>
                                         )}
                                     </div>
@@ -256,7 +257,8 @@ export default function DesktopNavbar({ showLogo = true }) {
                             <div 
                                 className="flex items-center gap-2 flex-shrink-0 cursor-pointer"
                                 onClick={() => {
-                                    const nextVal = !vegMode
+                                    const isCurrentlyActive = vegModeOption === "pure-veg" || vegModeOption === "non-veg";
+                                    const nextVal = !isCurrentlyActive;
                                     const event = new CustomEvent("triggerVegModePopup", {
                                         detail: { newValue: nextVal },
                                         cancelable: true
@@ -268,11 +270,15 @@ export default function DesktopNavbar({ showLogo = true }) {
                                 }}
                             >
                                 <div className="flex flex-col items-end">
-                                    <span className="text-[10px] font-bold text-gray-700 dark:text-gray-300 leading-none">VEG</span>
+                                    <span className={`text-[10px] font-bold leading-none ${
+                                        vegModeOption === "non-veg" ? "text-red-600 dark:text-red-400" : "text-gray-700 dark:text-gray-300"
+                                    }`}>
+                                        {vegModeOption === "non-veg" ? "NON-VEG" : "VEG"}
+                                    </span>
                                     <span className="text-[8px] font-bold text-gray-500 dark:text-gray-400 leading-none">MODE</span>
                                 </div>
                                 <Switch
-                                    checked={vegMode}
+                                    checked={vegModeOption === "pure-veg" || vegModeOption === "non-veg"}
                                     onCheckedChange={(checked) => {
                                         const event = new CustomEvent("triggerVegModePopup", {
                                             detail: { newValue: checked },
@@ -283,7 +289,11 @@ export default function DesktopNavbar({ showLogo = true }) {
                                             setVegMode(checked)
                                         }
                                     }}
-                                    className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-gray-300 dark:data-[state=unchecked]:bg-gray-600 h-5 w-9 pointer-events-none"
+                                    className={`h-5 w-9 pointer-events-none transition-colors ${
+                                        vegModeOption === "non-veg"
+                                            ? "data-[state=checked]:bg-red-600 bg-red-600"
+                                            : "data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-gray-300 dark:data-[state=unchecked]:bg-gray-600"
+                                    }`}
                                 />
                             </div>
                         </div>

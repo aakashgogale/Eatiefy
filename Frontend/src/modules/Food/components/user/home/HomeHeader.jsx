@@ -29,6 +29,7 @@ export function SearchBarRow({
   navigate,
   showVegToggle = true,
   isCompact = false,
+  vegModeOption = "all",
 }) {
   return (
     <div className="flex items-center gap-2 w-full">
@@ -88,33 +89,45 @@ export function SearchBarRow({
 
       {showVegToggle && (
         <div 
-          className={`flex flex-col items-center justify-center w-[50px] h-[50px] rounded-full border cursor-pointer active:scale-95 transition-all duration-200 flex-shrink-0 shadow-sm ${
+          className={`flex flex-col items-center justify-center h-[50px] rounded-full border cursor-pointer active:scale-95 transition-all duration-200 flex-shrink-0 shadow-sm ${
+            vegModeOption === "non-veg" ? 'w-[58px]' : 'w-[50px]'
+          } ${
             isVegMode 
-              ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/50' 
+              ? (vegModeOption === "non-veg"
+                  ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900/50'
+                  : 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/50')
               : 'bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-800'
           }`}
           onClick={() => handleVegModeChange && handleVegModeChange(!isVegMode)}
           ref={vegModeToggleRef}
         >
-          <span className={`text-[9px] font-black uppercase tracking-wider leading-none mb-1.5 ${
-            isVegMode ? 'text-emerald-700 dark:text-emerald-400' : 'text-gray-500 dark:text-gray-400'
+          <span className={`font-black uppercase leading-none mb-1.5 text-center ${
+            isVegMode 
+              ? (vegModeOption === "non-veg" 
+                  ? 'text-[7px] tracking-tight text-red-655 dark:text-red-400' 
+                  : 'text-[9px] tracking-wider text-emerald-700 dark:text-emerald-400')
+              : 'text-[9px] tracking-wider text-gray-500 dark:text-gray-400'
           }`}>
-            Veg
+            {vegModeOption === "non-veg" ? 'Non-Veg' : 'Veg'}
           </span>
           
           <div className={`w-8 h-4.5 rounded-full p-[1px] relative transition-colors duration-200 ${
-            isVegMode ? 'bg-emerald-200 dark:bg-emerald-900/50' : 'bg-gray-200 dark:bg-zinc-800'
+            isVegMode 
+              ? (vegModeOption === "non-veg" ? 'bg-red-200 dark:bg-red-900/50' : 'bg-emerald-200 dark:bg-emerald-900/50')
+              : 'bg-gray-200 dark:bg-zinc-800'
           }`}>
             <div
               className={`w-3.5 h-3.5 rounded-[3px] bg-white border flex items-center justify-center p-[1px] absolute top-[1px] transition-all duration-200 ${
                 isVegMode 
-                  ? 'translate-x-[14px] border-green-600' 
+                  ? (vegModeOption === "non-veg" ? 'translate-x-[14px] border-red-600' : 'translate-x-[14px] border-green-600')
                   : 'translate-x-[1px] border-green-600/60 dark:border-green-600/40'
               }`}
             >
               <div
                 className={`w-1.5 h-1.5 rounded-full ${
-                  isVegMode ? 'bg-green-600' : 'bg-green-600/60 dark:bg-green-600/40'
+                  isVegMode 
+                    ? (vegModeOption === "non-veg" ? 'bg-red-600' : 'bg-green-600')
+                    : 'bg-green-600/60 dark:bg-green-600/40'
                 }`}
               />
             </div>
@@ -140,6 +153,8 @@ export default function HomeHeader({
   isCategoryStuck = false,
   topBanners = [],
   topBannersLoaded = false,
+  vegModeOption = "all",
+  onClearNonVegFilter,
 }) {
   const { startVoiceSearch } = useSearchOverlay();
   const navigate = useNavigate();
@@ -404,9 +419,10 @@ export default function HomeHeader({
             placeholderIndex={placeholderIndex}
             placeholders={placeholders}
             handleVegModeChange={handleVegModeChange}
-            isVegMode={isVegMode}
+            isVegMode={isVegMode || vegModeOption === "non-veg"}
             vegModeToggleRef={vegModeToggleRef}
             navigate={navigate}
+            vegModeOption={vegModeOption}
           />
         </div>
 
