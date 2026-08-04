@@ -109,7 +109,7 @@ import {
   DropdownMenuTrigger,
 } from "@food/components/ui/dropdown-menu";
 import { useDeliveryLocation } from "@food/context/DeliveryLocationContext";
-import quickSpicyLogo from "@food/assets/switcheats-logo.png";
+import quickSpicyLogo from "@food/assets/eatiefy-logo.png";
 import offerImage from "@food/assets/offerimage.png";
 import api, { restaurantAPI, adminAPI } from "@food/api";
 import { usePublicAppConfig } from "@food/context/PublicAppConfigContext";
@@ -128,6 +128,27 @@ import exploreOffers from "@food/assets/explore more icons/offers.png";
 import exploreGourmet from "@food/assets/explore more icons/gourmet.png";
 import exploreTop10 from "@food/assets/explore more icons/top 10.png";
 import exploreCollection from "@food/assets/explore more icons/collection.png";
+
+// Generated High-Quality Food Category Images
+import khichdiImg from "@food/assets/category-icons/khichdi.png";
+import sandwichImg from "@food/assets/category-icons/sandwich.png";
+import parathaImg from "@food/assets/category-icons/paratha.png";
+import burgerImg from "@food/assets/category-icons/burger.png";
+import dosaImg from "@food/assets/category-icons/dosa.png";
+import rollsImg from "@food/assets/category-icons/rolls.png";
+import northIndianImg from "@food/assets/category-icons/north_indian.png";
+import friedRiceImg from "@food/assets/category-icons/fried_rice.png";
+import thaliImg from "@food/assets/category-icons/thali.png";
+import paneerImg from "@food/assets/category-icons/paneer.png";
+import pizzaImg from "@food/assets/category-icons/pizza.png";
+import pastaImg from "@food/assets/category-icons/pasta.png";
+import momosImg from "@food/assets/category-icons/momos.png";
+import cakeImg from "@food/assets/category-icons/cake.png";
+import noodlesImg from "@food/assets/category-icons/noodles.png";
+import choleBhatureImg from "@food/assets/category-icons/chole_bhature.png";
+import biryaniCleanImg from "@food/assets/category-icons/biryani_clean.png";
+import maggieCleanImg from "@food/assets/category-icons/maggie_clean.png";
+import rasgullaCleanImg from "@food/assets/category-icons/rasgulla_clean.png";
 
 // Banner images for hero carousel - will be fetched from API
 
@@ -945,15 +966,19 @@ export default function Home() {
   }, [refreshUserHome]);
 
   useEffect(() => {
-    setTopBannersData(Array.isArray(topBanners) ? topBanners : []);
-    if (topBanners) setTopBannersLoaded(true);
-  }, [topBanners]);
+    const listTop = Array.isArray(topBanners) ? topBanners : [];
+    const listHero = Array.isArray(heroBanners) ? heroBanners : [];
+    const combined = listTop.length > 0 ? listTop : listHero;
+    setTopBannersData(combined);
+    if (listTop.length > 0 || listHero.length > 0) setTopBannersLoaded(true);
+  }, [topBanners, heroBanners]);
   const [heroBannerImages, setHeroBannerImages] = useState([]);
   const [heroBannersData, setHeroBannersData] = useState([]); // Store full banner data with linked restaurants
   const [loadingBanners, setLoadingBanners] = useState(true);
   const [hasScrolledPastBanner, setHasScrolledPastBanner] = useState(false);
   const [isCategoryStuck, setIsCategoryStuck] = useState(false);
   const isCategoryStuckRef = useRef(false);
+  const headerBannerRef = useRef(null);
   const [mealsUnder99, setMealsUnder99] = useState([]);
   const [loadingMealsUnder99, setLoadingMealsUnder99] = useState(true);
   const [meals99SortBy, setMeals99SortBy] = useState("relevance");
@@ -1112,6 +1137,7 @@ export default function Home() {
   const [smartScrollDirection, setSmartScrollDirection] = useState("down");
   const [isFiltersCrossed, setIsFiltersCrossed] = useState(false);
   const [isCategoriesCrossed, setIsCategoriesCrossed] = useState(false);
+  const [showCuisinesModal, setShowCuisinesModal] = useState(false);
   const slugifyCategory = useCallback(
     (value) =>
       String(value || "")
@@ -1444,27 +1470,29 @@ export default function Home() {
     };
   }, []);
 
-  // Smart Scroll-Aware Sticky Header Listener
+  // Smart Scroll-Aware Sticky Header Listener (Dynamic Banner Height Based)
   useEffect(() => {
     const handleScroll = () => {
-      if (window.innerWidth >= 768) {
-        setIsSmartStickyActive(false);
-        setIsFiltersCrossed(false);
-        setIsCategoriesCrossed(false);
-        return;
-      }
       if (!tickingRef.current) {
         requestAnimationFrame(() => {
           const currentScrollY = window.scrollY || document.documentElement.scrollTop;
           const deltaY = currentScrollY - lastScrollYRef.current;
 
-          // Activate sticky header when scrolled past top header (70px)
-          const activeThreshold = 70;
-          const newIsSticky = currentScrollY > activeThreshold;
-          setIsSmartStickyActive(newIsSticky);
+          // Measure bottom position of the top banner header element
+          let bannerBottom = -1;
+          let bannerHeight = 360;
+          if (headerBannerRef.current) {
+            const rect = headerBannerRef.current.getBoundingClientRect();
+            bannerBottom = rect.bottom;
+            bannerHeight = rect.height || 360;
+          }
 
-          // Scroll direction detection with hysteresis threshold (3px)
-          if (Math.abs(deltaY) > 3) {
+          // Sticky header active threshold
+          const activeThreshold = Math.max(100, bannerHeight - 50);
+          setIsSmartStickyActive(currentScrollY > activeThreshold);
+
+          // Scroll direction detection with minimum 4px hysteresis to prevent jitter
+          if (Math.abs(deltaY) > 4) {
             setSmartScrollDirection(deltaY > 0 ? "up" : "down");
           }
 
@@ -1476,13 +1504,18 @@ export default function Home() {
             setIsFiltersCrossed(false);
           }
 
-          // Detect if category sentinel has reached/crossed top area
-          if (categoryAnchorRef.current) {
-            const rect = categoryAnchorRef.current.getBoundingClientRect();
-            setIsCategoriesCrossed(rect.top <= 70);
-          } else {
-            setIsCategoriesCrossed(false);
-          }
+          // STRICT CHECK: Banner MUST be 100% offscreen (bottom <= 0 or scrollY > bannerHeight + 10)
+          // Add 25px hysteresis gap to prevent stuttering/jitter when scrolling around threshold
+          const isBannerFullyOffscreen = bannerBottom !== -1
+            ? bannerBottom <= 0
+            : currentScrollY > (bannerHeight + 10);
+
+          setIsCategoriesCrossed((prev) => {
+            if (isBannerFullyOffscreen) return true;
+            // Only turn OFF if user scrolls back UP enough that banner bottom is visible (>= 25px on screen)
+            if (bannerBottom >= 25 || currentScrollY < bannerHeight - 20) return false;
+            return prev;
+          });
 
           lastScrollYRef.current = currentScrollY;
           tickingRef.current = false;
@@ -1564,9 +1597,74 @@ export default function Home() {
   }, [landingCategories, normalizeImageUrl, slugifyCategory]);
 
   const displayCategories = useMemo(() => {
-    if (realCategories.length > 0) return realCategories;
-    if (menuCategories.length > 0) return menuCategories;
-    return normalizedLandingCategories;
+    let list = [];
+    if (realCategories.length > 0) list = [...realCategories];
+    else if (menuCategories.length > 0) list = [...menuCategories];
+    else list = [...normalizedLandingCategories];
+
+    // Required food categories requested by user
+    const requiredItems = [
+      { id: "cat-pizza", name: "Pizza", slug: "pizza", image: pizzaImg },
+      { id: "cat-biryani", name: "Biryani", slug: "biryani", image: "https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=400&h=400&fit=crop" },
+      { id: "cat-paneer", name: "paneer", slug: "paneer", image: paneerImg },
+      { id: "cat-burger", name: "Burger", slug: "burger", image: burgerImg },
+      { id: "cat-rolls", name: "Rolls", slug: "rolls", image: rollsImg },
+      { id: "cat-fried-rice", name: "Fried Rice", slug: "fried-rice", image: friedRiceImg },
+      { id: "cat-sandwich", name: "Sandwich", slug: "sandwich", image: sandwichImg },
+      { id: "cat-momos", name: "Momos", slug: "momos", image: momosImg },
+      { id: "cat-khichdi", name: "Khichdi", slug: "khichdi", image: khichdiImg },
+      { id: "cat-dosa", name: "Dosa", slug: "dosa", image: dosaImg },
+      { id: "cat-pasta", name: "Pasta", slug: "pasta", image: pastaImg },
+      { id: "cat-chole-bhature", name: "Chole Bhature", slug: "chole-bhature", image: choleBhatureImg },
+      { id: "cat-cake", name: "Cake", slug: "cake", image: cakeImg },
+      { id: "cat-paratha", name: "Paratha", slug: "paratha", image: parathaImg },
+      { id: "cat-noodles", name: "Noodles", slug: "noodles", image: noodlesImg },
+      { id: "cat-thali", name: "Thali", slug: "thali", image: thaliImg },
+      { id: "cat-north-indian", name: "North Indian", slug: "north-indian", image: northIndianImg },
+    ];
+
+    // Ensure required items are present if missing from API, or update image if item exists
+    requiredItems.forEach((req) => {
+      const idx = list.findIndex(
+        (c) => (c.name || c.label || "").toLowerCase() === req.name.toLowerCase()
+      );
+      if (idx !== -1) {
+        list[idx] = { ...list[idx], image: req.image };
+      } else {
+        list.push(req);
+      }
+    });
+
+    // Rearrange category order based on user request (Vibrant mixed order):
+    if (list.length > 0) {
+      const findAndExtract = (predicate) => {
+        const idx = list.findIndex(predicate);
+        if (idx !== -1) {
+          const [item] = list.splice(idx, 1);
+          return item;
+        }
+        return null;
+      };
+
+      const paneerItem = findAndExtract((c) => (c.name || c.label || "").toLowerCase().includes("paneer"));
+      const beverageItem = findAndExtract((c) => {
+        const name = (c.name || c.label || "").toLowerCase();
+        return name.includes("beverage") || name.includes("drink");
+      });
+      const pizzaItem = findAndExtract((c) => (c.name || c.label || "").toLowerCase().includes("pizza"));
+      const biryaniItem = findAndExtract((c) => (c.name || c.label || "").toLowerCase().includes("biryani"));
+      const burgerItem = findAndExtract((c) => (c.name || c.label || "").toLowerCase().includes("burger"));
+      const momosItem = findAndExtract((c) => (c.name || c.label || "").toLowerCase().includes("momo"));
+
+      if (paneerItem) list.splice(1, 0, paneerItem);
+      if (beverageItem) list.splice(3, 0, beverageItem);
+      if (pizzaItem) list.splice(0, 0, pizzaItem);
+      if (biryaniItem) list.splice(2, 0, biryaniItem);
+      if (burgerItem) list.splice(5, 0, burgerItem);
+      if (momosItem) list.splice(7, 0, momosItem);
+    }
+
+    return list;
   }, [menuCategories, realCategories, normalizedLandingCategories]);
 
   // Swipe functionality for hero banner carousel
@@ -3621,14 +3719,15 @@ export default function Home() {
       <section className="space-y-4 pt-4 sm:pt-6">
         <div className="px-4 flex items-center justify-between">
           <h2 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 dark:text-white tracking-tight">
-            What's on your mind?
+            What are you craving today?
           </h2>
-          <Link
-            to="/food/user/categories"
-            className="text-xs sm:text-sm font-bold text-[#659116] hover:text-[#5ECC11] transition-colors"
+          <button
+            type="button"
+            onClick={() => setShowCuisinesModal(true)}
+            className="text-xs sm:text-sm font-bold text-[#659116] hover:text-[#5ECC11] transition-colors cursor-pointer"
             style={{ color: "var(--module-theme-color, #659116)" }}>
             See more
-          </Link>
+          </button>
         </div>
       </section>
     );
@@ -3636,11 +3735,21 @@ export default function Home() {
 
   // Memoized Category Rail Component
   const CategoryRailSection = useMemo(() => {
+    const isPopup = isCategoriesCrossed;
+
     return (
       <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full">
+        {isPopup && (
+          <div className="px-2 pt-0.5 pb-0 flex items-center justify-between">
+            <span className="text-[10.5px] sm:text-xs font-black text-gray-800 dark:text-gray-200 tracking-wider uppercase">
+              Hungry?
+            </span>
+          </div>
+        )}
         <div
           ref={categoryScrollRef}
-          className="flex gap-3 sm:gap-4 md:gap-5 lg:gap-6 overflow-x-auto md:overflow-x-visible overflow-y-visible scrollbar-hide scroll-smooth px-2 sm:px-3 py-2 sm:py-3 md:py-4"
+          className={`flex overflow-x-auto md:overflow-x-visible overflow-y-visible scrollbar-hide scroll-smooth ${isPopup ? 'gap-2.5 sm:gap-3.5 px-2 py-0.5 sm:py-1' : 'gap-3 sm:gap-4 md:gap-5 lg:gap-6 px-2 sm:px-3 py-1.5 sm:py-2 md:py-3'
+            }`}
           style={{
             scrollbarWidth: "none",
             msOverflowStyle: "none",
@@ -3658,23 +3767,28 @@ export default function Home() {
                 className="flex-shrink-0"
               >
                 <motion.div
-                  className="flex flex-col items-center gap-2 w-[72px] sm:w-24 md:w-28"
-                  whileHover={{ scale: 1.1, y: -4 }}
+                  className={`flex flex-col items-center ${isPopup ? 'gap-1 w-[56px] sm:w-16 md:w-20' : 'gap-2 w-[72px] sm:w-24 md:w-28'
+                    }`}
+                  whileHover={{ scale: 1.08, y: -2 }}
                   whileTap={{ scale: 0.95 }}
                   transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                  style={{ animation: `fade-in-up 0.5s ease-out forwards ${index * 0.05}s`, opacity: 0 }}
+                  style={{ animation: `fade-in-up 0.5s ease-out forwards ${index * 0.04}s`, opacity: 0 }}
                 >
-                  <div className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full overflow-hidden shadow-md transition-all">
-                    <OptimizedImage
+                  <div
+                    className={`rounded-full overflow-hidden shadow-md transition-all border border-gray-100 dark:border-gray-800 bg-white ${isPopup ? 'w-11 h-11 sm:w-14 sm:h-14' : 'w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24'
+                      }`}
+                  >
+                    <img
                       src={category.image}
                       alt={category.name}
-                      className="w-full h-full bg-white rounded-full"
-                      objectFit="cover"
-                      sizes="(max-width: 640px) 62px, (max-width: 768px) 96px, 112px"
-                      placeholder="blur"
+                      className="w-full h-full object-cover bg-white rounded-full transition-transform duration-300 group-hover:scale-110"
+                      loading="lazy"
                     />
                   </div>
-                  <span className="text-xs sm:text-sm md:text-base font-bold text-gray-800 dark:text-gray-200 text-center leading-tight whitespace-nowrap pb-1">
+                  <span
+                    className={`font-bold text-gray-800 dark:text-gray-200 text-center leading-tight whitespace-nowrap group-hover:text-[#659116] transition-colors ${isPopup ? 'text-[10.5px] sm:text-xs pb-0.5' : 'text-xs sm:text-sm md:text-base pb-1'
+                      }`}
+                  >
                     {category.name}
                   </span>
                 </motion.div>
@@ -3683,21 +3797,31 @@ export default function Home() {
           )}
 
           {/* See All: always show when sticky, otherwise only when >12 categories */}
-          {!showCategorySkeleton && (isCategoryStuck || displayCategories.length > 12) && (
+          {!showCategorySkeleton && (isCategoryStuck || isPopup || displayCategories.length > 12) && (
             <div
               className="flex-shrink-0 cursor-pointer"
-              onClick={() => navigate("/food/user/categories")}
+              onClick={() => setShowCuisinesModal(true)}
             >
               <motion.div
-                className="flex flex-col items-center gap-2 w-[72px] sm:w-24 md:w-28"
-                whileHover={{ scale: 1.1, y: -4 }}
+                className={`flex flex-col items-center ${isPopup ? 'gap-1 w-[56px] sm:w-16 md:w-20' : 'gap-2 w-[72px] sm:w-24 md:w-28'
+                  }`}
+                whileHover={{ scale: 1.08, y: -2 }}
                 whileTap={{ scale: 0.95 }}
                 transition={{ type: "spring", stiffness: 300, damping: 20 }}
               >
-                <div className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/50 transition-all shadow-md">
-                  <Plus className="w-6 h-6 text-[#659116]" style={{ color: "var(--module-theme-color, #659116)" }} />
+                <div
+                  className={`rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/50 transition-all shadow-sm ${isPopup ? 'w-11 h-11 sm:w-14 sm:h-14' : 'w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24'
+                    }`}
+                >
+                  <Plus
+                    className={`text-[#659116] ${isPopup ? 'w-4 h-4' : 'w-6 h-6'}`}
+                    style={{ color: "var(--module-theme-color, #659116)" }}
+                  />
                 </div>
-                <span className="text-xs sm:text-sm md:text-base font-bold text-gray-800 dark:text-gray-200 text-center pb-1">
+                <span
+                  className={`font-bold text-gray-800 dark:text-gray-200 text-center ${isPopup ? 'text-[10.5px] sm:text-xs pb-0.5' : 'text-xs sm:text-sm md:text-base pb-1'
+                    }`}
+                >
                   See more
                 </span>
               </motion.div>
@@ -3706,7 +3830,7 @@ export default function Home() {
         </div>
       </div>
     );
-  }, [displayCategories, showCategorySkeleton, navigate, isCategoryStuck]);
+  }, [displayCategories, showCategorySkeleton, navigate, isCategoryStuck, isCategoriesCrossed]);
 
   if (shouldShowOutOfZoneScreen) {
     return <OutOfZoneScreen location={effectiveLocation} />;
@@ -3825,73 +3949,26 @@ export default function Home() {
         `}</style>
         </div>
 
-        {/* Unified Smart Scroll-Aware Sticky Header Overlay (Swiggy / Zomato style) */}
-        <div
-          ref={stickyHeaderRef}
-          className={`fixed top-0 left-0 right-0 z-[100] bg-white/95 dark:bg-[#1a1a1a]/95 backdrop-blur-md border-b border-gray-100 dark:border-gray-800/80 shadow-md transition-all duration-300 ease-in-out md:hidden ${isSmartStickyActive
-              ? 'translate-y-0 opacity-100 pointer-events-auto'
-              : '-translate-y-full opacity-0 pointer-events-none'
-            }`}
-        >
-          <div className="w-full flex flex-col">
-            {/* Top Row: Search Bar & Veg Toggle (Expanded on Scroll DOWN, Collapsed on Scroll UP) */}
-            <div
-              className={`transition-all duration-300 ease-in-out overflow-hidden origin-top px-4 ${smartScrollDirection === 'down'
-                  ? 'max-h-[70px] opacity-100 py-2.5 scale-y-100'
-                  : 'max-h-0 opacity-0 py-0 scale-y-95 pointer-events-none'
-                }`}
-            >
-              <SearchBarRow
-                handleSearchFocus={handleSearchFocus}
-                placeholderIndex={placeholderIndex}
-                placeholders={placeholders}
-                handleVegModeChange={handleVegModeChange}
-                isVegMode={vegModeOption === "pure-veg" || vegModeOption === "non-veg"}
-                vegModeToggleRef={vegModeToggleRef}
-                navigate={navigate}
-                isCompact={true}
-                vegModeOption={vegModeOption}
-              />
-            </div>
-
-            {/* Middle Row: Category Rail (Appears when Category section is crossed) */}
-            <div
-              className={`transition-all duration-300 ease-in-out overflow-hidden ${isCategoriesCrossed
-                  ? 'max-h-[100px] opacity-100 py-1'
-                  : 'max-h-0 opacity-0 py-0'
-                }`}
+        {/* Clean Sticky Category Popup Overlay (Appears ONLY when Top Banner is 100% Offscreen) */}
+        <AnimatePresence mode="wait">
+          {isCategoriesCrossed && (
+            <motion.div
+              ref={stickyHeaderRef}
+              initial={{ opacity: 0, y: -25 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -25 }}
+              transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+              className="fixed top-0 left-0 right-0 z-[100] bg-white/95 dark:bg-[#1a1a1a]/95 backdrop-blur-xl border-b border-gray-100/60 dark:border-gray-800/80 rounded-b-3xl sm:rounded-b-[2rem] shadow-xl overflow-hidden py-1.5"
             >
               {CategoryRailSection}
-            </div>
-
-            {/* Bottom Row: Filters Bar (Appears when original Filters section is crossed) */}
-            <div
-              className={`transition-all duration-300 ease-in-out overflow-hidden ${isFiltersCrossed
-                  ? 'max-h-[60px] opacity-100 py-1.5'
-                  : 'max-h-0 opacity-0 py-0'
-                }`}
-            >
-              <FoodFilterBar
-                sortBy={sortBy || "relevance"}
-                onSortChange={(val) => setSortBy(val === "relevance" ? null : val)}
-                isVeg={activeFilters.has("veg")}
-                onVegToggle={() => toggleHomeFilter("veg")}
-                isNonVeg={activeFilters.has("non-veg")}
-                onNonVegToggle={() => toggleHomeFilter("non-veg")}
-                rating4Plus={activeFilters.has("rating-4plus")}
-                onRating4PlusToggle={() => toggleHomeFilter("rating-4plus")}
-                hasOffers={activeFilters.has("has-offers")}
-                onOffersToggle={() => toggleHomeFilter("has-offers")}
-                under30Mins={activeFilters.has("delivery-under-30")}
-                onUnder30MinsToggle={() => toggleHomeFilter("delivery-under-30")}
-                onFilterButtonClick={() => setIsFilterOpen(true)}
-              />
-            </div>
-          </div>
-        </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div className="relative z-10">
-          <HomeHeader topBanners={topBannersData}
+          <HomeHeader 
+            headerRef={headerBannerRef}
+            topBanners={topBannersData}
             topBannersLoaded={topBannersLoaded}
             activeTab={activeTab}
             setActiveTab={setActiveTab}
@@ -3909,14 +3986,12 @@ export default function Home() {
             onClearNonVegFilter={handleClearNonVegFilter}
           />
 
-
+          {/* Category sticky anchor sentinel */}
+          <div ref={categoryAnchorRef} aria-hidden="true" />
 
           <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full">
             {CategoryRailHeader}
           </div>
-
-          {/* Category sticky anchor sentinel */}
-          <div ref={categoryAnchorRef} aria-hidden="true" />
 
           {/* Category Rail (In-flow layout) */}
           <div
@@ -3927,7 +4002,6 @@ export default function Home() {
           </div>
 
           <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full">
-            <PromotionBannerCarousel zoneId={zoneId} />
 
             {/* Meals under 99 Section */}
             {(loadingMealsUnder99 || mealsUnder99.length > 0) && (
@@ -3984,34 +4058,47 @@ export default function Home() {
                       const variants = dish.variants || [];
                       const hasVariants = variants && variants.length > 0;
                       const totalQty = getCartItemQuantity(dish);
+
+                      // Image sanitizer to replace transparent checkerboard PNGs or missing images
+                      const getSanitizedImage = (item) => {
+                        const name = (item.name || "").toLowerCase();
+                        const img = item.image || "";
+                        if (!img || img.includes("transparent") || img.includes("checkerboard") || img.includes("placeholder")) {
+                          if (name.includes("biryani")) return biryaniCleanImg;
+                          if (name.includes("maggie") || name.includes("maggi") || name.includes("noodle")) return maggieCleanImg;
+                          if (name.includes("rasgulla") || name.includes("sweet") || name.includes("dessert")) return rasgullaCleanImg;
+                          return biryaniCleanImg;
+                        }
+                        if (name.includes("biryani")) return biryaniCleanImg;
+                        if (name.includes("maggie") || name.includes("maggi")) return maggieCleanImg;
+                        if (name.includes("rasgulla")) return rasgullaCleanImg;
+                        return img;
+                      };
+
                       return (
                         <div
                           key={dish.id}
-                          className="flex-shrink-0 w-[140px] flex flex-col gap-2 group cursor-pointer"
+                          className="flex-shrink-0 w-[145px] sm:w-[155px] flex flex-col gap-2 group cursor-pointer"
                         >
                           {/* Image container */}
-                          <div className="relative w-full h-[140px] rounded-2xl bg-gray-50 dark:bg-neutral-900 border border-gray-100 dark:border-gray-800 shadow-sm">
-                            <div className="w-full h-full rounded-2xl overflow-hidden relative">
-                              <img
-                                src={dish.image}
-                                alt={dish.name}
-                                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                                loading="lazy"
-                              />
-                            </div>
+                          <div className="relative w-full h-[142px] sm:h-[150px] rounded-2xl bg-white dark:bg-neutral-900 border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden transition-all duration-300 group-hover:shadow-md group-hover:-translate-y-0.5">
+                            <img
+                              src={getSanitizedImage(dish)}
+                              alt={dish.name}
+                              className="w-full h-full object-cover rounded-2xl bg-white transition-transform duration-300 group-hover:scale-105"
+                              loading="lazy"
+                            />
 
                             {/* Rating Badge Overlay */}
-                            <div className="absolute -bottom-[1px] -left-[1px] bg-white dark:bg-[#1a1a1a] pt-[3px] pr-[5px] rounded-tr-lg rounded-bl-2xl flex items-center justify-center z-10">
-                              <div className="flex items-center gap-[2px] bg-[#EAFBF1] dark:bg-emerald-950/90 text-[#2E7D32] dark:text-emerald-400 text-[10.5px] font-bold px-[5px] py-[2px] rounded-[4px] shadow-sm">
-                                <span className="text-[11px] leading-none">★</span>
-                                <span className="leading-none">{dish.rating || 4.2}</span>
-                              </div>
+                            <div className="absolute bottom-2 left-2 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md px-2 py-0.5 rounded-full shadow-md border border-gray-100 dark:border-gray-800 flex items-center gap-0.5 text-gray-900 dark:text-white text-[10.5px] font-extrabold z-10">
+                              <span className="text-[#659116] text-[10.5px] leading-none">★</span>
+                              <span className="leading-none">{dish.rating || 4.2}</span>
                             </div>
 
                             {/* Popular Badge */}
                             <div
-                              className="absolute top-2 left-2 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded-md shadow-sm"
-                              style={{ backgroundColor: "#379702" }}
+                              className="absolute top-2 left-2 text-white text-[9.5px] font-black px-2 py-0.5 rounded-full shadow-md backdrop-blur-md z-10"
+                              style={{ backgroundColor: "#659116" }}
                             >
                               Popular
                             </div>
@@ -4019,14 +4106,13 @@ export default function Home() {
                             {/* Plus Button or Quantity Selector Overlay */}
                             {totalQty > 0 ? (
                               <div
-                                className="absolute bottom-2 right-2 h-8 rounded-full bg-white dark:bg-gray-900 shadow-md flex items-center justify-between border px-1.5 gap-1.5 border-gray-200 dark:border-gray-800"
+                                className="absolute bottom-2 right-2 h-8 rounded-full bg-white dark:bg-gray-900 shadow-lg flex items-center justify-between border px-1.5 gap-1.5 border-gray-100 dark:border-gray-800 z-10"
                                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
                               >
                                 <button
                                   type="button"
                                   onClick={(e) => handleDecreaseQuantity(dish, e)}
-                                  className="w-5 h-5 flex items-center justify-center hover:opacity-80 transition-all active:scale-75"
-                                  style={{ color: "var(--module-theme-color, #E2AD4B)" }}
+                                  className="w-5 h-5 flex items-center justify-center hover:opacity-80 transition-all active:scale-75 text-[#659116]"
                                 >
                                   <Minus className="h-3.5 w-3.5" strokeWidth={3.5} />
                                 </button>
@@ -4036,8 +4122,7 @@ export default function Home() {
                                 <button
                                   type="button"
                                   onClick={(e) => handleIncreaseQuantity(dish, e)}
-                                  className="w-5 h-5 flex items-center justify-center hover:opacity-80 transition-all active:scale-75"
-                                  style={{ color: "var(--module-theme-color, #E2AD4B)" }}
+                                  className="w-5 h-5 flex items-center justify-center hover:opacity-80 transition-all active:scale-75 text-[#659116]"
                                 >
                                   <Plus className="h-3.5 w-3.5" strokeWidth={3.5} />
                                 </button>
@@ -4046,53 +4131,39 @@ export default function Home() {
                               <button
                                 type="button"
                                 onClick={(e) => handleIncreaseQuantity(dish, e)}
-                                className="absolute bottom-2 right-2 w-8 h-8 rounded-full bg-white dark:bg-gray-900 shadow-md flex items-center justify-center border transition-all active:scale-90 border-gray-200 dark:border-gray-800"
+                                className="absolute bottom-2 right-2 w-8 h-8 rounded-full bg-white dark:bg-gray-900 shadow-lg flex items-center justify-center border transition-all active:scale-90 border-gray-100 dark:border-gray-800 hover:bg-gray-50 z-10"
                               >
-                                <Plus className="h-4 w-4" style={{ color: "var(--module-theme-color, #E2AD4B)" }} strokeWidth={3} />
+                                <Plus className="h-4 w-4 text-[#659116]" strokeWidth={3} />
                               </button>
                             )}
                           </div>
 
                           {/* Content info */}
-                          <div className="flex flex-col gap-1 min-w-0 mt-2.5">
-                            {/* Restaurant */}
-                            <div className="flex items-center min-w-0">
-                              <span className="text-[10px] text-gray-500 dark:text-gray-400 font-bold truncate">
-                                {dish.restaurantName}
-                              </span>
-                            </div>
+                          <div className="flex flex-col gap-0.5 min-w-0 px-0.5">
+                            {/* Restaurant Name */}
+                            <span className="text-[10.5px] text-gray-500 dark:text-gray-400 font-semibold truncate">
+                              {dish.restaurantName}
+                            </span>
 
                             {/* Veg/Non-veg Dot & Name */}
                             <div className="flex items-center gap-1.5 min-w-0">
-                              <div className="shrink-0 w-3.5 h-3.5 border border-gray-300 dark:border-gray-700 rounded flex items-center justify-center p-[2.5px] bg-white">
+                              <div className="shrink-0 w-3.5 h-3.5 border border-gray-300 dark:border-gray-700 rounded flex items-center justify-center p-[2px] bg-white">
                                 <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: dish.isVeg ? "#22c55e" : "#dc2626" }} />
                               </div>
-                              <span className="text-[12px] font-bold text-gray-900 dark:text-white truncate">
+                              <span className="text-xs font-bold text-gray-900 dark:text-white truncate group-hover:text-[#659116] transition-colors">
                                 {dish.name}
                               </span>
                             </div>
 
                             {/* Price */}
-                            <div className="flex items-center justify-between w-full pr-1">
+                            <div className="flex items-center justify-between w-full mt-0.5">
                               <div className="flex items-center gap-1.5">
-                                {dish.originalPrice && dish.originalPrice > dish.price ? (
-                                  <>
-                                    <span className="text-[10px] text-gray-400 line-through">
-                                      ₹{dish.originalPrice}
-                                    </span>
-                                    <span
-                                      className="text-[11px] font-black px-1.5 py-0.5 rounded-md"
-                                      style={{
-                                        color: "var(--module-theme-color, #E2AD4B)",
-                                        backgroundColor: "color-mix(in srgb, var(--module-theme-color, #E2AD4B) 10%, transparent)"
-                                      }}
-                                    >
-                                      ₹{dish.price}
-                                    </span>
-                                  </>
-                                ) : (
-                                  <span className="text-[12px] font-black text-gray-950 dark:text-white">
-                                    ₹{dish.price}
+                                <span className="text-sm font-black text-gray-900 dark:text-white">
+                                  ₹{dish.price}
+                                </span>
+                                {dish.originalPrice && dish.originalPrice > dish.price && (
+                                  <span className="text-[11px] font-semibold text-gray-400 line-through">
+                                    ₹{dish.originalPrice}
                                   </span>
                                 )}
                               </div>
@@ -5440,6 +5511,91 @@ export default function Home() {
             )}
           </AnimatePresence>,
           document.body,
+        )}
+
+        {/* Cuisines and Dishes Bottom Sheet Modal */}
+        {createPortal(
+          <AnimatePresence>
+            {showCuisinesModal && (
+              <>
+                {/* Backdrop */}
+                <motion.div
+                  key="cuisines-backdrop"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999]"
+                  onClick={() => setShowCuisinesModal(false)}
+                />
+
+                {/* Bottom Sheet Modal */}
+                <motion.div
+                  key="cuisines-sheet"
+                  initial={{ y: "100%" }}
+                  animate={{ y: 0 }}
+                  exit={{ y: "100%" }}
+                  transition={{
+                    type: "spring",
+                    damping: 28,
+                    stiffness: 300,
+                  }}
+                  className="fixed left-0 right-0 bottom-0 z-[10000] bg-white dark:bg-gray-900 rounded-t-3xl sm:rounded-t-[2.5rem] max-h-[85vh] flex flex-col overflow-hidden shadow-2xl border-t border-gray-100 dark:border-gray-800"
+                >
+                  {/* Handle & Header */}
+                  <div className="relative pt-3 pb-3.5 px-5 sm:px-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between bg-white dark:bg-gray-900 sticky top-0 z-10">
+                    <div className="absolute left-1/2 -translate-x-1/2 top-2.5 w-12 h-1.5 bg-gray-300 dark:bg-gray-700 rounded-full" />
+
+                    <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white tracking-tight mt-3">
+                      Cuisines and dishes
+                    </h2>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowCuisinesModal(false)}
+                      className="mt-3 w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  {/* Scrollable Dishes Grid (4-Column Layout) */}
+                  <div className="flex-1 overflow-y-auto overscroll-contain scroll-smooth touch-pan-y max-h-[75vh] px-4 sm:px-6 pt-5 pb-16 scrollbar-hide">
+                    <div className="grid grid-cols-4 gap-y-7 gap-x-3 sm:gap-x-5">
+                      {displayCategories.map((category, index) => (
+                        <div
+                          key={category.id || index}
+                          onClick={() => {
+                            setShowCuisinesModal(false);
+                            navigate(
+                              `/food/user/category/${
+                                category.slug ||
+                                category.name.toLowerCase().replace(/\s+/g, "-")
+                              }`
+                            );
+                          }}
+                          className="flex flex-col items-center gap-2 cursor-pointer group"
+                        >
+                          <div className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full overflow-hidden shadow-md border border-gray-100 dark:border-gray-800 bg-white transition-transform duration-300 group-hover:scale-110 group-active:scale-95">
+                            <img
+                              src={category.image}
+                              alt={category.name}
+                              className="w-full h-full object-cover rounded-full bg-white transition-transform duration-300 group-hover:scale-105"
+                              loading="lazy"
+                            />
+                          </div>
+                          <span className="text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-200 text-center leading-tight whitespace-nowrap group-hover:text-[#659116] transition-colors">
+                            {category.name}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>,
+          document.body
         )}
 
       <FloatingHomeDock hasBottomNav />

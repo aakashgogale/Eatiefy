@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 async function checkFood() {
-  await mongoose.connect('mongodb+srv://SwitchEats:Switcheats%40123@switcheatscluster.gcdsjg0.mongodb.net/switcheatsdb?retryWrites=true&w=majority', {
+  await mongoose.connect('mongodb+srv://Eatiefy:Eatiefy%40123@eatiefycluster.gcdsjg0.mongodb.net/eatiefydb?retryWrites=true&w=majority', {
     useNewUrlParser: true,
     useUnifiedTopology: true,
   });

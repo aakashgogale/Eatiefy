@@ -122,7 +122,7 @@ export const initRazorpayPayment = async (options) => {
 
     const activeModule = getActiveModule();
     const brandName = getCompanyName() || 'Eatiefy';
-    const brandLogoRaw = getModuleLogoUrl(activeModule) || `${window.location.origin}/switcheats-logo.png`;
+    const brandLogoRaw = getModuleLogoUrl(activeModule) || `${window.location.origin}/eatiefy-logo.png`;
     const brandLogo = getSquareLogoUrl(brandLogoRaw);
     const brandColor = getModulePowerScanning(activeModule)?.themeColor || '#618E17';
 

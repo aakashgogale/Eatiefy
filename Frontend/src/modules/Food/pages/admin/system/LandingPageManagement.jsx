@@ -1426,12 +1426,12 @@ export default function LandingPageManagement() {
           </div>
         )}
 
-        {/* Hero Banners Tab */}
+        {/* Top Banners Tab */}
         {activeTab === 'top-banners' && (
           <>
             {/* Upload Section */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-              <h2 className="text-lg font-bold text-slate-900 mb-4">Upload New Top Banner(s) (800x680 pixels)</h2>
+              <h2 className="text-lg font-bold text-slate-900 mb-4">Upload New Top Banner / Video (Images & Videos)</h2>
               <div
                 className="border-2 border-dashed border-blue-300 rounded-lg p-8 text-center bg-blue-50/30 cursor-pointer transition-colors hover:border-blue-400 hover:bg-blue-50/50"
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -1447,7 +1447,7 @@ export default function LandingPageManagement() {
                 <input
                   ref={topBannersFileInputRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/*,video/*,.mp4,.webm,.mov,.m4v,.avi"
                   multiple
                   onChange={handleTopBannerFileSelect}
                   className="hidden"
@@ -1457,7 +1457,7 @@ export default function LandingPageManagement() {
                   <div className="flex flex-col items-center gap-3">
                     <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
                     <p className="text-blue-600 font-medium">
-                      Uploading image {topBannersUploadProgress.current} of {topBannersUploadProgress.total}...
+                      Uploading media {topBannersUploadProgress.current} of {topBannersUploadProgress.total}...
                     </p>
                     {topBannersUploadProgress.total > 0 && (
                       <div className="w-full max-w-xs">
@@ -1483,7 +1483,7 @@ export default function LandingPageManagement() {
                       </button>
                       <span className="text-slate-600"> or drag and drop</span>
                     </div>
-                    <p className="text-xs text-slate-500">PNG, JPG, WEBP up to 5MB each (Max 5 images at once)</p>
+                    <p className="text-xs text-slate-500">PNG, JPG, WEBP, MP4, WEBM, MOV up to 50MB (Max 5 files at once)</p>
                   </div>
                 )}
               </div>
@@ -1499,73 +1499,82 @@ export default function LandingPageManagement() {
               ) : topBanners.length === 0 ? (
                 <div className="text-center py-12 text-slate-500">
                   <ImageIcon className="w-12 h-12 mx-auto mb-3 text-slate-400" />
-                  <p>No banners uploaded yet.</p>
+                  <p>No banners or videos uploaded yet.</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {topBanners.map((banner, index) => (
-                    <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
-                      <div className="relative aspect-video bg-slate-100">
-                        <img src={banner.image || banner.imageUrl} alt={`Top Banner ${index + 1}`} className="w-full h-full object-cover" />
-                        <div className="absolute top-2 right-2">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                            {banner.isActive ? 'Active' : 'Inactive'}
-                          </span>
-                        </div>
-                        <div className="absolute top-2 left-2">
-                          <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {banner.order}</span>
-                        </div>
-                      </div>
-                      <div className="p-4 bg-white">
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <div className="flex items-center gap-1">
-                            <button onClick={() => handleTopBannerOrderChange(banner._id, 'up')} disabled={index === 0} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
-                              <ArrowUp className="w-4 h-4 text-slate-600" />
-                            </button>
-                            <button onClick={() => handleTopBannerOrderChange(banner._id, 'down')} disabled={index === topBanners.length - 1} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
-                              <ArrowDown className="w-4 h-4 text-slate-600" />
-                            </button>
+                  {topBanners.map((banner, index) => {
+                    const mediaUrl = banner.image || banner.imageUrl;
+                    const isVideo = Boolean(mediaUrl?.match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || banner.mediaType === 'video');
+                    return (
+                      <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
+                        <div className="relative aspect-video bg-slate-100">
+                          {isVideo ? (
+                            <video 
+                              src={mediaUrl} 
+                              autoPlay 
+                              loop 
+                              muted 
+                              playsInline 
+                              className="w-full h-full object-cover" 
+                            />
+                          ) : (
+                            <img src={mediaUrl} alt={`Top Banner ${index + 1}`} className="w-full h-full object-cover" />
+                          )}
+                          <div className="absolute top-2 right-2 flex items-center gap-1">
+                            {isVideo && (
+                              <span className="px-2 py-1 rounded text-xs font-bold bg-purple-600 text-white">
+                                VIDEO
+                              </span>
+                            )}
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                              {banner.isActive ? 'Active' : 'Inactive'}
+                            </span>
                           </div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {/* <button
-                              onClick={() => {
-                                setSelectedBannerId(banner._id)
-                                setSelectedRestaurantIds(banner.linkedRestaurants?.map(r => r._id || r) || [])
-                                setShowRestaurantModal(true)
-                              }}
-                              className="px-3 py-1.5 rounded text-sm font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 flex items-center gap-1"
-                            >
-                              <Megaphone className="w-4 h-4" />
-                              Advertise
-                            </button> */}
-                            <button onClick={() => handleToggleTopBannerStatus(banner._id, banner.isActive)} className={`px-3 py-1.5 rounded text-sm font-medium ${banner.isActive ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
-                              {banner.isActive ? 'Deactivate' : 'Activate'}
-                            </button>
-                            <button onClick={() => handleDeleteTopBanner(banner._id)} disabled={topBannersDeleting === banner._id} className="p-1.5 rounded hover:bg-red-100 text-red-600 disabled:opacity-50">
-                              {topBannersDeleting === banner._id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                            </button>
+                          <div className="absolute top-2 left-2">
+                            <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {banner.order}</span>
                           </div>
                         </div>
-                        {banner.linkedRestaurants && banner.linkedRestaurants.length > 0 && (
-                          <div className="mt-2 pt-2 border-t border-slate-200">
-                            <p className="text-xs text-slate-600 mb-1">Linked Restaurants ({banner.linkedRestaurants.length}):</p>
-                            <div className="flex flex-wrap gap-1">
-                              {banner.linkedRestaurants.slice(0, 3).map((restaurant) => (
-                                <span key={restaurant._id || restaurant} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">
-                                  {restaurant.name || 'Restaurant'}
-                                </span>
-                              ))}
-                              {banner.linkedRestaurants.length > 3 && (
-                                <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
-                                  +{banner.linkedRestaurants.length - 3} more
-                                </span>
-                              )}
+                        <div className="p-4 bg-white">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => handleTopBannerOrderChange(banner._id, 'up')} disabled={index === 0} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
+                                <ArrowUp className="w-4 h-4 text-slate-600" />
+                              </button>
+                              <button onClick={() => handleTopBannerOrderChange(banner._id, 'down')} disabled={index === topBanners.length - 1} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
+                                <ArrowDown className="w-4 h-4 text-slate-600" />
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <button onClick={() => handleToggleTopBannerStatus(banner._id, banner.isActive)} className={`px-3 py-1.5 rounded text-sm font-medium ${banner.isActive ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
+                                {banner.isActive ? 'Deactivate' : 'Activate'}
+                              </button>
+                              <button onClick={() => handleDeleteTopBanner(banner._id)} disabled={topBannersDeleting === banner._id} className="p-1.5 rounded hover:bg-red-100 text-red-600 disabled:opacity-50">
+                                {topBannersDeleting === banner._id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                              </button>
                             </div>
                           </div>
-                        )}
+                          {banner.linkedRestaurants && banner.linkedRestaurants.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-slate-200">
+                              <p className="text-xs text-slate-600 mb-1">Linked Restaurants ({banner.linkedRestaurants.length}):</p>
+                              <div className="flex flex-wrap gap-1">
+                                {banner.linkedRestaurants.slice(0, 3).map((restaurant) => (
+                                  <span key={restaurant._id || restaurant} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">
+                                    {restaurant.name || 'Restaurant'}
+                                  </span>
+                                ))}
+                                {banner.linkedRestaurants.length > 3 && (
+                                  <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
+                                    +{banner.linkedRestaurants.length - 3} more
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1578,7 +1587,7 @@ export default function LandingPageManagement() {
           <>
             {/* Upload Section */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-              <h2 className="text-lg font-bold text-slate-900 mb-4">Upload New Banner(s)</h2>
+              <h2 className="text-lg font-bold text-slate-900 mb-4">Upload New Hero Banner / Video (Images & Videos)</h2>
               <div
                 className="border-2 border-dashed border-blue-300 rounded-lg p-8 text-center bg-blue-50/30 cursor-pointer transition-colors hover:border-blue-400 hover:bg-blue-50/50"
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -1594,7 +1603,7 @@ export default function LandingPageManagement() {
                 <input
                   ref={bannersFileInputRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/*,video/*,.mp4,.webm,.mov,.m4v,.avi"
                   multiple
                   onChange={handleBannerFileSelect}
                   className="hidden"
@@ -1604,7 +1613,7 @@ export default function LandingPageManagement() {
                   <div className="flex flex-col items-center gap-3">
                     <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
                     <p className="text-blue-600 font-medium">
-                      Uploading image {bannersUploadProgress.current} of {bannersUploadProgress.total}...
+                      Uploading media {bannersUploadProgress.current} of {bannersUploadProgress.total}...
                     </p>
                     {bannersUploadProgress.total > 0 && (
                       <div className="w-full max-w-xs">
@@ -1630,7 +1639,7 @@ export default function LandingPageManagement() {
                       </button>
                       <span className="text-slate-600"> or drag and drop</span>
                     </div>
-                    <p className="text-xs text-slate-500">PNG, JPG, WEBP up to 5MB each (Max 5 images at once)</p>
+                    <p className="text-xs text-slate-500">PNG, JPG, WEBP, MP4, WEBM, MOV up to 50MB (Max 5 files at once)</p>
                   </div>
                 )}
               </div>
@@ -1646,23 +1655,42 @@ export default function LandingPageManagement() {
               ) : banners.length === 0 ? (
                 <div className="text-center py-12 text-slate-500">
                   <ImageIcon className="w-12 h-12 mx-auto mb-3 text-slate-400" />
-                  <p>No banners uploaded yet.</p>
+                  <p>No banners or videos uploaded yet.</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {banners.map((banner, index) => (
-                    <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
-                      <div className="relative aspect-video bg-slate-100">
-                        <img src={banner.imageUrl} alt={`Hero Banner ${index + 1}`} className="w-full h-full object-cover" />
-                        <div className="absolute top-2 right-2">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                            {banner.isActive ? 'Active' : 'Inactive'}
-                          </span>
+                  {banners.map((banner, index) => {
+                    const mediaUrl = banner.imageUrl || banner.image;
+                    const isVideo = Boolean(mediaUrl?.match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || banner.mediaType === 'video');
+                    return (
+                      <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
+                        <div className="relative aspect-video bg-slate-100">
+                          {isVideo ? (
+                            <video 
+                              src={mediaUrl} 
+                              autoPlay 
+                              loop 
+                              muted 
+                              playsInline 
+                              className="w-full h-full object-cover" 
+                            />
+                          ) : (
+                            <img src={mediaUrl} alt={`Hero Banner ${index + 1}`} className="w-full h-full object-cover" />
+                          )}
+                          <div className="absolute top-2 right-2 flex items-center gap-1">
+                            {isVideo && (
+                              <span className="px-2 py-1 rounded text-xs font-bold bg-purple-600 text-white">
+                                VIDEO
+                              </span>
+                            )}
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                              {banner.isActive ? 'Active' : 'Inactive'}
+                            </span>
+                          </div>
+                          <div className="absolute top-2 left-2">
+                            <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {banner.order}</span>
+                          </div>
                         </div>
-                        <div className="absolute top-2 left-2">
-                          <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {banner.order}</span>
-                        </div>
-                      </div>
                       <div className="p-4 bg-white">
                         <div className="flex items-center justify-between gap-2 flex-wrap">
                           <div className="flex items-center gap-1">
@@ -1712,7 +1740,8 @@ export default function LandingPageManagement() {
                         )}
                       </div>
                     </div>
-                  ))}
+                  );
+                })}
                 </div>
               )}
             </div>

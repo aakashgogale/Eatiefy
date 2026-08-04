@@ -10,6 +10,5 @@ const featureSettingSchema = new mongoose.Schema(
     { collection: 'food_feature_settings', timestamps: true }
 );
 
-featureSettingSchema.index({ key: 1 }, { unique: true });
 
 export const FoodFeatureSetting = mongoose.model('FoodFeatureSetting', featureSettingSchema);

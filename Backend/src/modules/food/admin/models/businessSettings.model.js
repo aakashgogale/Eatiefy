@@ -2,8 +2,8 @@ import mongoose from 'mongoose';
 
 const businessSettingsSchema = new mongoose.Schema(
     {
-        companyName: { type: String, required: true, default: 'Switcheats' },
-        email: { type: String, required: true, default: 'admin@switcheats.com' },
+        companyName: { type: String, required: true, default: 'Eatiefy' },
+        email: { type: String, required: true, default: 'admin@eatiefy.com' },
         phone: {
             countryCode: { type: String, default: '+91' },
             number: { type: String, default: '' }

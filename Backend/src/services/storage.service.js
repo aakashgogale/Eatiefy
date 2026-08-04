@@ -72,7 +72,14 @@ const ALLOWED_MIME_TYPES = new Set([
     'image/jpg',
     'image/png',
     'image/webp',
-    'image/gif'
+    'image/gif',
+    'video/mp4',
+    'video/webm',
+    'video/quicktime',
+    'video/mov',
+    'video/ogg',
+    'video/m4v',
+    'video/x-msvideo'
 ]);
 
 const WEBP_MIME = 'image/webp';
@@ -244,11 +251,35 @@ export const saveImageFile = async (file, folder) => {
     }
 
     const mimeType = String(file.mimetype || '').toLowerCase();
-    if (!ALLOWED_MIME_TYPES.has(mimeType)) {
-        throw new ValidationError('Only JPEG, PNG, WebP, and GIF images are allowed');
+    const isVideo = mimeType.startsWith('video/') || /\.(mp4|webm|mov|m4v|avi|ogg)$/i.test(file.originalname || '');
+
+    if (!ALLOWED_MIME_TYPES.has(mimeType) && !isVideo) {
+        throw new ValidationError('Only JPEG, PNG, WebP, GIF images and MP4, WebM, MOV videos are allowed');
     }
 
     const safeFolder = sanitizeUploadFolder(folder);
+
+    // If Video File: Save directly to storage
+    if (isVideo) {
+        const ext = path.extname(file.originalname || '.mp4') || '.mp4';
+        const filename = buildFilename(ext);
+        const relativePath = path.posix.join(safeFolder, filename);
+        const absolutePath = getAbsolutePath(relativePath);
+
+        await ensureUploadStorageReady(safeFolder);
+        await fs.writeFile(absolutePath, file.buffer);
+
+        return {
+            url: buildPublicUrl(relativePath),
+            secure_url: buildPublicUrl(relativePath),
+            public_id: relativePath,
+            path: relativePath,
+            filename,
+            mimeType: mimeType || 'video/mp4',
+            mediaType: 'video',
+            size: file.buffer.length
+        };
+    }
 
     // Check active image storage mode (Cloudinary vs Server)
     const mode = await getImageStorageMode();
@@ -256,7 +287,7 @@ export const saveImageFile = async (file, folder) => {
         return uploadToCloudinary(file.buffer, safeFolder);
     }
 
-    // Local server storage
+    // Local server storage for images
     const optimized = await optimizeImageForStorage(file.buffer, mimeType);
     const filename = buildFilename(optimized.extension);
     const relativePath = path.posix.join(safeFolder, filename);
@@ -272,6 +303,7 @@ export const saveImageFile = async (file, folder) => {
         path: relativePath,
         filename,
         mimeType: optimized.mimeType,
+        mediaType: 'image',
         size: optimized.buffer.length
     };
 };

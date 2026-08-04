@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, ChevronDown, Search, Mic, Bell, CheckCircle2, Tag, Gift, AlertCircle, Clock, BellOff, X, ChevronRight, ShoppingBag, Menu } from 'lucide-react';
+import { MapPin, ChevronDown, Search, Mic, Bell, CheckCircle2, Tag, Gift, AlertCircle, Clock, BellOff, X, ChevronRight, ShoppingBag, Menu, Wallet } from 'lucide-react';
 import { Badge } from "@food/components/ui/badge";
 import { Avatar, AvatarFallback } from "@food/components/ui/avatar";
 import foodIcon from "@food/assets/category-icons/food.png";
@@ -10,14 +10,13 @@ import taxiIcon from "@food/assets/category-icons/taxi.png";
 import hotelIcon from "@food/assets/category-icons/hotel.png";
 import useNotificationInbox from "@food/hooks/useNotificationInbox";
 import { useSearchOverlay } from "../UserLayout";
+
 const ICON_MAP = {
   CheckCircle2,
   Tag,
   Gift,
   AlertCircle
 };
-
-
 
 export function SearchBarRow({
   handleSearchFocus,
@@ -32,12 +31,12 @@ export function SearchBarRow({
   vegModeOption = "all",
 }) {
   return (
-    <div className="flex items-center gap-2 w-full">
+    <div className="flex items-center gap-2.5 w-full">
       <div 
         className={`relative z-[60] flex-1 rounded-[1.5rem] flex items-center px-4 border cursor-pointer active:scale-[0.98] group pointer-events-auto transition-all duration-200 ${
           isCompact
-            ? "py-1.5 bg-white dark:bg-[#1a1a1a] border-gray-100 dark:border-gray-800 shadow-sm"
-            : "py-2 bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-800 shadow-sm"
+            ? "py-1.5 bg-white/95 dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-800 shadow-sm"
+            : "py-2 bg-black/25 backdrop-blur-md border-white/20 shadow-md text-white"
         }`}
         onClick={handleSearchFocus}
         onTouchStart={handleSearchFocus}
@@ -50,7 +49,7 @@ export function SearchBarRow({
           }
         }}
       >
-        <Search className="h-5 w-5 text-gray-400 mr-3 group-hover:text-[#E2AD4B] transition-colors duration-300 dark:text-gray-500" strokeWidth={2.5} />
+        <Search className={`h-5 w-5 mr-3 transition-colors duration-300 ${isCompact ? "text-gray-400 group-hover:text-[#E23744]" : "text-white/80 group-hover:text-white"}`} strokeWidth={2.5} />
         <div className="flex-1 overflow-hidden relative h-5">
           <input
             type="text"
@@ -66,14 +65,14 @@ export function SearchBarRow({
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: -15, opacity: 0 }}
               transition={{ duration: 0.25, ease: 'easeOut' }}
-              className="absolute inset-0 text-[14px] font-bold text-gray-500 dark:text-gray-400"
+              className={`absolute inset-0 text-[14px] font-bold ${isCompact ? "text-gray-500 dark:text-gray-400" : "text-white/90"}`}
             >
-              {placeholders?.[placeholderIndex] || 'Search "pizza"'}
+              {placeholders?.[placeholderIndex] || 'Search "paneer"'}
             </motion.span>
           </AnimatePresence>
         </div>
         <div 
-          className="bg-[#E2AD4B]/5 dark:bg-[#E2AD4B]/10 p-1.5 rounded-full border border-[#E2AD4B]/10 ml-2 group-hover:bg-[#E2AD4B]/10 transition-all flex items-center justify-center"
+          className={`p-1.5 rounded-full ml-2 transition-all flex items-center justify-center ${isCompact ? "bg-[#E23744]/10 border border-[#E23744]/20" : "bg-white/20 border border-white/30 hover:bg-white/30"}`}
           onClick={(e) => {
             e.stopPropagation();
             if (navigate) navigate('/user/search?voice=true');
@@ -83,53 +82,47 @@ export function SearchBarRow({
             if (navigate) navigate('/user/search?voice=true');
           }}
         >
-          <Mic className="h-4 w-4 text-[#E2AD4B]" strokeWidth={2.5} />
+          <Mic className={`h-4 w-4 ${isCompact ? "text-[#E23744]" : "text-white"}`} strokeWidth={2.5} />
         </div>
       </div>
 
       {showVegToggle && (
-        <div 
-          className={`flex flex-col items-center justify-center h-[50px] rounded-full border cursor-pointer active:scale-95 transition-all duration-200 flex-shrink-0 shadow-sm ${
-            vegModeOption === "non-veg" ? 'w-[58px]' : 'w-[50px]'
-          } ${
-            isVegMode 
-              ? (vegModeOption === "non-veg"
-                  ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900/50'
-                  : 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/50')
-              : 'bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-800'
-          }`}
-          onClick={() => handleVegModeChange && handleVegModeChange(!isVegMode)}
-          ref={vegModeToggleRef}
-        >
-          <span className={`font-black uppercase leading-none mb-1.5 text-center ${
-            isVegMode 
-              ? (vegModeOption === "non-veg" 
-                  ? 'text-[7px] tracking-tight text-red-655 dark:text-red-400' 
-                  : 'text-[9px] tracking-wider text-emerald-700 dark:text-emerald-400')
-              : 'text-[9px] tracking-wider text-gray-500 dark:text-gray-400'
-          }`}>
-            {vegModeOption === "non-veg" ? 'Non-Veg' : 'Veg'}
-          </span>
-          
-          <div className={`w-8 h-4.5 rounded-full p-[1px] relative transition-colors duration-200 ${
-            isVegMode 
-              ? (vegModeOption === "non-veg" ? 'bg-red-200 dark:bg-red-900/50' : 'bg-emerald-200 dark:bg-emerald-900/50')
-              : 'bg-gray-200 dark:bg-zinc-800'
-          }`}>
-            <div
-              className={`w-3.5 h-3.5 rounded-[3px] bg-white border flex items-center justify-center p-[1px] absolute top-[1px] transition-all duration-200 ${
-                isVegMode 
-                  ? (vegModeOption === "non-veg" ? 'translate-x-[14px] border-red-600' : 'translate-x-[14px] border-green-600')
-                  : 'translate-x-[1px] border-green-600/60 dark:border-green-600/40'
-              }`}
-            >
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <div 
+            className={`flex flex-col items-center justify-center h-[46px] rounded-full border cursor-pointer active:scale-95 transition-all duration-200 flex-shrink-0 shadow-md ${
+              vegModeOption === "non-veg" ? 'w-[58px]' : 'w-[52px]'
+            } ${
+              isVegMode 
+                ? (vegModeOption === "non-veg"
+                    ? 'bg-red-950/40 border-red-400/60'
+                    : 'bg-emerald-950/40 border-emerald-400/60')
+                : 'bg-black/25 backdrop-blur-md border-white/20'
+            }`}
+            onClick={() => handleVegModeChange && handleVegModeChange(!isVegMode)}
+            ref={vegModeToggleRef}
+          >
+            <span className="text-[7.5px] font-black uppercase tracking-wider leading-none mb-1 text-white text-center">
+              {vegModeOption === "non-veg" ? 'Non-Veg' : 'VEG MODE'}
+            </span>
+            
+            <div className={`w-8 h-4 rounded-full p-[1px] relative transition-colors duration-200 ${
+              isVegMode 
+                ? (vegModeOption === "non-veg" ? 'bg-red-500' : 'bg-emerald-500')
+                : 'bg-gray-400/40'
+            }`}>
               <div
-                className={`w-1.5 h-1.5 rounded-full ${
-                  isVegMode 
-                    ? (vegModeOption === "non-veg" ? 'bg-red-600' : 'bg-green-600')
-                    : 'bg-green-600/60 dark:bg-green-600/40'
+                className={`w-3.5 h-3.5 rounded-full bg-white shadow-md flex items-center justify-center p-[1px] absolute top-[1px] transition-all duration-200 ${
+                  isVegMode ? 'translate-x-[15px]' : 'translate-x-[1px]'
                 }`}
-              />
+              >
+                <div
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    isVegMode 
+                      ? (vegModeOption === "non-veg" ? 'bg-red-600' : 'bg-emerald-600')
+                      : 'bg-gray-400'
+                  }`}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -139,6 +132,7 @@ export function SearchBarRow({
 }
 
 export default function HomeHeader({ 
+  headerRef,
   activeTab,
   setActiveTab,
   location, 
@@ -185,22 +179,9 @@ export default function HomeHeader({
       const saved = localStorage.getItem('food_user_notifications');
       setNotifications(saved ? JSON.parse(saved) : []);
     };
-
-    // Listen for updates from the main Notifications page
     window.addEventListener('notificationsUpdated', syncNotifications);
-    // Also listen for new notifications being added via listeners in Notifications.jsx (indirectly via localStorage update)
-    // But since localStorage doesn't fire events on same window, we can use a custom event or a simple interval if needed.
-    // However, the Notifications.jsx already multi-dispatches.
-    
     return () => window.removeEventListener('notificationsUpdated', syncNotifications);
   }, []);
-
-  const festCategories = [
-    { id: "food", name: "Food", icon: foodIcon, bgColor: "bg-white dark:bg-[#1a1a1a]" },
-    { id: "quick", name: "Quick", icon: quickIcon, bgColor: "bg-white dark:bg-[#1a1a1a]" },
-    { id: "taxi", name: "Taxi", icon: taxiIcon, bgColor: "bg-white dark:bg-[#1a1a1a]" },
-    { id: "hotel", name: "Hotel", icon: hotelIcon, bgColor: "bg-white dark:bg-[#1a1a1a]" },
-  ];
 
   const mergedNotifications = useMemo(() => {
     const localItems = Array.isArray(notifications)
@@ -251,33 +232,7 @@ export default function HomeHeader({
   const touchStartXRef = useRef(0);
   const touchEndXRef = useRef(0);
 
-  const hasDynamicBanners = Array.isArray(topBanners) && topBanners.length > 0;
 
-  useEffect(() => {
-    const slideCount = hasDynamicBanners ? topBanners.length : 0;
-
-    if (slideCount <= 1) {
-      setCurrentSlide(0);
-      return;
-    }
-
-    const timer = setInterval(() => {
-      if (typeof document !== "undefined" && document.hidden) return
-      setCurrentSlide((prev) => (prev + 1) % slideCount);
-    }, 4000);
-
-    const handleVisibilityChange = () => {
-      if (typeof document !== "undefined" && !document.hidden) {
-        setCurrentSlide((prev) => (prev + 1) % slideCount);
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [hasDynamicBanners, topBanners]);
 
   const handleTouchStart = (event) => {
     touchStartXRef.current = event.touches[0]?.clientX || 0;
@@ -295,13 +250,11 @@ export default function HomeHeader({
     if (Math.abs(deltaX) < minSwipeDistance) return;
 
     if (deltaX > 0) {
-      // Swipe left -> next slide
-      setCurrentSlide((prev) => (prev + 1) % displayBanners.length);
+      setCurrentSlide((prev) => (prev + 1) % (displayBanners.length || 1));
       return;
     }
 
-    // Swipe right -> previous slide
-    setCurrentSlide((prev) => (prev - 1 + displayBanners.length) % displayBanners.length);
+    setCurrentSlide((prev) => (prev - 1 + (displayBanners.length || 1)) % (displayBanners.length || 1));
   };
 
   useEffect(() => {
@@ -337,135 +290,192 @@ export default function HomeHeader({
     setIsNotificationsOpen(false);
   };
 
-  const displayBanners = hasDynamicBanners
-    ? topBanners.map((banner, index) => ({
-        id: index,
-        bg: "bg-gray-100 dark:bg-gray-800",
-        content: (
-          <img 
-            src={banner.image || banner.imageUrl} 
-            alt={`Banner ${index + 1}`} 
-            className="absolute inset-0 w-full h-full object-cover" 
-          />
-        )
-      }))
-    : [];
+  const activeBanner = useMemo(() => {
+    if (!Array.isArray(topBanners) || topBanners.length === 0) return null;
+    const banner = topBanners[currentSlide % topBanners.length] || topBanners[0];
+    const img = String(banner?.image || banner?.imageUrl || banner?.videoUrl || '').toLowerCase();
+    if (img.includes('delivered') || img.includes('app-store') || img.includes('google-play')) {
+      return null;
+    }
+    return banner;
+  }, [topBanners, currentSlide]);
+
+  const activeBannerImage = activeBanner?.image || activeBanner?.imageUrl || activeBanner?.videoUrl || activeBanner?.url || null;
+
+  const handleNextSlide = useCallback(() => {
+    const slideCount = Array.isArray(topBanners) ? topBanners.length : 0;
+    if (slideCount <= 1) return;
+    setCurrentSlide((prev) => (prev + 1) % slideCount);
+  }, [topBanners]);
+
+  useEffect(() => {
+    const slideCount = Array.isArray(topBanners) ? topBanners.length : 0;
+
+    if (slideCount <= 1) {
+      setCurrentSlide(0);
+      return;
+    }
+
+    const isCurrentVideo = Boolean(
+      String(activeBannerImage).match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || 
+      activeBanner?.mediaType === 'video'
+    );
+
+    // If current slide is a video, DO NOT run interval timer — wait for video onEnded event!
+    if (isCurrentVideo) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      handleNextSlide();
+    }, 5000);
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        handleNextSlide();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [topBanners, activeBannerImage, activeBanner, handleNextSlide]);
 
   return (
     <>
-      <div className="w-full bg-gradient-to-b from-amber-50/40 via-white to-white dark:from-[#1a1a1a] dark:via-[#0a0a0a] dark:to-[#0a0a0a] pb-3">
-        
-        {/* Static Location Row */}
-        <div className="px-4 pt-5 pb-3 flex items-center justify-between gap-3 md:hidden">
-          <div 
-            className="flex items-center gap-1.5 cursor-pointer group min-w-0 flex-1"
-            onClick={handleLocationClick}
-          >
-            <div className="bg-[#E2AD4B]/10 p-1.5 rounded-full border border-[#E2AD4B]/20 hover:bg-[#E2AD4B]/20 transition-colors shadow-sm dark:bg-black/20 dark:border-white/10 dark:hover:bg-white/10 flex-shrink-0">
-              <MapPin className="h-4 w-4 text-[#E2AD4B] dark:text-white" />
-            </div>
-            <div className="flex flex-col min-w-0">
-              <div className="flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
-                <span className="text-[10px] font-bold text-gray-500 dark:text-white/80 uppercase tracking-wider">Deliver to</span>
-                <ChevronDown className="h-2.5 w-2.5 text-gray-500 dark:text-white/80" />
-              </div>
-              <span className="text-sm font-bold text-gray-900 dark:text-white truncate drop-shadow-sm max-w-full">
-                {savedAddressText || (location?.area && location?.city 
-                  ? `${location.area}, ${location.city}` 
-                  : location?.area || location?.city || "Select Location")}
-              </span>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <div
-              onClick={() => setIsNotificationsOpen(true)}
-              className="h-10 w-10 relative flex items-center justify-center rounded-full bg-gray-100 border border-gray-200 shadow-sm cursor-pointer active:scale-95 transition-all hover:bg-gray-200 dark:bg-black/20 dark:border-white/10 dark:hover:bg-white/10 flex-shrink-0"
-            >
-              <Bell className="h-[22px] w-[22px] text-gray-800 dark:text-white" />
-              {unreadCount > 0 && (
-                <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-yellow-400 rounded-full border-2 border-white animate-pulse dark:border-gray-900" />
-              )}
-            </div>
-
-            {/* Profile Action (Menu icon) */}
-            <Link
-              to="/food/user/profile"
-              className="h-10 w-10 flex items-center justify-center rounded-full bg-gray-100 border border-gray-200 shadow-sm cursor-pointer active:scale-95 transition-all hover:bg-gray-200 dark:bg-black/20 dark:border-white/10 dark:hover:bg-white/10 flex-shrink-0"
-            >
-              <svg 
-                width="22" 
-                height="22" 
-                viewBox="0 0 24 24" 
-                fill="none" 
-                stroke="currentColor" 
-                strokeWidth="2.5" 
-                strokeLinecap="round" 
-                strokeLinejoin="round"
-                className="text-gray-800 dark:text-white"
-              >
-                <line x1="4" y1="6" x2="20" y2="6" />
-                <line x1="9" y1="12" x2="20" y2="12" />
-                <line x1="4" y1="18" x2="20" y2="18" />
-              </svg>
-            </Link>
-          </div>
-        </div>
-
-        {/* Static Search Bar Row (Clean flow) - Hidden on desktop web view, visible on mobile */}
-        <div className="px-4 pt-2.5 pb-3 md:hidden">
-          <SearchBarRow
-            handleSearchFocus={handleSearchFocus}
-            placeholderIndex={placeholderIndex}
-            placeholders={placeholders}
-            handleVegModeChange={handleVegModeChange}
-            isVegMode={isVegMode || vegModeOption === "non-veg"}
-            vegModeToggleRef={vegModeToggleRef}
-            navigate={navigate}
-            vegModeOption={vegModeOption}
-          />
-        </div>
-
-        {/* Sliding Banner Carousel (Below Search Bar) */}
-        {hasDynamicBanners && (
-          <div 
-            className="px-4 py-2 relative overflow-hidden max-w-md sm:max-w-xl md:max-w-6xl lg:max-w-7xl mx-auto w-full"
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-          >
-            <div className="relative w-full aspect-[18/8] sm:aspect-[24/9] md:aspect-[24/8] lg:aspect-[24/7] max-h-[160px] sm:max-h-[165px] md:max-h-[280px] lg:max-h-[360px] overflow-hidden rounded-[24px] shadow-lg bg-gray-100 dark:bg-gray-800">
-              {displayBanners.map((banner, index) => (
-                <div
-                  key={banner.id}
-                  className="absolute inset-0 transition-opacity duration-700 ease-in-out"
-                  style={{
-                    opacity: currentSlide === index ? 1 : 0,
-                    zIndex: currentSlide === index ? 2 : 1,
-                    pointerEvents: currentSlide === index ? "auto" : "none",
-                  }}
-                >
-                  {banner.content}
-                </div>
-              ))}
-              
-              {/* Carousel Pager Dots */}
-              {displayBanners.length > 1 && (
-                <div className="absolute bottom-3 inset-x-0 flex justify-center gap-1.5 z-20">
-                  {displayBanners.map((_, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      aria-label={`Go to slide ${i + 1}`}
-                      onClick={() => setCurrentSlide(i)}
-                      className={`h-1.5 rounded-full transition-all duration-300 ${i === currentSlide ? 'bg-white w-4' : 'bg-white/40 w-1.5'}`}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
+      {/* Top Header Section with Full-Cover Background Banner Support */}
+      <div 
+        ref={headerRef}
+        className="relative w-full bg-[#E23744] dark:bg-[#C52332] rounded-b-[2.8rem] sm:rounded-b-[4rem] shadow-xl transition-all overflow-hidden"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        {/* Full-Cover Background Banner Media (Image or Video) */}
+        {activeBannerImage && (
+          <div className="absolute inset-0 z-0 overflow-hidden">
+            {Boolean(String(activeBannerImage).match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || activeBanner?.mediaType === 'video') ? (
+              <video 
+                key={activeBannerImage}
+                src={activeBannerImage} 
+                autoPlay 
+                muted 
+                playsInline 
+                onEnded={handleNextSlide}
+                className="w-full h-full object-cover transition-opacity duration-700 ease-in-out brightness-105 contrast-105" 
+              />
+            ) : (
+              <img 
+                src={activeBannerImage} 
+                alt={activeBanner?.title || "Header Banner"} 
+                className="w-full h-full object-cover transition-opacity duration-700 ease-in-out brightness-105 contrast-105" 
+              />
+            )}
+            {/* Subtle Gradient Overlay for Clean Icon Contrast without Dimming Video */}
+            <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/20 z-10 pointer-events-none" />
           </div>
         )}
+
+        {/* Header Floating Content Container */}
+        <div className="relative z-20 flex flex-col justify-between min-h-[320px] sm:min-h-[400px] md:min-h-[460px] lg:min-h-[520px] pb-6 pt-5 px-4 max-w-md sm:max-w-xl md:max-w-6xl lg:max-w-7xl mx-auto w-full">
+          
+          {/* Top Row: Location & Action Badges */}
+          <div className="flex items-center justify-between gap-3 min-w-0">
+            {/* Location Selector */}
+            <div 
+              className="flex items-center gap-2 cursor-pointer group min-w-0 flex-1"
+              onClick={handleLocationClick}
+            >
+              <div className="bg-white/25 p-2 rounded-full border border-white/30 backdrop-blur-md shadow-sm flex-shrink-0">
+                <MapPin className="h-4.5 w-4.5 text-white" />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <div className="flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
+                  <span className="text-[13px] font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">Home</span>
+                  <ChevronDown className="h-3.5 w-3.5 text-white stroke-[3]" />
+                </div>
+                <span className="text-[11px] font-semibold text-white/95 truncate drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)] max-w-full">
+                  {savedAddressText || (location?.area && location?.city 
+                    ? `${location.area}, ${location.city}` 
+                    : location?.area || location?.city || "73, Sahakar Nagar, Indore")}
+                </span>
+              </div>
+            </div>
+            
+            {/* Top Right Action Badges */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {/* GOLD ₹1 Badge */}
+              <div className="bg-[#FFF4D2] border border-[#FFE194] px-2.5 py-1 rounded-full text-xs font-black text-[#8C6200] flex items-center gap-1 shadow-md">
+                <span className="tracking-tight">GOLD</span>
+                <span className="bg-[#8C6200] text-white text-[9.5px] px-1 py-0.2 rounded font-bold">₹1</span>
+              </div>
+
+              {/* Wallet Button */}
+              <Link
+                to="/food/user/wallet"
+                className="h-9 w-9 flex items-center justify-center rounded-full bg-black/40 backdrop-blur-md border border-white/30 text-white shadow-md hover:bg-black/60 active:scale-95 transition-all"
+              >
+                <Wallet className="h-4.5 w-4.5" />
+              </Link>
+
+              {/* Profile Avatar Badge */}
+              <Link
+                to="/food/user/profile"
+                className="h-9 w-9 flex items-center justify-center rounded-full bg-[#1A73E8] border border-white/30 text-white font-black text-sm shadow-md active:scale-95 transition-all"
+              >
+                A
+              </Link>
+            </div>
+          </div>
+
+          {/* Middle Row: Banner Offer Title (If present in Admin Banner Data) */}
+          <div className="my-auto pt-2 pb-1 min-h-[36px] flex items-center">
+            {activeBanner?.title && (
+              <div className="max-w-[80%] z-20">
+                <span className="bg-amber-400 text-black text-[9.5px] sm:text-xs font-black px-2 py-0.5 rounded shadow-md tracking-wider uppercase mb-1 inline-block">
+                  SPECIAL OFFER
+                </span>
+                <h2 className="text-xl sm:text-3xl font-black text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] leading-tight uppercase italic">
+                  {activeBanner.title}
+                </h2>
+              </div>
+            )}
+          </div>
+
+          {/* Bottom Floating Search Bar & Veg Toggle Row */}
+          <div className="w-full pt-1">
+            <SearchBarRow
+              handleSearchFocus={handleSearchFocus}
+              placeholderIndex={placeholderIndex}
+              placeholders={placeholders}
+              handleVegModeChange={handleVegModeChange}
+              isVegMode={isVegMode || vegModeOption === "non-veg"}
+              vegModeToggleRef={vegModeToggleRef}
+              navigate={navigate}
+              vegModeOption={vegModeOption}
+            />
+          </div>
+
+          {/* Carousel Dots (If multiple admin banners) */}
+          {Array.isArray(topBanners) && topBanners.length > 1 && (
+            <div className="flex justify-center items-center gap-1.5 pt-2 z-30">
+              {topBanners.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  aria-label={`Go to banner ${i + 1}`}
+                  onClick={() => setCurrentSlide(i)}
+                  className={`h-1.5 rounded-full transition-all duration-300 ${i === currentSlide ? 'bg-white w-5 shadow-sm' : 'bg-white/50 w-1.5'}`}
+                />
+              ))}
+            </div>
+          )}
+
+        </div>
+
       </div>
 
       <AnimatePresence>

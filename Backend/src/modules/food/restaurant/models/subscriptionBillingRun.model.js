@@ -23,6 +23,7 @@ const subscriptionBillingRunSchema = new mongoose.Schema(
   {
     collection: "food_subscription_billing_runs",
     timestamps: true,
+    suppressReservedKeysWarning: true,
   }
 );
 

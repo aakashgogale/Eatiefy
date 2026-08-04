@@ -106,8 +106,8 @@ export default function RestaurantCMSPage({ endpoint, title: defaultTitle, modul
                   <Mail className="w-6 h-6 text-[#E2AD4B]" />
                 </div>
                 <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider mb-2">Merchant Support</h3>
-                <p className="text-gray-500 text-sm font-medium">{pageData.email || 'merchants@switcheats.com'}</p>
-                <a href={`mailto:${pageData.email || 'merchants@switcheats.com'}`} className="mt-4 text-[10px] font-black text-[#E2AD4B] uppercase tracking-widest hover:underline">Email Support</a>
+                <p className="text-gray-500 text-sm font-medium">{pageData.email || 'merchants@eatiefy.com'}</p>
+                <a href={`mailto:${pageData.email || 'merchants@eatiefy.com'}`} className="mt-4 text-[10px] font-black text-[#E2AD4B] uppercase tracking-widest hover:underline">Email Support</a>
               </div>
               <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100 flex flex-col items-center text-center group transition-all hover:border-[#E2AD4B]/30">
                 <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center mb-4 shadow-sm group-hover:scale-110 transition-transform">

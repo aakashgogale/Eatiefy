@@ -1,8 +1,8 @@
 {
-  "name": "switcheats-backend",
+  "name": "eatiefy-backend",
   "version": "1.0.0",
   "type": "module",
-  "description": "Switcheats Product Backend",
+  "description": "Eatiefy Product Backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

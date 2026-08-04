@@ -79,7 +79,7 @@ export default function Categories() {
         </button>
         <div className="flex-1">
           <h1 className="text-xl font-bold text-neutral-900 dark:text-white tracking-tight">All Categories</h1>
-          <p className="text-[10px] text-neutral-500 dark:text-neutral-400 font-bold uppercase tracking-widest leading-none mt-1">What's on your mind?</p>
+          <p className="text-[10px] text-neutral-500 dark:text-neutral-400 font-bold uppercase tracking-widest leading-none mt-1">What are you craving today?</p>
         </div>
       </div>
 
