@@ -129,26 +129,27 @@ import exploreGourmet from "@food/assets/explore more icons/gourmet.png";
 import exploreTop10 from "@food/assets/explore more icons/top 10.png";
 import exploreCollection from "@food/assets/explore more icons/collection.png";
 
-// Generated High-Quality Food Category Images
-import khichdiImg from "@food/assets/category-icons/khichdi.png";
-import sandwichImg from "@food/assets/category-icons/sandwich.png";
-import parathaImg from "@food/assets/category-icons/paratha.png";
-import burgerImg from "@food/assets/category-icons/burger.png";
-import dosaImg from "@food/assets/category-icons/dosa.png";
-import rollsImg from "@food/assets/category-icons/rolls.png";
-import northIndianImg from "@food/assets/category-icons/north_indian.png";
-import friedRiceImg from "@food/assets/category-icons/fried_rice.png";
-import thaliImg from "@food/assets/category-icons/thali.png";
-import paneerImg from "@food/assets/category-icons/paneer.png";
-import pizzaImg from "@food/assets/category-icons/pizza.png";
-import pastaImg from "@food/assets/category-icons/pasta.png";
-import momosImg from "@food/assets/category-icons/momos.png";
-import cakeImg from "@food/assets/category-icons/cake.png";
-import noodlesImg from "@food/assets/category-icons/noodles.png";
-import choleBhatureImg from "@food/assets/category-icons/chole_bhature.png";
-import biryaniCleanImg from "@food/assets/category-icons/biryani_clean.png";
-import maggieCleanImg from "@food/assets/category-icons/maggie_clean.png";
-import rasgullaCleanImg from "@food/assets/category-icons/rasgulla_clean.png";
+// Generated High-Quality Food Category Images (Cloudinary CDN URLs)
+import cloudinaryImages from "@food/constants/cloudinaryImages.json";
+const khichdiImg = cloudinaryImages.khichdi;
+const sandwichImg = cloudinaryImages.sandwich;
+const parathaImg = cloudinaryImages.paratha;
+const burgerImg = cloudinaryImages.burger;
+const dosaImg = cloudinaryImages.dosa;
+const rollsImg = cloudinaryImages.rolls;
+const northIndianImg = cloudinaryImages.north_indian;
+const friedRiceImg = cloudinaryImages.fried_rice;
+const thaliImg = cloudinaryImages.thali;
+const paneerImg = cloudinaryImages.paneer;
+const pizzaImg = cloudinaryImages.pizza;
+const pastaImg = cloudinaryImages.pasta;
+const momosImg = cloudinaryImages.momos;
+const cakeImg = cloudinaryImages.cake;
+const noodlesImg = cloudinaryImages.noodles;
+const choleBhatureImg = cloudinaryImages.chole_bhature;
+const biryaniCleanImg = cloudinaryImages.biryani_clean;
+const maggieCleanImg = cloudinaryImages.maggie_clean;
+const rasgullaCleanImg = cloudinaryImages.rasgulla_clean;
 
 // Banner images for hero carousel - will be fetched from API
 
