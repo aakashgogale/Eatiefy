@@ -123,6 +123,20 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
     onSearchChange("")
   }
 
+  const openedAtRef = useRef(0)
+
+  useEffect(() => {
+    if (isOpen) {
+      openedAtRef.current = Date.now()
+    }
+  }, [isOpen])
+
+  const handleBackdropClick = (e) => {
+    e.stopPropagation()
+    if (Date.now() - openedAtRef.current < 350) return
+    onClose()
+  }
+
   const handleSearchSubmit = (e) => {
     e.preventDefault()
     if (searchValue.trim()) {
@@ -138,7 +152,7 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
   return (
     <div className="fixed inset-0 z-[9999] bg-black/40 backdrop-blur-xs flex flex-col justify-start pt-2 sm:pt-4 px-3 sm:px-6 transition-all duration-200">
       {/* Dimmed Backdrop Click to Dismiss */}
-      <div className="absolute inset-0 z-0" onClick={onClose} />
+      <div className="absolute inset-0 z-0" onClick={handleBackdropClick} />
 
       {/* Compact Search Popup Box (Half screen or less, max-h-[380px]) */}
       <div className="relative z-10 w-full max-w-2xl mx-auto bg-white dark:bg-[#121212] rounded-3xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden flex flex-col max-h-[42vh] sm:max-h-[360px] transition-all">

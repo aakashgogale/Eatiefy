@@ -38,14 +38,17 @@ export function SearchBarRow({
             ? "py-1.5 bg-white/95 dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-800 shadow-sm"
             : "py-2 bg-black/25 backdrop-blur-md border-white/20 shadow-md text-white"
         }`}
-        onClick={handleSearchFocus}
-        onTouchStart={handleSearchFocus}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (handleSearchFocus) handleSearchFocus();
+        }}
         role="button"
         tabIndex={0}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            handleSearchFocus();
+            if (handleSearchFocus) handleSearchFocus();
           }
         }}
       >
@@ -55,7 +58,6 @@ export function SearchBarRow({
             type="text"
             readOnly
             aria-label="Search"
-            onFocus={handleSearchFocus}
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
           />
           <AnimatePresence mode="wait">
