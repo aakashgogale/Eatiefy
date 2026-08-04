@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
-import { ChevronLeft, Search, Clock, Loader2, Mic, X, Sparkles } from "lucide-react"
+import { ArrowLeft, Search, Clock, RotateCcw, Loader2, Mic, X, Sparkles } from "lucide-react"
 import { Button } from "@food/components/ui/button"
-import { Input } from "@food/components/ui/input"
 import { restaurantAPI } from "@food/api"
 import cloudinaryImages from "@food/constants/cloudinaryImages.json"
 
@@ -160,7 +159,7 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
 
   const handleSuggestionClick = (suggestion) => {
     saveRecentSearch(suggestion)
-    navigate(`/user/search?q=${encodeURIComponent(suggestion.trim())}`)
+    navigate(`/food/user/search?q=${encodeURIComponent(suggestion.trim())}`)
     onClose()
     onSearchChange("")
   }
@@ -169,7 +168,7 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
     e.preventDefault()
     if (searchValue.trim()) {
       saveRecentSearch(searchValue)
-      navigate(`/user/search?q=${encodeURIComponent(searchValue.trim())}`)
+      navigate(`/food/user/search?q=${encodeURIComponent(searchValue.trim())}`)
       onClose()
       onSearchChange("")
     }
@@ -178,69 +177,106 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-[9999] flex flex-col bg-white dark:bg-[#0a0a0a] transition-opacity duration-200">
-      {/* Top Search Bar Header */}
-      <div className="flex-shrink-0 bg-white dark:bg-[#121212] border-b border-gray-100 dark:border-gray-800/80 shadow-xs px-3 sm:px-6 py-3">
-        <div className="max-w-4xl mx-auto w-full">
-          <form onSubmit={handleSearchSubmit} className="flex items-center gap-2 sm:gap-3">
-            {/* Back Button */}
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition-colors shrink-0"
-              aria-label="Back"
-            >
-              <ChevronLeft className="h-6 w-6 stroke-[2.5]" />
-            </button>
+    <div className="fixed inset-0 z-[9999] flex flex-col bg-white dark:bg-[#0a0a0a] transition-all duration-200">
+      {/* Top Header Row with Arrow Left & Title */}
+      <div className="flex-shrink-0 bg-white dark:bg-[#121212] px-4 pt-3 pb-2 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={onClose}
+          className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-800 dark:text-gray-200 transition-colors"
+          aria-label="Back"
+        >
+          <ArrowLeft className="h-6 w-6 stroke-[2.2]" />
+        </button>
 
-            {/* Input Wrapper */}
-            <div className="flex-1 relative flex items-center">
-              <Input
-                ref={inputRef}
-                value={searchValue}
-                onChange={(e) => onSearchChange(e.target.value)}
-                placeholder="Restaurant name or a dish..."
-                className="w-full h-11 sm:h-12 pl-4 pr-12 bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-700/80 focus:border-[#E2AD4B] dark:focus:border-[#E2AD4B] rounded-2xl text-sm sm:text-base font-medium text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 shadow-xs transition-all"
-              />
+        <span className="text-base sm:text-lg font-bold text-gray-800 dark:text-white tracking-tight">
+          Search for tasty & budget meals
+        </span>
 
-              {searchValue ? (
-                <button
-                  type="button"
-                  onClick={() => onSearchChange("")}
-                  className="absolute right-3.5 p-1 rounded-full text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={startVoiceSearch}
-                  className={`absolute right-2.5 p-2 rounded-xl transition-all ${
-                    isListening
-                      ? "bg-rose-500 text-white animate-pulse"
-                      : "bg-rose-50 dark:bg-rose-950/40 text-rose-500 dark:text-rose-400 hover:bg-rose-100"
-                  }`}
-                  aria-label="Voice Search"
-                >
-                  <Mic className="h-4.5 w-4.5" />
-                </button>
-              )}
-            </div>
+        <div className="w-8" />
+      </div>
+
+      {/* Green Pill Search Input Bar */}
+      <div className="flex-shrink-0 px-4 py-2 bg-white dark:bg-[#121212]">
+        <div className="max-w-3xl mx-auto w-full">
+          <form onSubmit={handleSearchSubmit} className="relative flex items-center">
+            <input
+              ref={inputRef}
+              value={searchValue}
+              onChange={(e) => onSearchChange(e.target.value)}
+              placeholder="Search, Order, Repeat"
+              className="w-full h-12 sm:h-13 px-5 pr-12 bg-white dark:bg-[#1a1a1a] border-2 border-[#16a34a] focus:border-[#15803d] rounded-full text-base font-medium text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 shadow-xs transition-all outline-none"
+            />
+
+            {searchValue ? (
+              <button
+                type="button"
+                onClick={() => onSearchChange("")}
+                className="absolute right-4 p-1 rounded-full text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={startVoiceSearch}
+                className={`absolute right-3.5 p-2 rounded-full transition-all ${
+                  isListening
+                    ? "bg-[#16a34a] text-white animate-pulse"
+                    : "text-[#16a34a] hover:bg-green-50 dark:hover:bg-green-950/40"
+                }`}
+                aria-label="Voice Search"
+              >
+                <Mic className="h-5 w-5" />
+              </button>
+            )}
           </form>
         </div>
       </div>
 
-      {/* Main Content Area */}
-      <div className="flex-1 overflow-y-auto max-w-4xl mx-auto w-full px-4 sm:px-6 py-5 scrollbar-hide">
+      {/* Scrollable Content Area */}
+      <div className="flex-1 overflow-y-auto max-w-3xl mx-auto w-full px-4 sm:px-6 py-4 scrollbar-hide">
         {searchValue.trim() === "" ? (
           <>
+            {/* "RECENTLY SEARCHED RESTAURANTS" Section */}
+            {recentSuggestions.length > 0 && (
+              <div className="mb-6">
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="text-xs font-black uppercase tracking-wider text-gray-500 dark:text-gray-400 shrink-0">
+                    RECENTLY SEARCHED RESTAURANTS
+                  </span>
+                  <div className="flex-1 h-[1px] bg-gray-200 dark:bg-gray-800" />
+                  <button
+                    type="button"
+                    onClick={clearRecentSearches}
+                    className="text-xs font-bold text-rose-500 dark:text-rose-400 hover:underline shrink-0"
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                <div className="flex gap-2.5 overflow-x-auto scrollbar-hide pb-1">
+                  {recentSuggestions.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      onClick={() => handleSuggestionClick(suggestion)}
+                      className="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-full border border-gray-200 dark:border-gray-800 bg-white dark:bg-neutral-900 text-xs sm:text-sm font-semibold text-gray-700 dark:text-gray-200 hover:border-[#16a34a] transition-all shadow-2xs hover:shadow-xs active:scale-95"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5 text-gray-400 shrink-0 stroke-[2.5]" />
+                      <span className="truncate max-w-[160px]">{suggestion}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* "Think it, search it" Section */}
             <div className="mb-6">
               <h3 className="text-sm sm:text-base font-bold italic text-rose-500 dark:text-rose-400 mb-3 tracking-wide font-serif">
                 Think it, search it
               </h3>
 
-              {/* Horizontal Scroll Pill Chips */}
               <div className="flex gap-2 sm:gap-2.5 overflow-x-auto scrollbar-hide pb-1">
                 {THINK_IT_TAGS.map((tag) => (
                   <button
@@ -256,45 +292,12 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
               </div>
             </div>
 
-            {/* "YOUR RECENT SEARCHES" Section */}
-            {recentSuggestions.length > 0 && (
-              <div className="mb-7">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                    YOUR RECENT SEARCHES
-                  </span>
-                  <button
-                    type="button"
-                    onClick={clearRecentSearches}
-                    className="text-xs font-bold text-rose-500 dark:text-rose-400 hover:underline cursor-pointer"
-                  >
-                    Clear
-                  </button>
-                </div>
-
-                <div className="flex gap-2 flex-wrap">
-                  {recentSuggestions.map((suggestion) => (
-                    <button
-                      key={suggestion}
-                      type="button"
-                      onClick={() => handleSuggestionClick(suggestion)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200/90 dark:border-gray-800 bg-white dark:bg-neutral-900 text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-200 hover:border-gray-300 transition-all shadow-2xs active:scale-95"
-                    >
-                      <Clock className="h-3.5 w-3.5 text-gray-400 shrink-0" />
-                      <span className="truncate max-w-[140px]">{suggestion}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* "WHAT'S ON YOUR MIND?" Section */}
             <div>
               <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-5">
                 WHAT'S ON YOUR MIND?
               </h3>
 
-              {/* 3-Column Food Category Grid */}
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-y-7 gap-x-4">
                 {WHATS_ON_YOUR_MIND_ITEMS.map((item) => (
                   <div
@@ -302,7 +305,6 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
                     onClick={() => handleSuggestionClick(item.query)}
                     className="flex flex-col items-center cursor-pointer group"
                   >
-                    {/* Rounded Image Container */}
                     <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-white dark:bg-neutral-900 border border-gray-100 dark:border-gray-800 shadow-xs p-1 flex items-center justify-center transition-transform duration-300 group-hover:scale-105">
                       <img
                         src={item.image}
@@ -311,8 +313,7 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
                         loading="lazy"
                       />
                     </div>
-                    {/* Label */}
-                    <span className="mt-2 text-xs sm:text-sm font-bold text-gray-900 dark:text-gray-100 group-hover:text-[#659116] transition-colors text-center line-clamp-1">
+                    <span className="mt-2 text-xs sm:text-sm font-bold text-gray-900 dark:text-gray-100 group-hover:text-[#16a34a] transition-colors text-center line-clamp-1">
                       {item.name}
                     </span>
                   </div>
@@ -321,7 +322,7 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
             </div>
           </>
         ) : (
-          /* Real-Time Live Search Results */
+          /* Live Search Results */
           <div>
             <h3 className="text-sm font-bold text-gray-500 dark:text-gray-400 mb-4">
               Search Results ({filteredFoods.length})
@@ -349,7 +350,7 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
                         </div>
                       )}
                     </div>
-                    <span className="mt-2 text-xs font-bold text-gray-900 dark:text-gray-100 group-hover:text-[#659116] transition-colors text-center line-clamp-1">
+                    <span className="mt-2 text-xs font-bold text-gray-900 dark:text-gray-100 group-hover:text-[#16a34a] transition-colors text-center line-clamp-1">
                       {food.name}
                     </span>
                   </div>
@@ -379,14 +380,14 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
         )}
       </div>
 
-      {/* Voice Search Speak Now Modal */}
+      {/* Voice Search Modal */}
       {isListening && (
         <div className="absolute inset-0 z-[10000] flex flex-col items-center justify-center bg-white/95 dark:bg-[#0a0a0a]/95 backdrop-blur-md">
           <div className="relative flex items-center justify-center">
-            <div className="absolute w-40 h-40 bg-[#E2AD4B]/20 rounded-full animate-ping" />
-            <div className="absolute w-32 h-32 bg-[#E2AD4B]/30 rounded-full animate-pulse" />
+            <div className="absolute w-40 h-40 bg-emerald-500/20 rounded-full animate-ping" />
+            <div className="absolute w-32 h-32 bg-emerald-500/30 rounded-full animate-pulse" />
 
-            <div className="relative bg-gradient-to-tr from-[#E2AD4B] to-[#ff4b9c] p-8 rounded-full text-white shadow-xl border-4 border-white dark:border-gray-800">
+            <div className="relative bg-gradient-to-tr from-[#16a34a] to-emerald-400 p-8 rounded-full text-white shadow-xl border-4 border-white dark:border-gray-800">
               <Mic className="h-12 w-12" />
             </div>
           </div>
@@ -399,7 +400,7 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
           <Button
             variant="ghost"
             onClick={onClose}
-            className="mt-12 text-gray-400 hover:text-[#E2AD4B] rounded-full px-8"
+            className="mt-12 text-gray-400 hover:text-[#16a34a] rounded-full px-8"
           >
             Cancel
           </Button>
