@@ -28,7 +28,7 @@ export default function DesktopNavbar({ showLogo = true }) {
     } = useDeliveryLocation()
     const { getCartCount } = useCart()
     const { openLocationSelector } = useLocationSelector()
-    const { setSearchValue } = useSearchOverlay()
+    const { openSearch, setSearchValue } = useSearchOverlay()
     const { vegMode, setVegMode, vegModeOption } = useProfile()
     const [heroSearch, setHeroSearch] = useState("")
     const [logoUrl, setLogoUrl] = useState(null)
@@ -224,6 +224,7 @@ export default function DesktopNavbar({ showLogo = true }) {
                                         <Search className="h-4 w-4 text-gray-500 flex-shrink-0 mr-3" />
                                         <Input
                                             value={heroSearch}
+                                            onClick={openSearch}
                                             onChange={(e) => {
                                                 const nextValue = e.target.value
                                                 setHeroSearch(nextValue)

@@ -3579,8 +3579,8 @@ export default function Home() {
   }, [openLocationSelector]);
 
   const handleSearchFocus = useCallback(() => {
-    navigate("/food/user/search");
-  }, [navigate]);
+    openSearch();
+  }, [openSearch]);
 
   const handleSearchClose = useCallback(() => {
     closeSearch();
