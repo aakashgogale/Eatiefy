@@ -14,14 +14,18 @@ const DEFAULT_RECENT = [
 export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchChange, isListening, startVoiceSearch }) {
   const navigate = useNavigate()
   const inputRef = useRef(null)
+  const openedAtRef = useRef(0)
   const [allFoods, setAllFoods] = useState([])
   const [filteredFoods, setFilteredFoods] = useState([])
   const [recentSuggestions, setRecentSuggestions] = useState(DEFAULT_RECENT)
   const [loadingFoods, setLoadingFoods] = useState(false)
 
   useEffect(() => {
-    if (isOpen && inputRef.current) {
-      setTimeout(() => inputRef.current?.focus(), 100)
+    if (isOpen) {
+      openedAtRef.current = Date.now()
+      if (inputRef.current) {
+        setTimeout(() => inputRef.current?.focus(), 100)
+      }
     }
   }, [isOpen])
 
@@ -116,25 +120,17 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
     setRecentSuggestions(DEFAULT_RECENT)
   }
 
+  const handleBackdropClick = (e) => {
+    e.stopPropagation()
+    if (Date.now() - openedAtRef.current < 350) return
+    onClose()
+  }
+
   const handleSuggestionClick = (suggestion) => {
     saveRecentSearch(suggestion)
     navigate(`/food/user/search?q=${encodeURIComponent(suggestion.trim())}`)
     onClose()
     onSearchChange("")
-  }
-
-  const openedAtRef = useRef(0)
-
-  useEffect(() => {
-    if (isOpen) {
-      openedAtRef.current = Date.now()
-    }
-  }, [isOpen])
-
-  const handleBackdropClick = (e) => {
-    e.stopPropagation()
-    if (Date.now() - openedAtRef.current < 350) return
-    onClose()
   }
 
   const handleSearchSubmit = (e) => {
@@ -150,13 +146,15 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-black/40 backdrop-blur-xs flex flex-col justify-start pt-2 sm:pt-4 px-3 sm:px-6 transition-all duration-200">
+    <div className="fixed inset-0 z-[9999] bg-black/40 backdrop-blur-xs flex flex-col justify-start transition-all duration-200">
       {/* Dimmed Backdrop Click to Dismiss */}
       <div className="absolute inset-0 z-0" onClick={handleBackdropClick} />
 
-      {/* Compact Search Popup Box (Half screen or less, max-h-[380px]) */}
-      <div className="relative z-10 w-full max-w-2xl mx-auto bg-white dark:bg-[#121212] rounded-3xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden flex flex-col max-h-[42vh] sm:max-h-[360px] transition-all">
-        
+      {/* Top Drawer Search Popup (Full Width Top/Left/Right, Compact Height, Rounded Bottom) */}
+      <div 
+        className="relative z-10 w-full max-w-4xl mx-auto bg-white dark:bg-[#121212] rounded-b-3xl shadow-2xl border-b border-gray-100 dark:border-gray-800 overflow-hidden flex flex-col max-h-[42vh] sm:max-h-[360px] transition-all"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Top Header Bar */}
         <div className="flex-shrink-0 px-4 pt-3.5 pb-2 flex items-center justify-between border-b border-gray-100 dark:border-gray-800/80">
           <button
