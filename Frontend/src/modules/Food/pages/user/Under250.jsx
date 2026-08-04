@@ -19,6 +19,7 @@ import FloatingHomeDock from "@food/components/user/FloatingHomeDock"
 import VariantSelector from "@food/components/user/VariantSelector"
 import FoodPriceDisplay from "@food/components/user/FoodPriceDisplay"
 import OptimizedImage from "@food/components/OptimizedImage"
+import cloudinaryImages from "@food/constants/cloudinaryImages.json"
 import api from "@food/api"
 import { restaurantAPI, adminAPI } from "@food/api"
 import { isModuleAuthenticated } from "@food/utils/auth"
@@ -37,6 +38,21 @@ const debugWarn = (...args) => { }
 const debugError = (...args) => { }
 const RUPEE_SYMBOL = "\u20B9"
 const UNDER_250_FILTERS_STORAGE_KEY = "food-under-250-filters"
+
+const getSanitizedUnder250Image = (item) => {
+  const name = (item.name || "").toLowerCase()
+  const img = item.image || ""
+  if (!img || img.includes("transparent") || img.includes("checkerboard") || img.includes("placeholder")) {
+    if (name.includes("biryani")) return cloudinaryImages.biryani_clean
+    if (name.includes("maggie") || name.includes("maggi") || name.includes("noodle")) return cloudinaryImages.maggie_clean
+    if (name.includes("rasgulla") || name.includes("sweet") || name.includes("dessert")) return cloudinaryImages.rasgulla_clean
+    return cloudinaryImages.biryani_clean
+  }
+  if (name.includes("biryani")) return cloudinaryImages.biryani_clean
+  if (name.includes("maggie") || name.includes("maggi")) return cloudinaryImages.maggie_clean
+  if (name.includes("rasgulla")) return cloudinaryImages.rasgulla_clean
+  return img
+}
 
 const buildSwitch99MenuItem = (food, restaurant, restaurantId) => {
   const foodType = String(food?.foodType || "").toLowerCase()
@@ -1298,33 +1314,38 @@ export default function Under250() {
                             whileHover={{ y: -8, scale: 1.02 }}
                           >
                             {/* Item Image Container */}
-                            <div className="relative w-full h-[110px] sm:h-[130px] md:h-[150px] lg:h-[170px] xl:h-[190px] rounded-[24px] overflow-hidden shadow-sm border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-neutral-900">
+                            <div className="relative w-full h-[120px] sm:h-[140px] md:h-[155px] lg:h-[175px] rounded-2xl overflow-hidden shadow-sm border border-gray-200/80 dark:border-gray-700/70 bg-white dark:bg-neutral-900 transition-all duration-300 group-hover:shadow-md group-hover:border-gray-300/90">
                               <motion.div
                                 className="absolute inset-0 w-full h-full"
-                                whileHover={{ scale: 1.08 }}
-                                transition={{ duration: 0.4, ease: "easeOut" }}
+                                whileHover={{ scale: 1.05 }}
+                                transition={{ duration: 0.3, ease: "easeOut" }}
                               >
-                                <OptimizedImage
-                                  src={item.image}
+                                <img
+                                  src={getSanitizedUnder250Image(item)}
                                   alt={item.name}
-                                  className="w-full h-full"
-                                  objectFit="cover"
-                                  sizes="(max-width: 640px) 150px, (max-width: 768px) 170px, 100vw"
-                                  placeholder="blur"
-                                  priority={itemIndex < 4}
+                                  className="w-full h-full object-cover rounded-2xl bg-white"
+                                  loading="lazy"
                                 />
                               </motion.div>
 
-                              {/* Rating Badge (bottom-left) */}
-                              <div className="absolute bottom-2 left-2.5 z-10 flex items-center gap-0.5 bg-[#e8f5e9] dark:bg-green-950/80 text-[#2e7d32] dark:text-green-400 px-1.5 py-0.5 rounded-full shadow-sm text-[9px] sm:text-[10px] font-bold">
-                                <span>★</span>
-                                <span>{item.rating ?? restaurant.rating ?? 4.2}</span>
+                              {/* Popular Badge */}
+                              <div
+                                className="absolute top-2 left-2 text-white text-[9.5px] font-black px-2 py-0.5 rounded-full shadow-md backdrop-blur-md z-10"
+                                style={{ backgroundColor: "#659116" }}
+                              >
+                                Popular
+                              </div>
+
+                              {/* Rating Badge Overlay (bottom-left) */}
+                              <div className="absolute bottom-2 left-2 z-10 flex items-center gap-0.5 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md text-gray-900 dark:text-white px-2 py-0.5 rounded-full shadow-md border border-gray-200/80 dark:border-gray-700/70 text-[10.5px] font-extrabold">
+                                <span className="text-[#659116] leading-none">★</span>
+                                <span className="leading-none">{item.rating ?? restaurant.rating ?? 4.2}</span>
                               </div>
 
                               {/* Floating Action Button (bottom-right) */}
                               {quantity > 0 ? (
                                 <div
-                                  className="absolute bottom-2 right-2.5 z-20 flex items-center justify-between gap-1 sm:gap-2 px-1.5 sm:px-2 py-0.5 rounded-full bg-white dark:bg-gray-800 shadow-[0_4px_12px_rgba(0,0,0,0.15)] border border-gray-100 dark:border-gray-700 h-7 sm:h-8 min-w-[55px] sm:min-w-[70px]"
+                                  className="absolute bottom-2 right-2.5 z-20 flex items-center justify-between gap-1 sm:gap-2 px-1.5 sm:px-2 py-0.5 rounded-full bg-white dark:bg-gray-900 shadow-md border border-gray-200/90 dark:border-gray-700/80 h-7 sm:h-8 min-w-[55px] sm:min-w-[70px]"
                                   onClick={(e) => e.stopPropagation()}
                                 >
                                   <button
@@ -1336,11 +1357,11 @@ export default function Under250() {
                                         e
                                       )
                                     }}
-                                    className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 p-0.5"
+                                    className="text-[#659116] hover:opacity-80 p-0.5"
                                   >
-                                    <Minus className="h-3 w-3" strokeWidth={3} />
+                                    <Minus className="h-3 w-3" strokeWidth={3.5} />
                                   </button>
-                                  <span className="text-[11px] sm:text-xs font-bold text-gray-800 dark:text-gray-200">
+                                  <span className="text-[12px] font-black text-gray-950 dark:text-white">
                                     {quantity}
                                   </span>
                                   <button
@@ -1352,16 +1373,15 @@ export default function Under250() {
                                         e
                                       )
                                     }}
-                                    className="hover:opacity-85 p-0.5"
-                                    style={{ color: "var(--module-theme-color, #E2AD4B)" }}
+                                    className="text-[#659116] hover:opacity-80 p-0.5"
                                   >
-                                    <Plus className="h-3 w-3" strokeWidth={3} />
+                                    <Plus className="h-3 w-3" strokeWidth={3.5} />
                                   </button>
                                 </div>
                               ) : (
                                 <button
                                   disabled={shouldShowGrayscale}
-                                  className={`absolute bottom-2 right-2.5 z-20 h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-white dark:bg-gray-800 shadow-[0_4px_12px_rgba(0,0,0,0.15)] flex items-center justify-center hover:scale-105 transition-transform duration-200 border border-gray-100 dark:border-gray-700 ${
+                                  className={`absolute bottom-2 right-2.5 z-20 h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-white dark:bg-gray-900 shadow-md flex items-center justify-center hover:scale-105 transition-transform duration-200 border border-gray-200/90 dark:border-gray-700/80 ${
                                     shouldShowGrayscale ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
                                   }`}
                                   onClick={(e) => {
@@ -1371,7 +1391,7 @@ export default function Under250() {
                                     }
                                   }}
                                 >
-                                  <Plus className="h-4 w-4 sm:h-5 sm:w-5" style={{ color: "var(--module-theme-color, #E2AD4B)" }} strokeWidth={3} />
+                                  <Plus className="h-4 w-4 text-[#659116]" strokeWidth={3} />
                                 </button>
                               )}
                             </div>
