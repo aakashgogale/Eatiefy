@@ -4081,8 +4081,8 @@ export default function Home() {
                           key={dish.id}
                           className="flex-shrink-0 w-[145px] sm:w-[155px] flex flex-col gap-2 group cursor-pointer"
                         >
-                          {/* Image container */}
-                          <div className="relative w-full h-[142px] sm:h-[150px] rounded-2xl bg-white dark:bg-neutral-900 border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden transition-all duration-300 group-hover:shadow-md group-hover:-translate-y-0.5">
+                          {/* Image container with subtle light border */}
+                          <div className="relative w-full h-[142px] sm:h-[150px] rounded-2xl bg-white dark:bg-neutral-900 border border-gray-200/80 dark:border-gray-700/70 shadow-sm overflow-hidden transition-all duration-300 group-hover:shadow-md group-hover:border-gray-300/90 group-hover:-translate-y-0.5">
                             <img
                               src={getSanitizedImage(dish)}
                               alt={dish.name}
@@ -4091,7 +4091,7 @@ export default function Home() {
                             />
 
                             {/* Rating Badge Overlay */}
-                            <div className="absolute bottom-2 left-2 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md px-2 py-0.5 rounded-full shadow-md border border-gray-100 dark:border-gray-800 flex items-center gap-0.5 text-gray-900 dark:text-white text-[10.5px] font-extrabold z-10">
+                            <div className="absolute bottom-2 left-2 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md px-2 py-0.5 rounded-full shadow-md border border-gray-200/80 dark:border-gray-700/70 flex items-center gap-0.5 text-gray-900 dark:text-white text-[10.5px] font-extrabold z-10">
                               <span className="text-[#659116] text-[10.5px] leading-none">★</span>
                               <span className="leading-none">{dish.rating || 4.2}</span>
                             </div>
@@ -4107,7 +4107,7 @@ export default function Home() {
                             {/* Plus Button or Quantity Selector Overlay */}
                             {totalQty > 0 ? (
                               <div
-                                className="absolute bottom-2 right-2 h-8 rounded-full bg-white dark:bg-gray-900 shadow-lg flex items-center justify-between border px-1.5 gap-1.5 border-gray-100 dark:border-gray-800 z-10"
+                                className="absolute bottom-2 right-2 h-8 rounded-full bg-white dark:bg-gray-900 shadow-md flex items-center justify-between border px-1.5 gap-1.5 border-gray-200/90 dark:border-gray-700/80 z-10"
                                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
                               >
                                 <button
@@ -4132,7 +4132,7 @@ export default function Home() {
                               <button
                                 type="button"
                                 onClick={(e) => handleIncreaseQuantity(dish, e)}
-                                className="absolute bottom-2 right-2 w-8 h-8 rounded-full bg-white dark:bg-gray-900 shadow-lg flex items-center justify-center border transition-all active:scale-90 border-gray-100 dark:border-gray-800 hover:bg-gray-50 z-10"
+                                className="absolute bottom-2 right-2 w-8 h-8 rounded-full bg-white dark:bg-gray-900 shadow-md flex items-center justify-center border transition-all active:scale-90 border-gray-200/90 dark:border-gray-700/80 hover:bg-gray-50 z-10"
                               >
                                 <Plus className="h-4 w-4 text-[#659116]" strokeWidth={3} />
                               </button>
