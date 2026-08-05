@@ -409,12 +409,6 @@ export default function HomeHeader({
             
             {/* Top Right Action Badges */}
             <div className="flex items-center gap-2 flex-shrink-0">
-              {/* GOLD ₹1 Badge */}
-              <div className="bg-[#FFF4D2] border border-[#FFE194] px-2.5 py-1 rounded-full text-xs font-black text-[#8C6200] flex items-center gap-1 shadow-md">
-                <span className="tracking-tight">GOLD</span>
-                <span className="bg-[#8C6200] text-white text-[9.5px] px-1 py-0.2 rounded font-bold">₹1</span>
-              </div>
-
               {/* Wallet Button */}
               <Link
                 to="/food/user/wallet"

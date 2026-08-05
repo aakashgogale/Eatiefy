@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react"
 import { Edit, Upload, Info, Trash2, Plus, Calendar, Link as LinkIcon, Save, X, Loader2, Image as ImageIcon } from "lucide-react"
 import api from "@food/api"
+import { invalidatePublicAppConfig } from "@food/services/publicAppConfig"
 
 const debugError = (...args) => {}
 
@@ -148,6 +149,7 @@ export default function PromotionalBanner() {
       }
 
       if (res.data?.success) {
+        invalidatePublicAppConfig();
         fetchBanners()
         resetForm()
         setShowAddModal(false)
@@ -165,6 +167,7 @@ export default function PromotionalBanner() {
     try {
       const res = await api.patch(`/food/hero-banners/home-promotion/${id}/status`, { isActive: !currentStatus })
       if (res.data?.success) {
+        invalidatePublicAppConfig();
         setBanners(prev => prev.map(b => b._id === id ? { ...b, isActive: !currentStatus } : b))
       }
     } catch (error) {
@@ -177,6 +180,7 @@ export default function PromotionalBanner() {
     try {
       const res = await api.delete(`/food/hero-banners/home-promotion/${id}`)
       if (res.data?.success) {
+        invalidatePublicAppConfig();
         setBanners(prev => prev.filter(b => b._id !== id))
       }
     } catch (error) {

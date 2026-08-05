@@ -714,6 +714,15 @@ export const useDeliveryNotifications = () => {
     }
 
     const fetchDeliveryPartnerId = async () => {
+      const hasToken =
+        typeof localStorage !== "undefined" &&
+        Boolean(
+          localStorage.getItem("delivery_accessToken") ||
+          localStorage.getItem("accessToken")
+        );
+
+      if (!hasToken) return;
+
       try {
         const response = await deliveryAPI.getMe();
         if (response.data?.success && response.data.data) {

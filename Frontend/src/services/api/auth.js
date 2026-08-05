@@ -162,6 +162,20 @@ export function logout(refreshToken, fcmToken = null, platform = "web") {
  */
 export function getMe(module = "user") {
   const m = String(module || "user");
+  const tokenKey = `${m}_accessToken`;
+  const token =
+    typeof localStorage !== "undefined"
+      ? localStorage.getItem(tokenKey) ||
+        localStorage.getItem("accessToken") ||
+        (m === "user" ? localStorage.getItem("token") : null)
+      : null;
+
+  if (!token) {
+    return Promise.resolve({
+      data: { success: false, user: null, data: null, message: "Not authenticated" },
+    });
+  }
+
   return apiClient.get(AUTH.ME, { contextModule: m });
 }
 

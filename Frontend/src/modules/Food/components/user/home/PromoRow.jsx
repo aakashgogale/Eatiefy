@@ -62,41 +62,43 @@ export default function PromoRow({ handleVegModeChange, navigate, isVegMode, tog
   });
 
   return (
-    <div className="grid grid-cols-4 md:flex md:flex-row md:justify-start md:gap-10 gap-2 px-3 md:px-4 pt-1 pb-2 bg-transparent justify-items-center w-full max-w-[500px] md:max-w-none mx-auto md:mx-0">
-      {promoCardsData.map((promo, idx) => (
-        <motion.div
-          key={idx}
-          ref={promo.id === 'gourmet' ? toggleRef : null}
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: idx * 0.05, duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
-          whileHover={{ y: -4 }}
-          whileTap={{ scale: 0.95 }}
-          className="flex flex-col items-center gap-1.5 group cursor-pointer w-full md:w-24"
-          onClick={() => {
-            navigate(promo.path);
-          }}
-        >
-          {/* Floating Minimalist Image */}
-          <div className="relative w-14 h-14 sm:w-16 sm:h-16 flex items-center justify-center p-0.5">
-            <img
-              src={promo.icon}
-              alt={promo.value}
-              className="w-full h-full object-contain relative z-20 transition-transform duration-500 group-hover:scale-110 drop-shadow-sm"
-            />
-          </div>
+    <div className="w-full max-w-[520px] md:max-w-xl mx-auto px-3 sm:px-4 py-1">
+      <div className="bg-white dark:bg-[#1a1a1a] rounded-[2.2rem] py-2 px-3 sm:py-2.5 sm:px-4 border border-gray-100 dark:border-gray-800 shadow-md shadow-gray-200/50 dark:shadow-none grid grid-cols-4 gap-1.5 justify-items-center w-full">
+        {promoCardsData.map((promo, idx) => (
+          <motion.div
+            key={idx}
+            ref={promo.id === 'gourmet' ? toggleRef : null}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: idx * 0.05, duration: 0.35, ease: [0.25, 0.1, 0.25, 1] }}
+            whileHover={{ y: -2, scale: 1.03 }}
+            whileTap={{ scale: 0.95 }}
+            className="flex flex-col items-center gap-0.5 group cursor-pointer w-full"
+            onClick={() => {
+              navigate(promo.path);
+            }}
+          >
+            {/* Floating Minimalist Image */}
+            <div className="relative w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center p-0.5">
+              <img
+                src={promo.icon}
+                alt={promo.value}
+                className="w-full h-full object-contain relative z-20 transition-transform duration-300 group-hover:scale-110 drop-shadow-sm"
+              />
+            </div>
 
-          {/* Clean Typography */}
-          <div className="flex flex-col items-center text-center w-full">
-            <span className="text-[12px] font-black text-gray-900 dark:text-gray-100 tracking-tight leading-tight mb-0.5">
-              {promo.value}
-            </span>
-            <span className="text-[9px] font-bold text-gray-500 dark:text-gray-400 capitalize whitespace-nowrap">
-              {promo.title}
-            </span>
-          </div>
-        </motion.div>
-      ))}
+            {/* Clean Typography */}
+            <div className="flex flex-col items-center text-center w-full">
+              <span className="text-[11px] sm:text-[11.5px] font-black text-gray-900 dark:text-gray-100 tracking-tight leading-tight">
+                {promo.value}
+              </span>
+              <span className="text-[8.5px] sm:text-[9.5px] font-bold text-gray-500 dark:text-gray-400 capitalize whitespace-nowrap">
+                {promo.title}
+              </span>
+            </div>
+          </motion.div>
+        ))}
+      </div>
     </div>
   );
 }

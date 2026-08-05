@@ -496,7 +496,7 @@ export default function Dining() {
         }
       `}</style>
       {/* Premium Glassmorphic Header Wrapper for Dining */}
-      <div className="sticky top-0 z-50 w-full bg-white/90 dark:bg-[#0a0a0a]/90 backdrop-blur-xl shadow-sm border-b border-gray-100 dark:border-gray-900 md:hidden pb-3">
+      <div className="sticky top-0 z-50 w-full bg-white/90 dark:bg-[#0a0a0a]/90 backdrop-blur-xl shadow-sm border-b border-gray-100 dark:border-gray-900 rounded-b-2xl sm:rounded-b-3xl overflow-hidden md:hidden pb-3">
         {/* Top Row: Back, Location & Profile */}
         <div className="px-4 pt-3 pb-2 flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0 flex-1">

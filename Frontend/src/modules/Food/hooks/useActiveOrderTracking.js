@@ -100,6 +100,20 @@ export default function useActiveOrderTracking() {
   const activeOrderSnapshotRef = useRef(null);
 
   const fetchOrders = useCallback(async () => {
+    const hasToken =
+      typeof localStorage !== "undefined" &&
+      Boolean(
+        localStorage.getItem("user_accessToken") ||
+        localStorage.getItem("accessToken") ||
+        localStorage.getItem("token"),
+      );
+
+    if (!hasToken) {
+      setApiOrders([]);
+      setHasFetchedApi(true);
+      return;
+    }
+
     try {
       const response = await orderAPI.getOrders({ limit: 10, page: 1 });
       let nextOrders = [];

@@ -28,6 +28,22 @@ export default function useNotificationInbox(module, options = {}) {
   const fetchInbox = useCallback(async () => {
     if (!module) return;
 
+    const hasToken =
+      typeof localStorage !== "undefined" &&
+      Boolean(
+        localStorage.getItem("user_accessToken") ||
+        localStorage.getItem("accessToken") ||
+        localStorage.getItem("admin_accessToken") ||
+        localStorage.getItem("token")
+      );
+
+    if (!hasToken) {
+      setItems([]);
+      setUnreadCount(0);
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       const response = await notificationAPI.getInbox(

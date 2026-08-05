@@ -88,6 +88,19 @@ export default function useAutoCouponEngine({ deliveryMode = "basic", enabled = 
 
   useEffect(() => {
     let active = true
+    const hasToken =
+      typeof localStorage !== "undefined" &&
+      Boolean(
+        localStorage.getItem("user_accessToken") ||
+        localStorage.getItem("accessToken") ||
+        localStorage.getItem("token"),
+      )
+
+    if (!hasToken) {
+      userOrderCountRef.current = 0
+      return undefined
+    }
+
     orderAPI
       .getOrders({ page: 1, limit: 1 })
       .then((response) => {

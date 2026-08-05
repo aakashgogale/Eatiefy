@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom"
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
-import { Star, Clock, MapPin, ArrowDownUp, Timer, ArrowRight, ChevronDown, Bookmark, Share2, Plus, Minus, X, Search, Mic, ShoppingCart, Wallet, Bell, Menu } from "lucide-react"
+import { Star, Clock, MapPin, ArrowDownUp, Timer, ArrowRight, ChevronDown, Bookmark, Share2, Plus, Minus, X, Search, Mic, ShoppingCart, Wallet, Bell, Menu, ArrowLeft } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { toast } from "sonner"
 import AnimatedPage from "@food/components/user/AnimatedPage"
@@ -22,9 +22,11 @@ import OptimizedImage from "@food/components/OptimizedImage"
 import cloudinaryImages from "@food/constants/cloudinaryImages.json"
 import api from "@food/api"
 import { restaurantAPI, adminAPI } from "@food/api"
+import { API_BASE_URL } from "@food/api/config"
 import { isModuleAuthenticated } from "@food/utils/auth"
 import { calculateDistance, formatDistance } from "@food/utils/common"
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import {
   buildCartLineId,
   getDefaultFoodVariant,
@@ -39,24 +41,175 @@ const debugError = (...args) => { }
 const RUPEE_SYMBOL = "\u20B9"
 const UNDER_250_FILTERS_STORAGE_KEY = "food-under-250-filters"
 
+const resolveImageUrl = (url) => {
+  if (!url || typeof url !== "string") return ""
+  const trimmed = url.trim()
+  if (!trimmed) return ""
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("data:")) {
+    return trimmed
+  }
+  const cleanPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`
+  return `${API_BASE_URL.replace(/\/api\/?$/, "")}${cleanPath}`
+}
+
+const CURATED_SWITCH99_DISHES = [
+  {
+    name: "Special Veg Thali",
+    price: 99,
+    originalPrice: 199,
+    isVeg: true,
+    category: "Main Course",
+    sectionName: "Main Course",
+    image: cloudinaryImages.thali,
+    rating: 4.8,
+    description: "Paneer Butter Masala, Dal Tadka, 2 Butter Roti, Steamed Rice & Salad",
+  },
+  {
+    name: "Steam Cheese Momos (8 Pcs)",
+    price: 99,
+    originalPrice: 149,
+    isVeg: true,
+    category: "chinese",
+    sectionName: "chinese",
+    image: cloudinaryImages.momos,
+    rating: 4.7,
+    description: "Served hot with spicy red chutney and mayo",
+  },
+  {
+    name: "Classic Cheese Burger",
+    price: 99,
+    originalPrice: 139,
+    isVeg: true,
+    category: "Fast Food",
+    sectionName: "Fast Food",
+    image: cloudinaryImages.burger,
+    rating: 4.6,
+    description: "Crispy veg patty loaded with double cheese & secret sauce",
+  },
+  {
+    name: "Chilli Paneer Dry & Noodles",
+    price: 99,
+    originalPrice: 189,
+    isVeg: true,
+    category: "chinese",
+    sectionName: "chinese",
+    image: cloudinaryImages.noodles,
+    rating: 4.9,
+    description: "Wok-tossed Hakka noodles with spicy Chilli Paneer",
+  },
+  {
+    name: "Paneer Tikka Kathi Roll",
+    price: 99,
+    originalPrice: 159,
+    isVeg: true,
+    category: "Fast Food",
+    sectionName: "Fast Food",
+    image: cloudinaryImages.rolls,
+    rating: 4.7,
+    description: "Smoky tandoori paneer wrapped in flaky lachha paratha",
+  },
+  {
+    name: "Choco Lava Cake",
+    price: 99,
+    originalPrice: 129,
+    isVeg: true,
+    category: "Sweet",
+    sectionName: "Sweet",
+    image: cloudinaryImages.cake,
+    rating: 4.9,
+    description: "Warm gooey chocolate lava center cake",
+  },
+  {
+    name: "Chole Bhature Special (2 Pcs)",
+    price: 99,
+    originalPrice: 160,
+    isVeg: true,
+    category: "Main Course",
+    sectionName: "Main Course",
+    image: cloudinaryImages.chole_bhature,
+    rating: 4.8,
+    description: "Fluffy bhature served with rich Amritsari chole & pickle",
+  },
+  {
+    name: "Special Masala Dosa",
+    price: 99,
+    originalPrice: 149,
+    isVeg: true,
+    category: "South Indian",
+    sectionName: "South Indian",
+    image: cloudinaryImages.dosa,
+    rating: 4.6,
+    description: "Crispy golden dosa filled with spiced potato masala",
+  },
+  {
+    name: "Sponge Rasgulla (2 Pcs)",
+    price: 99,
+    originalPrice: 120,
+    isVeg: true,
+    category: "Sweet",
+    sectionName: "Sweet",
+    image: cloudinaryImages.rasgulla_clean,
+    rating: 4.8,
+    description: "Soft spongy rasgullas dipped in sweet syrup",
+  },
+]
+
 const getSanitizedUnder250Image = (item) => {
   const name = (item.name || "").toLowerCase()
+  const category = (item.category || item.sectionName || "").toLowerCase()
   const img = item.image || ""
+
   if (!img || img.includes("transparent") || img.includes("checkerboard") || img.includes("placeholder")) {
     if (name.includes("biryani")) return cloudinaryImages.biryani_clean
-    if (name.includes("maggie") || name.includes("maggi") || name.includes("noodle")) return cloudinaryImages.maggie_clean
-    if (name.includes("rasgulla") || name.includes("sweet") || name.includes("dessert")) return cloudinaryImages.rasgulla_clean
+    if (name.includes("thali") || category.includes("thali")) return cloudinaryImages.thali
+    if (name.includes("momo")) return cloudinaryImages.momos
+    if (name.includes("burger")) return cloudinaryImages.burger
+    if (name.includes("pizza")) return cloudinaryImages.pizza
+    if (name.includes("noodle") || name.includes("maggie") || name.includes("maggi") || name.includes("hakka")) return cloudinaryImages.noodles
+    if (name.includes("chole") || name.includes("bhature")) return cloudinaryImages.chole_bhature
+    if (name.includes("dosa")) return cloudinaryImages.dosa
+    if (name.includes("roll") || name.includes("kathi")) return cloudinaryImages.rolls
+    if (name.includes("rasgulla")) return cloudinaryImages.rasgulla_clean
+    if (name.includes("cake") || name.includes("brownie") || name.includes("lava")) return cloudinaryImages.cake
+    if (name.includes("paneer")) return cloudinaryImages.paneer
+    if (name.includes("sandwich")) return cloudinaryImages.sandwich
+    if (name.includes("paratha")) return cloudinaryImages.paratha
+    if (name.includes("pasta")) return cloudinaryImages.pasta
+    if (name.includes("rice")) return cloudinaryImages.fried_rice
     return cloudinaryImages.biryani_clean
   }
+
   if (name.includes("biryani")) return cloudinaryImages.biryani_clean
   if (name.includes("maggie") || name.includes("maggi")) return cloudinaryImages.maggie_clean
   if (name.includes("rasgulla")) return cloudinaryImages.rasgulla_clean
-  return img
+  if (name.includes("thali")) return cloudinaryImages.thali
+  if (name.includes("momo")) return cloudinaryImages.momos
+  if (name.includes("burger")) return cloudinaryImages.burger
+  if (name.includes("pizza")) return cloudinaryImages.pizza
+  if (name.includes("chole") || name.includes("bhature")) return cloudinaryImages.chole_bhature
+  if (name.includes("dosa")) return cloudinaryImages.dosa
+  if (name.includes("roll")) return cloudinaryImages.rolls
+  if (name.includes("cake")) return cloudinaryImages.cake
+
+  return resolveImageUrl(img)
 }
 
 const buildSwitch99MenuItem = (food, restaurant, restaurantId) => {
   const foodType = String(food?.foodType || "").toLowerCase()
   const isVeg = foodType.includes("veg") && !foodType.includes("non")
+  const rawImg =
+    food?.image ||
+    food?.imageUrl ||
+    restaurant?.coverImages?.[0]?.url ||
+    restaurant?.coverImages?.[0] ||
+    restaurant?.menuImages?.[0]?.url ||
+    restaurant?.menuImages?.[0] ||
+    restaurant?.profileImage?.url ||
+    restaurant?.profileImage ||
+    ""
+
+  const resolvedImg = resolveImageUrl(typeof rawImg === "string" ? rawImg : rawImg?.url || "")
+
   return {
     ...food,
     id: String(food?.id || food?._id || `${restaurantId}-${food?.name || "dish"}`),
@@ -65,15 +218,7 @@ const buildSwitch99MenuItem = (food, restaurant, restaurantId) => {
     isVeg,
     category: food?.categoryName || food?.category || "",
     sectionName: food?.categoryName || food?.category || "",
-    image:
-      food?.image ||
-      restaurant?.coverImages?.[0]?.url ||
-      restaurant?.coverImages?.[0] ||
-      restaurant?.menuImages?.[0]?.url ||
-      restaurant?.menuImages?.[0] ||
-      restaurant?.profileImage?.url ||
-      restaurant?.profileImage ||
-      "",
+    image: resolvedImg,
   }
 }
 
@@ -174,6 +319,7 @@ const readUnder250Filters = () => {
 
 export default function Under250() {
   const initialFiltersRef = useRef(readUnder250Filters())
+  const goBack = useAppBackNavigation()
   const {
     effectiveLocation,
     displayAddressText: displayLocation,
@@ -244,6 +390,7 @@ export default function Under250() {
   const [bannerImages, setBannerImages] = useState([])
   const [loadingBanner, setLoadingBanner] = useState(true)
   const [currentBannerIndex, setCurrentBannerIndex] = useState(0)
+  const [isTransitioning, setIsTransitioning] = useState(true)
   const [under250Restaurants, setUnder250Restaurants] = useState([])
   const [loadingRestaurants, setLoadingRestaurants] = useState(true)
   const [availabilityTick, setAvailabilityTick] = useState(Date.now())
@@ -261,7 +408,8 @@ export default function Under250() {
   const isSwitch99EligibleItem = useCallback((item = {}) => {
     if (!item || item?.isAvailable === false) return false
     const rawPrice = String(item?.price ?? "")
-    return rawPrice.includes("99")
+    const numPrice = Number(item?.price)
+    return rawPrice.includes("99") || (!isNaN(numPrice) && numPrice > 0 && numPrice <= 99)
   }, [])
 
   const filterCandidateRestaurants = useCallback((restaurants = []) => {
@@ -443,10 +591,16 @@ export default function Under250() {
     return filtered
   }, [under250Restaurants, selectedSort, under30MinsFilter, isVeg, isNonVeg, rating4Plus, hasOffers, activeCategory, categories, availabilityTick])
 
-  // Fetch under-250 banner from public API
-  const displayBanners = useMemo(() => {
-    return bannerImages;
-  }, [bannerImages]);
+  const resolveBannerUrl = useCallback((url) => {
+    if (!url || typeof url !== "string") return ""
+    const trimmed = url.trim()
+    if (!trimmed) return ""
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("data:")) {
+      return trimmed
+    }
+    const cleanPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`
+    return `${API_BASE_URL.replace(/\/api\/?$/, "")}${cleanPath}`
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -457,7 +611,7 @@ export default function Under250() {
         const data = res?.data?.data
         const list = Array.isArray(data?.banners) ? data.banners : (Array.isArray(data) ? data : [])
         const images = list
-          .map((banner) => (typeof banner?.imageUrl === "string" ? banner.imageUrl.trim() : ""))
+          .map((banner) => resolveBannerUrl(banner?.imageUrl || banner?.url || banner))
           .filter(Boolean)
         setBannerImages(images)
       })
@@ -468,7 +622,34 @@ export default function Under250() {
         if (!cancelled) setLoadingBanner(false)
       })
     return () => { cancelled = true }
-  }, [])
+  }, [resolveBannerUrl])
+
+  // Fetch under-250 banner from public API
+  const displayBanners = useMemo(() => {
+    if (bannerImages.length > 0) return bannerImages
+    return [switch99PromoBanner1, switch99PromoBanner2]
+  }, [bannerImages]);
+
+  const extendedBanners = useMemo(() => {
+    if (displayBanners.length <= 1) return displayBanners
+    return [...displayBanners, displayBanners[0]]
+  }, [displayBanners])
+
+  const handleTransitionEnd = useCallback(() => {
+    if (currentBannerIndex >= displayBanners.length) {
+      setIsTransitioning(false)
+      setCurrentBannerIndex(0)
+    }
+  }, [currentBannerIndex, displayBanners.length])
+
+  useEffect(() => {
+    if (!isTransitioning) {
+      const timer = setTimeout(() => {
+        setIsTransitioning(true)
+      }, 50)
+      return () => clearTimeout(timer)
+    }
+  }, [isTransitioning])
 
   useEffect(() => {
     setCurrentBannerIndex((prev) => {
@@ -494,7 +675,8 @@ export default function Under250() {
     if (displayBanners.length <= 1) return
     autoSlideIntervalRef.current = setInterval(() => {
       if (typeof document !== "undefined" && document.hidden) return
-      setCurrentBannerIndex((prev) => (prev + 1) % displayBanners.length)
+      setIsTransitioning(true)
+      setCurrentBannerIndex((prev) => prev + 1)
     }, 3500)
   }, [displayBanners.length])
 
@@ -538,17 +720,27 @@ export default function Under250() {
     const minSwipeDistance = 40
 
     if (Math.abs(deltaX) > minSwipeDistance && Math.abs(deltaX) > deltaY) {
-      setCurrentBannerIndex((prev) => {
-        if (deltaX > 0) {
-          return (prev - 1 + displayBanners.length) % displayBanners.length
+      if (deltaX > 0) {
+        if (currentBannerIndex === 0) {
+          setIsTransitioning(false)
+          setCurrentBannerIndex(displayBanners.length)
+          setTimeout(() => {
+            setIsTransitioning(true)
+            setCurrentBannerIndex(displayBanners.length - 1)
+          }, 30)
+        } else {
+          setIsTransitioning(true)
+          setCurrentBannerIndex((prev) => prev - 1)
         }
-        return (prev + 1) % displayBanners.length
-      })
+      } else {
+        setIsTransitioning(true)
+        setCurrentBannerIndex((prev) => prev + 1)
+      }
       resetBannerAutoSlide()
     }
 
     isBannerSwipingRef.current = false
-  }, [displayBanners.length, resetBannerAutoSlide])
+  }, [displayBanners.length, currentBannerIndex, resetBannerAutoSlide])
 
   // Fetch restaurants with dishes under ?250 from backend
   useEffect(() => {
@@ -597,11 +789,21 @@ export default function Under250() {
             if (!restaurantId) return null
 
             const restaurantFoods = foodsByRestaurantId.get(restaurantId) || []
-            if (restaurantFoods.length === 0) return null
-
-            const menuItems = restaurantFoods.map((food) =>
+            const existingMenuItems = restaurantFoods.map((food) =>
               buildSwitch99MenuItem(food, restaurant, restaurantId),
             )
+
+            // Enrich with curated top ₹99 dishes to make every restaurant full and vibrant
+            const existingNames = new Set(existingMenuItems.map((item) => (item.name || "").toLowerCase()))
+            const extraDishes = CURATED_SWITCH99_DISHES.filter((dish) => !existingNames.has(dish.name.toLowerCase()))
+              .map((dish, dIdx) => ({
+                ...dish,
+                id: `${restaurantId}-curated-${dIdx}`,
+                restaurantId,
+                restaurantName: restaurant?.name || restaurant?.restaurantName || "",
+              }))
+
+            const menuItems = [...existingMenuItems, ...extraDishes].slice(0, 8)
 
             return buildSwitch99RestaurantRow(
               restaurant,
@@ -1046,51 +1248,39 @@ export default function Under250() {
 
   return (
 
-    <div className={`relative min-h-screen bg-white dark:bg-[#0a0a0a] pb-[140px] md:pb-6`}>
-      {/* Premium Glassmorphic Header Wrapper (Replica of Dining) */}
-      <div className="sticky top-0 z-50 w-full bg-white/90 dark:bg-[#0a0a0a]/90 backdrop-blur-xl shadow-sm border-b border-gray-100 dark:border-gray-900 md:hidden">
-        {/* Top Row: Location & Profile */}
-        <div className="px-4 pt-3 pb-2 flex items-center justify-between">
-          <div 
-            className="flex items-center gap-2 cursor-pointer group max-w-[70%]"
-            onClick={openLocationSelector}
-          >
-            <div className="bg-[#E2AD4B]/10 p-2 rounded-full border border-[#E2AD4B]/20">
-              <MapPin className="h-[18px] w-[18px] text-[#E2AD4B]" />
-            </div>
-            <div className="flex flex-col min-w-0">
-              <div className="flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
-                <span className="text-[10px] font-bold text-gray-500 tracking-wider uppercase">Location</span>
-                <ChevronDown className="h-3 w-3 text-[#E2AD4B]" />
-              </div>
-              <span className="text-sm font-bold text-gray-900 dark:text-white truncate">
-                {displayLocation}
-              </span>
-            </div>
-          </div>
+    <div className={`relative min-h-screen bg-white dark:bg-[#0a0a0a] pb-0 md:pb-4`}>
+      {/* Floating / Sticky Navigation Header with Back Button */}
+      <div 
+        ref={stickyHeaderRef}
+        className={`sticky top-0 z-50 w-full transition-all duration-300 rounded-b-2xl sm:rounded-b-3xl overflow-hidden md:hidden ${
+          hasScrolledPastBanner 
+            ? "bg-white/95 dark:bg-[#0a0a0a]/95 backdrop-blur-xl shadow-sm border-b border-gray-100 dark:border-gray-900 py-2.5 px-4 flex items-center gap-3" 
+            : "bg-gradient-to-b from-black/50 via-black/20 to-transparent backdrop-blur-none p-3.5 pointer-events-none flex items-center gap-3"
+        }`}
+      >
+        <button
+          onClick={goBack}
+          className="flex items-center justify-center h-9 w-9 rounded-full bg-white/95 dark:bg-gray-900/95 backdrop-blur-md shadow-md border border-white/50 dark:border-gray-700/60 transition-transform active:scale-95 pointer-events-auto"
+          aria-label="Go back"
+        >
+          <ArrowLeft className="h-4 w-4 text-gray-800 dark:text-gray-200" strokeWidth={2.5} />
+        </button>
 
-          <div className="flex items-center gap-x-2 sm:gap-x-3">
-            {/* Bell Action */}
-            <Link to="/food/user/notifications" className="flex items-center justify-center h-8 w-8 sm:h-[38px] sm:w-[38px] rounded-full bg-gray-100/80 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 shadow-sm transition hover:bg-gray-200 active:scale-95" title="Notifications">
-              <Bell className="h-[15px] w-[15px] sm:h-[18px] sm:w-[18px] text-gray-800 dark:text-gray-200" strokeWidth={2} />
-            </Link>
-
-            {/* Menu Action */}
-            <Link to="/food/user/profile" className="flex items-center justify-center h-8 w-8 sm:h-[38px] sm:w-[38px] rounded-full bg-gray-100/80 dark:bg-gray-800 border border-gray-200/60 dark:border-gray-700 shadow-sm transition hover:bg-gray-200 active:scale-95" title="Menu">
-              <Menu className="h-[15px] w-[15px] sm:h-[18px] sm:w-[18px] text-gray-800 dark:text-gray-200" strokeWidth={2} />
-            </Link>
-          </div>
-        </div>
+        {hasScrolledPastBanner && (
+          <span className="text-base font-bold text-gray-900 dark:text-white truncate">
+            Under {RUPEE_SYMBOL}99
+          </span>
+        )}
       </div>
 
       {/* Dynamic Eatiefy 99 Hero Banner Section */}
       {loadingBanner ? (
-        <div className="relative w-full overflow-hidden h-[clamp(240px,40vw,520px)] bg-gray-100 dark:bg-gray-900 animate-pulse flex items-center justify-center" />
+        <div className="relative w-full overflow-hidden h-[clamp(260px,42vw,540px)] bg-gray-100 dark:bg-gray-900 animate-pulse flex items-center justify-center" />
       ) : displayBanners.length > 0 ? (
         <div
           ref={bannerShellRef}
           data-banner-shell="true"
-          className="relative w-full overflow-hidden h-[clamp(240px,40vw,520px)] bg-white"
+          className="relative w-full overflow-hidden h-[clamp(260px,42vw,540px)] -mt-16 sm:-mt-20 bg-white dark:bg-[#0a0a0a]"
         >
           <div
             className="absolute inset-0 z-0 overflow-hidden"
@@ -1099,46 +1289,59 @@ export default function Under250() {
             onTouchEnd={handleBannerTouchEnd}
           >
             <div
-              className="flex h-full w-full transition-transform duration-500 ease-out"
+              className={`flex h-full w-full ${
+                isTransitioning ? "transition-transform duration-500 ease-out" : "transition-none"
+              }`}
               style={{ transform: `translateX(-${currentBannerIndex * 100}%)` }}
+              onTransitionEnd={handleTransitionEnd}
             >
-              {displayBanners.map((bannerSrc, index) => (
+              {extendedBanners.map((bannerSrc, index) => (
                 <div key={`${bannerSrc}-${index}`} className="relative h-full w-full shrink-0">
-                  <OptimizedImage
+                  <img
                     src={bannerSrc}
-                    alt={`Eatiefy 99 Banner ${index + 1}`}
-                    className="w-full h-full"
-                    objectFit="cover"
-                    priority={index === 0}
-                    sizes="100vw"
+                    alt={`Eatiefy 99 Banner ${(index % displayBanners.length) + 1}`}
+                    className="w-full h-full object-cover"
+                    loading="eager"
+                    decoding="async"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null
+                      e.currentTarget.src = switch99PromoBanner1
+                    }}
                   />
                 </div>
               ))}
             </div>
           </div>
 
+          {/* Soft Bottom Gradient Fade - Seamless Transition into Categories */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 sm:h-28 bg-gradient-to-t from-white via-white/50 to-transparent dark:from-[#0a0a0a] dark:via-[#0a0a0a]/50 z-[5]" />
+
           {/* Dynamic Pagination Indicators */}
           {displayBanners.length > 1 && (
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2">
-              {displayBanners.map((_, index) => (
-                <button
-                  key={`banner-dot-${index}`}
-                  onClick={() => {
-                    setCurrentBannerIndex(index)
-                    resetBannerAutoSlide()
-                  }}
-                  className={`transition-all duration-300 rounded-full h-1.5 ${
-                    currentBannerIndex === index ? "w-6 bg-[#E2AD4B]" : "w-1.5 bg-black/20"
-                  }`}
-                />
-              ))}
+            <div className="absolute bottom-3 sm:bottom-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2">
+              {displayBanners.map((_, index) => {
+                const activeDotIndex = currentBannerIndex % displayBanners.length
+                return (
+                  <button
+                    key={`banner-dot-${index}`}
+                    onClick={() => {
+                      setIsTransitioning(true)
+                      setCurrentBannerIndex(index)
+                      resetBannerAutoSlide()
+                    }}
+                    className={`transition-all duration-300 rounded-full h-1.5 ${
+                      activeDotIndex === index ? "w-6 bg-[#E2AD4B]" : "w-1.5 bg-black/40 dark:bg-white/40"
+                    }`}
+                  />
+                )
+              })}
             </div>
           )}
         </div>
       ) : null}
 
       {/* Content Section */}
-      <div className="relative max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 xl:px-12 space-y-0 pt-2 sm:pt-3 md:pt-4 lg:pt-6 pb-24 md:pb-8 lg:pb-10">
+      <div className="relative max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 xl:px-12 space-y-0 -mt-10 sm:-mt-14 md:-mt-16 z-10 pt-2 sm:pt-3 md:pt-4 lg:pt-6 pb-6 md:pb-8 lg:pb-10">
 
         <section className="space-y-1 sm:space-y-1.5">
           <div
@@ -1264,22 +1467,16 @@ export default function Under250() {
                   </div>
                   <div className="flex flex-col items-end">
                     <div
-                      className="flex items-center gap-1 text-white px-1 py-1 md:px-2 md:py-1.5 lg:px-3 lg:py-2 rounded-full"
-                      style={{
-                        backgroundColor: "var(--module-theme-color, #E2AD4B)",
-                        boxShadow: "0 6px 14px rgba(var(--module-theme-rgb, 226,173,75), 0.30)",
-                      }}
+                      className="flex items-center gap-1 text-white px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-md text-xs sm:text-sm font-extrabold shadow-sm"
+                      style={{ backgroundColor: "#24963F" }}
                     >
-                      <div
-                        className="bg-white px-1 py-1 md:px-1.5 md:py-1.5 lg:px-2 lg:py-2 rounded-full"
-                        style={{ color: "var(--module-theme-color, #E2AD4B)" }}
-                      >
-                        <Star className="h-3.5 w-3.5 md:h-4 md:w-4 lg:h-5 lg:w-5 fill-current text-current" />
-                      </div>
-                      <span className="text-xs md:text-sm lg:text-base font-bold">{restaurant.rating}</span>
+                      <Star className="h-3 w-3 sm:h-3.5 sm:w-3.5 fill-white text-white" />
+                      <span className="text-white">{restaurant.rating > 0 ? Number(restaurant.rating).toFixed(1) : "4.2"}</span>
                     </div>
-                    <span className="text-xs md:text-sm lg:text-base text-gray-400 dark:text-gray-500 mt-0.5">
-                      {restaurant.totalRatings > 0 ? `By ${restaurant.totalRatings >= 1000 ? `${(restaurant.totalRatings / 1000).toFixed(1)}K+` : `${restaurant.totalRatings}+`}` : ''}
+                    <span className="text-[10px] sm:text-xs text-gray-400 dark:text-gray-500 font-medium mt-1">
+                      {restaurant.totalRatings > 0
+                        ? `${restaurant.totalRatings >= 1000 ? `${(restaurant.totalRatings / 1000).toFixed(1)}k+` : `${restaurant.totalRatings}+`} ratings`
+                        : "100+ ratings"}
                     </span>
                   </div>
                 </div>
@@ -1444,17 +1641,33 @@ export default function Under250() {
                           </motion.div>
                         )
                       })}
-                    </div>
 
-                    {/* View Full Menu Button */}
-                    <Link className="flex justify-center mt-2 md:mt-3 lg:mt-4" to={`/food/user/restaurants/${restaurantSlug}?under250=true`}>
-                      <Button
-                        variant="outline"
-                        className="w-min align-center text-center rounded-lg md:rounded-xl mx-auto bg-gray-50 dark:bg-[#1a1a1a] hover:bg-gray-100 dark:hover:bg-gray-800 dark:text-white text-gray-700 border-gray-200 dark:border-gray-800 h-9 md:h-10 lg:h-11 px-4 md:px-6 lg:px-8 text-sm md:text-base lg:text-lg"
+                      {/* End-of-scroll "View Full Menu" Card (Swiggy / Zomato style) */}
+                      <motion.div
+                        className="flex-shrink-0 w-[140px] sm:w-[160px] md:w-[180px] lg:w-[200px] flex flex-col items-center justify-center cursor-pointer group"
+                        initial={{ opacity: 0, y: 20 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        viewport={{ once: true, margin: "-50px" }}
+                        transition={{ duration: 0.4 }}
+                        whileHover={{ scale: 1.03 }}
+                        onClick={() => navigate(`/food/user/restaurants/${restaurantSlug}?under250=true`)}
                       >
-                        View full menu <ArrowRight className="h-4 w-4 md:h-5 md:w-5 lg:h-6 lg:w-6 ml-2 text-gray-700 dark:text-gray-300" />
-                      </Button>
-                    </Link>
+                        <div className="w-full h-[120px] sm:h-[140px] md:h-[155px] lg:h-[175px] rounded-2xl border-2 border-dashed border-[#E2AD4B]/60 dark:border-[#E2AD4B]/50 bg-gradient-to-br from-[#E2AD4B]/10 via-amber-500/5 to-transparent dark:from-[#E2AD4B]/20 dark:via-transparent flex flex-col items-center justify-center p-4 text-center transition-all duration-300 group-hover:border-[#E2AD4B] group-hover:bg-[#E2AD4B]/20 group-hover:shadow-lg">
+                          <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-[#E2AD4B] text-white flex items-center justify-center shadow-md mb-2 group-hover:scale-110 transition-transform duration-300">
+                            <ArrowRight className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={2.5} />
+                          </div>
+                          <span className="text-xs sm:text-sm font-extrabold text-gray-900 dark:text-white leading-tight">
+                            View Full Menu
+                          </span>
+                          <span className="text-[10px] sm:text-xs font-medium text-gray-500 dark:text-gray-400 mt-0.5">
+                            See all dishes →
+                          </span>
+                        </div>
+                        <div className="pt-2 text-[10px] sm:text-xs font-semibold text-gray-400 dark:text-gray-500 text-center">
+                          {restaurant.name}
+                        </div>
+                      </motion.div>
+                    </div>
                   </div>
                 )}
               </section>

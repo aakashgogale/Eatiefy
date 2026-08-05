@@ -16,6 +16,7 @@ export const PUBLIC_CONFIG_URLS = {
   FEE: "/food/admin/fee-settings/public",
   TOP_BANNERS: "/food/top-banners/public",
   HERO_BANNERS: "/food/hero-banners/public",
+  PROMO_BANNERS: "/food/hero-banners/home-promotion/public",
   EXPLORE_ICONS: "/food/explore-icons/public",
   LANDING: "/food/landing/settings/public",
 };
@@ -29,6 +30,7 @@ const emptyStore = () => ({
   feeSettings: null,
   topBanners: null,
   heroBanners: null,
+  promoBanners: null,
   exploreIcons: null,
   landingByZone: new Map(),
   loadedAt: 0,
@@ -62,11 +64,15 @@ const parseTopBanners = (response) => {
 
 const parseHeroBanners = (response) => {
   const data = response?.data?.data;
-  const list = Array.isArray(data?.banners)
-    ? data.banners
-    : Array.isArray(data)
-      ? data
-      : [];
+  const list = Array.isArray(response?.data?.banners)
+    ? response.data.banners
+    : Array.isArray(data?.banners)
+      ? data.banners
+      : Array.isArray(data)
+        ? data
+        : Array.isArray(response?.data)
+          ? response.data
+          : [];
   return list;
 };
 
@@ -163,7 +169,7 @@ export const loadCorePublicAppConfig = async ({ force = false } = {}) => {
 export const loadUserHomePublicConfig = async ({ force = false } = {}) => {
   await loadCorePublicAppConfig({ force });
 
-  if (!force && store.topBanners && store.heroBanners && store.exploreIcons) {
+  if (!force && store.topBanners && store.heroBanners && store.promoBanners && store.exploreIcons) {
     return getPublicAppConfigSnapshot();
   }
 
@@ -172,15 +178,17 @@ export const loadUserHomePublicConfig = async ({ force = false } = {}) => {
   }
 
   userContentLoadPromise = (async () => {
-    const [topRes, heroRes, exploreRes] = await Promise.all([
+    const [topRes, heroRes, promoRes, exploreRes] = await Promise.all([
       publicConfigGetOnce(PUBLIC_CONFIG_URLS.TOP_BANNERS, force ? { noCache: true } : {}),
       publicConfigGetOnce(PUBLIC_CONFIG_URLS.HERO_BANNERS, force ? { noCache: true } : {}),
+      publicConfigGetOnce(PUBLIC_CONFIG_URLS.PROMO_BANNERS, force ? { noCache: true } : {}).catch(() => null),
       publicConfigGetOnce(PUBLIC_CONFIG_URLS.EXPLORE_ICONS, force ? { noCache: true } : {})
         .catch(() => null),
     ]);
 
     store.topBanners = parseTopBanners(topRes);
     store.heroBanners = parseHeroBanners(heroRes);
+    store.promoBanners = parseHeroBanners(promoRes);
     store.exploreIcons = parseExploreIcons(exploreRes);
     store.loadedAt = Date.now();
 
@@ -221,6 +229,8 @@ export const getCachedFeeSettings = () => store.feeSettings;
 export const getCachedTopBanners = () => store.topBanners;
 
 export const getCachedHeroBanners = () => store.heroBanners;
+
+export const getCachedPromoBanners = () => store.promoBanners;
 
 export const getCachedExploreIcons = () => store.exploreIcons;
 

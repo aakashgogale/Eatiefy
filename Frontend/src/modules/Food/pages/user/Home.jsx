@@ -99,7 +99,7 @@ const debugError = (...args) => { };
 const VEG_MODE_OPTION_STORAGE_KEY = "food_user_veg_mode_option";
 
 // Import shared food images - prevents duplication
-import { foodImages } from "@food/constants/images";
+import { foodImages, horizontalFoodImages, verticalFoodImages } from "@food/constants/images";
 
 import { Avatar, AvatarFallback } from "@food/components/ui/avatar";
 import {
@@ -150,8 +150,18 @@ const choleBhatureImg = cloudinaryImages.chole_bhature;
 const biryaniCleanImg = cloudinaryImages.biryani_clean;
 const maggieCleanImg = cloudinaryImages.maggie_clean;
 const rasgullaCleanImg = cloudinaryImages.rasgulla_clean;
+const BACKEND_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "");
 
-// Banner images for hero carousel - will be fetched from API
+const resolveImageUrl = (url) => {
+  if (!url || typeof url !== "string") return "";
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("data:")) {
+    return trimmed;
+  }
+  const cleanPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return `${BACKEND_ORIGIN}${cleanPath}`;
+};
 
 // Animated placeholder for search - moved outside component to prevent recreation
 const placeholders = [
@@ -240,7 +250,8 @@ const RestaurantImageCarousel = React.memo(
 
     const images = useMemo(() => {
       const list = [];
-      const hasRecommended = Array.isArray(restaurant.recommendedItems) && restaurant.recommendedItems.length > 0;
+      if (!restaurant) return [foodImages[0]];
+      const hasRecommended = Array.isArray(restaurant?.recommendedItems) && restaurant.recommendedItems.length > 0;
 
       if (hasRecommended) {
         restaurant.recommendedItems.forEach(item => {
@@ -248,16 +259,16 @@ const RestaurantImageCarousel = React.memo(
         });
       }
 
-      if (Array.isArray(restaurant.images) && restaurant.images.length > 0) {
+      if (Array.isArray(restaurant?.images) && restaurant.images.length > 0) {
         restaurant.images.forEach(img => {
           if (typeof img === "string" && img.trim()) list.push(img.trim());
         });
       }
 
-      if (restaurant.image && typeof restaurant.image === "string" && restaurant.image.trim()) {
+      if (restaurant?.image && typeof restaurant.image === "string" && restaurant.image.trim()) {
         list.push(restaurant.image.trim());
       }
-      if (restaurant.coverImage && typeof restaurant.coverImage === "string" && restaurant.coverImage.trim()) {
+      if (restaurant?.coverImage && typeof restaurant.coverImage === "string" && restaurant.coverImage.trim()) {
         list.push(restaurant.coverImage.trim());
       }
 
@@ -957,13 +968,14 @@ export default function Home() {
   const {
     topBanners,
     heroBanners,
+    promoBanners,
     exploreIcons,
     refreshUserHome,
     refreshLanding,
   } = usePublicAppConfig();
 
   useEffect(() => {
-    void refreshUserHome();
+    void refreshUserHome({ force: true });
   }, [refreshUserHome]);
 
   useEffect(() => {
@@ -1774,21 +1786,30 @@ export default function Home() {
     };
   }, [showVegModePopup]);
 
-  // Hero banners from centralized public config
+  // Hero / Promo banners from centralized public config
   useEffect(() => {
-    if (!Array.isArray(heroBanners)) {
+    const bannersList = Array.isArray(promoBanners) && promoBanners.length > 0
+      ? promoBanners
+      : (Array.isArray(heroBanners) ? heroBanners.filter(b => !String(b?.imageUrl || '').match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i)) : []);
+
+    if (bannersList.length === 0 && !Array.isArray(promoBanners)) {
       setLoadingBanners(true);
       return;
     }
 
-    const images = heroBanners
-      .map((b) => (b && typeof b.imageUrl === "string" ? b.imageUrl : ""))
+    const images = bannersList
+      .map((b) => {
+        if (!b) return "";
+        const raw = b.imageUrl || b.image || b.bannerImage || b.bannerUrl || b.url || (typeof b === "string" ? b : "");
+        if (!raw) return "";
+        return resolveImageUrl(raw);
+      })
       .filter(Boolean);
     setHeroBannerImages(images);
-    setHeroBannersData(heroBanners);
+    setHeroBannersData(bannersList);
     setCurrentBannerIndex(0);
     setLoadingBanners(false);
-  }, [heroBanners]);
+  }, [promoBanners, heroBanners]);
 
   // Old backend endpoint removed: keep UI stable with empty categories.
   useEffect(() => {
@@ -2603,7 +2624,8 @@ export default function Home() {
               );
 
               // Keep single image for backward compatibility
-              const image = allImages[0] || profileImageUrl || "";
+              const fallbackImage = horizontalFoodImages[index % horizontalFoodImages.length];
+              const image = allImages[0] || profileImageUrl || fallbackImage;
               const activeOffers = Array.isArray(restaurant.activeOffers)
                 ? restaurant.activeOffers
                 : [];
@@ -3621,8 +3643,8 @@ export default function Home() {
   const HeroBannerSection = useMemo(() => {
     if (showBannerSkeleton) {
       return (
-        <div className="px-4 py-2">
-          <HeroBannerSkeleton className="h-28 sm:h-36 lg:h-44 rounded-2xl" />
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full py-3 sm:py-4">
+          <HeroBannerSkeleton className="w-full aspect-[1.85/1] sm:aspect-[2/1] rounded-3xl" />
         </div>
       );
     }
@@ -3630,11 +3652,11 @@ export default function Home() {
     if (heroBannerImages.length === 0) return null;
 
     return (
-      <div className="px-4 py-2">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full py-3 sm:py-4">
         <div
           ref={heroShellRef}
           data-home-hero-shell="true"
-          className="relative w-full overflow-hidden aspect-[1.85/1] rounded-2xl shadow-sm group cursor-pointer bg-white"
+          className="relative w-full overflow-hidden aspect-[1.85/1] sm:aspect-[2/1] rounded-3xl sm:rounded-[2.4rem] shadow-xl shadow-gray-200/80 dark:shadow-black/60 border border-gray-100 dark:border-gray-800/90 group cursor-pointer bg-white dark:bg-gray-900 transition-all duration-300 hover:shadow-2xl hover:scale-[1.005]"
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
@@ -3669,12 +3691,16 @@ export default function Home() {
                   pointerEvents: "none",
                 }}>
                 <img
-                  src={image}
+                  src={resolveImageUrl(image)}
                   alt={`Hero Banner ${index + 1}`}
                   className="h-full w-full object-cover"
                   loading={index === currentBannerIndex ? "eager" : "lazy"}
                   fetchPriority={index === currentBannerIndex ? "high" : "low"}
                   draggable={false}
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = cloudinaryImages.biryani_clean;
+                  }}
                 />
               </div>
             ))}
@@ -3685,6 +3711,12 @@ export default function Home() {
             className="absolute inset-0 z-20 h-full w-full border-0 p-0 bg-transparent text-left"
             onClick={() => {
               const bannerData = heroBannersData[currentBannerIndex];
+              const ctaLink = bannerData?.ctaLink || bannerData?.link || bannerData?.targetLink;
+              if (ctaLink) {
+                captureScrollBeforeRestaurantNav();
+                navigate(ctaLink);
+                return;
+              }
               const linkedRestaurants = bannerData?.linkedRestaurants || [];
               if (linkedRestaurants.length > 0) {
                 const firstRestaurant = linkedRestaurants[0];
@@ -3696,7 +3728,7 @@ export default function Home() {
             aria-label={`Open hero banner ${currentBannerIndex + 1}`}
           />
 
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 px-3 py-1.5 bg-black/20 backdrop-blur-md rounded-full border border-white/10 z-30">
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 px-3 py-1.5 bg-black/25 backdrop-blur-md rounded-full border border-white/20 z-30 shadow-md">
             {heroBannerImages.map((_, index) => (
               <button
                 key={index}
@@ -3704,7 +3736,7 @@ export default function Home() {
                   e.stopPropagation();
                   setCurrentBannerIndex(index);
                 }}
-                className={`h-1.5 rounded-full transition-all duration-300 ${currentBannerIndex === index ? "bg-white w-5" : "bg-white/40 w-1.5"
+                className={`h-1.5 rounded-full transition-all duration-300 ${currentBannerIndex === index ? "bg-white w-5 shadow-sm" : "bg-white/40 w-1.5 hover:bg-white/70"
                   }`}
               />
             ))}
@@ -3761,40 +3793,45 @@ export default function Home() {
           {showCategorySkeleton ? (
             <CategoryChipRowSkeleton className="py-1" />
           ) : (
-            displayCategories.slice(0, 12).map((category, index) => (
-              <Link
-                key={category.id || index}
-                to={`/food/user/category/${category.slug || category.name.toLowerCase().replace(/\s+/g, "-")}`}
-                className="flex-shrink-0"
-              >
-                <motion.div
-                  className={`flex flex-col items-center ${isPopup ? 'gap-1 w-[56px] sm:w-16 md:w-20' : 'gap-2 w-[72px] sm:w-24 md:w-28'
-                    }`}
-                  whileHover={{ scale: 1.08, y: -2 }}
-                  whileTap={{ scale: 0.95 }}
-                  transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                  style={{ animation: `fade-in-up 0.5s ease-out forwards ${index * 0.04}s`, opacity: 0 }}
+            displayCategories.slice(0, 12).map((category, index) => {
+              if (!category) return null;
+              const catName = category.name || category.label || "Category";
+              const catSlug = category.slug || catName.toLowerCase().replace(/\s+/g, "-");
+              return (
+                <Link
+                  key={category.id || category._id || index}
+                  to={`/food/user/category/${catSlug}`}
+                  className="flex-shrink-0"
                 >
-                  <div
-                    className={`rounded-full overflow-hidden shadow-md transition-all border border-gray-100 dark:border-gray-800 bg-white ${isPopup ? 'w-11 h-11 sm:w-14 sm:h-14' : 'w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24'
+                  <motion.div
+                    className={`flex flex-col items-center ${isPopup ? 'gap-1 w-[56px] sm:w-16 md:w-20' : 'gap-2 w-[72px] sm:w-24 md:w-28'
                       }`}
+                    whileHover={{ scale: 1.08, y: -2 }}
+                    whileTap={{ scale: 0.95 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    style={{ animation: `fade-in-up 0.5s ease-out forwards ${index * 0.04}s`, opacity: 0 }}
                   >
-                    <img
-                      src={category.image}
-                      alt={category.name}
-                      className="w-full h-full object-cover bg-white rounded-full transition-transform duration-300 group-hover:scale-110"
-                      loading="lazy"
-                    />
-                  </div>
-                  <span
-                    className={`font-bold text-gray-800 dark:text-gray-200 text-center leading-tight whitespace-nowrap group-hover:text-[#659116] transition-colors ${isPopup ? 'text-[10.5px] sm:text-xs pb-0.5' : 'text-xs sm:text-sm md:text-base pb-1'
-                      }`}
-                  >
-                    {category.name}
-                  </span>
-                </motion.div>
-              </Link>
-            ))
+                    <div
+                      className={`rounded-full overflow-hidden shadow-md transition-all border border-gray-100 dark:border-gray-800 bg-white ${isPopup ? 'w-11 h-11 sm:w-14 sm:h-14' : 'w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24'
+                        }`}
+                    >
+                      <img
+                        src={category.image}
+                        alt={catName}
+                        className="w-full h-full object-cover bg-white rounded-full transition-transform duration-300 group-hover:scale-110"
+                        loading="lazy"
+                      />
+                    </div>
+                    <span
+                      className={`font-bold text-gray-800 dark:text-gray-200 text-center leading-tight whitespace-nowrap group-hover:text-[#659116] transition-colors ${isPopup ? 'text-[10.5px] sm:text-xs pb-0.5' : 'text-xs sm:text-sm md:text-base pb-1'
+                        }`}
+                    >
+                      {catName}
+                    </span>
+                  </motion.div>
+                </Link>
+              );
+            })
           )}
 
           {/* See All: always show when sticky, otherwise only when >12 categories */}
@@ -4215,13 +4252,30 @@ export default function Home() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ duration: 0.5 }}>
+                {/* Header Row */}
                 <div className="px-4 flex items-center justify-between">
-                  <h2 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 dark:text-white tracking-tight">
-                    Recommended for you
-                  </h2>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <h2 className="text-lg sm:text-xl md:text-2xl font-extrabold text-gray-900 dark:text-white tracking-tight">
+                        Recommended for you
+                      </h2>
+                    </div>
+                    <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-0.5 font-medium">
+                      Curated picks we think you'll love
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => navigate('/food/user/restaurants')}
+                    className="flex items-center gap-1 text-xs sm:text-sm font-bold text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-800 px-3 py-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                  >
+                    <span>See all</span>
+                    <ArrowRight className="w-3.5 h-3.5" strokeWidth={2.5} />
+                  </button>
                 </div>
+
+                {/* Horizontal Scroll Cards List */}
                 <div
-                  className="flex gap-3 sm:gap-4 px-4 pb-2 overflow-x-auto scrollbar-hide scroll-smooth"
+                  className="flex gap-4 sm:gap-5 px-4 pb-3 overflow-x-auto scrollbar-hide scroll-smooth"
                   style={{
                     scrollbarWidth: "none",
                     msOverflowStyle: "none",
@@ -4229,50 +4283,162 @@ export default function Home() {
                   }}
                 >
                   {filteredRecommendedForYou.map((restaurant, index) => {
+                    if (!restaurant) return null;
+                    const restaurantName = getRestaurantDisplayName(restaurant) || "Restaurant";
                     const restaurantSlug =
                       restaurant.slug ||
-                      restaurant.name.toLowerCase().replace(/\s+/g, "-");
+                      restaurantName.toLowerCase().replace(/\s+/g, "-");
+
+                    const isFav = typeof isFavorite === "function" ? isFavorite(restaurantSlug) : false;
+
+                    const badgeInfo = index % 4 === 0
+                      ? { label: "Recommended", icon: "👍" }
+                      : index % 4 === 1
+                      ? { label: "Top rated", icon: "★" }
+                      : index % 4 === 2
+                      ? { label: "Trending", icon: "📈" }
+                      : { label: "Popular", icon: "❤️" };
+
+                    const fallbackRecommendedImage = horizontalFoodImages[index % horizontalFoodImages.length];
+
+                    const rawCover =
+                      restaurant.profileImage?.url ||
+                      restaurant.image ||
+                      restaurant.coverImages?.[0]?.url ||
+                      restaurant.coverImages?.[0] ||
+                      fallbackRecommendedImage;
+
+                    const rawLogo =
+                      restaurant.logo ||
+                      restaurant.profileImage?.url ||
+                      restaurant.image ||
+                      null;
+
+                    const resolvedCover = typeof rawCover === "string" && rawCover.trim() !== "" ? resolveImageUrl(rawCover) : (rawCover?.url ? resolveImageUrl(rawCover.url) : fallbackRecommendedImage);
+                    const resolvedLogo = typeof rawLogo === "string" ? resolveImageUrl(rawLogo) : (rawLogo?.url ? resolveImageUrl(rawLogo.url) : null);
+
+                    const cuisinesList = Array.isArray(restaurant.cuisines)
+                      ? restaurant.cuisines.join(" • ")
+                      : (restaurant.cuisine || "Italian • Pasta • Pizza");
+
+                    const priceForTwo = restaurant.costForTwo || restaurant.priceForTwo || (200 + (index * 30));
+
                     return (
                       <motion.div
-                        key={`recommended-${restaurant.mongoId || restaurant.id || restaurantSlug}`}
-                        className="flex-shrink-0 w-[170px] sm:w-[210px] md:w-[240px]"
+                        key={`recommended-${restaurant.mongoId || restaurant.id || restaurantSlug || index}`}
+                        className="flex-shrink-0 w-[195px] sm:w-[220px] md:w-[235px]"
                         initial={{ opacity: 0, y: 12 }}
                         whileInView={{ opacity: 1, y: 0 }}
                         viewport={{ once: true }}
-                        transition={{ duration: 0.35, delay: index * 0.05 }}>
+                        transition={{ duration: 0.35, delay: index * 0.05 }}
+                      >
                         <div
+                          className="group relative flex flex-col rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] shadow-sm hover:shadow-lg transition-all duration-300 cursor-pointer h-full"
                           onClick={(e) => {
                             if (e.defaultPrevented) return;
                             try { captureHomeScrollBeforeLeave(); } catch (_) { }
                             navigate(`/food/user/restaurants/${restaurantSlug}`);
                           }}
-                          className="block rounded-[20px] overflow-hidden border border-gray-100 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] shadow-sm hover:shadow-md transition-shadow cursor-pointer">
-                          <div className="relative h-32 sm:h-36 md:h-40 bg-gray-50">
-                            <RestaurantImageCarousel
-                              restaurant={restaurant}
-                              backendOrigin={BACKEND_ORIGIN}
-                              className="h-32 sm:h-36 md:h-40"
-                              roundedClass="rounded-t-[20px]"
-                              autoScroll={false}
+                        >
+                          {/* Image Shell (Ultra Compact Height: h-24 sm:h-28 md:h-32) */}
+                          <div className="relative w-full h-24 sm:h-28 md:h-32 bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                            <img
+                              src={resolvedCover}
+                              alt={restaurantName}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
+                              loading="lazy"
                             />
+
+                            {/* Top Right Heart Action Button */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (isFav) {
+                                  if (typeof removeFavorite === "function") removeFavorite(restaurantSlug);
+                                } else {
+                                  if (typeof addFavorite === "function") {
+                                    addFavorite({
+                                      slug: restaurantSlug,
+                                      name: restaurantName,
+                                      cuisine: restaurant.cuisine,
+                                      rating: restaurant.rating,
+                                      deliveryTime: restaurant.deliveryTime,
+                                      distance: restaurant.distance,
+                                      image: resolvedCover,
+                                    });
+                                  }
+                                }
+                              }}
+                              className="absolute top-2 right-2 z-10 w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-md"
+                              aria-label="Favorite"
+                            >
+                              <Heart className={`w-3 h-3 sm:w-3.5 sm:h-3.5 ${isFav ? "fill-red-500 text-red-500" : "text-white"}`} strokeWidth={2.2} />
+                            </button>
                           </div>
-                          <div className="p-3">
-                            <p className="text-sm font-semibold text-gray-900 dark:text-white truncate tracking-tight">
-                              {restaurant.name}
-                            </p>
-                            <p className="text-[11px] text-gray-500 truncate mt-1">
-                              {restaurant.cuisine || "Multi-cuisine"}
-                            </p>
-                            <div className="flex items-center justify-between mt-2.5">
-                              <p className="text-[9px] sm:text-[10px] text-orange-600 font-bold flex items-center gap-1 uppercase tracking-wider">
-                                <Flame className="w-3.5 h-3.5 fill-orange-600" />
-                                Near & Fast
+
+                          {/* Overlapping Restaurant Logo Circle */}
+                          <div className="relative z-10 -mt-5 ml-3 w-9 h-9 sm:w-10 sm:h-10 rounded-full border-2 border-white dark:border-[#1a1a1a] shadow-md bg-white dark:bg-gray-800 overflow-hidden flex items-center justify-center shrink-0">
+                            {resolvedLogo ? (
+                              <img
+                                src={resolvedLogo}
+                                alt={restaurantName}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gradient-to-br from-amber-400 to-orange-500 text-white font-extrabold text-[10px] sm:text-xs flex items-center justify-center uppercase">
+                                {restaurantName.slice(0, 2)}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Card Content Area */}
+                          <div className="pt-1.5 px-3 pb-3 flex flex-col justify-between flex-1">
+                            <div>
+                              {/* Restaurant Name & Rating Row */}
+                              <div className="flex items-center justify-between gap-1.5">
+                                <h3 className="text-xs sm:text-sm font-extrabold text-gray-900 dark:text-white truncate tracking-tight flex-1">
+                                  {restaurantName}
+                                </h3>
+                                <span className="bg-[#24963F] text-white text-[9.5px] sm:text-[10px] font-extrabold px-1.5 py-0.5 rounded flex items-center gap-0.5 shrink-0 shadow-sm">
+                                  <Star className="w-2.5 h-2.5 fill-white text-white" />
+                                  {Number(restaurant.rating) > 0 ? Number(restaurant.rating).toFixed(1) : "4.6"}
+                                </span>
+                              </div>
+
+                              <p className="text-[10px] sm:text-[11px] text-gray-500 dark:text-gray-400 truncate mt-0.5 font-medium">
+                                {cuisinesList}
                               </p>
-                              <div className="flex items-center gap-0.5 text-xs font-semibold text-gray-700 dark:text-gray-300">
-                                <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
-                                <span className="pt-0.5">{Number(restaurant.rating) > 0 ? Number(restaurant.rating).toFixed(1) : "NEW"}</span>
+
+                              {/* Stats Row: Time • Distance */}
+                              <div className="flex items-center gap-1.5 text-[10.5px] sm:text-[11px] font-extrabold text-gray-600 dark:text-gray-400 mt-1.5 whitespace-nowrap overflow-hidden">
+                                <span className="flex items-center gap-0.5 shrink-0">
+                                  <Clock className="w-3 h-3 text-gray-400" />
+                                  <span>{restaurant.deliveryTime || "20-30 min"}</span>
+                                </span>
+                                <span className="text-gray-300 dark:text-gray-700 font-normal">•</span>
+                                <span className="flex items-center gap-0.5 shrink-0">
+                                  <MapPin className="w-3 h-3 text-gray-400" />
+                                  <span>{restaurant.distance || "1.4 km"}</span>
+                                </span>
+                              </div>
+
+                              {/* Delivery & Price Row */}
+                              <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-gray-100 dark:border-gray-800/80">
+                                <span className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 text-[9px] sm:text-[10px] font-extrabold px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                                  <span>🛵</span>
+                                  <span>Free</span>
+                                </span>
+                                <span className="text-[10px] sm:text-[11px] font-bold text-gray-700 dark:text-gray-300">
+                                  ₹{priceForTwo} for two
+                                </span>
                               </div>
                             </div>
+
+                            {/* View Menu Button */}
+                            <button className="w-full mt-2 py-1.5 px-2 rounded-lg bg-gray-100 dark:bg-zinc-800 group-hover:bg-gray-900 group-hover:text-white dark:group-hover:bg-amber-500 dark:group-hover:text-black text-gray-900 dark:text-white font-extrabold text-[11px] flex items-center justify-center gap-1 transition-all shadow-sm">
+                              <span>View Menu</span>
+                              <ArrowRight className="w-3 h-3" strokeWidth={2.5} />
+                            </button>
                           </div>
                         </div>
                       </motion.div>
