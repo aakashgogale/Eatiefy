@@ -1,7 +1,7 @@
 import { config } from './env.js';
 
 /**
- * Returns allowed CORS origins including local dev ports and CLIENT_URL.
+ * Returns explicitly allowed CORS origins from env and defaults.
  * @returns {string[]}
  */
 export const getCorsOrigins = () => {
@@ -17,16 +17,40 @@ export const getCorsOrigins = () => {
 };
 
 /**
+ * Checks if request origin is permitted.
+ * Automatically permits Vercel deployments (*.vercel.app), explicit CLIENT_URL, localhost, and non-browser clients.
+ * @param {string|undefined} origin 
+ * @returns {boolean}
+ */
+export const isOriginAllowed = (origin) => {
+    // Allow non-browser requests (mobile apps, curl, server-to-server)
+    if (!origin) return true;
+
+    const allowedList = getCorsOrigins();
+    if (allowedList.includes(origin)) return true;
+
+    // Allow all Vercel frontend deployments (e.g. eatiefy-orpin.vercel.app, eatiefy.vercel.app)
+    try {
+        const urlObj = new URL(origin);
+        if (urlObj.hostname.endsWith('.vercel.app')) {
+            return true;
+        }
+    } catch {
+        /* Ignore malformed origin */
+    }
+
+    return false;
+};
+
+/**
  * Express CORS options with credentials enabled.
  */
 export const corsOptions = {
     origin: (origin, callback) => {
-        const allowed = getCorsOrigins();
-        // Allow requests with no origin (like mobile apps, curl, server-to-server)
-        if (!origin || allowed.includes(origin)) {
+        if (isOriginAllowed(origin)) {
             callback(null, true);
         } else {
-            callback(new Error('Not allowed by CORS'));
+            callback(new Error(`Not allowed by CORS: ${origin}`));
         }
     },
     credentials: true

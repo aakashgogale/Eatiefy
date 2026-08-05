@@ -1,6 +1,6 @@
 import { Server } from 'socket.io';
 import { config } from './env.js';
-import { getCorsOrigins } from './cors.js';
+import { isOriginAllowed } from './cors.js';
 import { logger } from '../utils/logger.js';
 import { verifyAccessToken } from '../core/auth/token.util.js';
 import { getFirebaseDB } from './firebase.js';
@@ -45,7 +45,13 @@ const roomNames = {
 export const initSocket = async (server) => {
     io = new Server(server, {
         cors: {
-            origin: getCorsOrigins(),
+            origin: (origin, callback) => {
+                if (isOriginAllowed(origin)) {
+                    callback(null, true);
+                } else {
+                    callback(new Error('Not allowed by CORS'));
+                }
+            },
             credentials: true,
             methods: ['GET', 'POST']
         }
