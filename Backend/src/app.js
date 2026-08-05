@@ -12,6 +12,7 @@ import { responseTimeLogger } from './middleware/responseTimeLogger.js';
 import { requestIdMiddleware } from './middleware/requestId.js';
 import { healthCheck } from './config/health.js';
 import { config } from './config/env.js';
+import { corsOptions } from './config/cors.js';
 
 const app = express();
 
@@ -22,6 +23,14 @@ app.set('trust proxy', 1);
 app.use(requestIdMiddleware);
 
 // Health endpoints (no rate limit, minimal JSON, no secrets)
+app.get('/', (req, res) => {
+    return res.status(200).json({
+        success: true,
+        message: 'Eatiefy Backend is Running 🚀',
+        environment: process.env.NODE_ENV,
+        timestamp: new Date().toISOString()
+    });
+});
 app.get('/health', async (_req, res) => {
     try {
         const data = await healthCheck();
@@ -43,8 +52,13 @@ app.use(helmet({
     noSniff: true,
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
 }));
-app.use(cors());
-app.use(morgan('dev'));
+app.use(cors(corsOptions));
+
+if (config.nodeEnv === 'development') {
+    app.use(morgan('dev'));
+    app.use('/api', responseTimeLogger);
+}
+
 app.use(express.json({
     verify: (req, res, buf) => {
         // ✅ Store rawBody for signature verification (Razorpay Webhooks)
@@ -66,9 +80,6 @@ app.use(xssClean());
 
 // Global rate limiting for API routes
 app.use('/api', apiRateLimiter);
-
-// Optional: log API response time (method, path, status, duration) - no sensitive data
-app.use('/api', responseTimeLogger);
 
 // API Routes
 app.use('/api', routes);

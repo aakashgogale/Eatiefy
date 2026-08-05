@@ -49,14 +49,16 @@ export const config = {
     authRateLimitMax: Number(process.env.AUTH_RATE_LIMIT_MAX || 30),
     authRateLimitDevMax: Number(process.env.AUTH_RATE_LIMIT_DEV_MAX || 100),
 
+    // Client & Security
+    clientUrl: process.env.CLIENT_URL || '',
+    deploySecret: process.env.DEPLOY_SECRET || '',
+
     // Security
     bcryptSaltRounds: Number(process.env.BCRYPT_SALT_ROUNDS || 10),
 
-    // Uploads (local VPS storage — served by nginx, not Node)
-    uploadStorageRoot: process.env.UPLOAD_STORAGE_ROOT
-        || (process.env.NODE_ENV === 'production' ? '/var/www/uploads' : 'uploads'),
-    uploadBaseUrl: sanitizeUploadBaseUrl(process.env.UPLOAD_BASE_URL)
-        || (process.env.NODE_ENV === 'production' ? '/uploads' : '/uploads'),
+    // Uploads (local storage — served by Express/nginx)
+    uploadStorageRoot: process.env.UPLOAD_STORAGE_ROOT || 'uploads',
+    uploadBaseUrl: sanitizeUploadBaseUrl(process.env.UPLOAD_BASE_URL) || '/uploads',
     uploadMaxFileSizeBytes: Number(process.env.UPLOAD_MAX_FILE_SIZE_MB || 5) * 1024 * 1024,
     uploadRateLimitWindowMinutes: Number(process.env.UPLOAD_RATE_LIMIT_WINDOW || 15),
     uploadRateLimitMax: Number(process.env.UPLOAD_RATE_LIMIT_MAX || 60),
@@ -66,7 +68,7 @@ export const config = {
     /** Max width in px; larger images are resized (aspect ratio kept). */
     uploadWebpMaxWidth: Number(process.env.UPLOAD_WEBP_MAX_WIDTH || 2560),
     /** @deprecated Use uploadStorageRoot — kept for backward compatibility */
-    uploadPath: process.env.UPLOAD_PATH || process.env.UPLOAD_STORAGE_ROOT || '/var/www/uploads',
+    uploadPath: process.env.UPLOAD_PATH || process.env.UPLOAD_STORAGE_ROOT || 'uploads',
 
     // Redis
     // Auto-enable when REDIS_URL is set (SOP sets URL but often omits REDIS_ENABLED=true)

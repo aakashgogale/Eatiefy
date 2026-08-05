@@ -114,7 +114,11 @@ const startServer = async () => {
 
         app.post('/api/deploy', (req, res) => {
             const signature = req.headers['x-hub-signature-256'];
-            const secret = 'mysecret123';
+            const secret = config.deploySecret;
+
+            if (!secret) {
+                return res.status(403).send('Deploy webhook unconfigured');
+            }
 
             const hash = 'sha256=' + crypto
                 .createHmac('sha256', secret)

@@ -13,6 +13,16 @@ try {
 }
 
 export const connectDB = async (retries = 5, delayMs = 3000) => {
+    if (!config.mongodbUri) {
+        logger.error('MongoDB connection failed: MONGO_URI / MONGODB_URI environment variable is missing.');
+        process.exit(1);
+    }
+
+    // Log runtime connection errors post-connect
+    mongoose.connection.on('error', (err) => {
+        logger.error(`MongoDB connection runtime error: ${err.message}`);
+    });
+
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
             const conn = await mongoose.connect(config.mongodbUri, {
