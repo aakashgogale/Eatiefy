@@ -4,9 +4,11 @@
  * - `API_BASE_URL` is used by UI (e.g. banners/debug) and should reflect the same value.
  */
 
+import { normalizeApiBaseUrl } from "./urlUtils.js";
+
 export const API_BASE_URL =
-  typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL
-    ? String(import.meta.env.VITE_API_BASE_URL).replace(/\/$/, "")
+  typeof import.meta !== "undefined"
+    ? normalizeApiBaseUrl(import.meta.env?.VITE_API_BASE_URL)
     : "";
 
 // Minimal shape so existing API_ENDPOINTS.* references do not break

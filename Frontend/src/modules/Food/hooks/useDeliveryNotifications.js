@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import io from 'socket.io-client';
 import { API_BASE_URL } from '@food/api/config';
+import { normalizeBackendOrigin } from '@/services/api/urlUtils';
 import { deliveryAPI } from '@food/api';
 import alertSound from '@food/assets/audio/alert.mp3';
 import originalSound from '@food/assets/audio/original.mp3';
@@ -760,24 +761,7 @@ export const useDeliveryNotifications = () => {
     // IMPORTANT: Socket.IO server is on the origin (not /api/v1).
     // Our API baseURL is typically like: http://localhost:5000/api/v1
     // So for sockets we always connect to: http://localhost:5000
-    let backendUrl = API_BASE_URL;
-    try {
-      const base =
-        String(backendUrl).startsWith('http')
-          ? undefined
-          : (typeof window !== 'undefined' ? window.location.origin : undefined);
-      backendUrl = new URL(backendUrl, base).origin;
-    } catch {
-      // best-effort fallback: strip common API prefixes
-      backendUrl = String(backendUrl || "")
-        .replace(/\/api\/v\d+\/?$/i, "")
-        .replace(/\/api\/?$/i, "")
-        .replace(/\/+$/, "");
-
-      if ((!backendUrl || !backendUrl.startsWith('http')) && typeof window !== 'undefined') {
-        backendUrl = window.location.origin;
-      }
-    }
+    let backendUrl = normalizeBackendOrigin(API_BASE_URL);
     
     // Backend uses default namespace; rooms handle role separation.
     const socketUrl = `${backendUrl}`;

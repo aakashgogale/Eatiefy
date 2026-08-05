@@ -4,6 +4,7 @@
  */
 
 import axios from "axios";
+import { normalizeApiBaseUrl } from "../../../services/api/urlUtils.js";
 
 /** In-flight silent refresh promises keyed by module (dedupe parallel callers). */
 const refreshPromiseByModule = {};
@@ -152,11 +153,10 @@ export function isModuleAuthenticated(module) {
 
   return false;
 }
-
 function getRefreshApiUrl() {
   const baseURL =
-    typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL
-      ? String(import.meta.env.VITE_API_BASE_URL).replace(/\/$/, "")
+    typeof import.meta !== "undefined"
+      ? normalizeApiBaseUrl(import.meta.env?.VITE_API_BASE_URL)
       : "";
   return baseURL
     ? `${baseURL}/food/auth/refresh-token`

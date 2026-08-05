@@ -7,12 +7,13 @@
  */
 
 import axios from "axios";
+import { normalizeApiBaseUrl, sanitizeProtocol } from "./urlUtils.js";
 
 // Prefer explicit env. If not set, use same-origin (works with a Vite proxy).
 // This avoids hardcoding ports like 5000 that may conflict with local setups.
 const baseURL =
-  typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL
-    ? String(import.meta.env.VITE_API_BASE_URL).replace(/\/$/, "")
+  typeof import.meta !== "undefined"
+    ? normalizeApiBaseUrl(import.meta.env?.VITE_API_BASE_URL)
     : "";
 
 const apiClient = axios.create({
@@ -226,6 +227,13 @@ function onRefreshFailed(module) {
 
 apiClient.interceptors.request.use(
   (config) => {
+    if (config.baseURL) {
+      config.baseURL = normalizeApiBaseUrl(config.baseURL);
+    }
+    if (config.url && /^https?:\/\//i.test(config.url)) {
+      config.url = sanitizeProtocol(config.url);
+    }
+
     config.contextModule = getModuleFromConfig(config);
 
     // Client-side RBAC safety net for sub-admins across all admin APIs.

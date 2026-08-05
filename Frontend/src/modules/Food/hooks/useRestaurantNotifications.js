@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
 import { API_BASE_URL } from '@food/api/config';
+import { normalizeBackendOrigin } from '@/services/api/urlUtils';
 import { restaurantAPI } from '@food/api';
 import { dispatchNotificationInboxRefresh } from '@food/hooks/useNotificationInbox';
 import {
@@ -285,42 +286,7 @@ export const useRestaurantNotifications = () => {
       return;
     }
 
-    // Normalize backend URL - use simpler, more robust approach
-    let backendUrl = API_BASE_URL;
-    
-    // Step 1: Extract protocol and hostname using URL parsing if possible
-    try {
-      const urlObj = new URL(backendUrl);
-      // Remove /api from pathname
-      let pathname = urlObj.pathname.replace(/^\/api\/?$/, '');
-      // Reconstruct clean URL
-      backendUrl = `${urlObj.protocol}//${urlObj.hostname}${urlObj.port ? `:${urlObj.port}` : ''}${pathname}`;
-    } catch (e) {
-      // If URL parsing fails, use regex-based normalization
-      // Remove /api suffix first
-      backendUrl = backendUrl.replace(/\/api\/?$/, '');
-      backendUrl = backendUrl.replace(/\/+$/, ''); // Remove trailing slashes
-      
-      // Normalize protocol - ensure exactly two slashes after protocol
-      // Fix patterns: https:/, https:///, https://https://
-      if (backendUrl.startsWith('https:') || backendUrl.startsWith('http:')) {
-        // Extract protocol
-        const protocolMatch = backendUrl.match(/^(https?):/i);
-        if (protocolMatch) {
-          const protocol = protocolMatch[1].toLowerCase();
-          // Remove everything up to and including the first valid domain part
-          const afterProtocol = backendUrl.substring(protocol.length + 1);
-          // Remove leading slashes
-          const cleanPath = afterProtocol.replace(/^\/+/, '');
-          // Reconstruct with exactly two slashes
-          backendUrl = `${protocol}://${cleanPath}`;
-        }
-      }
-    }
-    
-    // Final cleanup: ensure exactly two slashes after protocol
-    backendUrl = backendUrl.replace(/^(https?):\/+/gi, '$1://');
-    backendUrl = backendUrl.replace(/\/+$/, ''); // Remove trailing slashes
+    let backendUrl = normalizeBackendOrigin(API_BASE_URL);
     
     // CRITICAL: Check for localhost in production BEFORE creating socket
     // Detect production environment more reliably

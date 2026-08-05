@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "../../services/api/config.js";
+import { normalizeBackendOrigin, sanitizeProtocol } from "../../services/api/urlUtils.js";
 
 const SIGNED_URL_PATTERN =
   /[?&](X-Amz-|Signature=|Expires=|AWSAccessKeyId=|GoogleAccessId=|token=|sig=|se=|sp=|sv=)/i;
@@ -7,10 +8,7 @@ const SIGNED_URL_PATTERN =
 export const getBackendOrigin = () => {
   const fromApi = String(API_BASE_URL || "").trim();
   if (fromApi) {
-    return fromApi
-      .replace(/\/api\/v\d+\/?$/i, "")
-      .replace(/\/api\/?$/i, "")
-      .replace(/\/$/, "");
+    return normalizeBackendOrigin(fromApi);
   }
   if (typeof window !== "undefined" && window.location?.origin) {
     return window.location.origin;
@@ -129,10 +127,7 @@ export const resolveMediaUrl = (value, backendOrigin = getBackendOrigin()) => {
 
   const appProtocol = typeof window !== "undefined" ? window.location?.protocol : "";
 
-  let normalized = trimmed
-    .replace(/\\/g, "/")
-    .replace(/^(https?):\/(?!\/)/i, "$1://")
-    .replace(/^(https?:\/\/)(https?:\/\/)/i, "$1");
+  let normalized = sanitizeProtocol(trimmed.replace(/\\/g, "/"));
 
   if (/^\/\//.test(normalized)) {
     normalized = `${appProtocol || "https:"}${normalized}`;
