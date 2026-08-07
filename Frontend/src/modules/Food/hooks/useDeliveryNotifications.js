@@ -764,7 +764,7 @@ export const useDeliveryNotifications = () => {
     let backendUrl = normalizeBackendOrigin(API_BASE_URL);
     
     // Backend uses default namespace; rooms handle role separation.
-    const socketUrl = `${backendUrl}`;
+    const socketUrl = import.meta.env.VITE_SOCKET_URL || `${backendUrl}`;
     
     debugLog('?? Attempting to connect to Delivery Socket.IO:', socketUrl);
     debugLog('?? Backend URL:', backendUrl);

@@ -19,14 +19,14 @@ export const useLocationSharing = (orderId, enabled = false) => {
   const watchIdRef = useRef(null);
   const isSharingRef = useRef(false);
 
-  const backendUrl = API_BASE_URL ? API_BASE_URL.replace('/api', '') : '';
+  const socketUrl = import.meta.env.VITE_SOCKET_URL || (API_BASE_URL ? API_BASE_URL.replace('/api', '') : '');
 
   const startSharing = () => {
     if (!orderId || isSharingRef.current) return;
-    if (!API_BASE_URL || !backendUrl || !backendUrl.startsWith('http')) return;
+    if (!socketUrl || !socketUrl.startsWith('http')) return;
 
     if (!socketRef.current) {
-      socketRef.current = io(backendUrl, {
+      socketRef.current = io(socketUrl, {
         transports: ['websocket', 'polling'],
         reconnection: true,
         reconnectionDelay: 1000,

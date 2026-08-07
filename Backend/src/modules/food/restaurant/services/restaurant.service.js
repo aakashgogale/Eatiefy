@@ -1859,6 +1859,11 @@ export const listApprovedRestaurants = async (query = {}) => {
         // cuisines is an array of strings.
         filter.cuisines = { $in: [new RegExp(escapeRegex(cuisine), 'i')] };
     }
+    if (query.vegModeOption === 'pure-veg') {
+        filter.pureVegRestaurant = true;
+    } else if (query.vegModeOption === 'non-veg') {
+        filter.pureVegRestaurant = { $ne: true };
+    }
     if (query.hasOffers === 'true') {
         const activeOfferFilter = buildActivePublicOfferFilter();
         const [hasGlobalOffers, selectedOffers] = await Promise.all([

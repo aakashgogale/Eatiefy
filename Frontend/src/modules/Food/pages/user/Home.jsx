@@ -63,6 +63,7 @@ import {
   HeroBannerSkeleton,
   LoadingSkeletonRegion,
   RestaurantGridSkeleton,
+  AppShellSkeleton,
 } from "@food/components/ui/loading-skeletons";
 import { useProfile } from "@food/context/ProfileContext";
 import { useCart } from "@food/context/CartContext";
@@ -88,6 +89,7 @@ import {
   getUserRestaurantDistance,
   normalizeRestaurantLocation,
 } from "@food/utils/geo";
+import { optimizeCloudinaryUrl } from "@/shared/utils/mediaUrl";
 import {
   fetchDrivingDistancesMatrix,
   formatDistanceLabel,
@@ -240,9 +242,9 @@ const RestaurantImageCarousel = React.memo(
           if (isLocalHost || isSameHost) {
             parsed.searchParams.set("_wv", webviewSessionKeyRef.current);
           }
-          return parsed.toString();
+          return optimizeCloudinaryUrl(parsed.toString());
         } catch {
-          return resolvedUrl;
+          return optimizeCloudinaryUrl(resolvedUrl);
         }
       },
       [backendOrigin],
@@ -2483,7 +2485,6 @@ export default function Home() {
         } else if (filters.activeFilters?.has("delivery-under-45")) {
           params.maxDeliveryTime = 45;
         }
-
         // Distance filters
         if (filters.activeFilters?.has("distance-under-1km")) {
           params.radiusKm = 1.0;
@@ -2496,6 +2497,11 @@ export default function Home() {
           params.maxPrice = 200;
         } else if (filters.activeFilters?.has("price-under-500")) {
           params.maxPrice = 500;
+        }
+
+        // Veg mode filter
+        if (vegModeOption && vegModeOption !== "all") {
+          params.vegModeOption = vegModeOption;
         }
 
         // Offers filter
@@ -2812,6 +2818,7 @@ export default function Home() {
       effectiveLocation?.latitude,
       effectiveLocation?.longitude,
       zoneId,
+      vegModeOption,
     ],
   );
 
@@ -2970,40 +2977,24 @@ export default function Home() {
   ]);
 
   // IMPORTANT:
-  // Homepage should avoid eager N+1 menu requests. We only resolve menu metadata
-  // when the UI truly needs it: Veg Mode is enabled, or admin categories are unavailable.
+  // Eager N+1 menu requests removed. The backend listApprovedRestaurants API now handles vegModeOption directly.
   useEffect(() => {
-    const restaurantIds = menuUnionRestaurantIdsKey
-      ? menuUnionRestaurantIdsKey.split(",").filter(Boolean)
-      : [];
-    const shouldFetchMenuMeta = vegMode || realCategories.length === 0;
-
+    if (realCategories.length > 0 || !menuUnionRestaurantIdsKey) return;
+    // We only resolve menu metadata when admin categories are unavailable (fallback).
+    // This removes the massive N+1 query issue for Veg Mode.
+    const restaurantIds = menuUnionRestaurantIdsKey.split(",").filter(Boolean);
     const fetchMenuCategories = async () => {
       const requestSeq = ++menuUnionRequestSeqRef.current;
-
-      if (!menuUnionRestaurantIdsKey || !shouldFetchMenuMeta) {
-        setMenuCategories([]);
-        setRestaurantDietMeta({});
-        setLoadingMenuCategories(false);
-        return;
-      }
-
       setLoadingMenuCategories(true);
       try {
         const categoryMap = new Map();
         const menuCache = menuUnionCacheRef.current;
         const menuResponses = [];
-
         for (let index = 0; index < restaurantIds.length; index += 4) {
           const batchIds = restaurantIds.slice(index, index + 4);
           const batchResponses = await Promise.all(
             batchIds.map(async (id) => {
-              if (!id) return { id: null, menu: null };
-
-              if (menuCache.has(id)) {
-                return { id, menu: menuCache.get(id) };
-              }
-
+              if (menuCache.has(id)) return { id, menu: menuCache.get(id) };
               try {
                 const response = await restaurantAPI.getMenuByRestaurantId(id);
                 const menu = response?.data?.data?.menu || null;
@@ -3013,81 +3004,24 @@ export default function Home() {
                 menuCache.set(id, null);
                 return { id, menu: null };
               }
-            }),
+            })
           );
-
           if (requestSeq !== menuUnionRequestSeqRef.current) return;
           menuResponses.push(...batchResponses);
         }
-
         if (requestSeq !== menuUnionRequestSeqRef.current) return;
 
-        const nextDietMeta = {};
-
         menuResponses.forEach(({ id, menu }) => {
-          let hasVeg = false;
-          let hasNonVeg = false;
           const sections = Array.isArray(menu?.sections) ? menu.sections : [];
           sections.forEach((section) => {
-            const sectionItems = Array.isArray(section?.items)
-              ? section.items
-              : [];
-            sectionItems.forEach((item) => {
-              const foodType = String(item?.foodType || "")
-                .trim()
-                .toLowerCase();
-              if (foodType === "veg") hasVeg = true;
-              if (
-                foodType === "non-veg" ||
-                foodType === "non veg" ||
-                foodType === "nonveg"
-              )
-                hasNonVeg = true;
-            });
-
-            const subsections = Array.isArray(section?.subsections)
-              ? section.subsections
-              : [];
-            subsections.forEach((subsection) => {
-              const subsectionItems = Array.isArray(subsection?.items)
-                ? subsection.items
-                : [];
-              subsectionItems.forEach((item) => {
-                const foodType = String(item?.foodType || "")
-                  .trim()
-                  .toLowerCase();
-                if (foodType === "veg") hasVeg = true;
-                if (
-                  foodType === "non-veg" ||
-                  foodType === "non veg" ||
-                  foodType === "nonveg"
-                )
-                  hasNonVeg = true;
-              });
-            });
-
             const categoryName = String(section?.name || "").trim();
             if (!categoryName) return;
-
             const slug = slugifyCategory(categoryName);
             if (!slug) return;
-
             let image = "";
             if (Array.isArray(section?.items) && section.items.length > 0) {
               image = normalizeImageUrl(section.items[0]?.image);
             }
-            if (!image && Array.isArray(section?.subsections)) {
-              for (const subsection of section.subsections) {
-                if (
-                  Array.isArray(subsection?.items) &&
-                  subsection.items.length > 0
-                ) {
-                  image = normalizeImageUrl(subsection.items[0]?.image);
-                  if (image) break;
-                }
-              }
-            }
-
             if (!categoryMap.has(slug)) {
               categoryMap.set(slug, {
                 id: slug,
@@ -3100,88 +3034,38 @@ export default function Home() {
               categoryMap.get(slug).image = image;
             }
           });
-
-          if (id) {
-            nextDietMeta[id] = {
-              hasVeg,
-              hasNonVeg,
-              isPureVeg: hasVeg && !hasNonVeg,
-            };
-          }
         });
 
         const categories = Array.from(categoryMap.values())
           .sort((a, b) => a.name.localeCompare(b.name))
           .map((category, index) => ({
             ...category,
-            image:
-              category.image ||
-              foodImages[index % foodImages.length] ||
-              foodImages[0],
+            image: category.image || foodImages[index % foodImages.length] || foodImages[0],
           }));
-
         setMenuCategories(categories);
-        setRestaurantDietMeta(nextDietMeta);
       } finally {
         if (requestSeq === menuUnionRequestSeqRef.current) {
           setLoadingMenuCategories(false);
         }
       }
     };
-
     fetchMenuCategories();
-  }, [
-    menuUnionRestaurantIdsKey,
-    normalizeImageUrl,
-    realCategories.length,
-    slugifyCategory,
-    vegMode,
-  ]);
-
-  const matchesVegMode = useCallback(
-    (restaurant) => {
-      if (!vegMode) return true;
-      if (vegModeOption === "all") return true;
-      const rId = String(restaurant.id || restaurant._id || restaurant.mongoId || "");
-      const meta = restaurantDietMeta[rId];
-      const isPureVeg =
-        restaurant?.pureVegRestaurant === true ||
-        restaurant?.isVeg === true ||
-        meta?.isPureVeg === true;
-
-      if (vegModeOption === "pure-veg") {
-        return isPureVeg;
-      }
-      if (vegModeOption === "non-veg") {
-        return !isPureVeg;
-      }
-      return true;
-    },
-    [vegMode, vegModeOption, restaurantDietMeta],
-  );
+  }, [menuUnionRestaurantIdsKey, normalizeImageUrl, realCategories.length, slugifyCategory]);
 
   const applyClientFilters = useCallback(
     (list) => {
       if (!Array.isArray(list)) return [];
 
-      let result = list.filter(matchesVegMode);
+      let result = list;
 
       // Veg filter
       if (activeFilters.has("veg")) {
-        result = result.filter((r) => {
-          const rId = String(r.id || r._id || r.mongoId || "");
-          const meta = restaurantDietMeta[rId];
-          return r.pureVegRestaurant === true || r.isVeg === true || meta?.isPureVeg === true;
-        });
+        result = result.filter((r) => r.pureVegRestaurant === true || r.isVeg === true);
       }
 
       // Non-Veg filter
       if (activeFilters.has("non-veg")) {
-        result = result.filter((r) => {
-          const rId = String(r.id || r._id || r.mongoId || "");
-          const meta = restaurantDietMeta[rId];
-          return r.pureVegRestaurant === false || meta?.hasNonVeg === true;
-        });
+        result = result.filter((r) => r.pureVegRestaurant === false);
       }
 
       // Rating filters
@@ -3288,7 +3172,7 @@ export default function Home() {
 
       return result;
     },
-    [activeFilters, sortBy, matchesVegMode, restaurantDietMeta]
+    [activeFilters, sortBy]
   );
 
   // Filter restaurants and foods based on active filters
@@ -3872,6 +3756,10 @@ export default function Home() {
 
   if (shouldShowOutOfZoneScreen) {
     return <OutOfZoneScreen location={effectiveLocation} />;
+  }
+
+  if (loadingLandingConfig && loadingRestaurants && (!restaurantsData || restaurantsData.length === 0)) {
+    return <AppShellSkeleton />;
   }
 
   return (

@@ -59,7 +59,7 @@ export const useUserNotifications = () => {
     // Normalize backend URL
     let backendUrl = normalizeBackendOrigin(API_BASE_URL);
 
-    const socketUrl = `${backendUrl}`;
+    const socketUrl = import.meta.env.VITE_SOCKET_URL || `${backendUrl}`;
     
     // Auth token
     const token = localStorage.getItem('user_accessToken') || localStorage.getItem('accessToken');

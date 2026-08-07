@@ -373,7 +373,7 @@ export const useRestaurantNotifications = () => {
     }
 
     // Backend uses default namespace; rooms handle role separation.
-    const socketUrl = `${socketOrigin}`;
+    const socketUrl = import.meta.env.VITE_SOCKET_URL || `${socketOrigin}`;
     
     // Validate socket URL format
     try {

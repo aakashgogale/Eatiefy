@@ -79,6 +79,22 @@ const getMediaRewriteOrigin = () => {
   return "";
 };
 
+export const optimizeCloudinaryUrl = (url) => {
+  if (!url || typeof url !== 'string') return url;
+  if (!url.includes('cloudinary.com')) return url;
+  
+  const uploadRegex = /\/(image\/upload)\/(?:v\d+\/)?(.*)/;
+  const match = url.match(uploadRegex);
+  
+  if (match) {
+    const base = url.substring(0, match.index + '/image/upload/'.length);
+    const rest = match[2];
+    // Global fallback optimization for urls not using the CloudinaryImage component
+    return `${base}f_auto,q_auto,dpr_auto,c_fill,g_auto/${rest}`;
+  }
+  return url;
+};
+
 const finalizeAbsoluteUrl = (url) => {
   const appProtocol = typeof window !== "undefined" ? window.location?.protocol : "";
   const appHost = typeof window !== "undefined" ? window.location?.hostname : "";
@@ -109,7 +125,8 @@ const finalizeAbsoluteUrl = (url) => {
     }
 
     const finalUrl = parsed.toString();
-    return SIGNED_URL_PATTERN.test(finalUrl) ? finalUrl : encodeURI(finalUrl);
+    const urlStr = SIGNED_URL_PATTERN.test(finalUrl) ? finalUrl : encodeURI(finalUrl);
+    return optimizeCloudinaryUrl(urlStr);
   } catch {
     return url;
   }
