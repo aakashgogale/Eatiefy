@@ -3391,6 +3391,19 @@ export default function Home() {
     isLoadingFilterResults,
     loadMoreRestaurants,
   ]);
+  const matchesVegMode = useCallback(
+    (restaurant) => {
+      if (!vegMode) return true;
+      if (vegModeOption === "non-veg") {
+        return restaurant?.pureVegRestaurant === false && restaurant?.isVeg !== true;
+      }
+      if (vegModeOption === "pure-veg") {
+        return restaurant?.pureVegRestaurant === true || restaurant?.isVeg === true;
+      }
+      return true;
+    },
+    [vegMode, vegModeOption]
+  );
 
   const recommendedForYouRestaurants = useMemo(() => {
     const idsInOrder = (recommendedRestaurantIds || []).map((id) => String(id));
