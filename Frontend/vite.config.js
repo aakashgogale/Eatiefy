@@ -97,10 +97,12 @@ export default defineConfig({
     ],
   },
   build: {
+    chunkSizeWarningLimit: 2000,
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (!id.includes('node_modules')) return
+          if (id.includes('react') && !id.includes('react-router')) return 'vendor-react'
 
           if (id.includes('react-router')) return 'vendor-router'
           if (id.includes('@mui/') || id.includes('@emotion/')) return 'vendor-mui'
