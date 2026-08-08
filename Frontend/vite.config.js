@@ -98,34 +98,6 @@ export default defineConfig({
   },
   build: {
     chunkSizeWarningLimit: 2000,
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return
-
-          if (id.includes('react-router')) return 'vendor-router'
-          if (id.includes('@mui/') || id.includes('@emotion/')) return 'vendor-mui'
-          if (
-            id.includes('stylis') ||
-            id.includes('prop-types') ||
-            id.includes('hoist-non-react-statics')
-          ) {
-            return 'vendor-mui'
-          }
-          if (id.includes('firebase')) return 'vendor-firebase'
-          if (id.includes('@react-google-maps') || id.includes('@googlemaps/')) return 'vendor-maps'
-          if (id.includes('leaflet') || id.includes('react-leaflet')) return 'vendor-leaflet'
-          if (id.includes('recharts')) return 'vendor-charts'
-          if (id.includes('framer-motion') || id.includes('gsap') || id.includes('canvas-confetti') || id.includes('lenis')) {
-            return 'vendor-motion'
-          }
-          if (id.includes('jspdf') || id.includes('jspdf-autotable')) return 'vendor-export-pdf'
-          if (id.includes('exceljs')) return 'vendor-export-excel'
-          if (id.includes('html2canvas')) return 'vendor-export-canvas'
-          return 'vendor-core'
-        },
-      },
-    },
   },
   server: {
     host: '0.0.0.0',
