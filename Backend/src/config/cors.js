@@ -5,7 +5,14 @@ import { config } from './env.js';
  * @returns {string[]}
  */
 export const getCorsOrigins = () => {
-    const defaultOrigins = ['http://localhost:5173', 'http://localhost:3000'];
+    const defaultOrigins = [
+        'http://localhost:5173', 
+        'http://localhost:3000',
+        'https://eatiefy.com',
+        'https://www.eatiefy.com',
+        'http://eatiefy.com',
+        'http://www.eatiefy.com'
+    ];
 
     const envOrigins = [process.env.CLIENT_URL, config.clientUrl]
         .filter(Boolean)
