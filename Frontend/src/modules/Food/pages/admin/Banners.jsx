@@ -275,7 +275,7 @@ export default function Banners() {
                             src={bannerImages[banner.sl] || bannerImage1}
                             alt={banner.title}
                             className="w-full h-full object-cover"
-                            onError={(e) = loading="lazy" decoding="async"> {
+                            onError={(e) => {
                               e.target.src = bannerImage1
                             }}
                           />

@@ -456,7 +456,7 @@ export default function FoodApproval() {
                               src={img} 
                               alt="Item preview"
                               className="w-24 h-24 object-cover rounded-xl border border-gray-100 shadow-sm hover:scale-105 transition-transform cursor-zoom-in"
-                              onClick={() = loading="lazy" decoding="async"> window.open(img, '_blank')}
+                              onClick={() => window.open(img, '_blank')}
                               onError={(e) => { e.target.style.display = 'none'; }}
                             />
                         ))}

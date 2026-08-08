@@ -473,7 +473,7 @@ export default function FeedNavbar({ className = "" }) {
               src={profileImage}
               alt="Profile"
               className="w-full h-full object-cover"
-              onError={() = loading="lazy" decoding="async"> {
+              onError={() => {
                 setImageError(true);
               }}
             />

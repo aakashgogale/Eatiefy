@@ -48,7 +48,7 @@ export default function Home() {
                 src={logoUrl || quickSpicyLogo}
                 alt={companyName || "Logo"}
                 className="h-16 w-auto object-contain"
-                onError={(e) = loading="lazy" decoding="async"> {
+                onError={(e) => {
                   if (e.target.src !== quickSpicyLogo) {
                     e.target.src = quickSpicyLogo
                   }

@@ -143,7 +143,7 @@ export default function Coffee() {
                           src={store.logo}
                           alt={store.name}
                           className="w-full h-full object-cover"
-                          onError={(e) = loading="lazy" decoding="async"> {
+                          onError={(e) => {
                             e.target.style.display = 'none'
                           }}
                         />

@@ -33,7 +33,7 @@ function Avatar({ src, alt }) {
       src={src}
       alt={alt}
       className="w-full h-full object-cover"
-      onError={() = loading="lazy" decoding="async"> setHasError(true)}
+      onError={() => setHasError(true)}
     />
   )
 }

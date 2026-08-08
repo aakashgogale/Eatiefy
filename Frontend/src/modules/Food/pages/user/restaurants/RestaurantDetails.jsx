@@ -2121,7 +2121,7 @@ function RestaurantDetailsContent() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0.85 }}
               transition={{ duration: 0.35, ease: "easeOut" }}
-              onError={(event) = loading="lazy" decoding="async"> {
+              onError={(event) => {
                 event.currentTarget.src = FOOD_IMAGE_FALLBACK
               }}
             />
@@ -2369,7 +2369,7 @@ function RestaurantDetailsContent() {
                       src={category.image}
                       alt={category.name}
                       className="h-7 w-7 rounded-full object-cover border border-gray-100 dark:border-gray-700"
-                      onError={(event) = loading="lazy" decoding="async"> {
+                      onError={(event) => {
                         event.currentTarget.style.display = "none"
                       }}
                     />
@@ -2621,7 +2621,7 @@ function RestaurantDetailsContent() {
                                   src={item.image}
                                   alt={item.name}
                                   className="w-full h-full object-cover rounded-2xl shadow-sm"
-                                  onError={(e) = loading="lazy" decoding="async"> {
+                                  onError={(e) => {
                                     if (e.currentTarget.src !== FOOD_IMAGE_FALLBACK) {
                                       e.currentTarget.src = FOOD_IMAGE_FALLBACK
                                     }
@@ -2848,7 +2848,7 @@ function RestaurantDetailsContent() {
                                             src={item.image}
                                             alt={item.name}
                                             className="w-full h-full object-cover rounded-2xl shadow-sm"
-                                            onError={(e) = loading="lazy" decoding="async"> {
+                                            onError={(e) => {
                                               if (e.currentTarget.src !== FOOD_IMAGE_FALLBACK) {
                                                 e.currentTarget.src = FOOD_IMAGE_FALLBACK
                                               }
@@ -3028,7 +3028,7 @@ function RestaurantDetailsContent() {
                                 src={category.image}
                                 alt={category.name}
                                 className="h-10 w-10 rounded-xl object-cover border border-gray-200"
-                                onError={(event) = loading="lazy" decoding="async"> {
+                                onError={(event) => {
                                   event.currentTarget.style.display = "none"
                                 }}
                               />

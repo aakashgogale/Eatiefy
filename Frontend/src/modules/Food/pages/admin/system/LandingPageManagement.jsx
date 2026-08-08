@@ -2359,7 +2359,7 @@ export default function LandingPageManagement() {
                                   src={profileImageUrl}
                                   alt={restaurant.name}
                                   className="w-16 h-16 rounded-xl object-cover border-2 border-slate-200"
-                                  onError={(e) = loading="lazy" decoding="async"> {
+                                  onError={(e) => {
                                     e.target.style.display = 'none'
                                     e.target.nextSibling.style.display = 'flex'
                                   }}

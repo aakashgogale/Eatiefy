@@ -1446,7 +1446,7 @@ export default function RestaurantsList() {
                                 src={restaurant.logo}
                                 alt={restaurant.name}
                                 className="w-full h-full object-cover"
-                                onError={(e) = loading="lazy" decoding="async"> {
+                                onError={(e) => {
                                   e.target.src = PLACEHOLDER_40
                                 }}
                               />
@@ -1952,7 +1952,7 @@ export default function RestaurantsList() {
                         src={profileImgUrl || PLACEHOLDER_128}
                         alt={r?.restaurantName || r?.name || "Restaurant"}
                         className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                        onError={(e) = loading="lazy" decoding="async"> {
+                        onError={(e) => {
                           e.target.src = PLACEHOLDER_128
                         }}
                       />
@@ -2554,7 +2554,7 @@ export default function RestaurantsList() {
                                 src={r.onboarding.step2.profileImageUrl.url}
                                 alt="Profile"
                                 className="w-32 h-32 rounded-lg object-cover border border-slate-200 hover:border-blue-500 transition-colors"
-                                onError={(e) = loading="lazy" decoding="async"> {
+                                onError={(e) => {
                                   e.target.src = PLACEHOLDER_128
                                 }}
                               />

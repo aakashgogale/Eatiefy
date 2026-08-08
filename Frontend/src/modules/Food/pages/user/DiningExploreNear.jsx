@@ -363,7 +363,7 @@ export default function DiningExploreNear() {
                           src={restaurant.image}
                           alt={restaurant.name}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          onError={(e) = loading="lazy" decoding="async"> {
+                          onError={(e) => {
                             e.currentTarget.style.display = "none"
                           }}
                         />

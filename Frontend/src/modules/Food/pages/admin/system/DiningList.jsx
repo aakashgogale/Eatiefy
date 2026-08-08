@@ -323,7 +323,7 @@ export default function DiningList() {
                                                                     src={restaurant.logo}
                                                                     alt={restaurant.name}
                                                                     className="w-full h-full object-cover"
-                                                                    onError={(e) = loading="lazy" decoding="async"> { e.target.src = "https://via.placeholder.com/40" }}
+                                                                    onError={(e) => { e.target.src = "https://via.placeholder.com/40" }}
                                                                 />
                                                             </div>
                                                             <div className="flex flex-col">

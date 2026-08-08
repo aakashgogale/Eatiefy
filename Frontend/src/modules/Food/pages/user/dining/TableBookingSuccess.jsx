@@ -84,7 +84,7 @@ export default function TableBookingSuccess() {
                                 src={booking.restaurant?.image || booking.restaurant?.profileImage?.url || ""}
                                 className="w-full h-full object-cover rounded-xl"
                                 alt="restaurant"
-                                onError={(e) = loading="lazy" decoding="async"> {
+                                onError={(e) => {
                                     e.currentTarget.style.display = 'none'
                                 }}
                             />

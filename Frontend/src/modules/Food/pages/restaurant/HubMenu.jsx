@@ -1406,7 +1406,7 @@ export default function HubMenu() {
                             src={addon.images[0]}
                             alt={addon.name}
                             className="w-20 h-20 object-cover rounded-lg"
-                            onError={(e) = loading="lazy" decoding="async"> {
+                            onError={(e) => {
                               e.target.style.display = 'none'
                             }}
                           />
@@ -2501,7 +2501,7 @@ export default function HubMenu() {
                               src={img}
                               alt={`Add-on ${index + 1}`}
                               className="w-full h-24 object-cover rounded-lg border border-gray-200"
-                              onError={(e) = loading="lazy" decoding="async"> {
+                              onError={(e) => {
                                 e.target.style.display = 'none'
                               }}
                             />

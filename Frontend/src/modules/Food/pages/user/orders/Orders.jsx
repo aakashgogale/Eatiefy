@@ -799,7 +799,7 @@ Order again from this restaurant in the ${companyName} app.`
                         src={restaurantImage}
                         alt={order.restaurant}
                         className="w-full h-full object-cover"
-                        onError={(e) = loading="lazy" decoding="async"> {
+                        onError={(e) => {
                           e.target.src = "https://images.unsplash.com/photo-1555949258-eb67b1ef0ceb?auto=format&fit=crop&w=100&q=80"
                         }}
                       />
@@ -879,7 +879,7 @@ Order again from this restaurant in the ${companyName} app.`
                                 src={itemImage}
                                 alt={itemName}
                                 className="w-full h-full object-cover"
-                                onError={(e) = loading="lazy" decoding="async"> {
+                                onError={(e) => {
                                   e.target.style.display = 'none'
                                 }}
                               />

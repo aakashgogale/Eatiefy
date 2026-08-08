@@ -208,7 +208,7 @@ export default function DiningCategory() {
                         src={restaurant.image}
                         alt={restaurant.name}
                         className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                        onError={(event) = loading="lazy" decoding="async"> {
+                        onError={(event) => {
                           event.currentTarget.style.display = "none"
                         }}
                       />

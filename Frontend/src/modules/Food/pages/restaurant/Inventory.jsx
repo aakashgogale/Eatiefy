@@ -2506,7 +2506,7 @@ export default function Inventory() {
                             src={addonImagePreview}
                             alt="Preview"
                             className="w-24 h-24 object-cover rounded border"
-                            onError={(e) = loading="lazy" decoding="async"> (e.target.style.display = "none")}
+                            onError={(e) => (e.target.style.display = "none")}
                           />
                         </div>
                       )}
@@ -2648,7 +2648,7 @@ export default function Inventory() {
                               src={addon.images[0]}
                               alt={addon.name}
                               className="h-20 w-20 rounded-2xl object-cover ring-1 ring-slate-200"
-                              onError={(e) = loading="lazy" decoding="async"> {
+                              onError={(e) => {
                                 e.target.style.display = 'none'
                               }}
                             />
@@ -2867,7 +2867,7 @@ export default function Inventory() {
                                       src={item.image}
                                       alt={item.name || "Item"}
                                       className="absolute inset-0 h-full w-full object-cover"
-                                      onError={(e) = loading="lazy" decoding="async"> {
+                                      onError={(e) => {
                                         e.currentTarget.style.display = "none"
                                       }}
                                     />

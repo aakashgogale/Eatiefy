@@ -435,7 +435,7 @@ export default function Customers() {
                                 src={customer.profileImage}
                                 alt={customer.name}
                                 className="w-full h-full object-cover"
-                                onError={(e) = loading="lazy" decoding="async"> {
+                                onError={(e) => {
                                   e.currentTarget.style.display = "none"
                                 }}
                               />

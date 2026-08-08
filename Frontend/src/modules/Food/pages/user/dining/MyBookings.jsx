@@ -158,7 +158,7 @@ export default function MyBookings() {
                                     src={booking.restaurant?.image || booking.restaurant?.profileImage?.url || ""}
                                     className="w-full h-full object-cover"
                                     alt={booking.restaurant?.name}
-                                    onError={(e) = loading="lazy" decoding="async"> {
+                                    onError={(e) => {
                                         e.currentTarget.style.display = 'none'
                                     }}
                                 />

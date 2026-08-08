@@ -128,7 +128,7 @@ export default function BottomNavigation() {
                 isActive("/delivery/profile") ? "" : "border-gray-300"
               }`}
               style={isActive("/delivery/profile") ? { borderColor: activeColor } : undefined}
-              onError={() = loading="lazy" decoding="async"> {
+              onError={() => {
                 setImageError(true)
               }}
             />

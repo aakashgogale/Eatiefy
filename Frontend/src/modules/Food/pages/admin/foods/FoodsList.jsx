@@ -1002,7 +1002,7 @@ export default function FoodsList() {
                           src={withImageVersion(selectedFood.image)}
                           alt={selectedFood.name}
                           className="w-20 h-20 rounded-xl object-cover border border-slate-200"
-                  onError={(e) = loading="lazy" decoding="async"> {
+                  onError={(e) => {
                     e.target.src = FOOD_FALLBACK_IMAGE
                   }}
                 />

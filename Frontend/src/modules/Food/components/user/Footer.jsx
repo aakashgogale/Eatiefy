@@ -86,7 +86,7 @@ export default function Footer() {
                   alt="Company Logo"
                   className="h-10 w-10 rounded-full object-cover"
                   crossOrigin="anonymous"
-                  onError={(e) = loading="lazy" decoding="async"> {
+                  onError={(e) => {
                     if (e.target.src !== quickSpicyLogo) {
                       e.target.src = quickSpicyLogo
                     }

@@ -270,7 +270,7 @@ export default function AddonsList() {
                           src={getAddonImage(addon)}
                           alt={getAddonTitle(addon)}
                           className="w-full h-full object-cover"
-                          onError={(e) = loading="lazy" decoding="async"> {
+                          onError={(e) => {
                             e.target.src = "https://via.placeholder.com/40"
                           }}
                         />
@@ -340,7 +340,7 @@ export default function AddonsList() {
                   src={getAddonImage(selectedAddon)}
                   alt={getAddonTitle(selectedAddon)}
                   className="w-20 h-20 rounded-xl object-cover border border-slate-200"
-                  onError={(e) = loading="lazy" decoding="async"> {
+                  onError={(e) => {
                     e.target.src = "https://via.placeholder.com/64"
                   }}
                 />
@@ -389,7 +389,7 @@ export default function AddonsList() {
                   src={editImagePreview}
                   alt="Preview"
                   className="w-16 h-16 rounded-md object-cover border"
-                  onError={(e) = loading="lazy" decoding="async"> (e.target.style.display = "none")}
+                  onError={(e) => (e.target.style.display = "none")}
                 />
               ) : (
                 <div className="w-16 h-16 rounded-md border border-dashed border-slate-300 flex items-center justify-center text-xs text-slate-500">

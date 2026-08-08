@@ -401,7 +401,7 @@ const DeliveryTrackingMap = ({
                   src={order?.restaurantLogo || order?.restaurantId?.logo || order?.restaurantId?.profileImage || `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(RESTAURANT_PIN_SVG)}`}
                   alt="Restaurant"
                   className="w-full h-full object-contain rounded-full bg-gray-50"
-                  onError={(e) = loading="lazy" decoding="async"> { e.target.src = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(RESTAURANT_PIN_SVG)}`; }}
+                  onError={(e) => { e.target.src = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(RESTAURANT_PIN_SVG)}`; }}
                 />
              </div>
              {/* Pin Tip */}
@@ -430,7 +430,7 @@ const DeliveryTrackingMap = ({
                   src={order?.customerImage || order?.userId?.profileImage || order?.userId?.avatar || `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(CUSTOMER_PIN_SVG)}`}
                   alt="Me"
                   className="w-full h-full object-contain rounded-full bg-gray-50"
-                  onError={(e) = loading="lazy" decoding="async"> { e.target.src = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(CUSTOMER_PIN_SVG)}`; }}
+                  onError={(e) => { e.target.src = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(CUSTOMER_PIN_SVG)}`; }}
                 />
              </div>
              {/* Pin Tip */}
@@ -455,7 +455,7 @@ const DeliveryTrackingMap = ({
                 src="/MapRider.webp" 
                 alt="Rider" 
                 className="w-full h-full object-contain drop-shadow-2xl"
-                onError={(e) = loading="lazy" decoding="async"> {
+                onError={(e) => {
                   e.target.src = bikeLogo;
                 }}
               />

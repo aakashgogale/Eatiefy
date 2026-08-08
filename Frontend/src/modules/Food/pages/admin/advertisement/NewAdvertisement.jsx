@@ -506,7 +506,7 @@ export default function NewAdvertisement() {
                         src={coverPlaceholder}
                         alt="Cover"
                         className="w-full h-full object-cover"
-                        onError={(e) = loading="lazy" decoding="async"> {
+                        onError={(e) => {
                           e.target.style.display = "none"
                         }}
                       />
@@ -528,7 +528,7 @@ export default function NewAdvertisement() {
                             src={profilePlaceholder}
                             alt="Profile"
                             className="w-full h-full object-cover"
-                            onError={(e) = loading="lazy" decoding="async"> {
+                            onError={(e) => {
                               e.target.style.display = "none"
                             }}
                           />

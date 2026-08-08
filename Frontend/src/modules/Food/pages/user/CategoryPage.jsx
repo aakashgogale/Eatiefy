@@ -952,7 +952,7 @@ export default function CategoryPage() {
                           src={cat.image}
                           alt={cat.name}
                           className="w-full h-full object-cover"
-                          onError={(e) = loading="lazy" decoding="async"> {
+                          onError={(e) => {
                             // If the backend image is missing/broken, show initials instead of fake assets.
                             e.target.style.display = 'none'
                           }}
@@ -1091,7 +1091,7 @@ export default function CategoryPage() {
                               src={restaurant.categoryDishImage}
                               alt={restaurant.categoryDishName || restaurant.name}
                               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                              onError={(e) = loading="lazy" decoding="async"> {
+                              onError={(e) => {
                                 // Fallback to restaurant image if dish image fails
                                 if (restaurant.image) {
                                   e.target.src = restaurant.image
@@ -1110,7 +1110,7 @@ export default function CategoryPage() {
                               src={restaurant.image}
                               alt={restaurant.name}
                               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                              onError={(e) = loading="lazy" decoding="async"> {
+                              onError={(e) => {
                                 // Show emoji placeholder
                                 e.target.style.display = 'none'
                                 const placeholder = document.createElement('div')
@@ -1200,7 +1200,7 @@ export default function CategoryPage() {
                             src={restaurant.categoryDishImage}
                             alt={restaurant.categoryDishName || restaurant.name}
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                            onError={(e) = loading="lazy" decoding="async"> {
+                            onError={(e) => {
                               // Fallback to restaurant image if dish image fails
                               if (restaurant.image) {
                                 e.target.src = restaurant.image
@@ -1219,7 +1219,7 @@ export default function CategoryPage() {
                             src={restaurant.image}
                             alt={restaurant.name}
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                            onError={(e) = loading="lazy" decoding="async"> {
+                            onError={(e) => {
                               // Show emoji placeholder
                               e.target.style.display = 'none'
                               const placeholder = document.createElement('div')

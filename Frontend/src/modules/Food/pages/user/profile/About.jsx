@@ -127,7 +127,7 @@ export default function About() {
                       src={logoUrl || quickSpicyLogo}
                       alt={`${aboutData.appName} Logo`}
                       className="h-16 w-16 md:h-20 md:w-20 object-contain rounded-full"
-                      onError={(e) = loading="lazy" decoding="async"> {
+                      onError={(e) => {
                         if (e.target.src !== quickSpicyLogo) {
                           e.target.src = quickSpicyLogo
                         }

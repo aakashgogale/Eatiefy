@@ -448,7 +448,7 @@ export default function RestaurantReport() {
                                 src={restaurant.icon}
                                 alt={restaurant.restaurantName}
                                 className="w-full h-full object-cover"
-                                onError={(e) = loading="lazy" decoding="async"> {
+                                onError={(e) => {
                                   e.target.src = "https://via.placeholder.com/32"
                                 }}
                               />

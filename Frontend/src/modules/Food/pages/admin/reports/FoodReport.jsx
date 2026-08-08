@@ -490,7 +490,7 @@ export default function FoodReport() {
                               src={food.image}
                               alt={food.name}
                               className="w-full h-full object-cover"
-                              onError={(e) = loading="lazy" decoding="async"> {
+                              onError={(e) => {
                                 e.target.src = "https://via.placeholder.com/40"
                               }}
                             />
