@@ -28,6 +28,7 @@ export default function SignIn() {
     phone: "",
     countryCode: "+91",
   })
+  const [isSignUp, setIsSignUp] = useState(false)
 
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -105,7 +106,8 @@ export default function SignIn() {
         return
       }
       const fullPhone = `${countryCode} ${phoneDigits}`
-      await authAPI.sendOTP(fullPhone, "login", null)
+      const purpose = isSignUp ? "register" : "login"
+      await authAPI.sendOTP(fullPhone, purpose, null)
 
       const ref = String(searchParams.get("ref") || "").trim()
       const authData = {
@@ -114,7 +116,7 @@ export default function SignIn() {
         email: null,
         name: null,
         referralCode: ref || null,
-        isSignUp: false,
+        isSignUp: isSignUp,
         module: "user",
       }
 
@@ -209,9 +211,26 @@ export default function SignIn() {
           }}
         >
           <div>
+            <div className="flex bg-gray-100/80 p-1 rounded-xl mb-6 border border-gray-200/50">
+              <button
+                type="button"
+                onClick={() => setIsSignUp(false)}
+                className={`flex-1 py-2.5 text-sm font-black rounded-lg transition-all duration-300 ${!isSignUp ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+              >
+                Login
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsSignUp(true)}
+                className={`flex-1 py-2.5 text-sm font-black rounded-lg transition-all duration-300 ${isSignUp ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+              >
+                Register
+              </button>
+            </div>
+            
             <div className="space-y-1 mb-6">
               <h2 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">
-                Get Started
+                {isSignUp ? "Create Account" : "Welcome Back"}
               </h2>
               <p className="text-xs sm:text-sm font-medium text-gray-600">
                 Enter your mobile number to continue.

@@ -1254,22 +1254,7 @@ export default function AddRestaurant() {
               <Input
                 type="time"
                 value={step2.openingTime || ""}
-                onChange={(e) => {
-                  const nextOpening = e.target.value
-                  const closingMinutes = timeStringToMinutes(step2.closingTime)
-                  const openingMinutes = timeStringToMinutes(nextOpening)
-                  if (openingMinutes !== null && closingMinutes !== null) {
-                    if (openingMinutes === closingMinutes) {
-                      toast.error("Opening time and closing time cannot be same")
-                      return
-                    }
-                    if (closingMinutes < openingMinutes) {
-                      toast.error("Closing time cannot be less than opening time")
-                      return
-                    }
-                  }
-                  setStep2({ ...step2, openingTime: nextOpening })
-                }}
+                onChange={(e) => setStep2({ ...step2, openingTime: e.target.value })}
                 autoComplete="off"
                 className="bg-white text-sm"
               />
@@ -1279,22 +1264,7 @@ export default function AddRestaurant() {
               <Input
                 type="time"
                 value={step2.closingTime || ""}
-                onChange={(e) => {
-                  const nextClosing = e.target.value
-                  const openingMinutes = timeStringToMinutes(step2.openingTime)
-                  const closingMinutes = timeStringToMinutes(nextClosing)
-                  if (openingMinutes !== null && closingMinutes !== null) {
-                    if (openingMinutes === closingMinutes) {
-                      toast.error("Opening time and closing time cannot be same")
-                      return
-                    }
-                    if (closingMinutes < openingMinutes) {
-                      toast.error("Closing time cannot be less than opening time")
-                      return
-                    }
-                  }
-                  setStep2({ ...step2, closingTime: nextClosing })
-                }}
+                onChange={(e) => setStep2({ ...step2, closingTime: e.target.value })}
                 autoComplete="off"
                 className="bg-white text-sm"
               />
