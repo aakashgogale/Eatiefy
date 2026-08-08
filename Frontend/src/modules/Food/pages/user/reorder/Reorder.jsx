@@ -150,10 +150,10 @@ export default function Reorder() {
             <div className="relative mb-6 flex items-center justify-center">
               <div className="w-48 h-48 sm:w-56 sm:h-56 relative flex items-center justify-center">
                 <img
-                  src="/assets/empty_reorder_plate.png"
+                  src="/assets/empty_reorder_plate.webp"
                   alt="Empty Food Orders"
                   className="w-full h-full object-contain mix-blend-multiply dark:mix-blend-normal opacity-90"
-                />
+                 loading="lazy" decoding="async" />
               </div>
             </div>
 

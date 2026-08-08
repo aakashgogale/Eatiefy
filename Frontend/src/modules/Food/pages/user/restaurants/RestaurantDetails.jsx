@@ -60,7 +60,7 @@ import {
   getFoodVariants,
   hasFoodVariants,
 } from "@food/utils/foodVariants"
-import fssaiLogo from "@food/assets/fssai.png"
+import fssaiLogo from "@food/assets/fssai.webp"
 import { RestaurantDetailSkeleton } from "@food/components/ui/loading-skeletons"
 
 const debugLog = (...args) => {}
@@ -2121,7 +2121,7 @@ function RestaurantDetailsContent() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0.85 }}
               transition={{ duration: 0.35, ease: "easeOut" }}
-              onError={(event) => {
+              onError={(event) = loading="lazy" decoding="async"> {
                 event.currentTarget.src = FOOD_IMAGE_FALLBACK
               }}
             />
@@ -2369,7 +2369,7 @@ function RestaurantDetailsContent() {
                       src={category.image}
                       alt={category.name}
                       className="h-7 w-7 rounded-full object-cover border border-gray-100 dark:border-gray-700"
-                      onError={(event) => {
+                      onError={(event) = loading="lazy" decoding="async"> {
                         event.currentTarget.style.display = "none"
                       }}
                     />
@@ -2621,7 +2621,7 @@ function RestaurantDetailsContent() {
                                   src={item.image}
                                   alt={item.name}
                                   className="w-full h-full object-cover rounded-2xl shadow-sm"
-                                  onError={(e) => {
+                                  onError={(e) = loading="lazy" decoding="async"> {
                                     if (e.currentTarget.src !== FOOD_IMAGE_FALLBACK) {
                                       e.currentTarget.src = FOOD_IMAGE_FALLBACK
                                     }
@@ -2848,7 +2848,7 @@ function RestaurantDetailsContent() {
                                             src={item.image}
                                             alt={item.name}
                                             className="w-full h-full object-cover rounded-2xl shadow-sm"
-                                            onError={(e) => {
+                                            onError={(e) = loading="lazy" decoding="async"> {
                                               if (e.currentTarget.src !== FOOD_IMAGE_FALLBACK) {
                                                 e.currentTarget.src = FOOD_IMAGE_FALLBACK
                                               }
@@ -2939,7 +2939,7 @@ function RestaurantDetailsContent() {
                 src={fssaiLogo}
                 alt="FSSAI"
                 className="h-full w-auto object-contain"
-              />
+               loading="lazy" decoding="async" />
             </div>
             <div className="flex-1">
               <p className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-widest font-bold mb-1">
@@ -3028,7 +3028,7 @@ function RestaurantDetailsContent() {
                                 src={category.image}
                                 alt={category.name}
                                 className="h-10 w-10 rounded-xl object-cover border border-gray-200"
-                                onError={(event) => {
+                                onError={(event) = loading="lazy" decoding="async"> {
                                   event.currentTarget.style.display = "none"
                                 }}
                               />
@@ -3524,7 +3524,7 @@ function RestaurantDetailsContent() {
                         src={selectedItem.image}
                         alt={selectedItem.name}
                         className="w-full h-full object-cover"
-                      />
+                       loading="lazy" decoding="async" />
                     ) : (
                       <div className="w-full h-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
                         <span className="text-sm text-gray-400">No image available</span>
@@ -4082,7 +4082,7 @@ function RestaurantDetailsContent() {
                             src={fssaiLogo}
                             alt="FSSAI"
                             className="h-full w-auto object-contain"
-                          />
+                           loading="lazy" decoding="async" />
                         </div>
                         <div className="flex-1">
                           <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide font-medium">

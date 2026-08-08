@@ -543,7 +543,7 @@ export default function DiningReservations() {
                                         src={restaurantPhoto}
                                         alt={restaurant?.restaurantName || restaurant?.name || "Restaurant"}
                                         className="w-full h-full object-cover"
-                                    />
+                                     loading="lazy" decoding="async" />
                                 ) : (
                                     <div className="w-full h-full flex flex-col items-center justify-center text-slate-400">
                                         <ImagePlus className="w-8 h-8 mb-2" />
@@ -565,7 +565,7 @@ export default function DiningReservations() {
                                                 src={photo.url}
                                                 alt={`Restaurant photo ${index + 1}`}
                                                 className="w-full h-full object-cover"
-                                            />
+                                             loading="lazy" decoding="async" />
                                             <span className="absolute inset-x-0 bottom-0 bg-black/45 px-1 py-0.5 text-[10px] font-semibold text-white">
                                                 {restaurantPhoto === photo.url ? "Main" : `Photo ${index + 1}`}
                                             </span>
@@ -617,7 +617,7 @@ export default function DiningReservations() {
                                 <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
                                     {menuPhotos.map((photo, index) => (
                                         <div key={`${photo.url}-${index}`} className="relative h-24 rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
-                                            <img src={photo.url} alt={`Menu photo ${index + 1}`} className="w-full h-full object-cover" />
+                                            <img src={photo.url} alt={`Menu photo ${index + 1}`} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                                             <button
                                                 type="button"
                                                 onClick={() => handleRemoveMenuPhoto(photo.url)}

@@ -1037,7 +1037,7 @@ export default function OutletInfo() {
               src={toDisplayImageUrl(mainImage || thumbnailImage)}
               alt="Outlet"
               className="w-full h-full object-cover"
-            />
+             loading="lazy" decoding="async" />
           <input
             ref={menuImageInputRef}
             type="file"
@@ -1080,7 +1080,7 @@ export default function OutletInfo() {
               src={toDisplayImageUrl(thumbnailImage || mainImage)}
               alt="Restaurant thumbnail"
               className="w-full h-full object-cover"
-            />
+             loading="lazy" decoding="async" />
           </div>
           <div className="pb-2 min-w-0 flex-1">
             <h2 className="text-2xl font-black text-gray-900 tracking-tight truncate">
@@ -1105,7 +1105,7 @@ export default function OutletInfo() {
                       mainImage === img.url ? "border-slate-900" : "border-slate-200"
                     }`}
                   >
-                    <img src={toDisplayImageUrl(img.url)} alt={`Menu ${index + 1}`} className="h-full w-full object-cover" />
+                    <img src={toDisplayImageUrl(img.url)} alt={`Menu ${index + 1}`} className="h-full w-full object-cover"  loading="lazy" decoding="async" />
                   </button>
                 ))
               ) : (
@@ -1712,7 +1712,7 @@ export default function OutletInfo() {
               src={toDisplayImageUrl(previewImageUrl)}
               alt="Preview"
               className="w-full max-h-[80vh] object-contain rounded-md"
-            />
+             loading="lazy" decoding="async" />
           </div>
         </div>
       ) : null}

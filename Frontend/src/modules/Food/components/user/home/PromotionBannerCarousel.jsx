@@ -108,7 +108,7 @@ const PromotionBannerCarousel = ({ zoneId: propZoneId }) => {
                 src={banner.imageUrl} 
                 alt={banner.title || "Promotion"} 
                 className="w-full h-full object-cover"
-              />
+               loading="lazy" decoding="async" />
             </a>
           </div>
         ))}

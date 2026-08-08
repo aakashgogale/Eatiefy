@@ -37,7 +37,7 @@ export default function NewAdvertisement() {
     { key: "en", label: "English(EN)" },
     { key: "bn", label: "Bengali - বাংলা(BN)" },
     { key: "ar", label: "Arabic - العربية (AR)" },
-    { key: "es", label: "Spanish - espa�ol(ES)" },
+    { key: "es", label: "Spanish - espa�ol(ES)" },
   ]
 
   const handleInputChange = (field, value) => {
@@ -264,7 +264,7 @@ export default function NewAdvertisement() {
                         }`}
                       >
                         <option value="">Select Restaurant</option>
-                        <option value="cafe-monarch">Caf� Monarch</option>
+                        <option value="cafe-monarch">Caf� Monarch</option>
                         <option value="hungry-puppets">Hungry Puppets</option>
                       </select>
                       {formErrors.restaurant && (
@@ -377,7 +377,7 @@ export default function NewAdvertisement() {
                               src={profilePreview}
                               alt="Profile preview"
                               className="w-full h-48 object-cover"
-                            />
+                             loading="lazy" decoding="async" />
                             <button
                               type="button"
                               onClick={() => handleRemoveImage("profileImage")}
@@ -424,7 +424,7 @@ export default function NewAdvertisement() {
                               src={coverPreview}
                               alt="Cover preview"
                               className="w-full h-48 object-cover"
-                            />
+                             loading="lazy" decoding="async" />
                             <button
                               type="button"
                               onClick={() => handleRemoveImage("coverImage")}
@@ -500,13 +500,13 @@ export default function NewAdvertisement() {
                         src={coverPreview}
                         alt="Cover"
                         className="w-full h-full object-cover"
-                      />
+                       loading="lazy" decoding="async" />
                     ) : (
                       <img
                         src={coverPlaceholder}
                         alt="Cover"
                         className="w-full h-full object-cover"
-                        onError={(e) => {
+                        onError={(e) = loading="lazy" decoding="async"> {
                           e.target.style.display = "none"
                         }}
                       />
@@ -522,13 +522,13 @@ export default function NewAdvertisement() {
                             src={profilePreview}
                             alt="Profile"
                             className="w-full h-full object-cover"
-                          />
+                           loading="lazy" decoding="async" />
                         ) : (
                           <img
                             src={profilePlaceholder}
                             alt="Profile"
                             className="w-full h-full object-cover"
-                            onError={(e) => {
+                            onError={(e) = loading="lazy" decoding="async"> {
                               e.target.style.display = "none"
                             }}
                           />

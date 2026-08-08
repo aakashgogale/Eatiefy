@@ -142,7 +142,7 @@ export default function ShowIdCardV2() {
                 src={idCardData.profileImage}
                 alt={idCardData.name}
                 className="w-[104px] h-[104px] rounded-[28px] object-cover"
-                onError={(e) => {
+                onError={(e) = loading="lazy" decoding="async"> {
                   const name = idCardData.name || "Delivery Partner";
                   e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=111827&color=fff&size=128`;
                 }}

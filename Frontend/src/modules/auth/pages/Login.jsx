@@ -160,10 +160,10 @@ export default function UnifiedOTPFastLogin() {
   }
 
   // Service images (served from public folder)
-  const foodIcon = "/super-app/food.png"
-  const taxiIcon = "/super-app/taxi.png"
-  const groceryIcon = "/super-app/grocery.png"
-  const hotelIcon = "/super-app/hotel.png"
+  const foodIcon = "/super-app/food.webp"
+  const taxiIcon = "/super-app/taxi.webp"
+  const groceryIcon = "/super-app/grocery.webp"
+  const hotelIcon = "/super-app/hotel.webp"
 
   const services = [
     { id: 'food', name: 'Food Delivery', icon: foodIcon, label: 'Zomato', color: 'bg-red-500', shadow: 'shadow-red-200' },

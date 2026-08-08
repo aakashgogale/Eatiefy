@@ -143,7 +143,7 @@ export default function Coffee() {
                           src={store.logo}
                           alt={store.name}
                           className="w-full h-full object-cover"
-                          onError={(e) => {
+                          onError={(e) = loading="lazy" decoding="async"> {
                             e.target.style.display = 'none'
                           }}
                         />
@@ -212,7 +212,7 @@ export default function Coffee() {
             alt="Coffee"
             className="w-full h-auto object-contain"
             style={{ display: 'block' }}
-          />
+           loading="lazy" decoding="async" />
         </div>
 
         {/* Navbar with Back Button - Overlay on top of image */}

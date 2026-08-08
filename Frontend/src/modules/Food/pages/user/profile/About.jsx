@@ -5,7 +5,7 @@ import { motion } from "framer-motion"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Button } from "@food/components/ui/button"
 import { Card, CardContent } from "@food/components/ui/card"
-import quickSpicyLogo from "@food/assets/eatiefy-logo.png"
+import quickSpicyLogo from "@food/assets/eatiefy-logo.webp"
 import api from "@food/api"
 import { API_ENDPOINTS } from "@food/api/config"
 import { useCompanyName } from "@food/hooks/useCompanyName"
@@ -127,7 +127,7 @@ export default function About() {
                       src={logoUrl || quickSpicyLogo}
                       alt={`${aboutData.appName} Logo`}
                       className="h-16 w-16 md:h-20 md:w-20 object-contain rounded-full"
-                      onError={(e) => {
+                      onError={(e) = loading="lazy" decoding="async"> {
                         if (e.target.src !== quickSpicyLogo) {
                           e.target.src = quickSpicyLogo
                         }

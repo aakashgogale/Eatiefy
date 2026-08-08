@@ -111,8 +111,8 @@ import {
   DropdownMenuTrigger,
 } from "@food/components/ui/dropdown-menu";
 import { useDeliveryLocation } from "@food/context/DeliveryLocationContext";
-import quickSpicyLogo from "@food/assets/eatiefy-logo.png";
-import offerImage from "@food/assets/offerimage.png";
+import quickSpicyLogo from "@food/assets/eatiefy-logo.webp";
+import offerImage from "@food/assets/offerimage.webp";
 import api, { restaurantAPI, adminAPI } from "@food/api";
 import { usePublicAppConfig } from "@food/context/PublicAppConfigContext";
 import { API_BASE_URL } from "@food/api/config";
@@ -126,10 +126,10 @@ import OutOfZoneScreen from "@food/components/user/OutOfZoneScreen";
 
 
 // Explore More Icons
-import exploreOffers from "@food/assets/explore more icons/offers.png";
-import exploreGourmet from "@food/assets/explore more icons/gourmet.png";
-import exploreTop10 from "@food/assets/explore more icons/top 10.png";
-import exploreCollection from "@food/assets/explore more icons/collection.png";
+import exploreOffers from "@food/assets/explore more icons/offers.webp";
+import exploreGourmet from "@food/assets/explore more icons/gourmet.webp";
+import exploreTop10 from "@food/assets/explore more icons/top 10.webp";
+import exploreCollection from "@food/assets/explore more icons/collection.webp";
 
 // Generated High-Quality Food Category Images (Cloudinary CDN URLs)
 import cloudinaryImages from "@food/constants/cloudinaryImages.json";
@@ -4284,7 +4284,7 @@ export default function Home() {
                                 src={resolvedLogo}
                                 alt={restaurantName}
                                 className="w-full h-full object-cover"
-                              />
+                               loading="lazy" decoding="async" />
                             ) : (
                               <div className="w-full h-full bg-gradient-to-br from-amber-400 to-orange-500 text-white font-extrabold text-[10px] sm:text-xs flex items-center justify-center uppercase">
                                 {restaurantName.slice(0, 2)}
@@ -4942,10 +4942,10 @@ export default function Home() {
               {/* Food Illustration in Top Right Corner */}
               <div className="absolute top-2.5 right-10 w-16 h-16 pointer-events-none select-none z-10">
                 <img
-                  src="/food_popup_ill2.png"
+                  src="/food_popup_ill2.webp"
                   alt="Food illustration"
                   className="w-full h-full object-contain"
-                />
+                 loading="lazy" decoding="async" />
               </div>
 
               <button

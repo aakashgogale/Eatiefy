@@ -226,7 +226,7 @@ export default function DesktopSidebar() {
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center shrink-0 overflow-hidden">
             {logoUrl ? (
-              <img src={logoUrl} alt="Logo" className="w-full h-full object-cover rounded-xl" />
+              <img src={logoUrl} alt="Logo" className="w-full h-full object-cover rounded-xl"  loading="lazy" decoding="async" />
             ) : (
               <Store className="w-5 h-5 text-green-600" />
             )}
@@ -287,7 +287,7 @@ export default function DesktopSidebar() {
         >
           <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-green-600 text-sm font-bold text-white">
             {ownerImage ? (
-              <img src={ownerImage} alt={ownerName} className="h-full w-full object-cover" />
+              <img src={ownerImage} alt={ownerName} className="h-full w-full object-cover"  loading="lazy" decoding="async" />
             ) : (
               ownerName.charAt(0).toUpperCase()
             )}

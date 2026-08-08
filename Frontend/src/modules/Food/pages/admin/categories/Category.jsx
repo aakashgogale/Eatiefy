@@ -494,7 +494,7 @@ export default function Category() {
                         <div className="flex items-start gap-3">
                           <div className="h-11 w-11 overflow-hidden rounded-2xl bg-slate-100">
                             {category?.image ? (
-                              <img src={category.image} alt={category.name} className="h-full w-full object-cover" />
+                              <img src={category.image} alt={category.name} className="h-full w-full object-cover"  loading="lazy" decoding="async" />
                             ) : (
                               <div className="flex h-full w-full items-center justify-center text-sm font-bold text-slate-500">
                                 {String(category?.name || "C").slice(0, 1).toUpperCase()}
@@ -705,7 +705,7 @@ export default function Category() {
                                   src={imagePreview || formData.image}
                                   alt="Category preview"
                                   className="h-full w-full object-cover"
-                                />
+                                 loading="lazy" decoding="async" />
                               </div>
                             )}
                             <div className="flex items-center gap-3">

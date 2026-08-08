@@ -110,7 +110,7 @@ const CloudinaryImage = ({
         className={`w-full h-full object-cover transition-opacity duration-500 ${
           isLoaded ? 'opacity-100' : 'opacity-0'
         }`}
-        onLoad={() => setIsLoaded(true)}
+        onLoad={() = loading="lazy" decoding="async"> setIsLoaded(true)}
         {...props}
       />
     </div>

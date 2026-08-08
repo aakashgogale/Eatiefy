@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import EatiefyScreen from '../../assets/EatiefyScreen.png';
+import EatiefyScreen from '../../assets/EatiefyScreen.webp';
 
 export default function OnboardingSplash({ onComplete, onSignInClick }) {
   const handleGetStarted = () => {

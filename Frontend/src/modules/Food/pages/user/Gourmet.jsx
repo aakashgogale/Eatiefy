@@ -13,7 +13,7 @@ import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
 import { useDeliveryLocation } from "@food/context/DeliveryLocationContext"
 
 // Import banner
-import gourmetBanner from "@food/assets/groumetpagebanner.png"
+import gourmetBanner from "@food/assets/groumetpagebanner.webp"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -118,7 +118,7 @@ export default function Gourmet() {
             src={gourmetBanner}
             alt="Gourmet Dining"
             className="w-full h-full object-cover"
-          />
+           loading="lazy" decoding="async" />
         </div>
       </div>
 

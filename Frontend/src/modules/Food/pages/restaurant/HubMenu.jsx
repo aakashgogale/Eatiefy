@@ -1406,7 +1406,7 @@ export default function HubMenu() {
                             src={addon.images[0]}
                             alt={addon.name}
                             className="w-20 h-20 object-cover rounded-lg"
-                            onError={(e) => {
+                            onError={(e) = loading="lazy" decoding="async"> {
                               e.target.style.display = 'none'
                             }}
                           />
@@ -1565,7 +1565,7 @@ export default function HubMenu() {
                               src={item.image}
                               alt={item.name}
                               className="w-20 h-20 rounded-lg object-cover"
-                            />
+                             loading="lazy" decoding="async" />
                             <div className="absolute bottom-1 right-1 bg-black/60 rounded-full p-1">
                               <div className="flex items-center gap-1">
                                 <Camera className="w-3 h-3 text-white" />
@@ -2305,7 +2305,7 @@ export default function HubMenu() {
                                   src={item.image}
                                   alt={item.name}
                                   className="w-16 h-16 rounded-lg object-cover"
-                                />
+                                 loading="lazy" decoding="async" />
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 mb-1">
                                     <div
@@ -2501,7 +2501,7 @@ export default function HubMenu() {
                               src={img}
                               alt={`Add-on ${index + 1}`}
                               className="w-full h-24 object-cover rounded-lg border border-gray-200"
-                              onError={(e) => {
+                              onError={(e) = loading="lazy" decoding="async"> {
                                 e.target.style.display = 'none'
                               }}
                             />

@@ -143,7 +143,7 @@ export const ProfileV2 = () => {
           </div>
           <div className="relative shrink-0">
             {profile?.profileImage?.url ? (
-              <img src={profile.profileImage.url} alt="Profile" className="w-[88px] h-[88px] rounded-[32px] object-cover shadow-sm border border-gray-100" />
+              <img src={profile.profileImage.url} alt="Profile" className="w-[88px] h-[88px] rounded-[32px] object-cover shadow-sm border border-gray-100"  loading="lazy" decoding="async" />
             ) : (
               <div className="w-[88px] h-[88px] rounded-[32px] bg-gray-50 flex items-center justify-center border border-gray-100 shadow-inner">
                 <User className="w-10 h-10 text-gray-300" />

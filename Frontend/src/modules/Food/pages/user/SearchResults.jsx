@@ -853,7 +853,7 @@ export default function SearchResults() {
                         src={cat.image}
                         alt={cat.name}
                         className="w-full h-full object-cover"
-                      />
+                       loading="lazy" decoding="async" />
                     </div>
                   ) : (
                     <div className={`w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center border-2 transition-all ${isSelected ? 'border-[#EB590E] dark:border-[#EB590E] shadow-lg bg-[#FFF2EB] dark:bg-[#EB590E]/20' : 'border-transparent'
@@ -944,7 +944,7 @@ export default function SearchResults() {
                             src={restaurant.image}
                             alt={restaurant.name}
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                            onError={(e) => {
+                            onError={(e) = loading="lazy" decoding="async"> {
                               e.target.style.display = 'none'
                             }}
                           />
@@ -1012,7 +1012,7 @@ export default function SearchResults() {
                           src={restaurant.image}
                           alt={restaurant.name}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          onError={(e) => {
+                          onError={(e) = loading="lazy" decoding="async"> {
                             e.target.style.display = 'none'
                           }}
                         />

@@ -117,7 +117,7 @@ export const ProfileDocsV2 = () => {
                    </div>
                    {doc.data?.document && (
                       <div className="mt-2 w-24 h-16 rounded-xl border border-gray-100 overflow-hidden shadow-inner bg-gray-50 flex items-center justify-center">
-                         <img src={doc.data.document} className="w-full h-full object-cover opacity-50 grayscale" alt="Preview" />
+                         <img src={doc.data.document} className="w-full h-full object-cover opacity-50 grayscale" alt="Preview"  loading="lazy" decoding="async" />
                       </div>
                    )}
                 </div>
@@ -141,7 +141,7 @@ export const ProfileDocsV2 = () => {
                       <button onClick={() => setShowViewer(null)} className="p-3 bg-gray-50 rounded-full text-gray-400"><X className="w-6 h-6" /></button>
                    </div>
                    <div className="p-2">
-                      <img src={showViewer.url} className="w-full h-full object-contain rounded-2xl max-h-[70vh]" alt="Identity Doc" />
+                      <img src={showViewer.url} className="w-full h-full object-contain rounded-2xl max-h-[70vh]" alt="Identity Doc"  loading="lazy" decoding="async" />
                    </div>
                 </motion.div>
              </div>

@@ -845,7 +845,7 @@ export default function ItemDetailsPage() {
                         src={images[currentImageIndex]}
                         alt={`${itemName} - Image ${currentImageIndex + 1}`}
                         className="w-full h-full object-cover"
-                      />
+                       loading="lazy" decoding="async" />
                     ) : null}
                   </motion.div>
                 </AnimatePresence>

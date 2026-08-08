@@ -1002,7 +1002,7 @@ export default function FoodsList() {
                           src={withImageVersion(selectedFood.image)}
                           alt={selectedFood.name}
                           className="w-20 h-20 rounded-xl object-cover border border-slate-200"
-                  onError={(e) => {
+                  onError={(e) = loading="lazy" decoding="async"> {
                     e.target.src = FOOD_FALLBACK_IMAGE
                   }}
                 />
@@ -1223,7 +1223,7 @@ export default function FoodsList() {
                       src={imagePreviewUrl}
                       alt="Food preview"
                       className="w-full h-full object-cover"
-                    />
+                     loading="lazy" decoding="async" />
                   </div>
                 </div>
               ) : null}

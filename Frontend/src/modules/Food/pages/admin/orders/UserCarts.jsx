@@ -422,7 +422,7 @@ export default function UserCarts() {
                                           <td className="px-3 py-2.5">
                                             <div className="flex items-center gap-2 min-w-0">
                                               {item.image ? (
-                                                <img src={item.image} alt={item.name || "Item"} className="h-8 w-8 shrink-0 rounded object-cover border border-slate-200" />
+                                                <img src={item.image} alt={item.name || "Item"} className="h-8 w-8 shrink-0 rounded object-cover border border-slate-200"  loading="lazy" decoding="async" />
                                               ) : (
                                                 <div className="h-8 w-8 shrink-0 rounded bg-slate-100 border border-slate-200" />
                                               )}

@@ -95,7 +95,7 @@ export const PickupActionModal = ({
     order.restaurantId?.phone ||
     '';
   const items = order.items || [];
-  const restaurantLogo = order.restaurantImage || order.restaurant?.logo || order.restaurant?.profileImage || 'https://cdn-icons-png.flaticon.com/512/3170/3170733.png';
+  const restaurantLogo = order.restaurantImage || order.restaurant?.logo || order.restaurant?.profileImage || 'https://cdn-icons-png.flaticon.com/512/3170/3170733.webp';
 
   return (
     <div className="absolute inset-0 z-[110] flex items-end justify-center">
@@ -129,7 +129,7 @@ export const PickupActionModal = ({
             <div className="flex items-start justify-between mb-6 pb-6 border-b border-gray-50">
               <div className="flex gap-4">
                 <div className="w-16 h-16 bg-white rounded-[1.5rem] flex items-center justify-center shadow-xl shadow-black/5 overflow-hidden border border-gray-100 ring-4 ring-gray-50">
-                  <img src={restaurantLogo} alt="Logo" className="w-full h-full object-cover" />
+                  <img src={restaurantLogo} alt="Logo" className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                 </div>
                 <div>
                   <h3 className="text-gray-950 text-2xl font-black tracking-tight leading-none mb-1.5">{restaurantName}</h3>

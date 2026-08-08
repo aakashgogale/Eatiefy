@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Info } from "lucide-react"
-import mobileImage1 from "@food/assets/Transaction-report-icons/mobile_image1.png"
-import mobileImage2 from "@food/assets/Transaction-report-icons/mobile_image2.png"
+import mobileImage1 from "@food/assets/Transaction-report-icons/mobile_image1.webp"
+import mobileImage2 from "@food/assets/Transaction-report-icons/mobile_image2.webp"
 
 export default function ThemeSettings() {
   const [selectedTheme, setSelectedTheme] = useState("theme1")
@@ -31,7 +31,7 @@ export default function ThemeSettings() {
                   src={mobileImage1} 
                   alt="Theme 1" 
                   className="w-full h-full object-contain"
-                />
+                 loading="lazy" decoding="async" />
               </div>
               {selectedTheme === "theme1" && (
                 <div className="mt-2 px-3 py-1 bg-blue-600 text-white text-xs font-medium rounded-full">
@@ -51,7 +51,7 @@ export default function ThemeSettings() {
                   src={mobileImage2} 
                   alt="Theme 2" 
                   className="w-full h-full object-contain"
-                />
+                 loading="lazy" decoding="async" />
               </div>
               {selectedTheme === "theme2" && (
                 <div className="mt-2 px-3 py-1 bg-blue-600 text-white text-xs font-medium rounded-full">

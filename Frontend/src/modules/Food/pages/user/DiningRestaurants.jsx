@@ -12,7 +12,7 @@ import { useLocation as useLocationHook } from "@food/hooks/useLocation"
 import { useProfile } from "@food/context/ProfileContext"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { FaLocationDot } from "react-icons/fa6"
-import quickSpicyLogo from "@food/assets/eatiefy-logo.png"
+import quickSpicyLogo from "@food/assets/eatiefy-logo.webp"
 // Using placeholder for dining restaurant banner
 const diningBanner = "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=1200&h=400&fit=crop"
 
@@ -214,7 +214,7 @@ export default function DiningRestaurants() {
             alt="Dining Banner"
             className="w-full h-full object-cover"
             style={{ objectPosition: 'bottom', minHeight: '100%' }}
-          />
+           loading="lazy" decoding="async" />
         </div>
 
         {/* Navbar with Back Button */}
@@ -375,7 +375,7 @@ export default function DiningRestaurants() {
                           src={restaurant.image}
                           alt={restaurant.name}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          onError={(e) => {
+                          onError={(e) = loading="lazy" decoding="async"> {
                             e.currentTarget.style.display = "none"
                           }}
                         />

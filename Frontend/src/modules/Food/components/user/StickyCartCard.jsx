@@ -102,7 +102,7 @@ export default function StickyCartCard() {
                     src={restaurantImage}
                     alt={restaurantName}
                     className="w-14 h-14 md:w-16 md:h-16 rounded-lg object-cover"
-                  />
+                   loading="lazy" decoding="async" />
                 </div>
 
                 {/* Restaurant Info */}

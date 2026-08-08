@@ -179,13 +179,13 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
   }, []);
 
   const restaurantMarkerUrl = useMemo(() => {
-    if (!activeOrder) return 'https://cdn-icons-png.flaticon.com/512/3170/3170733.png';
-    return activeOrder.restaurantImage || activeOrder.restaurant?.logo || activeOrder.restaurant?.profileImage || 'https://cdn-icons-png.flaticon.com/512/3170/3170733.png';
+    if (!activeOrder) return 'https://cdn-icons-png.flaticon.com/512/3170/3170733.webp';
+    return activeOrder.restaurantImage || activeOrder.restaurant?.logo || activeOrder.restaurant?.profileImage || 'https://cdn-icons-png.flaticon.com/512/3170/3170733.webp';
   }, [activeOrder]);
 
   const customerMarkerUrl = useMemo(() => {
-    if (!activeOrder) return 'https://cdn-icons-png.flaticon.com/512/1275/1275302.png';
-    return activeOrder.customerImage || activeOrder.user?.logo || activeOrder.user?.profileImage || 'https://cdn-icons-png.flaticon.com/512/1275/1275302.png';
+    if (!activeOrder) return 'https://cdn-icons-png.flaticon.com/512/1275/1275302.webp';
+    return activeOrder.customerImage || activeOrder.user?.logo || activeOrder.user?.profileImage || 'https://cdn-icons-png.flaticon.com/512/1275/1275302.webp';
   }, [activeOrder]);
 
   const lastCenteredPosRef = useRef(null);
@@ -253,7 +253,7 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
         {parsedRiderLocation && (
           <OverlayView position={parsedRiderLocation} mapPaneName={OverlayView.MARKER_LAYER}>
             <div style={{ transform: `translate(-50%, -50%) rotate(${parsedRiderLocation.heading || 0}deg)`, transition: 'transform 0.5s linear' }} className="relative w-[72px] h-[72px]">
-              <img src="/MapRider.png" alt="Rider" className="w-full h-full object-contain" />
+              <img src="/MapRider.webp" alt="Rider" className="w-full h-full object-contain"  loading="lazy" decoding="async" />
             </div>
           </OverlayView>
         )}

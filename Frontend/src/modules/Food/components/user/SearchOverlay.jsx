@@ -262,7 +262,7 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
                     >
                       <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 shrink-0 overflow-hidden flex items-center justify-center">
                         {food.image ? (
-                          <img src={food.image} alt={food.name} className="w-full h-full object-cover" />
+                          <img src={food.image} alt={food.name} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                         ) : (
                           <Search className="h-3.5 w-3.5 text-gray-400" />
                         )}

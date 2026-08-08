@@ -2276,7 +2276,7 @@ export default function Inventory() {
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-3 min-w-0">
                               {addon.images?.[0] ? (
-                                <img src={addon.images[0]} alt={addon.name} className="h-11 w-11 rounded-lg object-cover border border-slate-200" />
+                                <img src={addon.images[0]} alt={addon.name} className="h-11 w-11 rounded-lg object-cover border border-slate-200"  loading="lazy" decoding="async" />
                               ) : (
                                 <div className="h-11 w-11 rounded-lg bg-slate-100 flex items-center justify-center text-slate-300">
                                   <Utensils className="w-4 h-4" />
@@ -2353,7 +2353,7 @@ export default function Inventory() {
                                             src={item.image || item.images[0]}
                                             alt={item.name}
                                             className="h-11 w-11 rounded-lg object-cover border border-slate-200"
-                                          />
+                                           loading="lazy" decoding="async" />
                                         ) : (
                                           <div className="h-11 w-11 rounded-lg bg-slate-100 flex items-center justify-center text-slate-300">
                                             <Utensils className="w-4 h-4" />
@@ -2506,7 +2506,7 @@ export default function Inventory() {
                             src={addonImagePreview}
                             alt="Preview"
                             className="w-24 h-24 object-cover rounded border"
-                            onError={(e) => (e.target.style.display = "none")}
+                            onError={(e) = loading="lazy" decoding="async"> (e.target.style.display = "none")}
                           />
                         </div>
                       )}
@@ -2648,7 +2648,7 @@ export default function Inventory() {
                               src={addon.images[0]}
                               alt={addon.name}
                               className="h-20 w-20 rounded-2xl object-cover ring-1 ring-slate-200"
-                              onError={(e) => {
+                              onError={(e) = loading="lazy" decoding="async"> {
                                 e.target.style.display = 'none'
                               }}
                             />
@@ -2867,7 +2867,7 @@ export default function Inventory() {
                                       src={item.image}
                                       alt={item.name || "Item"}
                                       className="absolute inset-0 h-full w-full object-cover"
-                                      onError={(e) => {
+                                      onError={(e) = loading="lazy" decoding="async"> {
                                         e.currentTarget.style.display = "none"
                                       }}
                                     />

@@ -37,7 +37,7 @@ import DeliveryTrackingMap from "@food/components/user/DeliveryTrackingMap"
 import { orderAPI, restaurantAPI } from "@food/api"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { useUserNotifications } from "@food/hooks/useUserNotifications"
-import circleIcon from "@food/assets/circleicon.png"
+import circleIcon from "@food/assets/circleicon.webp"
 import { RESTAURANT_PIN_SVG, CUSTOMER_PIN_SVG, RIDER_BIKE_SVG } from "@food/constants/mapIcons"
 
 // Fallback definitions in case imports fail at runtime or are shadowed

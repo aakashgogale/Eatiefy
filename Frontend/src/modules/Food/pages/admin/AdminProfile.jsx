@@ -444,7 +444,7 @@ export default function AdminProfile() {
                     src={profile.profileImage}
                     alt={profile.name}
                     className="w-full h-full object-cover"
-                  />
+                   loading="lazy" decoding="async" />
                 ) : (
                   <span className="text-2xl font-semibold text-neutral-600">
                     {getInitials(profile.name)}
@@ -538,7 +538,7 @@ export default function AdminProfile() {
                       src={imagePreview || profile.profileImage}
                       alt="Profile"
                       className="w-full h-full object-cover"
-                    />
+                     loading="lazy" decoding="async" />
                     {isEditMode && (
                       <>
                         <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">

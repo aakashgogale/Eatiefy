@@ -411,7 +411,7 @@ export default function FeedNavbar({ className = "" }) {
         {/* Logo and Online/Offline Toggle */}
       <div className="flex items-center gap-3">
         {logoUrl && (
-          <img src={logoUrl} alt="Logo" className="h-8 w-auto object-contain" />
+          <img src={logoUrl} alt="Logo" className="h-8 w-auto object-contain"  loading="lazy" decoding="async" />
         )}
         <div className="relative" style={{ zIndex: 100 }}>
           <button
@@ -473,7 +473,7 @@ export default function FeedNavbar({ className = "" }) {
               src={profileImage}
               alt="Profile"
               className="w-full h-full object-cover"
-              onError={() => {
+              onError={() = loading="lazy" decoding="async"> {
                 setImageError(true);
               }}
             />

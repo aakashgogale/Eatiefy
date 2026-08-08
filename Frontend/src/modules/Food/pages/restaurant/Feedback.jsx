@@ -645,7 +645,7 @@ export default function Feedback() {
                       <span>{review.date}</span>
                     </div>
                     <div className="flex items-center gap-3">
-                      <img src={review.userImage} className="w-8 h-8 rounded-full border border-gray-100" alt="" />
+                      <img src={review.userImage} className="w-8 h-8 rounded-full border border-gray-100" alt=""  loading="lazy" decoding="async" />
                       <p className="font-bold text-gray-900 text-sm">{review.userName}</p>
                       <div
                         className="ml-auto flex items-center gap-1 text-white px-1.5 py-0.5 rounded text-[10px] font-bold"

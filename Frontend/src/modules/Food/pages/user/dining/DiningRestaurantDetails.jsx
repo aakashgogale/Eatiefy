@@ -260,7 +260,7 @@ export default function DiningRestaurantDetails() {
       <section className="mx-auto max-w-md bg-[#f6f7fb]">
         <div className="relative h-[392px] overflow-hidden">
           {heroImage ? (
-            <img src={heroImage} alt={restaurantName} className="h-full w-full object-cover" />
+            <img src={heroImage} alt={restaurantName} className="h-full w-full object-cover"  loading="lazy" decoding="async" />
           ) : (
             <div className="h-full w-full bg-[radial-gradient(circle_at_top,#eadcc7,#a09279_58%,#655749)]" />
           )}
@@ -431,7 +431,7 @@ export default function DiningRestaurantDetails() {
               <div key={section.id} className="overflow-hidden rounded-[18px] border border-[#ede8dd] bg-white">
                 <div className="aspect-[0.88] bg-[#f7f1e7]">
                   {menuPreviewImages[index] ? (
-                    <img src={menuPreviewImages[index]} alt={section.title} className="h-full w-full object-cover" />
+                    <img src={menuPreviewImages[index]} alt={section.title} className="h-full w-full object-cover"  loading="lazy" decoding="async" />
                   ) : (
                     <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,#fff3e0,#f3eadf)] text-sm font-medium text-[#a28868]">
                       Menu preview
@@ -458,7 +458,7 @@ export default function DiningRestaurantDetails() {
                 }`}
               >
                 {image ? (
-                  <img src={image} alt={`${restaurantName} ${index + 1}`} className="h-full w-full object-cover" />
+                  <img src={image} alt={`${restaurantName} ${index + 1}`} className="h-full w-full object-cover"  loading="lazy" decoding="async" />
                 ) : (
                   <div className="flex h-full items-center justify-center text-sm text-[#a28868]">Photo coming soon</div>
                 )}
@@ -493,7 +493,7 @@ export default function DiningRestaurantDetails() {
               <div className="mt-3 overflow-hidden rounded-[16px] bg-white shadow-sm">
                 <div className="aspect-[1.2] bg-[#efe8df]">
                   {heroImage ? (
-                    <img src={heroImage} alt={restaurantName} className="h-full w-full object-cover" />
+                    <img src={heroImage} alt={restaurantName} className="h-full w-full object-cover"  loading="lazy" decoding="async" />
                   ) : (
                     <div className="flex h-full items-center justify-center text-sm text-[#a28868]">Featured image</div>
                   )}

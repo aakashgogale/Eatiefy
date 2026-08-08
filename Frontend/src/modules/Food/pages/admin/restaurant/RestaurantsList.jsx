@@ -7,9 +7,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
 
 // Import icons from Dashboard-icons
-import locationIcon from "@food/assets/Dashboard-icons/image1.png"
-import restaurantIcon from "@food/assets/Dashboard-icons/image2.png"
-import inactiveIcon from "@food/assets/Dashboard-icons/image3.png"
+import locationIcon from "@food/assets/Dashboard-icons/image1.webp"
+import restaurantIcon from "@food/assets/Dashboard-icons/image2.webp"
+import inactiveIcon from "@food/assets/Dashboard-icons/image3.webp"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -1238,7 +1238,7 @@ export default function RestaurantsList() {
                 <p className="text-2xl font-bold text-slate-900">{restaurantStats.total || totalRestaurants}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
-                <img src={locationIcon} alt="Location" className="w-8 h-8" />
+                <img src={locationIcon} alt="Location" className="w-8 h-8"  loading="lazy" decoding="async" />
               </div>
             </div>
           </div>
@@ -1251,7 +1251,7 @@ export default function RestaurantsList() {
                 <p className="text-2xl font-bold text-slate-900">{activeRestaurants}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
-                <img src={restaurantIcon} alt="Restaurant" className="w-8 h-8" />
+                <img src={restaurantIcon} alt="Restaurant" className="w-8 h-8"  loading="lazy" decoding="async" />
               </div>
             </div>
           </div>
@@ -1264,7 +1264,7 @@ export default function RestaurantsList() {
                 <p className="text-2xl font-bold text-slate-900">{inactiveRestaurants}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-red-100 flex items-center justify-center">
-                <img src={inactiveIcon} alt="Inactive" className="w-8 h-8" />
+                <img src={inactiveIcon} alt="Inactive" className="w-8 h-8"  loading="lazy" decoding="async" />
               </div>
             </div>
           </div>
@@ -1446,7 +1446,7 @@ export default function RestaurantsList() {
                                 src={restaurant.logo}
                                 alt={restaurant.name}
                                 className="w-full h-full object-cover"
-                                onError={(e) => {
+                                onError={(e) = loading="lazy" decoding="async"> {
                                   e.target.src = PLACEHOLDER_40
                                 }}
                               />
@@ -1627,7 +1627,7 @@ export default function RestaurantsList() {
                       <div className="flex items-center gap-4">
                         <div className="w-24 h-24 rounded-xl overflow-hidden bg-slate-100 border border-slate-200">
                           {profileImagePreview ? (
-                            <img src={profileImagePreview} alt="Profile preview" className="w-full h-full object-cover" />
+                            <img src={profileImagePreview} alt="Profile preview" className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-slate-400">
                               <ImageIcon className="w-6 h-6" />
@@ -1952,7 +1952,7 @@ export default function RestaurantsList() {
                         src={profileImgUrl || PLACEHOLDER_128}
                         alt={r?.restaurantName || r?.name || "Restaurant"}
                         className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                        onError={(e) => {
+                        onError={(e) = loading="lazy" decoding="async"> {
                           e.target.src = PLACEHOLDER_128
                         }}
                       />
@@ -2554,7 +2554,7 @@ export default function RestaurantsList() {
                                 src={r.onboarding.step2.profileImageUrl.url}
                                 alt="Profile"
                                 className="w-32 h-32 rounded-lg object-cover border border-slate-200 hover:border-blue-500 transition-colors"
-                                onError={(e) => {
+                                onError={(e) = loading="lazy" decoding="async"> {
                                   e.target.src = PLACEHOLDER_128
                                 }}
                               />

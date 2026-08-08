@@ -489,7 +489,7 @@ export const ProfileDetailsV2 = () => {
         <div className="relative pt-4 pb-2">
            <div className="w-[140px] h-[140px] rounded-[40px] bg-white border border-gray-100 shadow-[0_8px_30px_rgba(0,0,0,0.04)] mx-auto overflow-hidden relative">
               {profileImageUrl ? (
-                <img src={profileImageUrl} alt="Avatar" className="w-full h-full object-cover transition-transform hover:scale-105 duration-500" />
+                <img src={profileImageUrl} alt="Avatar" className="w-full h-full object-cover transition-transform hover:scale-105 duration-500"  loading="lazy" decoding="async" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-gray-50"><User className="w-12 h-12 text-gray-300" /></div>
               )}
@@ -901,7 +901,7 @@ export const ProfileDetailsV2 = () => {
                 
                 {upiQrPreview || bankDetails.upiQrCode ? (
                   <div className="relative">
-                    <img src={upiQrPreview || bankDetails.upiQrCode} alt="QR Preview" className="w-32 h-32 rounded-xl object-cover border-4 border-white shadow-xl" />
+                    <img src={upiQrPreview || bankDetails.upiQrCode} alt="QR Preview" className="w-32 h-32 rounded-xl object-cover border-4 border-white shadow-xl"  loading="lazy" decoding="async" />
                     <button 
                       onClick={() => { setUpiQrFile(null); setUpiQrPreview(null); }}
                       className="absolute -top-3 -right-3 bg-red-500 text-white p-1.5 rounded-full shadow-lg"
@@ -961,7 +961,7 @@ export const ProfileDetailsV2 = () => {
                 </button>
              </div>
              <div className="flex-1 w-full flex items-center justify-center">
-                <img src={selectedDocument.url} alt="Doc" className="max-w-full max-h-full object-contain rounded-3xl shadow-2xl" />
+                <img src={selectedDocument.url} alt="Doc" className="max-w-full max-h-full object-contain rounded-3xl shadow-2xl"  loading="lazy" decoding="async" />
              </div>
           </motion.div>
         )}

@@ -1519,7 +1519,7 @@ export default function LandingPageManagement() {
                               className="w-full h-full object-cover" 
                             />
                           ) : (
-                            <img src={mediaUrl} alt={`Top Banner ${index + 1}`} className="w-full h-full object-cover" />
+                            <img src={mediaUrl} alt={`Top Banner ${index + 1}`} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                           )}
                           <div className="absolute top-2 right-2 flex items-center gap-1">
                             {isVideo && (
@@ -1675,7 +1675,7 @@ export default function LandingPageManagement() {
                               className="w-full h-full object-cover" 
                             />
                           ) : (
-                            <img src={mediaUrl} alt={`Hero Banner ${index + 1}`} className="w-full h-full object-cover" />
+                            <img src={mediaUrl} alt={`Hero Banner ${index + 1}`} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                           )}
                           <div className="absolute top-2 right-2 flex items-center gap-1">
                             {isVideo && (
@@ -1828,7 +1828,7 @@ export default function LandingPageManagement() {
                   {under250Banners.map((banner, index) => (
                     <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
                       <div className="relative aspect-video bg-slate-100">
-                        <img src={banner.imageUrl} alt={`Eatiefy 99 Banner ${index + 1}`} className="w-full h-full object-cover" />
+                        <img src={banner.imageUrl} alt={`Eatiefy 99 Banner ${index + 1}`} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                         <div className="absolute top-2 right-2">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                             {banner.isActive ? 'Active' : 'Inactive'}
@@ -1944,7 +1944,7 @@ export default function LandingPageManagement() {
                   {diningBanners.map((banner, index) => (
                     <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
                       <div className="relative aspect-video bg-slate-100">
-                        <img src={banner.imageUrl} alt={`Dining Banner ${index + 1}`} className="w-full h-full object-cover" />
+                        <img src={banner.imageUrl} alt={`Dining Banner ${index + 1}`} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                         <div className="absolute top-2 right-2">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                             {banner.isActive ? 'Active' : 'Inactive'}
@@ -2125,7 +2125,7 @@ export default function LandingPageManagement() {
                               src={dbItem.imageUrl}
                               alt={item.label}
                               className="w-full h-full object-contain p-2"
-                            />
+                             loading="lazy" decoding="async" />
                           ) : (
                             <ImageIcon className="w-8 h-8 text-slate-300" />
                           )}
@@ -2234,7 +2234,7 @@ export default function LandingPageManagement() {
                           return (
                             <div key={item._id} className="border border-slate-200 rounded-lg overflow-hidden">
                               <div className="relative h-32 bg-slate-100">
-                                <img src={restaurantImage} alt={item.restaurant?.name} className="w-full h-full object-cover" />
+                                <img src={restaurantImage} alt={item.restaurant?.name} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                                 <div className="absolute top-1 right-1">
                                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${item.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                                     {item.isActive ? 'Active' : 'Inactive'}
@@ -2359,7 +2359,7 @@ export default function LandingPageManagement() {
                                   src={profileImageUrl}
                                   alt={restaurant.name}
                                   className="w-16 h-16 rounded-xl object-cover border-2 border-slate-200"
-                                  onError={(e) => {
+                                  onError={(e) = loading="lazy" decoding="async"> {
                                     e.target.style.display = 'none'
                                     e.target.nextSibling.style.display = 'flex'
                                   }}

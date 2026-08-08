@@ -2,10 +2,10 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { usePublicAppConfig } from "@food/context/PublicAppConfigContext";
 
-import discountPromoIcon from "@food/assets/category-icons/discount_promo.png";
-import gourmetPromoIcon from "@food/assets/explore more icons/gourmet.png";
-import pricePromoIcon from "@food/assets/category-icons/price_promo.png";
-import collectionPromoIcon from "@food/assets/explore more icons/collection.png";
+import discountPromoIcon from "@food/assets/category-icons/discount_promo.webp";
+import gourmetPromoIcon from "@food/assets/explore more icons/gourmet.webp";
+import pricePromoIcon from "@food/assets/category-icons/price_promo.webp";
+import collectionPromoIcon from "@food/assets/explore more icons/collection.webp";
 
 export default function PromoRow({ handleVegModeChange, navigate, isVegMode, toggleRef }) {
   const { exploreIcons } = usePublicAppConfig() || {};
@@ -84,7 +84,7 @@ export default function PromoRow({ handleVegModeChange, navigate, isVegMode, tog
                 src={promo.icon}
                 alt={promo.value}
                 className="w-full h-full object-contain relative z-20 transition-transform duration-300 group-hover:scale-110 drop-shadow-sm"
-              />
+               loading="lazy" decoding="async" />
             </div>
 
             {/* Clean Typography */}

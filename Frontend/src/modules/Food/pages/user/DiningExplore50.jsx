@@ -203,7 +203,7 @@ export default function DiningExplore50() {
             src={upto50off}
             alt="Up to 50% Off"
             className="w-full h-full object-cover"
-          />
+           loading="lazy" decoding="async" />
         </div>
 
         {/* Navbar with Back Button - Overlay on top of image */}
@@ -362,7 +362,7 @@ export default function DiningExplore50() {
                           src={restaurant.image}
                           alt={restaurant.name}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          onError={(e) => {
+                          onError={(e) = loading="lazy" decoding="async"> {
                             e.currentTarget.style.display = "none"
                           }}
                         />

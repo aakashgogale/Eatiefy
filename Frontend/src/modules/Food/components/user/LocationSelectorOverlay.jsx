@@ -504,7 +504,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
           position: initialLocation,
           map: map,
           icon: {
-            url: "http://maps.google.com/mapfiles/ms/icons/green-dot.png",
+            url: "http://maps.google.com/mapfiles/ms/icons/green-dot.webp",
             scaledSize: new google.maps.Size(40, 40),
             anchor: new google.maps.Point(20, 40)
           },

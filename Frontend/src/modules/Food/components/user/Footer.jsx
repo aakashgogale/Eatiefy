@@ -3,7 +3,7 @@ import { Facebook, Twitter, Instagram, Mail, Phone, MapPin, Heart } from "lucide
 import { useState, useEffect } from "react"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
 import { useCompanyName } from "@food/hooks/useCompanyName"
-import quickSpicyLogo from "@food/assets/eatiefy-logo.png"
+import quickSpicyLogo from "@food/assets/eatiefy-logo.webp"
 
 export default function Footer() {
   const companyName = useCompanyName()
@@ -86,7 +86,7 @@ export default function Footer() {
                   alt="Company Logo"
                   className="h-10 w-10 rounded-full object-cover"
                   crossOrigin="anonymous"
-                  onError={(e) => {
+                  onError={(e) = loading="lazy" decoding="async"> {
                     if (e.target.src !== quickSpicyLogo) {
                       e.target.src = quickSpicyLogo
                     }

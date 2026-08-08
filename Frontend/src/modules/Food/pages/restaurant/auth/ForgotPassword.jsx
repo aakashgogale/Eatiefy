@@ -5,7 +5,7 @@ import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@food/components/ui/card"
-import loginBg from "@food/assets/loginbanner.png"
+import loginBg from "@food/assets/loginbanner.webp"
 import { restaurantAPI } from "@food/api"
 
 export default function RestaurantForgotPassword() {
@@ -203,7 +203,7 @@ export default function RestaurantForgotPassword() {
           src={loginBg}
           alt="Restaurant background"
           className="w-full h-full object-cover"
-        />
+         loading="lazy" decoding="async" />
         <div className="absolute inset-0 flex items-center text-white pointer-events-none">
           <div className="bg-primary-orange/80 rounded-r-full py-10 xl:py-20 pl-10 xl:pl-14 pr-10 xl:pr-20 max-w-[70%] shadow-xl backdrop-blur-[1px]">
             <h1 className="text-3xl xl:text-4xl font-extrabold mb-4 tracking-wide leading-tight">

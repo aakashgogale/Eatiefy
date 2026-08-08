@@ -491,7 +491,7 @@ export default function BusinessSetup() {
                         src={logoPreview}
                         alt="Logo preview"
                         className="w-full h-full object-contain"
-                      />
+                       loading="lazy" decoding="async" />
                       <button
                         type="button"
                         onClick={(e) => {
@@ -558,7 +558,7 @@ export default function BusinessSetup() {
                         src={faviconPreview}
                         alt="Favicon preview"
                         className="w-full h-full object-contain"
-                      />
+                       loading="lazy" decoding="async" />
                       <button
                         type="button"
                         onClick={(e) => {
@@ -617,7 +617,7 @@ export default function BusinessSetup() {
                 >
                   {restaurantLogoPreview ? (
                     <>
-                      <img src={restaurantLogoPreview} alt="Restaurant logo preview" className="w-full h-full object-contain" />
+                      <img src={restaurantLogoPreview} alt="Restaurant logo preview" className="w-full h-full object-contain"  loading="lazy" decoding="async" />
                       <button
                         type="button"
                         onClick={(e) => {
@@ -671,7 +671,7 @@ export default function BusinessSetup() {
                 >
                   {restaurantFaviconPreview ? (
                     <>
-                      <img src={restaurantFaviconPreview} alt="Restaurant favicon preview" className="w-full h-full object-contain" />
+                      <img src={restaurantFaviconPreview} alt="Restaurant favicon preview" className="w-full h-full object-contain"  loading="lazy" decoding="async" />
                       <button
                         type="button"
                         onClick={(e) => {
@@ -728,7 +728,7 @@ export default function BusinessSetup() {
                 >
                   {deliveryLogoPreview ? (
                     <>
-                      <img src={deliveryLogoPreview} alt="Delivery logo preview" className="w-full h-full object-contain" />
+                      <img src={deliveryLogoPreview} alt="Delivery logo preview" className="w-full h-full object-contain"  loading="lazy" decoding="async" />
                       <button
                         type="button"
                         onClick={(e) => {
@@ -782,7 +782,7 @@ export default function BusinessSetup() {
                 >
                   {deliveryFaviconPreview ? (
                     <>
-                      <img src={deliveryFaviconPreview} alt="Delivery favicon preview" className="w-full h-full object-contain" />
+                      <img src={deliveryFaviconPreview} alt="Delivery favicon preview" className="w-full h-full object-contain"  loading="lazy" decoding="async" />
                       <button
                         type="button"
                         onClick={(e) => {

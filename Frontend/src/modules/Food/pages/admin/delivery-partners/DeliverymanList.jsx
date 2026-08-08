@@ -38,7 +38,7 @@ function Avatar({ src, alt }) {
       src={src}
       alt={alt}
       className="w-full h-full object-cover"
-      onError={() => setHasError(true)}
+      onError={() = loading="lazy" decoding="async"> setHasError(true)}
     />
   )
 }
@@ -757,7 +757,7 @@ availableCashLimit: deliveryman.availableCashLimit || 0,
                         src={viewDetails.profileImage.url} 
                         alt={viewDetails.name}
                         className="w-24 h-24 rounded-full object-cover border-2 border-slate-200"
-                      />
+                       loading="lazy" decoding="async" />
                     ) : (
                       <div className="w-24 h-24 rounded-full bg-slate-200 flex items-center justify-center">
                         <User className="w-12 h-12 text-slate-400" />

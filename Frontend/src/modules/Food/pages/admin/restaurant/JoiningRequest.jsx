@@ -423,7 +423,7 @@ export default function JoiningRequest() {
                               }
                               alt={request.restaurantName || "Restaurant"}
                               className="w-full h-full object-cover"
-                              onError={(e) => {
+                              onError={(e) = loading="lazy" decoding="async"> {
                                 e.target.src = "https://via.placeholder.com/40?text=" + (request.restaurantName?.slice(0, 2) || "R").toUpperCase()
                               }}
                             />
@@ -719,7 +719,7 @@ export default function JoiningRequest() {
                         src={profileImgUrl || "https://via.placeholder.com/96"}
                         alt={r?.restaurantName || r?.name || "Restaurant"}
                         className="w-full h-full object-cover"
-                        onError={(e) => {
+                        onError={(e) = loading="lazy" decoding="async"> {
                           e.target.src = "https://via.placeholder.com/96"
                         }}
                       />
@@ -889,7 +889,7 @@ export default function JoiningRequest() {
                                 src={imgUrl}
                                 alt={`Restaurant ${idx + 1}`}
                                 className="w-full h-32 object-cover"
-                                onError={(e) => {
+                                onError={(e) = loading="lazy" decoding="async"> {
                                   e.target.src = "https://via.placeholder.com/200"
                                 }}
                               />
@@ -1097,7 +1097,7 @@ export default function JoiningRequest() {
                                 src={imgUrl}
                                 alt={`Menu ${idx + 1}`}
                                 className="w-full h-32 object-cover"
-                                onError={(e) => {
+                                onError={(e) = loading="lazy" decoding="async"> {
                                   e.target.src = "https://via.placeholder.com/200"
                                 }}
                               />

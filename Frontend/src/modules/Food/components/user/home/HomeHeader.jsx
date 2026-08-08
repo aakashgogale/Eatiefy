@@ -4,10 +4,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, ChevronDown, Search, Mic, Bell, CheckCircle2, Tag, Gift, AlertCircle, Clock, BellOff, X, ChevronRight, ShoppingBag, Menu, Wallet } from 'lucide-react';
 import { Badge } from "@food/components/ui/badge";
 import { Avatar, AvatarFallback } from "@food/components/ui/avatar";
-import foodIcon from "@food/assets/category-icons/food.png";
-import quickIcon from "@food/assets/category-icons/quick.png";
-import taxiIcon from "@food/assets/category-icons/taxi.png";
-import hotelIcon from "@food/assets/category-icons/hotel.png";
+import foodIcon from "@food/assets/category-icons/food.webp";
+import quickIcon from "@food/assets/category-icons/quick.webp";
+import taxiIcon from "@food/assets/category-icons/taxi.webp";
+import hotelIcon from "@food/assets/category-icons/hotel.webp";
 import useNotificationInbox from "@food/hooks/useNotificationInbox";
 import { useSearchOverlay } from "../UserLayout";
 

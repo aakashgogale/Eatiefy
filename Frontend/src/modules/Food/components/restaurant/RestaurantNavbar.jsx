@@ -332,7 +332,7 @@ export default function RestaurantNavbar({
           <img 
             src={logoUrl} 
             alt="Logo" 
-            onClick={() => window.location.reload()}
+            onClick={() = loading="lazy" decoding="async"> window.location.reload()}
             className="h-9 w-9 object-contain rounded-lg shadow-sm cursor-pointer active:scale-95 transition-transform" 
           />
         )}

@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
-import bikeLogo from '../../Food/assets/bikelogo.png'
+import bikeLogo from '../../Food/assets/bikelogo.webp'
 
 
 /**
@@ -40,7 +40,7 @@ import bikeLogo from '../../Food/assets/bikelogo.png'
 const getDeliveryIconUrl = () => {
   try {
     // Try to use delivery icon from public assets
-    return '/assets/deliveryboy/deliveryIcon.png'
+    return '/assets/deliveryboy/deliveryIcon.webp'
   } catch {
     // Fallback to bikelogo if delivery icon not found
     return bikeLogo

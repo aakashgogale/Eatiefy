@@ -284,7 +284,7 @@ export default function ProductDetail() {
           <img
             src={product.image}
             alt={product.name}
-            className="w-full h-full object-cover object-center" />
+            className="w-full h-full object-cover object-center"  loading="lazy" decoding="async" />
 
           {/* Back Button - Overlay on Image */}
           <div className="absolute top-4 left-4 z-10">

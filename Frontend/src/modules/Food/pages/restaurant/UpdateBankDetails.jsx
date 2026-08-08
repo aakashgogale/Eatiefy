@@ -307,7 +307,7 @@ export default function UpdateBankDetails() {
                       src={form.upiQrImage}
                       alt="UPI QR"
                       className="w-40 h-40 object-contain border border-gray-200 rounded-lg bg-white"
-                    />
+                     loading="lazy" decoding="async" />
                   ) : (
                     <div className="w-40 h-40 border border-dashed border-gray-300 rounded-lg flex items-center justify-center text-xs text-gray-500">
                       No QR uploaded

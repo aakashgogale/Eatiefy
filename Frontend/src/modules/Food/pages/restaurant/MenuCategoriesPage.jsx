@@ -329,7 +329,7 @@ export default function MenuCategoriesPage() {
             src={imagePreview || formData.image}
             alt="Category preview"
             className="h-16 w-16 rounded-2xl object-cover"
-          />
+           loading="lazy" decoding="async" />
         )}
         <button
           type="button"
@@ -476,7 +476,7 @@ export default function MenuCategoriesPage() {
                             src={category.image}
                             alt={category.name}
                             className="h-full w-full object-cover"
-                          />
+                           loading="lazy" decoding="async" />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center text-lg font-bold text-slate-500">
                             {String(category?.name || "C").slice(0, 1).toUpperCase()}

@@ -10,7 +10,7 @@ import {
 } from '@react-google-maps/api';
 import io from 'socket.io-client';
 import { API_BASE_URL } from '@food/api/config';
-import bikeLogo from '@food/assets/bikelogo.png';
+import bikeLogo from '@food/assets/bikelogo.webp';
 import { subscribeOrderTracking } from '@food/realtimeTracking';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Navigation, Info, Circle } from 'lucide-react';
@@ -401,7 +401,7 @@ const DeliveryTrackingMap = ({
                   src={order?.restaurantLogo || order?.restaurantId?.logo || order?.restaurantId?.profileImage || `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(RESTAURANT_PIN_SVG)}`}
                   alt="Restaurant"
                   className="w-full h-full object-contain rounded-full bg-gray-50"
-                  onError={(e) => { e.target.src = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(RESTAURANT_PIN_SVG)}`; }}
+                  onError={(e) = loading="lazy" decoding="async"> { e.target.src = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(RESTAURANT_PIN_SVG)}`; }}
                 />
              </div>
              {/* Pin Tip */}
@@ -430,7 +430,7 @@ const DeliveryTrackingMap = ({
                   src={order?.customerImage || order?.userId?.profileImage || order?.userId?.avatar || `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(CUSTOMER_PIN_SVG)}`}
                   alt="Me"
                   className="w-full h-full object-contain rounded-full bg-gray-50"
-                  onError={(e) => { e.target.src = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(CUSTOMER_PIN_SVG)}`; }}
+                  onError={(e) = loading="lazy" decoding="async"> { e.target.src = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(CUSTOMER_PIN_SVG)}`; }}
                 />
              </div>
              {/* Pin Tip */}
@@ -452,10 +452,10 @@ const DeliveryTrackingMap = ({
               className="relative w-16 h-16"
             >
               <img 
-                src="/MapRider.png" 
+                src="/MapRider.webp" 
                 alt="Rider" 
                 className="w-full h-full object-contain drop-shadow-2xl"
-                onError={(e) => {
+                onError={(e) = loading="lazy" decoding="async"> {
                   e.target.src = bikeLogo;
                 }}
               />

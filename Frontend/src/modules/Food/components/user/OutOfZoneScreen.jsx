@@ -1,7 +1,7 @@
 import React from "react";
 import { MapPin, ChevronDown } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
-import outOfZoneBg from "@food/assets/Outofzone_bg.jpg";
+import outOfZoneBg from "@food/assets/Outofzone_bg.webp";
 
 const OutOfZoneScreen = ({ location }) => {
   const BRAND_NAME = "Eatiefy";
@@ -67,7 +67,7 @@ const OutOfZoneScreen = ({ location }) => {
           src={outOfZoneBg}
           alt="Service not available"
           className="w-full h-full object-cover scale-[1.02]"
-        />
+         loading="lazy" decoding="async" />
       </div>
 
       <div className="absolute top-[48vh] left-0 w-full -translate-y-1/2 flex flex-col items-center z-10 px-6">

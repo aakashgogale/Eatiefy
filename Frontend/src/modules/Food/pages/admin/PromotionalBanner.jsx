@@ -295,7 +295,7 @@ export default function PromotionalBanner() {
             {banners.map((banner) => (
               <div key={banner._id} className="bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow group">
                 <div className="relative aspect-[2/1] bg-slate-100 overflow-hidden">
-                  <img src={banner.imageUrl} alt={banner.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                  <img src={banner.imageUrl} alt={banner.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"  loading="lazy" decoding="async" />
                   <div className="absolute top-2 right-2 flex gap-2">
                     <button 
                       onClick={() => openEdit(banner)}
@@ -364,7 +364,7 @@ export default function PromotionalBanner() {
                     <div className="relative aspect-[2/1] rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center overflow-hidden group cursor-pointer hover:border-blue-400 transition-colors">
                       {formData.preview ? (
                         <>
-                          <img src={formData.preview} className="w-full h-full object-cover" />
+                          <img src={formData.preview} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                             <Upload className="w-8 h-8 text-white" />
                           </div>

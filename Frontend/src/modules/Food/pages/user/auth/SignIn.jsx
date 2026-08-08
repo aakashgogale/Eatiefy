@@ -5,8 +5,8 @@ import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Input } from "@food/components/ui/input"
 import { authAPI } from "@food/api"
 import { motion, AnimatePresence } from "framer-motion"
-import logoImg from "@food/assets/eatiefy-logo copy.png"
-import loginBgImg from "@food/assets/login_bg.jpg"
+import logoImg from "@food/assets/eatiefy-logo copy.webp"
+import loginBgImg from "@food/assets/login_bg.webp"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
 
 const debugError = (...args) => { }

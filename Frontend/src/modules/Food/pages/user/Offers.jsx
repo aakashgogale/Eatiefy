@@ -10,7 +10,7 @@ import { RestaurantGridSkeleton } from "@food/components/ui/loading-skeletons"
 import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
 
 // Import banner image
-import offerBanner from "@food/assets/offerpagebanner.png"
+import offerBanner from "@food/assets/offerpagebanner.webp"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -70,7 +70,7 @@ export default function Offers() {
             src={offerBanner} 
             alt="Great Offers" 
             className="w-full h-full object-cover"
-          />
+           loading="lazy" decoding="async" />
         </div>
       </div>
 
@@ -115,7 +115,7 @@ export default function Offers() {
                             src={dish.dishImage || dish.restaurantImage || "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&h=300&fit=crop"} 
                             alt={dish.dishName}
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                          />
+                           loading="lazy" decoding="async" />
                           {/* Offer Badge */}
                           <div className="absolute top-2 left-2 bg-blue-600 text-white text-[10px] sm:text-xs font-semibold px-2 py-1 rounded">
                             {dish.offer}

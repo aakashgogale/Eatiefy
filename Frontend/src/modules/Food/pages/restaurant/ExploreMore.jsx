@@ -839,7 +839,7 @@ export default function ExploreMore() {
               aria-label="Profile"
             >
               {userData.profileImage?.url ? (
-                <img src={userData.profileImage.url} alt="Profile" className="w-5 h-5 object-cover rounded-full" />
+                <img src={userData.profileImage.url} alt="Profile" className="w-5 h-5 object-cover rounded-full"  loading="lazy" decoding="async" />
               ) : (
                 <UserRound className="w-5 h-5 text-gray-700" />
               )}
@@ -1179,7 +1179,7 @@ export default function ExploreMore() {
                         src={userData.profileImage.url}
                         alt={userData.name}
                         className="w-full h-full object-cover"
-                      />
+                       loading="lazy" decoding="async" />
                     ) : (
                       <User className="w-8 h-8 text-gray-400" />
                     )}

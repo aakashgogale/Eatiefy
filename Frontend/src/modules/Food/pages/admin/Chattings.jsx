@@ -92,7 +92,7 @@ export default function Chattings() {
                                 src={conversation.avatar}
                                 alt={conversation.name}
                                 className="w-full h-full object-cover"
-                              />
+                               loading="lazy" decoding="async" />
                             ) : (
                               <span className="text-lg">👤</span>
                             )}
@@ -134,7 +134,7 @@ export default function Chattings() {
                             src={selectedConversation.avatar}
                             alt={selectedConversation.name}
                             className="w-full h-full object-cover"
-                          />
+                           loading="lazy" decoding="async" />
                         ) : (
                           <span className="text-lg">👤</span>
                         )}

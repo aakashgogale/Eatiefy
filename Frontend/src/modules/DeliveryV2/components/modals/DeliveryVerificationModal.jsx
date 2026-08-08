@@ -441,7 +441,7 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
                    src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(collectQrLink)}`} 
                    alt="Razorpay QR"
                    className="w-56 h-56"
-                 />
+                  loading="lazy" decoding="async" />
                  <button 
                     onClick={handleManualCheck}
                     disabled={isSyncing}

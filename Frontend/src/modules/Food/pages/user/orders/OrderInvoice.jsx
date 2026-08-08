@@ -261,7 +261,7 @@ export default function OrderInvoice() {
                                 src={item.image}
                                 alt={item.name}
                                 className="w-8 h-8 sm:w-12 sm:h-12 object-cover rounded flex-shrink-0"
-                              />
+                               loading="lazy" decoding="async" />
                               <div className="min-w-0 flex-1">
                                 <span className="font-medium block">{item.name}</span>
                                 {item.variantName ? (

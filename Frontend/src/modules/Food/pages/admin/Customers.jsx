@@ -435,7 +435,7 @@ export default function Customers() {
                                 src={customer.profileImage}
                                 alt={customer.name}
                                 className="w-full h-full object-cover"
-                                onError={(e) => {
+                                onError={(e) = loading="lazy" decoding="async"> {
                                   e.currentTarget.style.display = "none"
                                 }}
                               />
@@ -541,7 +541,7 @@ export default function Customers() {
                 <div className="flex flex-col sm:flex-row sm:items-start gap-4">
                   <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center flex-shrink-0">
                     {userDetails.profileImage ? (
-                      <img src={userDetails.profileImage} alt={userDetails.name} className="w-full h-full rounded-full object-cover" />
+                      <img src={userDetails.profileImage} alt={userDetails.name} className="w-full h-full rounded-full object-cover"  loading="lazy" decoding="async" />
                     ) : (
                       <User className="w-8 h-8 text-slate-400" />
                     )}

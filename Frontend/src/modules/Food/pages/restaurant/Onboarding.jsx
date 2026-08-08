@@ -2643,7 +2643,7 @@ export default function RestaurantOnboarding() {
                         src={imageUrl}
                         alt={`Menu ${idx + 1}`}
                         className="w-full h-full object-cover"
-                      />
+                       loading="lazy" decoding="async" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-[11px] text-gray-500 px-2 text-center">
                         Preview unavailable
@@ -2676,7 +2676,7 @@ export default function RestaurantOnboarding() {
                         src={imageSrc}
                         alt="Restaurant profile"
                         className="w-full h-full object-cover"
-                      />
+                       loading="lazy" decoding="async" />
                     ) : (
                       <ImageIcon className="w-6 h-6 text-gray-500" />
                     );
@@ -2885,7 +2885,7 @@ export default function RestaurantOnboarding() {
                   src={getPreviewImageUrl(step3.panImage)}
                   alt="PAN document"
                   className="h-full w-full object-contain bg-white"
-                />
+                 loading="lazy" decoding="async" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">
                   Preview unavailable
@@ -2994,7 +2994,7 @@ export default function RestaurantOnboarding() {
                     src={getPreviewImageUrl(step3.gstImage)}
                     alt="GST document"
                     className="h-full w-full object-contain bg-white"
-                  />
+                   loading="lazy" decoding="async" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">
                     Preview unavailable
@@ -3113,7 +3113,7 @@ export default function RestaurantOnboarding() {
                 src={getPreviewImageUrl(step3.fssaiImage)}
                 alt="FSSAI document"
                 className="h-full w-full object-contain bg-white"
-              />
+               loading="lazy" decoding="async" />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">
                 Preview unavailable

@@ -209,7 +209,7 @@ export default function Restaurants() {
                             src={restaurant.image || "https://via.placeholder.com/400x300?text=Restaurant"}
                             alt={restaurant.name}
                             className="w-full h-full object-cover"
-                          />
+                           loading="lazy" decoding="async" />
                           <div className="absolute inset-0 bg-gradient-to-l from-black/20 dark:from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                         </div>
                       </div>

@@ -830,7 +830,7 @@ export default function LandingPage() {
               {/* The Map Graph Wrapper with Masked Image and Premium Overlays */}
               <div className="relative z-10 flex-1 flex items-center justify-center py-4 overflow-hidden select-none pointer-events-none">
                 <img 
-                  src="/india-map-operations.jpg" 
+                  src="/india-map-operations.webp" 
                   alt="Eatiefy Operational Map" 
                   className="w-full h-full object-contain filter brightness-110 contrast-105 saturate-110 transform scale-[1.18]"
                   style={{

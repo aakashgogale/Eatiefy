@@ -307,7 +307,7 @@ function CompletedOrders({ onSelectOrder, refreshToken = 0, searchQuery = "" }) 
                         src={order.photoUrl}
                         alt={order.photoAlt}
                         className="h-full w-full object-cover"
-                      />
+                       loading="lazy" decoding="async" />
                     ) : (
                       <div className="h-full w-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center px-2">
                         <span className="text-[11px] font-medium text-gray-500 text-center leading-tight">
@@ -524,7 +524,7 @@ function CancelledOrders({ onSelectOrder, refreshToken = 0, searchQuery = "" }) 
                         src={order.photoUrl}
                         alt={order.photoAlt}
                         className="h-full w-full object-cover"
-                      />
+                       loading="lazy" decoding="async" />
                     ) : (
                       <div className="h-full w-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center px-2">
                         <span className="text-[11px] font-medium text-gray-500 text-center leading-tight">
@@ -2755,7 +2755,7 @@ function OrderCard({
         {/* Food image */}
         <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-100 shrink-0">
           {photoUrl ? (
-            <img src={photoUrl} alt={photoAlt} className="w-full h-full object-cover" />
+            <img src={photoUrl} alt={photoAlt} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center px-1">
               <span className="text-[10px] font-medium text-gray-400 text-center leading-tight">{photoAlt}</span>

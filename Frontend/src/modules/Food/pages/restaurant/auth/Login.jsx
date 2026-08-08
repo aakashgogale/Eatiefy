@@ -8,7 +8,7 @@ import { restaurantAPI } from "@food/api"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { loadBusinessSettings, getModuleLogoUrl } from "@food/utils/businessSettings"
 import RestaurantPartnerHero from "@food/components/restaurant/auth/RestaurantPartnerHero"
-import quickSpicyLogo from "@food/assets/eatiefy-logo.png"
+import quickSpicyLogo from "@food/assets/eatiefy-logo.webp"
 
 const DEFAULT_COUNTRY_CODE = "+91"
 const THEME = "#E2AD4B"

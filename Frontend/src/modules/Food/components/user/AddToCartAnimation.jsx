@@ -392,7 +392,7 @@ export default function AddToCartAnimation({
               src={removedProduct.product.imageUrl}
               alt={removedProduct.product.name}
               className="w-full h-full object-cover rounded-full"
-            />
+             loading="lazy" decoding="async" />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-neutral-200 text-neutral-400 text-xs font-semibold rounded-full">
               {removedProduct.product?.name?.charAt(0).toUpperCase() || '?'}
@@ -416,7 +416,7 @@ export default function AddToCartAnimation({
               src={flyingProduct.product.imageUrl}
               alt={flyingProduct?.product?.name || 'Item'}
               className="w-full h-full object-cover rounded-full"
-            />
+             loading="lazy" decoding="async" />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-neutral-200 text-neutral-400 text-xs font-semibold rounded-full">
               {flyingProduct?.product?.name?.charAt(0)?.toUpperCase() || '?'}
@@ -497,7 +497,7 @@ export default function AddToCartAnimation({
                             src={item.product.imageUrl}
                             alt={item?.product?.name || 'Item'}
                             className="w-full h-full object-cover"
-                          />
+                           loading="lazy" decoding="async" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center bg-neutral-200 text-neutral-400 text-xs font-semibold">
                             {item?.product?.name?.charAt(0)?.toUpperCase() || '?'}

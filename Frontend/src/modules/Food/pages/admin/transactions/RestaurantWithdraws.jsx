@@ -496,7 +496,7 @@ export default function RestaurantWithdraws() {
                           src={getSafeQrUrl(selectedWithdraw.restaurantBankDetails?.upiQrImage || selectedWithdraw.restaurantId?.upiQrImage)}
                           alt="Restaurant UPI QR"
                           className="w-32 h-32 object-contain border border-slate-200 rounded-md bg-white"
-                        />
+                         loading="lazy" decoding="async" />
                       </div>
                     ) : null}
                   </div>

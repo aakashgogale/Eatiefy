@@ -2619,7 +2619,7 @@ export default function Cart() {
                           src={item.image || "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=200&h=200&fit=crop"}
                           alt={item.name}
                           className="w-full h-full object-cover"
-                          onError={(e) => {
+                          onError={(e) = loading="lazy" decoding="async"> {
                             e.target.onerror = null;
                             e.target.src = "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=200&h=200&fit=crop";
                           }}
@@ -2766,7 +2766,7 @@ export default function Cart() {
                               src={addon.image || (addon.images && addon.images[0]) || "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=200&h=200&fit=crop"}
                               alt={addon.name}
                               className="w-full h-full object-cover"
-                              onError={(e) => {
+                              onError={(e) = loading="lazy" decoding="async"> {
                                 e.target.onerror = null
                                 e.target.src = "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=200&h=200&fit=crop"
                               }}

@@ -85,7 +85,16 @@ app.use('/api', apiRateLimiter);
 app.use('/api', routes);
 
 // Serve uploaded files (acts as fallback if Nginx is not in front)
-app.use('/uploads', express.static(path.resolve(config.uploadStorageRoot)));
+app.use('/uploads', express.static(path.resolve(config.uploadStorageRoot), {
+    maxAge: '1y',
+    etag: true,
+    lastModified: true,
+    setHeaders: (res, path) => {
+        if (path.endsWith('.webp')) {
+            res.setHeader('Content-Type', 'image/webp');
+        }
+    }
+}));
 
 // Error Handling
 app.use(errorHandler);

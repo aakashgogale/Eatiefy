@@ -5,7 +5,7 @@ import { motion } from "framer-motion"
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
-const quickSpicyLogo = "/eatiefy-logo.png"
+const quickSpicyLogo = "/eatiefy-logo.webp"
 
 export default function Home() {
   const navigate = useNavigate()
@@ -48,7 +48,7 @@ export default function Home() {
                 src={logoUrl || quickSpicyLogo}
                 alt={companyName || "Logo"}
                 className="h-16 w-auto object-contain"
-                onError={(e) => {
+                onError={(e) = loading="lazy" decoding="async"> {
                   if (e.target.src !== quickSpicyLogo) {
                     e.target.src = quickSpicyLogo
                   }

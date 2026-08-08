@@ -521,7 +521,7 @@ export default function SignupStep2() {
               src={previewSrc}
               alt={label}
               className="w-full h-48 object-cover rounded-lg"
-            />
+             loading="lazy" decoding="async" />
             <button
               type="button"
               disabled={controlsDisabled}

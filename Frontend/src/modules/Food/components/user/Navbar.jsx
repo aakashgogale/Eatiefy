@@ -126,7 +126,7 @@ export default function Navbar() {
                 src={logoUrl}
                 alt={companyName || "Company Logo"}
                 className="h-8 w-8 sm:h-10 sm:w-10 md:h-12 md:w-12 object-contain"
-                onError={(e) => {
+                onError={(e) = loading="lazy" decoding="async"> {
                   // Hide image if it fails to load
                   e.target.style.display = 'none'
                 }}
@@ -136,7 +136,7 @@ export default function Navbar() {
                 {companyName}
               </span>
             ) : (
-              <img src={quickSpicyLogo} alt="Logo" className="h-8 w-8 sm:h-10 sm:w-10 md:h-12 md:w-12 object-contain" />
+              <img src={quickSpicyLogo} alt="Logo" className="h-8 w-8 sm:h-10 sm:w-10 md:h-12 md:w-12 object-contain"  loading="lazy" decoding="async" />
             )}
           </Link>
 

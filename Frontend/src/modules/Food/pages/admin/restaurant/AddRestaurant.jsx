@@ -1172,7 +1172,7 @@ export default function AddRestaurant() {
                 const imageUrl = file instanceof File ? URL.createObjectURL(file) : (file?.url || file)
                 return (
                   <div key={idx} className="relative aspect-[4/5] rounded-md overflow-hidden bg-gray-100">
-                    {imageUrl && <img src={imageUrl} alt={`Menu ${idx + 1}`} className="w-full h-full object-cover" />}
+                    {imageUrl && <img src={imageUrl} alt={`Menu ${idx + 1}`} className="w-full h-full object-cover"  loading="lazy" decoding="async" />}
                     <button
                       type="button"
                       onClick={() => setStep2((prev) => ({ ...prev, menuImages: prev.menuImages.filter((_, i) => i !== idx) }))}
@@ -1194,7 +1194,7 @@ export default function AddRestaurant() {
               {step2.profileImage ? (
                 (() => {
                   const imageSrc = step2.profileImage instanceof File ? URL.createObjectURL(step2.profileImage) : (step2.profileImage?.url || step2.profileImage)
-                  return imageSrc ? <img src={imageSrc} alt="Profile" className="w-full h-full object-cover" /> : <ImageIcon className="w-6 h-6 text-gray-500" />
+                  return imageSrc ? <img src={imageSrc} alt="Profile" className="w-full h-full object-cover"  loading="lazy" decoding="async" /> : <ImageIcon className="w-6 h-6 text-gray-500" />
                 })()
               ) : (
                 <ImageIcon className="w-6 h-6 text-gray-500" />
@@ -1349,7 +1349,7 @@ export default function AddRestaurant() {
           {step3.panImage && (
             <div className="mt-2 flex items-center gap-3">
               <div className="h-14 w-14 overflow-hidden rounded-md border border-gray-200 bg-gray-50">
-                <img src={getStoredImageSrc(step3.panImage)} alt="PAN document" className="h-full w-full object-cover" />
+                <img src={getStoredImageSrc(step3.panImage)} alt="PAN document" className="h-full w-full object-cover"  loading="lazy" decoding="async" />
               </div>
               <p className="text-xs text-gray-600">Selected: {getStoredFileLabel(step3.panImage)}</p>
             </div>
@@ -1394,7 +1394,7 @@ export default function AddRestaurant() {
             {step3.gstImage && (
               <div className="flex items-center gap-3">
                 <div className="h-14 w-14 overflow-hidden rounded-md border border-gray-200 bg-gray-50">
-                  <img src={getStoredImageSrc(step3.gstImage)} alt="GST document" className="h-full w-full object-cover" />
+                  <img src={getStoredImageSrc(step3.gstImage)} alt="GST document" className="h-full w-full object-cover"  loading="lazy" decoding="async" />
                 </div>
                 <p className="text-xs text-gray-600">Selected: {getStoredFileLabel(step3.gstImage)}</p>
               </div>
@@ -1426,7 +1426,7 @@ export default function AddRestaurant() {
         {step3.fssaiImage && (
           <div className="flex items-center gap-3">
             <div className="h-14 w-14 overflow-hidden rounded-md border border-gray-200 bg-gray-50">
-              <img src={getStoredImageSrc(step3.fssaiImage)} alt="FSSAI document" className="h-full w-full object-cover" />
+              <img src={getStoredImageSrc(step3.fssaiImage)} alt="FSSAI document" className="h-full w-full object-cover"  loading="lazy" decoding="async" />
             </div>
             <p className="text-xs text-gray-600">Selected: {getStoredFileLabel(step3.fssaiImage)}</p>
           </div>

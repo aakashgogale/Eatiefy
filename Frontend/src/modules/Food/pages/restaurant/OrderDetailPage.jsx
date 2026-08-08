@@ -249,7 +249,7 @@ export default function OrderDetailPage({
               <div key={idx} className="flex gap-4">
                 <div className="w-16 h-16 bg-gray-50 rounded-2xl overflow-hidden shrink-0 border border-gray-100">
                   {item.image ? (
-                    <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                    <img src={item.image} alt={item.name} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-gray-300">
                       <Package className="w-8 h-8" />

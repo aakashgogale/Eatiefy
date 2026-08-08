@@ -6,9 +6,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { exportReportsToCSV, exportReportsToExcel, exportReportsToPDF, exportReportsToJSON } from "@food/components/admin/reports/reportsExportUtils"
 
 // Import icons from Transaction-report-icons
-import pendingIcon from "@food/assets/Transaction-report-icons/trx1.png"
-import completedIcon from "@food/assets/Transaction-report-icons/trx3.png"
-import canceledIcon from "@food/assets/Transaction-report-icons/trx5.png"
+import pendingIcon from "@food/assets/Transaction-report-icons/trx1.webp"
+import completedIcon from "@food/assets/Transaction-report-icons/trx3.webp"
+import canceledIcon from "@food/assets/Transaction-report-icons/trx5.webp"
 
 export default function DisbursementReportDeliverymen() {
   const [searchQuery, setSearchQuery] = useState("")
@@ -121,7 +121,7 @@ export default function DisbursementReportDeliverymen() {
             </div>
             <div className="flex flex-col items-center text-center">
               <div className="w-16 h-16 rounded-full bg-green-500 flex items-center justify-center mb-4 relative">
-                <img src={pendingIcon} alt="Pending" className="w-10 h-10" />
+                <img src={pendingIcon} alt="Pending" className="w-10 h-10"  loading="lazy" decoding="async" />
               </div>
               <p className="text-2xl font-bold text-green-600 mb-1">{emptyDisbursementStats.pending}</p>
               <p className="text-sm text-slate-600">Pending Disbursements</p>
@@ -137,7 +137,7 @@ export default function DisbursementReportDeliverymen() {
             </div>
             <div className="flex flex-col items-center text-center">
               <div className="w-16 h-16 rounded-full bg-orange-500 flex items-center justify-center mb-4">
-                <img src={completedIcon} alt="Completed" className="w-10 h-10" />
+                <img src={completedIcon} alt="Completed" className="w-10 h-10"  loading="lazy" decoding="async" />
               </div>
               <p className="text-2xl font-bold text-slate-900 mb-1">{emptyDisbursementStats.completed}</p>
               <p className="text-sm text-slate-600">Completed Disbursements</p>
@@ -153,7 +153,7 @@ export default function DisbursementReportDeliverymen() {
             </div>
             <div className="flex flex-col items-center text-center">
               <div className="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center mb-4 relative">
-                <img src={canceledIcon} alt="Canceled" className="w-10 h-10" />
+                <img src={canceledIcon} alt="Canceled" className="w-10 h-10"  loading="lazy" decoding="async" />
               </div>
               <p className="text-2xl font-bold text-red-600 mb-1">{emptyDisbursementStats.canceled}</p>
               <p className="text-sm text-slate-600">Canceled Transactions</p>

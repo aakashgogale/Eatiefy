@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Monitor, Info, X, ChevronRight, RotateCcw, Save } from "lucide-react";
-import mobileImage1 from "@food/assets/Transaction-report-icons/mobile_image1.png";
+import mobileImage1 from "@food/assets/Transaction-report-icons/mobile_image1.webp";
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -82,7 +82,7 @@ export default function LandingPageSettings({ type = "admin" }) {
     { id: "en", label: "English(EN)" },
     { id: "bn", label: "Bengali - বাংলা(BN)" },
     { id: "ar", label: "Arabic - العربية (AR)" },
-    { id: "es", label: "Spanish - espa�ol(ES)" },
+    { id: "es", label: "Spanish - espa�ol(ES)" },
   ];
 
   const handleImageUpload = (e, setter, field) => {
@@ -383,7 +383,7 @@ export default function LandingPageSettings({ type = "admin" }) {
                             src={adminImageContent.contentImage}
                             alt="Content"
                             className="w-24 h-24 sm:w-32 sm:h-32 object-cover rounded-lg border border-slate-300"
-                          />
+                           loading="lazy" decoding="async" />
                           <button
                             type="button"
                             onClick={() => handleImageRemove(setAdminImageContent, "contentImage")}
@@ -419,7 +419,7 @@ export default function LandingPageSettings({ type = "admin" }) {
                             src={adminImageContent.backgroundImage}
                             alt="Background"
                             className="w-24 h-24 sm:w-32 sm:h-32 object-cover rounded-lg border border-slate-300"
-                          />
+                           loading="lazy" decoding="async" />
                           <button
                             type="button"
                             onClick={() => handleImageRemove(setAdminImageContent, "backgroundImage")}
@@ -1167,7 +1167,7 @@ export default function LandingPageSettings({ type = "admin" }) {
                           src={reactHeaderContent.backgroundImage}
                           alt="Background"
                           className="w-40 h-24 sm:w-48 sm:h-32 object-cover rounded-lg border border-slate-300"
-                        />
+                         loading="lazy" decoding="async" />
                         <button
                           type="button"
                           onClick={() => handleImageRemove(setReactHeaderContent, "backgroundImage")}
