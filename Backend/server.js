@@ -17,7 +17,7 @@ import { logger } from './src/utils/logger.js';
 import { initializeFirebaseRealtime } from './src/config/firebase.js';
 import { ensureUploadStorageReady } from './src/services/storage.service.js';
 
-const SHUTDOWN_TIMEOUT_MS = 10000;
+const SHUTDOWN_TIMEOUT_MS = 30000;
 let server = null;
 let expireOffersInterval = null;
 let fssaiExpiryInterval = null;
@@ -120,22 +120,28 @@ const startServer = async () => {
                 return res.status(403).send('Deploy webhook unconfigured');
             }
 
+            if (!signature || typeof signature !== 'string') {
+                return res.status(403).send('Unauthorized');
+            }
+
             const hash = 'sha256=' + crypto
                 .createHmac('sha256', secret)
                 .update(JSON.stringify(req.body))
                 .digest('hex');
 
-            if (signature !== hash) {
+            const sigBuf = Buffer.from(signature);
+            const hashBuf = Buffer.from(hash);
+            if (sigBuf.length !== hashBuf.length || !crypto.timingSafeEqual(sigBuf, hashBuf)) {
                 return res.status(403).send('Unauthorized');
             }
 
             exec('cd ~ && ./deploy.sh', (err, stdout) => {
                 if (err) {
-                    console.error(err);
-                    return res.send('Deploy failed');
+                    logger.error(`Deploy script failed: ${err.message}`);
+                    return res.status(500).send('Deploy failed');
                 }
 
-                console.log(stdout);
+                logger.info('Deploy script completed');
                 res.send('Deploy success');
             });
         });

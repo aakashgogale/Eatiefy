@@ -330,6 +330,9 @@ orderSchema.index({ 'dispatch.status': 1, orderStatus: 1, updatedAt: -1 });
 orderSchema.index({ 'dispatch.deliveryPartnerId': 1, 'dispatch.status': 1, updatedAt: -1 });
 orderSchema.index({ 'payment.status': 1, createdAt: -1 });
 orderSchema.index({ 'payment.method': 1, createdAt: -1 });
+orderSchema.index({ 'payment.razorpay.orderId': 1 }, { sparse: true });
+orderSchema.index({ 'payment.razorpay.paymentId': 1 }, { sparse: true });
+orderSchema.index({ orderStatus: 1, 'payment.status': 1, createdAt: -1 }); // pending_payment expiry / recovery
 
 orderSchema.pre('save', async function (next) {
     try {

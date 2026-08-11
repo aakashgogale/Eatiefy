@@ -55,17 +55,24 @@ export async function createPayment({
 
 /**
  * Mark payment as success after gateway verification.
- * Creates a transaction to debit the user wallet for online payments.
+ * Atomic: concurrent callers cannot double-mark / double-process.
  */
 export async function markPaymentSuccess(paymentId, { gatewayPaymentId, rawResponse } = {}) {
-    const payment = await Payment.findById(paymentId);
-    if (!payment) throw new Error('Payment not found');
-    if (payment.status === 'success') return payment.toObject();
+    const update = { status: 'success' };
+    if (gatewayPaymentId) update.gatewayPaymentId = gatewayPaymentId;
+    if (rawResponse) update.rawResponse = rawResponse;
 
-    payment.status = 'success';
-    if (gatewayPaymentId) payment.gatewayPaymentId = gatewayPaymentId;
-    if (rawResponse) payment.rawResponse = rawResponse;
-    await payment.save();
+    const payment = await Payment.findOneAndUpdate(
+        { _id: paymentId, status: { $ne: 'success' } },
+        { $set: update },
+        { new: true }
+    );
+
+    if (!payment) {
+        const existing = await Payment.findById(paymentId);
+        if (!existing) throw new Error('Payment not found');
+        return existing.toObject();
+    }
 
     logger.info(`Payment marked success: ${paymentId}`);
     return payment.toObject();
@@ -103,19 +110,34 @@ export async function getPaymentByGatewayId(gatewayPaymentId) {
 }
 
 /**
- * Find or create payment for an order (idempotent).
+ * Find or create payment for an order (idempotent under concurrency).
+ * Relies on unique partial index { orderId: 1 } where status != failed when available;
+ * falls back to catch duplicate-key and re-read.
  */
 export async function findOrCreatePayment({
     orderId, userId, amount, method, gateway = 'none',
     gatewayOrderId = '', module = 'food'
 }) {
-    // Check if a non-failed payment already exists
+    const orderOid = new mongoose.Types.ObjectId(orderId);
+
     const existing = await Payment.findOne({
-        orderId: new mongoose.Types.ObjectId(orderId),
+        orderId: orderOid,
         status: { $ne: 'failed' }
     }).lean();
 
     if (existing) return existing;
 
-    return createPayment({ orderId, userId, amount, method, gateway, gatewayOrderId, module });
+    try {
+        return await createPayment({ orderId, userId, amount, method, gateway, gatewayOrderId, module });
+    } catch (err) {
+        // Race: another request created the payment first
+        if (err?.code === 11000 || String(err?.message || '').includes('E11000')) {
+            const raced = await Payment.findOne({
+                orderId: orderOid,
+                status: { $ne: 'failed' }
+            }).lean();
+            if (raced) return raced;
+        }
+        throw err;
+    }
 }

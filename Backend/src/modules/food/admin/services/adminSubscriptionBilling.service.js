@@ -185,7 +185,7 @@ async function listHydratedInvoicesAdmin(query = {}, { paginate = true } = {}) {
                 .populate('restaurantId', 'restaurantName ownerName ownerPhone profileImage')
                 .sort(mongoSort)
                 .skip(paginate ? (page - 1) * limit : 0)
-                .limit(paginate ? limit : 5000)
+                .limit(paginate ? Math.min(limit, 200) : 200)
                 .lean(),
             FoodSubscriptionInvoice.countDocuments(filter),
         ]);

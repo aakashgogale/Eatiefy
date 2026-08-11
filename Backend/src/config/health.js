@@ -3,8 +3,15 @@ import { config } from './env.js';
 import { getRedisClient } from './redis.js';
 
 /**
- * Minimal health check: server, MongoDB, Redis (if enabled).
- * Does not expose internal secrets.
+ * Liveness: process is up (does not require dependencies).
+ */
+export const livenessCheck = () => ({
+    status: 'UP',
+    timestamp: new Date().toISOString(),
+});
+
+/**
+ * Readiness / health: Mongo required; Redis reported when enabled.
  */
 export const healthCheck = async () => {
     const mongoState = mongoose.connection.readyState;
@@ -17,6 +24,7 @@ export const healthCheck = async () => {
         if (client) {
             try {
                 await client.ping();
+                redisOk = 'ok';
             } catch {
                 redisOk = 'unavailable';
             }
@@ -25,9 +33,21 @@ export const healthCheck = async () => {
         redisOk = 'disabled';
     }
 
+    const ready = mongoOk && (redisOk === 'ok' || redisOk === 'disabled');
+
     return {
-        status: 'UP',
+        status: ready ? 'UP' : 'DEGRADED',
+        ready,
         mongo: mongoOk ? 'connected' : 'disconnected',
-        redis: redisOk
+        redis: redisOk,
+        timestamp: new Date().toISOString(),
+    };
+};
+
+export const readinessCheck = async () => {
+    const health = await healthCheck();
+    return {
+        status: health.ready ? 'ready' : 'not_ready',
+        ...health,
     };
 };

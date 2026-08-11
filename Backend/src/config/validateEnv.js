@@ -28,4 +28,18 @@ export const validateConfig = () => {
         logger.error(`Missing required environment variables: ${missing.join(', ')}`);
         process.exit(1);
     }
+
+    // Hard fail: default OTP in production is account-takeover risk
+    if (config.nodeEnv === 'production' && config.useDefaultOtp) {
+        logger.error('USE_DEFAULT_OTP=true is forbidden in production');
+        process.exit(1);
+    }
+
+    if (config.nodeEnv === 'production' && !config.razorpayWebhookSecret && config.razorpayKeyId) {
+        logger.warn('RAZORPAY_WEBHOOK_SECRET is not set — payment webhooks cannot be verified');
+    }
+
+    if (config.nodeEnv === 'production' && (!config.redisEnabled || !config.redisUrl)) {
+        logger.warn('Redis is disabled in production — Socket.IO multi-instance and distributed rate limits will not work correctly');
+    }
 };

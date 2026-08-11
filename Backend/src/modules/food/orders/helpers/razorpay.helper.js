@@ -9,6 +9,7 @@ try {
 }
 
 import { config } from '../../../../config/env.js';
+import { safeEqualString } from '../../../../utils/cryptoSafeCompare.js';
 
 const KEY_ID = config.razorpayKeyId || process.env.RAZORPAY_KEY_ID || '';
 const KEY_SECRET = config.razorpayKeySecret || process.env.RAZORPAY_KEY_SECRET || '';
@@ -52,10 +53,10 @@ export function createPaymentLink({ amountPaise, currency = 'INR', description, 
 }
 
 export function verifyPaymentSignature(orderId, paymentId, signature) {
-    if (!KEY_SECRET) return false;
+    if (!KEY_SECRET || !signature) return false;
     const body = `${orderId}|${paymentId}`;
     const expected = crypto.createHmac('sha256', KEY_SECRET).update(body).digest('hex');
-    return expected === signature;
+    return safeEqualString(expected, String(signature));
 }
 
 /**

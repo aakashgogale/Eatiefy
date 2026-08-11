@@ -42,6 +42,7 @@ import { normalizeDeliveryAddress } from '../../shared/geo.utils.js';
 import * as dispatchService from './order-dispatch.service.js';
 import * as deliveryService from './order-delivery.service.js';
 import * as paymentService from './order-payment.service.js';
+import { confirmOnlinePaymentAndActivateOrder } from './order-payment-activation.service.js';
 import {
   enqueueOrderEvent,
   haversineKm,
@@ -757,80 +758,23 @@ export async function verifyPayment(userId, dto) {
     throw new ValidationError("Payment verification failed");
   }
 
-  order.payment.status = "paid";
-  order.payment.razorpay.paymentId = dto.razorpayPaymentId;
-  order.payment.razorpay.signature = dto.razorpaySignature;
-  
-  const from = order.orderStatus;
-  const acceptanceWindowSeconds = await getOrderAcceptanceWindowSeconds();
-  order.orderStatus = "created";
-  order.acceptanceWindowSeconds = acceptanceWindowSeconds;
-  order.acceptanceDeadlineAt = buildAcceptanceDeadline(new Date(), acceptanceWindowSeconds);
-
-  pushStatusHistory(order, {
-    byRole: "USER",
-    byId: userId,
-    from: from,
-    to: "created",
-    note: "Payment verified, order confirmed",
-  });
-  await order.save();
-  void addOrderJob(
-    {
-      action: "ORDER_ACCEPTANCE_TIMEOUT_CHECK",
-      orderMongoId: order._id?.toString?.(),
-      orderId: order._id.toString(),
-    },
-    {
-      delay: acceptanceWindowSeconds * 1000,
-      removeOnComplete: true,
-      removeOnFail: true,
-      jobId: `order-accept-timeout-${order._id?.toString?.()}`,
-    },
-  ).catch((err) => {
-    logger.warn(`Failed to enqueue acceptance timeout check: ${err?.message || err}`);
-  });
-
-  try {
-    const transaction = await foodTransactionService.createInitialTransaction(order);
-    if (transaction && Number.isFinite(Number(transaction.amounts?.platformNetProfit))) {
-      order.platformProfit = Number(transaction.amounts.platformNetProfit);
-      await FoodOrder.updateOne(
-        { _id: order._id },
-        { $set: { platformProfit: order.platformProfit } },
-      );
-    }
-  } catch (err) {
-    logger.error(`[CRITICAL] Initial transaction failed for order ${order._id}: ${err.message}`);
-  }
-
-  await incrementCouponUsageForOrder(order, userId);
-
-  await foodTransactionService.updateTransactionStatus(order._id, 'captured', {
-    status: 'captured',
+  const { order: activatedOrder, alreadyPaid } = await confirmOnlinePaymentAndActivateOrder({
+    filter: { _id: order._id },
     razorpayPaymentId: dto.razorpayPaymentId,
     razorpaySignature: dto.razorpaySignature,
     recordedByRole: "USER",
-    recordedById: new mongoose.Types.ObjectId(userId)
+    recordedById: userId,
+    note: "Payment verified, order confirmed",
+    notifyUser: true,
   });
 
-  // After online payment is verified, now notify restaurant about the new order.
-  await notifyRestaurantNewOrder(order);
+  if (!activatedOrder) throw new NotFoundError("Order not found");
 
-  // Notify Customer about payment success
-  await notifyOwnersSafely([{ ownerType: "USER", ownerId: userId }], {
-    title: "Payment Successful! ✅",
-    body: `We have received your payment of ₹${order.payment.amountDue} for Order #${order._id.toString()}.`,
-    image: "https://i.ibb.co/5GzXz7r/Eatiefy-Brand-Image.png",
-    data: {
-      type: "payment_success",
-      orderId: String(order._id.toString()),
-      orderMongoId: String(order._id),
-    },
-  });
+  if (alreadyPaid) {
+    return { order: normalizeOrderForClient(activatedOrder), payment: activatedOrder.payment };
+  }
 
-
-  return { order: normalizeOrderForClient(order), payment: order.payment };
+  return { order: normalizeOrderForClient(activatedOrder), payment: activatedOrder.payment };
 }
 
 export async function abandonOnlinePaymentOrder(userId, orderId) {

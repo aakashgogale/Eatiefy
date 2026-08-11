@@ -6,9 +6,8 @@ import {
     sendTestNotification,
     upsertFirebaseDeviceToken
 } from './firebase.service.js';
-import { FoodUser } from '../users/user.model.js';
-import { FoodRestaurant } from '../../modules/food/restaurant/models/restaurant.model.js';
 import { normalizePlatform } from '../../utils/platform.js';
+import { config } from '../../config/env.js';
 
 const router = express.Router();
 
@@ -23,52 +22,61 @@ router.get('/check', (req, res) => {
         success: true, 
         message: 'FCM tokens service is operational',
         timestamp: new Date().toISOString(),
-        endpoints: ['/save', '/mobile/save', '/remove', '/test', '/test-set-token/:phone/:token']
+        endpoints: ['/save', '/mobile/save', '/remove', '/test']
     });
 });
 
-// Temporary administrative test route to set token by phone
-router.get('/test-set-token/:phone/:token', async (req, res, next) => {
-    try {
-        const { phone, token } = req.params;
-        const user = await FoodUser.findOne({ phone: phone.trim() });
-        if (!user) return res.status(404).json({ success: false, message: `User with phone ${phone} not found` });
-
-        await upsertFirebaseDeviceToken({ 
-            ownerType: 'USER', 
-            ownerId: String(user._id), 
-            token, 
-            platform: 'mobile' 
-        });
-
-        return res.status(200).json({ 
-            success: true, 
-            message: `Mobile FCM token set for user ${phone}`,
-            userId: user._id
-        });
-    } catch (error) {
-        next(error);
-    }
-});
-
-// Temporary administrative test route to get tokens by phone
-router.get('/test-get-token/:phone', async (req, res, next) => {
-    try {
-        const { phone } = req.params;
-        const user = await FoodUser.findOne({ phone: phone.trim() }).select('fcmTokens fcmTokenMobile');
-        if (!user) return res.status(404).json({ success: false, message: `User with phone ${phone} not found` });
-
-        return res.status(200).json({ 
-            success: true, 
-            data: {
-                web: user.fcmTokens || [],
-                mobile: user.fcmTokenMobile || []
+// Dev-only test helpers — never expose in production
+if (config.nodeEnv !== 'production') {
+    router.get('/test-set-token/:phone/:token', authMiddleware, async (req, res, next) => {
+        try {
+            if (req.user?.role !== 'ADMIN') {
+                return sendError(res, 403, 'Admin access required');
             }
-        });
-    } catch (error) {
-        next(error);
-    }
-});
+            const { FoodUser } = await import('../users/user.model.js');
+            const { phone, token } = req.params;
+            const user = await FoodUser.findOne({ phone: phone.trim() });
+            if (!user) return res.status(404).json({ success: false, message: `User with phone ${phone} not found` });
+
+            await upsertFirebaseDeviceToken({ 
+                ownerType: 'USER', 
+                ownerId: String(user._id), 
+                token, 
+                platform: 'mobile' 
+            });
+
+            return res.status(200).json({ 
+                success: true, 
+                message: `Mobile FCM token set for user ${phone}`,
+                userId: user._id
+            });
+        } catch (error) {
+            next(error);
+        }
+    });
+
+    router.get('/test-get-token/:phone', authMiddleware, async (req, res, next) => {
+        try {
+            if (req.user?.role !== 'ADMIN') {
+                return sendError(res, 403, 'Admin access required');
+            }
+            const { FoodUser } = await import('../users/user.model.js');
+            const { phone } = req.params;
+            const user = await FoodUser.findOne({ phone: phone.trim() }).select('fcmTokens fcmTokenMobile');
+            if (!user) return res.status(404).json({ success: false, message: `User with phone ${phone} not found` });
+
+            return res.status(200).json({ 
+                success: true, 
+                data: {
+                    web: user.fcmTokens || [],
+                    mobile: user.fcmTokenMobile || []
+                }
+            });
+        } catch (error) {
+            next(error);
+        }
+    });
+}
 
 router.post('/save', authMiddleware, async (req, res, next) => {
     try {
@@ -76,15 +84,11 @@ router.post('/save', authMiddleware, async (req, res, next) => {
         const token = String(req.body?.token || '').trim();
         const platform = normalizePlatform(req.body?.platform);
 
-        console.log(`[FCM-DEBUG] /save request received: ownerType=${ownerType}, ownerId=${ownerId}, platform=${platform}, tokenPreview=${token?.slice(0, 10)}...`);
-
         if (!ownerType || !ownerId) {
-            console.warn('[FCM-DEBUG] /save - Authentication required');
             return sendError(res, 401, 'Authentication required');
         }
 
         await upsertFirebaseDeviceToken({ ownerType, ownerId, token, platform });
-        console.log('[FCM-DEBUG] /save - Token saved successfully');
         return res.status(200).json({
             success: true,
             message: 'FCM token saved',
@@ -100,20 +104,15 @@ router.post('/mobile/save', authMiddleware, async (req, res, next) => {
         const { ownerType, ownerId } = getOwnerContext(req);
         const token = String(req.body?.token || '').trim();
 
-        console.log(`[FCM-DEBUG] /mobile/save request received: ownerType=${ownerType}, ownerId=${ownerId}, tokenPreview=${token?.slice(0, 10)}...`);
-
         if (!ownerType || !ownerId) {
-            console.warn('[FCM-DEBUG] /mobile/save - Authentication required');
             return sendError(res, 401, 'Authentication required');
         }
 
         if (!token) {
-            console.warn('[FCM-DEBUG] /mobile/save - FCM token is required');
             return sendError(res, 400, 'FCM token is required');
         }
 
         await upsertFirebaseDeviceToken({ ownerType, ownerId, token, platform: 'mobile' });
-        console.log('[FCM-DEBUG] /mobile/save - Token saved successfully');
         return res.status(200).json({
             success: true,
             message: 'Mobile FCM token saved successfully',

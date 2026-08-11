@@ -4432,7 +4432,8 @@ export async function expireExpiredOffers() {
 }
 // ----- Delivery join requests -----
 export async function getDeliveryJoinRequests(query) {
-    const { status = 'pending', page = 1, limit = 1000, search, zone, vehicleType } = query;
+    const { status = 'pending', page = 1, limit: rawLimit = 100, search, zone, vehicleType } = query;
+    const limit = Math.min(Math.max(Number(rawLimit) || 100, 1), 200);
     const filter = {};
     if (status === 'pending') filter.status = 'pending';
     else if (status === 'denied' || status === 'rejected') filter.status = 'rejected';
@@ -4463,8 +4464,8 @@ export async function getDeliveryJoinRequests(query) {
         filter.vehicleType = { $regex: vehicleType.trim(), $options: 'i' };
     }
 
-    const skip = Math.max(0, (Number(page) || 1) - 1) * Math.max(1, Math.min(1000, Number(limit) || 100));
-    const limitNum = Math.max(1, Math.min(1000, Number(limit) || 100));
+    const skip = Math.max(0, (Number(page) || 1) - 1) * limit;
+    const limitNum = limit;
 
     const list = await FoodDeliveryPartner.find(filter)
         .sort({ createdAt: -1 })
@@ -4799,7 +4800,8 @@ async function getBulkDeliveryPartnerStats(partnerIds) {
 
 // ----- Delivery partners (approved list) -----
 export async function getDeliveryPartners(query) {
-    const { page = 1, limit = 1000, search } = query;
+    const { page = 1, limit: rawLimit = 100, search } = query;
+    const limit = Math.min(Math.max(Number(rawLimit) || 100, 1), 200);
     const filter = { status: 'approved' };
     if (search && typeof search === 'string' && search.trim()) {
         const term = search.trim();
@@ -4888,7 +4890,8 @@ function generateBonusTransactionId() {
 }
 
 export async function getDeliveryPartnerBonusTransactions(query = {}) {
-    const { page = 1, limit = 1000, search } = query;
+    const { page = 1, limit: rawLimit = 100, search } = query;
+    const limit = Math.min(Math.max(Number(rawLimit) || 100, 1), 200);
     const filter = {};
 
     // For search (name/phone/email/transactionId) we do a two-step lookup to keep it simple.
@@ -5237,7 +5240,8 @@ export async function toggleEarningAddonStatus(id, status) {
 
 // ----- Earning Addon History (admin) -----
 export async function getEarningAddonHistory(query = {}) {
-    const { page = 1, limit = 1000, search } = query;
+    const { page = 1, limit: rawLimit = 100, search } = query;
+    const limit = Math.min(Math.max(Number(rawLimit) || 100, 1), 200);
     const filter = {};
 
     // Optional search by delivery partner name/phone/email or offer title.

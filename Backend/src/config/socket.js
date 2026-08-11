@@ -179,15 +179,47 @@ export const initSocket = async (server) => {
 
         // ─── Live Tracking Events ───────────────────────────────────────
 
-        // Users / restaurants subscribe to an order's real-time tracking room.
-        socket.on('join-tracking', (orderId) => {
+        // Users / restaurants / assigned delivery partner subscribe to an order's tracking room.
+        socket.on('join-tracking', async (orderId) => {
             if (!orderId) return;
             const role = socket.user?.role;
-            if (role !== 'USER' && role !== 'RESTAURANT' && role !== 'DELIVERY_PARTNER') return;
-            const room = roomNames.tracking(orderId);
-            socket.join(room);
-            logger.info(`Socket ${socket.id} (${role}:${userId}) joined tracking room ${room}`);
-            socket.emit('tracking-room-joined', { room, orderId: String(orderId) });
+            const authedUserId = String(socket.user?.userId || '');
+            if (role !== 'USER' && role !== 'RESTAURANT' && role !== 'DELIVERY_PARTNER' && role !== 'ADMIN') {
+                socket.emit('tracking-room-error', { orderId: String(orderId), error: 'FORBIDDEN' });
+                return;
+            }
+
+            try {
+                const { FoodOrder } = await import('../modules/food/orders/models/order.model.js');
+                const order = await FoodOrder.findById(orderId)
+                    .select('userId restaurantId dispatch.deliveryPartnerId')
+                    .lean();
+                if (!order) {
+                    socket.emit('tracking-room-error', { orderId: String(orderId), error: 'NOT_FOUND' });
+                    return;
+                }
+
+                const allowed =
+                    role === 'ADMIN' ||
+                    (role === 'USER' && String(order.userId) === authedUserId) ||
+                    (role === 'RESTAURANT' && String(order.restaurantId) === authedUserId) ||
+                    (role === 'DELIVERY_PARTNER' &&
+                        String(order.dispatch?.deliveryPartnerId || '') === authedUserId);
+
+                if (!allowed) {
+                    logger.warn(`Socket ${socket.id} denied join-tracking for order ${orderId}`);
+                    socket.emit('tracking-room-error', { orderId: String(orderId), error: 'FORBIDDEN' });
+                    return;
+                }
+
+                const room = roomNames.tracking(orderId);
+                socket.join(room);
+                logger.info(`Socket ${socket.id} (${role}:${userId}) joined tracking room ${room}`);
+                socket.emit('tracking-room-joined', { room, orderId: String(orderId) });
+            } catch (err) {
+                logger.error(`join-tracking failed: ${err.message}`);
+                socket.emit('tracking-room-error', { orderId: String(orderId), error: 'INTERNAL' });
+            }
         });
 
         // Delivery partner emits live GPS location for an active order.

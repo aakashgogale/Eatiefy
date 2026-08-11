@@ -10,7 +10,7 @@ import errorHandler from './middleware/errorHandler.js';
 import { apiRateLimiter } from './middleware/rateLimit.js';
 import { responseTimeLogger } from './middleware/responseTimeLogger.js';
 import { requestIdMiddleware } from './middleware/requestId.js';
-import { healthCheck } from './config/health.js';
+import { healthCheck, readinessCheck, livenessCheck } from './config/health.js';
 import { config } from './config/env.js';
 import { corsOptions } from './config/cors.js';
 
@@ -34,13 +34,21 @@ app.get('/', (req, res) => {
 app.get('/health', async (_req, res) => {
     try {
         const data = await healthCheck();
-        res.status(200).json(data);
+        res.status(data.ready ? 200 : 503).json(data);
     } catch (err) {
         res.status(503).json({ status: 'DOWN', error: 'Health check failed' });
     }
 });
-app.get('/ready', (_req, res) => {
-    res.status(200).json({ status: 'ready' });
+app.get('/live', (_req, res) => {
+    res.status(200).json(livenessCheck());
+});
+app.get('/ready', async (_req, res) => {
+    try {
+        const data = await readinessCheck();
+        res.status(data.ready ? 200 : 503).json(data);
+    } catch (err) {
+        res.status(503).json({ status: 'not_ready', error: 'Readiness check failed' });
+    }
 });
 
 // Security & parsing middlewares
