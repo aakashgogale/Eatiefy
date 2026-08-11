@@ -282,7 +282,11 @@ export const saveImageFile = async (file, folder) => {
     }
 
     // Check active image storage mode (Cloudinary vs Server)
-    const mode = await getImageStorageMode();
+    // Production always uses Cloudinary so all instances share object storage.
+    let mode = await getImageStorageMode();
+    if (config.nodeEnv === 'production') {
+        mode = 'cloudinary';
+    }
     if (mode === 'cloudinary') {
         return uploadToCloudinary(file.buffer, safeFolder);
     }

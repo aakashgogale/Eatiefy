@@ -1404,7 +1404,7 @@ export default function LandingPage() {
                     </div>
                     <h3 className="text-2xl font-black text-slate-900 mb-3 tracking-tight">Live Menu & Pricing Control</h3>
                     <p className="text-slate-600 font-light leading-relaxed">
-                      Easily adjust your digital menu in real-time. Switch items on or off, edit prices directly to protect your margins, customize add-ons, and roll out special promotional offers instantly.
+                      Easily adjust your digital menu in real-time. Turn items on or off, edit prices directly to protect your margins, customize add-ons, and roll out special promotional offers instantly.
                     </p>
                   </div>
                   <div className="mt-8 pt-6 border-t border-slate-200/50 flex items-center gap-3">

@@ -849,12 +849,30 @@ function showForegroundNotification(payload = {}) {
       pushDebugLog(PUSH_DEBUG_PREFIX, "Skipping blank foreground notification after sanitize");
       return;
     }
-    if (body) {
-      toast.success(`${title}: ${body}`);
-    } else {
-      toast.success(title);
+    const targetUrl =
+      payload?.data?.targetUrl ||
+      payload?.data?.link ||
+      payload?.data?.click_action ||
+      payload?.fcmOptions?.link ||
+      "";
+
+    const toastOptions = {};
+    if (targetUrl) {
+      const path = String(targetUrl).startsWith("/") ? targetUrl : `/${targetUrl}`;
+      toastOptions.action = {
+        label: "View",
+        onClick: () => {
+          if (typeof window !== "undefined") window.location.href = path;
+        }
+      };
     }
-    pushDebugLog(PUSH_DEBUG_PREFIX, "Foreground notification shown as toast", { title, body });
+
+    if (body) {
+      toast.success(`${title}: ${body}`, toastOptions);
+    } else {
+      toast.success(title, toastOptions);
+    }
+    pushDebugLog(PUSH_DEBUG_PREFIX, "Foreground notification shown as toast", { title, body, targetUrl });
   }
 }
 

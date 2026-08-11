@@ -24,12 +24,21 @@ export const validateConfig = () => {
         missing.push('REDIS_ENABLED=true (required when BULLMQ_ENABLED=true)');
     }
 
+    // Production hard requirements for horizontal scale + idempotency
+    if (config.nodeEnv === 'production') {
+        if (!config.redisEnabled || !config.redisUrl) {
+            missing.push('REDIS_ENABLED=true and REDIS_URL (required in production)');
+        }
+        if (!config.cloudinaryCloudName || !config.cloudinaryApiKey || !config.cloudinaryApiSecret) {
+            missing.push('CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET (required in production for multi-instance uploads)');
+        }
+    }
+
     if (missing.length > 0) {
         logger.error(`Missing required environment variables: ${missing.join(', ')}`);
         process.exit(1);
     }
 
-    // Hard fail: default OTP in production is account-takeover risk
     if (config.nodeEnv === 'production' && config.useDefaultOtp) {
         logger.error('USE_DEFAULT_OTP=true is forbidden in production');
         process.exit(1);
@@ -37,9 +46,5 @@ export const validateConfig = () => {
 
     if (config.nodeEnv === 'production' && !config.razorpayWebhookSecret && config.razorpayKeyId) {
         logger.warn('RAZORPAY_WEBHOOK_SECRET is not set — payment webhooks cannot be verified');
-    }
-
-    if (config.nodeEnv === 'production' && (!config.redisEnabled || !config.redisUrl)) {
-        logger.warn('Redis is disabled in production — Socket.IO multi-instance and distributed rate limits will not work correctly');
     }
 };

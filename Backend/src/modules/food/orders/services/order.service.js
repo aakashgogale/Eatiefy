@@ -44,6 +44,10 @@ import * as deliveryService from './order-delivery.service.js';
 import * as paymentService from './order-payment.service.js';
 import { confirmOnlinePaymentAndActivateOrder } from './order-payment-activation.service.js';
 import {
+  reserveInventoryForItems,
+  releaseInventoryForItems,
+} from './inventory.service.js';
+import {
   enqueueOrderEvent,
   haversineKm,
   generateFourDigitDeliveryOtp,
@@ -145,6 +149,12 @@ async function deletePendingPaymentOrder(orderLike) {
 
   const payStatus = String(orderLike.payment?.status || "").toLowerCase();
   if (payStatus === "paid" || payStatus === "refunded") return false;
+
+  if (orderLike.inventoryReserved && Array.isArray(orderLike.inventoryReservation) && orderLike.inventoryReservation.length) {
+    await releaseInventoryForItems(orderLike.inventoryReservation).catch((err) => {
+      logger.error(`Inventory release on pending delete failed: ${err.message}`);
+    });
+  }
 
   await Promise.all([
     FoodSupportTicket.updateMany(
@@ -554,67 +564,80 @@ export async function createOrder(userId, dto) {
     const initialStatus = isAwaitingOnlinePayment ? "pending_payment" : "created";
     const acceptanceWindowSeconds = await getOrderAcceptanceWindowSeconds();
 
-    const order = new FoodOrder({
-      userId: toObjectId(userId, 'User ID'),
-      restaurantId: restaurantId,
-      zoneId: dto.zoneId ? toObjectId(dto.zoneId, 'Zone ID') : toObjectId(restaurant.zoneId, 'Restaurant Zone ID'),
-      items: resolvedItems.map(item => ({
-        ...item,
-        itemId: toObjectId(item.itemId, 'Item ID')
-      })),
-      deliveryAddress,
-      customerName: String(dto.customerName || deliveryAddress.fullName || ""),
-      customerPhone: String(dto.customerPhone || deliveryAddress.phone || ""),
-      pricing: normalizedPricing,
-      payment,
-      orderStatus: initialStatus,
-      acceptanceWindowSeconds,
-      acceptanceDeadlineAt:
-        initialStatus === "created" ? buildAcceptanceDeadline(new Date(), acceptanceWindowSeconds) : null,
-      dispatch: { modeAtCreation: dispatchMode, status: "unassigned" },
-      statusHistory: [
-        {
-          at: new Date(),
-          byRole: "SYSTEM",
-          from: "",
-          to: initialStatus,
-          note: initialStatus === "pending_payment" ? "Order created, awaiting payment" : "Order placed",
-        },
-      ],
-      note: String(dto.note || ""),
-      deliveryInstructions: String(dto.deliveryInstructions || ""),
-      sendCutlery: dto.sendCutlery !== false,
-      deliveryFleet: String(dto.deliveryFleet || "standard"),
-      scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
-      riderEarning: Number(riderEarning) || 0,
-      platformProfit: Number(platformProfit) || 0,
-    });
+    // Atomic inventory reservation BEFORE order persist (prevents oversell under concurrency).
+    const { reserved } = await reserveInventoryForItems(resolvedItems);
 
+    let order;
     let razorpayPayload = null;
+    try {
+      order = new FoodOrder({
+        userId: toObjectId(userId, 'User ID'),
+        restaurantId: restaurantId,
+        zoneId: dto.zoneId ? toObjectId(dto.zoneId, 'Zone ID') : toObjectId(restaurant.zoneId, 'Restaurant Zone ID'),
+        items: resolvedItems.map(item => ({
+          ...item,
+          itemId: toObjectId(item.itemId, 'Item ID')
+        })),
+        deliveryAddress,
+        customerName: String(dto.customerName || deliveryAddress.fullName || ""),
+        customerPhone: String(dto.customerPhone || deliveryAddress.phone || ""),
+        pricing: normalizedPricing,
+        payment,
+        orderStatus: initialStatus,
+        acceptanceWindowSeconds,
+        acceptanceDeadlineAt:
+          initialStatus === "created" ? buildAcceptanceDeadline(new Date(), acceptanceWindowSeconds) : null,
+        dispatch: { modeAtCreation: dispatchMode, status: "unassigned" },
+        statusHistory: [
+          {
+            at: new Date(),
+            byRole: "SYSTEM",
+            from: "",
+            to: initialStatus,
+            note: initialStatus === "pending_payment" ? "Order created, awaiting payment" : "Order placed",
+          },
+        ],
+        note: String(dto.note || ""),
+        deliveryInstructions: String(dto.deliveryInstructions || ""),
+        sendCutlery: dto.sendCutlery !== false,
+        deliveryFleet: String(dto.deliveryFleet || "standard"),
+        scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
+        riderEarning: Number(riderEarning) || 0,
+        platformProfit: Number(platformProfit) || 0,
+        inventoryReserved: reserved.length > 0,
+        inventoryReservation: reserved,
+      });
 
-    if (paymentMethod === "razorpay" && isRazorpayConfigured()) {
-      const amountPaise = Math.round((normalizedPricing.total || 0) * 100);
-      if (amountPaise < 100)
-        throw new ValidationError("Amount too low for online payment");
-      try {
-        const rzOrder = await createRazorpayOrder(amountPaise, "INR", order._id.toString());
-        razorpayPayload = {
-          key: getRazorpayKeyId(),
-          orderId: rzOrder.id,
-          amount: rzOrder.amount,
-          currency: rzOrder.currency || "INR",
-        };
-        payment.razorpay = { orderId: rzOrder.id, paymentId: "", signature: "" };
-        payment.status = "created";
-        // Update order payment state before saving
-        order.payment = payment;
-      } catch (err) {
-        logger.error(`Razorpay order creation failed: ${err.message}`);
-        throw new ValidationError(err?.message || "Payment gateway error");
+      if (paymentMethod === "razorpay" && isRazorpayConfigured()) {
+        const amountPaise = Math.round((normalizedPricing.total || 0) * 100);
+        if (amountPaise < 100)
+          throw new ValidationError("Amount too low for online payment");
+        try {
+          const rzOrder = await createRazorpayOrder(amountPaise, "INR", order._id.toString());
+          razorpayPayload = {
+            key: getRazorpayKeyId(),
+            orderId: rzOrder.id,
+            amount: rzOrder.amount,
+            currency: rzOrder.currency || "INR",
+          };
+          payment.razorpay = { orderId: rzOrder.id, paymentId: "", signature: "" };
+          payment.status = "created";
+          order.payment = payment;
+        } catch (err) {
+          logger.error(`Razorpay order creation failed: ${err.message}`);
+          throw new ValidationError(err?.message || "Payment gateway error");
+        }
       }
-    }
 
-    await order.save();
+      await order.save();
+    } catch (err) {
+      if (reserved.length) {
+        await releaseInventoryForItems(reserved).catch((releaseErr) => {
+          logger.error(`Inventory release after create failure: ${releaseErr.message}`);
+        });
+      }
+      throw err;
+    }
 
     if (!isAwaitingOnlinePayment) {
       void addOrderJob(
@@ -638,6 +661,9 @@ export async function createOrder(userId, dto) {
       try {
         await userWalletService.deductWalletBalance(userId, order.pricing.total, `Payment for order #${order.order_id || order._id}`, { orderId: order._id });
       } catch (err) {
+        if (reserved.length) {
+          await releaseInventoryForItems(reserved).catch(() => {});
+        }
         await FoodOrder.deleteOne({ _id: order._id });
         throw err;
       }

@@ -4,6 +4,7 @@ import { getRedisClient } from './redis.js';
 
 /**
  * Liveness: process is up (does not require dependencies).
+ * Load balancers use this to know the process is alive.
  */
 export const livenessCheck = () => ({
     status: 'UP',
@@ -11,14 +12,16 @@ export const livenessCheck = () => ({
 });
 
 /**
- * Readiness / health: Mongo required; Redis reported when enabled.
+ * Readiness / health: Mongo required.
+ * In production Redis is also required (idempotency, rate limit, sockets).
+ * LB must not route when ready=false.
  */
 export const healthCheck = async () => {
     const mongoState = mongoose.connection.readyState;
-    const mongoOk = mongoState === 1; // 1 = connected
+    const mongoOk = mongoState === 1;
 
     let redisOk = null;
-    if (config.redisEnabled) {
+    if (config.redisEnabled || config.nodeEnv === 'production') {
         const client = getRedisClient();
         redisOk = client ? 'ok' : 'unavailable';
         if (client) {
@@ -33,10 +36,12 @@ export const healthCheck = async () => {
         redisOk = 'disabled';
     }
 
-    const ready = mongoOk && (redisOk === 'ok' || redisOk === 'disabled');
+    const redisRequired = config.nodeEnv === 'production' || config.redisEnabled;
+    const redisHealthy = redisOk === 'ok' || (!redisRequired && redisOk === 'disabled');
+    const ready = mongoOk && redisHealthy;
 
     return {
-        status: ready ? 'UP' : 'DEGRADED',
+        status: ready ? 'UP' : (mongoOk ? 'DEGRADED' : 'DOWN'),
         ready,
         mongo: mongoOk ? 'connected' : 'disconnected',
         redis: redisOk,

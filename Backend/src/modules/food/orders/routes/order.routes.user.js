@@ -17,8 +17,9 @@ import { idempotencyMiddleware } from '../../../../middleware/idempotency.js';
 const router = express.Router();
 
 router.post('/calculate', calculateOrderController);
-router.post('/', idempotencyMiddleware({ ttlSeconds: 24 * 60 * 60 }), createOrderController);
-router.post('/verify-payment', idempotencyMiddleware({ ttlSeconds: 24 * 60 * 60 }), verifyPaymentController);
+// Idempotency-Key is always required for order create (prevents duplicate successful orders).
+router.post('/', idempotencyMiddleware({ ttlSeconds: 24 * 60 * 60, required: true }), createOrderController);
+router.post('/verify-payment', idempotencyMiddleware({ ttlSeconds: 24 * 60 * 60, required: true }), verifyPaymentController);
 router.delete('/:orderId/pending-payment', abandonOnlinePaymentController);
 router.get('/', listOrdersUserController);
 router.get('/:orderId/payments', getOrderPaymentsUserController);

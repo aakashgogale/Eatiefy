@@ -5,6 +5,8 @@ import { logger } from '../utils/logger.js';
 import { verifyAccessToken } from '../core/auth/token.util.js';
 import { getFirebaseDB } from './firebase.js';
 
+import { canDeliveryPartnerUpdateOrderLocation } from './socketAuthz.js';
+
 let io = null;
 
 function logDeliverySocket(message, extra = {}) {
@@ -114,6 +116,10 @@ export const initSocket = async (server) => {
             io.adapter(createAdapter(pubClient, subClient));
             logger.info('Socket.IO Redis adapter attached for horizontal scaling');
         } catch (err) {
+            if (config.nodeEnv === 'production') {
+                logger.error(`Socket.IO Redis adapter REQUIRED in production: ${err.message}`);
+                throw err;
+            }
             logger.warn(`Socket.IO Redis adapter skipped (using in-memory): ${err.message}`);
         }
     }
@@ -122,6 +128,7 @@ export const initSocket = async (server) => {
         const userId = socket.user?.userId;
         const role = socket.user?.role;
         logger.info(`Socket client connected: ${socket.id} (${role || 'UNKNOWN'}:${userId || '-'})`);
+        import('./metrics.js').then((m) => m.incrementSocketConnections(1)).catch(() => {});
 
         // Auto-join role rooms (lets us emit without a custom join).
         if (userId && role) {
@@ -238,6 +245,31 @@ export const initSocket = async (server) => {
             const speed = Number.isFinite(Number(data.speed)) ? Number(data.speed) : 0;
             const accuracy = Number.isFinite(Number(data.accuracy)) ? Number(data.accuracy) : null;
 
+            // Authorization: partner may only update location for their assigned order
+            try {
+                const { FoodOrder } = await import('../modules/food/orders/models/order.model.js');
+                const order = await FoodOrder.findById(data.orderId)
+                    .select('dispatch.deliveryPartnerId dispatch.status')
+                    .lean();
+                const allowed = canDeliveryPartnerUpdateOrderLocation({
+                    role: 'DELIVERY_PARTNER',
+                    partnerId: userId,
+                    orderDispatchPartnerId: order?.dispatch?.deliveryPartnerId,
+                    dispatchStatus: order?.dispatch?.status,
+                });
+                if (!allowed) {
+                    socket.emit('tracking-room-error', {
+                        orderId: String(data.orderId),
+                        error: 'FORBIDDEN',
+                        message: 'Not assigned to this order',
+                    });
+                    return;
+                }
+            } catch (err) {
+                logger.error(`update-location authz failed: ${err.message}`);
+                return;
+            }
+
             // Throttle: max one broadcast per 2s per orderId
             const now = Date.now();
             const lastTS = _lastLocationBroadcast[data.orderId] || 0;
@@ -351,6 +383,7 @@ export const initSocket = async (server) => {
         });
 
         socket.on('disconnect', () => {
+            import('./metrics.js').then((m) => m.incrementSocketConnections(-1)).catch(() => {});
             logger.info(`Socket client disconnected: ${socket.id}`);
         });
 

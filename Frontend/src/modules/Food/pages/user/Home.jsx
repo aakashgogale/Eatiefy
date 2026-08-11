@@ -123,6 +123,7 @@ import QuickSection from "@food/components/user/home/QuickSection";
 import PromoRow from "@food/components/user/home/PromoRow";
 import PromotionBannerCarousel from "@food/components/user/home/PromotionBannerCarousel";
 import OutOfZoneScreen from "@food/components/user/OutOfZoneScreen";
+import FreeCashBanner from "@food/components/user/home/FreeCashBanner";
 
 
 // Explore More Icons
@@ -4358,7 +4359,11 @@ export default function Home() {
               />
             </div>
 
-            {HeroBannerSection}
+            <div className="py-2">
+              <FreeCashBanner amount={20} minOrderValue={99} />
+            </div>
+
+            {/* {HeroBannerSection} */}
 
             {/* Restaurants - Enhanced with Animations */}
             <motion.section

@@ -13,8 +13,8 @@ import { useCart } from "@food/context/CartContext"
 import PageNavbar from "@food/components/user/PageNavbar"
 import FoodFilterBar from "@food/components/user/FoodFilterBar"
 import offerImage from "@food/assets/offerimage.webp"
-import switch99PromoBanner1 from "@food/assets/switch99_final_banner.webp"
-import switch99PromoBanner2 from "@food/assets/switch99_banner_2.webp"
+import eatiefyPromoBanner1 from "@food/assets/eatiefy_final_banner.webp"
+import eatiefyPromoBanner2 from "@food/assets/eatiefy_banner_2.webp"
 import FloatingHomeDock from "@food/components/user/FloatingHomeDock"
 import VariantSelector from "@food/components/user/VariantSelector"
 import FoodPriceDisplay from "@food/components/user/FoodPriceDisplay"
@@ -52,7 +52,7 @@ const resolveImageUrl = (url) => {
   return `${API_BASE_URL.replace(/\/api\/?$/, "")}${cleanPath}`
 }
 
-const CURATED_SWITCH99_DISHES = [
+const CURATED_eatiefy_DISHES = [
   {
     name: "Special Veg Thali",
     price: 99,
@@ -194,7 +194,7 @@ const getSanitizedUnder250Image = (item) => {
   return resolveImageUrl(img)
 }
 
-const buildSwitch99MenuItem = (food, restaurant, restaurantId) => {
+const buildeatiefyMenuItem = (food, restaurant, restaurantId) => {
   const foodType = String(food?.foodType || "").toLowerCase()
   const isVeg = foodType.includes("veg") && !foodType.includes("non")
   const rawImg =
@@ -222,7 +222,7 @@ const buildSwitch99MenuItem = (food, restaurant, restaurantId) => {
   }
 }
 
-const buildSwitch99RestaurantRow = (restaurant, menuItems, index, effectiveLocation) => {
+const buildeatiefyRestaurantRow = (restaurant, menuItems, index, effectiveLocation) => {
   const restaurantId = restaurant?.restaurantId || restaurant?._id || restaurant?.id
   if (!restaurantId || !Array.isArray(menuItems) || menuItems.length === 0) return null
 
@@ -405,7 +405,7 @@ export default function Under250() {
   const isBannerSwipingRef = useRef(false)
   const fetchGenerationRef = useRef(0)
 
-  const isSwitch99EligibleItem = useCallback((item = {}) => {
+  const iseatiefyEligibleItem = useCallback((item = {}) => {
     if (!item || item?.isAvailable === false) return false
     const rawPrice = String(item?.price ?? "")
     const numPrice = Number(item?.price)
@@ -627,7 +627,7 @@ export default function Under250() {
   // Fetch under-250 banner from public API
   const displayBanners = useMemo(() => {
     if (bannerImages.length > 0) return bannerImages
-    return [switch99PromoBanner1, switch99PromoBanner2]
+    return [eatiefyPromoBanner1, eatiefyPromoBanner2]
   }, [bannerImages]);
 
   const extendedBanners = useMemo(() => {
@@ -757,7 +757,7 @@ export default function Under250() {
           restaurantAPI.getRestaurants({ zoneId, limit: 1000 }),
           restaurantAPI.getPublicFoods({
             zoneId,
-            promo: "switch99",
+            promo: "eatiefy",
             limit: 1000,
           }),
         ])
@@ -774,7 +774,7 @@ export default function Under250() {
 
         const foodsByRestaurantId = new Map()
         foods.forEach((food) => {
-          if (!isSwitch99EligibleItem(food)) return
+          if (!iseatiefyEligibleItem(food)) return
           const restaurantId = String(food?.restaurantId || "").trim()
           if (!restaurantId) return
           if (!foodsByRestaurantId.has(restaurantId)) {
@@ -790,12 +790,12 @@ export default function Under250() {
 
             const restaurantFoods = foodsByRestaurantId.get(restaurantId) || []
             const existingMenuItems = restaurantFoods.map((food) =>
-              buildSwitch99MenuItem(food, restaurant, restaurantId),
+              buildeatiefyMenuItem(food, restaurant, restaurantId),
             )
 
             // Enrich with curated top ₹99 dishes to make every restaurant full and vibrant
             const existingNames = new Set(existingMenuItems.map((item) => (item.name || "").toLowerCase()))
-            const extraDishes = CURATED_SWITCH99_DISHES.filter((dish) => !existingNames.has(dish.name.toLowerCase()))
+            const extraDishes = CURATED_eatiefy_DISHES.filter((dish) => !existingNames.has(dish.name.toLowerCase()))
               .map((dish, dIdx) => ({
                 ...dish,
                 id: `${restaurantId}-curated-${dIdx}`,
@@ -805,7 +805,7 @@ export default function Under250() {
 
             const menuItems = [...existingMenuItems, ...extraDishes].slice(0, 8)
 
-            return buildSwitch99RestaurantRow(
+            return buildeatiefyRestaurantRow(
               restaurant,
               menuItems,
               index,
@@ -829,7 +829,7 @@ export default function Under250() {
     }
 
     fetchRestaurantsUnder250()
-  }, [zoneId, effectiveLocation, filterCandidateRestaurants, isSwitch99EligibleItem])
+  }, [zoneId, effectiveLocation, filterCandidateRestaurants, iseatiefyEligibleItem])
 
   // Fetch categories from backend (no static fallback list)
   useEffect(() => {
@@ -1305,7 +1305,7 @@ export default function Under250() {
                     decoding="async"
                     onError={(e) => {
                       e.currentTarget.onerror = null
-                      e.currentTarget.src = switch99PromoBanner1
+                      e.currentTarget.src = eatiefyPromoBanner1
                     }}
                   />
                 </div>

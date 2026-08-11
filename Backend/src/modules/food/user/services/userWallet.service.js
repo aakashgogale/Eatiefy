@@ -148,21 +148,34 @@ export const deductWalletBalance = async (userId, amountInr, description = 'Orde
         throw new ValidationError('Invalid deduction amount');
     }
 
-    const wallet = await ensureWallet(userId);
-    if (wallet.balance < amount) {
+    await ensureWallet(userId);
+    const oid = new mongoose.Types.ObjectId(String(userId));
+
+    // Atomic: only debit when balance >= amount (prevents negative / lost updates)
+    const updated = await FoodUserWallet.findOneAndUpdate(
+        { userId: oid, balance: { $gte: amount } },
+        {
+            $inc: { balance: -amount },
+            $push: {
+                transactions: {
+                    $each: [{
+                        type: 'deduction',
+                        amount,
+                        status: 'Completed',
+                        description,
+                        metadata: { source: 'order_payment', ...(metadata || {}) },
+                        createdAt: new Date(),
+                    }],
+                    $position: 0,
+                },
+            },
+        },
+        { new: true },
+    );
+
+    if (!updated) {
         throw new ValidationError('Insufficient wallet balance');
     }
-
-    wallet.transactions.unshift({
-        type: 'deduction',
-        amount,
-        status: 'Completed',
-        description,
-        metadata: { source: 'order_payment', ...(metadata || {}) }
-    });
-
-    wallet.balance = Number(wallet.balance) - amount;
-    await wallet.save();
 
     return { wallet: await getUserWallet(userId) };
 };
@@ -173,17 +186,29 @@ export const refundWalletBalance = async (userId, amountInr, description = 'Orde
         return { wallet: await getUserWallet(userId) };
     }
 
-    const wallet = await ensureWallet(userId);
-    wallet.transactions.unshift({
-        type: 'refund',
-        amount,
-        status: 'Completed',
-        description,
-        metadata: { source: 'order_refund', ...(metadata || {}) }
-    });
+    await ensureWallet(userId);
+    const oid = new mongoose.Types.ObjectId(String(userId));
 
-    wallet.balance = Number(wallet.balance) + amount;
-    await wallet.save();
+    await FoodUserWallet.findOneAndUpdate(
+        { userId: oid },
+        {
+            $inc: { balance: amount },
+            $push: {
+                transactions: {
+                    $each: [{
+                        type: 'refund',
+                        amount,
+                        status: 'Completed',
+                        description,
+                        metadata: { source: 'order_refund', ...(metadata || {}) },
+                        createdAt: new Date(),
+                    }],
+                    $position: 0,
+                },
+            },
+        },
+        { new: true },
+    );
 
     return { wallet: await getUserWallet(userId) };
 };

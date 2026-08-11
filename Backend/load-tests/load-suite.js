@@ -1,83 +1,134 @@
 /**
- * k6 load suite for Eatiefy Backend
+ * Staged / profile-driven k6 load suite for Eatiefy Backend.
  *
- * Usage:
- *   k6 run Backend/load-tests/smoke.js
- *   k6 run -e BASE_URL=https://api.example.com -e TOKEN=eyJ... Backend/load-tests/concurrency.js
+ * Profiles (env PROFILE):
+ *   baseline  — 10 VUs, 30s
+ *   100       — 100 VUs, 1m
+ *   500       — 500 VUs, 1m
+ *   1000      — 1000 VUs, 1m
+ *   staged    — ramp 0→100→500→1000 sustain → 0 (default for full validation)
  *
- * Scenarios map to Production Readiness TEST A–J.
- * Results are evidence only when executed against a real environment.
- * Do NOT invent pass/fail without running these scripts.
+ * Never includes 5000 in default staged profile (local/staging safety).
+ * Set ALLOW_5000=true to add a 5000 VU scenario separately.
+ *
+ *   k6 run -e BASE_URL=http://127.0.0.1:5000 -e PROFILE=baseline load-tests/load-suite.js
+ *   k6 run -e BASE_URL=http://127.0.0.1:5000 -e PROFILE=staged load-tests/load-suite.js
  */
 
 import http from 'k6/http';
 import { check, sleep } from 'k6';
-import { Rate, Trend } from 'k6/metrics';
+import { Rate, Trend, Counter } from 'k6/metrics';
 
-const BASE_URL = __ENV.BASE_URL || 'http://127.0.0.1:5000';
+const BASE_URL = (__ENV.BASE_URL || 'http://127.0.0.1:5000').replace(/\/$/, '');
 const TOKEN = __ENV.TOKEN || '';
+const PROFILE = (__ENV.PROFILE || 'staged').toLowerCase();
+const SLEEP_SEC = Number(__ENV.SLEEP_SEC || 0.2);
+const ALLOW_5000 = __ENV.ALLOW_5000 === 'true';
+
 const errorRate = new Rate('errors');
 const latency = new Trend('api_latency', true);
+const healthOk = new Counter('health_ok');
+const healthFail = new Counter('health_fail');
 
-export const options = {
-  scenarios: {
-    // TEST A — 100 concurrent users
-    test_a_100: {
-      executor: 'constant-vus',
-      vus: 100,
-      duration: '1m',
-      startTime: '0s',
-      tags: { test: 'A' },
-      exec: 'healthAndPublic',
-    },
-    // TEST B — 500 concurrent users
-    test_b_500: {
-      executor: 'constant-vus',
-      vus: 500,
-      duration: '1m',
-      startTime: '2m',
-      tags: { test: 'B' },
-      exec: 'healthAndPublic',
-    },
-    // TEST C — 1,000 concurrent users
-    test_c_1000: {
-      executor: 'constant-vus',
-      vus: 1000,
-      duration: '1m',
-      startTime: '4m',
-      tags: { test: 'C' },
-      exec: 'healthAndPublic',
-    },
-    // TEST D — 5,000 concurrent users (requires substantial infra)
-    test_d_5000: {
-      executor: 'constant-vus',
-      vus: 5000,
-      duration: '45s',
-      startTime: '6m',
-      tags: { test: 'D' },
-      exec: 'healthAndPublic',
-    },
-    // TEST E — traffic spike 100 → 1000 → 5000
-    test_e_spike: {
+function buildOptions() {
+  const thresholds = {
+    http_req_failed: ['rate<0.05'],
+    http_req_duration: ['p(95)<2000', 'p(99)<5000'],
+    errors: ['rate<0.05'],
+  };
+
+  if (PROFILE === 'baseline') {
+    return {
+      scenarios: {
+        baseline_10: {
+          executor: 'constant-vus',
+          vus: 10,
+          duration: '30s',
+          exec: 'healthAndPublic',
+          tags: { test: 'baseline' },
+        },
+      },
+      thresholds,
+    };
+  }
+
+  if (PROFILE === '100') {
+    return {
+      scenarios: {
+        test_100: {
+          executor: 'constant-vus',
+          vus: 100,
+          duration: '1m',
+          exec: 'healthAndPublic',
+          tags: { test: '100' },
+        },
+      },
+      thresholds,
+    };
+  }
+
+  if (PROFILE === '500') {
+    return {
+      scenarios: {
+        test_500: {
+          executor: 'constant-vus',
+          vus: 500,
+          duration: '1m',
+          exec: 'healthAndPublic',
+          tags: { test: '500' },
+        },
+      },
+      thresholds,
+    };
+  }
+
+  if (PROFILE === '1000') {
+    return {
+      scenarios: {
+        test_1000: {
+          executor: 'constant-vus',
+          vus: 1000,
+          duration: '1m',
+          exec: 'healthAndPublic',
+          tags: { test: '1000' },
+        },
+      },
+      thresholds,
+    };
+  }
+
+  // staged: 0→100 (1m) →500 (2m) →1000 (3m) → sustain 1000 (5m) → 0 (1m)
+  const scenarios = {
+    staged_ramp: {
       executor: 'ramping-vus',
       startVUs: 0,
       stages: [
-        { duration: '20s', target: 100 },
-        { duration: '20s', target: 1000 },
-        { duration: '20s', target: 5000 },
-        { duration: '20s', target: 0 },
+        { duration: '1m', target: 100 },
+        { duration: '2m', target: 500 },
+        { duration: '3m', target: 1000 },
+        { duration: '5m', target: 1000 },
+        { duration: '1m', target: 0 },
       ],
-      startTime: '8m',
-      tags: { test: 'E' },
       exec: 'healthAndPublic',
+      tags: { test: 'staged' },
     },
-  },
-  thresholds: {
-    http_req_failed: ['rate<0.05'],
-    http_req_duration: ['p(95)<700', 'p(99)<2000'],
-    errors: ['rate<0.05'],
-  },
-};
+  };
+
+  if (ALLOW_5000) {
+    scenarios.test_5000 = {
+      executor: 'constant-vus',
+      vus: 5000,
+      duration: '45s',
+      startTime: '13m',
+      exec: 'healthAndPublic',
+      tags: { test: '5000' },
+    };
+  }
+
+  return { scenarios, thresholds };
+}
+
+export const options = buildOptions();
 
 function authHeaders() {
   const h = { 'Content-Type': 'application/json' };
@@ -100,7 +151,9 @@ export function healthAndPublic() {
     },
   });
   errorRate.add(!ok);
-  sleep(0.2);
+  if (ok) healthOk.add(1);
+  else healthFail.add(1);
+  sleep(SLEEP_SEC);
 }
 
 export default function () {

@@ -140,11 +140,30 @@ function mapDiningRestaurant(restaurant, diningDoc, categoriesById) {
     };
 }
 
-export async function listDiningCategoriesAdmin() {
-    const categories = await FoodDiningCategory.find({})
-        .sort({ sortOrder: 1, createdAt: -1 })
-        .lean();
-    return { categories: categories.map(mapCategory) };
+export async function listDiningCategoriesAdmin(query = {}) {
+    const page = Math.max(1, parseInt(query.page, 10) || 1);
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 100);
+    const skip = (page - 1) * limit;
+
+    const [categories, total] = await Promise.all([
+        FoodDiningCategory.find({})
+            .sort({ sortOrder: 1, createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .select('name slug imageUrl isActive sortOrder restaurantIds createdAt updatedAt')
+            .lean(),
+        FoodDiningCategory.countDocuments({})
+    ]);
+
+    return {
+        categories: categories.map(mapCategory),
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.max(1, Math.ceil(total / limit))
+        }
+    };
 }
 
 export async function createDiningCategory(body = {}) {
@@ -236,17 +255,31 @@ export async function deleteDiningCategory(id) {
     return { id };
 }
 
-export async function listDiningRestaurantsAdmin() {
-    const [restaurants, diningDocs, categories] = await Promise.all([
+export async function listDiningRestaurantsAdmin(query = {}) {
+    const page = Math.max(1, parseInt(query.page, 10) || 1);
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 100);
+    const skip = (page - 1) * limit;
+
+    const [restaurants, total, categories] = await Promise.all([
         FoodRestaurant.find({})
             .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
             .select('restaurantName ownerName ownerPhone profileImage coverImages menuImages location area city status rating pureVegRestaurant diningSettings')
             .lean(),
-        FoodDiningRestaurant.find({})
-            .select('restaurantId categoryIds primaryCategoryId isEnabled maxGuests pureVegRestaurant')
-            .lean(),
-        FoodDiningCategory.find({}).select('name slug imageUrl').lean()
+        FoodRestaurant.countDocuments({}),
+        FoodDiningCategory.find({})
+            .select('name slug imageUrl')
+            .limit(200)
+            .lean()
     ]);
+
+    const diningDocs = restaurants.length
+        ? await FoodDiningRestaurant.find({ restaurantId: { $in: restaurants.map((r) => r._id) } })
+            .select('restaurantId categoryIds primaryCategoryId isEnabled maxGuests pureVegRestaurant')
+            .limit(limit)
+            .lean()
+        : [];
 
     const categoriesById = new Map(categories.map((category) => [String(category._id), category]));
     const diningByRestaurantId = new Map(diningDocs.map((doc) => [String(doc.restaurantId), doc]));
@@ -255,7 +288,15 @@ export async function listDiningRestaurantsAdmin() {
         mapDiningRestaurant(restaurant, diningByRestaurantId.get(String(restaurant._id)), categoriesById)
     );
 
-    return { restaurants: items };
+    return {
+        restaurants: items,
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.max(1, Math.ceil(total / limit))
+        }
+    };
 }
 
 export async function updateDiningRestaurant(restaurantId, body = {}) {
@@ -323,15 +364,23 @@ export async function updateDiningRestaurant(restaurantId, body = {}) {
     await syncCategoryRestaurantLinks(restaurant._id, validCategoryIds);
     await syncRestaurantDiningSettings(restaurant._id, diningDoc);
 
-    const categories = await FoodDiningCategory.find({}).select('name slug imageUrl').lean();
+    const categoryLookupIds = diningDoc.categoryIds || [];
+    const categories = categoryLookupIds.length
+        ? await FoodDiningCategory.find({ _id: { $in: categoryLookupIds } })
+            .select('name slug imageUrl')
+            .lean()
+        : [];
     const categoriesById = new Map(categories.map((category) => [String(category._id), category]));
 
     return mapDiningRestaurant(restaurant, diningDoc.toObject(), categoriesById);
 }
 
-export async function listDiningCategoriesPublic() {
+export async function listDiningCategoriesPublic(query = {}) {
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 100);
     const categories = await FoodDiningCategory.find({ isActive: true })
         .sort({ sortOrder: 1, createdAt: -1 })
+        .limit(limit)
+        .select('name slug imageUrl isActive sortOrder restaurantIds createdAt updatedAt')
         .lean();
     return categories.map(mapCategory);
 }
@@ -369,9 +418,11 @@ export async function listDiningRestaurantsPublic(query = {}) {
         restaurantFilter._id = { $in: category.restaurantIds || [] };
     }
 
-    // 4. Fetch restaurants
+    // 4. Fetch restaurants (hard-capped)
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 100);
     const restaurants = await FoodRestaurant.find(restaurantFilter)
         .select('restaurantName restaurantNameNormalized ownerName ownerPhone profileImage coverImages menuImages cuisines location area city status rating diningSettings estimatedDeliveryTime estimatedDeliveryTimeMinutes featuredDish featuredPrice offer openingTime closingTime openDays isAcceptingOrders costForTwo pureVegRestaurant')
+        .limit(limit)
         .lean();
 
     if (restaurants.length === 0) {
@@ -384,7 +435,9 @@ export async function listDiningRestaurantsPublic(query = {}) {
     const diningMetadata = await FoodDiningRestaurant.find({
         restaurantId: { $in: restaurantIds }
     })
+    .select('restaurantId categoryIds maxGuests pureVegRestaurant')
     .populate('categoryIds', 'name slug imageUrl')
+    .limit(limit)
     .lean();
 
     const metadataMap = new Map();

@@ -310,7 +310,18 @@ const orderSchema = new mongoose.Schema(
         lastRiderLocation: {
             type: { type: String, enum: ['Point'] },
             coordinates: { type: [Number] }
-        }
+        },
+        /** Tracked inventory reserved atomically at create; released on abandon/fail/timeout */
+        inventoryReserved: { type: Boolean, default: false },
+        inventoryReservation: {
+            type: [
+                {
+                    itemId: { type: String, required: true },
+                    quantity: { type: Number, required: true, min: 1 },
+                },
+            ],
+            default: [],
+        },
     },
     {
         collection: 'food_orders',

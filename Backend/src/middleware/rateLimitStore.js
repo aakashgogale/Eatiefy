@@ -4,7 +4,8 @@ import { logger } from '../utils/logger.js';
 
 /**
  * Redis-backed store for express-rate-limit (shared across app instances).
- * Falls back to in-memory behaviour when Redis is disabled or not ready.
+ * Production: Redis REQUIRED — no silent memory fallback.
+ * Development: memory fallback allowed when Redis is down.
  */
 export class RedisRateLimitStore {
     constructor({ prefix = 'rl' } = {}) {
@@ -32,6 +33,13 @@ export class RedisRateLimitStore {
         const resetTime = new Date(Date.now() + this.windowMs);
 
         if (!redis) {
+            if (config.nodeEnv === 'production') {
+                logger.error('Rate limit Redis unavailable in production');
+                // Fail closed: treat as over-limit so we do not silently open the floodgates
+                const err = new Error('Rate limit store unavailable');
+                err.code = 'RATE_LIMIT_STORE_UNAVAILABLE';
+                throw err;
+            }
             return this.incrementLocal(key, resetTime);
         }
 
@@ -47,6 +55,10 @@ export class RedisRateLimitStore {
                 : resetTime;
             return { totalHits, resetTime: effectiveReset };
         } catch (error) {
+            if (config.nodeEnv === 'production') {
+                logger.error(`Rate limit Redis increment failed in production: ${error.message}`);
+                throw error;
+            }
             logger.warn(`Rate limit Redis increment failed, using memory fallback: ${error.message}`);
             return this.incrementLocal(key, resetTime);
         }
@@ -67,6 +79,7 @@ export class RedisRateLimitStore {
     async decrement(key) {
         const redis = this.getRedis();
         if (!redis) {
+            if (config.nodeEnv === 'production') return;
             const entry = this.localFallback.get(key);
             if (entry && entry.totalHits > 0) entry.totalHits -= 1;
             return;

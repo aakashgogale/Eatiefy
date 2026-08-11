@@ -19,16 +19,18 @@ const queueInstances = new Map();
  * Applied to all queues when BULLMQ_ENABLED=true.
  */
 const defaultJobOptions = {
-    attempts: 3,
+    attempts: 5,
     backoff: {
         type: 'exponential',
-        delay: 1000
+        delay: 2000
     },
     removeOnComplete: {
         count: 1000
     },
+    // Retain failed jobs 7 days as dead-letter equivalent for inspection/replay
     removeOnFail: {
-        age: 24 * 3600
+        age: 7 * 24 * 3600,
+        count: 5000
     }
 };
 

@@ -1,12 +1,15 @@
+import crypto from 'crypto';
 import { FoodOrder } from '../../../modules/food/orders/models/order.model.js';
 import { confirmOnlinePaymentAndActivateOrder } from '../../../modules/food/orders/services/order-payment-activation.service.js';
+import { releaseInventoryForItems } from '../../../modules/food/orders/services/inventory.service.js';
+import { onlinePaymentFailureFilter } from '../../../modules/food/orders/services/payment-state.machine.js';
+import { claimWebhookEvent } from '../models/webhookEvent.model.js';
 import { config } from '../../../config/env.js';
 import { logger } from '../../../utils/logger.js';
-import { safeEqualString } from '../../../utils/cryptoSafeCompare.js';
-import crypto from 'crypto';
+import { verifyRazorpayWebhookSignature } from '../../../utils/razorpaySignatures.js';
 
 /**
- * Razorpay webhook handler — signature verified, amount checked, order activation idempotent.
+ * Razorpay webhook handler — signature verified, event-id deduped, amount checked, activation idempotent.
  */
 export const handleRazorpayWebhook = async (req, res) => {
     const signature = req.headers['x-razorpay-signature'];
@@ -17,17 +20,40 @@ export const handleRazorpayWebhook = async (req, res) => {
         return res.status(400).send('Invalid signature');
     }
 
-    const expected = crypto
-        .createHmac('sha256', secret)
-        .update(req.rawBody)
-        .digest('hex');
-
-    if (!safeEqualString(expected, String(signature))) {
+    if (!verifyRazorpayWebhookSignature(req.rawBody, signature, secret)) {
         logger.warn('Razorpay Webhook: Signature verification failed.');
         return res.status(400).send('Invalid signature');
     }
 
-    const { event, payload } = req.body;
+    const { event, payload } = req.body || {};
+
+    // Prefer Razorpay event id header when present; else derive stable id from entity+event
+    const eventId =
+        String(req.headers['x-razorpay-event-id'] || '').trim() ||
+        (event === 'payment.captured' && payload?.payment?.entity?.id
+            ? `payment.captured:${payload.payment.entity.id}`
+            : null) ||
+        (event === 'refund.processed' && payload?.refund?.entity?.id
+            ? `refund.processed:${payload.refund.entity.id}`
+            : null) ||
+        (event === 'payment.failed' && payload?.payment?.entity?.id
+            ? `payment.failed:${payload.payment.entity.id}`
+            : null) ||
+        (req.body?.id ? String(req.body.id) : null);
+
+    if (eventId) {
+        const claim = await claimWebhookEvent({
+            provider: 'razorpay',
+            eventId,
+            eventType: String(event || ''),
+            payloadHash: crypto.createHash('sha256').update(req.rawBody).digest('hex'),
+        });
+        if (claim.duplicate) {
+            logger.info(`Razorpay Webhook duplicate ignored: ${eventId}`);
+            return res.status(200).json({ status: 'ok', duplicate: true });
+        }
+    }
+
     logger.info(`Razorpay Webhook Received: ${event}`);
 
     try {
@@ -42,7 +68,7 @@ export const handleRazorpayWebhook = async (req, res) => {
             }
 
             const existingOrder = await FoodOrder.findOne({ 'payment.razorpay.orderId': rzOrderId })
-                .select('pricing payment orderStatus')
+                .select('pricing payment orderStatus inventoryReservation inventoryReserved')
                 .lean();
 
             if (!existingOrder) {
@@ -56,12 +82,10 @@ export const handleRazorpayWebhook = async (req, res) => {
                 logger.error(
                     `Webhook [payment.captured]: AMOUNT MISMATCH for RZ-Order ${rzOrderId} — paid ${paidPaise} paise, expected ${expectedPaise} paise. Order NOT marked paid.`,
                 );
-                if (String(existingOrder.payment?.status || '').toLowerCase() !== 'paid') {
-                    await FoodOrder.updateOne(
-                        { _id: existingOrder._id, 'payment.status': { $ne: 'paid' } },
-                        { $set: { 'payment.status': 'failed', 'payment.razorpay.paymentId': rzPaymentId } },
-                    );
-                }
+                await FoodOrder.updateOne(
+                    onlinePaymentFailureFilter({ _id: existingOrder._id }),
+                    { $set: { 'payment.status': 'failed', 'payment.razorpay.paymentId': rzPaymentId } },
+                );
                 return res.status(200).json({ status: 'ok' });
             }
 
@@ -80,6 +104,41 @@ export const handleRazorpayWebhook = async (req, res) => {
                 logger.info(`Webhook [payment.captured]: Already paid Order ${order?.order_id || order?._id}`);
             } else {
                 logger.warn(`Webhook [payment.captured]: Could not activate RZ-Order: ${rzOrderId}`);
+            }
+        }
+
+        if (event === 'payment.failed') {
+            const paymentObj = payload?.payment?.entity;
+            const rzOrderId = paymentObj?.order_id;
+            if (rzOrderId) {
+                const failed = await FoodOrder.findOneAndUpdate(
+                    onlinePaymentFailureFilter({ 'payment.razorpay.orderId': rzOrderId }),
+                    {
+                        $set: {
+                            'payment.status': 'failed',
+                            'payment.razorpay.paymentId': String(paymentObj?.id || ''),
+                        },
+                        $push: {
+                            statusHistory: {
+                                at: new Date(),
+                                byRole: 'SYSTEM',
+                                from: 'pending_payment',
+                                to: 'pending_payment',
+                                note: 'Payment failed via webhook',
+                            },
+                        },
+                    },
+                    { new: true },
+                );
+                if (failed?.inventoryReserved && Array.isArray(failed.inventoryReservation)) {
+                    await releaseInventoryForItems(failed.inventoryReservation).catch((err) => {
+                        logger.error(`Inventory release on payment.failed failed: ${err.message}`);
+                    });
+                    await FoodOrder.updateOne(
+                        { _id: failed._id },
+                        { $set: { inventoryReserved: false } },
+                    );
+                }
             }
         }
 
@@ -118,6 +177,6 @@ export const handleRazorpayWebhook = async (req, res) => {
         res.status(200).json({ status: 'ok' });
     } catch (err) {
         logger.error(`Razorpay Webhook Logic Error: ${err.message}`);
-        res.status(500).json({ message: 'Internal Server Error' });
+        res.status(500).json({ status: 'error' });
     }
 };

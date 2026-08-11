@@ -11,8 +11,12 @@ import { apiRateLimiter } from './middleware/rateLimit.js';
 import { responseTimeLogger } from './middleware/responseTimeLogger.js';
 import { requestIdMiddleware } from './middleware/requestId.js';
 import { healthCheck, readinessCheck, livenessCheck } from './config/health.js';
+import { getMetricsSnapshot } from './config/metrics.js';
 import { config } from './config/env.js';
 import { corsOptions } from './config/cors.js';
+import { metricsMiddleware } from './middleware/metrics.js';
+import { authMiddleware } from './core/auth/auth.middleware.js';
+import { requireRoles } from './core/roles/role.middleware.js';
 
 const app = express();
 
@@ -50,8 +54,17 @@ app.get('/ready', async (_req, res) => {
         res.status(503).json({ status: 'not_ready', error: 'Readiness check failed' });
     }
 });
+app.get('/metrics', authMiddleware, requireRoles('ADMIN'), async (_req, res) => {
+    try {
+        const data = await getMetricsSnapshot();
+        res.status(200).json({ success: true, data });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Metrics unavailable' });
+    }
+});
 
 // Security & parsing middlewares
+app.use(metricsMiddleware);
 app.use(helmet({
     contentSecurityPolicy: { directives: { defaultSrc: ["'self'"] } },
     crossOriginResourcePolicy: { policy: 'cross-origin' },

@@ -1,7 +1,6 @@
 import http from 'http';
 import crypto from 'crypto';
 import path from 'path';
-import { exec } from 'child_process';
 
 import app from './src/app.js';
 import { config } from './src/config/env.js';
@@ -135,14 +134,20 @@ const startServer = async () => {
                 return res.status(403).send('Unauthorized');
             }
 
-            exec('cd ~ && ./deploy.sh', (err, stdout) => {
-                if (err) {
-                    logger.error(`Deploy script failed: ${err.message}`);
-                    return res.status(500).send('Deploy failed');
-                }
+            // SECURITY: never execute shell commands from HTTP.
+            // Accept signed GitHub/CI notifications and record them for an external CD pipeline.
+            const allowedActions = new Set(['push', 'workflow_run', 'deployment', 'ping']);
+            const action = String(req.headers['x-github-event'] || req.body?.action || 'push').toLowerCase();
+            if (!allowedActions.has(action) && !allowedActions.has(String(req.body?.zen ? 'ping' : action))) {
+                logger.warn(`Deploy webhook rejected action: ${action}`);
+                return res.status(400).json({ success: false, message: 'Action not allowlisted' });
+            }
 
-                logger.info('Deploy script completed');
-                res.send('Deploy success');
+            logger.info(`Deploy webhook accepted (action=${action}) — no remote shell execution`);
+            return res.status(202).json({
+                success: true,
+                message: 'Deploy signal accepted. Run deployment via CI/CD (see docs/DEPLOYMENT.md).',
+                action,
             });
         });
 

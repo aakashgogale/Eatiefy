@@ -23,6 +23,11 @@ const foodSchema = new mongoose.Schema(
         image: { type: String, trim: true, default: '' },
         foodType: { type: String, enum: ['Veg', 'Non-Veg'], default: 'Non-Veg' },
         isAvailable: { type: Boolean, default: true, index: true },
+        /**
+         * Tracked inventory. null = unlimited (default for existing items).
+         * When a number, order create uses atomic $inc reservation — never CHECK→UPDATE.
+         */
+        stockQuantity: { type: Number, default: null, min: 0 },
         /** When set, item auto-restores to available after this time (server-side). */
         stockResumeAt: { type: Date, index: true },
         stockOffMode: {
@@ -48,5 +53,6 @@ foodSchema.index({ restaurantId: 1, createdAt: -1 });
 foodSchema.index({ approvalStatus: 1, createdAt: -1 });
 foodSchema.index({ approvalStatus: 1, requestedAt: -1 });
 foodSchema.index({ restaurantId: 1, approvalStatus: 1, createdAt: -1 });
+foodSchema.index({ name: 'text' });
 
 export const FoodItem = mongoose.model('FoodItem', foodSchema);

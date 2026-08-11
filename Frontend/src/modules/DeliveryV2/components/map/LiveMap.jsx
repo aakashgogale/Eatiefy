@@ -10,6 +10,7 @@ import {
 } from '@react-google-maps/api';
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { zoneAPI } from '@food/api';
+import { RIDER_BIKE_SVG } from './map.icons';
 
 const mapContainerStyle = {
   width: '100%',
@@ -253,7 +254,7 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
         {parsedRiderLocation && (
           <OverlayView position={parsedRiderLocation} mapPaneName={OverlayView.MARKER_LAYER}>
             <div style={{ transform: `translate(-50%, -50%) rotate(${parsedRiderLocation.heading || 0}deg)`, transition: 'transform 0.5s linear' }} className="relative w-[72px] h-[72px]">
-              <img src="/MapRider.webp" alt="Rider" className="w-full h-full object-contain"  loading="lazy" decoding="async" />
+              <img src={`data:image/svg+xml;charset=UTF-8,${encodeURIComponent(RIDER_BIKE_SVG)}`} alt="Rider" className="w-full h-full object-contain"  loading="lazy" decoding="async" />
             </div>
           </OverlayView>
         )}

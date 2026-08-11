@@ -1,5 +1,3 @@
-import crypto from 'crypto';
-
 let Razorpay;
 try {
     const mod = await import('razorpay');
@@ -9,7 +7,7 @@ try {
 }
 
 import { config } from '../../../../config/env.js';
-import { safeEqualString } from '../../../../utils/cryptoSafeCompare.js';
+import { verifyRazorpayPaymentSignature } from '../../../../utils/razorpaySignatures.js';
 
 const KEY_ID = config.razorpayKeyId || process.env.RAZORPAY_KEY_ID || '';
 const KEY_SECRET = config.razorpayKeySecret || process.env.RAZORPAY_KEY_SECRET || '';
@@ -53,10 +51,7 @@ export function createPaymentLink({ amountPaise, currency = 'INR', description, 
 }
 
 export function verifyPaymentSignature(orderId, paymentId, signature) {
-    if (!KEY_SECRET || !signature) return false;
-    const body = `${orderId}|${paymentId}`;
-    const expected = crypto.createHmac('sha256', KEY_SECRET).update(body).digest('hex');
-    return safeEqualString(expected, String(signature));
+    return verifyRazorpayPaymentSignature(orderId, paymentId, signature, KEY_SECRET);
 }
 
 /**

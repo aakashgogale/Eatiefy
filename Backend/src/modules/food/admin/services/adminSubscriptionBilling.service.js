@@ -173,7 +173,7 @@ async function listHydratedInvoicesAdmin(query = {}, { paginate = true } = {}) {
         invoices = await FoodSubscriptionInvoice.find(filter)
             .populate('restaurantId', 'restaurantName ownerName ownerPhone profileImage')
             .sort({ billingMonth: -1, createdAt: -1 })
-            .limit(5000)
+            .limit(200)
             .lean();
     } else {
         const mongoSort = sort.sortBy === 'gmv'

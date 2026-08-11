@@ -110,10 +110,12 @@ export async function confirmOnlinePaymentAndActivateOrder({
     setFields['payment.razorpay.signature'] = String(razorpaySignature);
   }
 
+  // State machine: only pending_payment + non-terminal payment statuses may activate.
   const order = await FoodOrder.findOneAndUpdate(
     {
       ...filter,
-      'payment.status': { $ne: 'paid' },
+      orderStatus: 'pending_payment',
+      'payment.status': { $in: ['created', 'pending', 'failed'] },
     },
     {
       $set: setFields,

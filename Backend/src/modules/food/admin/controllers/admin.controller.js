@@ -893,7 +893,7 @@ export async function getDeliveryEarnings(req, res, next) {
 // ----- Earning Addon (admin) -----
 export async function getEarningAddons(req, res, next) {
     try {
-        const data = await adminService.getEarningAddons();
+        const data = await adminService.getEarningAddons(req.query || {});
         res.status(200).json({ success: true, message: 'Earning addons fetched successfully', data });
     } catch (error) {
         next(error);
@@ -1016,7 +1016,7 @@ export async function checkEarningAddonCompletions(req, res, next) {
 // ----- Restaurant Commission (admin) -----
 export async function getRestaurantCommissions(req, res, next) {
     try {
-        const data = await adminService.getRestaurantCommissions();
+        const data = await adminService.getRestaurantCommissions(req.query || {});
         res.status(200).json({ success: true, message: 'Restaurant commissions fetched successfully', data });
     } catch (error) {
         next(error);
@@ -1110,7 +1110,7 @@ export async function toggleRestaurantCommissionStatus(req, res, next) {
 // ----- Delivery commission rules (admin) -----
 export async function getDeliveryCommissionRules(req, res, next) {
     try {
-        const data = await adminService.getDeliveryCommissionRules();
+        const data = await adminService.getDeliveryCommissionRules(req.query || {});
         res.status(200).json({ success: true, message: 'Commission rules fetched successfully', data });
     } catch (error) {
         next(error);

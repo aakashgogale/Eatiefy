@@ -1993,15 +1993,25 @@ export async function updateSupportTicket(id, body = {}) {
 }
 
 // ----- Restaurant Commission (admin) -----
-export async function getRestaurantCommissions() {
-    const list = await FoodRestaurantCommission.find({})
-        .sort({ createdAt: -1 })
-        .populate({ path: 'restaurantId', select: 'restaurantName' })
-        .lean();
+export async function getRestaurantCommissions(query = {}) {
+    const page = Math.max(1, parseInt(query.page, 10) || 1);
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 200);
+    const skip = (page - 1) * limit;
+
+    const [list, total] = await Promise.all([
+        FoodRestaurantCommission.find({})
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .select('restaurantId defaultCommission notes status createdAt')
+            .populate({ path: 'restaurantId', select: 'restaurantName' })
+            .lean(),
+        FoodRestaurantCommission.countDocuments({})
+    ]);
 
     const commissions = list.map((c, index) => ({
         _id: c._id,
-        sl: index + 1,
+        sl: skip + index + 1,
         restaurantId: c.restaurantId?._id ? String(c.restaurantId._id) : String(c.restaurantId),
         restaurantName: c.restaurantId?.restaurantName || '',
         restaurant: c.restaurantId?._id ? { _id: c.restaurantId._id, name: c.restaurantId.restaurantName } : null,
@@ -2010,12 +2020,20 @@ export async function getRestaurantCommissions() {
         status: c.status !== false
     }));
 
-    return { commissions };
+    return {
+        commissions,
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.max(1, Math.ceil(total / limit))
+        }
+    };
 }
 
 export async function getRestaurantCommissionBootstrap() {
     const [commissionsData, restaurantsData] = await Promise.all([
-        getRestaurantCommissions(),
+        getRestaurantCommissions({ page: 1, limit: 200 }),
         getRestaurants({ status: 'approved', limit: 1000, page: 1 })
     ]);
 
@@ -2091,11 +2109,23 @@ export async function toggleRestaurantCommissionStatus(id) {
 }
 
 // ----- Delivery Boy Commission Rule (admin) -----
-export async function getDeliveryCommissionRules() {
-    const list = await FoodDeliveryCommissionRule.find({}).sort({ createdAt: -1 }).lean();
+export async function getDeliveryCommissionRules(query = {}) {
+    const page = Math.max(1, parseInt(query.page, 10) || 1);
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 100);
+    const skip = (page - 1) * limit;
+
+    const [list, total] = await Promise.all([
+        FoodDeliveryCommissionRule.find({})
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .select('name minDistance maxDistance commissionPerKm basePayout status createdAt')
+            .lean(),
+        FoodDeliveryCommissionRule.countDocuments({})
+    ]);
     const commissions = list.map((r, index) => ({
         _id: r._id,
-        sl: index + 1,
+        sl: skip + index + 1,
         name: r.name || '',
         minDistance: r.minDistance,
         maxDistance: r.maxDistance ?? null,
@@ -2103,7 +2133,15 @@ export async function getDeliveryCommissionRules() {
         basePayout: r.basePayout,
         status: r.status !== false
     }));
-    return { commissions };
+    return {
+        commissions,
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.max(1, Math.ceil(total / limit))
+        }
+    };
 }
 
 function validateCommissionRuleSet(rules) {
@@ -2139,7 +2177,10 @@ function validateCommissionRuleSet(rules) {
 }
 
 export async function createDeliveryCommissionRule(body) {
-    const existing = await FoodDeliveryCommissionRule.find({}).lean();
+    const existing = await FoodDeliveryCommissionRule.find({})
+        .select('minDistance maxDistance commissionPerKm basePayout status')
+        .limit(200)
+        .lean();
     const candidate = [
         ...existing,
         {
@@ -2164,7 +2205,10 @@ export async function createDeliveryCommissionRule(body) {
 
 export async function updateDeliveryCommissionRule(id, body) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
-    const existing = await FoodDeliveryCommissionRule.find({}).lean();
+    const existing = await FoodDeliveryCommissionRule.find({})
+        .select('_id minDistance maxDistance commissionPerKm basePayout status')
+        .limit(200)
+        .lean();
     const candidate = existing.map((r) =>
         String(r._id) === String(id)
             ? {
@@ -4296,12 +4340,22 @@ export async function rejectRestaurant(id, reason) {
 }
 
 // ----- Offers & Coupons -----
-export async function getAllOffers(_query = {}) {
-    const list = await FoodOffer.find({})
-        .sort({ createdAt: -1 })
-        .populate({ path: 'restaurantId', select: 'restaurantName' })
-        .populate({ path: 'restaurantIds', select: 'restaurantName' })
-        .lean();
+export async function getAllOffers(query = {}) {
+    const page = Math.max(1, parseInt(query.page, 10) || 1);
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 100);
+    const skip = (page - 1) * limit;
+
+    const [list, total] = await Promise.all([
+        FoodOffer.find({})
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .select('couponCode discountType discountValue customerScope restaurantScope restaurantId restaurantIds minOrderValue maxDiscount usageLimit usedCount startDate endDate status showInCart createdByRole adminBearPercentage restaurantBearPercentage createdAt')
+            .populate({ path: 'restaurantId', select: 'restaurantName' })
+            .populate({ path: 'restaurantIds', select: 'restaurantName' })
+            .lean(),
+        FoodOffer.countDocuments({})
+    ]);
 
     const offers = list.map((o, index) => {
         const now = Date.now();
@@ -4320,7 +4374,7 @@ export async function getAllOffers(_query = {}) {
         const discountedPrice = 0;
 
         return {
-            sl: index + 1,
+            sl: skip + index + 1,
             offerId: String(o._id),
             dishId: 'all',
             restaurantName,
@@ -4346,7 +4400,15 @@ export async function getAllOffers(_query = {}) {
         };
     });
 
-    return { offers };
+    return {
+        offers,
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.max(1, Math.ceil(total / limit))
+        }
+    };
 }
 
 export async function createAdminOffer(body) {
@@ -5178,10 +5240,20 @@ export async function getDeliveryEarnings(query = {}) {
 }
 
 // ----- Earning Addon Offers (admin) -----
-export async function getEarningAddons() {
-    const list = await FoodEarningAddon.find({})
-        .sort({ createdAt: -1 })
-        .lean();
+export async function getEarningAddons(query = {}) {
+    const page = Math.max(1, parseInt(query.page, 10) || 1);
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 100);
+    const skip = (page - 1) * limit;
+
+    const [list, total] = await Promise.all([
+        FoodEarningAddon.find({})
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .select('title description requiredOrders earningAmount startDate endDate maxRedemptions currentRedemptions status createdAt updatedAt')
+            .lean(),
+        FoodEarningAddon.countDocuments({})
+    ]);
 
     const now = Date.now();
     const earningAddons = list.map((a) => {
@@ -5197,7 +5269,15 @@ export async function getEarningAddons() {
         };
     });
 
-    return { earningAddons };
+    return {
+        earningAddons,
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.max(1, Math.ceil(total / limit))
+        }
+    };
 }
 
 export async function createEarningAddon(body) {
