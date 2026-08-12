@@ -51,7 +51,7 @@ export function validateCalculateOrderDto(body) {
         restaurantId: z.string().min(1, 'Restaurant id required'),
         deliveryAddressId: z.string().optional(),
         zoneId: z.string().optional(),
-        couponCode: z.string().optional(),
+        couponCode: z.string().nullable().optional(),
         deliveryFleet: z.string().optional(),
         deliveryMode: z.enum(['basic', 'quick']).optional(),
         deliveryAddress: z
@@ -63,6 +63,7 @@ export function validateCalculateOrderDto(body) {
                     .optional()
             })
             .passthrough()
+            .nullable()
             .optional(),
         scheduledAt: z.string().datetime().optional()
     });
@@ -79,7 +80,7 @@ export function validateCalculateOrderDto(body) {
 export function validateCreateOrderDto(body) {
     const schema = z.object({
         items: z.array(orderItemSchema).min(1, 'At least one item required'),
-        address: addressSchema,
+        address: addressSchema.nullable().optional(), // allow null for quick mode if needed, though service might fail later
         restaurantId: z.string().min(1, 'Restaurant id required'),
         restaurantName: z.string().optional(),
         customerName: z.string().optional(),
