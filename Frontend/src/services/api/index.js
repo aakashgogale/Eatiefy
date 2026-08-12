@@ -2697,8 +2697,13 @@ export const orderAPI = {
     apiClient.post("/food/orders/calculate", payload ?? {}, {
       contextModule: "user",
     }),
-  createOrder: (payload) =>
-    apiClient.post("/food/orders", payload ?? {}, { contextModule: "user" }),
+  createOrder: (payload, idempotencyKey) =>
+    apiClient.post("/food/orders", payload ?? {}, { 
+      contextModule: "user",
+      headers: {
+        'Idempotency-Key': idempotencyKey || crypto.randomUUID()
+      }
+    }),
   verifyPayment: (body) =>
     apiClient.post("/food/orders/verify-payment", body ?? {}, {
       contextModule: "user",

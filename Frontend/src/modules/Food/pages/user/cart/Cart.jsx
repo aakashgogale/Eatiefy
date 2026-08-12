@@ -287,6 +287,7 @@ export default function Cart() {
   const orderSuccessAudioRef = useRef(null)
   const hasRestoredRecipientRef = useRef(false)
   const appliedCouponRef = useRef(null)
+  const idempotencyKeyRef = useRef(crypto.randomUUID())
 
   // Defensive check: Ensure CartProvider is available
   let cartContext;
@@ -2256,7 +2257,7 @@ export default function Cart() {
       }
 
       // Create order in backend
-      const orderResponse = await orderAPI.createOrder(orderPayload)
+      const orderResponse = await orderAPI.createOrder(orderPayload, idempotencyKeyRef.current)
 
       debugLog("? Order created successfully:", orderResponse.data)
 
