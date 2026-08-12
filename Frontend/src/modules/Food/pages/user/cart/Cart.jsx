@@ -3850,7 +3850,7 @@ export default function Cart() {
                         },
                         {
                           id: 'wallet',
-                          name: 'Quick Wallet',
+                          name: 'Eatiefy Wallet',
                           description: 'Pay from your wallet',
                           icon: <Wallet className="w-5 h-5" />,
                           color: 'bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400',
@@ -3874,7 +3874,6 @@ export default function Cart() {
                           onClick={() => {
                             if (!option.disabled) {
                               setSelectedPaymentMethod(option.id)
-                              setShowPaymentSheet(false)
                             }
                           }}
                           className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all duration-300 group ${selectedPaymentMethod === option.id

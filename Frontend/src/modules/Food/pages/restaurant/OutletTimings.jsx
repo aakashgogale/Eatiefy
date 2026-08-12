@@ -81,6 +81,7 @@ function DayTimePicker({ value, onChange, placeholder }) {
           variant: "outlined",
           size: "small",
           placeholder,
+          inputProps: { readOnly: true },
           sx: timePickerSx,
         },
       }}

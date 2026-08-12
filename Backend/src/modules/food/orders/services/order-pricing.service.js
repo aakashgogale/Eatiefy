@@ -204,7 +204,10 @@ export function calculateRiderEarning(feeSettings = {}, distanceKm) {
   const ranges = Array.isArray(feeSettings.deliveryFeeRanges)
     ? feeSettings.deliveryFeeRanges
     : [];
-  if (ranges.length === 0) return 0;
+
+  if (ranges.length === 0) {
+    return resolveBaseDeliveryFee(feeSettings);
+  }
 
   const earning = matchFeeRange(ranges, distance, (range) => {
     const basePay = Number(range.deliveryBoyBasePay || 0);
@@ -212,8 +215,13 @@ export function calculateRiderEarning(feeSettings = {}, distanceKm) {
 
     if (basePay > 0) return basePay;
     if (perKm > 0) return distance * perKm;
-    return 0;
+    // Fallback to the full range fee if specific rider earning is not configured
+    return Number(range.fee || 0);
   });
+
+  if (earning === null) {
+    return resolveBaseDeliveryFee(feeSettings);
+  }
 
   return Number.isFinite(earning) ? Math.round(earning) : 0;
 }

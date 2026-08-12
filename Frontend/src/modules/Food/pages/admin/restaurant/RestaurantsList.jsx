@@ -1013,10 +1013,6 @@ export default function RestaurantsList() {
           alert("Opening time and closing time cannot be same")
           return
         }
-        if (closingMinutes < openingMinutes) {
-          alert("Closing time cannot be less than opening time")
-          return
-        }
       }
 
       const payload = {

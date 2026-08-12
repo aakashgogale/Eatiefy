@@ -1604,6 +1604,12 @@ export default function OutletInfo() {
                 onChange={(e) =>
                   setBankForm((prev) => ({
                     ...prev,
+                    accountHolderName: e.target.value,
+                  }))
+                }
+                onBlur={(e) =>
+                  setBankForm((prev) => ({
+                    ...prev,
                     accountHolderName: e.target.value.replace(/[^A-Za-z\s]/g, "").replace(/\s{2,}/g, " "),
                   }))
                 }
@@ -1614,7 +1620,8 @@ export default function OutletInfo() {
               <p className="text-xs text-slate-500 mb-1">Account number</p>
               <Input
                 value={bankForm.accountNumber}
-                onChange={(e) => setBankForm((prev) => ({ ...prev, accountNumber: e.target.value.replace(/\D/g, "").slice(0, 18) }))}
+                onChange={(e) => setBankForm((prev) => ({ ...prev, accountNumber: e.target.value.slice(0, 18) }))}
+                onBlur={(e) => setBankForm((prev) => ({ ...prev, accountNumber: e.target.value.replace(/\D/g, "").slice(0, 18) }))}
                 placeholder="Enter account number"
               />
             </div>
@@ -1622,7 +1629,8 @@ export default function OutletInfo() {
               <p className="text-xs text-slate-500 mb-1">Confirm account number</p>
               <Input
                 value={bankForm.confirmAccountNumber}
-                onChange={(e) => setBankForm((prev) => ({ ...prev, confirmAccountNumber: e.target.value.replace(/\D/g, "").slice(0, 18) }))}
+                onChange={(e) => setBankForm((prev) => ({ ...prev, confirmAccountNumber: e.target.value.slice(0, 18) }))}
+                onBlur={(e) => setBankForm((prev) => ({ ...prev, confirmAccountNumber: e.target.value.replace(/\D/g, "").slice(0, 18) }))}
                 placeholder="Re-enter account number"
               />
             </div>
@@ -1631,6 +1639,12 @@ export default function OutletInfo() {
               <Input
                 value={bankForm.ifscCode}
                 onChange={(e) =>
+                  setBankForm((prev) => ({
+                    ...prev,
+                    ifscCode: e.target.value.slice(0, 11),
+                  }))
+                }
+                onBlur={(e) =>
                   setBankForm((prev) => ({
                     ...prev,
                     ifscCode: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 11),

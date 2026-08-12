@@ -87,12 +87,16 @@ export default function DeliveryOTP() {
   }, [otp])
 
   const handleChange = (index, value) => {
-    if (value && !/^\d$/.test(value)) return
+    let val = value;
+    if (val.length > 1) {
+      val = val.slice(-1);
+    }
+    if (val && !/^\d$/.test(val)) return
     const newOtp = [...otp]
-    newOtp[index] = value
+    newOtp[index] = val
     setOtp(newOtp)
     setError("")
-    if (value && index < 3) inputRefs.current[index + 1]?.focus()
+    if (val && index < 3) inputRefs.current[index + 1]?.focus()
     if (!showNameInput && newOtp.every((digit) => digit !== "") && newOtp.length === 4) {
       handleVerify(newOtp.join(""))
     }
@@ -242,7 +246,7 @@ export default function DeliveryOTP() {
                         <div key={index} className="relative">
                           <input
                             ref={(el) => (inputRefs.current[index] = el)}
-                            type="text" inputMode="numeric" maxLength={1} value={digit}
+                            type="text" inputMode="numeric" maxLength={2} value={digit}
                             onChange={(e) => handleChange(index, e.target.value)}
                             onKeyDown={(e) => handleKeyDown(index, e)}
                             onPaste={handlePaste}
@@ -263,7 +267,7 @@ export default function DeliveryOTP() {
                     <div className="space-y-6 pt-4 text-center">
                       {resendTimer > 0 ? (
                         <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">
-                          Re-pulse in <span className="text-[#00B761]">{resendTimer}s</span>
+                          RESEND IN <span className="text-[#00B761]">{resendTimer}s</span>
                         </p>
                       ) : (
                         <button

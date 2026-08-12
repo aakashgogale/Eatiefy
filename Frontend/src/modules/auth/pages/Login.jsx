@@ -233,7 +233,8 @@ export default function UnifiedOTPFastLogin() {
                       required
                       autoFocus
                       value={phoneNumber}
-                      onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                      onChange={(e) => setPhoneNumber(e.target.value.slice(0, 10))}
+                      onBlur={(e) => setPhoneNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
                       maxLength={10}
                       className="block w-full pl-20 pr-4 py-3 bg-transparent text-gray-900 dark:text-white border-b-2 border-gray-100 dark:border-gray-800 focus:border-[#E2AD4B] outline-none transition-all placeholder:text-gray-300 font-bold text-lg"
                       placeholder="Phone number"

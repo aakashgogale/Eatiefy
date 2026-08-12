@@ -847,15 +847,18 @@ export default function Under250() {
             const name = String(cat?.name || "").trim()
             if (!name) return null
 
+            const nameLower = name.toLowerCase()
+            let finalImage = cat?.imageUrl || cat?.image || cat?.icon || ""
+            if (nameLower.includes("thali") || nameLower.includes("main course")) finalImage = "/images/categories/thali.png"
+            else if (nameLower.includes("beverage") || nameLower.includes("drink")) finalImage = "/images/categories/beverages.png"
+            else if (nameLower.includes("sweet") || nameLower.includes("cake")) finalImage = "/images/categories/sweet.png"
+            else if (nameLower.includes("momo")) finalImage = "/images/categories/momos.png"
+
             return {
               id: String(cat?.id || cat?._id || cat?.slug || `cat-${index}`),
               name,
               slug: String(cat?.slug || name.toLowerCase().replace(/\s+/g, "-")),
-              image:
-                cat?.imageUrl ||
-                cat?.image ||
-                cat?.icon ||
-                "",
+              image: finalImage,
             }
           })
           .filter(Boolean)
@@ -1368,8 +1371,8 @@ export default function Under250() {
                   <OptimizedImage
                     src={offerImage}
                     alt="All"
-                    className="w-full h-full bg-white rounded-full"
-                    objectFit="cover"
+                    className="w-full h-full bg-white rounded-full p-1"
+                    objectFit="contain"
                     sizes="(max-width: 640px) 62px, (max-width: 768px) 96px, 112px"
                     placeholder="blur"
                   />
@@ -1399,8 +1402,8 @@ export default function Under250() {
                       <OptimizedImage
                         src={category.image}
                         alt={category.name}
-                        className="w-full h-full bg-white rounded-full"
-                        objectFit="cover"
+                        className="w-full h-full bg-white rounded-full p-1"
+                        objectFit="contain"
                         sizes="(max-width: 640px) 62px, (max-width: 768px) 96px, 112px"
                         placeholder="blur"
                       />

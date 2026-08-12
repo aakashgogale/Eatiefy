@@ -468,8 +468,6 @@ export default function AddRestaurant() {
     if (openingMinutes !== null && closingMinutes !== null) {
       if (openingMinutes === closingMinutes) {
         errors.push("Opening time and closing time cannot be same")
-      } else if (closingMinutes < openingMinutes) {
-        errors.push("Closing time cannot be less than opening time")
       }
     }
     if (!step2.openDays || step2.openDays.length === 0) errors.push("Please select at least one open day")
@@ -507,7 +505,7 @@ export default function AddRestaurant() {
     if (step3.accountNumber?.trim() && !ACCOUNT_NUMBER_REGEX.test(step3.accountNumber.trim())) {
       errors.push("Account number must be 9 to 18 digits")
     }
-    if (step3.accountNumber !== step3.confirmAccountNumber) errors.push("Account number and confirmation do not match")
+    if (step3.accountNumber !== step3.confirmAccountNumber) errors.push("SILENT:Account number and confirmation do not match")
     if (!step3.ifscCode?.trim()) errors.push("IFSC code is required")
     if (step3.ifscCode?.trim() && !IFSC_REGEX.test(step3.ifscCode.trim())) errors.push("IFSC code must be in valid format")
     if (!step3.accountHolderName?.trim()) errors.push("Account holder name is required")
@@ -533,7 +531,9 @@ export default function AddRestaurant() {
 
     if (validationErrors.length > 0) {
       validationErrors.forEach((error) => {
-        toast.error(error)
+        if (!error.startsWith("SILENT:")) {
+          toast.error(error)
+        }
       })
       return
     }
@@ -1437,7 +1437,14 @@ export default function AddRestaurant() {
         <h2 className="text-lg font-semibold text-black">Bank account details</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input value={step3.accountNumber || ""} onChange={(e) => setStep3({ ...step3, accountNumber: sanitizeDigits(e.target.value).slice(0, 18) })} className="bg-white text-sm" placeholder="Account number*" inputMode="numeric" maxLength={18} />
-          <Input value={step3.confirmAccountNumber || ""} onChange={(e) => setStep3({ ...step3, confirmAccountNumber: sanitizeDigits(e.target.value).slice(0, 18) })} className="bg-white text-sm" placeholder="Re-enter account number*" inputMode="numeric" maxLength={18} />
+          <div className="flex flex-col gap-1">
+            <Input value={step3.confirmAccountNumber || ""} onChange={(e) => setStep3({ ...step3, confirmAccountNumber: sanitizeDigits(e.target.value).slice(0, 18) })} className={`bg-white text-sm transition-colors ${step3.confirmAccountNumber && step3.accountNumber !== step3.confirmAccountNumber ? "border-red-500 focus-visible:ring-red-500" : ""}`} placeholder="Re-enter account number*" inputMode="numeric" maxLength={18} />
+            {step3.confirmAccountNumber && step3.accountNumber !== step3.confirmAccountNumber && (
+              <span className="text-[11px] text-red-500 font-medium px-1 flex items-center">
+                Account number and confirmation do not match
+              </span>
+            )}
+          </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input value={step3.ifscCode || ""} onChange={(e) => setStep3({ ...step3, ifscCode: sanitizeIfsc(e.target.value) })} className="bg-white text-sm" placeholder="IFSC code*" maxLength={11} />

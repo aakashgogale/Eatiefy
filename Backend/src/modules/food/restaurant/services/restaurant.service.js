@@ -799,9 +799,6 @@ export const registerRestaurant = async (payload, files) => {
         if (openingMinutes === closingMinutes) {
             throw new ValidationError('Opening time and closing time cannot be same');
         }
-        if (closingMinutes < openingMinutes) {
-            throw new ValidationError('Closing time cannot be less than opening time');
-        }
     }
     const estimatedDeliveryTimeText = String(estimatedDeliveryTime || '').trim();
     const estimatedDeliveryTimeMinutes = parseEstimatedDeliveryMinutes(estimatedDeliveryTimeText);
@@ -1454,9 +1451,6 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
     if (openingMinutes !== null && closingMinutes !== null) {
         if (openingMinutes === closingMinutes) {
             throw new ValidationError('Opening time and closing time cannot be same');
-        }
-        if (closingMinutes < openingMinutes) {
-            throw new ValidationError('Closing time cannot be less than opening time');
         }
     }
 

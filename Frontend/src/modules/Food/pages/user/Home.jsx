@@ -2305,16 +2305,26 @@ export default function Home() {
             res?.data?.categories ||
             []
           const categories = Array.isArray(list)
-            ? list.map((cat, idx) => ({
-              id: String(cat?.id || cat?._id || cat?.slug || idx),
-              name: cat?.name || "",
-              slug: cat?.slug || String(cat?.name || "").toLowerCase().replace(/\s+/g, "-"),
-              image:
-                normalizeImageUrl(cat?.image || cat?.imageUrl) ||
-                foodImages[idx % foodImages.length] ||
-                foodImages[0],
-              type: cat?.type || "",
-            }))
+            ? list.map((cat, idx) => {
+              const nameLower = (cat?.name || "").toLowerCase()
+              let customImage = ""
+              if (nameLower.includes("thali") || nameLower.includes("main course")) customImage = "/images/categories/thali.png"
+              else if (nameLower.includes("beverage") || nameLower.includes("drink")) customImage = "/images/categories/beverages.png"
+              else if (nameLower.includes("sweet") || nameLower.includes("cake")) customImage = "/images/categories/sweet.png"
+              else if (nameLower.includes("momo")) customImage = "/images/categories/momos.png"
+
+              return {
+                id: String(cat?.id || cat?._id || cat?.slug || idx),
+                name: cat?.name || "",
+                slug: cat?.slug || String(cat?.name || "").toLowerCase().replace(/\s+/g, "-"),
+                image:
+                  customImage ||
+                  normalizeImageUrl(cat?.image || cat?.imageUrl) ||
+                  foodImages[idx % foodImages.length] ||
+                  foodImages[0],
+                type: cat?.type || "",
+              }
+            })
             : []
 
           publicCategoriesCacheRef.current.set(zoneKey, categories)
@@ -5247,9 +5257,9 @@ export default function Home() {
                             <OptimizedImage
                               src={categoryData.image}
                               alt={categoryData.name}
-                              className="w-full h-full bg-white rounded-full"
+                              className="w-full h-full bg-white rounded-full p-1"
                               sizes="(max-width: 640px) 80px, (max-width: 768px) 96px, 112px"
-                              objectFit="cover"
+                              objectFit="contain"
                               placeholder="blur"
                               onError={() => { }}
                             />

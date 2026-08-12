@@ -87,38 +87,45 @@ export default function SignupStep1() {
     sessionStorage.setItem("deliverySignupDetails", JSON.stringify(formData))
   }, [formData])
 
+  const handleBlur = (e) => {
+    const { name, value } = e.target;
+    let updatedValue = value;
+
+    if (name === "vehicleNumber" || name === "panNumber" || name === "drivingLicenseNumber") {
+      updatedValue = value.toUpperCase();
+    }
+    if (name === "name") {
+      updatedValue = sanitizeNameValue(value);
+    }
+    if (name === "drivingLicenseNumber") {
+      updatedValue = updatedValue.replace(/[^A-Z0-9]/g, "").slice(0, 16);
+    }
+    if (name === "aadharNumber") {
+      updatedValue = value.replace(/\D/g, "").slice(0, 12);
+    }
+    if (name === "city" || name === "state") {
+      updatedValue = sanitizeLocationValue(value);
+    }
+    if (name === "email") {
+      updatedValue = sanitizeEmailValue(value);
+    }
+
+    setFormData(prev => ({ ...prev, [name]: updatedValue }));
+  };
+
   const handleChange = (e) => {
     const { name, value } = e.target
     let updatedValue = value
 
-    // Auto-uppercase for Vehicle, DL and PAN numbers
-    if (name === "vehicleNumber" || name === "panNumber" || name === "drivingLicenseNumber") {
-      updatedValue = value.toUpperCase()
-    }
-
-    if (name === "name") {
-      updatedValue = sanitizeNameValue(value)
-    }
-
+    // Only apply length restrictions during typing to avoid Android keyboard panic
     if (name === "vehicleNumber") {
       updatedValue = updatedValue.slice(0, 10)
     }
-
     if (name === "drivingLicenseNumber") {
-      updatedValue = updatedValue.replace(/[^A-Z0-9]/g, "").slice(0, 16)
+      updatedValue = updatedValue.slice(0, 16)
     }
-
-    // Restrict Aadhaar to numeric only
     if (name === "aadharNumber") {
-      updatedValue = value.replace(/\D/g, "").slice(0, 12)
-    }
-
-    if (name === "city" || name === "state") {
-      updatedValue = sanitizeLocationValue(value)
-    }
-
-    if (name === "email") {
-      updatedValue = sanitizeEmailValue(value)
+      updatedValue = updatedValue.slice(0, 12)
     }
 
     setFormData(prev => ({
@@ -269,6 +276,7 @@ export default function SignupStep1() {
               name="name"
               value={formData.name}
               onChange={handleChange}
+              onBlur={handleBlur}
               inputMode="text"
               className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.name ? "border-red-500" : "border-gray-300"
                 }`}
@@ -287,6 +295,7 @@ export default function SignupStep1() {
               name="email"
               value={formData.email}
               onChange={handleChange}
+              onBlur={handleBlur}
               autoCapitalize="none"
               autoCorrect="off"
               autoComplete="email"
@@ -307,6 +316,7 @@ export default function SignupStep1() {
               name="address"
               value={formData.address}
               onChange={handleChange}
+              onBlur={handleBlur}
               rows={3}
               className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.address ? "border-red-500" : "border-gray-300"
                 }`}
@@ -326,6 +336,7 @@ export default function SignupStep1() {
                 name="city"
                 value={formData.city}
                 onChange={handleChange}
+                onBlur={handleBlur}
                 className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.city ? "border-red-500" : "border-gray-300"
                   }`}
                 placeholder="City"
@@ -341,6 +352,7 @@ export default function SignupStep1() {
                 name="state"
                 value={formData.state}
                 onChange={handleChange}
+                onBlur={handleBlur}
                 className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.state ? "border-red-500" : "border-gray-300"
                   }`}
                 placeholder="State"
@@ -377,6 +389,7 @@ export default function SignupStep1() {
               name="vehicleName"
               value={formData.vehicleName}
               onChange={handleChange}
+              onBlur={handleBlur}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
               placeholder="e.g., Honda Activa"
             />
@@ -392,6 +405,7 @@ export default function SignupStep1() {
               name="vehicleNumber"
               value={formData.vehicleNumber}
               onChange={handleChange}
+              onBlur={handleBlur}
               maxLength={10}
               className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.vehicleNumber ? "border-red-500" : "border-gray-300"
                 }`}
@@ -410,6 +424,7 @@ export default function SignupStep1() {
               name="drivingLicenseNumber"
               value={formData.drivingLicenseNumber}
               onChange={handleChange}
+              onBlur={handleBlur}
               maxLength={16}
               className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 uppercase ${errors.drivingLicenseNumber ? "border-red-500" : "border-gray-300"
                 }`}
@@ -428,6 +443,7 @@ export default function SignupStep1() {
               name="panNumber"
               value={formData.panNumber}
               onChange={handleChange}
+              onBlur={handleBlur}
               maxLength={10}
               className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 uppercase ${errors.panNumber ? "border-red-500" : "border-gray-300"
                 }`}
@@ -446,6 +462,7 @@ export default function SignupStep1() {
               name="aadharNumber"
               value={formData.aadharNumber}
               onChange={handleChange}
+              onBlur={handleBlur}
               maxLength={12}
               inputMode="numeric"
               className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.aadharNumber ? "border-red-500" : "border-gray-300"

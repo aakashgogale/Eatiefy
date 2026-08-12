@@ -234,7 +234,8 @@ export default function UpdateBankDetails() {
                   type="text"
                   inputMode="numeric"
                   value={form.accountNumber}
-                  onChange={(e) => setForm((p) => ({ ...p, accountNumber: e.target.value.replace(/[^\d\s-]/g, "") }))}
+                  onChange={(e) => setForm((p) => ({ ...p, accountNumber: e.target.value }))}
+                  onBlur={(e) => setForm((p) => ({ ...p, accountNumber: e.target.value.replace(/[^\d\s-]/g, "") }))}
                   className={inputClass("accountNumber")}
                   placeholder="Enter account number"
                 />
@@ -251,7 +252,8 @@ export default function UpdateBankDetails() {
                   type="text"
                   inputMode="numeric"
                   value={form.confirmAccountNumber}
-                  onChange={(e) => setForm((p) => ({ ...p, confirmAccountNumber: e.target.value.replace(/[^\d\s-]/g, "") }))}
+                  onChange={(e) => setForm((p) => ({ ...p, confirmAccountNumber: e.target.value }))}
+                  onBlur={(e) => setForm((p) => ({ ...p, confirmAccountNumber: e.target.value.replace(/[^\d\s-]/g, "") }))}
                   className={inputClass("confirmAccountNumber")}
                   placeholder="Re-enter account number"
                 />
@@ -268,7 +270,8 @@ export default function UpdateBankDetails() {
                   type="text"
                   maxLength={11}
                   value={form.ifscCode}
-                  onChange={(e) => setForm((p) => ({ ...p, ifscCode: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") }))}
+                  onChange={(e) => setForm((p) => ({ ...p, ifscCode: e.target.value }))}
+                  onBlur={(e) => setForm((p) => ({ ...p, ifscCode: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") }))}
                   className={inputClass("ifscCode")}
                   placeholder="e.g. SBIN0018764"
                 />

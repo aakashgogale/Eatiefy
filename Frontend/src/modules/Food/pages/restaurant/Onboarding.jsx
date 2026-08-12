@@ -477,6 +477,7 @@ function TimeSelector({ label, value, onChange }) {
             variant: "outlined",
             size: "small",
             placeholder: "Select time",
+            inputProps: { readOnly: true },
             sx: {
               "& .MuiOutlinedInput-root": {
                 height: "36px",
@@ -1509,8 +1510,6 @@ export default function RestaurantOnboarding() {
     if (openingMinutes !== null && closingMinutes !== null) {
       if (openingMinutes === closingMinutes) {
         errors.push("Opening time and closing time cannot be same")
-      } else if (closingMinutes < openingMinutes) {
-        errors.push("Closing time cannot be less than opening time")
       }
     }
     if (!step2.openDays || step2.openDays.length === 0) {
@@ -1610,7 +1609,7 @@ export default function RestaurantOnboarding() {
       errors.push("Confirm account number must contain 9 to 18 digits only")
     }
     if (step3.accountNumber && step3.confirmAccountNumber && step3.accountNumber !== step3.confirmAccountNumber) {
-      errors.push("Account number and confirmation do not match")
+      errors.push("SILENT:Account number and confirmation do not match")
     }
     if (!step3.ifscCode?.trim()) {
       errors.push("IFSC code is required")
@@ -1824,9 +1823,11 @@ export default function RestaurantOnboarding() {
 
     if (validationErrors.length > 0) {
       // Surface only the first error so validation proceeds top-to-bottom.
-      toast.error(validationErrors[0], {
-        duration: 4000,
-      })
+      if (!validationErrors[0].startsWith("SILENT:")) {
+        toast.error(validationErrors[0], {
+          duration: 4000,
+        })
+      }
       debugLog('? Validation failed:', validationErrors)
       return
     }
@@ -1916,12 +1917,8 @@ export default function RestaurantOnboarding() {
             <Label className={ONBOARDING_LABEL}>Full name*</Label>
             <Input
               value={step1.ownerName || ""}
-              onChange={(e) =>
-                setStep1({
-                  ...step1,
-                  ownerName: e.target.value.replace(/[^A-Za-z ]/g, ""),
-                })
-              }
+              onChange={(e) => setStep1({ ...step1, ownerName: e.target.value })}
+              onBlur={(e) => setStep1({ ...step1, ownerName: e.target.value.replace(/[^A-Za-z ]/g, "") })}
               className={ONBOARDING_INPUT}
               placeholder="Owner full name"
               disabled={!isEditing}
@@ -2824,14 +2821,12 @@ export default function RestaurantOnboarding() {
             <Label className={ONBOARDING_LABEL}>PAN number</Label>
             <Input
               value={step3.panNumber || ""}
-              onChange={(e) => {
-                const normalized = e.target.value
-                  .toUpperCase()
-                  .replace(/[^A-Z0-9]/g, "")
-                  .slice(0, 10)
+              onChange={(e) => setStep3({ ...step3, panNumber: e.target.value })}
+              onBlur={(e) => {
+                const normalized = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10)
                 setStep3({ ...step3, panNumber: normalized })
               }}
-              className={ONBOARDING_INPUT}
+              className={`${ONBOARDING_INPUT} uppercase`}
               placeholder="ABCDE1234F"
             />
           </div>
@@ -2839,12 +2834,8 @@ export default function RestaurantOnboarding() {
             <Label className={ONBOARDING_LABEL}>PAN Card Holder Name</Label>
             <Input
               value={step3.nameOnPan || ""}
-              onChange={(e) =>
-                setStep3({
-                  ...step3,
-                  nameOnPan: e.target.value.replace(/[^A-Za-z ]/g, ""),
-                })
-              }
+              onChange={(e) => setStep3({ ...step3, nameOnPan: e.target.value })}
+              onBlur={(e) => setStep3({ ...step3, nameOnPan: e.target.value.replace(/[^A-Za-z ]/g, "") })}
               className={ONBOARDING_INPUT}
               placeholder="Name as on PAN card"
             />
@@ -2935,23 +2926,15 @@ export default function RestaurantOnboarding() {
           <div className="space-y-3">
             <Input
               value={step3.gstNumber || ""}
-              onChange={(e) =>
-                setStep3({
-                  ...step3,
-                  gstNumber: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 15),
-                })
-              }
-              className={ONBOARDING_INPUT}
+              onChange={(e) => setStep3({ ...step3, gstNumber: e.target.value })}
+              onBlur={(e) => setStep3({ ...step3, gstNumber: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 15) })}
+              className={`${ONBOARDING_INPUT} uppercase`}
               placeholder="GST number (15 characters)"
             />
             <Input
               value={step3.gstLegalName || ""}
-              onChange={(e) =>
-                setStep3({
-                  ...step3,
-                  gstLegalName: e.target.value.replace(/[^A-Za-z ]/g, ""),
-                })
-              }
+              onChange={(e) => setStep3({ ...step3, gstLegalName: e.target.value })}
+              onBlur={(e) => setStep3({ ...step3, gstLegalName: e.target.value.replace(/[^A-Za-z ]/g, "") })}
               className={ONBOARDING_INPUT}
               placeholder="Legal name"
             />
@@ -3029,9 +3012,8 @@ export default function RestaurantOnboarding() {
             <Label className={ONBOARDING_LABEL}>FSSAI number</Label>
             <Input
               value={step3.fssaiNumber || ""}
-              onChange={(e) =>
-                setStep3({ ...step3, fssaiNumber: e.target.value.replace(/\D/g, "").slice(0, 14) })
-              }
+              onChange={(e) => setStep3({ ...step3, fssaiNumber: e.target.value })}
+              onBlur={(e) => setStep3({ ...step3, fssaiNumber: e.target.value.replace(/\D/g, "").slice(0, 14) })}
               className={ONBOARDING_INPUT}
               placeholder="14-digit FSSAI license number"
             />
@@ -3144,34 +3126,36 @@ export default function RestaurantOnboarding() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input
             value={step3.accountNumber || ""}
-            onChange={(e) =>
-              setStep3({ ...step3, accountNumber: e.target.value.replace(/\D/g, "").slice(0, 18) })
-            }
+            onChange={(e) => setStep3({ ...step3, accountNumber: e.target.value })}
+            onBlur={(e) => setStep3({ ...step3, accountNumber: e.target.value.replace(/\D/g, "").slice(0, 18) })}
             className="bg-white text-sm"
             placeholder="Account number"
           />
-          <Input
-            value={step3.confirmAccountNumber || ""}
-            onChange={(e) =>
-              setStep3({
-                ...step3,
-                confirmAccountNumber: e.target.value.replace(/\D/g, "").slice(0, 18),
-              })
-            }
-            className="bg-white text-sm"
-            placeholder="Re-enter account number"
-          />
+          <div className="flex flex-col gap-1">
+            <Input
+              value={step3.confirmAccountNumber || ""}
+              onChange={(e) => setStep3({ ...step3, confirmAccountNumber: e.target.value })}
+              onBlur={(e) => setStep3({ ...step3, confirmAccountNumber: e.target.value.replace(/\D/g, "").slice(0, 18) })}
+              className={`bg-white text-sm transition-colors ${
+                step3.confirmAccountNumber && step3.accountNumber !== step3.confirmAccountNumber
+                  ? "border-red-500 focus-visible:ring-red-500"
+                  : ""
+              }`}
+              placeholder="Re-enter account number"
+            />
+            {step3.confirmAccountNumber && step3.accountNumber !== step3.confirmAccountNumber && (
+              <span className="text-[11px] text-red-500 font-medium px-1 flex items-center">
+                Account number and confirmation do not match
+              </span>
+            )}
+          </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input
             value={step3.ifscCode || ""}
-            onChange={(e) =>
-              setStep3({
-                ...step3,
-                ifscCode: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 11),
-              })
-            }
-            className="bg-white text-sm"
+            onChange={(e) => setStep3({ ...step3, ifscCode: e.target.value })}
+            onBlur={(e) => setStep3({ ...step3, ifscCode: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 11) })}
+            className="bg-white text-sm uppercase"
             placeholder="IFSC code"
           />
           <Select
@@ -3189,12 +3173,8 @@ export default function RestaurantOnboarding() {
         </div>
         <Input
           value={step3.accountHolderName || ""}
-          onChange={(e) =>
-            setStep3({
-              ...step3,
-              accountHolderName: e.target.value.replace(/[^A-Za-z ]/g, ""),
-            })
-          }
+          onChange={(e) => setStep3({ ...step3, accountHolderName: e.target.value })}
+          onBlur={(e) => setStep3({ ...step3, accountHolderName: e.target.value.replace(/[^A-Za-z ]/g, "") })}
           className="bg-white text-sm"
           placeholder="Account holder name"
         />
