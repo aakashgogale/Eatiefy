@@ -243,13 +243,13 @@ export default function useAdminNotifications(options = {}) {
 
   useEffect(() => {
     if (options?.autoload === false) return;
-    loadNotifications();
+    void loadNotifications().catch(() => {});
   }, [loadNotifications, options?.autoload]);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     const handler = () => {
-      loadNotifications();
+      void loadNotifications().catch(() => {});
     };
     window.addEventListener(UPDATE_EVENT, handler);
     return () => window.removeEventListener(UPDATE_EVENT, handler);
@@ -257,7 +257,7 @@ export default function useAdminNotifications(options = {}) {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      loadNotifications();
+      void loadNotifications().catch(() => {});
     }, 5 * 60 * 1000);
     return () => window.clearInterval(timer);
   }, [loadNotifications]);

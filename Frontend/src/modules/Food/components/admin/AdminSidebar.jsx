@@ -407,7 +407,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
 
     // Also try after a small delay to ensure DOM is ready
     const timeoutId = setTimeout(() => {
-      loadLogo()
+      void loadLogo().catch(() => {})
     }, 100)
 
     // Listen for business settings updates

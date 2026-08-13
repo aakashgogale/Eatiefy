@@ -216,7 +216,10 @@ export const notificationAPI = {
 /** Admin API - new backend only (GET /auth/me, PATCH /auth/admin/profile, POST /auth/admin/change-password) */
 export const adminAPI = {
   getSidebarBadges: () =>
-    apiClient.get("/food/admin/sidebar-badges", { contextModule: "admin" }),
+    apiClient.get("/food/admin/sidebar-badges", {
+      contextModule: "admin",
+      timeout: 60000,
+    }),
   login: (email, password) => authService.adminLogin(email, password),
   /** POST /auth/admin/forgot-password/request-otp – only accepts registered admin email */
   requestForgotPasswordOtp: (email) =>
@@ -445,6 +448,7 @@ export const adminAPI = {
     apiClient.get("/food/admin/dashboard-stats", {
       params,
       contextModule: "admin",
+      timeout: 60000,
     }),
   /** List restaurant withdrawal requests (admin). */
   getWithdrawals: (params = {}) =>
@@ -2704,9 +2708,17 @@ export const orderAPI = {
         'Idempotency-Key': idempotencyKey || crypto.randomUUID()
       }
     }),
-  verifyPayment: (body) =>
+  verifyPayment: (body, idempotencyKey) =>
     apiClient.post("/food/orders/verify-payment", body ?? {}, {
       contextModule: "user",
+      headers: {
+        // Required by backend; prefer razorpay payment id so retries stay idempotent.
+        "Idempotency-Key":
+          idempotencyKey ||
+          (body?.razorpayPaymentId
+            ? `verify:${String(body.razorpayPaymentId)}`
+            : crypto.randomUUID()),
+      },
     }),
   abandonOnlinePayment: (orderId) =>
     apiClient.delete(`/food/orders/${String(orderId)}/pending-payment`, {

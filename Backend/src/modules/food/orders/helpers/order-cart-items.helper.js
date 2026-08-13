@@ -49,7 +49,12 @@ export async function resolveOrderCartItems(restaurantId, rawItems = []) {
   const items = Array.isArray(rawItems) ? rawItems : [];
   if (!items.length) throw new ValidationError('At least one item required');
 
-  const rId = new mongoose.Types.ObjectId(String(restaurantId));
+  const restaurantIdStr = String(restaurantId || '').trim();
+  if (!restaurantIdStr || !mongoose.Types.ObjectId.isValid(restaurantIdStr)) {
+    throw new ValidationError('Restaurant not found');
+  }
+
+  const rId = new mongoose.Types.ObjectId(restaurantIdStr);
   const itemIds = toObjectIds(items.map((item) => item.itemId || item.id));
 
   const [foodDocs, addonDocs] = await Promise.all([

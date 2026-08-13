@@ -70,20 +70,24 @@ export function PublicAppConfigProvider({ children }) {
           );
         }
         setConfig(snapshot);
+      } catch {
+        // Public config failures must not crash the app shell.
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
 
     const handleSettingsUpdate = () => {
-      void refreshCore(true).then((snapshot) => {
-        if (snapshot?.businessSettings) {
-          applyModulePowerScanning(
-            resolveModuleFromPath(window.location?.pathname || ""),
-            snapshot.businessSettings,
-          );
-        }
-      });
+      void refreshCore(true)
+        .then((snapshot) => {
+          if (snapshot?.businessSettings) {
+            applyModulePowerScanning(
+              resolveModuleFromPath(window.location?.pathname || ""),
+              snapshot.businessSettings,
+            );
+          }
+        })
+        .catch(() => {});
     };
 
     window.addEventListener("businessSettingsUpdated", handleSettingsUpdate);

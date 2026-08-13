@@ -124,12 +124,18 @@ export const loadCorePublicAppConfig = async ({ force = false } = {}) => {
   }
 
   coreLoadPromise = (async () => {
+    // Isolate failures so one downed public endpoint cannot crash the cart/home shell.
     const [businessRes, powerRes, featureRes, feeRes] = await Promise.all([
-      publicConfigGetOnce(PUBLIC_CONFIG_URLS.BUSINESS, force ? { noCache: true } : {}),
-      publicConfigGetOnce(PUBLIC_CONFIG_URLS.POWER_SCANNING, force ? { noCache: true } : {})
-        .catch(() => null),
-      publicConfigGetOnce(PUBLIC_CONFIG_URLS.FEATURE, force ? { noCache: true } : {}),
-      publicConfigGetOnce(PUBLIC_CONFIG_URLS.FEE, force ? { noCache: true } : {}),
+      publicConfigGetOnce(PUBLIC_CONFIG_URLS.BUSINESS, force ? { noCache: true } : {}).catch(
+        () => null,
+      ),
+      publicConfigGetOnce(PUBLIC_CONFIG_URLS.POWER_SCANNING, force ? { noCache: true } : {}).catch(
+        () => null,
+      ),
+      publicConfigGetOnce(PUBLIC_CONFIG_URLS.FEATURE, force ? { noCache: true } : {}).catch(
+        () => null,
+      ),
+      publicConfigGetOnce(PUBLIC_CONFIG_URLS.FEE, force ? { noCache: true } : {}).catch(() => null),
     ]);
 
     const businessSettings = parseBusinessSettings(businessRes);
@@ -179,8 +185,12 @@ export const loadUserHomePublicConfig = async ({ force = false } = {}) => {
 
   userContentLoadPromise = (async () => {
     const [topRes, heroRes, promoRes, exploreRes] = await Promise.all([
-      publicConfigGetOnce(PUBLIC_CONFIG_URLS.TOP_BANNERS, force ? { noCache: true } : {}),
-      publicConfigGetOnce(PUBLIC_CONFIG_URLS.HERO_BANNERS, force ? { noCache: true } : {}),
+      publicConfigGetOnce(PUBLIC_CONFIG_URLS.TOP_BANNERS, force ? { noCache: true } : {}).catch(
+        () => null,
+      ),
+      publicConfigGetOnce(PUBLIC_CONFIG_URLS.HERO_BANNERS, force ? { noCache: true } : {}).catch(
+        () => null,
+      ),
       publicConfigGetOnce(PUBLIC_CONFIG_URLS.PROMO_BANNERS, force ? { noCache: true } : {}).catch(() => null),
       publicConfigGetOnce(PUBLIC_CONFIG_URLS.EXPLORE_ICONS, force ? { noCache: true } : {})
         .catch(() => null),

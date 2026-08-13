@@ -133,11 +133,17 @@ window.addEventListener('unhandledrejection', (event) => {
   const error = event.reason || event
   const errorMsg = error?.message || String(error) || ''
   const errorName = error?.name || ''
+  const errorCode = error?.code || ''
   if (
     errorMsg.includes('Timeout expired') ||
     errorMsg.includes('User denied Geolocation') ||
     errorMsg.includes('permission denied') ||
-    errorName === 'GeolocationPositionError'
+    errorName === 'GeolocationPositionError' ||
+    errorName === 'AxiosError' ||
+    errorCode === 'ECONNABORTED' ||
+    errorCode === 'ERR_NETWORK' ||
+    errorMsg.includes('timeout') ||
+    errorMsg.includes('Network Error')
   ) {
     event.preventDefault()
     return

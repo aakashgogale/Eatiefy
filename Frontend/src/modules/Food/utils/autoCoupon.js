@@ -193,15 +193,14 @@ export function dispatchAutoCouponState(detail) {
 
 export function buildCartItemsForPricing(cart = []) {
   return cart.map((item) => ({
-    itemId: item.itemId || item.id,
-    name: item.name,
-    price: item.price,
+    itemId: String(item.itemId || item.id || ""),
+    name: String(item.name || "Item"),
+    price: Number(item.price) || 0,
     variantId: item.variantId || undefined,
     variantName: item.variantName || undefined,
-    variantPrice: item.variantPrice || item.price,
-    quantity: item.quantity || 1,
-    image: item.image,
-    description: item.description,
+    variantPrice: Number(item.variantPrice ?? item.price) || 0,
+    quantity: Math.max(1, Number(item.quantity) || 1),
+    image: typeof item.image === "string" ? item.image : "",
     isVeg: item.isVeg !== false,
   }))
 }

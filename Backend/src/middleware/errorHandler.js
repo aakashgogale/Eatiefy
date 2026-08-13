@@ -14,20 +14,46 @@ const errorHandler = (err, req, res, next) => {
         } else {
             message = err.message || 'Invalid upload';
         }
+    } else if (
+        err.name === 'CastError' ||
+        err.name === 'BSONError' ||
+        err.name === 'BSONTypeError' ||
+        err.name === 'StrictModeError'
+    ) {
+        // Invalid ObjectId / bad request body — never leak as opaque 500.
+        statusCode = 400;
+        message = err.message || 'Invalid request data';
+    } else if (err.name === 'ValidationError') {
+        // Custom auth ValidationError (has statusCode) or Mongoose ValidationError.
+        statusCode = err.statusCode || 400;
+        message = err.message || 'Validation failed';
+    } else if (err.name === 'ZodError') {
+        statusCode = 400;
+        message = err.issues?.[0]?.message || err.errors?.[0]?.message || err.message || 'Validation failed';
+    } else if (typeof err.statusCode === 'number' && err.statusCode >= 400 && err.statusCode < 600) {
+        statusCode = err.statusCode;
+        message = err.message || message;
+    }
+
+    // Never expose internal stack details to clients in production.
+    if (statusCode >= 500 && config.nodeEnv === 'production') {
+        message = 'Something went wrong. Please try again.';
     }
 
     const requestId = req.requestId || '-';
 
     logger.error(
-        `[${requestId}] ${req.method} ${req.originalUrl} ${statusCode} - ${err.name || 'Error'} - ${message}`
+        `[${requestId}] ${req.method} ${req.originalUrl} ${statusCode} - ${err.name || 'Error'} - ${err.message || message}`
     );
     if (config.nodeEnv === 'development' && err.stack) {
         logger.error(`[${requestId}] ${err.stack}`);
     }
 
+    // `error` + `message` for both legacy and current frontend parsers.
     res.status(statusCode).json({
         success: false,
-        error: message
+        error: message,
+        message,
     });
 };
 

@@ -2163,7 +2163,12 @@ export const getApprovedRestaurantByIdOrSlug = async (idOrSlug) => {
                 }),
             ),
         ]);
-        return withTimings;
+        // Cart / menu clients expect `name` (alias of restaurantName).
+        return {
+            ...withTimings,
+            name: withTimings?.restaurantName || withTimings?.name || '',
+            restaurantId: withTimings?._id ? String(withTimings._id) : withTimings?.restaurantId,
+        };
     }
 
     // Slug path: use normalized field for index-friendly exact match.
@@ -2184,7 +2189,11 @@ export const getApprovedRestaurantByIdOrSlug = async (idOrSlug) => {
             }),
         ),
     ]);
-    return withTimings;
+    return {
+        ...withTimings,
+        name: withTimings?.restaurantName || withTimings?.name || '',
+        restaurantId: withTimings?._id ? String(withTimings._id) : withTimings?.restaurantId,
+    };
 };
 
 export const listPublicOffers = async (query = {}) => {

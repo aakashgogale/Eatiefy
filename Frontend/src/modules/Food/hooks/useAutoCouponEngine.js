@@ -252,6 +252,8 @@ export default function useAutoCouponEngine({ deliveryMode = "basic", enabled = 
                 : "Best Coupon Applied Automatically",
           })
         }
+      } catch {
+        // Never surface auto-coupon failures as unhandled rejections.
       } finally {
         runningRef.current = false
       }
