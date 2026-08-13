@@ -183,7 +183,11 @@ export default function DesktopSidebar() {
       if (logo) setLogoUrl(logo)
     }
     window.addEventListener("businessSettingsUpdated", onUpdate)
-    return () => window.removeEventListener("businessSettingsUpdated", onUpdate)
+    window.addEventListener("restaurantProfileUpdated", loadSettings)
+    return () => {
+      window.removeEventListener("businessSettingsUpdated", onUpdate)
+      window.removeEventListener("restaurantProfileUpdated", loadSettings)
+    }
   }, [])
 
   useEffect(() => {
@@ -197,6 +201,8 @@ export default function DesktopSidebar() {
       }
     }
     fetchRestaurantData()
+    window.addEventListener("restaurantProfileUpdated", fetchRestaurantData)
+    return () => window.removeEventListener("restaurantProfileUpdated", fetchRestaurantData)
   }, [])
 
   const restaurantName = restaurantData?.name || companyName || "Restaurant"
@@ -225,8 +231,8 @@ export default function DesktopSidebar() {
       <div className="p-5">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center shrink-0 overflow-hidden">
-            {logoUrl ? (
-              <img src={logoUrl} alt="Logo" className="w-full h-full object-cover rounded-xl"  loading="lazy" decoding="async" />
+            {(ownerImage || logoUrl) ? (
+              <img src={ownerImage || logoUrl} alt="Logo" className="w-full h-full object-cover rounded-xl"  loading="lazy" decoding="async" onError={(e) => { e.target.onerror = null; e.target.src = logoUrl || "/restaurant-partner-logo.webp"; }} />
             ) : (
               <Store className="w-5 h-5 text-green-600" />
             )}

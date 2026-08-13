@@ -159,17 +159,13 @@ const DeliveryMap = React.memo(({ orderId, order, isVisible, fallbackCustomerCoo
   if (!isVisible || !orderId || !order || !restaurantCoords || !customerCoords) {
     return (
       <div
-        className="relative min-h-[250px] bg-gradient-to-b from-gray-100 to-gray-200"
-        style={{ height: '250px' }}
+        className="relative h-full w-full bg-gradient-to-b from-gray-100 to-gray-200"
       />
     );
   }
 
   return (
-    <div
-      className="relative w-full min-h-[250px] overflow-visible"
-      style={{ height: '250px' }}
-    >
+    <div className="relative w-full h-full overflow-hidden">
       <DeliveryTrackingMap
         orderId={orderId}
         orderTrackingIds={orderTrackingIdsList}
@@ -1307,7 +1303,7 @@ export default function OrderTracking() {
   const themeRgb = "var(--module-theme-rgb, 235,89,14)"
 
   return (
-    <div className="min-h-screen bg-gray-100 dark:bg-[#0a0a0a]">
+    <div className="relative h-[100dvh] w-full flex flex-col overflow-hidden bg-gray-50 dark:bg-zinc-950">
       {/* Order Confirmed Modal */}
       <AnimatePresence>
         {showConfirmation && (
@@ -1357,45 +1353,54 @@ export default function OrderTracking() {
         )}
       </AnimatePresence>
 
-      {/* Green Header */}
+      {/* Header Container */}
       <motion.div
-        className="text-white sticky top-0 z-40"
+        className="sticky top-0 z-50 shadow-md rounded-b-[2rem] overflow-hidden"
         style={{ backgroundColor: isCancelledOrder ? "#dc2626" : themeColor }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
       >
-      {/* Header */}
-      <div className="bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md p-4 flex items-center justify-between sticky top-0 z-50 border-b border-gray-100 dark:border-zinc-800">
-        <div className="flex items-center gap-3">
-          <Link to="/user/orders">
-            <button className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors">
-              <ArrowLeft className="w-6 h-6 text-gray-700 dark:text-gray-200" />
-            </button>
-          </Link>
-          <div>
-            <h1 className="text-lg font-bold text-gray-800 dark:text-white">Track Order</h1>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Order #{orderId?.slice(-6).toUpperCase()}</p>
+        <div className="bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md py-2.5 px-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Link to="/user/orders">
+              <button className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors">
+                <ArrowLeft className="w-6 h-6 text-gray-700 dark:text-gray-200" />
+              </button>
+            </Link>
+            <div>
+              <h1 className="text-lg font-bold text-gray-800 dark:text-white leading-snug">Track Order</h1>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Order #{orderId?.slice(-6).toUpperCase()}</p>
+            </div>
           </div>
+          <div className="w-10" />
         </div>
-        <div className="w-10" /> {/* Spacer to keep title centered if needed, or just empty */}
-      </div>
       </motion.div>
 
       {/* Map Section */}
       {!isDeliveredOrder && orderStatus !== 'cancelled' && (
-        <DeliveryMap
-          orderId={orderId}
-          order={order}
-          isVisible={order !== null}
-          fallbackCustomerCoords={fallbackCustomerCoords}
-          userLiveCoords={userLiveCoords}
-          userLocationAccuracy={userLiveLocation?.accuracy ?? null}
-          onEtaUpdate={handleEtaUpdate}
-        />
+        <div className="absolute inset-0 z-0">
+          <DeliveryMap
+            orderId={orderId}
+            order={order}
+            isVisible={order !== null}
+            fallbackCustomerCoords={fallbackCustomerCoords}
+            userLiveCoords={userLiveCoords}
+            userLocationAccuracy={userLiveLocation?.accuracy ?? null}
+            onEtaUpdate={handleEtaUpdate}
+          />
+        </div>
       )}
 
-      {/* Scrollable Content */}
-      <div className="max-w-4xl mx-auto px-4 md:px-6 lg:px-8 py-6 space-y-6">
+      {/* Bottom Sheet */}
+      <div className="absolute bottom-0 left-0 right-0 z-40 bg-gray-50/95 dark:bg-zinc-950/95 backdrop-blur-xl rounded-t-[2.5rem] shadow-[0_-20px_50px_rgba(0,0,0,0.15)] flex flex-col"
+           style={{ maxHeight: '65vh' }}>
+        {/* Drag Handle */}
+        <div className="w-full flex justify-center py-4 shrink-0">
+          <div className="w-12 h-1.5 bg-gray-300 dark:bg-zinc-700 rounded-full" />
+        </div>
+        
+        {/* Scrollable Area */}
+        <div className="overflow-y-auto px-4 md:px-6 lg:px-8 pb-8 space-y-4">
         
         {/* Main Status Card */}
         <div className="bg-white dark:bg-zinc-900 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-zinc-800 relative overflow-hidden">
@@ -1612,6 +1617,7 @@ export default function OrderTracking() {
             </div>
           )}
         </div>
+      </div>
       </div>
 
       {/* Cancel Order Dialog */}

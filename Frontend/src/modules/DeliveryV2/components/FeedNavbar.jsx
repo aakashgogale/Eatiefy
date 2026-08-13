@@ -411,7 +411,7 @@ export default function FeedNavbar({ className = "" }) {
         {/* Logo and Online/Offline Toggle */}
       <div className="flex items-center gap-3">
         {logoUrl && (
-          <img src={logoUrl} alt="Logo" className="h-8 w-auto object-contain"  loading="lazy" decoding="async" />
+          <img src={logoUrl} alt="Logo" className="h-8 w-auto object-contain"  loading="lazy" decoding="async" onError={(e) => { e.target.onerror = null; e.target.src = "/delivery-partner-logo.webp"; }} />
         )}
         <div className="relative" style={{ zIndex: 100 }}>
           <button

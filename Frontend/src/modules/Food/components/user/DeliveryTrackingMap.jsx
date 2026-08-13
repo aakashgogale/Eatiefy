@@ -10,7 +10,8 @@ import {
 } from '@react-google-maps/api';
 import io from 'socket.io-client';
 import { API_BASE_URL } from '@food/api/config';
-import bikeLogo from '@food/assets/bikelogo.webp';
+import bikeLogo from '@food/assets/deliveryboy-3d.jpeg';
+import mapRiderIcon from '@food/assets/MapRider.png';
 import { subscribeOrderTracking } from '@food/realtimeTracking';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Navigation, Info, Circle } from 'lucide-react';
@@ -29,6 +30,22 @@ const RESTAURANT_PIN_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="48" h
   <circle cx="12" cy="9" r="3" fill="#FFFFFF"/>
 </svg>`;
 
+const zomatoMapStyle = [
+  { elementType: "geometry", stylers: [{ color: "#f5f5f5" }] },
+  { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#9e9e9e" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#f5f5f5" }] },
+  { featureType: "administrative.land_parcel", stylers: [{ visibility: "off" }] },
+  { featureType: "administrative.neighborhood", stylers: [{ visibility: "off" }] },
+  { featureType: "poi", stylers: [{ visibility: "off" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#ffffff" }] },
+  { featureType: "road.arterial", elementType: "labels.text.fill", stylers: [{ color: "#bdbdbd" }] },
+  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#ffffff" }] },
+  { featureType: "road.local", elementType: "geometry", stylers: [{ color: "#ffffff" }] },
+  { featureType: "transit", stylers: [{ visibility: "off" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#e9e9e9" }] },
+];
+
 const CUSTOMER_PIN_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="#10B981">
   <path d="M12 2C8.13 2 5 5.13 5 9c0 4.17 4.42 9.92 6.24 12.11.4.48 1.08.48 1.52 0C14.58 18.92 19 13.17 19 9c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5 14.5 7.62 14.5 9 13.38 11.5 12 11.5z"/>
   <circle cx="12" cy="9" r="3" fill="#FFFFFF"/>
@@ -42,7 +59,8 @@ const DeliveryTrackingMap = ({
   restaurantCoords,
   customerCoords,
   order = null,
-  onEtaUpdate = null
+  onEtaUpdate = null,
+  deliveryBoyData = null
 }) => {
   const [map, setMap] = useState(null);
   const [riderLocation, setRiderLocation] = useState(null);
@@ -73,10 +91,21 @@ const DeliveryTrackingMap = ({
 
   // 1. Initial State from Order Payload
   useEffect(() => {
-    const loc = order?.deliveryState?.currentLocation;
+    let loc = order?.deliveryState?.currentLocation || 
+              order?.tracking?.location || 
+              order?.deliveryPartner?.location ||
+              order?.dispatch?.currentLocation ||
+              order?.dispatch?.location;
+
     if (loc && !riderLocation) {
-      const lat = typeof loc.lat === 'number' ? loc.lat : (Array.isArray(loc.coordinates) ? Number(loc.coordinates[1]) : null);
-      const lng = typeof loc.lng === 'number' ? loc.lng : (Array.isArray(loc.coordinates) ? Number(loc.coordinates[0]) : null);
+      const lat = typeof loc.lat === 'number' ? loc.lat : 
+                  (Array.isArray(loc.coordinates) ? Number(loc.coordinates[1]) : 
+                  (typeof loc.latitude === 'number' ? loc.latitude : null));
+      
+      const lng = typeof loc.lng === 'number' ? loc.lng : 
+                  (Array.isArray(loc.coordinates) ? Number(loc.coordinates[0]) : 
+                  (typeof loc.longitude === 'number' ? loc.longitude : null));
+
       if (Number.isFinite(lat) && Number.isFinite(lng)) {
         setRiderLocation({ lat, lng, heading: loc.bearing || loc.heading || 0 });
       }
@@ -181,45 +210,29 @@ const DeliveryTrackingMap = ({
   }, []);
 
   // Use smooth location for sync if available
-  const displayRiderLocation = smoothLocation || riderLocation;
+  // Use smooth location for sync if available, fallback to restaurant if rider hasn't started sending coords yet
+  const displayRiderLocation = smoothLocation || riderLocation || restaurantCoords;
 
   const tripStatus = order?.status || order?.orderStatus || 'pending';
   const isOrderPickedUp = ['picked_up', 'out_for_delivery', 'delivered'].includes(tripStatus.toLowerCase());
 
-  // 2. Pro Camera: Intelligent Frame Management (Throttled)
-  const lastCameraUpdateRef = useRef({ time: 0, status: null });
-  
+  // 2. Pro Camera: Intelligent Frame Management (Stable Bounds)
+  // Fit map to frame journey stably
   useEffect(() => {
-    if (!map || !restaurantCoords || !customerCoords || !isLoaded) return;
-    
-    const now = Date.now();
-    const statusChanged = lastCameraUpdateRef.current.status !== isOrderPickedUp;
-    const timeSinceLastUpdate = now - lastCameraUpdateRef.current.time;
-
-    // Only fitBounds if status changed OR every 15 seconds to avoid flickering
-    if (!statusChanged && timeSinceLastUpdate < 15000) return;
-
-    lastCameraUpdateRef.current = { time: now, status: isOrderPickedUp };
-
+    if (!map || !isLoaded) return;
     const bounds = new window.google.maps.LatLngBounds();
-    
-    if (isOrderPickedUp) {
-      if (riderLocation) bounds.extend(riderLocation);
-      bounds.extend(customerCoords);
-    } else {
-      if (riderLocation) bounds.extend(riderLocation);
-      bounds.extend(restaurantCoords);
-    }
+    if (restaurantCoords) bounds.extend(restaurantCoords);
+    if (customerCoords) bounds.extend(customerCoords);
 
-    map.fitBounds(bounds, { 
-      top: 100, 
-      bottom: 120, 
+    map.fitBounds(bounds, {
+      top: 150, 
+      bottom: window.innerHeight * 0.65, // Add massive bottom padding to keep markers above the bottom sheet!
       left: 60, 
       right: 60 
     });
     
-    debugLog(`[Camera] Focusing on ${isOrderPickedUp ? 'Delivery' : 'Pickup'} leg`);
-  }, [map, riderLocation, restaurantCoords, customerCoords, isOrderPickedUp, isLoaded]);
+    debugLog(`[Camera] Framing full journey with stable bounds`);
+  }, [map, restaurantCoords, customerCoords, isLoaded]);
 
   // 3. Directions Management
   const directionsCallback = useCallback((result, status) => {
@@ -274,13 +287,14 @@ const DeliveryTrackingMap = ({
   if (!isLoaded) return <div className="w-full h-full bg-gray-100 animate-pulse" />;
 
   return (
-    <div className="relative w-full h-full overflow-hidden rounded-2xl shadow-inner border border-gray-100">
+    <div className="relative w-full h-full overflow-hidden">
       <GoogleMap
         mapContainerStyle={{ width: '100%', height: '100%' }}
         center={center}
         zoom={zoom}
         onLoad={setMap}
         options={{
+          styles: zomatoMapStyle,
           disableDefaultUI: false,
           zoomControl: true,
           mapTypeControl: false,
@@ -288,11 +302,7 @@ const DeliveryTrackingMap = ({
           streetViewControl: false,
           rotateControl: false,
           fullscreenControl: false,
-          gestureHandling: 'greedy',
-          styles: [
-            { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-            { featureType: 'transit', stylers: [{ visibility: 'off' }] }
-          ]
+          gestureHandling: 'greedy'
         }}
       >
         {/* 1. PERSISTENT BASELINE (Full journey: Restaurant -> Customer) */}
@@ -318,21 +328,10 @@ const DeliveryTrackingMap = ({
           <Polyline
             path={baselineDirections.routes[0].overview_path}
             options={{
-              strokeColor: '#94a3b8', 
-              strokeOpacity: 0, // Dotted
+              strokeColor: '#3b82f6', 
+              strokeOpacity: 1,
               strokeWeight: 4,
-              zIndex: 5,
-              icons: [{
-                icon: { 
-                  path: 'M 0,-1 0,1', 
-                  strokeOpacity: 0.5, 
-                  scale: 3, 
-                  strokeWeight: 4,
-                  strokeColor: '#64748b'
-                },
-                offset: '0',
-                repeat: '15px'
-              }]
+              zIndex: 5
             }}
           />
         )}
@@ -348,8 +347,8 @@ const DeliveryTrackingMap = ({
               return decoded;
             })()}
             options={{
-              strokeColor: isOrderPickedUp ? '#3b82f6' : '#22c55e',
-              strokeWeight: 6,
+              strokeColor: '#3b82f6',
+              strokeWeight: 4,
               strokeOpacity: 1,
               zIndex: 10
             }}
@@ -371,125 +370,112 @@ const DeliveryTrackingMap = ({
               suppressMarkers: true,
               preserveViewport: true,
               polylineOptions: {
-                strokeColor: isOrderPickedUp ? '#3b82f6' : '#22c55e',
-                strokeWeight: 6,
-                strokeOpacity: 0.8,
+                strokeColor: '#3b82f6',
+                strokeWeight: 4,
+                strokeOpacity: 1,
                 zIndex: 10
               }
             }}
           />
         )}
 
-        {/* RESTAURANT PIN (OVERLAY VIEW FOR CUSTOM STLYE) */}
+        {/* RESTAURANT PIN */}
         <OverlayView
           position={restaurantCoords}
           mapPaneName={OverlayView.MARKER_LAYER}
         >
-          <div className="relative -translate-x-1/2 -translate-y-full mb-1 group">
-             {/* Pulsing ring if this is the active destination */}
+          <div className="relative flex flex-col items-center justify-center pointer-events-none -translate-x-1/2 -translate-y-1/2">
              {!isOrderPickedUp && (
-               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                 <motion.div 
-                   animate={{ scale: [1, 2], opacity: [0.5, 0] }}
-                   transition={{ duration: 2, repeat: Infinity }}
-                   className="w-16 h-16 rounded-full border-4 border-orange-500/50"
+               <div className="absolute -top-12 z-50 bg-[#1e1e1e] text-white rounded-full flex items-center px-1.5 py-1.5 shadow-lg border border-black/10 gap-2">
+                 <img 
+                   src={order?.restaurantLogo || order?.restaurantId?.logo || order?.restaurantId?.profileImage || `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(RESTAURANT_PIN_SVG)}`} 
+                   className="w-6 h-6 rounded-full object-cover bg-white" 
+                   onError={(e) => { e.target.src = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(RESTAURANT_PIN_SVG)}`; }}
                  />
+                 <span className="text-xs font-semibold pr-2">Pickup</span>
+                 <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-[#1e1e1e] rotate-45" />
                </div>
              )}
-             <div className="relative w-11 h-11 rounded-full p-1 bg-white shadow-xl border-2 border-orange-500 overflow-hidden group-hover:scale-110 transition-transform">
-                <img 
-                  src={order?.restaurantLogo || order?.restaurantId?.logo || order?.restaurantId?.profileImage || `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(RESTAURANT_PIN_SVG)}`}
-                  alt="Restaurant"
-                  className="w-full h-full object-contain rounded-full bg-gray-50"
-                  onError={(e) => { e.target.src = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(RESTAURANT_PIN_SVG)}`; }}
-                />
-             </div>
-             {/* Pin Tip */}
-             <div className="absolute top-[100%] left-1/2 -translate-x-1/2 w-3 h-3 bg-orange-500 clip-triangle rotate-180 -mt-1 shadow-sm" style={{ clipPath: 'polygon(50% 100%, 0 0, 100% 0)' }} />
+             <div className="w-4 h-4 bg-white border-[4px] border-black rounded-full shadow-md z-10" />
           </div>
         </OverlayView>
 
-        {/* CUSTOMER PIN (OVERLAY VIEW FOR CUSTOM STYLE) */}
+        {/* CUSTOMER PIN */}
         <OverlayView
           position={customerCoords}
           mapPaneName={OverlayView.MARKER_LAYER}
         >
-          <div className="relative -translate-x-1/2 -translate-y-full mb-1 group">
-             {/* Pulsing ring if this is the active destination */}
-             {isOrderPickedUp && (
-               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                 <motion.div 
-                   animate={{ scale: [1, 2], opacity: [0.5, 0] }}
-                   transition={{ duration: 2, repeat: Infinity }}
-                   className="w-16 h-16 rounded-full border-4 border-green-500/50"
-                 />
-               </div>
-             )}
-             <div className="relative w-11 h-11 rounded-full p-1 bg-white shadow-xl border-2 border-green-500 overflow-hidden group-hover:scale-110 transition-transform">
-                <img 
-                  src={order?.customerImage || order?.userId?.profileImage || order?.userId?.avatar || `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(CUSTOMER_PIN_SVG)}`}
-                  alt="Me"
-                  className="w-full h-full object-contain rounded-full bg-gray-50"
-                  onError={(e) => { e.target.src = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(CUSTOMER_PIN_SVG)}`; }}
-                />
+          <div className="relative flex flex-col items-center justify-center pointer-events-none -translate-x-1/2 -translate-y-1/2">
+             <div className="absolute -top-12 z-50 bg-[#1e1e1e] text-white rounded-full flex items-center px-1.5 py-1.5 shadow-lg border border-black/10 gap-2">
+               <img 
+                 src={order?.customerImage || order?.userId?.profileImage || order?.userId?.avatar || `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(CUSTOMER_PIN_SVG)}`} 
+                 className="w-6 h-6 rounded-full object-cover bg-white" 
+                 onError={(e) => { e.target.src = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(CUSTOMER_PIN_SVG)}`; }}
+               />
+               <span className="text-xs font-semibold pr-2">You</span>
+               <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-[#1e1e1e] rotate-45" />
              </div>
-             {/* Pin Tip */}
-             <div className="absolute top-[100%] left-1/2 -translate-x-1/2 w-3 h-3 bg-green-500 clip-triangle rotate-180 -mt-1 shadow-sm" style={{ clipPath: 'polygon(50% 100%, 0 0, 100% 0)' }} />
+             <div className="w-4 h-4 bg-white border-[4px] border-black rounded-full shadow-md z-10" />
           </div>
         </OverlayView>
 
-        {/* PRO RIDER (OVERLAY VIEW FOR SMOOTH ROTATION / GLIDE) */}
+        {/* PRO RIDER */}
         {displayRiderLocation && (
           <OverlayView
             position={displayRiderLocation}
             mapPaneName={OverlayView.MARKER_LAYER}
           >
             <div 
-              style={{
-                transform: `translate(-50%, -50%) rotate(${displayRiderLocation.heading || 0}deg)`,
-                transition: 'all 0.1s linear', // Micro-damping for heading
-              }}
-              className="relative w-16 h-16"
+              style={{ transition: 'transform 0.1s linear' }}
+              className="relative flex flex-col items-center justify-center pointer-events-none -translate-x-1/2 -translate-y-1/2"
             >
-              <img 
-                src="/MapRider.webp" 
-                alt="Rider" 
-                className="w-full h-full object-contain drop-shadow-2xl"
-                onError={(e) => {
-                  e.target.src = bikeLogo;
+              {/* Floating ETA Badge */}
+              {currentEta && (
+                <div className="absolute -top-8 z-50 whitespace-nowrap bg-[#1e1e1e] text-white text-[10px] font-bold px-2 py-1 rounded-md shadow-lg flex items-center gap-1">
+                  <span>{currentEta.replace('mins', 'min')}</span>
+                  <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-[#1e1e1e] rotate-45"></div>
+                </div>
+              )}
+
+              {/* Delivery Boy Avatar */}
+              {deliveryBoyData?.avatar && (
+                <div className="absolute -top-20 z-50 w-12 h-12 rounded-full border-[3px] border-white shadow-lg overflow-hidden bg-white">
+                  <img src={deliveryBoyData.avatar} alt="Rider" className="w-full h-full object-cover" />
+                </div>
+              )}
+
+              {/* Pulsing Ring */}
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0">
+                <motion.div 
+                  animate={{ scale: [1, 2.5], opacity: [0.6, 0] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                  className="w-16 h-16 rounded-full border-4 border-slate-500/30"
+                />
+              </div>
+
+              {/* Rotating Bike */}
+              <div 
+                style={{
+                  transform: `rotate(${displayRiderLocation.heading || 0}deg)`,
+                  transition: 'transform 0.1s linear',
                 }}
-              />
+                className="relative w-16 h-16 flex items-center justify-center z-10"
+              >
+                <img 
+                  src={mapRiderIcon} 
+                  alt="Rider" 
+                  className="w-[150%] h-[150%] max-w-none object-contain drop-shadow-xl"
+                  onError={(e) => {
+                    e.target.src = bikeLogo;
+                  }}
+                />
+              </div>
             </div>
           </OverlayView>
         )}
       </GoogleMap>
 
-      {/* 4. LIVE ARRIVAL BADGE (Pro Orange) */}
-      <AnimatePresence>
-        {riderLocation && currentEta && (
-          <motion.div 
-            initial={{ x: -20, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            className="absolute top-4 left-4 z-[150] pointer-events-none"
-          >
-            <div className="bg-orange-500/95 backdrop-blur-xl rounded-2xl p-3 shadow-[0_10px_30px_rgba(249,115,22,0.4)] border border-orange-400/50 flex flex-col min-w-[90px] group overflow-hidden relative">
-              <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent pointer-events-none" />
-              <div className="flex flex-col z-10">
-                <span className="text-[9px] text-white/80 font-black uppercase tracking-[0.2em] mb-0.5">Arrival</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xl font-black text-white leading-none tracking-tighter">
-                    {currentEta}
-                  </span>
-                  <div className="flex items-center gap-1.5 opacity-80">
-                     <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                     <Navigation className="w-3 h-3 text-white rotate-45" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+
     </div>
   );
 };

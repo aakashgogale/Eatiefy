@@ -437,15 +437,14 @@ export const updateFavicon = (url) => {
 };
 
 const resolveLogoByModule = (settings, moduleName = "user") => {
-  if (!settings || typeof settings !== "object") return "";
   const moduleKey = String(moduleName || "").trim().toLowerCase();
   if (moduleKey === "restaurant") {
-    return settings.restaurantLogo?.url || settings.logo?.url || "";
+    return (settings && settings.restaurantLogo?.url) || "/restaurant-partner-logo.webp";
   }
   if (moduleKey === "delivery") {
-    return settings.deliveryLogo?.url || settings.logo?.url || "";
+    return (settings && settings.deliveryLogo?.url) || "/delivery-partner-logo.webp";
   }
-  return settings.logo?.url || "";
+  return (settings && settings.logo?.url) || "/user-app-logo.webp";
 };
 
 const resolveFaviconByModule = (settings, moduleName = "user") => {

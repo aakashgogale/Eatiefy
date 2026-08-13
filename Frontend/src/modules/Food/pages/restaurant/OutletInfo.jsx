@@ -514,6 +514,7 @@ export default function OutletInfo() {
             setThumbnailImage(toDisplayImageUrl(data.profileImage.url))
           }
         }
+        window.dispatchEvent(new Event("restaurantProfileUpdated"))
       }
     } catch (error) {
       debugError("Error uploading profile image:", error)
@@ -679,6 +680,7 @@ export default function OutletInfo() {
           setThumbnailImage(toDisplayImageUrl(data.profileImage.url))
         }
       }
+      window.dispatchEvent(new Event("restaurantProfileUpdated"))
       toast.success("Outlet image deleted successfully")
     } catch (error) {
       toast.error("Failed to delete outlet image.")

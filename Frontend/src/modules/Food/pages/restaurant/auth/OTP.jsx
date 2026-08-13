@@ -12,7 +12,7 @@ import { resolveDeviceFcmToken, registerWebPushForCurrentModule } from "@food/ut
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { loadBusinessSettings, getModuleLogoUrl } from "@food/utils/businessSettings"
 import RestaurantPartnerHero from "@food/components/restaurant/auth/RestaurantPartnerHero"
-import quickSpicyLogo from "@food/assets/eatiefy-logo.webp"
+import quickSpicyLogo from "@food/assets/restaurant-partner-logo.webp"
 
 const THEME = "#E2AD4B"
 

@@ -111,7 +111,7 @@ import {
   DropdownMenuTrigger,
 } from "@food/components/ui/dropdown-menu";
 import { useDeliveryLocation } from "@food/context/DeliveryLocationContext";
-import quickSpicyLogo from "@food/assets/eatiefy-logo.webp";
+import quickSpicyLogo from "@food/assets/user-app-logo.webp";
 import offerImage from "@food/assets/offerimage.webp";
 import api, { restaurantAPI, adminAPI } from "@food/api";
 import { usePublicAppConfig } from "@food/context/PublicAppConfigContext";

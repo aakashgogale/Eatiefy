@@ -253,8 +253,11 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
 
         {parsedRiderLocation && (
           <OverlayView position={parsedRiderLocation} mapPaneName={OverlayView.MARKER_LAYER}>
-            <div style={{ transform: `translate(-50%, -50%) rotate(${parsedRiderLocation.heading || 0}deg)`, transition: 'transform 0.5s linear' }} className="relative w-[72px] h-[72px]">
-              <img src={`data:image/svg+xml;charset=UTF-8,${encodeURIComponent(RIDER_BIKE_SVG)}`} alt="Rider" className="w-full h-full object-contain"  loading="lazy" decoding="async" />
+            <div 
+              style={{ transform: `translate(-50%, -50%) rotate(${parsedRiderLocation.heading || 0}deg)`, transition: 'transform 0.5s linear' }} 
+              className="relative w-16 h-16 flex items-center justify-center"
+            >
+              <img src="/deliveryboy-3d-transparent.png" alt="Rider" className="w-[150%] h-[150%] max-w-none object-contain" loading="lazy" decoding="async" />
             </div>
           </OverlayView>
         )}

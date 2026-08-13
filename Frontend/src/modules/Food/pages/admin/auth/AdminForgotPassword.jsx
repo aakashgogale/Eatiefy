@@ -6,7 +6,7 @@ import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
 import AdminAuthHero from "@food/components/admin/auth/AdminAuthHero"
 import { ArrowLeft, Shield, Eye, EyeOff, Loader2 } from "lucide-react"
-import quickSpicyLogo from "@food/assets/eatiefy-logo.webp"
+import quickSpicyLogo from "@food/assets/user-app-logo.webp"
 import { adminAPI } from "@food/api"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import {

@@ -12,7 +12,7 @@ import {
 import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
 import { Mail, User, Lock, Eye, EyeOff, ArrowLeft, Shield } from "lucide-react"
-import quickSpicyLogo from "@food/assets/eatiefy-logo.webp"
+import quickSpicyLogo from "@food/assets/user-app-logo.webp"
 import { authAPI, adminAPI } from "@food/api"
 import { setAuthData } from "@food/utils/auth"
 import { loadBusinessSettings } from "@food/utils/businessSettings"
