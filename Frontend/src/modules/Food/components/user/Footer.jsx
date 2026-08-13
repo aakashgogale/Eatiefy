@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import quickSpicyLogo from "@food/assets/user-app-logo.webp"
+import DynamicLogo from "@food/components/DynamicLogo"
 
 export default function Footer() {
   const companyName = useCompanyName()
@@ -81,16 +82,11 @@ export default function Footer() {
               }}
             >
               <div className="flex items-center gap-2 mb-4">
-                <img
-                  src={logoUrl || quickSpicyLogo}
+                <DynamicLogo
+                  module="user"
+                  fallback={quickSpicyLogo}
                   alt="Company Logo"
                   className="h-10 w-10 rounded-full object-cover"
-                  crossOrigin="anonymous"
-                  onError={(e) => {
-                    if (e.target.src !== quickSpicyLogo) {
-                      e.target.src = quickSpicyLogo
-                    }
-                  }}
                 />
                 <span className="text-2xl font-bold bg-gradient-to-r from-yellow-400 to-orange-400 bg-clip-text text-transparent">
                   {companyName}

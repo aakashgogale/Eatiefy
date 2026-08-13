@@ -6,6 +6,7 @@ import { Input } from "@food/components/ui/input"
 import { authAPI } from "@food/api"
 import { motion, AnimatePresence } from "framer-motion"
 import logoImg from "@food/assets/user-app-logo.webp"
+import DynamicLogo from "@food/components/DynamicLogo"
 import loginBgImg from "@food/assets/login_bg.webp"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
 

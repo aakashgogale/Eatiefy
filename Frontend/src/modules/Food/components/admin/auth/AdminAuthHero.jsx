@@ -2,6 +2,7 @@ import { motion, useReducedMotion } from "framer-motion"
 import { Shield, BarChart3 } from "lucide-react"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import quickSpicyLogo from "@food/assets/user-app-logo.webp"
+import DynamicLogo from "@food/components/DynamicLogo"
 
 export default function AdminAuthHero({ themeColor, logoUrl }) {
   const companyName = useCompanyName()
@@ -40,16 +41,11 @@ export default function AdminAuthHero({ themeColor, logoUrl }) {
 
       <div className="relative z-10 flex h-full flex-col justify-between p-8 xl:p-10">
         <div className="absolute right-8 top-8 xl:right-10 xl:top-10">
-          <img
-            src={logoUrl}
-            alt={`${companyName} logo`}
-            className="h-12 lg:h-16 w-auto object-contain"
-            loading="lazy"
-            onError={(e) => {
-              if (e.target.src !== quickSpicyLogo) {
-                e.target.src = quickSpicyLogo
-              }
-            }}
+          <DynamicLogo
+            module="user"
+            fallback={quickSpicyLogo}
+            alt="Admin Logo"
+            className="w-16 h-16 sm:w-20 sm:h-20 object-contain rounded-2xl bg-white/10 p-2 border border-white/20 shadow-xl"
           />
         </div>
 

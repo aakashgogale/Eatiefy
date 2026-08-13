@@ -15,6 +15,7 @@ import { Label } from "@food/components/ui/label"
 import AdminAuthHero from "@food/components/admin/auth/AdminAuthHero"
 import { Eye, EyeOff, Shield, Loader2 } from "lucide-react"
 import quickSpicyLogo from "@food/assets/user-app-logo.webp"
+import DynamicLogo from "@food/components/DynamicLogo"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -177,16 +178,11 @@ export default function AdminLogin() {
             {/* Header */}
             <div className="mb-7 text-center lg:text-left">
               <div className="mb-5 flex justify-center lg:justify-start">
-                <img
-                  src={logoUrl}
-                  alt={`${companyName} logo`}
-                  className="h-14 lg:h-20 w-auto object-contain"
-                  loading="lazy"
-                  onError={(e) => {
-                    if (e.target.src !== quickSpicyLogo) {
-                      e.target.src = quickSpicyLogo
-                    }
-                  }}
+                <DynamicLogo
+                  module="user"
+                  fallback={quickSpicyLogo}
+                  alt={`${companyName} Logo`}
+                  className="mx-auto h-24 w-auto mb-6 drop-shadow-md object-contain"
                 />
               </div>
               <h2 className="text-2xl font-bold tracking-tight text-gray-900">Sign in</h2>

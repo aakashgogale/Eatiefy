@@ -1,7 +1,11 @@
 import { useState, useEffect, useRef } from "react"
 import { NavLink, useNavigate, useLocation } from "react-router-dom"
+import DynamicLogo from "@food/components/DynamicLogo"
 import {
+  ChevronDown,
   Store,
+  Check,
+  ChevronRight,
   FileText,
   History,
   Package,
@@ -232,7 +236,7 @@ export default function DesktopSidebar() {
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center shrink-0 overflow-hidden">
             {(ownerImage || logoUrl) ? (
-              <img src={ownerImage || logoUrl} alt="Logo" className="w-full h-full object-cover rounded-xl"  loading="lazy" decoding="async" onError={(e) => { e.target.onerror = null; e.target.src = logoUrl || "/restaurant-partner-logo.webp"; }} />
+              <DynamicLogo module="restaurant" fallback="/restaurant-partner-logo.webp" alt="Logo" className="w-full h-full object-cover rounded-xl" />
             ) : (
               <Store className="w-5 h-5 text-green-600" />
             )}

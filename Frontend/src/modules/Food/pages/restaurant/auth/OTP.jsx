@@ -13,6 +13,7 @@ import { useCompanyName } from "@food/hooks/useCompanyName"
 import { loadBusinessSettings, getModuleLogoUrl } from "@food/utils/businessSettings"
 import RestaurantPartnerHero from "@food/components/restaurant/auth/RestaurantPartnerHero"
 import quickSpicyLogo from "@food/assets/restaurant-partner-logo.webp"
+import DynamicLogo from "@food/components/DynamicLogo"
 
 const THEME = "#E2AD4B"
 
@@ -313,14 +314,11 @@ export default function RestaurantOTP() {
             <div className="mb-7 text-center lg:text-left">
               <div className="mb-5 flex justify-center lg:justify-start">
                 <div className="flex h-16 items-center justify-center">
-                  <img
-                    src={logoUrl}
+                  <DynamicLogo
+                    module="restaurant"
+                    fallback={quickSpicyLogo}
                     alt={`${companyName} logo`}
                     className="h-full w-auto object-contain"
-                    loading="lazy"
-                    onError={(e) => {
-                      if (e.target.src !== quickSpicyLogo) e.target.src = quickSpicyLogo
-                    }}
                   />
                 </div>
               </div>

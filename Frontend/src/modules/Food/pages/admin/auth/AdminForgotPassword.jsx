@@ -7,6 +7,7 @@ import { Label } from "@food/components/ui/label"
 import AdminAuthHero from "@food/components/admin/auth/AdminAuthHero"
 import { ArrowLeft, Shield, Eye, EyeOff, Loader2 } from "lucide-react"
 import quickSpicyLogo from "@food/assets/user-app-logo.webp"
+import DynamicLogo from "@food/components/DynamicLogo"
 import { adminAPI } from "@food/api"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import {
@@ -294,16 +295,11 @@ export default function AdminForgotPassword() {
           <motion.div {...formMotion} className="my-auto w-full max-w-[400px]">
             <div className="mb-6 text-center lg:text-left">
               <div className="mb-5 flex justify-center lg:justify-start">
-                <img
-                  src={logoUrl || quickSpicyLogo}
+                <DynamicLogo
+                  module="user"
+                  fallback={quickSpicyLogo}
                   alt={`${companyName} logo`}
                   className="h-14 lg:h-20 w-auto object-contain"
-                  loading="lazy"
-                  onError={(e) => {
-                    if (e.target.src !== quickSpicyLogo) {
-                      e.target.src = quickSpicyLogo
-                    }
-                  }}
                 />
               </div>
               <h2 className="text-2xl font-bold tracking-tight text-gray-900">{title}</h2>

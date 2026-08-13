@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom"
 import { useState, useEffect } from "react"
+import DynamicLogo from "@food/components/DynamicLogo"
 import { MapPin, ShoppingCart, Trophy } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { Avatar, AvatarFallback } from "@food/components/ui/avatar"
@@ -136,7 +137,7 @@ export default function Navbar() {
                 {companyName}
               </span>
             ) : (
-              <img src={quickSpicyLogo} alt="Logo" className="h-8 w-8 sm:h-10 sm:w-10 md:h-12 md:w-12 object-contain"  loading="lazy" decoding="async" />
+              <DynamicLogo module="user" fallback={null} alt="Logo" className="h-8 w-8 sm:h-10 sm:w-10 md:h-12 md:w-12 object-contain" />
             )}
           </Link>
 

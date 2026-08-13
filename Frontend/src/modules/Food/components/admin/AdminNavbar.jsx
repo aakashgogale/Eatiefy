@@ -40,7 +40,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@food/components/ui/popover";
-import quickSpicyLogo from "@food/assets/user-app-logo.webp";
+import DynamicLogo from "@food/components/DynamicLogo";
 import { adminAPI } from "@food/api";
 import { clearModuleAuth } from "@food/utils/auth";
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings";
@@ -282,15 +282,11 @@ export default function AdminNavbar({ onMenuClick }) {
             <div className="flex items-center gap-2">
               <div className="w-24 h-12 rounded-lg bg-white flex items-center justify-center ring-neutral-200">
                 {businessSettings?.logo?.url ? (
-                  <img
-                    src={businessSettings.logo.url}
-                    alt={businessSettings.companyName || "Company"}
+                  <DynamicLogo
+                    module="user"
+                    fallback={null}
+                    alt={businessSettings?.companyName || "Logo"}
                     className="w-24 h-10 object-contain"
-                    loading="lazy"
-                    onError={(e) => {
-                      // Fallback to default logo if company logo fails to load
-                      e.target.src = quickSpicyLogo;
-                    }}
                   />
                 ) : (
                   businessSettings?.companyName ? (
@@ -298,7 +294,12 @@ export default function AdminNavbar({ onMenuClick }) {
                       {businessSettings.companyName}
                     </span>
                   ) : (
-                    <img src={quickSpicyLogo} alt={businessSettings?.companyName || "Company"} className="w-24 h-10 object-contain" loading="lazy" />
+                    <DynamicLogo
+                      module="user"
+                      fallback={null}
+                      alt={businessSettings?.companyName || "Company"}
+                      className="w-24 h-10 object-contain"
+                    />
                   )
                 )}
               </div>
