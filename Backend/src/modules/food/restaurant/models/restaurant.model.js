@@ -271,6 +271,11 @@ const restaurantSchema = new mongoose.Schema(
       enum: ["pending", "approved", "rejected"],
       default: "pending",
     },
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
     approvedAt: {
       type: Date,
     },

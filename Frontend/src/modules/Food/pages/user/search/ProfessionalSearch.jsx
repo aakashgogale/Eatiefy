@@ -204,10 +204,15 @@ export default function ProfessionalSearch() {
               onChange={(e) => setQuery(e.target.value)}
               className="pl-12 pr-12 h-12 w-full bg-slate-100 dark:bg-zinc-800 border-none focus:ring-2 focus:ring-rose-500 rounded-full text-base"
             />
-            {query && (
+            {query && !loading && (
               <button onClick={handleClear} className="absolute right-12 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600">
                 <X className="w-4 h-4" />
               </button>
+            )}
+            {loading && (
+              <div className="absolute right-12 top-1/2 -translate-y-1/2 p-1 text-rose-500">
+                <Loader2 className="w-4 h-4 animate-spin" />
+              </div>
             )}
             <button 
               onClick={handleVoiceSearch}
@@ -253,7 +258,7 @@ export default function ProfessionalSearch() {
 
         {/* Loading Spinner */}
         <AnimatePresence>
-          {loading && (
+          {loading && results.restaurants.length === 0 && results.dishes.length === 0 && (
             <motion.div 
                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                className="flex flex-col items-center justify-center py-20"
@@ -265,7 +270,7 @@ export default function ProfessionalSearch() {
         </AnimatePresence>
 
         {/* Recent History */}
-        {!query && !loading && history.length > 0 && (
+        {!query && history.length > 0 && (
           <div className="mb-8">
              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2 px-1">Recently Searched</h3>
              <div className="flex flex-wrap gap-2">
@@ -284,8 +289,8 @@ export default function ProfessionalSearch() {
         )}
 
         {/* Search Results */}
-        {!loading && (query || selectedCategoryId) && (
-          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        {(query || selectedCategoryId) && (results.restaurants.length > 0 || results.dishes.length > 0) && (
+          <div className={`space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300 ${loading ? 'opacity-60 transition-opacity' : 'opacity-100 transition-opacity'}`}>
             
             {/* Dish Results Section */}
             {results.dishes.length > 0 && (

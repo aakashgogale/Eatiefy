@@ -942,6 +942,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
                     <span className="text-xs font-semibold text-white px-2 truncate">
                       {companyName}
                     </span>
+                  ) : (
                     <DynamicLogo module="user" fallback={null} alt="Company" className="w-24 h-10 object-contain" />
                   )}
                 </div>

@@ -167,6 +167,7 @@ export default function RestaurantsList() {
   const [error, setError] = useState(null)
   const [totalRestaurants, setTotalRestaurants] = useState(0)
   const [restaurantStats, setRestaurantStats] = useState({ total: 0, active: 0, inactive: 0 })
+  const [activeFilter, setActiveFilter] = useState("all") // "all" | "active" | "inactive"
   const [page, setPage] = useState(1)
   const [selectedRestaurant, setSelectedRestaurant] = useState(null)
   const [restaurantDetails, setRestaurantDetails] = useState(null)
@@ -276,8 +277,10 @@ export default function RestaurantsList() {
           page,
           limit: PAGE_SIZE,
           ...(debouncedSearchQuery && { search: debouncedSearchQuery }),
+          ...(activeFilter === "active" && { isActive: true }),
+          ...(activeFilter === "inactive" && { isActive: false }),
           sortBy: getSortByParam(sortConfig),
-          includeStats: page === 1,
+          includeStats: true,
         })
 
         if (cancelled) return
@@ -339,7 +342,7 @@ export default function RestaurantsList() {
       cancelled = true
       clearTimeout(t)
     }
-  }, [page, debouncedSearchQuery, sortConfig, zones, navigate])
+  }, [page, debouncedSearchQuery, sortConfig, zones, navigate, activeFilter])
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -1109,41 +1112,32 @@ export default function RestaurantsList() {
       setBanning(true)
       const restaurantId = restaurant._id || restaurant.id
 
-      // Update restaurant status via API
-      try {
-        await adminAPI.updateRestaurantStatus(restaurantId, newStatus)
+      await adminAPI.updateRestaurantStatus(restaurantId, newStatus)
 
-        // Update local state on success
-        setRestaurants(prevRestaurants =>
-          prevRestaurants.map(r =>
-            r.id === restaurant.id || r._id === restaurant._id
-              ? { ...r, isActive: newStatus }
-              : r
-          )
+      // Update local state on success
+      setRestaurants(prevRestaurants =>
+        prevRestaurants.map(r =>
+          (r.id === restaurant.id || r._id === restaurant._id)
+            ? { ...r, isActive: newStatus }
+            : r
         )
+      )
 
-        // Close dialog
-        setBanConfirmDialog(null)
+      // Update stats counts
+      setRestaurantStats(prev => ({
+        ...prev,
+        active: newStatus ? prev.active + 1 : Math.max(0, prev.active - 1),
+        inactive: newStatus ? Math.max(0, prev.inactive - 1) : prev.inactive + 1,
+      }))
 
-        // Show success message
-        debugLog(`Restaurant ${isBanning ? 'banned' : 'unbanned'} successfully`)
-      } catch (apiErr) {
-        debugError("API Error:", apiErr)
-        // If API fails, still update locally for better UX
-        setRestaurants(prevRestaurants =>
-          prevRestaurants.map(r =>
-            r.id === restaurant.id || r._id === restaurant._id
-              ? { ...r, isActive: newStatus }
-              : r
-          )
-        )
-        setBanConfirmDialog(null)
-        alert(`Restaurant ${isBanning ? 'banned' : 'unbanned'} locally. Please check backend connection.`)
+      if (restaurantDetails && (restaurantDetails._id === restaurantId || restaurantDetails.id === restaurantId)) {
+        setRestaurantDetails(prev => ({ ...prev, isActive: newStatus }))
       }
 
+      setBanConfirmDialog(null)
     } catch (err) {
       debugError("Error banning/unbanning restaurant:", err)
-      alert(`Failed to ${action} restaurant. Please try again.`)
+      alert(err?.response?.data?.message || `Failed to ${action} restaurant. Please try again.`)
     } finally {
       setBanning(false)
     }
@@ -1167,30 +1161,26 @@ export default function RestaurantsList() {
       setDeleting(true)
       const restaurantId = restaurant._id || restaurant.id
 
-      // Delete restaurant via API
-      try {
-        await adminAPI.deleteRestaurant(restaurantId)
+      await adminAPI.deleteRestaurant(restaurantId)
 
-        // Remove from local state on success
-        setRestaurants(prevRestaurants =>
-          prevRestaurants.filter(r =>
-            r.id !== restaurant.id && r._id !== restaurant._id
-          )
+      // Remove from local state on success
+      setRestaurants(prevRestaurants =>
+        prevRestaurants.filter(r =>
+          r.id !== restaurant.id && r._id !== restaurant._id
         )
+      )
 
-        // Close dialog
-        setDeleteConfirmDialog(null)
+      setTotalRestaurants(prev => Math.max(0, prev - 1))
+      setRestaurantStats(prev => ({
+        total: Math.max(0, prev.total - 1),
+        active: restaurant.isActive ? Math.max(0, prev.active - 1) : prev.active,
+        inactive: !restaurant.isActive ? Math.max(0, prev.inactive - 1) : prev.inactive,
+      }))
 
-        // Show success message
-        alert(`Restaurant "${restaurant.name}" deleted successfully!`)
-      } catch (apiErr) {
-        debugError("API Error:", apiErr)
-        alert(apiErr.response?.data?.message || "Failed to delete restaurant. Please try again.")
-      }
-
-    } catch (err) {
+      setDeleteConfirmDialog(null)
+    } catch (apiErr) {
       debugError("Error deleting restaurant:", err)
-      alert("Failed to delete restaurant. Please try again.")
+      alert(apiErr?.response?.data?.message || "Failed to delete restaurant. Please try again.")
     } finally {
       setDeleting(false)
     }
@@ -1227,40 +1217,91 @@ export default function RestaurantsList() {
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
           {/* Total Restaurants */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => { setActiveFilter("all"); setPage(1); }}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { setActiveFilter("all"); setPage(1); } }}
+            className={`bg-white rounded-xl shadow-sm border p-6 cursor-pointer transition-all duration-200 hover:shadow-md select-none ${
+              activeFilter === "all"
+                ? "border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/10"
+                : "border-slate-200 hover:border-slate-300"
+            }`}
+          >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Total restaurants</p>
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm font-medium text-slate-600">Total restaurants</p>
+                  {activeFilter === "all" && (
+                    <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-blue-100 text-blue-700 rounded">
+                      All
+                    </span>
+                  )}
+                </div>
                 <p className="text-2xl font-bold text-slate-900">{restaurantStats.total || totalRestaurants}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
-                <img src={locationIcon} alt="Location" className="w-8 h-8"  loading="lazy" decoding="async" />
+                <img src={locationIcon} alt="Location" className="w-8 h-8" loading="lazy" decoding="async" />
               </div>
             </div>
           </div>
 
           {/* Active Restaurants */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => { setActiveFilter("active"); setPage(1); }}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { setActiveFilter("active"); setPage(1); } }}
+            className={`bg-white rounded-xl shadow-sm border p-6 cursor-pointer transition-all duration-200 hover:shadow-md select-none ${
+              activeFilter === "active"
+                ? "border-emerald-500 ring-2 ring-emerald-500/20 bg-emerald-50/10"
+                : "border-slate-200 hover:border-slate-300"
+            }`}
+          >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Active restaurants</p>
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm font-medium text-slate-600">Active restaurants</p>
+                  {activeFilter === "active" && (
+                    <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-emerald-100 text-emerald-700 rounded">
+                      Filtered
+                    </span>
+                  )}
+                </div>
                 <p className="text-2xl font-bold text-slate-900">{activeRestaurants}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
-                <img src={restaurantIcon} alt="Restaurant" className="w-8 h-8"  loading="lazy" decoding="async" />
+                <img src={restaurantIcon} alt="Restaurant" className="w-8 h-8" loading="lazy" decoding="async" />
               </div>
             </div>
           </div>
 
           {/* Inactive Restaurants */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => { setActiveFilter("inactive"); setPage(1); }}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { setActiveFilter("inactive"); setPage(1); } }}
+            className={`bg-white rounded-xl shadow-sm border p-6 cursor-pointer transition-all duration-200 hover:shadow-md select-none ${
+              activeFilter === "inactive"
+                ? "border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/10"
+                : "border-slate-200 hover:border-slate-300"
+            }`}
+          >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Inactive restaurants</p>
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm font-medium text-slate-600">Inactive restaurants</p>
+                  {activeFilter === "inactive" && (
+                    <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-rose-100 text-rose-700 rounded">
+                      Filtered
+                    </span>
+                  )}
+                </div>
                 <p className="text-2xl font-bold text-slate-900">{inactiveRestaurants}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-red-100 flex items-center justify-center">
-                <img src={inactiveIcon} alt="Inactive" className="w-8 h-8"  loading="lazy" decoding="async" />
+                <img src={inactiveIcon} alt="Inactive" className="w-8 h-8" loading="lazy" decoding="async" />
               </div>
             </div>
           </div>
@@ -1327,10 +1368,26 @@ export default function RestaurantsList() {
             </div>
           </div>
 
-          <div className="text-sm text-slate-600 mb-4">
-            {loading
-              ? "Loading..."
-              : `Showing ${showingFrom}-${showingTo} of ${totalRestaurants} restaurants`}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm text-slate-600 mb-4">
+            <div>
+              {loading
+                ? "Loading..."
+                : `Showing ${showingFrom}-${showingTo} of ${totalRestaurants} restaurants`}
+              {activeFilter !== "all" && (
+                <span className="ml-2 font-semibold text-blue-600">
+                  (Filter: {activeFilter === "active" ? "Active only" : "Inactive only"})
+                </span>
+              )}
+            </div>
+            {activeFilter !== "all" && (
+              <button
+                type="button"
+                onClick={() => { setActiveFilter("all"); setPage(1); }}
+                className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline w-fit"
+              >
+                Reset Filter
+              </button>
+            )}
           </div>
 
           {/* Table */}
@@ -1477,13 +1534,29 @@ export default function RestaurantsList() {
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex flex-col gap-1">
-                            <span className={`inline-flex w-fit items-center rounded-full px-2.5 py-1 text-xs font-semibold ${approvalStatusBadgeClass(restaurant.approvalStatus)}`}>
+                          <div className="flex flex-col gap-1.5">
+                            <span className={`inline-flex w-fit items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${approvalStatusBadgeClass(restaurant.approvalStatus)}`}>
                               {approvalStatusLabel(restaurant.approvalStatus)}
                             </span>
-                            <span className="text-[11px] text-slate-500">
-                              Outlet: {restaurant.isActive ? "Active" : "Inactive"}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleBanRestaurant(restaurant)}
+                                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                  restaurant.isActive ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-slate-300 hover:bg-slate-400'
+                                }`}
+                                title={restaurant.isActive ? "Click to deactivate / ban" : "Click to activate / unban"}
+                              >
+                                <span
+                                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                    restaurant.isActive ? 'translate-x-4' : 'translate-x-0'
+                                  }`}
+                                />
+                              </button>
+                              <span className={`text-xs font-semibold ${restaurant.isActive ? 'text-emerald-700' : 'text-slate-500'}`}>
+                                {restaurant.isActive ? "Active" : "Inactive"}
+                              </span>
+                            </div>
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-center">

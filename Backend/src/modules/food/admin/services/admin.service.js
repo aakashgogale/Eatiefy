@@ -411,7 +411,7 @@ export async function getRestaurants(query) {
         .sort(sort)
         .skip(skip)
         .limit(limit)
-        .select('restaurantName slug location area city status ownerName ownerPhone primaryContactNumber zoneId profileImage coverImages menuImages rating totalRatings isActive')
+        .select('restaurantName slug location area city status ownerName ownerPhone primaryContactNumber zoneId profileImage coverImages menuImages rating totalRatings isActive isAcceptingOrders openingTime closingTime openDays pureVegRestaurant email')
         .populate('zoneId', 'name zoneName')
         .lean();
     const countPromise = FoodRestaurant.countDocuments(filter);
@@ -422,8 +422,8 @@ export async function getRestaurants(query) {
     const statsPromises = includeStats
         ? [
             FoodRestaurant.countDocuments(statsFilter),
-            FoodRestaurant.countDocuments({ ...statsFilter, isActive: true }),
-            FoodRestaurant.countDocuments({ ...statsFilter, isActive: { $ne: true } }),
+            FoodRestaurant.countDocuments({ ...statsFilter, isActive: { $ne: false } }),
+            FoodRestaurant.countDocuments({ ...statsFilter, isActive: false }),
         ]
         : [];
 
@@ -3088,6 +3088,10 @@ export async function updateRestaurantById(id, body = {}) {
         doc.pureVegRestaurant = parseBooleanLike(body.pureVegRestaurant, 'pureVegRestaurant');
     }
 
+    if (body.isActive !== undefined) {
+        doc.isActive = parseBooleanLike(body.isActive, 'isActive');
+    }
+
     if (body.isAcceptingOrders !== undefined) {
         doc.isAcceptingOrders = parseBooleanLike(body.isAcceptingOrders, 'isAcceptingOrders');
         doc.outsideHoursOverride = false;
@@ -3183,37 +3187,48 @@ export async function updateRestaurantById(id, body = {}) {
 
 export async function updateRestaurantStatus(id, body = {}) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
-    const raw = body.status !== undefined ? body.status : body.isActive;
-    let status = null;
+    const doc = await FoodRestaurant.findById(id);
+    if (!doc) return null;
 
-    if (typeof raw === 'string') {
-        const normalized = raw.trim().toLowerCase();
-        if (['approved', 'pending', 'rejected'].includes(normalized)) {
-            status = normalized;
+    const rawStatus = body.status;
+    const rawIsActive = body.isActive;
+
+    // 1. Explicit isActive update (e.g. banning / unbanning / activating an approved restaurant)
+    if (rawIsActive !== undefined) {
+        doc.isActive = parseBooleanLike(rawIsActive, 'isActive');
+    }
+
+    // 2. Status update
+    if (rawStatus !== undefined) {
+        if (typeof rawStatus === 'string') {
+            const normalized = rawStatus.trim().toLowerCase();
+            if (['approved', 'pending', 'rejected'].includes(normalized)) {
+                doc.status = normalized;
+                if (normalized === 'approved') {
+                    doc.approvedAt = new Date();
+                    doc.rejectedAt = undefined;
+                    doc.rejectionReason = undefined;
+                } else if (normalized === 'rejected') {
+                    doc.rejectedAt = new Date();
+                    doc.rejectionReason = body.rejectionReason || 'Disabled by admin';
+                }
+            }
+        } else if (typeof rawStatus === 'boolean') {
+            // Boolean status is interpreted as active/inactive toggle
+            doc.isActive = rawStatus;
         }
     }
 
-    if (!status) {
-        const isActive = parseBooleanLike(raw, 'status');
-        status = isActive ? 'approved' : 'rejected';
-    }
+    await doc.save();
 
-    const approvedAt = status === 'approved' ? new Date() : undefined;
-    const rejectedAt = status === 'rejected' ? new Date() : undefined;
-    const rejectionReason = status === 'rejected' ? 'Disabled by admin' : undefined;
+    try {
+        const { invalidateCache } = await import('../../../../middleware/cache.js');
+        void invalidateCache('restaurants:*');
+        void invalidateCache('restaurant_detail:*');
+        void invalidateCache('restaurant_timings:*');
+    } catch (_) {}
 
-    return FoodRestaurant.findByIdAndUpdate(
-        id,
-        {
-            $set: {
-                status,
-                approvedAt,
-                rejectedAt,
-                rejectionReason
-            }
-        },
-        { new: true, runValidators: false }
-    ).lean();
+    return FoodRestaurant.findById(id).select('-__v').populate('zoneId', 'name zoneName serviceLocation isActive').lean();
 }
 
 export async function updateRestaurantLocation(id, body = {}) {
