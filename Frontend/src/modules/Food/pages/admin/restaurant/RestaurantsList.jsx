@@ -1,14 +1,15 @@
 import { useState, useMemo, useEffect, useRef } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { Search, Download, ChevronDown, Eye, Settings, ArrowUpDown, Loader2, X, MapPin, Phone, Mail, Clock, Star, Building2, User, FileText, CreditCard, Calendar, Image as ImageIcon, ExternalLink, ShieldX, AlertTriangle, Trash2, Plus, ShieldCheck, CheckCircle2, Utensils, UtensilsCrossed, Store } from "lucide-react"
+import { Search, Download, ChevronDown, ChevronLeft, ChevronRight, Eye, Settings, ArrowUpDown, Loader2, X, MapPin, Phone, Mail, Clock, Star, Building2, User, FileText, FileSpreadsheet, CreditCard, Calendar, Image as ImageIcon, ExternalLink, ShieldX, AlertTriangle, Trash2, Plus } from "lucide-react"
 import { adminAPI, restaurantAPI, uploadAPI } from "@food/api"
 import { clearModuleAuth } from "@food/utils/auth"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
-import { exportRestaurantsToPDF } from "@food/components/admin/restaurants/restaurantsExportUtils"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
-import { formatRestaurantDisplayAddress, getRestaurantDisplayAddress } from "@food/utils/restaurantLocation"
 
 // Import icons from Dashboard-icons
+import locationIcon from "@food/assets/Dashboard-icons/image1.webp"
+import restaurantIcon from "@food/assets/Dashboard-icons/image2.webp"
+import inactiveIcon from "@food/assets/Dashboard-icons/image3.webp"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -16,24 +17,80 @@ const debugError = (...args) => {}
 // Inline placeholder (no external request, avoids referrer policy / 500 from via.placeholder)
 const PLACEHOLDER_40 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect fill='%23e2e8f0' width='40' height='40'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%2394a3b8' font-size='12' font-family='sans-serif'%3E?%3C/text%3E%3C/svg%3E"
 const PLACEHOLDER_128 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Crect fill='%23e2e8f0' width='128' height='128'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%2394a3b8' font-size='32' font-family='sans-serif'%3E?%3C/text%3E%3C/svg%3E"
+const DAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+const PAGE_SIZE = 20
+
+const zoneLabelFromRestaurant = (restaurant, zones = []) => {
+  const zid = restaurant?.zoneId
+  const zoneName =
+    (typeof zid === "object" ? (zid?.name || zid?.zoneName) : "") ||
+    ""
+  if (zoneName) return zoneName
+
+  const zoneIdString =
+    typeof zid === "string"
+      ? zid
+      : (zid?._id || zid?.id || "")
+  if (zoneIdString && Array.isArray(zones) && zones.length > 0) {
+    const match = zones.find((z) => (z?._id || z?.id) === zoneIdString)
+    const label = match?.name || match?.zoneName
+    if (label) return label
+  }
+
+  return (
+    restaurant?.zone ||
+    restaurant?.location?.area ||
+    restaurant?.location?.city ||
+    restaurant?.area ||
+    restaurant?.city ||
+    "N/A"
+  )
+}
+
+const mapRawRestaurant = (restaurant, index, zones) => ({
+  id: restaurant._id || restaurant.id || index + 1,
+  _id: restaurant._id,
+  name: restaurant.name || restaurant.restaurantName || "N/A",
+  ownerName: restaurant.ownerName || "N/A",
+  ownerPhone: restaurant.ownerPhone || restaurant.phone || "N/A",
+  zone: zoneLabelFromRestaurant(restaurant, zones),
+  approvalStatus: normalizeApprovalStatus(restaurant),
+  isActive: restaurant.isActive !== false && restaurant.status === "approved",
+  rating: restaurant.rating || restaurant.ratings?.average || 0,
+  logo: getPrimaryRestaurantImage(restaurant, PLACEHOLDER_40),
+  originalData: restaurant,
+})
+
+const getSortByParam = (sortConfig) => {
+  if (!sortConfig.key || sortConfig.key === "zone") return "created-desc"
+  const dir = sortConfig.direction === "asc" ? "asc" : "desc"
+  const fieldMap = {
+    sl: "created",
+    name: "name",
+    owner: "owner",
+    rating: "rating",
+    status: "active",
+  }
+  const field = fieldMap[sortConfig.key]
+  if (!field) return "created-desc"
+  return `${field}-${dir}`
+}
 
 const normalizeApprovalStatus = (restaurant) => {
   const raw = String(restaurant?.status || "").trim().toLowerCase()
-  if (raw === "approved" || raw === "pending" || raw === "rejected" || raw === "banned") return raw
+  if (raw === "approved" || raw === "pending" || raw === "rejected") return raw
   return "pending"
 }
 
 const approvalStatusLabel = (status) => {
   if (status === "approved") return "Approved"
   if (status === "rejected") return "Rejected"
-  if (status === "banned") return "Banned"
   return "Pending"
 }
 
 const approvalStatusBadgeClass = (status) => {
   if (status === "approved") return "bg-emerald-100 text-emerald-700"
   if (status === "rejected") return "bg-rose-100 text-rose-700"
-  if (status === "banned") return "bg-rose-100 text-rose-700"
   return "bg-amber-100 text-amber-700"
 }
 
@@ -85,7 +142,6 @@ const normalizeImageUrl = (image) => {
   return ""
 }
 
-
 const getPrimaryRestaurantImage = (restaurant, fallback = "") => {
   const coverImages = Array.isArray(restaurant?.coverImages) ? restaurant.coverImages : []
   const firstCoverImage = coverImages.map(normalizeImageUrl).find(Boolean)
@@ -105,17 +161,17 @@ const getPrimaryRestaurantImage = (restaurant, fallback = "") => {
 export default function RestaurantsList() {
   const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState("")
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("")
   const [restaurants, setRestaurants] = useState([])
-  const [bannedRestaurants, setBannedRestaurants] = useState([])
-  const [rejectedRestaurants, setRejectedRestaurants] = useState([])
-  const [viewMode, setViewMode] = useState("active") // 'active' or 'banned'
-  const [bannedCount, setBannedCount] = useState(0)
-  const [pendingCount, setPendingCount] = useState(0)
-  const [rejectedCount, setRejectedCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [totalRestaurants, setTotalRestaurants] = useState(0)
+  const [restaurantStats, setRestaurantStats] = useState({ total: 0, active: 0, inactive: 0 })
+  const [activeFilter, setActiveFilter] = useState("all") // "all" | "active" | "inactive"
+  const [page, setPage] = useState(1)
   const [selectedRestaurant, setSelectedRestaurant] = useState(null)
   const [restaurantDetails, setRestaurantDetails] = useState(null)
+  const [restaurantOutletTimings, setRestaurantOutletTimings] = useState(null)
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [banConfirmDialog, setBanConfirmDialog] = useState(null) // { restaurant, action: 'ban' | 'unban' }
   const [banning, setBanning] = useState(false)
@@ -157,8 +213,16 @@ export default function RestaurantsList() {
     landmark: "",
     pincode: "",
   })
+  const [locationSearchValue, setLocationSearchValue] = useState("")
+  const [locationSuggestions, setLocationSuggestions] = useState([])
+  const [showLocationSuggestions, setShowLocationSuggestions] = useState(false)
+  const [isSearchingLocation, setIsSearchingLocation] = useState(false)
   const locationSearchInputRef = useRef(null)
-  const placesAutocompleteRef = useRef(null)
+  const autocompleteServiceRef = useRef(null)
+  const placesServiceRef = useRef(null)
+  const placesSessionTokenRef = useRef(null)
+  const suggestionsDebounceRef = useRef(null)
+  const suppressSuggestionFetchRef = useRef(false)
 
   // Format Restaurant ID to REST format (e.g., REST422829)
   const formatRestaurantId = (id) => {
@@ -209,147 +273,46 @@ export default function RestaurantsList() {
         setLoading(true)
         setError(null)
 
-        const zoneLabelFromRestaurant = (restaurant) => {
-          const zid = restaurant?.zoneId
-          const zoneName =
-            (typeof zid === "object" ? (zid?.name || zid?.zoneName) : "") ||
-            ""
-          if (zoneName) return zoneName
-
-          const zoneIdString =
-            typeof zid === "string"
-              ? zid
-              : (zid?._id || zid?.id || "")
-          if (zoneIdString && Array.isArray(zones) && zones.length > 0) {
-            const match = zones.find((z) => (z?._id || z?.id) === zoneIdString)
-            const label = match?.name || match?.zoneName
-            if (label) return label
-          }
-
-          return (
-            restaurant?.zone ||
-            restaurant?.location?.area ||
-            restaurant?.location?.city ||
-            restaurant?.area ||
-            restaurant?.city ||
-            "N/A"
-          )
-        }
-
-        const extractRestaurantPayload = (apiResponse) => {
-          const body = apiResponse?.data
-          const data = body?.data
-          const list = Array.isArray(data?.restaurants)
-            ? data.restaurants
-            : Array.isArray(data)
-              ? data
-              : Array.isArray(body?.restaurants)
-                ? body.restaurants
-                : []
-          const total = Number(data?.total ?? body?.total ?? list.length) || list.length
-          return { list, total, body }
-        }
-
-        // APIs are paginated — pull a large page so list/stats are not truncated
-        const [response, bannedResponse, pendingResponse, rejectedOnlyResponse] = await Promise.all([
-          adminAPI.getApprovedRestaurants({ status: "approved", limit: 1000, page: 1 }),
-          adminAPI.getApprovedRestaurants({ status: "banned", limit: 1000, page: 1 }).catch(() => null),
-          adminAPI.getPendingRestaurants({ limit: 1000, page: 1 }).catch(() => null),
-          adminAPI.getApprovedRestaurants({ status: "rejected", limit: 1000, page: 1 }).catch(() => null),
-        ])
+        const response = await adminAPI.getApprovedRestaurants({
+          page,
+          limit: PAGE_SIZE,
+          ...(debouncedSearchQuery && { search: debouncedSearchQuery }),
+          ...(activeFilter === "active" && { isActive: true }),
+          ...(activeFilter === "inactive" && { isActive: false }),
+          sortBy: getSortByParam(sortConfig),
+          includeStats: true,
+        })
 
         if (cancelled) return
 
-        let mappedBanned = []
-        let bannedCnt = 0
-        if (bannedResponse?.data) {
-          const { list: bannedList, total } = extractRestaurantPayload(bannedResponse)
-          bannedCnt = total
-          mappedBanned = bannedList.map((restaurant, index) => ({
-            id: restaurant._id || restaurant.id || index + 1,
-            _id: restaurant._id,
-            name: restaurant.name || restaurant.restaurantName || "N/A",
-            ownerName: restaurant.ownerName || "N/A",
-            ownerPhone: restaurant.ownerPhone || restaurant.phone || "N/A",
-            zone: zoneLabelFromRestaurant(restaurant),
-            approvalStatus: "banned",
-            isActive: false,
-            rating: restaurant.ratings?.average || restaurant.rating || 0,
-            logo: getPrimaryRestaurantImage(restaurant, PLACEHOLDER_40),
-            originalData: restaurant,
-          }))
-        }
-        if (!cancelled) {
-          setBannedCount(bannedCnt)
-          setBannedRestaurants(mappedBanned)
-        }
-
-        let pendingCnt = 0
-        let rejectedCnt = 0
-        let mappedRejectedList = []
-        if (pendingResponse?.data) {
-          const { list } = extractRestaurantPayload(pendingResponse)
-          pendingCnt = list.filter((r) => String(r.status || "").toLowerCase() === "pending").length
-        }
-        if (rejectedOnlyResponse?.data) {
-          const { list: rawRejected, total } = extractRestaurantPayload(rejectedOnlyResponse)
-          rejectedCnt = total
-          mappedRejectedList = rawRejected.map((restaurant, index) => ({
-            id: restaurant._id || restaurant.id || index + 1,
-            _id: restaurant._id,
-            name: restaurant.restaurantName || restaurant.name || "N/A",
-            ownerName: restaurant.ownerName || "N/A",
-            ownerPhone: restaurant.ownerPhone || restaurant.phone || "N/A",
-            zone: restaurant.zone || zoneLabelFromRestaurant(restaurant),
-            approvalStatus: "rejected",
-            isActive: false,
-            rating: restaurant.ratings?.average || restaurant.rating || 0,
-            logo: getPrimaryRestaurantImage(restaurant, PLACEHOLDER_40),
-            originalData: restaurant,
-          }))
-        } else if (pendingResponse?.data) {
-          const { list } = extractRestaurantPayload(pendingResponse)
-          const rawRejected = list.filter((r) => String(r.status || "").toLowerCase() === "rejected")
-          rejectedCnt = rawRejected.length
-          mappedRejectedList = rawRejected.map((restaurant, index) => ({
-            id: restaurant._id || restaurant.id || index + 1,
-            _id: restaurant._id,
-            name: restaurant.restaurantName || restaurant.name || "N/A",
-            ownerName: restaurant.ownerName || "N/A",
-            ownerPhone: restaurant.ownerPhone || restaurant.phone || "N/A",
-            zone: restaurant.zone || zoneLabelFromRestaurant(restaurant),
-            approvalStatus: "rejected",
-            isActive: false,
-            rating: restaurant.ratings?.average || restaurant.rating || 0,
-            logo: getPrimaryRestaurantImage(restaurant, PLACEHOLDER_40),
-            originalData: restaurant,
-          }))
-        }
-        if (!cancelled) {
-          setPendingCount(pendingCnt)
-          setRejectedCount(rejectedCnt)
-          setRejectedRestaurants(mappedRejectedList)
-        }
-
-        const { list: rawList, body } = extractRestaurantPayload(response)
+        const body = response?.data
+        const data = body?.data
+        const rawList = Array.isArray(data?.restaurants)
+          ? data.restaurants
+          : Array.isArray(data)
+            ? data
+            : Array.isArray(body?.restaurants)
+              ? body.restaurants
+              : []
 
         if (rawList.length > 0 || body?.success === true) {
-          const mappedRestaurants = rawList.map((restaurant, index) => ({
-            id: restaurant._id || restaurant.id || index + 1,
-            _id: restaurant._id,
-            name: restaurant.name || restaurant.restaurantName || "N/A",
-            ownerName: restaurant.ownerName || "N/A",
-            ownerPhone: restaurant.ownerPhone || restaurant.phone || "N/A",
-            zone: zoneLabelFromRestaurant(restaurant),
-            approvalStatus: normalizeApprovalStatus(restaurant),
-            isActive: restaurant.isActive !== false,
-            rating: restaurant.ratings?.average || restaurant.rating || 0,
-            logo: getPrimaryRestaurantImage(restaurant, PLACEHOLDER_40),
-            originalData: restaurant,
-          }))
-          if (!cancelled) setRestaurants(mappedRestaurants)
-        } else {
-          if (!cancelled) setRestaurants([])
+          const mappedRestaurants = rawList.map((restaurant, index) =>
+            mapRawRestaurant(restaurant, index, zones)
+          )
+          if (!cancelled) {
+            setRestaurants(mappedRestaurants)
+            setTotalRestaurants(Number(data?.total) || mappedRestaurants.length)
+            if (data?.stats) {
+              setRestaurantStats({
+                total: Number(data.stats.total) || 0,
+                active: Number(data.stats.active) || 0,
+                inactive: Number(data.stats.inactive) || 0,
+              })
+            }
+          }
+        } else if (!cancelled) {
+          setRestaurants([])
+          setTotalRestaurants(Number(data?.total) || 0)
         }
       } catch (err) {
         if (cancelled) return
@@ -359,6 +322,7 @@ export default function RestaurantsList() {
         if (status === 401) {
           setError(serverMessage || "Session expired or not logged in. Please log in as admin.")
           setRestaurants([])
+          setTotalRestaurants(0)
           try {
             clearModuleAuth("admin")
           } catch (_) {}
@@ -367,121 +331,68 @@ export default function RestaurantsList() {
         }
         setError(serverMessage || err.message || "Failed to fetch restaurants")
         setRestaurants([])
+        setTotalRestaurants(0)
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
 
-    fetchRestaurants()
-    return () => { cancelled = true }
-  }, [])
+    const t = setTimeout(fetchRestaurants, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [page, debouncedSearchQuery, sortConfig, zones, navigate, activeFilter])
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery.trim())
+      setPage(1)
+    }, 300)
+    return () => window.clearTimeout(timeoutId)
+  }, [searchQuery])
+
+  const totalPages = Math.max(1, Math.ceil(totalRestaurants / PAGE_SIZE))
+  const showingFrom = totalRestaurants === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
+  const showingTo = Math.min(page * PAGE_SIZE, totalRestaurants)
+
+  useEffect(() => {
+    if (!loading && page > totalPages) {
+      setPage(totalPages)
+    }
+  }, [loading, page, totalPages])
 
   const [searchParams] = useSearchParams()
   const restaurantIdFromUrl = searchParams.get("restaurantId")
 
   useEffect(() => {
-    if (restaurantIdFromUrl && restaurants.length > 0) {
-      const restaurant = restaurants.find(r => r.id === restaurantIdFromUrl || r._id === restaurantIdFromUrl)
-      if (restaurant) {
-        handleViewDetails(restaurant)
-      }
+    if (restaurantIdFromUrl) {
+      handleViewDetails({ _id: restaurantIdFromUrl, id: restaurantIdFromUrl })
     }
-  }, [restaurantIdFromUrl, restaurants])
-
-  const [filters, setFilters] = useState({
-    all: "All",
-    businessModel: "",
-    zone: "",
-  })
+  }, [restaurantIdFromUrl])
 
   const filteredRestaurants = useMemo(() => {
-    let result = []
-    if (viewMode === "active") {
-      result = [...restaurants]
-    } else if (viewMode === "banned") {
-      result = [...bannedRestaurants]
-    } else if (viewMode === "rejected") {
-      result = [...rejectedRestaurants]
-    }
-
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim()
-      result = result.filter(restaurant =>
-        restaurant.name.toLowerCase().includes(query) ||
-        restaurant.ownerName.toLowerCase().includes(query) ||
-        restaurant.ownerPhone.includes(query)
-      )
-    }
-
-    if (filters.all !== "All") {
-      if (filters.all === "Active") {
-        result = result.filter(restaurant => restaurant.isActive === true)
-      } else if (filters.all === "Inactive") {
-        result = result.filter(restaurant => restaurant.isActive !== true)
-      }
-    }
-
-    if (filters.zone) {
-      result = result.filter(restaurant => restaurant.zone === filters.zone)
-    }
-
-    // Apply Sorting
-    if (sortConfig.key) {
-      result.sort((a, b) => {
-        let aValue, bValue;
-
-        switch (sortConfig.key) {
-          case 'sl':
-            aValue = restaurants.indexOf(a);
-            bValue = restaurants.indexOf(b);
-            break;
-          case 'name':
-            aValue = a.name.toLowerCase();
-            bValue = b.name.toLowerCase();
-            break;
-          case 'owner':
-            aValue = a.ownerName.toLowerCase();
-            bValue = b.ownerName.toLowerCase();
-            break;
-          case 'zone':
-            aValue = a.zone.toLowerCase();
-            bValue = b.zone.toLowerCase();
-            break;
-          case 'rating':
-            aValue = Number(a.rating) || 0;
-            bValue = Number(b.rating) || 0;
-            break;
-          case 'status':
-            aValue = String(a.approvalStatus || "").toLowerCase();
-            bValue = String(b.approvalStatus || "").toLowerCase();
-            break;
-          default:
-            return 0;
-        }
-
-        if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1;
-        if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1;
-        return 0;
-      });
-    }
-
-    return result
-  }, [restaurants, bannedRestaurants, rejectedRestaurants, viewMode, searchQuery, filters, sortConfig])
-
-  const modalRestaurant = restaurantDetails || selectedRestaurant?.originalData || selectedRestaurant
-  const detailsApprovalStatus = modalRestaurant ? normalizeApprovalStatus(modalRestaurant) : "pending"
+    if (sortConfig.key !== "zone") return restaurants
+    return [...restaurants].sort((a, b) => {
+      const aValue = a.zone.toLowerCase()
+      const bValue = b.zone.toLowerCase()
+      if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1
+      if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1
+      return 0
+    })
+  }, [restaurants, sortConfig])
 
   const handleSort = (key) => {
     let direction = "asc"
     if (sortConfig.key === key && sortConfig.direction === "asc") {
       direction = "desc"
     }
+    setPage(1)
     setSortConfig({ key, direction })
   }
 
-  const totalRestaurants = restaurants.length + bannedCount + pendingCount + rejectedCount
-  const activeRestaurants = restaurants.filter(r => r.isActive === true).length
-  const inactiveRestaurants = restaurants.filter(r => r.isActive !== true).length
+  const activeRestaurants = restaurantStats.active
+  const inactiveRestaurants = restaurantStats.inactive
 
   // Show full phone number without masking
   const formatPhone = (phone) => {
@@ -514,7 +425,18 @@ export default function RestaurantsList() {
   }
 
   const formatLocationAddress = (location = {}, fallback = "N/A") => {
-    return formatRestaurantDisplayAddress(location) || fallback
+    if (!location || typeof location !== "object") return fallback
+    if (location.formattedAddress) return location.formattedAddress
+    if (location.address) return location.address
+    const parts = [
+      location.addressLine1,
+      location.addressLine2,
+      location.area,
+      location.city,
+      location.state,
+      location.pincode || location.zipCode || location.postalCode,
+    ].filter(Boolean)
+    return parts.length > 0 ? parts.join(", ") : fallback
   }
 
   const normalizeLocationFormFromRestaurant = (restaurant) => {
@@ -561,8 +483,23 @@ export default function RestaurantsList() {
       )
     }
 
-    const existingScript = document.getElementById("admin-google-maps-script")
-    if (existingScript) {
+    if (window.google?.maps && !window.google?.maps?.places?.Autocomplete) {
+      if (typeof window.google.maps.importLibrary === "function") {
+        try {
+          await window.google.maps.importLibrary("places")
+          if (window.google?.maps?.places?.Autocomplete) return true
+        } catch {}
+      }
+    }
+
+    const scripts = Array.from(document.getElementsByTagName("script"))
+    const existingScript =
+      document.getElementById("admin-google-maps-script") ||
+      scripts.find((s) => s.src?.includes("maps.googleapis.com/maps/api/js"))
+
+    if (existingScript && !existingScript.src.includes("libraries=places")) {
+      existingScript.remove()
+    } else if (existingScript) {
       await new Promise((resolve, reject) => {
         if (window.google?.maps?.places?.Autocomplete) {
           resolve()
@@ -589,63 +526,158 @@ export default function RestaurantsList() {
   }
 
   const initPlacesAutocomplete = async () => {
-    if (!locationSearchInputRef.current) return
-    if (placesAutocompleteRef.current) return
     setLocationEditError("")
     const loaded = await loadGoogleMapsScript()
-    if (!loaded || !window.google?.maps?.places?.Autocomplete) {
+    if (!loaded || !window.google?.maps?.places) {
       setLocationEditError("Unable to load Google Places Autocomplete.")
       return
     }
 
-    placesAutocompleteRef.current = new window.google.maps.places.Autocomplete(
-      locationSearchInputRef.current,
-      {
-        fields: ["formatted_address", "address_components", "geometry"],
-        componentRestrictions: { country: "in" },
-      }
-    )
+    if (!autocompleteServiceRef.current && window.google.maps.places.AutocompleteService) {
+      autocompleteServiceRef.current = new window.google.maps.places.AutocompleteService()
+    }
+    if (!placesServiceRef.current && window.google.maps.places.PlacesService) {
+      const host = document.createElement("div")
+      placesServiceRef.current = new window.google.maps.places.PlacesService(host)
+    }
+    if (!placesSessionTokenRef.current && window.google.maps.places.AutocompleteSessionToken) {
+      placesSessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken()
+    }
+  }
 
-    const parsePlace = (place) => {
-      const formattedAddress = place?.formatted_address || ""
-      const comps = Array.isArray(place?.address_components) ? place.address_components : []
-      const get = (types) => comps.find((c) => types.some((t) => c.types?.includes(t)))?.long_name || ""
-      const area =
-        get(["sublocality_level_1", "sublocality", "neighborhood"]) ||
-        get(["locality"])
-      const city =
-        get(["locality"]) ||
-        get(["administrative_area_level_2"])
-      const state = get(["administrative_area_level_1"])
-      const pincode = get(["postal_code"])
-      const lat = place?.geometry?.location?.lat?.()
-      const lng = place?.geometry?.location?.lng?.()
-      return {
-        formattedAddress,
-        area,
-        city,
-        state,
-        pincode,
-        latitude: Number.isFinite(lat) ? Number(lat.toFixed(6)) : "",
-        longitude: Number.isFinite(lng) ? Number(lng.toFixed(6)) : "",
-      }
+  const parseGooglePlace = (place) => {
+    const formattedAddress = place?.formatted_address || place?.name || ""
+    const comps = Array.isArray(place?.address_components) ? place.address_components : []
+    const get = (types) => comps.find((c) => types.some((t) => c.types?.includes(t)))?.long_name || ""
+    const area =
+      get(["sublocality_level_1", "sublocality", "neighborhood"]) ||
+      get(["locality"])
+    const city =
+      get(["locality"]) ||
+      get(["administrative_area_level_2"])
+    const state = get(["administrative_area_level_1"])
+    const pincode = get(["postal_code"])
+    const lat = place?.geometry?.location?.lat?.()
+    const lng = place?.geometry?.location?.lng?.()
+    return {
+      formattedAddress,
+      area,
+      city,
+      state,
+      pincode,
+      latitude: Number.isFinite(lat) ? Number(lat.toFixed(6)) : "",
+      longitude: Number.isFinite(lng) ? Number(lng.toFixed(6)) : "",
+    }
+  }
+
+  const fetchLocationSuggestions = async (query) => {
+    const q = String(query || "").trim()
+    if (!q) {
+      setLocationSuggestions([])
+      return []
     }
 
-    placesAutocompleteRef.current.addListener("place_changed", () => {
-      const place = placesAutocompleteRef.current.getPlace()
-      const parsed = parsePlace(place)
-      setLocationForm((prev) => ({
-        ...prev,
-        formattedAddress: parsed.formattedAddress || prev.formattedAddress,
-        addressLine1: parsed.formattedAddress || prev.addressLine1,
-        area: parsed.area || prev.area,
-        city: parsed.city || prev.city,
-        state: parsed.state || prev.state,
-        pincode: parsed.pincode || prev.pincode,
-        latitude: parsed.latitude !== "" ? parsed.latitude : prev.latitude,
-        longitude: parsed.longitude !== "" ? parsed.longitude : prev.longitude,
-      }))
+    await initPlacesAutocomplete()
+    if (!autocompleteServiceRef.current || !window.google?.maps?.places?.PlacesServiceStatus) {
+      setLocationSuggestions([])
+      return []
+    }
+
+    return await new Promise((resolve) => {
+      autocompleteServiceRef.current.getPlacePredictions(
+        {
+          input: q,
+          componentRestrictions: { country: "in" },
+          sessionToken: placesSessionTokenRef.current || undefined,
+        },
+        (predictions = [], status) => {
+          const ok = status === window.google?.maps?.places?.PlacesServiceStatus?.OK
+          const mapped = ok && predictions.length > 0
+            ? predictions.slice(0, 6).map((prediction) => ({
+              id: prediction.place_id,
+              placeId: prediction.place_id,
+              display: prediction.description || "",
+              mainText: prediction.structured_formatting?.main_text || "",
+              secondaryText: prediction.structured_formatting?.secondary_text || "",
+              source: "google",
+            }))
+            : []
+          setLocationSuggestions(mapped)
+          resolve(mapped)
+        },
+      )
     })
+  }
+
+  const handleLocationSearchChange = (event) => {
+    const value = event.target.value
+    setLocationSearchValue(value)
+    setShowLocationSuggestions(true)
+    setLocationEditError("")
+    setLocationForm((prev) => ({
+      ...prev,
+      formattedAddress: value,
+      addressLine1: value || prev.addressLine1,
+    }))
+  }
+
+  const handleLocationSuggestionSelect = (suggestion) => {
+    if (suggestion?.source === "google" && suggestion?.placeId && placesServiceRef.current) {
+      placesServiceRef.current.getDetails(
+        {
+          placeId: suggestion.placeId,
+          fields: ["formatted_address", "address_components", "geometry", "name"],
+          sessionToken: placesSessionTokenRef.current || undefined,
+        },
+        (place, status) => {
+          const ok = status === window.google?.maps?.places?.PlacesServiceStatus?.OK
+          if (!ok || !place?.geometry?.location) return
+
+          const parsed = parseGooglePlace(place)
+          suppressSuggestionFetchRef.current = true
+          setLocationSearchValue(parsed.formattedAddress)
+          setLocationForm((prev) => ({
+            ...prev,
+            formattedAddress: parsed.formattedAddress || prev.formattedAddress,
+            addressLine1: parsed.formattedAddress || prev.addressLine1,
+            area: parsed.area || prev.area,
+            city: parsed.city || prev.city,
+            state: parsed.state || prev.state,
+            pincode: parsed.pincode || prev.pincode,
+            latitude: parsed.latitude !== "" ? parsed.latitude : prev.latitude,
+            longitude: parsed.longitude !== "" ? parsed.longitude : prev.longitude,
+          }))
+          setShowLocationSuggestions(false)
+          setLocationSuggestions([])
+          if (window.google?.maps?.places?.AutocompleteSessionToken) {
+            placesSessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken()
+          }
+        },
+      )
+      return
+    }
+
+    const { lat, lng, display, addr = {} } = suggestion || {}
+    const area = addr.suburb || addr.neighbourhood || addr.city_district || addr.locality || ""
+    const city = addr.city || addr.town || addr.village || ""
+    const state = addr.state || ""
+    const pincode = addr.postcode || ""
+
+    suppressSuggestionFetchRef.current = true
+    setLocationSearchValue(display || "")
+    setLocationForm((prev) => ({
+      ...prev,
+      formattedAddress: display || prev.formattedAddress,
+      addressLine1: display || prev.addressLine1,
+      area: area || prev.area,
+      city: city || prev.city,
+      state: state || prev.state,
+      pincode: pincode || prev.pincode,
+      latitude: Number.isFinite(lat) ? Number(lat.toFixed(6)) : prev.latitude,
+      longitude: Number.isFinite(lng) ? Number(lng.toFixed(6)) : prev.longitude,
+    }))
+    setShowLocationSuggestions(false)
+    setLocationSuggestions([])
   }
 
   // Handle view restaurant details
@@ -657,6 +689,7 @@ export default function RestaurantsList() {
     setSelectedRestaurant(restaurant)
     setLoadingDetails(true)
     setRestaurantDetails(null)
+    setRestaurantOutletTimings(null)
 
     try {
       // Always fetch full details from Admin API so the modal matches the
@@ -667,19 +700,22 @@ export default function RestaurantsList() {
         return
       }
 
-      const response = await adminAPI.getRestaurantById(restaurantId)
-      if (!response?.data?.success) {
+      const [detailsRes, timingsRes] = await Promise.all([
+        adminAPI.getRestaurantById(restaurantId).catch(() => null),
+        restaurantAPI.getOutletTimingsByRestaurantId(restaurantId, { noCache: true }).catch(() => null),
+      ])
+
+      const detailsData = detailsRes?.data?.data
+      if (detailsData && (detailsData.restaurantName || detailsData._id)) {
+        setRestaurantDetails(detailsData)
+      } else {
         setRestaurantDetails(restaurant.originalData || restaurant)
-        return
       }
 
-      const data = response?.data?.data
-      if (data && (data.restaurantName || data._id)) {
-        setRestaurantDetails(data)
-        return
+      const outletTimings = timingsRes?.data?.data?.outletTimings
+      if (outletTimings && typeof outletTimings === "object" && !Array.isArray(outletTimings)) {
+        setRestaurantOutletTimings(outletTimings)
       }
-
-      setRestaurantDetails(restaurant.originalData || restaurant)
     } catch (err) {
       debugError("Error fetching restaurant details:", err)
       // Use the restaurant data we already have
@@ -782,18 +818,17 @@ export default function RestaurantsList() {
     const sourceRestaurant = restaurantDetails || selectedRestaurant?.originalData || selectedRestaurant
     const initialForm = normalizeLocationFormFromRestaurant(sourceRestaurant)
     setLocationForm(initialForm)
+    setLocationSearchValue(initialForm.formattedAddress || "")
+    setLocationSuggestions([])
+    setShowLocationSuggestions(false)
+    setIsSearchingLocation(false)
     setLocationEditError("")
 
     setZonesLoading(true)
     adminAPI.getZones({ limit: 1000 })
       .then((res) => {
-        const zoneData = res?.data?.data
-        const list = Array.isArray(zoneData?.zones)
-          ? zoneData.zones
-          : Array.isArray(zoneData)
-            ? zoneData
-            : []
-        setZones(list)
+        const list = res?.data?.data?.zones || res?.data?.data?.data?.zones || res?.data?.data?.zones || res?.data?.data || []
+        setZones(Array.isArray(list) ? list : [])
       })
       .catch(() => setZones([]))
       .finally(() => setZonesLoading(false))
@@ -802,10 +837,84 @@ export default function RestaurantsList() {
     requestAnimationFrame(() => initPlacesAutocomplete())
 
     return () => {
-      placesAutocompleteRef.current = null
+      if (suggestionsDebounceRef.current) {
+        clearTimeout(suggestionsDebounceRef.current)
+        suggestionsDebounceRef.current = null
+      }
+      autocompleteServiceRef.current = null
+      placesServiceRef.current = null
+      placesSessionTokenRef.current = null
+      suppressSuggestionFetchRef.current = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditingLocation, selectedRestaurant, restaurantDetails?._id])
+
+  useEffect(() => {
+    if (!isEditingLocation) return
+
+    if (suppressSuggestionFetchRef.current) {
+      suppressSuggestionFetchRef.current = false
+      return
+    }
+
+    const q = String(locationSearchValue || "").trim()
+    if (q.length < 3) {
+      if (suggestionsDebounceRef.current) {
+        clearTimeout(suggestionsDebounceRef.current)
+        suggestionsDebounceRef.current = null
+      }
+      setLocationSuggestions([])
+      setIsSearchingLocation(false)
+      if (window.google?.maps?.places?.AutocompleteSessionToken) {
+        placesSessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken()
+      }
+      return
+    }
+
+    if (suggestionsDebounceRef.current) {
+      clearTimeout(suggestionsDebounceRef.current)
+    }
+
+    suggestionsDebounceRef.current = setTimeout(async () => {
+      try {
+        setIsSearchingLocation(true)
+        await initPlacesAutocomplete()
+
+        if (!placesSessionTokenRef.current && window.google?.maps?.places?.AutocompleteSessionToken) {
+          placesSessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken()
+        }
+
+        const googleSuggestions = await fetchLocationSuggestions(q)
+        if (googleSuggestions.length > 0) return
+
+        const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&q=${encodeURIComponent(q)}&countrycodes=in`
+        const res = await fetch(url, { headers: { Accept: "application/json" } })
+        const json = await res.json()
+        const mappedFallback = (Array.isArray(json) ? json : []).map((result) => ({
+          id: `n-${result.place_id}`,
+          display: result.display_name || "",
+          lat: Number(result.lat),
+          lng: Number(result.lon),
+          addr: result.address || {},
+          source: "nominatim",
+        }))
+        setLocationSuggestions(mappedFallback)
+      } catch (err) {
+        debugError("Location prediction search failed:", err)
+        setLocationSuggestions([])
+      } finally {
+        setIsSearchingLocation(false)
+      }
+    }, 400)
+
+    return () => {
+      if (suggestionsDebounceRef.current) {
+        clearTimeout(suggestionsDebounceRef.current)
+        suggestionsDebounceRef.current = null
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationSearchValue, isEditingLocation])
 
   const getDetailsEditSource = () => {
     return restaurantDetails || selectedRestaurant?.originalData || selectedRestaurant || null
@@ -872,8 +981,12 @@ export default function RestaurantsList() {
 
   const handleCancelEditDetails = () => {
     setIsEditingDetails(false)
+    setIsEditingLocation(false)
     setProfileImageFile(null)
     setProfileImagePreview("")
+    setLocationSuggestions([])
+    setShowLocationSuggestions(false)
+    setIsSearchingLocation(false)
   }
 
   const handleSaveDetails = async () => {
@@ -886,7 +999,7 @@ export default function RestaurantsList() {
       let profileImage = undefined
       if (profileImageFile) {
         const uploadRes = await uploadAPI.uploadMedia(profileImageFile, {
-          folder: "appzeto/restaurant/profile",
+          folder: "eatiefy/restaurant/profile",
         })
         const media = uploadRes?.data?.data?.file || uploadRes?.data?.data || uploadRes?.data?.file
         if (media?.url) {
@@ -901,10 +1014,6 @@ export default function RestaurantsList() {
       if (openingMinutes !== null && closingMinutes !== null) {
         if (openingMinutes === closingMinutes) {
           alert("Opening time and closing time cannot be same")
-          return
-        }
-        if (closingMinutes < openingMinutes) {
-          alert("Closing time cannot be less than opening time")
           return
         }
       }
@@ -955,7 +1064,11 @@ export default function RestaurantsList() {
       }
 
       setIsEditingDetails(false)
+      setIsEditingLocation(false)
       setProfileImageFile(null)
+      setLocationSuggestions([])
+      setShowLocationSuggestions(false)
+      setIsSearchingLocation(false)
       alert("Restaurant details updated successfully")
     } catch (err) {
       debugError("Error updating restaurant details:", err)
@@ -971,10 +1084,13 @@ export default function RestaurantsList() {
     setProfileImagePreview("")
     setIsEditingLocation(false)
     setLocationEditError("")
+    setLocationSuggestions([])
+    setShowLocationSuggestions(false)
+    setIsSearchingLocation(false)
     setSelectedRestaurant(null)
     setRestaurantDetails(null)
+    setRestaurantOutletTimings(null)
   }
-
 
   // Handle ban/unban restaurant
   const handleBanRestaurant = (restaurant) => {
@@ -991,48 +1107,37 @@ export default function RestaurantsList() {
     const { restaurant, action } = banConfirmDialog
     const isBanning = action === 'ban'
     const newStatus = !isBanning // false for ban, true for unban
-    const restaurantId = restaurant._id || restaurant.id
 
     try {
       setBanning(true)
+      const restaurantId = restaurant._id || restaurant.id
 
-      // Update restaurant status via API
-      try {
-        await adminAPI.updateRestaurantStatus(restaurantId, newStatus)
+      await adminAPI.updateRestaurantStatus(restaurantId, newStatus)
 
-        // Update local state on success
-        if (isBanning) {
-          setRestaurants(prev => prev.filter(r => r._id !== restaurantId && r.id !== restaurantId))
-          const bannedItem = {
-            ...restaurant,
-            isActive: false,
-            approvalStatus: 'rejected',
-          }
-          setBannedRestaurants(prev => [bannedItem, ...prev])
-          setBannedCount(prev => prev + 1)
-        } else {
-          setBannedRestaurants(prev => prev.filter(r => r._id !== restaurantId && r.id !== restaurantId))
-          setBannedCount(prev => Math.max(0, prev - 1))
-          const approvedItem = {
-            ...restaurant,
-            isActive: true,
-            approvalStatus: 'approved',
-          }
-          setRestaurants(prev => [approvedItem, ...prev])
-        }
+      // Update local state on success
+      setRestaurants(prevRestaurants =>
+        prevRestaurants.map(r =>
+          (r.id === restaurant.id || r._id === restaurant._id)
+            ? { ...r, isActive: newStatus }
+            : r
+        )
+      )
 
-        // Close dialog
-        setBanConfirmDialog(null)
-        alert(`Restaurant ${isBanning ? 'banned' : 'unbanned'} successfully`)
-      } catch (apiErr) {
-        debugError("API Error:", apiErr)
-        setBanConfirmDialog(null)
-        alert(apiErr.response?.data?.message || `Failed to ${action} restaurant.`)
+      // Update stats counts
+      setRestaurantStats(prev => ({
+        ...prev,
+        active: newStatus ? prev.active + 1 : Math.max(0, prev.active - 1),
+        inactive: newStatus ? Math.max(0, prev.inactive - 1) : prev.inactive + 1,
+      }))
+
+      if (restaurantDetails && (restaurantDetails._id === restaurantId || restaurantDetails.id === restaurantId)) {
+        setRestaurantDetails(prev => ({ ...prev, isActive: newStatus }))
       }
 
+      setBanConfirmDialog(null)
     } catch (err) {
       debugError("Error banning/unbanning restaurant:", err)
-      alert(`Failed to ${action} restaurant. Please try again.`)
+      alert(err?.response?.data?.message || `Failed to ${action} restaurant. Please try again.`)
     } finally {
       setBanning(false)
     }
@@ -1056,30 +1161,26 @@ export default function RestaurantsList() {
       setDeleting(true)
       const restaurantId = restaurant._id || restaurant.id
 
-      // Delete restaurant via API
-      try {
-        await adminAPI.deleteRestaurant(restaurantId)
+      await adminAPI.deleteRestaurant(restaurantId)
 
-        // Remove from local state on success
-        setRestaurants(prevRestaurants =>
-          prevRestaurants.filter(r =>
-            r.id !== restaurant.id && r._id !== restaurant._id
-          )
+      // Remove from local state on success
+      setRestaurants(prevRestaurants =>
+        prevRestaurants.filter(r =>
+          r.id !== restaurant.id && r._id !== restaurant._id
         )
+      )
 
-        // Close dialog
-        setDeleteConfirmDialog(null)
+      setTotalRestaurants(prev => Math.max(0, prev - 1))
+      setRestaurantStats(prev => ({
+        total: Math.max(0, prev.total - 1),
+        active: restaurant.isActive ? Math.max(0, prev.active - 1) : prev.active,
+        inactive: !restaurant.isActive ? Math.max(0, prev.inactive - 1) : prev.inactive,
+      }))
 
-        // Show success message
-        alert(`Restaurant "${restaurant.name}" deleted successfully!`)
-      } catch (apiErr) {
-        debugError("API Error:", apiErr)
-        alert(apiErr.response?.data?.message || "Failed to delete restaurant. Please try again.")
-      }
-
-    } catch (err) {
+      setDeleteConfirmDialog(null)
+    } catch (apiErr) {
       debugError("Error deleting restaurant:", err)
-      alert("Failed to delete restaurant. Please try again.")
+      alert(apiErr?.response?.data?.message || "Failed to delete restaurant. Please try again.")
     } finally {
       setDeleting(false)
     }
@@ -1090,10 +1191,14 @@ export default function RestaurantsList() {
   }
 
   // Handle export functionality
-  const handleExport = () => {
+  const loadRestaurantsExportUtils = () =>
+    import("@food/components/admin/restaurants/restaurantsExportUtils")
+
+  const handleExport = async () => {
     const dataToExport = filteredRestaurants.length > 0 ? filteredRestaurants : restaurants
     const filename = "restaurants_list"
-    exportRestaurantsToPDF(dataToExport, filename)
+    const utils = await loadRestaurantsExportUtils()
+    utils.exportRestaurantsToPDF(dataToExport, filename)
   }
 
   return (
@@ -1110,98 +1215,93 @@ export default function RestaurantsList() {
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
           {/* Total Restaurants */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => { setActiveFilter("all"); setPage(1); }}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { setActiveFilter("all"); setPage(1); } }}
+            className={`bg-white rounded-xl shadow-sm border p-6 cursor-pointer transition-all duration-200 hover:shadow-md select-none ${
+              activeFilter === "all"
+                ? "border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/10"
+                : "border-slate-200 hover:border-slate-300"
+            }`}
+          >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Total restaurants</p>
-                <p className="text-2xl font-bold text-slate-900">
-                  {loading ? (
-                    <span className="inline-block w-12 h-6 rounded bg-slate-200 animate-pulse" />
-                  ) : (
-                    totalRestaurants
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm font-medium text-slate-600">Total restaurants</p>
+                  {activeFilter === "all" && (
+                    <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-blue-100 text-blue-700 rounded">
+                      All
+                    </span>
                   )}
-                </p>
+                </div>
+                <p className="text-2xl font-bold text-slate-900">{restaurantStats.total || totalRestaurants}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
-                <Building2 className="w-6 h-6 text-blue-600" />
+                <img src={locationIcon} alt="Location" className="w-8 h-8" loading="lazy" decoding="async" />
               </div>
             </div>
           </div>
 
           {/* Active Restaurants */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => { setActiveFilter("active"); setPage(1); }}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { setActiveFilter("active"); setPage(1); } }}
+            className={`bg-white rounded-xl shadow-sm border p-6 cursor-pointer transition-all duration-200 hover:shadow-md select-none ${
+              activeFilter === "active"
+                ? "border-emerald-500 ring-2 ring-emerald-500/20 bg-emerald-50/10"
+                : "border-slate-200 hover:border-slate-300"
+            }`}
+          >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Active restaurants</p>
-                <p className="text-2xl font-bold text-slate-900">
-                  {loading ? (
-                    <span className="inline-block w-12 h-6 rounded bg-slate-200 animate-pulse" />
-                  ) : (
-                    activeRestaurants
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm font-medium text-slate-600">Active restaurants</p>
+                  {activeFilter === "active" && (
+                    <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-emerald-100 text-emerald-700 rounded">
+                      Filtered
+                    </span>
                   )}
-                </p>
+                </div>
+                <p className="text-2xl font-bold text-slate-900">{activeRestaurants}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
-                <Utensils className="w-6 h-6 text-green-600" />
+                <img src={restaurantIcon} alt="Restaurant" className="w-8 h-8" loading="lazy" decoding="async" />
               </div>
             </div>
           </div>
 
           {/* Inactive Restaurants */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => { setActiveFilter("inactive"); setPage(1); }}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { setActiveFilter("inactive"); setPage(1); } }}
+            className={`bg-white rounded-xl shadow-sm border p-6 cursor-pointer transition-all duration-200 hover:shadow-md select-none ${
+              activeFilter === "inactive"
+                ? "border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/10"
+                : "border-slate-200 hover:border-slate-300"
+            }`}
+          >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Inactive restaurants</p>
-                <p className="text-2xl font-bold text-slate-900">
-                  {loading ? (
-                    <span className="inline-block w-12 h-6 rounded bg-slate-200 animate-pulse" />
-                  ) : (
-                    inactiveRestaurants
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm font-medium text-slate-600">Inactive restaurants</p>
+                  {activeFilter === "inactive" && (
+                    <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-rose-100 text-rose-700 rounded">
+                      Filtered
+                    </span>
                   )}
-                </p>
-              </div>
-              <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center">
-                <UtensilsCrossed className="w-6 h-6 text-slate-600" />
-              </div>
-            </div>
-          </div>
-
-          {/* Rejected Restaurants */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Rejected restaurants</p>
-                <p className="text-2xl font-bold text-slate-900">
-                  {loading ? (
-                    <span className="inline-block w-12 h-6 rounded bg-slate-200 animate-pulse" />
-                  ) : (
-                    rejectedCount
-                  )}
-                </p>
+                </div>
+                <p className="text-2xl font-bold text-slate-900">{inactiveRestaurants}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-red-100 flex items-center justify-center">
-                <AlertTriangle className="w-6 h-6 text-red-600" />
-              </div>
-            </div>
-          </div>
-
-          {/* Banned Restaurants */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Banned restaurants</p>
-                <p className="text-2xl font-bold text-slate-900">
-                  {loading ? (
-                    <span className="inline-block w-12 h-6 rounded bg-slate-200 animate-pulse" />
-                  ) : (
-                    bannedCount
-                  )}
-                </p>
-              </div>
-              <div className="w-12 h-12 rounded-lg bg-orange-100 flex items-center justify-center">
-                <ShieldX className="w-6 h-6 text-orange-600" />
+                <img src={inactiveIcon} alt="Inactive" className="w-8 h-8" loading="lazy" decoding="async" />
               </div>
             </div>
           </div>
@@ -1210,56 +1310,25 @@ export default function RestaurantsList() {
         {/* Restaurants List Section */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setViewMode("active")}
-                className={`px-4 py-2.5 text-sm font-semibold rounded-lg border transition-all outline-none ${
-                  viewMode === "active"
-                    ? "border-blue-600 bg-blue-50/50 text-blue-600"
-                    : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                Restaurants List
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("rejected")}
-                className={`px-4 py-2.5 text-sm font-semibold rounded-lg border transition-all outline-none ${
-                  viewMode === "rejected"
-                    ? "border-red-600 bg-red-50/50 text-red-600"
-                    : "border-red-200/80 bg-white text-red-500 hover:bg-red-50/50"
-                }`}
-              >
-                Rejected Restaurants
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("banned")}
-                className={`px-4 py-2.5 text-sm font-semibold rounded-lg border transition-all outline-none ${
-                  viewMode === "banned"
-                    ? "border-rose-600 bg-rose-50/50 text-rose-600"
-                    : "border-rose-200/80 bg-white text-rose-500 hover:bg-rose-50/50"
-                }`}
-              >
-                Banned Restaurants
-              </button>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold text-slate-900">Restaurants List</h2>
+              <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
+                {totalRestaurants}
+              </span>
             </div>
 
             <div className="flex items-center gap-3">
-              {viewMode === "active" && (
-                <button
-                  onClick={() => navigate("/admin/food/restaurants/add")}
-                  className="px-4 py-2.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2 transition-all"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add Restaurant</span>
-                </button>
-              )}
+              <button
+                onClick={() => navigate("/admin/food/restaurants/add")}
+                className="px-4 py-2.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2 transition-all"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Restaurant</span>
+              </button>
               <div className="relative flex-1 sm:flex-initial min-w-[250px]">
                 <input
                   type="text"
-                  placeholder="Ex: search by Restaurant n"
+                  placeholder="Ex: search by Restaurant name, owner, or phone"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10 pr-4 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -1282,9 +1351,43 @@ export default function RestaurantsList() {
                     <FileText className="w-4 h-4" />
                     PDF
                   </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={async () => {
+                      const dataToExport = filteredRestaurants.length > 0 ? filteredRestaurants : restaurants
+                      const filename = "restaurants_list"
+                      const utils = await loadRestaurantsExportUtils()
+                      utils.exportRestaurantsToExcel(dataToExport, filename)
+                    }} 
+                    className="cursor-pointer flex items-center gap-2"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    Excel
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm text-slate-600 mb-4">
+            <div>
+              {loading
+                ? "Loading..."
+                : `Showing ${showingFrom}-${showingTo} of ${totalRestaurants} restaurants`}
+              {activeFilter !== "all" && (
+                <span className="ml-2 font-semibold text-blue-600">
+                  (Filter: {activeFilter === "active" ? "Active only" : "Inactive only"})
+                </span>
+              )}
+            </div>
+            {activeFilter !== "all" && (
+              <button
+                type="button"
+                onClick={() => { setActiveFilter("all"); setPage(1); }}
+                className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline w-fit"
+              >
+                Reset Filter
+              </button>
+            )}
           </div>
 
           {/* Table */}
@@ -1300,10 +1403,10 @@ export default function RestaurantsList() {
                 <p className="text-sm text-slate-500 mb-4">{error}</p>
                 <button
                   type="button"
-                  onClick={() => window.location.reload()}
+                  onClick={() => navigate("/admin/login", { replace: true, state: { from: "/admin/food/restaurants" } })}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
-                  Retry
+                  Log in as admin
                 </button>
               </div>
             ) : (
@@ -1378,14 +1481,13 @@ export default function RestaurantsList() {
                       </td>
                     </tr>
                   ) : (
-                    filteredRestaurants.map((restaurant, index) => {
-                      return (
+                    filteredRestaurants.map((restaurant, index) => (
                       <tr
                         key={restaurant.id}
                         className="hover:bg-slate-50 transition-colors"
                       >
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="text-sm font-medium text-slate-700">{index + 1}</span>
+                          <span className="text-sm font-medium text-slate-700">{(page - 1) * PAGE_SIZE + index + 1}</span>
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
@@ -1432,34 +1534,30 @@ export default function RestaurantsList() {
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          {viewMode === "banned" ? (
-                            <div className="flex flex-col gap-1">
-                              <span className="inline-flex w-fit items-center rounded-full px-2.5 py-1 text-xs font-semibold bg-rose-100 text-rose-700">
-                                Banned
-                              </span>
-                              <span className="text-[11px] text-slate-500">
-                                Outlet: Offline
-                              </span>
-                            </div>
-                          ) : viewMode === "rejected" ? (
-                            <div className="flex flex-col gap-1">
-                              <span className="inline-flex w-fit items-center rounded-full px-2.5 py-1 text-xs font-semibold bg-red-100 text-red-700">
-                                Rejected
-                              </span>
-                              <span className="text-[11px] text-slate-500">
-                                Outlet: Offline
-                              </span>
-                            </div>
-                          ) : (
-                            <div className="flex flex-col gap-1">
-                              <span className={`inline-flex w-fit items-center rounded-full px-2.5 py-1 text-xs font-semibold ${approvalStatusBadgeClass(restaurant.approvalStatus)}`}>
-                                {approvalStatusLabel(restaurant.approvalStatus)}
-                              </span>
-                              <span className="text-[11px] text-slate-500">
-                                Outlet: {restaurant.isActive ? "Active" : "Inactive"}
+                          <div className="flex flex-col gap-1.5">
+                            <span className={`inline-flex w-fit items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${approvalStatusBadgeClass(restaurant.approvalStatus)}`}>
+                              {approvalStatusLabel(restaurant.approvalStatus)}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleBanRestaurant(restaurant)}
+                                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                  restaurant.isActive ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-slate-300 hover:bg-slate-400'
+                                }`}
+                                title={restaurant.isActive ? "Click to deactivate / ban" : "Click to activate / unban"}
+                              >
+                                <span
+                                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                    restaurant.isActive ? 'translate-x-4' : 'translate-x-0'
+                                  }`}
+                                />
+                              </button>
+                              <span className={`text-xs font-semibold ${restaurant.isActive ? 'text-emerald-700' : 'text-slate-500'}`}>
+                                {restaurant.isActive ? "Active" : "Inactive"}
                               </span>
                             </div>
-                          )}
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-center">
                           <div className="flex items-center justify-center gap-2">
@@ -1470,45 +1568,60 @@ export default function RestaurantsList() {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
-                            {viewMode === "banned" && (
-                              <button
-                                onClick={() => handleBanRestaurant(restaurant)}
-                                className="p-1.5 rounded text-green-600 hover:bg-green-50 transition-colors"
-                                title="Unban Restaurant"
-                              >
-                                <ShieldCheck className="w-4 h-4" />
-                              </button>
-                            )}
-                            {viewMode === "active" && (
-                              <button
-                                onClick={() => handleBanRestaurant(restaurant)}
-                                className={`p-1.5 rounded transition-colors ${!restaurant.isActive
-                                  ? "text-green-600 hover:bg-green-50"
-                                  : "text-red-600 hover:bg-red-50"
-                                  }`}
-                                title={!restaurant.isActive ? "Unban Restaurant" : "Ban Restaurant"}
-                              >
-                                <ShieldX className="w-4 h-4" />
-                              </button>
-                            )}
-                            {viewMode !== "rejected" && (
-                              <button
-                                onClick={() => handleDeleteRestaurant(restaurant)}
-                                className="p-1.5 rounded text-red-600 hover:bg-red-50 transition-colors"
-                                title="Delete Restaurant"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
+                            <button
+                              onClick={() => handleBanRestaurant(restaurant)}
+                              className={`p-1.5 rounded transition-colors ${!restaurant.isActive
+                                ? "text-green-600 hover:bg-green-50"
+                                : "text-red-600 hover:bg-red-50"
+                                }`}
+                              title={!restaurant.isActive ? "Unban Restaurant" : "Ban Restaurant"}
+                            >
+                              <ShieldX className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteRestaurant(restaurant)}
+                              className="p-1.5 rounded text-red-600 hover:bg-red-50 transition-colors"
+                              title="Delete Restaurant"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                         </td>
                       </tr>
-                    )})
+                    ))
                   )}
                 </tbody>
               </table>
             )}
           </div>
+
+          {!loading && totalRestaurants > PAGE_SIZE ? (
+            <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-200 pt-4">
+              <p className="text-sm text-slate-600">
+                Page {page} of {totalPages}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-slate-200 text-sm disabled:opacity-50 hover:bg-slate-50"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-slate-200 text-sm disabled:opacity-50 hover:bg-slate-50"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -1529,33 +1642,31 @@ export default function RestaurantsList() {
                 <p className="text-sm text-slate-500 mt-1">Detailed overview and information</p>
               </div>
               <div className="flex items-center gap-2">
-                {normalizeApprovalStatus(restaurantDetails || selectedRestaurant?.originalData || selectedRestaurant) !== "rejected" && (
-                  !isEditingDetails ? (
+                {!isEditingDetails ? (
+                  <button
+                    onClick={handleStartEditDetails}
+                    className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
+                  >
+                    Edit Details
+                  </button>
+                ) : (
+                  <>
                     <button
-                      onClick={handleStartEditDetails}
-                      className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
+                      onClick={handleCancelEditDetails}
+                      disabled={savingDetails}
+                      className="px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-sm font-medium transition-colors disabled:opacity-60"
                     >
-                      Edit Details
+                      Cancel
                     </button>
-                  ) : (
-                    <>
-                      <button
-                        onClick={handleCancelEditDetails}
-                        disabled={savingDetails}
-                        className="px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-sm font-medium transition-colors disabled:opacity-60"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={handleSaveDetails}
-                        disabled={savingDetails}
-                        className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors disabled:opacity-60 flex items-center gap-2"
-                      >
-                        {savingDetails && <Loader2 className="w-4 h-4 animate-spin" />}
-                        {savingDetails ? "Saving..." : "Save Changes"}
-                      </button>
-                    </>
-                  )
+                    <button
+                      onClick={handleSaveDetails}
+                      disabled={savingDetails}
+                      className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors disabled:opacity-60 flex items-center gap-2"
+                    >
+                      {savingDetails && <Loader2 className="w-4 h-4 animate-spin" />}
+                      {savingDetails ? "Saving..." : "Save Changes"}
+                    </button>
+                  </>
                 )}
                 <button
                   onClick={closeDetailsModal}
@@ -1568,7 +1679,6 @@ export default function RestaurantsList() {
 
             {/* Modal Content - Scrollable area */}
             <div className="p-8 overflow-y-auto">
-
               {loadingDetails && (
                 <div className="flex flex-col items-center justify-center py-24">
                   <div className="relative">
@@ -1586,7 +1696,7 @@ export default function RestaurantsList() {
                       <div className="flex items-center gap-4">
                         <div className="w-24 h-24 rounded-xl overflow-hidden bg-slate-100 border border-slate-200">
                           {profileImagePreview ? (
-                            <img src={profileImagePreview} alt="Profile preview" className="w-full h-full object-cover" />
+                            <img src={profileImagePreview} alt="Profile preview" className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-slate-400">
                               <ImageIcon className="w-6 h-6" />
@@ -1672,19 +1782,163 @@ export default function RestaurantsList() {
                       <label className="block text-xs text-slate-500 mb-1">Estimated Delivery Time</label>
                       <input type="text" value={detailsForm.estimatedDeliveryTime} onChange={(e) => setDetailsForm((prev) => ({ ...prev, estimatedDeliveryTime: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
                     </div>
-                    <div className="md:col-span-2 flex items-center gap-3">
-                      <input
-                        id="restaurant-status-active"
-                        type="checkbox"
-                        checked={detailsForm.isActive}
-                        onChange={(e) => setDetailsForm((prev) => ({ ...prev, isActive: e.target.checked }))}
-                        className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                      />
-                      <label htmlFor="restaurant-status-active" className="text-sm text-slate-700">
-                        Restaurant is active
-                      </label>
-                    </div>
                   </div>
+
+                  {isEditingLocation && (
+                    <div className="border border-indigo-100 bg-indigo-50/40 rounded-2xl p-4 space-y-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <h4 className="text-base font-semibold text-slate-900">Location Editor</h4>
+                          <p className="text-xs text-indigo-700 mt-1">
+                            Update restaurant location using dropdown suggestions and service zone selection.
+                          </p>
+                        </div>
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-white text-indigo-700 text-xs font-semibold">
+                          <Settings className="w-3.5 h-3.5" />
+                          Editing Live
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="md:col-span-2">
+                          <label className="block text-xs text-slate-600 mb-1 font-semibold">Service Zone*</label>
+                          <select
+                            value={locationForm.zoneId || ""}
+                            onChange={(e) => setLocationForm((prev) => ({ ...prev, zoneId: e.target.value }))}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm"
+                          >
+                            <option value="">{zonesLoading ? "Loading zones..." : "Select a zone"}</option>
+                            {zones.map((z) => (
+                              <option key={z._id || z.id} value={z._id || z.id}>
+                                {z.name || z.zoneName || z.serviceLocation || "Zone"}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <label className="block text-xs text-slate-600 mb-1 font-semibold">Search location*</label>
+                          <div className="relative">
+                            <input
+                              ref={locationSearchInputRef}
+                              type="text"
+                              value={locationSearchValue}
+                              onChange={handleLocationSearchChange}
+                              onFocus={() => {
+                                if (locationSuggestions.length > 0) setShowLocationSuggestions(true)
+                              }}
+                              onBlur={() => {
+                                setTimeout(() => setShowLocationSuggestions(false), 150)
+                              }}
+                              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm pr-10"
+                              placeholder="Start typing your restaurant address..."
+                            />
+                            {isSearchingLocation && (
+                              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                <div className="animate-spin rounded-full h-4 w-4 border-2 border-indigo-500 border-t-transparent" />
+                              </div>
+                            )}
+                            {showLocationSuggestions && locationSuggestions.length > 0 && (
+                              <div className="absolute left-0 right-0 top-full mt-2 rounded-2xl border border-slate-200 bg-white shadow-[0_18px_48px_rgba(15,23,42,0.14)] z-50 overflow-hidden max-h-60 overflow-y-auto">
+                                {locationSuggestions.map((suggestion) => (
+                                  <button
+                                    key={suggestion.id || suggestion.placeId || suggestion.display}
+                                    type="button"
+                                    onMouseDown={(event) => {
+                                      event.preventDefault()
+                                      handleLocationSuggestionSelect(suggestion)
+                                    }}
+                                    className="w-full px-4 py-3 text-left hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-b-0"
+                                  >
+                                    <span className="flex items-start gap-3">
+                                      <MapPin className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
+                                      <span className="min-w-0">
+                                        <span className="block text-sm font-medium text-slate-900 truncate">
+                                          {suggestion.mainText || suggestion.display}
+                                        </span>
+                                        <span className="block text-xs text-slate-500 truncate">
+                                          {suggestion.secondaryText || suggestion.display}
+                                        </span>
+                                      </span>
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-1">
+                            Same suggestion flow as onboarding. Select from dropdown to auto-fill address and coordinates.
+                          </p>
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <label className="block text-xs text-slate-500 mb-1">Formatted Address</label>
+                          <input
+                            type="text"
+                            value={locationForm.formattedAddress}
+                            readOnly
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-1">Area</label>
+                          <input
+                            type="text"
+                            value={locationForm.area}
+                            readOnly
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-1">City</label>
+                          <input
+                            type="text"
+                            value={locationForm.city}
+                            readOnly
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-1">State</label>
+                          <input
+                            type="text"
+                            value={locationForm.state}
+                            readOnly
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-1">Pincode</label>
+                          <input
+                            type="text"
+                            value={locationForm.pincode}
+                            readOnly
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm"
+                          />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="block text-xs text-slate-500 mb-1">Landmark (optional)</label>
+                          <input
+                            type="text"
+                            value={locationForm.landmark}
+                            onChange={(e) => setLocationForm((prev) => ({ ...prev, landmark: e.target.value }))}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      {locationEditError && <p className="text-xs text-red-600">{locationEditError}</p>}
+                      <div className="flex justify-end">
+                        <button
+                          onClick={handleSaveLocation}
+                          disabled={savingLocation}
+                          className={`inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-semibold text-white ${savingLocation ? "bg-indigo-300 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"}`}
+                        >
+                          {savingLocation ? "Saving..." : "Save Location"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               {!loadingDetails && !isEditingDetails && (restaurantDetails || selectedRestaurant) && (() => {
@@ -1692,15 +1946,32 @@ export default function RestaurantsList() {
                 const detailsApprovalStatus = normalizeApprovalStatus(r)
                 const profileImgUrl = getPrimaryRestaurantImage(r)
                 const coverImages = Array.isArray(r?.coverImages) ? r.coverImages.map(normalizeImageUrl).filter(Boolean) : []
-                const displayAddress = getRestaurantDisplayAddress(r)
-                const hasFlatAddress = Boolean(displayAddress)
+                const hasFlatAddress = r?.addressLine1 || r?.area || r?.city || r?.state || r?.pincode
+                const flatAddress = [r?.addressLine1, r?.addressLine2, r?.area, r?.city, r?.state, r?.pincode, r?.landmark].filter(Boolean).join(", ")
                 const menuImages = Array.isArray(r?.menuImages) ? r.menuImages.map(normalizeImageUrl).filter(Boolean) : []
                 const cuisinesList =
                   (Array.isArray(r?.cuisines) && r.cuisines.length ? r.cuisines : null) ||
                   (Array.isArray(r?.onboarding?.step2?.cuisines) && r.onboarding.step2.cuisines.length ? r.onboarding.step2.cuisines : null) ||
                   null
-                const openingTimeVal = r?.openingTime || r?.deliveryTimings?.openingTime || r?.onboarding?.step2?.deliveryTimings?.openingTime || ""
-                const closingTimeVal = r?.closingTime || r?.deliveryTimings?.closingTime || r?.onboarding?.step2?.deliveryTimings?.closingTime || ""
+                const outletTimingsByDay =
+                  restaurantOutletTimings && typeof restaurantOutletTimings === "object" && !Array.isArray(restaurantOutletTimings)
+                    ? restaurantOutletTimings
+                    : null
+                const outletDayRows = outletTimingsByDay
+                  ? DAY_ORDER
+                    .map((day) => {
+                      const dayData = outletTimingsByDay?.[day]
+                      if (!dayData || typeof dayData !== "object") return null
+                      const isOpen = dayData.isOpen !== false
+                      return {
+                        day,
+                        isOpen,
+                        openingTime: isOpen ? dayData.openingTime || "" : "",
+                        closingTime: isOpen ? dayData.closingTime || "" : "",
+                      }
+                    })
+                    .filter(Boolean)
+                  : []
                 const openDaysVal =
                   (Array.isArray(r?.openDays) && r.openDays.length ? r.openDays : null) ||
                   (Array.isArray(r?.onboarding?.step2?.openDays) && r.onboarding.step2.openDays.length ? r.onboarding.step2.openDays : null) ||
@@ -1743,12 +2014,6 @@ export default function RestaurantsList() {
                 const hasRegistrationDocuments = hasPanSection || hasGstSection || hasFssaiSection || hasBankSection
                 return (
                 <div className="space-y-10">
-                  {detailsApprovalStatus === "rejected" && r?.rejectionReason && (
-                    <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-sm font-medium">
-                      <p className="font-bold mb-1">Rejection Reason:</p>
-                      <p className="text-red-700 font-normal">{r.rejectionReason}</p>
-                    </div>
-                  )}
                   {/* Restaurant Basic Info */}
                   <div className="flex flex-col md:flex-row items-center md:items-start gap-8">
                     <div className="w-32 h-32 rounded-3xl overflow-hidden bg-slate-50 shrink-0 shadow-inner group">
@@ -1767,19 +2032,9 @@ export default function RestaurantsList() {
                           {r?.restaurantName || r?.name || "N/A"}
                         </h3>
                         <div className="flex items-center justify-center md:justify-start gap-2">
-                          {detailsApprovalStatus === "banned" ? (
-                            <span className="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-rose-100 text-rose-700">
-                              Banned
-                            </span>
-                          ) : detailsApprovalStatus === "rejected" ? (
-                            <span className="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-red-100 text-red-700">
-                              Rejected
-                            </span>
-                          ) : (
-                            <span className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${r?.isActive !== false ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                              {r?.isActive !== false ? 'Active' : 'Inactive'}
-                            </span>
-                          )}
+                          <span className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${r?.isActive !== false ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {r?.isActive !== false ? 'Active' : 'Inactive'}
+                          </span>
                         </div>
                       </div>
                       <div className="flex items-center justify-center md:justify-start gap-6 flex-wrap">
@@ -1858,13 +2113,13 @@ export default function RestaurantsList() {
                         ) : null}
                       </div>
                       <div className="space-y-3">
-                        {!isEditingLocation && hasFlatAddress && (
+                        {!isEditingLocation && (r?.location || hasFlatAddress) && (
                           <div className="flex items-start gap-3">
                             <MapPin className="w-5 h-5 text-slate-400 mt-0.5" />
                             <div>
                               <p className="text-xs text-slate-500">Address</p>
                               <p className="text-sm font-medium text-slate-900">
-                                {displayAddress}
+                                {r?.location ? formatLocationAddress(r.location, selectedRestaurant?.zone) : flatAddress}
                               </p>
                             </div>
                           </div>
@@ -1902,14 +2157,20 @@ export default function RestaurantsList() {
                     <div>
                       <h4 className="text-lg font-semibold text-slate-900 mb-4">Timings & Status</h4>
                       <div className="space-y-3">
-                        {(openingTimeVal || closingTimeVal) && (
-                          <div className="flex items-center gap-3">
-                            <Clock className="w-5 h-5 text-slate-400" />
-                            <div>
-                              <p className="text-xs text-slate-500">Opening / Closing</p>
-                              <p className="text-sm font-medium text-slate-900">
-                                {formatTime12Hour(openingTimeVal)} – {formatTime12Hour(closingTimeVal)}
-                              </p>
+                        {outletDayRows.length > 0 && (
+                          <div>
+                            <p className="text-xs text-slate-500 mb-1">Outlet Timings (Day-wise)</p>
+                            <div className="space-y-1.5">
+                              {outletDayRows.map((slot) => (
+                                <div key={slot.day} className="flex items-center justify-between text-sm">
+                                  <span className="text-slate-600 font-medium">{slot.day}</span>
+                                  <span className="text-slate-900">
+                                    {slot.isOpen
+                                      ? `${formatTime12Hour(slot.openingTime)} – ${formatTime12Hour(slot.closingTime)}`
+                                      : "Closed"}
+                                  </span>
+                                </div>
+                              ))}
                             </div>
                           </div>
                         )}
@@ -1931,25 +2192,12 @@ export default function RestaurantsList() {
                         )}
                         <div>
                           <p className="text-xs text-slate-500 mb-1">Status</p>
-                          {detailsApprovalStatus === "banned" ? (
-                            <>
-                              <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-rose-100 text-rose-700">
-                                Banned
-                              </span>
-                              <p className="mt-2 text-xs text-slate-500">
-                                Outlet: Offline
-                              </p>
-                            </>
-                          ) : (
-                            <>
-                              <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${approvalStatusBadgeClass(detailsApprovalStatus)}`}>
-                                {approvalStatusLabel(detailsApprovalStatus)}
-                              </span>
-                              <p className="mt-2 text-xs text-slate-500">
-                                Outlet: {(r?.isActive !== false) ? "Active" : "Inactive"}
-                              </p>
-                            </>
-                          )}
+                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${approvalStatusBadgeClass(detailsApprovalStatus)}`}>
+                            {approvalStatusLabel(detailsApprovalStatus)}
+                          </span>
+                          <p className="mt-2 text-xs text-slate-500">
+                            Outlet: {(r?.isActive !== false) ? "Active" : "Inactive"}
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -2266,7 +2514,7 @@ export default function RestaurantsList() {
                   {hasFlatAddress && !r?.onboarding?.step1?.location && (
                     <div className="pt-6 border-t border-slate-200">
                       <h4 className="text-lg font-semibold text-slate-900 mb-4">Address (at registration)</h4>
-                      <p className="text-sm font-medium text-slate-900">{displayAddress}</p>
+                      <p className="text-sm font-medium text-slate-900">{flatAddress}</p>
                     </div>
                   )}
 
@@ -2458,110 +2706,6 @@ export default function RestaurantsList() {
                     </div>
                   )}
 
-                  {isEditingLocation && (
-                    <div className="pt-6 border-t border-slate-200">
-                      <h4 className="text-lg font-semibold text-slate-900 mb-4">Location Editor</h4>
-                      <div className="space-y-3 border border-indigo-100 bg-indigo-50/40 rounded-xl p-4">
-                        <p className="text-xs text-indigo-700 font-semibold">
-                          Update restaurant location using dropdown (accurate) + select service zone.
-                        </p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div className="md:col-span-2">
-                            <label className="block text-xs text-slate-600 mb-1 font-semibold">Service Zone*</label>
-                            <select
-                              value={locationForm.zoneId || ""}
-                              onChange={(e) => setLocationForm((prev) => ({ ...prev, zoneId: e.target.value }))}
-                              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm"
-                            >
-                              <option value="">{zonesLoading ? "Loading zones..." : "Select a zone"}</option>
-                              {zones.map((z) => (
-                                <option key={z._id || z.id} value={z._id || z.id}>
-                                  {z.name || z.zoneName || z.serviceLocation || "Zone"}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="md:col-span-2">
-                            <label className="block text-xs text-slate-600 mb-1 font-semibold">Search location*</label>
-                            <input
-                              ref={locationSearchInputRef}
-                              type="text"
-                              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm"
-                              placeholder="Start typing and choose from dropdown..."
-                            />
-                            <p className="text-[11px] text-slate-500 mt-1">
-                              Select from dropdown to auto-fill address and coordinates.
-                            </p>
-                          </div>
-
-                          <div className="md:col-span-2">
-                            <label className="block text-xs text-slate-500 mb-1">Formatted Address</label>
-                            <input
-                              type="text"
-                              value={locationForm.formattedAddress}
-                              readOnly
-                              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-slate-500 mb-1">Area</label>
-                            <input
-                              type="text"
-                              value={locationForm.area}
-                              readOnly
-                              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-slate-500 mb-1">City</label>
-                            <input
-                              type="text"
-                              value={locationForm.city}
-                              readOnly
-                              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-slate-500 mb-1">State</label>
-                            <input
-                              type="text"
-                              value={locationForm.state}
-                              readOnly
-                              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-slate-500 mb-1">Pincode</label>
-                            <input
-                              type="text"
-                              value={locationForm.pincode}
-                              readOnly
-                              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm"
-                            />
-                          </div>
-                          <div className="md:col-span-2">
-                            <label className="block text-xs text-slate-500 mb-1">Landmark (optional)</label>
-                            <input
-                              type="text"
-                              value={locationForm.landmark}
-                              onChange={(e) => setLocationForm((prev) => ({ ...prev, landmark: e.target.value }))}
-                              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm"
-                            />
-                          </div>
-                        </div>
-
-                        {locationEditError && <p className="text-xs text-red-600">{locationEditError}</p>}
-                        <button
-                          onClick={handleSaveLocation}
-                          disabled={savingLocation}
-                          className={`inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-semibold text-white ${savingLocation ? "bg-indigo-300 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"}`}
-                        >
-                          {savingLocation ? "Saving..." : "Save Location"}
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </div>
                 )
               })()}
@@ -2578,21 +2722,18 @@ export default function RestaurantsList() {
 
       {/* Ban/Unban Confirmation Dialog */}
       {banConfirmDialog && (
-        <div className="fixed inset-0 bg-slate-900/10 backdrop-blur-md z-50 flex items-center justify-center p-4" onClick={cancelBanRestaurant}>
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onClick={cancelBanRestaurant}>
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
             <div className="p-6">
               <div className="flex items-center gap-4 mb-4">
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center ${banConfirmDialog.action === 'ban' ? 'bg-red-100' : 'bg-green-100'
                   }`}>
-                  {banConfirmDialog.action === 'ban' ? (
-                    <AlertTriangle className="w-6 h-6 text-red-600" />
-                  ) : (
-                    <CheckCircle2 className="w-6 h-6 text-green-600" />
-                  )}
+                  <AlertTriangle className={`w-6 h-6 ${banConfirmDialog.action === 'ban' ? 'text-red-600' : 'text-green-600'
+                    }`} />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-slate-900">
-                    {banConfirmDialog.action === 'ban' ? 'Ban Restaurant' : 'Unbanned Restaurant'}
+                    {banConfirmDialog.action === 'ban' ? 'Ban Restaurant' : 'Unban Restaurant'}
                   </h3>
                   <p className="text-sm text-slate-600">
                     {banConfirmDialog.restaurant.name}
@@ -2603,7 +2744,7 @@ export default function RestaurantsList() {
               <p className="text-sm text-slate-700 mb-6">
                 {banConfirmDialog.action === 'ban'
                   ? 'Are you sure you want to ban this restaurant? They will not be able to receive orders or access their account.'
-                  : 'Are you sure you want to unbanned this Restautant?'
+                  : 'Are you sure you want to unban this restaurant? They will be able to receive orders and access their account again.'
                 }
               </p>
 
@@ -2629,7 +2770,7 @@ export default function RestaurantsList() {
                       {banConfirmDialog.action === 'ban' ? 'Banning...' : 'Unbanning...'}
                     </span>
                   ) : (
-                    banConfirmDialog.action === 'ban' ? 'Ban Restaurant' : 'Unbanned Restaurant'
+                    banConfirmDialog.action === 'ban' ? 'Ban Restaurant' : 'Unban Restaurant'
                   )}
                 </button>
               </div>
@@ -2640,7 +2781,7 @@ export default function RestaurantsList() {
 
       {/* Delete Confirmation Dialog */}
       {deleteConfirmDialog && (
-        <div className="fixed inset-0 bg-slate-900/10 backdrop-blur-md z-50 flex items-center justify-center p-4" onClick={cancelDeleteRestaurant}>
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onClick={cancelDeleteRestaurant}>
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
             <div className="p-6">
               <div className="flex items-center gap-4 mb-4">
@@ -2689,5 +2830,3 @@ export default function RestaurantsList() {
     </div>
   )
 }
-
-

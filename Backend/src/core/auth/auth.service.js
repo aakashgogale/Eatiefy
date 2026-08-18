@@ -5,10 +5,10 @@ import { FoodAdmin } from "../admin/admin.model.js";
 import { AdminResetOtp } from "../admin/adminResetOtp.model.js";
 import { FoodRestaurant } from "../../modules/food/restaurant/models/restaurant.model.js";
 import { FoodDeliveryPartner } from "../../modules/food/delivery/models/deliveryPartner.model.js";
-import { findDeliveryPartnerByPhone } from "../../modules/food/delivery/services/delivery.service.js";
+import { FoodOrder } from "../../modules/food/orders/models/order.model.js";
 import { FoodReferralSettings } from "../../modules/food/admin/models/referralSettings.model.js";
 import { FoodReferralLog } from "../../modules/food/admin/models/referralLog.model.js";
-import { createOrUpdateOtp, verifyOtp, shouldUseStaticOtp } from "../otp/otp.service.js";
+import { createOrUpdateOtp, verifyOtp } from "../otp/otp.service.js";
 import { signAccessToken, signRefreshToken } from "./token.util.js";
 import { FoodRefreshToken } from "../refreshTokens/refreshToken.model.js";
 import { ValidationError, AuthError } from "./errors.js";
@@ -17,20 +17,12 @@ import { logger } from "../../utils/logger.js";
 import { sendAdminResetOtpEmail } from "../../utils/email.js";
 import mongoose from "mongoose";
 import { creditReferralReward } from "../../modules/food/user/services/userWallet.service.js";
-import { FoodUserWallet } from "../../modules/food/user/models/userWallet.model.js";
-import { FoodOrder } from "../../modules/food/orders/models/order.model.js";
-import { FoodTransaction } from "../../modules/food/orders/models/foodTransaction.model.js";
-import { FoodSupportTicket } from "../../modules/food/user/models/supportTicket.model.js";
-import { FoodRestaurantMenu } from "../../modules/food/restaurant/models/restaurantMenu.model.js";
-import { FoodRestaurantWithdrawal } from "../../modules/food/restaurant/models/foodRestaurantWithdrawal.model.js";
-import { getRestaurantFinance } from "../../modules/food/restaurant/services/restaurantFinance.service.js";
-import { FoodAddon } from "../../modules/food/restaurant/models/foodAddon.model.js";
-import { FoodRestaurantOutletTimings } from "../../modules/food/restaurant/models/outletTimings.model.js";
-import { FoodRestaurantSupportTicket } from "../../modules/food/restaurant/models/supportTicket.model.js";
-import { FoodDeliveryWallet } from "../../modules/food/delivery/models/deliveryWallet.model.js";
-import { FoodDeliveryCashDeposit } from "../../modules/food/delivery/models/foodDeliveryCashDeposit.model.js";
-import { FoodDeliveryWithdrawal } from "../../modules/food/delivery/models/foodDeliveryWithdrawal.model.js";
-import { DeliverySupportTicket as FoodDeliverySupportTicket } from "../../modules/food/delivery/models/supportTicket.model.js";
+import { ADMIN_FULL_PERMISSIONS, sanitizeAdminPermissions } from '../../constants/permissions.js';
+import { isMobilePlatform } from "../../utils/platform.js";
+import {
+  detachFirebaseDeviceTokenEverywhere,
+  upsertFirebaseDeviceToken,
+} from "../notifications/firebase.service.js";
 
 const ROLES = {
   USER: "USER",
@@ -39,72 +31,42 @@ const ROLES = {
   ADMIN: "ADMIN",
 };
 
-const toSafeImageUrl = (value) => {
-  if (!value) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "object") return value.url || value.secure_url || "";
-  return "";
-};
-
-const sanitizeUserForAuthResponse = (userDoc = {}) => {
-  const id = userDoc?._id?.toString?.() || userDoc?.id?.toString?.() || userDoc?._id || userDoc?.id || null;
-  return {
-    id,
-    _id: id,
-    name: userDoc?.name || "",
-    phone: userDoc?.phone || "",
-    email: userDoc?.email || "",
-    role: userDoc?.role || ROLES.USER,
-    isVerified: Boolean(userDoc?.isVerified),
-    isActive: userDoc?.isActive !== false,
-    profileImage: toSafeImageUrl(userDoc?.profileImage),
-    gender: userDoc?.gender || null,
-    referralCode: userDoc?.referralCode || "",
-    refCode: userDoc?.referralCode || "",
-    referralCount: Number(userDoc?.referralCount || 0),
-    walletAmount: Number(userDoc?.walletAmount || 0),
-  };
-};
-
-const sanitizeRestaurantForAuthResponse = (restaurantDoc = {}) => {
-  const id =
-    restaurantDoc?._id?.toString?.() ||
-    restaurantDoc?.id?.toString?.() ||
-    restaurantDoc?._id ||
-    restaurantDoc?.id ||
-    null;
-
-  return {
-    id,
-    _id: id,
-    name: restaurantDoc?.restaurantName || restaurantDoc?.name || "",
-    restaurantName: restaurantDoc?.restaurantName || "",
-    phone: restaurantDoc?.ownerPhone || restaurantDoc?.primaryContactNumber || "",
-    email: restaurantDoc?.ownerEmail || "",
-    status: restaurantDoc?.status || "",
-    profileImage: toSafeImageUrl(restaurantDoc?.profileImage),
-  };
-};
-
-const sanitizeDeliveryForAuthResponse = (deliveryDoc = {}) => {
-  const id =
-    deliveryDoc?._id?.toString?.() ||
-    deliveryDoc?.id?.toString?.() ||
-    deliveryDoc?._id ||
-    deliveryDoc?.id ||
-    null;
-
-  return {
-    id,
-    _id: id,
-    name: deliveryDoc?.name || "",
-    phone: deliveryDoc?.phone || "",
-    email: deliveryDoc?.email || "",
-    status: deliveryDoc?.status || "",
-    profileImage: toSafeImageUrl(deliveryDoc?.profilePhoto),
-    walletAmount: Number(deliveryDoc?.walletAmount || 0),
-    refCode: deliveryDoc?.referralCode || "",
-  };
+const saveLoginFcmToken = async ({ ownerType, ownerId, fcmToken, platform, ownerDoc }) => {
+  if (!fcmToken || !ownerId) return;
+  try {
+    await upsertFirebaseDeviceToken({
+      ownerType,
+      ownerId: String(ownerId),
+      token: fcmToken,
+      platform,
+    });
+    // Keep in-memory doc in sync so a later ownerDoc.save() cannot clobber tokens.
+    if (ownerDoc) {
+      const field = isMobilePlatform(platform) ? "fcmTokenMobile" : "fcmTokens";
+      const otherField = field === "fcmTokenMobile" ? "fcmTokens" : "fcmTokenMobile";
+      const model =
+        ownerType === ROLES.USER
+          ? FoodUser
+          : ownerType === ROLES.RESTAURANT
+            ? FoodRestaurant
+            : ownerType === ROLES.DELIVERY_PARTNER
+              ? FoodDeliveryPartner
+              : null;
+      if (model) {
+        const fresh = await model.findById(ownerId).select("fcmTokens fcmTokenMobile").lean();
+        if (fresh) {
+          ownerDoc.fcmTokens = fresh.fcmTokens || [];
+          ownerDoc.fcmTokenMobile = fresh.fcmTokenMobile || [];
+          if (typeof ownerDoc.unmarkModified === "function") {
+            ownerDoc.unmarkModified(field);
+            ownerDoc.unmarkModified(otherField);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn({ err, ownerType, ownerId: String(ownerId) }, "Failed to save FCM token during login");
+  }
 };
 
 export const requestUserOtp = async (phone) => {
@@ -114,93 +76,41 @@ export const requestUserOtp = async (phone) => {
 
   const otp = await createOrUpdateOtp(phone);
   // TODO: integrate SMS provider here
-  // ONLY expose OTP in response when USE_DEFAULT_OTP=true explicitly.
-  // In development with real SMS, OTP must come via SMS, NOT in API response.
-  // const shouldExposeOtp = config.useDefaultOtp === true;
-  const shouldExposeOtp = shouldUseStaticOtp(phone);
+  const shouldExposeOtp =
+    config.nodeEnv !== "production" || config.useDefaultOtp;
   return shouldExposeOtp ? { otp } : {};
 };
+
 export const verifyUserOtpAndLogin = async (
   phone,
   otp,
-  ref = null,
-  fcmToken = null,
-  platform = "web",
-  name = null,
-  confirmAction = null,
+  ref,
+  fcmToken,
+  platform,
+  name,
 ) => {
-  const trimmedName = typeof name === "string" ? name.trim() : "";
-  const existingUser = await FoodUser.findOne({ phone });
-  
-  // Decide if we should preserve the OTP record for a subsequent Restore/New action
-  const isDeletedAccount = existingUser && existingUser.isActive === false;
-  
-  // For first-time signup or fresh start after deletion, require name before logging in
-  const isFreshRegistration = !existingUser || confirmAction === "new";
-  
-  // Preserve OTP if:
-  // 1. It is a deleted account and the user hasn't chosen restore/new yet.
-  // 2. It is a fresh registration and they haven't provided a name yet (needs name prompt).
-  const preserveOtp = (isDeletedAccount && !confirmAction) || (isFreshRegistration && !trimmedName);
-
-  const result = await verifyOtp(phone, otp, preserveOtp);
-  console.log(`[DEBUG] OTP Verification for ${phone}: valid=${result.valid}, reason=${result.reason}, preserve=${preserveOtp}, confirmAction=${confirmAction}`);
+  console.log(
+    `[FCM-LOGIN] User login platform received: rawPlatform=${String(platform ?? "") || "<empty>"}, hasToken=${Boolean(fcmToken)}`,
+  );
+  const result = await verifyOtp(phone, otp);
 
   if (!result.valid) {
     throw new AuthError(result.reason || "OTP verification failed");
   }
 
-  if (isFreshRegistration && !trimmedName) {
-    // Return a success response with a flag instead of throwing an error 
-    // to avoid noisy 400 errors in the console.
-    return { needsName: true };
-  }
-
-  let userDoc = existingUser;
+  let userDoc = await FoodUser.findOne({ phone });
   
   // Ensure user exists and mark as verified on successful OTP.
   // Check if user is new or hasn't provided a name yet
   const needsNamePrompt = !userDoc || !userDoc.name || String(userDoc.name).trim() === "" || String(userDoc.name).toLowerCase() === "null";
   const isNewUser = needsNamePrompt;
-
-  // Handle soft-deleted accounts if found
-  if (userDoc && userDoc.isActive === false) {
-    if (!confirmAction) {
-      // Return a flag to frontend to prompt for choice
-      return {
-        deletedAccountFound: true,
-        phone,
-        role: ROLES.USER,
-        name: userDoc.name
-      };
-    }
-
-    if (confirmAction === "restore") {
-      // Restore the account
-      userDoc.isActive = true;
-      await userDoc.save();
-      logger.info({ userId: userDoc._id }, "User account restored successfully");
-    } else if (confirmAction === "new") {
-      // Rename old account to free up phone number
-      const oldPhone = userDoc.phone;
-      userDoc.phone = `${oldPhone}_deleted_${Date.now()}`;
-      await userDoc.save();
-      logger.info({ userId: userDoc._id }, "Old user account renamed for fresh start");
-      
-      // Create a brand new account
-      userDoc = await FoodUser.create({
-        phone: oldPhone,
-        isVerified: true,
-        name: trimmedName,
-      });
-    }
-  }
+  const trimmedName = typeof name === "string" ? name.trim() : "";
 
   if (!userDoc) {
     userDoc = await FoodUser.create({
       phone,
       isVerified: true,
-      name: trimmedName,
+      ...(trimmedName ? { name: trimmedName } : {}),
     });
   } else {
     let needsSave = false;
@@ -224,12 +134,12 @@ export const verifyUserOtpAndLogin = async (
 
   // Update FCM token if provided
   if (fcmToken) {
-    const { upsertFirebaseDeviceToken } = await import("../notifications/firebase.service.js");
-    await upsertFirebaseDeviceToken({
-      ownerType: "USER",
-      ownerId: String(userDoc._id),
-      token: fcmToken,
-      platform: platform === "mobile" ? "mobile" : "web",
+    await saveLoginFcmToken({
+      ownerType: ROLES.USER,
+      ownerId: userDoc._id,
+      fcmToken,
+      platform,
+      ownerDoc: userDoc,
     });
   }
 
@@ -329,13 +239,7 @@ export const verifyUserOtpAndLogin = async (
     expiresAt,
   });
 
-  return {
-    token: accessToken,
-    accessToken,
-    refreshToken,
-    user: sanitizeUserForAuthResponse(user),
-    isNewUser,
-  };
+  return { accessToken, refreshToken, user, isNewUser };
 };
 
 export const adminLogin = async (email, password) => {
@@ -348,21 +252,24 @@ export const adminLogin = async (email, password) => {
     throw new AuthError("Invalid credentials");
   }
 
+  if (admin.isDeleted || admin.isActive === false) {
+    throw new AuthError("Admin account is inactive");
+  }
+
   const isMatch = await admin.comparePassword(password);
   if (!isMatch) {
     throw new AuthError("Invalid credentials");
   }
 
-  if (admin.isActive === false) {
-    throw new AuthError("Your account has been disabled. Contact the administrator.");
-  }
+  const effectivePermissions = admin.adminType === "super_admin"
+    ? ADMIN_FULL_PERMISSIONS
+    : sanitizeAdminPermissions(admin.permissions || {});
 
-  const role = String(admin.role || "ADMIN").toUpperCase();
-  if (role !== "ADMIN" && role !== "SUB_ADMIN") {
-    throw new AuthError("Invalid credentials");
-  }
-
-  const payload = { userId: admin._id.toString(), role };
+  const payload = {
+    userId: admin._id.toString(),
+    role: admin.role,
+    adminType: admin.adminType || "super_admin",
+  };
 
   const accessToken = signAccessToken(payload);
   const refreshToken = signRefreshToken(payload);
@@ -378,8 +285,7 @@ export const adminLogin = async (email, password) => {
 
   const userObj = admin.toObject();
   delete userObj.password;
-  userObj.role = role;
-  userObj.permissions = userObj.permissions || {};
+  userObj.effectivePermissions = effectivePermissions;
   return { accessToken, refreshToken, user: userObj };
 };
 
@@ -388,15 +294,23 @@ export const requestRestaurantOtp = async (phone) => {
     throw new ValidationError("Phone is required");
   }
   const otp = await createOrUpdateOtp(phone);
-  // ONLY expose OTP in response when USE_DEFAULT_OTP=true explicitly.
-  // In development with real SMS, OTP must come via SMS, NOT in API response.
-  // const shouldExposeOtp = config.useDefaultOtp === true;
-  const shouldExposeOtp = shouldUseStaticOtp(phone);
+  // Only expose OTP in response when in default/dev mode — never in production with real SMS
+  const shouldExposeOtp =
+    config.nodeEnv !== "production" || config.useDefaultOtp;
   return shouldExposeOtp ? { otp } : {};
 };
 
-export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform, confirmAction) => {
+export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform) => {
+  console.log(
+    `[FCM-LOGIN] Restaurant login platform received: rawPlatform=${String(platform ?? "") || "<empty>"}, hasToken=${Boolean(fcmToken)}`,
+  );
+  const result = await verifyOtp(phone, otp);
+  if (!result.valid) {
+    throw new AuthError(result.reason || "OTP verification failed");
+  }
+
   // Restaurants may store ownerPhone with country code or formatting.
+  // Match by exact phone, last-10 digits, or suffix match to avoid false "needsRegistration".
   const digits = String(phone || "").replace(/\D/g, "");
   const last10 = digits.slice(-10);
   const phoneCandidates = [phone, digits, last10].filter(Boolean);
@@ -405,76 +319,18 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
     ...(last10 ? [{ [field]: { $regex: new RegExp(last10 + "$") } }] : []),
   ];
 
-  // Search for all matching restaurants to handle cases with multiple records (e.g. deleted vs active)
-  const matchingRestaurants = await FoodRestaurant.find({
+  console.log(`[AUTH] Verifying OTP for restaurant phone: ${phone}`);
+  const restaurant = await FoodRestaurant.findOne({
     $or: [
       ...phoneOrFields("ownerPhone"),
       ...phoneOrFields("primaryContactNumber"),
     ],
   });
 
-  // Prioritize accounts: approved > pending > rejected > deleted
-  const statusPriority = { approved: 1, pending: 2, rejected: 3, deleted: 4 };
-  const sortedRestaurants = matchingRestaurants.sort((a, b) => {
-    const pA = statusPriority[a.status] || 99;
-    const pB = statusPriority[b.status] || 99;
-    return pA - pB;
-  });
-
-  const existingRestaurant = sortedRestaurants[0] || null;
-
-  const isDeleted = existingRestaurant && existingRestaurant.status === "deleted";
-  const preserveOtp = isDeleted && !confirmAction;
-
-  console.log(`[DEBUG] Restaurant OTP Login Attempt: phone=${phone}, otp=${otp}, confirmAction=${confirmAction}`);
-  const result = await verifyOtp(phone, otp, preserveOtp);
-  if (!result.valid) {
-    throw new AuthError(result.reason || "OTP verification failed");
-  }
-
-  let restaurant = existingRestaurant;
-
-  // Handle soft-deleted accounts if found
-  if (restaurant && restaurant.status === "deleted") {
-    if (!confirmAction) {
-      return {
-        deletedAccountFound: true,
-        phone,
-        role: ROLES.RESTAURANT,
-        name: restaurant.restaurantName
-      };
-    }
-
-    if (confirmAction === "restore") {
-      restaurant.status = "approved";
-      await restaurant.save();
-      logger.info({ restaurantId: restaurant._id }, "Restaurant account restored successfully");
-    } else if (confirmAction === "new") {
-      const suffix = `_deleted_${Date.now()}`;
-      
-      // Rename ALL potential phone fields if they match any of the candidates
-      const fieldsToRename = ["ownerPhone", "primaryContactNumber"];
-      for (const field of fieldsToRename) {
-        const val = restaurant[field];
-        if (val) {
-          const valDigits = String(val).replace(/\D/g, "");
-          const searchDigits = String(phone).replace(/\D/g, "");
-          // If the field contains the phone number we're verifying, rename it
-          if (valDigits.includes(searchDigits) || searchDigits.includes(valDigits)) {
-            restaurant[field] = `${val}${suffix}`;
-          }
-        }
-      }
-      
-      await restaurant.save();
-      logger.info({ restaurantId: restaurant._id }, "Old restaurant account renamed for fresh start");
-      
-      // Setting restaurant to null will trigger the "needsRegistration" flow below
-      restaurant = null;
-    }
-  }
+  console.log(`[AUTH] Restaurant lookup result:`, restaurant ? { id: restaurant._id, status: restaurant.status, name: restaurant.restaurantName } : "NOT FOUND");
 
   if (!restaurant) {
+    console.log(`[AUTH] No restaurant found. Returning needsRegistration: true`);
     // Phone has been successfully verified, but no restaurant exists yet.
     // Frontend will use this to redirect into registration/onboarding.
     return {
@@ -485,36 +341,37 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
 
   // Update FCM token if provided
   if (fcmToken) {
-    const { upsertFirebaseDeviceToken } = await import("../notifications/firebase.service.js");
-    await upsertFirebaseDeviceToken({
-      ownerType: "RESTAURANT",
-      ownerId: String(restaurant._id),
-      token: fcmToken,
-      platform: platform === "mobile" ? "mobile" : "web",
+    await saveLoginFcmToken({
+      ownerType: ROLES.RESTAURANT,
+      ownerId: restaurant._id,
+      fcmToken,
+      platform,
+      ownerDoc: restaurant,
     });
   }
 
-  if (restaurant.status && (restaurant.status === "banned" || restaurant.status === "deleted")) {
-    const message = "Your restaurant has been disabled. Reason: Disabled by admin";
-    console.warn(`⚠️ [Auth-Restaurant] Login blocked for ${phone}: status=${restaurant.status}, message=${message}`);
-    throw new AuthError(message);
+  // Allow login for previously-operational restaurants even if they are temporarily
+  // moved to "pending" due to profile-change review requests.
+  if (restaurant.status && restaurant.status !== "approved") {
+    if (restaurant.status === "pending") {
+      const hasHistoricalApproval = Boolean(restaurant.approvedAt);
+      const hasOperationalHistory = await FoodOrder.exists({
+        restaurantId: restaurant._id,
+      });
+
+      // New onboarding requests (no approval + no orders) must stay blocked.
+      if (!hasHistoricalApproval && !hasOperationalHistory) {
+        throw new AuthError("Your restaurant registration is pending approval.");
+      }
+    } else {
+      throw new AuthError(
+        "Your restaurant registration has been rejected. Please contact support.",
+      );
+    }
   }
 
-  const restaurantStatus = restaurant.status || "pending";
-  if (restaurantStatus !== "approved") {
-    const isRejected = restaurantStatus === "rejected";
-    return {
-      pendingApproval: true,
-      isRejected,
-      rejectionReason: isRejected ? restaurant.rejectionReason : null,
-      message:
-        isRejected
-          ? (restaurant.rejectionReason
-              ? `Your restaurant registration has been rejected. Reason: ${restaurant.rejectionReason}`
-              : "Your restaurant registration has been rejected. Please contact support.")
-          : "Your restaurant registration is pending approval.",
-    };
-  }
+  // Postpaid subscription model: no onboarding payment or subscription purchase
+  // is required to use the platform — dues are billed at each month end.
 
   const payload = { userId: restaurant._id.toString(), role: ROLES.RESTAURANT };
   const accessToken = signAccessToken(payload);
@@ -529,20 +386,11 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
   });
 
   return {
-    token: accessToken,
     accessToken,
     refreshToken,
-    user: sanitizeRestaurantForAuthResponse(restaurant?.toObject?.() || restaurant),
+    user: restaurant,
     needsRegistration: false,
   };
-};
-
-export const reapplyRestaurant = async (phone) => {
-  if (!phone) {
-    throw new ValidationError("Phone is required");
-  }
-  // Deletion logic removed to preserve onboarding/profile details for re-apply edit flow
-  return { success: true };
 };
 
 export const requestDeliveryOtp = async (phone) => {
@@ -550,51 +398,37 @@ export const requestDeliveryOtp = async (phone) => {
     throw new ValidationError("Phone is required");
   }
   const otp = await createOrUpdateOtp(phone);
-  // ONLY expose OTP in response when USE_DEFAULT_OTP=true explicitly.
-  // In development with real SMS, OTP must come via SMS, NOT in API response.
-  // const shouldExposeOtp = config.useDefaultOtp === true;
-  const shouldExposeOtp = shouldUseStaticOtp(phone);
+  // Only expose OTP in response when in default/dev mode — never in production with real SMS
+  const shouldExposeOtp =
+    config.nodeEnv !== "production" || config.useDefaultOtp;
   return shouldExposeOtp ? { otp } : {};
 };
 
-export const verifyDeliveryOtpAndLogin = async (phone, otp, fcmToken, platform, confirmAction) => {
-  const existingPartner = await findDeliveryPartnerByPhone(phone);
+const normalizePhoneForDelivery = (phone) => {
+  const digits = String(phone || "").replace(/\D/g, "");
+  return digits.slice(-10) || null;
+};
 
-  const isDeleted = existingPartner && existingPartner.status === "deleted";
-  const preserveOtp = isDeleted && !confirmAction;
-
-  const result = await verifyOtp(phone, otp, preserveOtp);
+export const verifyDeliveryOtpAndLogin = async (phone, otp, fcmToken, platform) => {
+  console.log(
+    `[FCM-LOGIN] Delivery login platform received: rawPlatform=${String(platform ?? "") || "<empty>"}, hasToken=${Boolean(fcmToken)}`,
+  );
+  const result = await verifyOtp(phone, otp);
   if (!result.valid) {
     throw new AuthError(result.reason || "OTP verification failed");
   }
 
-  let deliveryPartner = existingPartner;
-
-  // Handle soft-deleted accounts if found
-  if (deliveryPartner && deliveryPartner.status === "deleted") {
-    if (!confirmAction) {
-      return {
-        deletedAccountFound: true,
-        phone,
-        role: ROLES.DELIVERY_PARTNER,
-        name: deliveryPartner.name
-      };
-    }
-
-    if (confirmAction === "restore") {
-      deliveryPartner.status = "approved";
-      await deliveryPartner.save();
-      logger.info({ partnerId: deliveryPartner._id }, "Delivery partner account restored successfully");
-    } else if (confirmAction === "new") {
-      const suffix = `_deleted_${Date.now()}`;
-      deliveryPartner.phone = `${deliveryPartner.phone}${suffix}`;
-      await deliveryPartner.save();
-      logger.info({ partnerId: deliveryPartner._id }, "Old delivery partner account renamed for fresh start");
-      
-      // Setting deliveryPartner to null will trigger the "needsRegistration" flow below
-      deliveryPartner = null;
-    }
+  const normalized = normalizePhoneForDelivery(phone);
+  if (!normalized) {
+    return { needsRegistration: true, phone };
   }
+
+  const deliveryPartner = await FoodDeliveryPartner.findOne({
+    $or: [
+      { phone: normalized },
+      { phone: { $regex: new RegExp(normalized + "$") } },
+    ],
+  });
 
   if (!deliveryPartner) {
     return { needsRegistration: true, phone };
@@ -603,18 +437,17 @@ export const verifyDeliveryOtpAndLogin = async (phone, otp, fcmToken, platform, 
   // Update FCM token if provided - CRITICAL: do this BEFORE returning pendingApproval
   // so we can notify them when approved.
   if (fcmToken) {
-    const { upsertFirebaseDeviceToken } = await import('../notifications/firebase.service.js');
-    await upsertFirebaseDeviceToken({
-      ownerType: 'DELIVERY_PARTNER',
-      ownerId: String(deliveryPartner._id),
-      token: fcmToken,
-      platform: platform === 'mobile' ? 'mobile' : 'web',
+    await saveLoginFcmToken({
+      ownerType: ROLES.DELIVERY_PARTNER,
+      ownerId: deliveryPartner._id,
+      fcmToken,
+      platform,
+      ownerDoc: deliveryPartner,
     });
   }
 
-  const partnerStatus = deliveryPartner.status || "pending";
-  if (partnerStatus !== "approved") {
-    const isRejected = partnerStatus === "rejected";
+  if (deliveryPartner.status && deliveryPartner.status !== "approved") {
+    const isRejected = deliveryPartner.status === "rejected";
     return {
       pendingApproval: true,
       isRejected,
@@ -644,12 +477,9 @@ export const verifyDeliveryOtpAndLogin = async (phone, otp, fcmToken, platform, 
   });
 
   return {
-    token: accessToken,
     accessToken,
     refreshToken,
-    user: sanitizeDeliveryForAuthResponse(
-      deliveryPartner?.toObject?.() || deliveryPartner,
-    ),
+    user: deliveryPartner,
     needsRegistration: false,
   };
 };
@@ -662,21 +492,8 @@ export const logout = async (refreshToken, fcmToken, platform) => {
   // 1. Remove specific FCM token from ALL collections if provided
   if (fcmToken) {
     console.log(`[FCM-Logout] Starting logout-driven token removal: platform=${platform}, tokenPreview=${fcmToken?.slice(0, 10)}...`);
-    
-    // We try to remove the token from all 4 possible models regardless of the user ID, 
-    // ensuring no stale connections are left across any role or app the user was logged into.
-    const field = platform === "mobile" ? "fcmTokenMobile" : "fcmTokens";
-    const models = [FoodUser, FoodRestaurant, FoodDeliveryPartner, FoodAdmin];
-    
     try {
-      await Promise.all(
-        models.map((model) =>
-          model.updateMany(
-            { [field]: fcmToken },
-            { $pull: { [field]: fcmToken } },
-          ),
-        ),
-      );
+      await detachFirebaseDeviceTokenEverywhere(fcmToken);
       console.log("[FCM-Logout] Token removed from all collections successfully");
     } catch (err) {
       logger.warn({ err }, "Failed to remove FCM token from all collections during logout");
@@ -686,36 +503,6 @@ export const logout = async (refreshToken, fcmToken, platform) => {
   // 2. Invalidate the refresh token (standard logout procedure)
   const deleted = await FoodRefreshToken.deleteOne({ token: refreshToken });
   return { invalidated: deleted.deletedCount > 0 };
-};
-
-export const logoutAllDevices = async (userId) => {
-  if (!userId) {
-    throw new AuthError("User ID is required");
-  }
-
-  try {
-    const id = typeof userId === "string" ? new mongoose.Types.ObjectId(userId) : userId;
-
-    // 1. Remove all refresh tokens for this user
-    const deleted = await FoodRefreshToken.deleteMany({ userId: id });
-    console.log(`✅ [LogoutAllDevices] Deleted ${deleted.deletedCount} refresh tokens for user ${id}`);
-
-    // 2. Remove all FCM tokens for this user from all collections
-    const models = [FoodUser, FoodRestaurant, FoodDeliveryPartner, FoodAdmin];
-    await Promise.all(
-      models.map(model => 
-        model.updateOne(
-          { _id: id },
-          { $set: { fcmTokens: [], fcmTokenMobile: [] } }
-        )
-      )
-    );
-
-    return { invalidated: deleted.deletedCount > 0, count: deleted.deletedCount };
-  } catch (error) {
-    logger.error(`[Logout-All] Failed for ID=${userId}: ${error.message}`);
-    throw error;
-  }
 };
 
 export const getProfile = async (userId, role) => {
@@ -730,8 +517,12 @@ export const getProfile = async (userId, role) => {
       profile = await FoodUser.findById(id).lean();
       break;
     case ROLES.ADMIN:
-    case "SUB_ADMIN":
       profile = await FoodAdmin.findById(id).select("-password").lean();
+      if (profile) {
+        profile.effectivePermissions = profile.adminType === "super_admin"
+          ? ADMIN_FULL_PERMISSIONS
+          : sanitizeAdminPermissions(profile.permissions || {});
+      }
       break;
     case ROLES.RESTAURANT:
       {
@@ -874,73 +665,6 @@ export const getProfile = async (userId, role) => {
   return { user: profile };
 };
 
-export const deleteAccount = async (id, role) => {
-  if (!id || !role) {
-    throw new AuthError("Missing required parameters for account deletion");
-  }
-
-  try {
-    if (role === ROLES.USER) {
-      // Soft delete user: deactivate and pull tokens. 
-      // We DO NOT delete orders, transactions, or wallet history to preserve admin revenue data.
-      await FoodUser.updateOne({ _id: id }, { isActive: false, deletedAt: new Date(), fcmTokens: [], fcmTokenMobile: [] });
-      await FoodRefreshToken.deleteMany({ userId: id });
-    } else if (role === ROLES.RESTAURANT) {
-      // Soft delete restaurant: mark as deleted.
-      // We keep orders and transactions for admin analytics.
-      await FoodRestaurant.updateOne({ _id: id }, { status: "deleted", deletedAt: new Date(), fcmTokens: [], fcmTokenMobile: [], isAcceptingOrders: false });
-      await FoodRefreshToken.deleteMany({ userId: id });
-    } else if (role === ROLES.DELIVERY_PARTNER) {
-      // Soft delete delivery partner: mark as deleted.
-      await FoodDeliveryPartner.updateOne({ _id: id }, { status: "deleted", deletedAt: new Date(), fcmTokens: [], fcmTokenMobile: [], availabilityStatus: "offline" });
-      await FoodRefreshToken.deleteMany({ userId: id });
-    } else {
-      throw new AuthError("Invalid role for account deletion");
-    }
-
-    return { success: true, message: "Account deleted successfully" };
-  } catch (error) {
-    logger.error({ err: error, id, role }, "Failed to delete account");
-    throw error;
-  }
-};
-
-/** Get the current balance for any role (User, Restaurant, Delivery) before account deletion. */
-export const checkAccountBalance = async (userId, role) => {
-  if (!userId || !role) {
-    throw new AuthError("Invalid token payload for balance check");
-  }
-
-  let balance = 0;
-  let type = "Wallet";
-
-  switch (role) {
-    case ROLES.USER: {
-      const wallet = await FoodUserWallet.findOne({ userId }).select("balance").lean();
-      balance = Number(wallet?.balance || 0);
-      type = "Wallet Balance";
-      break;
-    }
-    case ROLES.RESTAURANT: {
-      // Live payout lives in food_transactions, not food_restaurant_wallets.
-      const finance = await getRestaurantFinance(userId);
-      balance = Number(finance?.currentCycle?.estimatedPayout || 0);
-      type = "Restaurant Available Balance";
-      break;
-    }
-    case ROLES.DELIVERY_PARTNER: {
-      const wallet = await FoodDeliveryWallet.findOne({ deliveryPartnerId: userId }).select("balance").lean();
-      balance = Number(wallet?.balance || 0);
-      type = "Delivery Pocket Balance";
-      break;
-    }
-    default:
-      throw new AuthError("Unknown role for balance check");
-  }
-
-  return { balance, type };
-};
-
 const ADMIN_SERVICES_ALLOWED = ["food", "quickCommerce", "taxi"];
 
 /** Update admin profile (name, email, phone, profileImage). Only for ADMIN role. */
@@ -960,6 +684,18 @@ export const updateAdminProfile = async (userId, body) => {
     if (!normalizedEmail) {
       throw new ValidationError("Email is required");
     }
+
+    const emailRegex = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9\-]+(?:\.[a-zA-Z0-9\-]+)*\.[a-zA-Z]{2,10}$/;
+    if (!emailRegex.test(normalizedEmail) || normalizedEmail.includes("..")) {
+      throw new ValidationError("Invalid email format");
+    }
+
+    const domain = normalizedEmail.split("@")[1];
+    const segments = domain ? domain.split(".") : [];
+    if (segments.length >= 2 && segments[segments.length - 1] === segments[segments.length - 2]) {
+      throw new ValidationError("Invalid email domain (repeated segments)");
+    }
+
     if (normalizedEmail !== admin.email) {
       const duplicateAdmin = await FoodAdmin.findOne({
         _id: { $ne: admin._id },
@@ -1162,6 +898,7 @@ export const refreshAccessToken = async (token) => {
   const newAccessToken = signAccessToken({
     userId: payload.userId,
     role: payload.role,
+    ...(payload.adminType ? { adminType: payload.adminType } : {}),
   });
 
   return { accessToken: newAccessToken, refreshToken: token };

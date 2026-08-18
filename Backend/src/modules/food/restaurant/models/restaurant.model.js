@@ -118,13 +118,22 @@ const restaurantSchema = new mongoose.Schema(
       type: [String],
       default: [],
     } /**
-     * Operational toggle controlled by restaurant dashboard.
-     * When false, restaurant is shown as offline / not accepting orders even within open hours.
+     * Manual availability override controlled by restaurant dashboard Online/Offline toggle.
+     * false = force offline (ignore outlet timings).
+     * true = follow outlet timings only (no force-online outside hours).
      */,
     isAcceptingOrders: {
       type: Boolean,
       default: true,
       index: true,
+    },
+    /**
+     * Legacy field. No longer used to keep a restaurant online outside outlet hours.
+     * Cleared whenever the Online/Offline toggle is updated.
+     */
+    outsideHoursOverride: {
+      type: Boolean,
+      default: false,
     },
     panNumber: {
       type: String,
@@ -195,6 +204,25 @@ const restaurantSchema = new mongoose.Schema(
       type: geoPointSchema,
       default: undefined,
     },
+    /** Proposed location awaiting admin approval (published location stays live for users). */
+    pendingLocation: {
+      type: geoPointSchema,
+      default: undefined,
+    },
+    pendingZoneId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "FoodZone",
+      default: undefined,
+    },
+    locationUpdateStatus: {
+      type: String,
+      enum: ["none", "pending", "approved", "rejected"],
+      default: "none",
+      index: true,
+    },
+    locationUpdateRequestedAt: { type: Date },
+    locationUpdateReviewedAt: { type: Date },
+    locationRejectionReason: { type: String, trim: true, default: "" },
     /** Optional service zone id (can be computed from location). */
     zoneId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -233,18 +261,20 @@ const restaurantSchema = new mongoose.Schema(
     diningSettings: {
       isEnabled: { type: Boolean, default: false },
       maxGuests: { type: Number, default: 6 },
-      diningType: { type: [String], default: ["family-dining"] },
-    },
-    takeawaySettings: {
-      isEnabled: { type: Boolean, default: false },
+      diningType: { type: String, default: "family-dining" },
     },
     menu: {
       sections: { type: Array, default: [] },
     },
     status: {
       type: String,
-      enum: ["pending", "approved", "rejected", "banned", "deleted"],
+      enum: ["pending", "approved", "rejected"],
       default: "pending",
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true,
     },
     approvedAt: {
       type: Date,
@@ -256,12 +286,58 @@ const restaurantSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
-    pendingApprovalType: {
-      type: String,
-      enum: ["registration", "changes"],
-      default: "registration",
+    onboardingFeePaid: {
+      type: Boolean,
+      default: false,
     },
-    deletedAt: {
+    onboardingFeeAmount: {
+      type: Number,
+      default: 0,
+    },
+    onboardingFeePaidAt: {
+      type: Date,
+    },
+    onboardingFeePaymentMethod: {
+      type: String,
+      trim: true,
+    },
+    onboardingFeePaymentOrderId: {
+      type: String,
+      trim: true,
+    },
+    onboardingFeePaymentId: {
+      type: String,
+      trim: true,
+    },
+    onboardingFeePaymentSignature: {
+      type: String,
+      trim: true,
+    },
+    subscriptionPlan: {
+      type: String,
+    },
+    subscriptionAmount: {
+      type: Number,
+      default: 0,
+    },
+    subscriptionPaidAmount: {
+      type: Number,
+      default: 0,
+    },
+    subscriptionAutoDeductedAmount: {
+      type: Number,
+      default: 0,
+    },
+    subscriptionDueAmount: {
+      type: Number,
+      default: 0,
+    },
+    subscriptionStatus: {
+      type: String,
+      enum: ['due', 'paid'],
+      default: 'due',
+    },
+    subscriptionValidTill: {
       type: Date,
     },
   },
@@ -274,12 +350,7 @@ const restaurantSchema = new mongoose.Schema(
 restaurantSchema.pre("validate", function normalizeDerivedFields(next) {
   const name =
     typeof this.restaurantName === "string" ? this.restaurantName : "";
-  const normalizedName = name
-    .trim()
-    .toLowerCase()
-    .replace(/['’]/g, "")
-    .replace(/-/g, " ")
-    .replace(/\s+/g, " ");
+  const normalizedName = name.trim().toLowerCase().replace(/\s+/g, " ");
   this.restaurantNameNormalized = normalizedName || undefined;
 
   const phoneRaw =
@@ -351,11 +422,10 @@ restaurantSchema.pre("validate", function normalizeDerivedFields(next) {
       Array.isArray(this.location.coordinates) &&
       this.location.coordinates.length === 2
     ) {
+      // Coordinates are the 2dsphere source of truth — always overwrite stale lat/lng.
       const [clng, clat] = this.location.coordinates;
-      if (typeof this.location.latitude !== "number" && Number.isFinite(clat))
-        this.location.latitude = clat;
-      if (typeof this.location.longitude !== "number" && Number.isFinite(clng))
-        this.location.longitude = clng;
+      if (Number.isFinite(clat)) this.location.latitude = clat;
+      if (Number.isFinite(clng)) this.location.longitude = clng;
     }
 
     // Sync flat -> location for address fields if location fields are empty.
@@ -400,8 +470,6 @@ restaurantSchema.index({ restaurantName: 1 });
 restaurantSchema.index({ restaurantNameNormalized: 1 });
 restaurantSchema.index({ city: 1 });
 restaurantSchema.index({ "location.city": 1 });
-restaurantSchema.index({ location: "2dsphere", "takeawaySettings.isEnabled": 1 });
-restaurantSchema.index({ location: "2dsphere", "diningSettings.isEnabled": 1 });
 restaurantSchema.index({ location: "2dsphere" });
 restaurantSchema.index({ restaurantName: 1, ownerPhone: 1 });
 // Enforce uniqueness at the database level to avoid race conditions in registration.
@@ -417,9 +485,6 @@ restaurantSchema.index(
   },
 );
 restaurantSchema.index({ status: 1, createdAt: -1 });
-restaurantSchema.index({ "takeawaySettings.isEnabled": 1 });
-restaurantSchema.index({ "diningSettings.isEnabled": 1 });
-restaurantSchema.index({ zoneId: 1, status: 1 });
 
 export const FoodRestaurant = mongoose.model(
   "FoodRestaurant",

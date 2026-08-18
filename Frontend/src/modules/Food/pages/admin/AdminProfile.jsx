@@ -15,6 +15,19 @@ import { User, Mail, Phone, Save, Loader2, Upload, X, Pencil, Eye, EyeOff } from
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
+const ADMIN_EMAIL_REGEX = /^(?!.*\.\.)([A-Za-z0-9]+[._%+-]?)*[A-Za-z0-9]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}$/
+const INDIAN_MOBILE_REGEX = /^[6-9]\d{9}$/
+const NAME_REGEX = /^[A-Za-z]+(?:\s+[A-Za-z]+)*$/
+
+const hasSuspiciousEmailTld = (emailValue) => {
+  const email = String(emailValue || "").trim().toLowerCase()
+  const domain = email.split("@")[1] || ""
+  const tld = domain.split(".").pop() || ""
+  if (!tld) return true
+  if (/^com+$/i.test(tld) && tld !== "com") return true
+  if (/(.)\1{2,}/.test(tld)) return true
+  return false
+}
 
 
 export default function AdminProfile() {
@@ -157,6 +170,29 @@ export default function AdminProfile() {
     e.preventDefault();
     
     try {
+      const name = String(formData.name || "").trim();
+      if (!name || !NAME_REGEX.test(name)) {
+        toast.error("Name should contain only letters and spaces");
+        return;
+      }
+
+      const email = String(formData.email || "").trim();
+      if (!email) {
+        toast.error("Email is required");
+        return;
+      }
+
+      if (!ADMIN_EMAIL_REGEX.test(email) || hasSuspiciousEmailTld(email)) {
+        toast.error("Please enter a valid email address");
+        return;
+      }
+
+      const phone = String(formData.phone || "").trim();
+      if (phone && !INDIAN_MOBILE_REGEX.test(phone)) {
+        toast.error("Please enter a valid 10-digit Indian mobile number");
+        return;
+      }
+
       const currentPassword = String(passwordData.currentPassword || "").trim();
       const newPassword = String(passwordData.newPassword || "").trim();
       const confirmPassword = String(passwordData.confirmPassword || "").trim();
@@ -208,9 +244,9 @@ export default function AdminProfile() {
 
       // Update profile with uploaded image URL
       const response = await adminAPI.updateAdminProfile({
-        name: formData.name,
-        email: formData.email || undefined,
-        phone: formData.phone || undefined,
+        name,
+        email,
+        phone: phone || undefined,
         profileImage: profileImageUrl || undefined,
       });
 
@@ -408,7 +444,7 @@ export default function AdminProfile() {
                     src={profile.profileImage}
                     alt={profile.name}
                     className="w-full h-full object-cover"
-                  />
+                   loading="lazy" decoding="async" />
                 ) : (
                   <span className="text-2xl font-semibold text-neutral-600">
                     {getInitials(profile.name)}
@@ -435,7 +471,12 @@ export default function AdminProfile() {
                   id="name"
                   type="text"
                   value={formData.name}
-                  onChange={(e) => handleInputChange("name", e.target.value)}
+                  onChange={(e) =>
+                    handleInputChange(
+                      "name",
+                      e.target.value.replace(/[^A-Za-z\s]/g, "").replace(/\s{2,}/g, " "),
+                    )
+                  }
                   placeholder="Enter your full name"
                   required
                   disabled={!isEditMode || saving || uploading}
@@ -470,7 +511,10 @@ export default function AdminProfile() {
                   id="phone"
                   type="tel"
                   value={formData.phone}
-                  onChange={(e) => handleInputChange("phone", e.target.value)}
+                  onChange={(e) =>
+                    handleInputChange("phone", e.target.value.replace(/\D/g, "").slice(0, 10))
+                  }
+                  maxLength={10}
                   placeholder="Enter phone number (optional)"
                   disabled={!isEditMode || saving || uploading}
                   className={`h-11 ${!isEditMode ? "bg-neutral-50 cursor-not-allowed" : ""}`}
@@ -494,7 +538,7 @@ export default function AdminProfile() {
                       src={imagePreview || profile.profileImage}
                       alt="Profile"
                       className="w-full h-full object-cover"
-                    />
+                     loading="lazy" decoding="async" />
                     {isEditMode && (
                       <>
                         <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
@@ -695,4 +739,3 @@ export default function AdminProfile() {
     </div>
   );
 }
-

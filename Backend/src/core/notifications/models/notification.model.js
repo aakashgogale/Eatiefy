@@ -35,7 +35,7 @@ const notificationSchema = new mongoose.Schema(
         },
         source: {
             type: String,
-            enum: ['ADMIN_BROADCAST', 'FSSAI_EXPIRY', 'ORDER_UPDATE'],
+            enum: ['ADMIN_BROADCAST', 'FSSAI_EXPIRY', 'SUPPORT_RESPONSE'],
             default: 'ADMIN_BROADCAST',
             index: true
         },
@@ -73,7 +73,6 @@ const notificationSchema = new mongoose.Schema(
 notificationSchema.index({ ownerType: 1, ownerId: 1, createdAt: -1 });
 notificationSchema.index({ ownerType: 1, ownerId: 1, isRead: 1, dismissedAt: 1 });
 notificationSchema.index({ broadcastId: 1, ownerType: 1, ownerId: 1 }, { unique: true, sparse: true });
-// TTL Index: Auto-delete notifications older than 3 days (259,200 seconds) for 512MB Free DB Tier safety
-notificationSchema.index({ createdAt: 1 }, { expireAfterSeconds: 3 * 24 * 60 * 60 });
+notificationSchema.index({ createdAt: 1 }, { expireAfterSeconds: 7 * 24 * 60 * 60 });
 
 export const FoodNotification = mongoose.model('FoodNotification', notificationSchema);

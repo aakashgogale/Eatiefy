@@ -5,18 +5,14 @@ import {
   refreshAccessToken,
   requestRestaurantOtp,
   verifyRestaurantOtpAndLogin,
-  reapplyRestaurant,
   requestDeliveryOtp,
   verifyDeliveryOtpAndLogin,
   logout,
-  logoutAllDevices,
   getProfile,
   updateAdminProfile,
   changeAdminPassword,
   requestAdminForgotPasswordOtp,
   resetAdminPasswordWithOtp,
-  deleteAccount,
-  checkAccountBalance,
 } from "./auth.service.js";
 import { validateUserOtpRequestDto } from "../../dtos/auth/userOtpRequest.dto.js";
 import { validateUserOtpVerifyDto } from "../../dtos/auth/userOtpVerify.dto.js";
@@ -48,7 +44,7 @@ export const requestUserOtpController = async (req, res, next) => {
 
 export const verifyUserOtpController = async (req, res, next) => {
   try {
-    const { phone, otp, ref, fcmToken, platform, name, confirmAction } = validateUserOtpVerifyDto(
+    const { phone, otp, ref, fcmToken, platform, name } = validateUserOtpVerifyDto(
       req.body,
     );
     const result = await verifyUserOtpAndLogin(
@@ -58,7 +54,6 @@ export const verifyUserOtpController = async (req, res, next) => {
       fcmToken,
       platform,
       name,
-      confirmAction,
     );
     return sendResponse(res, 200, "Login successful", result);
   } catch (error) {
@@ -101,19 +96,9 @@ export const requestRestaurantOtpController = async (req, res, next) => {
 
 export const verifyRestaurantOtpController = async (req, res, next) => {
   try {
-    const { phone, otp, fcmToken, platform, confirmAction } = validateRestaurantOtpVerifyDto(req.body);
-    const result = await verifyRestaurantOtpAndLogin(phone, otp, fcmToken, platform, confirmAction);
+    const { phone, otp, fcmToken, platform } = validateRestaurantOtpVerifyDto(req.body);
+    const result = await verifyRestaurantOtpAndLogin(phone, otp, fcmToken, platform);
     return sendResponse(res, 200, "Login successful", result);
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const reapplyRestaurantController = async (req, res, next) => {
-  try {
-    const { phone } = validateRestaurantOtpRequestDto(req.body);
-    const result = await reapplyRestaurant(phone);
-    return sendResponse(res, 200, "Restaurant re-apply request processed successfully", result);
   } catch (error) {
     next(error);
   }
@@ -134,8 +119,8 @@ export const requestDeliveryOtpController = async (req, res, next) => {
 
 export const verifyDeliveryOtpController = async (req, res, next) => {
   try {
-    const { phone, otp, fcmToken, platform, confirmAction } = validateDeliveryOtpVerifyDto(req.body);
-    const result = await verifyDeliveryOtpAndLogin(phone, otp, fcmToken, platform, confirmAction);
+    const { phone, otp, fcmToken, platform } = validateDeliveryOtpVerifyDto(req.body);
+    const result = await verifyDeliveryOtpAndLogin(phone, otp, fcmToken, platform);
     return sendResponse(res, 200, "Login successful", result);
   } catch (error) {
     next(error);
@@ -150,21 +135,6 @@ export const logoutController = async (req, res, next) => {
       res,
       200,
       result.invalidated ? "Logged out successfully" : "Token already invalid",
-      result,
-    );
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const logoutAllDevicesController = async (req, res, next) => {
-  try {
-    const { userId } = req.user;
-    const result = await logoutAllDevices(userId);
-    return sendResponse(
-      res,
-      200,
-      "Logged out from all devices successfully",
       result,
     );
   } catch (error) {
@@ -236,26 +206,6 @@ export const resetAdminPasswordWithOtpController = async (req, res, next) => {
     return sendResponse(res, 200, "Password reset successfully", {
       success: true,
     });
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const deleteAccountController = async (req, res, next) => {
-  try {
-    const { userId, role } = req.user;
-    const result = await deleteAccount(userId, role);
-    return sendResponse(res, 200, result.message, result);
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const checkAccountBalanceController = async (req, res, next) => {
-  try {
-    const { userId, role } = req.user;
-    const result = await checkAccountBalance(userId, role);
-    return sendResponse(res, 200, "Balance checked successfully", result);
   } catch (error) {
     next(error);
   }

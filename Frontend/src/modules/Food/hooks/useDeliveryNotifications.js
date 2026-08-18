@@ -1410,6 +1410,16 @@ export const useDeliveryNotifications = () => {
     stopAlertsWhenQueueEmpty();
   }, [clearOrderMuteState, markOrderIdsProcessed, newOrder, stopAlertLoop, stopAlertsWhenQueueEmpty]);
 
+  const clearAllOffers = useCallback(() => {
+    stopAlertLoop();
+    activeOrderRef.current = null;
+    setNewOrder(null);
+    try {
+      useDeliveryStore.getState().setNewOrders([]);
+    } catch (_) {}
+    stopAlertsWhenQueueEmpty();
+  }, [stopAlertLoop, stopAlertsWhenQueueEmpty]);
+
   const clearClaimedOrderId = () => setClaimedOrderId(null);
 
   const clearOrderReady = () => {
@@ -1436,6 +1446,7 @@ export const useDeliveryNotifications = () => {
   return {
     newOrder,
     clearNewOrder,
+    clearAllOffers,
     orderReady,
     clearOrderReady,
     orderStatusUpdate,

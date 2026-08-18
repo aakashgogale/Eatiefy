@@ -8,12 +8,6 @@ import { Label } from "@food/components/ui/label"
 import { Button } from "@food/components/ui/button"
 import { adminAPI, uploadAPI, zoneAPI } from "@food/api"
 import { toast } from "sonner"
-import { Switch } from "@food/components/ui/switch"
-import { EMAIL_REGEX } from "@/shared/utils/emailValidation"
-import { MobileTimePicker } from "@mui/x-date-pickers/MobileTimePicker"
-import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
-import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
-
 const debugLog = (...args) => {}
 const debugWarn = (...args) => { console.warn(...args) }
 const debugError = (...args) => { console.error(...args) }
@@ -30,6 +24,7 @@ const cuisinesOptions = [
 ]
 
 const daysOfWeek = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+const EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9\-]+(?:\.[a-zA-Z0-9\-]+)*\.[a-zA-Z]{2,6}$/
 const PHONE_REGEX = /^\d{10}$/
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/
 const FSSAI_REGEX = /^\d{14}$/
@@ -53,68 +48,6 @@ const timeStringToMinutes = (value = "") => {
   if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null
   return hours * 60 + minutes
 }
-
-const normalizeTimeValue = (value) => {
-  if (!value) return ""
-  const raw = String(value).trim()
-  if (!raw) return ""
-
-  const to24Hour = (h, m, period) => {
-    let hours = Number(h)
-    const minutes = Number(m)
-    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return ""
-    if (minutes < 0 || minutes > 59) return ""
-    const p = String(period || "").toUpperCase()
-    if (p === "AM") {
-      if (hours === 12) hours = 0
-    } else if (p === "PM") {
-      if (hours !== 12) hours += 12
-    }
-    if (hours < 0 || hours > 23) return ""
-    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`
-  }
-
-  if (/^\d{2}:\d{2}$/.test(raw)) {
-    const [h, m] = raw.split(":").map(Number)
-    if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || h > 23 || m < 0 || m > 59) {
-      return ""
-    }
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
-  }
-
-  if (/^\d{1}:\d{2}$/.test(raw)) {
-    const [h, m] = raw.split(":")
-    return to24Hour(h, m, "")
-  }
-
-  const ampm = raw.match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/)
-  if (ampm) {
-    return to24Hour(ampm[1], ampm[2], ampm[3])
-  }
-
-  const parsed = new Date(raw)
-  if (!Number.isNaN(parsed.getTime())) {
-    return timeToString(parsed)
-  }
-  return ""
-}
-
-const stringToTime = (timeString) => {
-  const normalized = normalizeTimeValue(timeString)
-  if (!normalized || !normalized.includes(":")) {
-    return null
-  }
-  const [hours, minutes] = normalized.split(":").map(Number)
-  return new Date(2000, 0, 1, hours || 0, minutes || 0)
-}
-
-const timeToString = (date) => {
-  if (!date) return ""
-  const hours = date.getHours().toString().padStart(2, "0")
-  const minutes = date.getMinutes().toString().padStart(2, "0")
-  return `${hours}:${minutes}`
-}
-
 const getStoredFileLabel = (value) => {
   if (!value) return ""
   if (value instanceof File) return value.name
@@ -263,7 +196,6 @@ export default function AddRestaurant() {
     openingTime: "",
     closingTime: "",
     openDays: [],
-    takeawayEnabled: true,
   })
 
   // Step 3: Documents
@@ -487,8 +419,16 @@ export default function AddRestaurant() {
     if (step1.ownerName?.trim() && (!NAME_REGEX.test(step1.ownerName.trim()) || !hasLetters(step1.ownerName))) {
       errors.push("Owner name must contain valid characters")
     }
-    if (!step1.ownerEmail?.trim()) errors.push("Owner email is required")
-    if (step1.ownerEmail?.trim() && !EMAIL_REGEX.test(step1.ownerEmail.trim())) errors.push("Please enter a valid email address")
+    if (!step1.ownerEmail?.trim()) {
+      errors.push("Owner email is required")
+    } else if (!EMAIL_REGEX.test(step1.ownerEmail.trim())) {
+      errors.push("Please enter a valid email address")
+    } else {
+      const emailParts = step1.ownerEmail.trim().toLowerCase().split('@')[1]?.split('.') || []
+      if (emailParts.length >= 3 && emailParts[emailParts.length - 1] === emailParts[emailParts.length - 2]) {
+        errors.push("Please enter a valid email address (avoid repeated domain parts like .com.com)")
+      }
+    }
     if (!step1.ownerPhone?.trim()) errors.push("Owner phone number is required")
     if (step1.ownerPhone?.trim() && !PHONE_REGEX.test(step1.ownerPhone.trim())) errors.push("Owner phone number must be 10 digits")
     if (!step1.primaryContactNumber?.trim()) errors.push("Primary contact number is required")
@@ -497,6 +437,22 @@ export default function AddRestaurant() {
     if (!step1.location?.area?.trim()) errors.push("Area/Sector/Locality is required")
     if (!step1.location?.city?.trim()) errors.push("City is required")
     return errors
+  }
+
+  const checkDuplicateRestaurantPhone = async (phoneNumber = "") => {
+    const normalized = sanitizeDigits(phoneNumber).slice(-10)
+    if (!normalized || normalized.length !== 10) return false
+    try {
+      const res = await adminAPI.getRestaurants({ limit: 1000 })
+      const list = res?.data?.data?.restaurants || res?.data?.restaurants || []
+      return list.some((restaurant) => {
+        const owner = sanitizeDigits(String(restaurant?.ownerPhone || "")).slice(-10)
+        const primary = sanitizeDigits(String(restaurant?.primaryContactNumber || "")).slice(-10)
+        return owner === normalized || primary === normalized
+      })
+    } catch (err) {
+      return false
+    }
   }
 
   const validateStep2 = () => {
@@ -512,8 +468,6 @@ export default function AddRestaurant() {
     if (openingMinutes !== null && closingMinutes !== null) {
       if (openingMinutes === closingMinutes) {
         errors.push("Opening time and closing time cannot be same")
-      } else if (closingMinutes < openingMinutes) {
-        errors.push("Closing time cannot be less than opening time")
       }
     }
     if (!step2.openDays || step2.openDays.length === 0) errors.push("Please select at least one open day")
@@ -551,7 +505,7 @@ export default function AddRestaurant() {
     if (step3.accountNumber?.trim() && !ACCOUNT_NUMBER_REGEX.test(step3.accountNumber.trim())) {
       errors.push("Account number must be 9 to 18 digits")
     }
-    if (step3.accountNumber !== step3.confirmAccountNumber) errors.push("Account number and confirmation do not match")
+    if (step3.accountNumber !== step3.confirmAccountNumber) errors.push("SILENT:Account number and confirmation do not match")
     if (!step3.ifscCode?.trim()) errors.push("IFSC code is required")
     if (step3.ifscCode?.trim() && !IFSC_REGEX.test(step3.ifscCode.trim())) errors.push("IFSC code must be in valid format")
     if (!step3.accountHolderName?.trim()) errors.push("Account holder name is required")
@@ -563,7 +517,7 @@ export default function AddRestaurant() {
     return errors
   }
 
-  const handleNext = () => {
+  const handleNext = async () => {
     setFormErrors({})
     let validationErrors = []
 
@@ -577,9 +531,21 @@ export default function AddRestaurant() {
 
     if (validationErrors.length > 0) {
       validationErrors.forEach((error) => {
-        toast.error(error)
+        if (!error.startsWith("SILENT:")) {
+          toast.error(error)
+        }
       })
       return
+    }
+
+    if (step === 1) {
+      const duplicateOwnerPhone = await checkDuplicateRestaurantPhone(step1.ownerPhone)
+      if (duplicateOwnerPhone) {
+        const msg = "Restaurant already exists with the same mobile number"
+        setFormErrors({ ownerPhone: msg })
+        toast.error(msg)
+        return
+      }
     }
 
     if (step < 3) {
@@ -597,14 +563,14 @@ export default function AddRestaurant() {
       // Upload all images first
       let profileImageData = null
       if (step2.profileImage instanceof File) {
-        profileImageData = await handleUpload(step2.profileImage, "appzeto/restaurant/profile")
+        profileImageData = await handleUpload(step2.profileImage, "eatiefy/restaurant/profile")
       } else if (step2.profileImage?.url) {
         profileImageData = step2.profileImage
       }
 
       let menuImagesData = []
       for (const file of step2.menuImages.filter(f => f instanceof File)) {
-        const uploaded = await handleUpload(file, "appzeto/restaurant/menu")
+        const uploaded = await handleUpload(file, "eatiefy/restaurant/menu")
         menuImagesData.push(uploaded)
       }
       const existingMenuUrls = step2.menuImages.filter(img => !(img instanceof File) && (img?.url || (typeof img === 'string' && img.startsWith('http'))))
@@ -612,7 +578,7 @@ export default function AddRestaurant() {
 
       let panImageData = null
       if (step3.panImage instanceof File) {
-        panImageData = await handleUpload(step3.panImage, "appzeto/restaurant/pan")
+        panImageData = await handleUpload(step3.panImage, "eatiefy/restaurant/pan")
       } else if (step3.panImage?.url) {
         panImageData = step3.panImage
       }
@@ -620,7 +586,7 @@ export default function AddRestaurant() {
       let gstImageData = null
       if (step3.gstRegistered && step3.gstImage) {
         if (step3.gstImage instanceof File) {
-          gstImageData = await handleUpload(step3.gstImage, "appzeto/restaurant/gst")
+          gstImageData = await handleUpload(step3.gstImage, "eatiefy/restaurant/gst")
         } else if (step3.gstImage?.url) {
           gstImageData = step3.gstImage
         }
@@ -628,7 +594,7 @@ export default function AddRestaurant() {
 
       let fssaiImageData = null
       if (step3.fssaiImage instanceof File) {
-        fssaiImageData = await handleUpload(step3.fssaiImage, "appzeto/restaurant/fssai")
+        fssaiImageData = await handleUpload(step3.fssaiImage, "eatiefy/restaurant/fssai")
       } else if (step3.fssaiImage?.url) {
         fssaiImageData = step3.fssaiImage
       }
@@ -668,9 +634,6 @@ export default function AddRestaurant() {
         ifscCode: step3.ifscCode,
         accountHolderName: step3.accountHolderName,
         accountType: step3.accountType,
-        takeawaySettings: {
-          isEnabled: step2.takeawayEnabled === true,
-        },
       }
 
       // Call backend API
@@ -1012,12 +975,24 @@ export default function AddRestaurant() {
             <Label className="text-xs text-gray-700">Phone number*</Label>
             <Input
               value={step1.ownerPhone || ""}
-              onChange={(e) => setStep1({ ...step1, ownerPhone: sanitizeDigits(e.target.value).slice(0, 10) })}
+              onChange={(e) => {
+                setStep1({ ...step1, ownerPhone: sanitizeDigits(e.target.value).slice(0, 10) })
+                setFormErrors((prev) => ({ ...prev, ownerPhone: undefined }))
+              }}
+              onBlur={async () => {
+                const duplicateOwnerPhone = await checkDuplicateRestaurantPhone(step1.ownerPhone)
+                if (duplicateOwnerPhone) {
+                  setFormErrors((prev) => ({ ...prev, ownerPhone: "Restaurant already exists with the same mobile number" }))
+                }
+              }}
               className="mt-1 bg-white text-sm text-black placeholder-black"
               placeholder="10-digit mobile number"
               inputMode="numeric"
               maxLength={10}
             />
+            {formErrors.ownerPhone && (
+              <p className="mt-1 text-xs text-red-600">{formErrors.ownerPhone}</p>
+            )}
           </div>
         </div>
       </section>
@@ -1197,7 +1172,7 @@ export default function AddRestaurant() {
                 const imageUrl = file instanceof File ? URL.createObjectURL(file) : (file?.url || file)
                 return (
                   <div key={idx} className="relative aspect-[4/5] rounded-md overflow-hidden bg-gray-100">
-                    {imageUrl && <img src={imageUrl} alt={`Menu ${idx + 1}`} className="w-full h-full object-cover" />}
+                    {imageUrl && <img src={imageUrl} alt={`Menu ${idx + 1}`} className="w-full h-full object-cover"  loading="lazy" decoding="async" />}
                     <button
                       type="button"
                       onClick={() => setStep2((prev) => ({ ...prev, menuImages: prev.menuImages.filter((_, i) => i !== idx) }))}
@@ -1219,7 +1194,7 @@ export default function AddRestaurant() {
               {step2.profileImage ? (
                 (() => {
                   const imageSrc = step2.profileImage instanceof File ? URL.createObjectURL(step2.profileImage) : (step2.profileImage?.url || step2.profileImage)
-                  return imageSrc ? <img src={imageSrc} alt="Profile" className="w-full h-full object-cover" /> : <ImageIcon className="w-6 h-6 text-gray-500" />
+                  return imageSrc ? <img src={imageSrc} alt="Profile" className="w-full h-full object-cover"  loading="lazy" decoding="async" /> : <ImageIcon className="w-6 h-6 text-gray-500" />
                 })()
               ) : (
                 <ImageIcon className="w-6 h-6 text-gray-500" />
@@ -1273,109 +1248,28 @@ export default function AddRestaurant() {
 
         <div className="space-y-3">
           <Label className="text-xs text-gray-700">Outlet timings*</Label>
-          <LocalizationProvider dateAdapter={AdapterDateFns}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="border border-gray-200 rounded-md px-3 py-2 bg-gray-50/60">
-                <div className="flex items-center gap-2 mb-2">
-                  <Clock className="w-4 h-4 text-gray-800" />
-                  <span className="text-xs font-medium text-gray-900">Opening time</span>
-                </div>
-                <MobileTimePicker
-                  ampm={true}
-                  value={stringToTime(step2.openingTime)}
-                  onChange={(newValue) => {
-                    if (!newValue) {
-                      setStep2({ ...step2, openingTime: "" })
-                      return
-                    }
-                    const nextOpening = timeToString(newValue)
-                    const closingMinutes = timeStringToMinutes(step2.closingTime)
-                    const openingMinutes = timeStringToMinutes(nextOpening)
-                    if (openingMinutes !== null && closingMinutes !== null) {
-                      if (openingMinutes === closingMinutes) {
-                        toast.error("Opening time and closing time cannot be same")
-                        return
-                      }
-                      if (closingMinutes < openingMinutes) {
-                        toast.error("Closing time cannot be less than opening time")
-                        return
-                      }
-                    }
-                    setStep2({ ...step2, openingTime: nextOpening })
-                  }}
-                  slotProps={{
-                    textField: {
-                      variant: "outlined",
-                      size: "small",
-                      placeholder: "Select time",
-                      sx: {
-                        "& .MuiOutlinedInput-root": {
-                          height: "36px",
-                          fontSize: "12px",
-                          backgroundColor: "white",
-                          "& fieldset": { borderColor: "#e5e7eb" },
-                          "&:hover fieldset": { borderColor: "#d1d5db" },
-                          "&.Mui-focused fieldset": { borderColor: "#000" },
-                        },
-                        "& .MuiInputBase-input": { padding: "8px 12px", fontSize: "12px" },
-                      },
-                    },
-                  }}
-                  format="hh:mm a"
-                />
-              </div>
-
-              <div className="border border-gray-200 rounded-md px-3 py-2 bg-gray-50/60">
-                <div className="flex items-center gap-2 mb-2">
-                  <Clock className="w-4 h-4 text-gray-800" />
-                  <span className="text-xs font-medium text-gray-900">Closing time</span>
-                </div>
-                <MobileTimePicker
-                  ampm={true}
-                  value={stringToTime(step2.closingTime)}
-                  onChange={(newValue) => {
-                    if (!newValue) {
-                      setStep2({ ...step2, closingTime: "" })
-                      return
-                    }
-                    const nextClosing = timeToString(newValue)
-                    const openingMinutes = timeStringToMinutes(step2.openingTime)
-                    const closingMinutes = timeStringToMinutes(nextClosing)
-                    if (openingMinutes !== null && closingMinutes !== null) {
-                      if (openingMinutes === closingMinutes) {
-                        toast.error("Opening time and closing time cannot be same")
-                        return
-                      }
-                      if (closingMinutes < openingMinutes) {
-                        toast.error("Closing time cannot be less than opening time")
-                        return
-                      }
-                    }
-                    setStep2({ ...step2, closingTime: nextClosing })
-                  }}
-                  slotProps={{
-                    textField: {
-                      variant: "outlined",
-                      size: "small",
-                      placeholder: "Select time",
-                      sx: {
-                        "& .MuiOutlinedInput-root": {
-                          height: "36px",
-                          fontSize: "12px",
-                          backgroundColor: "white",
-                          "& fieldset": { borderColor: "#e5e7eb" },
-                          "&:hover fieldset": { borderColor: "#d1d5db" },
-                          "&.Mui-focused fieldset": { borderColor: "#000" },
-                        },
-                        "& .MuiInputBase-input": { padding: "8px 12px", fontSize: "12px" },
-                      },
-                    },
-                  }}
-                  format="hh:mm a"
-                />
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <Label className="text-xs text-gray-700 mb-1 block">Opening time</Label>
+              <Input
+                type="time"
+                value={step2.openingTime || ""}
+                onChange={(e) => setStep2({ ...step2, openingTime: e.target.value })}
+                autoComplete="off"
+                className="bg-white text-sm"
+              />
             </div>
-          </LocalizationProvider>
+            <div>
+              <Label className="text-xs text-gray-700 mb-1 block">Closing time</Label>
+              <Input
+                type="time"
+                value={step2.closingTime || ""}
+                onChange={(e) => setStep2({ ...step2, closingTime: e.target.value })}
+                autoComplete="off"
+                className="bg-white text-sm"
+              />
+            </div>
+          </div>
         </div>
 
         <div>
@@ -1416,23 +1310,6 @@ export default function AddRestaurant() {
             })}
           </div>
         </div>
-
-        <div className="flex items-center justify-between p-4 rounded-md border border-gray-100 bg-gray-50/50">
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
-              <span>🛍️</span>
-              <span>Takeaway (Pickup)</span>
-            </p>
-            <p className="text-[11px] text-gray-500 mt-0.5">
-              Allow customers to place orders online and pick them up from the restaurant.
-            </p>
-          </div>
-          <Switch
-            checked={step2.takeawayEnabled}
-            onCheckedChange={(checked) => setStep2({ ...step2, takeawayEnabled: checked })}
-            className="data-[state=unchecked]:bg-gray-300 data-[state=checked]:bg-green-600"
-          />
-        </div>
       </section>
     </div>
   )
@@ -1472,7 +1349,7 @@ export default function AddRestaurant() {
           {step3.panImage && (
             <div className="mt-2 flex items-center gap-3">
               <div className="h-14 w-14 overflow-hidden rounded-md border border-gray-200 bg-gray-50">
-                <img src={getStoredImageSrc(step3.panImage)} alt="PAN document" className="h-full w-full object-cover" />
+                <img src={getStoredImageSrc(step3.panImage)} alt="PAN document" className="h-full w-full object-cover"  loading="lazy" decoding="async" />
               </div>
               <p className="text-xs text-gray-600">Selected: {getStoredFileLabel(step3.panImage)}</p>
             </div>
@@ -1493,7 +1370,16 @@ export default function AddRestaurant() {
           </button>
           <button
             type="button"
-            onClick={() => setStep3({ ...step3, gstRegistered: false })}
+            onClick={() =>
+              setStep3({
+                ...step3,
+                gstRegistered: false,
+                gstNumber: "",
+                gstLegalName: "",
+                gstAddress: "",
+                gstImage: null,
+              })
+            }
             className={`px-3 py-1.5 text-xs rounded-full ${!step3.gstRegistered ? "bg-black text-white" : "bg-gray-100 text-gray-800"}`}
           >
             No
@@ -1508,7 +1394,7 @@ export default function AddRestaurant() {
             {step3.gstImage && (
               <div className="flex items-center gap-3">
                 <div className="h-14 w-14 overflow-hidden rounded-md border border-gray-200 bg-gray-50">
-                  <img src={getStoredImageSrc(step3.gstImage)} alt="GST document" className="h-full w-full object-cover" />
+                  <img src={getStoredImageSrc(step3.gstImage)} alt="GST document" className="h-full w-full object-cover"  loading="lazy" decoding="async" />
                 </div>
                 <p className="text-xs text-gray-600">Selected: {getStoredFileLabel(step3.gstImage)}</p>
               </div>
@@ -1520,7 +1406,10 @@ export default function AddRestaurant() {
       <section className="bg-white p-4 sm:p-6 rounded-md space-y-4">
         <h2 className="text-lg font-semibold text-black">FSSAI details</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Input value={step3.fssaiNumber || ""} onChange={(e) => setStep3({ ...step3, fssaiNumber: sanitizeFssai(e.target.value) })} className="bg-white text-sm" placeholder="FSSAI number*" inputMode="numeric" maxLength={14} />
+          <div>
+            <Label className="text-xs text-gray-700 mb-1 block">FSSAI number*</Label>
+            <Input value={step3.fssaiNumber || ""} onChange={(e) => setStep3({ ...step3, fssaiNumber: sanitizeFssai(e.target.value) })} className="bg-white text-sm" placeholder="FSSAI number*" inputMode="numeric" maxLength={14} />
+          </div>
           <div>
             <Label className="text-xs text-gray-700 mb-1 block">FSSAI expiry date*</Label>
             <Input
@@ -1537,7 +1426,7 @@ export default function AddRestaurant() {
         {step3.fssaiImage && (
           <div className="flex items-center gap-3">
             <div className="h-14 w-14 overflow-hidden rounded-md border border-gray-200 bg-gray-50">
-              <img src={getStoredImageSrc(step3.fssaiImage)} alt="FSSAI document" className="h-full w-full object-cover" />
+              <img src={getStoredImageSrc(step3.fssaiImage)} alt="FSSAI document" className="h-full w-full object-cover"  loading="lazy" decoding="async" />
             </div>
             <p className="text-xs text-gray-600">Selected: {getStoredFileLabel(step3.fssaiImage)}</p>
           </div>
@@ -1548,7 +1437,14 @@ export default function AddRestaurant() {
         <h2 className="text-lg font-semibold text-black">Bank account details</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input value={step3.accountNumber || ""} onChange={(e) => setStep3({ ...step3, accountNumber: sanitizeDigits(e.target.value).slice(0, 18) })} className="bg-white text-sm" placeholder="Account number*" inputMode="numeric" maxLength={18} />
-          <Input value={step3.confirmAccountNumber || ""} onChange={(e) => setStep3({ ...step3, confirmAccountNumber: sanitizeDigits(e.target.value).slice(0, 18) })} className="bg-white text-sm" placeholder="Re-enter account number*" inputMode="numeric" maxLength={18} />
+          <div className="flex flex-col gap-1">
+            <Input value={step3.confirmAccountNumber || ""} onChange={(e) => setStep3({ ...step3, confirmAccountNumber: sanitizeDigits(e.target.value).slice(0, 18) })} className={`bg-white text-sm transition-colors ${step3.confirmAccountNumber && step3.accountNumber !== step3.confirmAccountNumber ? "border-red-500 focus-visible:ring-red-500" : ""}`} placeholder="Re-enter account number*" inputMode="numeric" maxLength={18} />
+            {step3.confirmAccountNumber && step3.accountNumber !== step3.confirmAccountNumber && (
+              <span className="text-[11px] text-red-500 font-medium px-1 flex items-center">
+                Account number and confirmation do not match
+              </span>
+            )}
+          </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input value={step3.ifscCode || ""} onChange={(e) => setStep3({ ...step3, ifscCode: sanitizeIfsc(e.target.value) })} className="bg-white text-sm" placeholder="IFSC code*" maxLength={11} />
@@ -1611,34 +1507,24 @@ export default function AddRestaurant() {
       <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
         <DialogContent className="max-w-md bg-white p-0">
           <div className="p-8 text-center">
-            <div className="flex justify-center mb-6">
+            <div className="flex justify-center mb-4">
               <div className="relative">
                 <div className="absolute inset-0 bg-emerald-100 rounded-full animate-ping opacity-75"></div>
                 <div className="relative bg-emerald-500 rounded-full p-4">
-                  <CheckCircle2 className="w-8 h-8 text-white" />
+                  <CheckCircle2 className="w-12 h-12 text-white" />
                 </div>
               </div>
             </div>
             <DialogHeader>
               <DialogTitle className="text-2xl font-bold text-slate-900 mb-2">Restaurant Created Successfully!</DialogTitle>
               <DialogDescription className="text-sm text-slate-600">
-                The restaurant has been created and is now pending approval.
+                The restaurant has been created successfully.
               </DialogDescription>
             </DialogHeader>
-            <div className="mt-8">
-              <Button 
-                onClick={() => {
-                  setShowSuccessDialog(false)
-                  navigate("/admin/restaurants")
-                }}
-                className="w-full bg-black text-white"
-              >
-                Go to Restaurant List
-              </Button>
-            </div>
           </div>
         </DialogContent>
       </Dialog>
     </div>
   )
 }
+

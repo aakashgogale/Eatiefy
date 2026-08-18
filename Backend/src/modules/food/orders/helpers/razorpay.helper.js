@@ -1,5 +1,3 @@
-import crypto from 'crypto';
-
 let Razorpay;
 try {
     const mod = await import('razorpay');
@@ -9,6 +7,7 @@ try {
 }
 
 import { config } from '../../../../config/env.js';
+import { verifyRazorpayPaymentSignature } from '../../../../utils/razorpaySignatures.js';
 
 const KEY_ID = config.razorpayKeyId || process.env.RAZORPAY_KEY_ID || '';
 const KEY_SECRET = config.razorpayKeySecret || process.env.RAZORPAY_KEY_SECRET || '';
@@ -36,28 +35,13 @@ export function createRazorpayOrder(amountPaise, currency = 'INR', receipt = '')
     });
 }
 
-export function createPaymentLink({
-    amountPaise,
-    currency = 'INR',
-    description,
-    orderId,
-    customerName,
-    customerEmail,
-    customerPhone,
-    notes = {},
-}) {
+export function createPaymentLink({ amountPaise, currency = 'INR', description, orderId, customerName, customerEmail, customerPhone }) {
     const instance = getRazorpayInstance();
     if (!instance) return Promise.reject(new Error('Razorpay not configured'));
-    const foodOrderId = orderId ? String(orderId) : '';
     return instance.paymentLink.create({
         amount: Math.round(amountPaise),
         currency,
-        description: description || `Order ${foodOrderId}`,
-        reference_id: foodOrderId ? foodOrderId.slice(0, 40) : undefined,
-        notes: {
-            foodOrderId,
-            ...(notes || {}),
-        },
+        description: description || `Order ${orderId}`,
         customer: {
             name: customerName || 'Customer',
             email: customerEmail || 'customer@example.com',
@@ -67,39 +51,7 @@ export function createPaymentLink({
 }
 
 export function verifyPaymentSignature(orderId, paymentId, signature) {
-    if (!KEY_SECRET || !orderId || !paymentId || !signature) return false;
-    const body = `${orderId}|${paymentId}`;
-    const expected = crypto.createHmac('sha256', KEY_SECRET).update(body).digest('hex');
-    try {
-        const a = Buffer.from(expected, 'utf8');
-        const b = Buffer.from(String(signature), 'utf8');
-        if (a.length !== b.length) return false;
-        return crypto.timingSafeEqual(a, b);
-    } catch {
-        return false;
-    }
-}
-
-/**
- * Assert Razorpay payment matches expected order id + amount (paise).
- * Status must be captured or authorized.
- */
-export function assertRazorpayPaymentMatches(payment, { orderId, amountPaise }) {
-    if (!payment?.id) throw new Error('Payment not found on Razorpay');
-    const status = String(payment.status || '').toLowerCase();
-    if (!['captured', 'authorized'].includes(status)) {
-        throw new Error(`Payment not successful (status=${status || 'unknown'})`);
-    }
-    if (orderId && payment.order_id && String(payment.order_id) !== String(orderId)) {
-        throw new Error('Payment does not match Razorpay order');
-    }
-    if (Number.isFinite(amountPaise) && amountPaise > 0) {
-        const paid = Number(payment.amount);
-        if (!Number.isFinite(paid) || Math.abs(paid - Math.round(amountPaise)) > 1) {
-            throw new Error('Payment amount mismatch');
-        }
-    }
-    return true;
+    return verifyRazorpayPaymentSignature(orderId, paymentId, signature, KEY_SECRET);
 }
 
 /**
@@ -122,48 +74,6 @@ export async function fetchRazorpayPaymentLink(paymentLinkId) {
     if (!instance) throw new Error('Razorpay not configured');
     if (!paymentLinkId) throw new Error('paymentLinkId is required');
     return instance.paymentLink.fetch(String(paymentLinkId));
-}
-
-/**
- * Create a Dynamic Single-Use UPI QR Code via Razorpay QR Code API
- * Scanned with PhonePe / GPay / Paytm -> Opens UPI App directly with exact amount pre-filled!
- */
-export async function createRazorpayQrCode({
-    amountPaise,
-    name,
-    description,
-    notes = {},
-}) {
-    const instance = getRazorpayInstance();
-    if (!instance) throw new Error('Razorpay not configured');
-    const foodOrderId = notes.foodOrderId ? String(notes.foodOrderId) : '';
-
-    return instance.qrCode.create({
-        type: 'upi_qr',
-        name: name || `Order #${foodOrderId.slice(-6)}`,
-        usage: 'single_use',
-        fixed_amount: true,
-        payment_amount: Math.round(amountPaise),
-        description: description || `Payment for order ${foodOrderId}`,
-        notes: {
-            foodOrderId,
-            ...(notes || {}),
-        },
-    });
-}
-
-export async function fetchRazorpayQrCode(qrCodeId) {
-    const instance = getRazorpayInstance();
-    if (!instance) throw new Error('Razorpay not configured');
-    if (!qrCodeId) throw new Error('qrCodeId is required');
-    return instance.qrCode.fetch(String(qrCodeId));
-}
-
-export async function fetchRazorpayQrCodePayments(qrCodeId) {
-    const instance = getRazorpayInstance();
-    if (!instance) throw new Error('Razorpay not configured');
-    if (!qrCodeId) throw new Error('qrCodeId is required');
-    return instance.qrCode.fetchAllPayments(String(qrCodeId));
 }
 
 /**

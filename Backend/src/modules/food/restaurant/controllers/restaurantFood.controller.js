@@ -1,5 +1,5 @@
 import { sendResponse, sendError } from '../../../../utils/response.js';
-import { createRestaurantFood, updateRestaurantFood, deleteRestaurantFood } from '../services/restaurantFood.service.js';
+import { createRestaurantFood, updateRestaurantFood } from '../services/restaurantFood.service.js';
 
 export const createRestaurantFoodController = async (req, res, next) => {
     try {
@@ -17,17 +17,6 @@ export const updateRestaurantFoodController = async (req, res, next) => {
         const food = await updateRestaurantFood(restaurantId, req.params.id, req.body || {});
         if (!food) return sendError(res, 404, 'Food not found');
         return sendResponse(res, 200, 'Food updated successfully', { food });
-    } catch (error) {
-        next(error);
-    }
-};
-
-export const deleteRestaurantFoodController = async (req, res, next) => {
-    try {
-        const restaurantId = req.user?.userId;
-        const food = await deleteRestaurantFood(restaurantId, req.params.id);
-        if (!food) return sendError(res, 404, 'Food item not found or unauthorized');
-        return sendResponse(res, 200, 'Food item deleted successfully', { food });
     } catch (error) {
         next(error);
     }

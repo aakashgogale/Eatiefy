@@ -6,8 +6,9 @@ import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model
 import { BroadcastNotification } from '../../../../core/notifications/models/notificationBroadcast.model.js';
 import { FoodNotification } from '../../../../core/notifications/models/notification.model.js';
 import { createInboxNotifications } from '../../../../core/notifications/notification.service.js';
-import { notifyOwnersSafely, broadcastPushToTargetsSafely } from '../../../../core/notifications/firebase.service.js';
+import { notifyOwnersSafely } from '../../../../core/notifications/firebase.service.js';
 import { getIO, rooms } from '../../../../config/socket.js';
+import { FoodZone } from '../models/zone.model.js';
 
 const TARGET_TYPE_MAP = {
     ALL: 'ALL',
@@ -105,12 +106,65 @@ const dedupeTargets = (targets = []) => {
     return [...map.values()];
 };
 
-const loadTargetsByOwnerType = async (ownerType) => {
+const isPointInZonePolygon = (lat, lng, polygon = []) => {
+    if (!Array.isArray(polygon) || polygon.length < 3) return false;
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = Number(polygon[i]?.longitude);
+        const yi = Number(polygon[i]?.latitude);
+        const xj = Number(polygon[j]?.longitude);
+        const yj = Number(polygon[j]?.latitude);
+        if (![xi, yi, xj, yj].every(Number.isFinite)) continue;
+        const intersect =
+            yi > lat !== yj > lat &&
+            lng < ((xj - xi) * (lat - yi)) / (yj - yi + 0.0) + xi;
+        if (intersect) inside = !inside;
+    }
+    return inside;
+};
+
+const loadTargetsByOwnerType = async (ownerType, zone = null) => {
     const config = modelConfigMap[ownerType];
     if (!config) return [];
 
-    const rows = await config.model.find(config.query).select(config.select).lean();
-    return rows.map((row) => ({
+    const query = { ...config.query };
+    if (zone && ownerType === 'RESTAURANT') {
+        query.zoneId = zone._id;
+    }
+
+    const select = ownerType === 'USER' ? `${config.select} addresses` : config.select;
+    const rows = await config.model.find(query).select(select).lean();
+
+    let filteredRows = rows;
+    if (zone && ownerType !== 'RESTAURANT') {
+        const zoneNameLower = String(zone.name || '').trim().toLowerCase();
+        filteredRows = rows.filter((row) => {
+            if (ownerType === 'USER') {
+                const defaultAddr = row.addresses?.find((a) => a.isDefault) || row.addresses?.[0];
+                if (!defaultAddr) return false;
+                const lat = defaultAddr?.location?.coordinates?.[1];
+                const lng = defaultAddr?.location?.coordinates?.[0];
+                if (lat != null && lng != null) {
+                    if (isPointInZonePolygon(lat, lng, zone.coordinates)) return true;
+                }
+                const city = String(defaultAddr.city || '').trim().toLowerCase();
+                return city === zoneNameLower;
+            }
+            if (ownerType === 'DELIVERY_PARTNER') {
+                const lat = row.lastLat ?? row.lastLocation?.coordinates?.[1];
+                const lng = row.lastLng ?? row.lastLocation?.coordinates?.[0];
+                if (lat != null && lng != null) {
+                    if (isPointInZonePolygon(lat, lng, zone.coordinates)) return true;
+                }
+                const city = String(row.city || '').trim().toLowerCase();
+                const address = String(row.address || '').trim().toLowerCase();
+                return city === zoneNameLower || address.includes(zoneNameLower);
+            }
+            return true;
+        });
+    }
+
+    return filteredRows.map((row) => ({
         ownerType,
         ownerId: String(row._id),
         ...config.buildLabel(row)
@@ -126,38 +180,27 @@ const resolveCustomTargets = async ({ targets = [], targetIds = [] } = {}) => {
         throw new ValidationError('Please select at least one recipient for custom broadcast');
     }
 
-    const [users, restaurants, deliveryPartners] = await Promise.all([
-        FoodUser.find({ _id: { $in: ids }, isActive: true }).select('_id name phone email').lean(),
-        FoodRestaurant.find({ _id: { $in: ids } }).select('_id restaurantName ownerName ownerPhone ownerEmail').lean(),
-        FoodDeliveryPartner.find({ _id: { $in: ids } }).select('_id name phone email').lean()
-    ]);
-
-    const resolved = [
-        ...users.map((row) => ({ ownerType: 'USER', ownerId: String(row._id), ...buildUserLabel(row) })),
-        ...restaurants.map((row) => ({ ownerType: 'RESTAURANT', ownerId: String(row._id), ...buildRestaurantLabel(row) })),
-        ...deliveryPartners.map((row) => ({ ownerType: 'DELIVERY_PARTNER', ownerId: String(row._id), ...buildDeliveryLabel(row) }))
-    ];
-
-    if (!resolved.length) {
-        throw new ValidationError('Selected recipients not found');
-    }
-
-    return resolved;
+    const users = await FoodUser.find({ _id: { $in: ids }, isActive: true }).select('_id name phone email').lean();
+    return users.map((row) => ({
+        ownerType: 'USER',
+        ownerId: String(row._id),
+        ...buildUserLabel(row)
+    }));
 };
 
-const resolveTargets = async ({ targetType, targetIds = [], targets = [] } = {}) => {
+const resolveTargets = async ({ targetType, targetIds = [], targets = [], zone = null } = {}) => {
     if (targetType === 'ALL') {
         const [users, restaurants, deliveryPartners] = await Promise.all([
-            loadTargetsByOwnerType('USER'),
-            loadTargetsByOwnerType('RESTAURANT'),
-            loadTargetsByOwnerType('DELIVERY_PARTNER')
+            loadTargetsByOwnerType('USER', zone),
+            loadTargetsByOwnerType('RESTAURANT', zone),
+            loadTargetsByOwnerType('DELIVERY_PARTNER', zone)
         ]);
         return [...users, ...restaurants, ...deliveryPartners];
     }
 
-    if (targetType === 'USER') return loadTargetsByOwnerType('USER');
-    if (targetType === 'RESTAURANT') return loadTargetsByOwnerType('RESTAURANT');
-    if (targetType === 'DELIVERY') return loadTargetsByOwnerType('DELIVERY_PARTNER');
+    if (targetType === 'USER') return loadTargetsByOwnerType('USER', zone);
+    if (targetType === 'RESTAURANT') return loadTargetsByOwnerType('RESTAURANT', zone);
+    if (targetType === 'DELIVERY') return loadTargetsByOwnerType('DELIVERY_PARTNER', zone);
     if (targetType === 'CUSTOM') return resolveCustomTargets({ targets, targetIds });
 
     throw new ValidationError('Unsupported targetType');
@@ -222,14 +265,26 @@ export const createBroadcastNotification = async ({ body = {}, adminId } = {}) =
     const message = normalizeText(body?.message, 'message');
     const link = normalizeText(body?.link, 'link', false);
     const targetType = normalizeTargetType(body?.targetType);
+
+    let zone = null;
+    let zoneId = null;
+    if (body?.zoneId && mongoose.Types.ObjectId.isValid(String(body.zoneId))) {
+        zoneId = new mongoose.Types.ObjectId(String(body.zoneId));
+        zone = await FoodZone.findOne({ _id: zoneId, isActive: true }).lean();
+        if (!zone) {
+            throw new ValidationError('Selected zone is invalid or inactive');
+        }
+    }
+
     const resolvedTargets = await resolveTargets({
         targetType,
         targetIds: body?.targetIds,
-        targets: body?.targets
+        targets: body?.targets,
+        zone
     });
 
     if (!resolvedTargets.length) {
-        throw new ValidationError(`No recipients found for ${targetType.toLowerCase()} broadcast`);
+        throw new ValidationError(`No recipients found for ${targetType.toLowerCase()} broadcast in the selected zone`);
     }
 
     const targetIds = resolvedTargets.map((target) => toObjectId(target.ownerId, 'targetId'));
@@ -247,58 +302,39 @@ export const createBroadcastNotification = async ({ body = {}, adminId } = {}) =
         })),
         link,
         createdBy: toObjectId(adminId, 'createdBy'),
-        targetCount: resolvedTargets.length
+        targetCount: resolvedTargets.length,
+        zoneId
     });
 
-    const pushTargets = resolvedTargets.map((target) => ({
-        ownerType: target.ownerType,
-        ownerId: target.ownerId
-    }));
-    
-    const pushPayload = {
-        title,
-        body: message,
-        link: link || '/',
-        sendToAllDevices: true,
-        data: {
-            type: 'admin_broadcast',
-            broadcastId: String(broadcast._id),
-            link: link || '/',
-            click_action: link || '/',
-            targetUrl: link || '/'
-        }
-    };
+    await createInboxNotifications({
+        notifications: resolvedTargets.map((target) =>
+            buildNotificationPayload({
+                title,
+                message,
+                link,
+                broadcastId: broadcast._id,
+                target
+            })
+        )
+    });
 
-    // Run heavy operations in the background so the frontend doesn't hang
-    setTimeout(async () => {
-        try {
-            await createInboxNotifications({
-                notifications: resolvedTargets.map((target) =>
-                    buildNotificationPayload({
-                        title,
-                        message,
-                        link,
-                        broadcastId: broadcast._id,
-                        target
-                    })
-                )
-            });
-        } catch (error) {
-            console.error('[broadcast] background inbox create failed:', error?.message || error);
+    await notifyOwnersSafely(
+        resolvedTargets.map((target) => ({
+            ownerType: target.ownerType,
+            ownerId: target.ownerId
+        })),
+        {
+            title,
+            body: message,
+            data: {
+                type: 'admin_broadcast',
+                broadcastId: String(broadcast._id),
+                link
+            }
         }
+    );
 
-        try {
-            emitRealtimeNotifications(resolvedTargets, broadcast);
-        } catch (error) {
-            console.error('[broadcast] background realtime emit failed:', error?.message || error);
-        }
-
-        try {
-            await broadcastPushToTargetsSafely(pushTargets, pushPayload);
-        } catch (error) {
-            console.error('[broadcast] background FCM failed:', error?.message || error);
-        }
-    }, 0);
+    emitRealtimeNotifications(resolvedTargets, broadcast);
 
     return {
         broadcast,
@@ -314,8 +350,8 @@ export const getBroadcastNotifications = async ({ page = 1, limit = 10 } = {}) =
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(meta.limit)
-            .select('-targets -targetIds')
             .populate('createdBy', 'name email')
+            .populate('zoneId', 'name zoneName')
             .lean(),
         BroadcastNotification.countDocuments({})
     ]);
@@ -350,86 +386,5 @@ export const deleteBroadcastNotification = async (broadcastId) => {
     return {
         broadcast,
         deletedInboxCount: Number(result?.deletedCount || 0)
-    };
-};
-
-export const searchBroadcastRecipients = async ({ search = '', targetType = 'ALL', page = 1, limit = 20 } = {}) => {
-    const rawSearch = String(search || '').trim().slice(0, 80);
-    const sanitizedPage = Math.max(1, Number(page) || 1);
-    const sanitizedLimit = Math.max(1, Math.min(100, Number(limit) || 20));
-    const skip = (sanitizedPage - 1) * sanitizedLimit;
-
-    const buildRegexFilter = (fields = []) => {
-        if (!rawSearch) return {};
-        const term = rawSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        return {
-            $or: fields.map((field) => ({ [field]: { $regex: term, $options: 'i' } }))
-        };
-    };
-
-    const target = String(targetType || 'ALL').toUpperCase();
-    const fetchUsers = target === 'ALL' || target === 'USER';
-    const fetchRestaurants = target === 'ALL' || target === 'RESTAURANT';
-    const fetchDelivery = target === 'ALL' || target === 'DELIVERY' || target === 'DELIVERY_PARTNER';
-
-    const userFilter = { isActive: true, ...buildRegexFilter(['name', 'phone', 'email']) };
-    const restaurantFilter = { status: 'approved', ...buildRegexFilter(['restaurantName', 'ownerName', 'ownerPhone', 'ownerEmail']) };
-    const deliveryFilter = { status: 'approved', ...buildRegexFilter(['name', 'phone', 'email']) };
-
-    const [users, restaurants, deliveryPartners, userCount, restaurantCount, deliveryCount, matchedUserCount, matchedRestaurantCount, matchedDeliveryCount] = await Promise.all([
-        fetchUsers
-            ? FoodUser.find(userFilter)
-                  .select('_id name phone email')
-                  .sort({ _id: -1 })
-                  .skip(target === 'USER' || target === 'ALL' ? skip : 0)
-                  .limit(sanitizedLimit)
-                  .lean()
-            : [],
-        fetchRestaurants
-            ? FoodRestaurant.find(restaurantFilter)
-                  .select('_id restaurantName ownerName ownerPhone ownerEmail')
-                  .sort({ _id: -1 })
-                  .skip(target === 'RESTAURANT' ? skip : 0)
-                  .limit(sanitizedLimit)
-                  .lean()
-            : [],
-        fetchDelivery
-            ? FoodDeliveryPartner.find(deliveryFilter)
-                  .select('_id name phone email')
-                  .sort({ _id: -1 })
-                  .skip(target === 'DELIVERY_PARTNER' || target === 'DELIVERY' ? skip : 0)
-                  .limit(sanitizedLimit)
-                  .lean()
-            : [],
-        FoodUser.countDocuments({ isActive: true }),
-        FoodRestaurant.countDocuments({ status: 'approved' }),
-        FoodDeliveryPartner.countDocuments({ status: 'approved' }),
-        fetchUsers ? FoodUser.countDocuments(userFilter) : 0,
-        fetchRestaurants ? FoodRestaurant.countDocuments(restaurantFilter) : 0,
-        fetchDelivery ? FoodDeliveryPartner.countDocuments(deliveryFilter) : 0
-    ]);
-
-    const recipients = [
-        ...users.map((row) => ({ ownerType: 'USER', ownerId: String(row._id), ...buildUserLabel(row) })),
-        ...restaurants.map((row) => ({ ownerType: 'RESTAURANT', ownerId: String(row._id), ...buildRestaurantLabel(row) })),
-        ...deliveryPartners.map((row) => ({ ownerType: 'DELIVERY_PARTNER', ownerId: String(row._id), ...buildDeliveryLabel(row) }))
-    ].slice(0, sanitizedLimit);
-
-    const matchedTotal = (fetchUsers ? matchedUserCount : 0) + (fetchRestaurants ? matchedRestaurantCount : 0) + (fetchDelivery ? matchedDeliveryCount : 0);
-
-    return {
-        recipients,
-        pagination: {
-            page: sanitizedPage,
-            limit: sanitizedLimit,
-            matchedTotal,
-            totalPages: Math.max(1, Math.ceil(matchedTotal / sanitizedLimit))
-        },
-        counts: {
-            user: userCount,
-            restaurant: restaurantCount,
-            delivery: deliveryCount,
-            total: userCount + restaurantCount + deliveryCount
-        }
     };
 };

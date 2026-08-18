@@ -1,22 +1,23 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from "react"
-import { createPortal } from "react-dom"
-import { useNavigate } from "react-router-dom"
-import { ChevronLeft, ChevronRight, Plus, MapPin, Navigation, Home, Building2, Briefcase, X, Crosshair, Search, Pencil, Trash2 } from "lucide-react"
+import { useLocation, useNavigate } from "react-router-dom"
+import { ChevronLeft, ChevronRight, Plus, MapPin, MoreHorizontal, Navigation, Home, Building2, Briefcase, Phone, X, Crosshair, Search } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
 import { Textarea } from "@food/components/ui/textarea"
-import { useLocation as useGeoLocation } from "@food/hooks/useLocation"
+import { useDeliveryLocation } from "@food/context/DeliveryLocationContext"
 import { useProfile } from "@food/context/ProfileContext"
 import { toast } from "sonner"
 import { locationAPI, userAPI } from "@food/api"
 import { Loader } from '@googlemaps/js-api-loader'
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
-import { reverseGeocodeWithGoogle, geocodeGooglePlaceId, getFreshGpsCoordinates } from "@food/utils/googleGeocoding"
-
-const MAP_SEARCH_INPUT_CLASS =
-  "pl-12 pr-10 h-14 bg-white dark:bg-[#1a1a1a] border-2 border-zinc-200/90 dark:border-zinc-700 rounded-2xl focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus:border-zinc-400 dark:focus:border-zinc-500 text-zinc-900 dark:text-zinc-50 placeholder:!text-neutral-400 dark:placeholder:!text-neutral-500 font-medium text-sm transition-all shadow-sm w-full"
+import { isModuleAuthenticated } from "@food/utils/auth"
+import {
+  notifyUserLocationChanged,
+  readStoredUserLocation,
+  setDeliveryAddressMode,
+} from "@food/utils/deliveryLocationUtils"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -50,82 +51,17 @@ const getAddressIcon = (address) => {
   return Home
 }
 
-const getAddressCoordinates = (address) => {
-  const coords = address?.location?.coordinates
-  if (Array.isArray(coords) && coords.length >= 2) {
-    const lng = Number(coords[0])
-    const lat = Number(coords[1])
-    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng }
-  }
-  const lat = Number(address?.latitude ?? address?.lat)
-  const lng = Number(address?.longitude ?? address?.lng)
-  if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng }
-  return null
-}
-
-const normalizeLabelForForm = (label) => {
-  const value = String(label || "Home").toLowerCase()
-  if (value.includes("office") || value.includes("work")) return "Work"
-  if (value.includes("other")) return "Other"
-  return "Home"
-}
-
-const formatAddressPreview = (address) => {
-  if (!address) return ""
-  return [address.additionalDetails, address.street, address.city, address.state, address.zipCode]
-    .filter(Boolean)
-    .join(", ")
-}
-
-const DELETE_MODAL_ANIM_MS = 220
-
-const showAddressRemovedBrandedToast = () => {
-  toast.custom(
-    () => (
-      <div className="w-[calc(100vw-28px)] sm:w-[340px] flex items-center gap-2.5 py-2 px-3 rounded-2xl bg-white/72 dark:bg-zinc-900/72 backdrop-blur-xl border border-white/60 dark:border-white/10 shadow-[0_8px_28px_rgba(0,0,0,0.14)] ring-1 ring-black/5 animate-in fade-in slide-in-from-top-2 duration-300">
-        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-[#DC2626]/95 to-[#991B1B]/95 flex items-center justify-center p-0.5 shadow-md flex-shrink-0">
-          <img
-            src="/assets/images/ometto-toast-logo.png"
-            alt="Ometto"
-            className="w-full h-full object-contain brightness-0 invert scale-110"
-          />
-        </div>
-        <p className="text-[13px] font-semibold text-gray-900/90 dark:text-white leading-none pr-1">
-          Address Removed Successfully
-        </p>
-      </div>
-    ),
-    {
-      id: "address-removed-toast",
-      duration: 4000,
-      position: "top-center",
-      unstyled: true,
-    }
-  )
-}
-
 export default function AddressSelectorPage() {
   const navigate = useNavigate()
+  const routerLocation = useLocation()
   const goBack = useAppBackNavigation()
-  const { location, loading, requestLocation, requestLocationFast } = useGeoLocation()
-  const { addresses = [], addAddress, updateAddress, deleteAddress, setDefaultAddress, userProfile, isAuthenticated, loading: profileLoading } = useProfile()
+  const { liveLocation: location, loading, requestLiveLocation } = useDeliveryLocation()
+  const { addresses = [], addAddress, updateAddress, setDefaultAddress, userProfile } = useProfile()
   const [showAddressForm, setShowAddressForm] = useState(false)
-  const [editingAddressId, setEditingAddressId] = useState(null)
-  const [deleteDialog, setDeleteDialog] = useState(null)
-  const [isDeletingAddress, setIsDeletingAddress] = useState(false)
-  const deleteCloseTimerRef = useRef(null)
-  const [mapPosition, setMapPosition] = useState(() => {
-    try {
-      const stored = localStorage.getItem("userLocation")
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        if (Number.isFinite(parsed?.latitude) && Number.isFinite(parsed?.longitude)) {
-          return [parsed.latitude, parsed.longitude]
-        }
-      }
-    } catch {}
-    return [22.7196, 75.8577]
-  })
+  const [mapPosition, setMapPosition] = useState([
+    Number.isFinite(location?.latitude) ? location.latitude : 20.5937,
+    Number.isFinite(location?.longitude) ? location.longitude : 78.9629,
+  ])
   const [addressFormData, setAddressFormData] = useState({
     street: "",
     city: "",
@@ -135,10 +71,9 @@ export default function AddressSelectorPage() {
     label: "Home",
     phone: "",
   })
-  const [isFetchingLocationState, setIsFetchingLocationState] = useState(false)
-  const [mapGpsLoading, setMapGpsLoading] = useState(false)
   const [loadingAddress, setLoadingAddress] = useState(false)
   const [mapLoading, setMapLoading] = useState(false)
+  const [isLocating, setIsLocating] = useState(false)
   const mapContainerRef = useRef(null)
   const googleMapRef = useRef(null) // Google Maps instance
   const greenMarkerRef = useRef(null) // Green marker for address selection
@@ -147,58 +82,24 @@ export default function AddressSelectorPage() {
   const [currentAddress, setCurrentAddress] = useState("")
   const [addressAutocompleteValue, setAddressAutocompleteValue] = useState("")
   const [keywordAddressSuggestions, setKeywordAddressSuggestions] = useState([])
+  const [googlePlacesSuggestions, setGooglePlacesSuggestions] = useState([])
   const [isKeywordSearching, setIsKeywordSearching] = useState(false)
   const [lockMapToAutocomplete, setLockMapToAutocomplete] = useState(true)
   const [GOOGLE_MAPS_API_KEY, setGOOGLE_MAPS_API_KEY] = useState(null)
-  const [googleMapsLoaded, setGoogleMapsLoaded] = useState(false)
-  const googleMapsRef = useRef(null)
-  const autocompleteServiceRef = useRef(null)
-  const geocodeDebounceRef = useRef(null)
-  const initialMapCenterRef = useRef(mapPosition)
-  const pendingMapCenterRef = useRef(null)
   const [formScrollTop, setFormScrollTop] = useState(0)
   const [keyboardInset, setKeyboardInset] = useState(0)
   const [baseMapHeight, setBaseMapHeight] = useState(320)
+  const [isSearchFocused, setIsSearchFocused] = useState(false)
   const formBodyRef = useRef(null)
   const manualFieldRefs = useRef({})
+  const placesAutocompleteServiceRef = useRef(null)
+  const placesDetailsServiceRef = useRef(null)
+  const placesSessionTokenRef = useRef(null)
+  const suppressSuggestionFetchRef = useRef(false)
   
   const ENABLE_LOCATION_REVERSE_GEOCODE = import.meta.env.VITE_ENABLE_LOCATION_REVERSE_GEOCODE !== "false"
+  const ENABLE_NOMINATIM_SEARCH = import.meta.env.VITE_ENABLE_NOMINATIM_SEARCH !== "false"
   const getAddressId = (address) => address?.id || address?._id || null
-
-  const getDeleteModalMotion = useCallback((phase) => {
-    const isOpen = phase === "open"
-    return {
-      opacity: isOpen ? 1 : 0,
-      transform: isOpen ? "translateY(0) scale(1)" : "translateY(10px) scale(0.97)",
-      transition: `transform ${DELETE_MODAL_ANIM_MS}ms cubic-bezier(0.16, 1, 0.3, 1), opacity ${DELETE_MODAL_ANIM_MS - 40}ms ease`,
-      willChange: "transform, opacity",
-    }
-  }, [])
-
-  const closeDeleteDialog = useCallback(() => {
-    setDeleteDialog((prev) => (prev ? { ...prev, phase: "exit" } : null))
-    if (deleteCloseTimerRef.current) clearTimeout(deleteCloseTimerRef.current)
-    deleteCloseTimerRef.current = setTimeout(() => {
-      setDeleteDialog(null)
-      deleteCloseTimerRef.current = null
-    }, DELETE_MODAL_ANIM_MS)
-  }, [])
-
-  useEffect(() => {
-    if (deleteDialog?.phase !== "enter") return
-    const frame = requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        setDeleteDialog((prev) => (prev?.phase === "enter" ? { ...prev, phase: "open" } : prev))
-      })
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [deleteDialog?.phase])
-
-  useEffect(() => {
-    return () => {
-      if (deleteCloseTimerRef.current) clearTimeout(deleteCloseTimerRef.current)
-    }
-  }, [])
 
   const handleBack = () => {
     goBack()
@@ -228,185 +129,225 @@ export default function AddressSelectorPage() {
       .map((x) => x.addr)
   }, [addresses, addressAutocompleteValue])
 
-  // Load Google Maps API key + Places library for search/geocoding
+  // Load Google Maps API key
   useEffect(() => {
     if (!MAPS_ENABLED) return
-    let cancelled = false
     import('@food/utils/googleMapsApiKey.js').then(({ getGoogleMapsApiKey }) => {
-      getGoogleMapsApiKey().then(async (key) => {
-        if (cancelled || !key) return
+      getGoogleMapsApiKey().then(key => {
         setGOOGLE_MAPS_API_KEY(key)
-        try {
-          const loader = new Loader({ apiKey: key, version: "weekly", libraries: ["places"] })
-          const google = await loader.load()
-          if (cancelled) return
-          googleMapsRef.current = google
-          autocompleteServiceRef.current = new google.maps.places.AutocompleteService()
-          setGoogleMapsLoaded(true)
-        } catch (err) {
-          debugError("Google Maps load error:", err)
-        }
       })
     })
-    return () => { cancelled = true }
   }, [])
 
-  // Instant: reuse location Home already has. Do NOT call requestLocation() on open
-  // (that clears cache + force-fresh GPS and feels slow). Explicit "Use current location" still refreshes.
-  useEffect(() => {
-    const applyLoc = (loc) => {
-      if (!loc) return
-      const formatted = loc.formattedAddress || loc.address || ""
-      const cleanFormatted = formatted.replace(/^[a-z0-9]{2,8}\+[a-z0-9]{0,3}[,\s]*/i, '').replace(/,\s*India$/, '')
-      if (cleanFormatted) setCurrentAddress(cleanFormatted)
-      if (Number.isFinite(Number(loc.latitude)) && Number.isFinite(Number(loc.longitude))) {
-        const coords = [Number(loc.latitude), Number(loc.longitude)]
-        setMapPosition(coords)
-        initialMapCenterRef.current = coords
-      }
+  const ensurePlacesServices = useCallback(async () => {
+    if (!GOOGLE_MAPS_API_KEY) return false
+
+    if (!window.google?.maps?.places) {
+      const loader = new Loader({
+        apiKey: GOOGLE_MAPS_API_KEY,
+        version: "weekly",
+        libraries: ["places"],
+      })
+      await loader.load()
     }
 
-    applyLoc(location)
-    try {
-      const stored = localStorage.getItem("userLocation")
-      if (stored) applyLoc(JSON.parse(stored))
-    } catch {
-      /* ignore */
+    if (!window.google?.maps?.places) return false
+
+    if (!placesAutocompleteServiceRef.current) {
+      placesAutocompleteServiceRef.current =
+        new window.google.maps.places.AutocompleteService()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    if (!placesDetailsServiceRef.current) {
+      placesDetailsServiceRef.current = new window.google.maps.places.PlacesService(
+        document.createElement("div"),
+      )
+    }
+    if (
+      !placesSessionTokenRef.current &&
+      window.google.maps.places.AutocompleteSessionToken
+    ) {
+      placesSessionTokenRef.current =
+        new window.google.maps.places.AutocompleteSessionToken()
+    }
 
-  useEffect(() => {
-    const formatted = location?.formattedAddress || location?.address
-    const cleanFormatted = formatted ? formatted.replace(/^[a-z0-9]{2,8}\+[a-z0-9]{0,3}[,\s]*/i, '').replace(/,\s*India$/, '') : ""
-    if (cleanFormatted) setCurrentAddress(cleanFormatted)
-  }, [location?.formattedAddress, location?.address, location?.latitude, location?.longitude])
+    return true
+  }, [GOOGLE_MAPS_API_KEY])
 
-  // Google Places autocomplete search
+  // Hybrid search: Google Places first, then an India-scoped Nominatim fallback.
   useEffect(() => {
-    const q = String(addressAutocompleteValue || "").trim()
-    if (!googleMapsLoaded || !autocompleteServiceRef.current || q.length < 3) {
-      setKeywordAddressSuggestions([])
+    if (!showAddressForm) return
+    if (suppressSuggestionFetchRef.current) {
+      suppressSuggestionFetchRef.current = false
       setIsKeywordSearching(false)
       return
     }
 
-    const t = setTimeout(() => {
-      setIsKeywordSearching(true)
-      const google = googleMapsRef.current
-      const service = autocompleteServiceRef.current
-      const request = {
-        input: q,
-        componentRestrictions: { country: "in" },
+    const q = String(addressAutocompleteValue || "").replace(/\s+/g, " ").trim()
+    if (q.length < 3) {
+      setGooglePlacesSuggestions([])
+      setKeywordAddressSuggestions([])
+      setIsKeywordSearching(false)
+      if (window.google?.maps?.places?.AutocompleteSessionToken) {
+        placesSessionTokenRef.current =
+          new window.google.maps.places.AutocompleteSessionToken()
       }
-      if (Number.isFinite(location?.latitude) && Number.isFinite(location?.longitude)) {
-        request.location = new google.maps.LatLng(location.latitude, location.longitude)
-        request.radius = 50000
-      }
+      return
+    }
 
-      service.getPlacePredictions(request, (predictions, status) => {
-        setIsKeywordSearching(false)
-        if (status !== google.maps.places.PlacesServiceStatus.OK || !Array.isArray(predictions)) {
+    setGooglePlacesSuggestions([])
+    setKeywordAddressSuggestions([])
+    let cancelled = false
+    const t = setTimeout(async () => {
+      try {
+        setIsKeywordSearching(true)
+
+        const googleReady = await ensurePlacesServices().catch(() => false)
+        if (
+          googleReady &&
+          placesAutocompleteServiceRef.current &&
+          window.google?.maps?.places?.PlacesServiceStatus
+        ) {
+          const predictions = await new Promise((resolve) => {
+            placesAutocompleteServiceRef.current.getPlacePredictions(
+              {
+                input: q,
+                componentRestrictions: { country: "in" },
+                sessionToken: placesSessionTokenRef.current || undefined,
+              },
+              (items, status) => {
+                const ok =
+                  status === window.google.maps.places.PlacesServiceStatus.OK
+                resolve(ok && Array.isArray(items) ? items : [])
+              },
+            )
+          })
+
+          if (cancelled) return
+          if (predictions.length > 0) {
+            setGooglePlacesSuggestions(
+              predictions.slice(0, 6).map((prediction) => ({
+                id: prediction.place_id,
+                placeId: prediction.place_id,
+                display: prediction.description || "",
+                mainText:
+                  prediction.structured_formatting?.main_text ||
+                  prediction.description ||
+                  "",
+                secondaryText:
+                  prediction.structured_formatting?.secondary_text || "",
+                source: "google",
+              })),
+            )
+            setKeywordAddressSuggestions([])
+            return
+          }
+        }
+
+        setGooglePlacesSuggestions([])
+        if (!ENABLE_NOMINATIM_SEARCH) {
           setKeywordAddressSuggestions([])
           return
         }
-        setKeywordAddressSuggestions(
-          predictions.slice(0, 6).map((p) => ({
-            id: p.place_id,
-            placeId: p.place_id,
-            display: p.description,
+
+        const refLat = location?.latitude ?? 22.7196
+        const refLng = location?.longitude ?? 75.8577
+        const url =
+          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6` +
+          `&countrycodes=in&q=${encodeURIComponent(q)}`
+        const response = await fetch(url, { headers: { Accept: "application/json" } })
+        const json = await response.json()
+        if (cancelled) return
+
+        const suggestions = (Array.isArray(json) ? json : [])
+          .map((result) => ({
+            id: `n-${result.place_id || result.osm_id}`,
+            display: result.display_name || "",
+            lat: Number(result.lat),
+            lng: Number(result.lon),
+            address: result.address || {},
+            source: "nominatim",
           }))
-        )
-      })
-    }, 350)
+          .filter(
+            (result) => Number.isFinite(result.lat) && Number.isFinite(result.lng),
+          )
+          .map((result) => ({
+            ...result,
+            distanceMeters: calculateDistance(
+              refLat,
+              refLng,
+              result.lat,
+              result.lng,
+            ),
+          }))
+          .sort(
+            (a, b) =>
+              (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity),
+          )
+          .slice(0, 6)
 
-    return () => clearTimeout(t)
-  }, [addressAutocompleteValue, googleMapsLoaded, location?.latitude, location?.longitude])
-
-  const applyGeocodedAddressToForm = useCallback((parsed, formattedOverride) => {
-    const formatted = formattedOverride || parsed?.formattedAddress || parsed?.address || ""
-    const cleanFormatted = formatted.replace(/^[a-z0-9]{2,8}\+[a-z0-9]{0,3}[,\s]*/i, '').replace(/,\s*India$/, '')
-    setCurrentAddress(cleanFormatted)
-    
-    setAddressFormData((prev) => {
-      let streetVal = parsed?.area || parsed?.address || formatted.split(",")[0] || prev.street
-      if (streetVal) {
-        streetVal = streetVal.replace(/^[a-z0-9]{2,8}\+[a-z0-9]{0,3}[,\s]*/i, '').replace(/,\s*India$/, '').trim()
-        if (streetVal.endsWith(',')) streetVal = streetVal.slice(0, -1).trim()
-      }
-      return {
-        ...prev,
-        street: streetVal || prev.street,
-        city: parsed?.city || prev.city,
-        state: parsed?.state || prev.state,
-        zipCode: parsed?.pincode || prev.zipCode,
-      }
-    })
-  }, [])
-
-  const handleMapMoveEnd = useCallback(async (lat, lng) => {
-    if (!ENABLE_LOCATION_REVERSE_GEOCODE) return
-    if (geocodeDebounceRef.current) clearTimeout(geocodeDebounceRef.current)
-    geocodeDebounceRef.current = setTimeout(async () => {
-      try {
-        const parsed = await reverseGeocodeWithGoogle(lat, lng)
-        applyGeocodedAddressToForm(parsed)
+        setKeywordAddressSuggestions(suggestions)
       } catch (e) {
-        debugError("Reverse geocode error:", e)
+        debugError("Google Places error:", e);
+        if (!cancelled) {
+          setGooglePlacesSuggestions([])
+          setKeywordAddressSuggestions([])
+        }
+      } finally {
+        if (!cancelled) setIsKeywordSearching(false)
       }
     }, 400)
-  }, [ENABLE_LOCATION_REVERSE_GEOCODE, applyGeocodedAddressToForm])
+
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [
+    addressAutocompleteValue,
+    showAddressForm,
+    location?.latitude,
+    location?.longitude,
+    ENABLE_NOMINATIM_SEARCH,
+    ensurePlacesServices,
+  ])
+
+  // Keep map anchored to resolved live location when available (avoids default-city bias on first open).
+  useEffect(() => {
+    if (Number.isFinite(location?.latitude) && Number.isFinite(location?.longitude)) {
+      setMapPosition([location.latitude, location.longitude])
+    }
+  }, [location?.latitude, location?.longitude])
 
   // Map Initialization logic
   useEffect(() => {
-    if (!MAPS_ENABLED || !showAddressForm || !GOOGLE_MAPS_API_KEY) return
+    if (!MAPS_ENABLED || !showAddressForm || !mapContainerRef.current || !GOOGLE_MAPS_API_KEY) return
 
     let isMounted = true
     setMapLoading(true)
 
     const initializeGoogleMap = async () => {
       try {
-        // Retry a few times if the container ref isn't immediately populated in the DOM
-        let retries = 0
-        while (!mapContainerRef.current && retries < 10) {
-          await new Promise(resolve => setTimeout(resolve, 50))
-          retries++
-        }
-
-        if (!isMounted || !mapContainerRef.current) {
-          setMapLoading(false)
-          return
-        }
-
-        const loader = new Loader({ apiKey: GOOGLE_MAPS_API_KEY, version: "weekly", libraries: ["places"] })
+        const loader = new Loader({
+          apiKey: GOOGLE_MAPS_API_KEY,
+          version: "weekly",
+          libraries: ["places"],
+        })
         const google = await loader.load()
         if (!isMounted || !mapContainerRef.current) return
-        googleMapsRef.current = google
-        if (!autocompleteServiceRef.current) {
-          autocompleteServiceRef.current = new google.maps.places.AutocompleteService()
-        }
 
-        const initialPos = {
-          lat: initialMapCenterRef.current[0],
-          lng: initialMapCenterRef.current[1],
-        }
+        const initialPos = { lat: mapPosition[0], lng: mapPosition[1] }
         
         const map = new google.maps.Map(mapContainerRef.current, {
           center: initialPos,
           zoom: 16,
-          mapTypeId: google.maps.MapTypeId.ROADMAP,
           disableDefaultUI: true,
           zoomControl: true,
           gestureHandling: "greedy",
+          styles: [
+            { featureType: "poi", stylers: [{ visibility: "off" }] },
+            { featureType: "transit", stylers: [{ visibility: "off" }] }
+          ]
         })
         googleMapRef.current = map
-
-        if (pendingMapCenterRef.current) {
-          const pending = pendingMapCenterRef.current
-          map.panTo({ lat: pending.lat, lng: pending.lng })
-          map.setZoom(pending.zoom || 17)
-          pendingMapCenterRef.current = null
-        }
 
         // Update coordinates on map idle (center of the map is the chosen location)
         map.addListener("idle", () => {
@@ -425,283 +366,130 @@ export default function AddressSelectorPage() {
     }
     initializeGoogleMap()
     return () => { isMounted = false }
-  }, [showAddressForm, GOOGLE_MAPS_API_KEY, handleMapMoveEnd])
+  }, [showAddressForm, GOOGLE_MAPS_API_KEY])
+
+  // Keep current address text in sync with live location
+  useEffect(() => {
+    if (location?.formattedAddress && location.formattedAddress !== "Select location") {
+      setCurrentAddress(location.formattedAddress)
+    } else if (location?.address && location.address !== "Select location") {
+      setCurrentAddress(location.address)
+    }
+  }, [location?.formattedAddress, location?.address])
 
   const handleUseCurrentLocation = async () => {
+    if (isLocating) return
+    setIsLocating(true)
     try {
-      setIsFetchingLocationState(true)
+      toast.loading("Getting current location...", { id: "geo" })
+      const loc = await requestLiveLocation()
+      let resolvedLoc = loc
+      if (!resolvedLoc || !Number.isFinite(Number(resolvedLoc?.latitude)) || !Number.isFinite(Number(resolvedLoc?.longitude))) {
+        resolvedLoc = location || readStoredUserLocation()
+      }
 
-      // Fast GPS + single geocode (no cache clear / no global loader)
-      const loc =
-        typeof requestLocationFast === "function"
-          ? await requestLocationFast()
-          : await requestLocation()
+      if (!resolvedLoc || !Number.isFinite(Number(resolvedLoc?.latitude)) || !Number.isFinite(Number(resolvedLoc?.longitude))) {
+        toast.error("Could not detect GPS location. Please allow location permissions in your browser.", { id: "geo" })
+        return
+      }
 
-      if (loc) {
-        sessionStorage.setItem("manual_location_update", "true")
-        localStorage.setItem("deliveryAddressMode", "current")
-        window.dispatchEvent(new CustomEvent("userLocationUpdated"))
-        handleBack()
+      const formatted =
+        resolvedLoc.formattedAddress ||
+        resolvedLoc.address ||
+        [resolvedLoc.area, resolvedLoc.city, resolvedLoc.state].filter(Boolean).join(", ") ||
+        "Current Location"
+
+      setCurrentAddress(formatted)
+
+      // Ensure mode is set to 'current' and all components across the app update
+      try {
+        setDeliveryAddressMode("current")
+        notifyUserLocationChanged(resolvedLoc)
+      } catch {}
+
+      if (showAddressForm) {
+        // In Add Address map form: center the map and populate the form fields
+        const newPos = [resolvedLoc.latitude, resolvedLoc.longitude]
+        setMapPosition(newPos)
+        if (googleMapRef.current) {
+          googleMapRef.current.panTo({ lat: resolvedLoc.latitude, lng: resolvedLoc.longitude })
+          googleMapRef.current.setZoom(17)
+        }
+        setAddressFormData((prev) => ({
+          ...prev,
+          street: resolvedLoc.street || resolvedLoc.area || formatted.split(",")[0] || prev.street,
+          city: resolvedLoc.city || prev.city,
+          state: resolvedLoc.state || prev.state,
+          zipCode: resolvedLoc.postalCode || resolvedLoc.zipCode || prev.zipCode,
+        }))
+        toast.success("Location updated on map", { id: "geo" })
       } else {
-        setIsFetchingLocationState(false)
+        // Main screen: direct redirect to previous screen with current location selected!
+        toast.success("Using current location", { id: "geo" })
+        handleBack()
       }
     } catch (e) {
-      setIsFetchingLocationState(false)
-      toast.error("Failed to get current location", { id: "geo" })
+      toast.error(e?.message || "Failed to get location", { id: "geo" })
+    } finally {
+      setIsLocating(false)
     }
   }
 
   const handleSelectSavedAddress = async (address) => {
     const id = getAddressId(address)
     if (id) {
-      sessionStorage.setItem("manual_location_update", "true")
-      
-      // Perform optimistic default address set instantly
-      setDefaultAddress(id)
-      
-      try { 
-        localStorage.setItem("deliveryAddressMode", "saved")
-        window.dispatchEvent(new CustomEvent("userLocationUpdated"))
-        // Go back immediately!
-        handleBack()
-      } catch (e) {
-        console.error("Failed to select saved address:", e)
-      }
-    }
-  }
+      await setDefaultAddress(id)
+      try {
+        const coords = address?.location?.coordinates
+        const lng =
+          Array.isArray(coords) && coords.length >= 2
+            ? Number(coords[0])
+            : Number(address?.longitude || address?.lng)
+        const lat =
+          Array.isArray(coords) && coords.length >= 2
+            ? Number(coords[1])
+            : Number(address?.latitude || address?.lat)
 
-  const panMapToCoordinates = useCallback(async (latitude, longitude, zoom = 17) => {
-    setMapPosition([latitude, longitude])
-    initialMapCenterRef.current = [latitude, longitude]
-
-    const tryPan = () => {
-      if (!googleMapRef.current) return false
-      googleMapRef.current.panTo({ lat: latitude, lng: longitude })
-      googleMapRef.current.setZoom(zoom)
-      return true
-    }
-
-    if (tryPan()) return
-
-    pendingMapCenterRef.current = { lat: latitude, lng: longitude, zoom }
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 100))
-      if (tryPan()) {
-        pendingMapCenterRef.current = null
-        return
-      }
-    }
-  }, [])
-
-  const handleCenterMapOnMyLocation = async () => {
-    if (mapGpsLoading) return
-    setMapGpsLoading(true)
-    try {
-      const coords = await getFreshGpsCoordinates()
-      const { latitude, longitude } = coords
-      await panMapToCoordinates(latitude, longitude)
-      const parsed = await reverseGeocodeWithGoogle(latitude, longitude)
-      applyGeocodedAddressToForm(parsed)
-      toast.success("Moved to your current location", { id: "geo-map" })
-    } catch (err) {
-      console.error("Map GPS error:", err)
-      if (location?.latitude && location?.longitude) {
-        await panMapToCoordinates(location.latitude, location.longitude)
-        applyGeocodedAddressToForm(location, location.formattedAddress || location.address)
-        toast.info("Using last known location", { id: "geo-map" })
-      } else {
-        toast.error("Allow location permission to use GPS", { id: "geo-map" })
-      }
-    } finally {
-      setMapGpsLoading(false)
-    }
-  }
-
-  const handleSelectOuterSuggestion = async (s) => {
-    setIsFetchingLocationState(true)
-    try {
-      let lat
-      let lng
-      let display
-      let parsed
-
-      if (s.placeId) {
-        parsed = await geocodeGooglePlaceId(s.placeId)
-        lat = parsed.latitude
-        lng = parsed.longitude
-        display = parsed.formattedAddress
-      } else if (s.lat && s.lng) {
-        lat = s.lat
-        lng = s.lng
-        display = s.display
-        parsed = await reverseGeocodeWithGoogle(lat, lng)
-      } else {
-        toast.error("Could not resolve location coordinates")
-        return
-      }
-
-      const finalLoc = {
-        latitude: lat,
-        longitude: lng,
-        city: parsed.city || "",
-        state: parsed.state || "",
-        country: parsed.country || "India",
-        area: parsed.area || "",
-        address: parsed.address || display,
-        formattedAddress: display || parsed.formattedAddress,
-        pincode: parsed.pincode || "",
-      }
-
-      localStorage.setItem("userLocation", JSON.stringify(finalLoc))
-      sessionStorage.setItem("manual_location_update", "true")
-      localStorage.setItem("deliveryAddressMode", "current")
-      window.dispatchEvent(new CustomEvent("userLocationUpdated"))
-      handleBack()
-    } catch (err) {
-      console.error("Error selecting search suggestion:", err)
-      toast.error("Failed to select location")
-    } finally {
-      setIsFetchingLocationState(false)
-    }
-  }
-
-  const handleSelectMapSuggestion = async (s) => {
-    try {
-      const parsed = await geocodeGooglePlaceId(s.placeId || s.id)
-      const lat = parsed.latitude
-      const lng = parsed.longitude
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-        toast.error("Could not resolve location coordinates")
-        return
-      }
-      await panMapToCoordinates(lat, lng)
-      setAddressAutocompleteValue(parsed.formattedAddress || s.display || "")
-      applyGeocodedAddressToForm(parsed)
-      setKeywordAddressSuggestions([])
-    } catch (err) {
-      console.error("Error selecting map suggestion:", err)
-      toast.error("Failed to select location")
-    }
-  }
-
-  const resolveExistingLocation = useCallback(() => {
-    if (Number.isFinite(location?.latitude) && Number.isFinite(location?.longitude)) {
-      return location
-    }
-    try {
-      const stored = localStorage.getItem("userLocation")
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        if (Number.isFinite(parsed?.latitude) && Number.isFinite(parsed?.longitude)) {
-          return parsed
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          const locationData = {
+            latitude: lat,
+            longitude: lng,
+            address: address?.street || address?.address || "",
+            city: address?.city || "",
+            state: address?.state || "",
+            area: address?.additionalDetails || "",
+            formattedAddress:
+              address?.formattedAddress ||
+              [
+                address?.additionalDetails,
+                address?.street,
+                address?.city,
+                address?.state,
+                address?.zipCode,
+              ]
+                .filter(Boolean)
+                .join(", "),
+          }
+          localStorage.setItem("userLocation", JSON.stringify(locationData))
+          notifyUserLocationChanged(locationData)
         }
-      }
-    } catch {}
-    if (Number.isFinite(mapPosition[0]) && Number.isFinite(mapPosition[1])) {
-      return {
-        latitude: mapPosition[0],
-        longitude: mapPosition[1],
-        formattedAddress: currentAddress,
-        address: currentAddress,
-      }
+
+        setDeliveryAddressMode("saved")
+      } catch {}
+      toast.success("Address selected")
+      handleBack()
     }
-    return null
-  }, [location, mapPosition, currentAddress])
+  }
 
   const handleAddAddressClick = () => {
-    if (!isAuthenticated) {
-      toast.info("Please login to add an address")
-      navigate("/user/auth/login")
+    if (!isModuleAuthenticated("user")) {
+      navigate("/food/user/auth/login", { state: { from: routerLocation.pathname } })
       return
     }
-
-    setEditingAddressId(null)
-    setAddressAutocompleteValue("")
-    setKeywordAddressSuggestions([])
-
-    const loc = resolveExistingLocation()
-    if (loc?.latitude && loc?.longitude) {
-      initialMapCenterRef.current = [loc.latitude, loc.longitude]
-      setMapPosition([loc.latitude, loc.longitude])
-      applyGeocodedAddressToForm(loc, loc.formattedAddress || loc.address || currentAddress)
-    }
-
     setShowAddressForm(true)
-  }
-
-  const handleEditAddressClick = (event, addr) => {
-    event.stopPropagation()
-    if (!isAuthenticated) {
-      toast.info("Please login to edit an address")
-      navigate("/user/auth/login")
-      return
-    }
-
-    const id = getAddressId(addr)
-    if (!id) return
-
-    const coords = getAddressCoordinates(addr)
-    setEditingAddressId(id)
-    setAddressAutocompleteValue("")
-    setKeywordAddressSuggestions([])
-    setAddressFormData({
-      street: addr.street || "",
-      city: addr.city || "",
-      state: addr.state || "",
-      zipCode: addr.zipCode || "",
-      additionalDetails: addr.additionalDetails || "",
-      label: normalizeLabelForForm(addr.label),
-      phone: addr.phone || "",
-    })
-    setCurrentAddress(
-      [addr.additionalDetails, addr.street, addr.city, addr.state, addr.zipCode].filter(Boolean).join(", ")
-    )
-
-    if (coords) {
-      initialMapCenterRef.current = [coords.lat, coords.lng]
-      setMapPosition([coords.lat, coords.lng])
-    }
-
-    setShowAddressForm(true)
-  }
-
-  const handleDeleteAddressClick = (event, addr) => {
-    event.stopPropagation()
-    if (!isAuthenticated) {
-      toast.info("Please login to delete an address")
-      navigate("/user/auth/login")
-      return
-    }
-    if (deleteCloseTimerRef.current) clearTimeout(deleteCloseTimerRef.current)
-    setDeleteDialog({
-      address: addr,
-      phase: "enter",
-    })
-  }
-
-  const confirmDeleteAddress = async () => {
-    const id = getAddressId(deleteDialog?.address)
-    if (!id) {
-      closeDeleteDialog()
-      return
-    }
-
-    setIsDeletingAddress(true)
-    try {
-      await deleteAddress(id)
-      closeDeleteDialog()
-      showAddressRemovedBrandedToast()
-    } catch {
-      toast.error("Failed to delete address")
-    } finally {
-      setIsDeletingAddress(false)
-    }
   }
 
   const handleCancelAddressForm = () => {
-    setAddressAutocompleteValue("")
-    setKeywordAddressSuggestions([])
-    setEditingAddressId(null)
     setShowAddressForm(false)
   }
 
@@ -747,13 +535,173 @@ export default function AddressSelectorPage() {
 
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
 
+  const handleMapMoveEnd = async (lat, lng) => {
+    if (!ENABLE_LOCATION_REVERSE_GEOCODE) return
+    try {
+      // Use Nominatim for free reverse geocoding on the client side
+      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`
+      const response = await fetch(url, { 
+        headers: { 
+          "Accept-Language": "en",
+          "User-Agent": "Eatiefy-Food-App" 
+        } 
+      })
+      const json = await response.json()
+      
+      if (json && json.address) {
+        const addr = json.address
+        const formatted = json.display_name
+        
+        // Extract meaningful street/area info
+        const street = [
+          addr.road,
+          addr.suburb,
+          addr.neighbourhood,
+          addr.house_number
+        ].filter(Boolean).slice(0, 2).join(", ") || addr.amenity || addr.industrial || ""
+
+        const city = addr.city || addr.town || addr.village || addr.municipality || addr.county || ""
+        const state = addr.state || ""
+        const postcode = addr.postcode || ""
+
+        setCurrentAddress(formatted)
+        setAddressFormData(prev => ({
+          ...prev,
+          street: street || formatted.split(",")[0] || prev.street,
+          city: city || prev.city,
+          state: state || prev.state,
+          zipCode: postcode || prev.zipCode,
+        }))
+      }
+    } catch (e) {
+      debugError("Reverse geocode error:", e)
+    }
+  }
+
+  const selectGooglePlace = async (suggestion) => {
+    if (!suggestion?.placeId) return
+
+    try {
+      const ready = await ensurePlacesServices()
+      if (!ready || !placesDetailsServiceRef.current) {
+        throw new Error("Google Places is unavailable")
+      }
+
+      const place = await new Promise((resolve, reject) => {
+        placesDetailsServiceRef.current.getDetails(
+          {
+            placeId: suggestion.placeId,
+            fields: ["formatted_address", "address_components", "geometry"],
+            sessionToken: placesSessionTokenRef.current || undefined,
+          },
+          (result, status) => {
+            if (
+              status === window.google.maps.places.PlacesServiceStatus.OK &&
+              result
+            ) {
+              resolve(result)
+              return
+            }
+            reject(new Error(String(status || "Failed to fetch place details")))
+          },
+        )
+      })
+
+      const lat = place?.geometry?.location?.lat?.()
+      const lng = place?.geometry?.location?.lng?.()
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        throw new Error("Selected place has no coordinates")
+      }
+
+      const components = Array.isArray(place.address_components)
+        ? place.address_components
+        : []
+      const getComponent = (types) =>
+        components.find((component) =>
+          types.some((type) => component.types?.includes(type)),
+        )?.long_name || ""
+      const streetParts = [
+        getComponent(["street_number"]),
+        getComponent(["premise"]),
+        getComponent(["route"]),
+        getComponent(["sublocality_level_1", "sublocality", "neighborhood"]),
+      ].filter(Boolean)
+      const formattedAddress =
+        place.formatted_address || suggestion.display || streetParts.join(", ")
+      const city =
+        getComponent(["locality"]) ||
+        getComponent(["administrative_area_level_2"])
+      const state = getComponent(["administrative_area_level_1"])
+      const zipCode = getComponent(["postal_code"])
+
+      setMapPosition([lat, lng])
+      googleMapRef.current?.panTo({ lat, lng })
+      googleMapRef.current?.setZoom(17)
+      suppressSuggestionFetchRef.current = true
+      setAddressAutocompleteValue(formattedAddress)
+      setCurrentAddress(formattedAddress)
+      setAddressFormData((prev) => ({
+        ...prev,
+        street:
+          streetParts.join(", ") ||
+          suggestion.mainText ||
+          formattedAddress ||
+          prev.street,
+        city: city || prev.city,
+        state: state || prev.state,
+        zipCode: zipCode || prev.zipCode,
+      }))
+      setGooglePlacesSuggestions([])
+      setKeywordAddressSuggestions([])
+
+      if (window.google?.maps?.places?.AutocompleteSessionToken) {
+        placesSessionTokenRef.current =
+          new window.google.maps.places.AutocompleteSessionToken()
+      }
+    } catch (error) {
+      debugError("Google place details error:", error)
+      toast.error("Unable to select this location. Please try another result.")
+    }
+  }
+
+  const selectFallbackPlace = (suggestion) => {
+    const { lat, lng, display, address = {} } = suggestion || {}
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+
+    const street = [
+      address.house_number,
+      address.road,
+      address.suburb || address.neighbourhood || address.city_district,
+    ]
+      .filter(Boolean)
+      .join(", ")
+    const city =
+      address.city ||
+      address.town ||
+      address.village ||
+      address.municipality ||
+      address.county ||
+      ""
+
+    setMapPosition([lat, lng])
+    googleMapRef.current?.panTo({ lat, lng })
+    googleMapRef.current?.setZoom(17)
+    suppressSuggestionFetchRef.current = true
+    setAddressAutocompleteValue(display || "")
+    setCurrentAddress(display || "")
+    setAddressFormData((prev) => ({
+      ...prev,
+      street: street || display || prev.street,
+      city: city || prev.city,
+      state: address.state || prev.state,
+      zipCode: address.postcode || prev.zipCode,
+    }))
+    setGooglePlacesSuggestions([])
+    setKeywordAddressSuggestions([])
+  }
+
   const handleAddressFormSubmit = async (e) => {
     e.preventDefault()
-    if (!isAuthenticated) {
-       toast.info("Please login to save an address")
-       navigate("/user/auth/login")
-       return
-    }
     if (!addressFormData.street || !addressFormData.city) {
       toast.error("Please fill required fields")
       return
@@ -767,69 +715,14 @@ export default function AddressSelectorPage() {
         latitude: mapPosition[0],
         longitude: mapPosition[1]
       }
-
-      if (editingAddressId) {
-        const updated = await updateAddress(editingAddressId, payload)
-        if (updated) {
-          try {
-            const defaultAddr = addresses.find((a) => a.isDefault) || updated
-            const isEditingDefault =
-              String(getAddressId(defaultAddr)) === String(editingAddressId) ||
-              Boolean(updated?.isDefault)
-            if (isEditingDefault) {
-              sessionStorage.setItem("manual_location_update", "true")
-              localStorage.setItem("deliveryAddressMode", "saved")
-              const locationData = {
-                latitude: mapPosition[0],
-                longitude: mapPosition[1],
-                city: addressFormData.city || "",
-                state: addressFormData.state || "",
-                address: [addressFormData.street, addressFormData.city, addressFormData.state, addressFormData.zipCode]
-                  .filter(Boolean)
-                  .join(", "),
-                area: addressFormData.additionalDetails || addressFormData.street || "",
-                pincode: addressFormData.zipCode || "",
-                formattedAddress: [addressFormData.street, addressFormData.city, addressFormData.state, addressFormData.zipCode]
-                  .filter(Boolean)
-                  .join(", "),
-              }
-              localStorage.setItem("userLocation", JSON.stringify(locationData))
-              window.dispatchEvent(new CustomEvent("userLocationUpdated"))
-            }
-          } catch {}
-          toast.success("Address updated")
-          setEditingAddressId(null)
-          setShowAddressForm(false)
-        }
-        return
-      }
-
       const created = await addAddress(payload)
       if (created) {
         const id = getAddressId(created)
         if (id) await setDefaultAddress(id)
         try {
-          sessionStorage.setItem("manual_location_update", "true");
-          localStorage.setItem("deliveryAddressMode", "saved")
-          // Keep active delivery location in sync with the exact map pin
-          // (city text alone is not enough for zone / restaurant fetching).
-          const locationData = {
-            latitude: mapPosition[0],
-            longitude: mapPosition[1],
-            city: addressFormData.city || "",
-            state: addressFormData.state || "",
-            address: [addressFormData.street, addressFormData.city, addressFormData.state, addressFormData.zipCode]
-              .filter(Boolean)
-              .join(", "),
-            area: addressFormData.additionalDetails || addressFormData.street || "",
-            pincode: addressFormData.zipCode || "",
-            formattedAddress: [addressFormData.street, addressFormData.city, addressFormData.state, addressFormData.zipCode]
-              .filter(Boolean)
-              .join(", "),
-          }
-          localStorage.setItem("userLocation", JSON.stringify(locationData))
-          window.dispatchEvent(new CustomEvent("userLocationUpdated"))
+          setDeliveryAddressMode("saved")
         } catch {}
+        toast.success("Address saved")
         handleBack()
       }
     } catch (error) {
@@ -874,6 +767,7 @@ export default function AddressSelectorPage() {
 
   if (showAddressForm) {
     const mapHeight = baseMapHeight 
+    const isSearchActive = isSearchFocused || googlePlacesSuggestions.length > 0 || keywordAddressSuggestions.length > 0
     return (
       <AnimatedPage
         className="fixed inset-0 z-50 bg-white dark:bg-[#0a0a0a] flex flex-col h-screen overflow-hidden"
@@ -882,7 +776,7 @@ export default function AddressSelectorPage() {
           <Button variant="ghost" size="icon" onClick={handleCancelAddressForm} className="rounded-full">
             <ChevronLeft className="h-6 w-6" />
           </Button>
-          <h1 className="text-lg font-bold">{editingAddressId ? "Edit delivery location" : "Add delivery location"}</h1>
+          <h1 className="text-lg font-bold">Add delivery location</h1>
         </div>
 
         <div
@@ -891,39 +785,56 @@ export default function AddressSelectorPage() {
             setFormScrollTop(e.currentTarget.scrollTop)
           }}
           className="flex-1 overflow-y-auto"
-          style={{ paddingBottom: `${96 + keyboardInset}px` }}
+          style={{ paddingBottom: `${120 + keyboardInset}px` }}
         >
           {/* Map Section - Parallax enabled */}
           <div
-            className="flex-shrink-0 relative z-0"
+            className={`flex-shrink-0 relative transition-[z-index] duration-150 ${isSearchActive ? "z-20" : "z-0"}`}
             style={{ 
               height: `${mapHeight}px`,
-              transform: `translateY(${formScrollTop * 0.4}px)`,
-              opacity: clamp(1 - (formScrollTop / 500), 0.4, 1)
+              transform: isSearchActive ? "none" : `translateY(${formScrollTop * 0.4}px)`,
+              opacity: isSearchActive ? 1 : clamp(1 - (formScrollTop / 500), 0.4, 1)
             }}
           >
             <div className="absolute top-4 left-4 right-4 z-20">
               <div className="relative group shadow-2xl">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <Search className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Search className="h-5 w-5 text-gray-400" />
                 </div>
                 <Input
                   value={addressAutocompleteValue}
                   onChange={(e) => setAddressAutocompleteValue(e.target.value)}
+                  onFocus={() => setIsSearchFocused(true)}
+                  onBlur={() => {
+                    // Small delay to allow click events on suggestions to fire before blur state hides them
+                    setTimeout(() => setIsSearchFocused(false), 200)
+                  }}
                   placeholder="Search area, street, landmark..."
-                  className={MAP_SEARCH_INPUT_CLASS}
+                  className="pl-10 h-12 bg-white/95 dark:bg-[#1a1a1a]/95 backdrop-blur-md border-none rounded-xl shadow-lg focus:ring-2 focus:ring-[#EB590E] transition-all"
                 />
-                {addressAutocompleteValue && (
-                  <button 
-                    onClick={() => setAddressAutocompleteValue("")}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
                 {isKeywordSearching && (
-                  <div className="absolute right-10 top-1/2 -translate-y-1/2">
-                     <div className="animate-spin rounded-full h-4 w-4 border-2 border-[#DC2626] border-t-transparent" />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                     <div className="animate-spin rounded-full h-4 w-4 border-2 border-[#EB590E] border-t-transparent" />
+                  </div>
+                )}
+
+                {googlePlacesSuggestions.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#1a1a1a] rounded-xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden z-30 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <p className="px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-400 bg-gray-50 dark:bg-gray-800/50">Google Suggestions</p>
+                    {googlePlacesSuggestions.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => void selectGooglePlace(s)}
+                        className="w-full px-4 py-3 flex items-start gap-3 hover:bg-orange-50 dark:hover:bg-orange-900/10 transition-colors text-left border-b border-gray-50 dark:border-gray-800 last:border-none"
+                      >
+                        <MapPin className="h-4 w-4 text-gray-400 mt-1 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{s.mainText}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{s.secondaryText}</p>
+                        </div>
+                      </button>
+                    ))}
                   </div>
                 )}
 
@@ -933,12 +844,14 @@ export default function AddressSelectorPage() {
                     {keywordAddressSuggestions.map((s) => (
                       <button
                         key={s.id}
-                        onClick={() => handleSelectMapSuggestion(s)}
-                        className="w-full px-4 py-3 flex items-start gap-3 hover:bg-[#DC2626]/5 dark:hover:bg-[#DC2626]/10 transition-colors text-left border-b border-gray-50 dark:border-gray-800 last:border-none"
+                        type="button"
+                        onClick={() => selectFallbackPlace(s)}
+                        className="w-full px-4 py-3 flex items-start gap-3 hover:bg-orange-50 dark:hover:bg-orange-900/10 transition-colors text-left border-b border-gray-50 dark:border-gray-800 last:border-none"
                       >
                         <MapPin className="h-4 w-4 text-gray-400 mt-1 flex-shrink-0" />
                         <div className="min-w-0">
-                           <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{s.display}</p>
+                          <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{s.display}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{s.address?.city || s.address?.state}</p>
                         </div>
                       </button>
                     ))}
@@ -963,32 +876,25 @@ export default function AddressSelectorPage() {
 
             {mapLoading && (
               <div className="absolute inset-0 flex items-center justify-center bg-white/50 backdrop-blur-sm z-10">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#DC2626]" />
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#659116]" />
               </div>
             )}
             
-            <div className="absolute bottom-10 right-4 z-10 pointer-events-auto">
-              <Button
-                type="button"
-                onClick={handleCenterMapOnMyLocation}
-                disabled={mapGpsLoading}
-                className="bg-white text-black hover:bg-gray-100 shadow-xl border border-gray-200 rounded-full h-12 px-6 disabled:opacity-70"
+            <div className="absolute bottom-10 right-4 z-10">
+              <Button 
+                  onClick={handleUseCurrentLocation} 
+                  className="bg-white text-black hover:bg-gray-100 shadow-xl border border-gray-200 rounded-full h-12 px-6"
               >
-                {mapGpsLoading ? (
-                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-[#DC2626] border-t-transparent mr-2" />
-                ) : (
-                  <Navigation className="h-4 w-4 mr-2 text-[#DC2626]" />
-                )}
-                {mapGpsLoading ? "Locating..." : "Use My Location"}
+                <Navigation className="h-4 w-4 mr-2 text-[#659116]" /> Use My Location
               </Button>
             </div>
           </div>
 
-          <div className="relative bg-white dark:bg-[#0a0a0a] rounded-t-[32px] -mt-8 z-10 p-4 space-y-6 shadow-[0_-12px_24px_-10px_rgba(0,0,0,0.1)]">
-            <div className="bg-[#DC2626]/5 dark:bg-[#DC2626]/10 border border-[#DC2626]/10 dark:border-[#DC2626]/20 rounded-xl p-4 flex gap-3">
-               <MapPin className="h-5 w-5 text-[#DC2626] mt-0.5" />
+          <div className="relative bg-white dark:bg-[#0a0a0a] rounded-t-[32px] -mt-8 z-10 pt-8 px-4 pb-4 space-y-6 shadow-[0_-12px_24px_-10px_rgba(0,0,0,0.1)]">
+            <div className="bg-[#659116]/10 dark:bg-[#659116]/20 border border-[#659116]/20 rounded-xl p-4 flex gap-3">
+               <MapPin className="h-5 w-5 text-[#659116] mt-0.5" />
                <div className="min-w-0">
-                  <p className="text-xs font-bold text-[#DC2626] dark:text-[#DC2626]/80 uppercase mb-1">Pinnned Location</p>
+                  <p className="text-xs font-bold text-[#659116] dark:text-[#8cc63f] uppercase mb-1">Pinned Location</p>
                   <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">{currentAddress || "Select a location on map"}</p>
                </div>
             </div>
@@ -1005,14 +911,14 @@ export default function AddressSelectorPage() {
                 required
               />
 
-              <Label className="text-sm font-bold mb-2 block text-gray-700 dark:text-gray-300">Secondary Address (House No. / Flat / Floor)</Label>
+              <Label className="text-sm font-bold mb-2 block text-[#659116] dark:text-[#8cc63f]">Secondary Address (House No. / Flat / Floor)</Label>
               <Input 
-                placeholder="E.g. Flat 402, 4th Floor, AppZeto Building" 
+                placeholder="E.g. Flat 402, 4th Floor, Eatiefy Building" 
                 value={addressFormData.additionalDetails} 
                 onChange={e => setAddressFormData({...addressFormData, additionalDetails: e.target.value})}
                 onFocus={() => scrollFieldIntoView("additionalDetails")}
                 ref={(el) => { manualFieldRefs.current.additionalDetails = el }}
-                className="h-12 rounded-xl border-gray-200 dark:border-gray-800 focus:ring-[#DC2626]"
+                className="h-12 rounded-xl border-[#659116]/40 dark:border-[#659116]/40 focus:ring-[#659116]"
               />
             </div>
 
@@ -1055,44 +961,78 @@ export default function AddressSelectorPage() {
 
             <div>
                <Label className="text-sm font-bold mb-2 block">Save address as</Label>
-               <div className="flex gap-2">
-                 {[
-                   { value: "Home", label: "Home" },
-                   { value: "Work", label: "Work" },
-                   { value: "Other", label: "Other" },
-                 ].map(({ value, label }) => {
-                   const isSelected = addressFormData.label === value
-                   return (
-                     <button
-                       key={value}
-                       type="button"
-                       onClick={() => setAddressFormData({ ...addressFormData, label: value })}
-                       className={`flex-1 h-11 rounded-xl text-sm font-semibold transition-colors ${
-                         isSelected
-                           ? "bg-[#DC2626] text-white shadow-sm"
-                           : "bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700"
-                       }`}
+               <div className="flex gap-2 items-center">
+                 {!(addressFormData.label !== "Home" && addressFormData.label !== "Work" && addressFormData.label !== "Office") ? (
+                   <>
+                     {["Home", "Work", "Other"].map(l => (
+                       <Button 
+                         key={l}
+                         variant={addressFormData.label === l || (l === "Work" && addressFormData.label === "Office") ? "default" : "outline"}
+                         onClick={() => {
+                           if (l === "Other") {
+                             setAddressFormData({...addressFormData, label: ""})
+                           } else {
+                             setAddressFormData({...addressFormData, label: l})
+                           }
+                         }}
+                         className="flex-1 h-11 rounded-xl font-bold"
+                         style={addressFormData.label === l || (l === "Work" && addressFormData.label === "Office") ? {backgroundColor: '#659116', color: 'white'} : {}}
+                       >
+                         {l}
+                       </Button>
+                     ))}
+                   </>
+                 ) : (
+                   <div className="flex w-full gap-2 items-center animate-in fade-in duration-200">
+                     <Button 
+                       variant="default"
+                       onClick={() => setAddressFormData({...addressFormData, label: "Home"})}
+                       className="h-11 rounded-xl flex items-center gap-1.5 px-4 font-bold"
+                       style={{backgroundColor: '#659116', color: 'white'}}
                      >
-                       {label}
-                     </button>
-                   )
-                 })}
+                       <MapPin className="h-4 w-4" /> Other
+                     </Button>
+                     <div className="relative flex-1">
+                       <Input
+                         placeholder="e.g. Gym, Friend's House"
+                         value={addressFormData.label}
+                         onChange={(e) => setAddressFormData({...addressFormData, label: e.target.value})}
+                         className="h-11 rounded-xl pr-10 border-[#659116]/40 focus:ring-[#659116] bg-gray-50 dark:bg-gray-800/50"
+                         maxLength={20}
+                         required
+                         autoFocus
+                       />
+                       <button
+                         type="button"
+                         onClick={() => setAddressFormData({...addressFormData, label: "Home"})}
+                         className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                       >
+                         <X className="h-4 w-4" />
+                       </button>
+                     </div>
+                   </div>
+                 )}
                </div>
             </div>
+
+            {/* Spacer to allow scrolling past the fixed bottom button */}
+            <div style={{ height: `calc(100px + env(safe-area-inset-bottom, 0px))` }} />
           </div>
         </div>
 
         <div
-          className="fixed left-0 right-0 p-4 bg-white dark:bg-[#1a1a1a] border-t dark:border-gray-800 transition-[bottom] duration-150"
-          style={{ bottom: `${keyboardInset}px` }}
+          className={`fixed left-0 right-0 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-white dark:bg-[#1a1a1a] border-t dark:border-gray-800 transition-all duration-150 z-30 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] ${
+            isSearchActive ? "opacity-0 pointer-events-none translate-y-full" : "opacity-100 translate-y-0"
+          }`}
+          style={{ bottom: `${isSearchActive ? 0 : keyboardInset}px` }}
         >
           <Button 
             className="w-full h-12 text-white font-bold text-lg" 
-            style={{backgroundColor: '#DC2626'}}
+            style={{backgroundColor: '#659116'}}
             onClick={handleAddressFormSubmit}
             disabled={loadingAddress}
           >
-            {loadingAddress ? (editingAddressId ? "Updating..." : "Saving...") : editingAddressId ? "Update Address" : "Save Address \u0026 Proceed"}
+            {loadingAddress ? "Saving..." : "Save Address \u0026 Proceed"}
           </Button>
         </div>
       </AnimatedPage>
@@ -1109,164 +1049,64 @@ export default function AddressSelectorPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto pb-10">
-        {/* Search Bar */}
-        <div className="p-4 bg-white dark:bg-[#0a0a0a] border-b dark:border-gray-800/10">
-          <div className="relative group">
-            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-              <Search className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
-            </div>
-            <Input
-              value={addressAutocompleteValue}
-              onChange={(e) => setAddressAutocompleteValue(e.target.value)}
-              placeholder="Search for area, street name..."
-              className={MAP_SEARCH_INPUT_CLASS}
-            />
-            {addressAutocompleteValue && (
-              <button 
-                onClick={() => setAddressAutocompleteValue("")}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Search Suggestions List */}
-        {keywordAddressSuggestions.length > 0 && (
-          <div className="mx-4 mt-2 mb-4 bg-white dark:bg-zinc-900 border border-zinc-150 dark:border-zinc-800 rounded-2xl shadow-xl overflow-hidden divide-y divide-zinc-100 dark:divide-zinc-850 z-50 animate-in fade-in duration-200">
-            {keywordAddressSuggestions.map((s) => {
-              const title = s.display.split(",")[0] || s.display
-              const subtitle = s.display.split(",").slice(1).join(",").trim() || s.display
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => handleSelectOuterSuggestion(s)}
-                  className="w-full px-4 py-3.5 flex items-start gap-3.5 hover:bg-[#DC2626]/5 dark:hover:bg-[#DC2626]/10 transition-colors text-left"
-                >
-                  <div className="h-9 w-9 rounded-full bg-red-50 dark:bg-red-950/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <MapPin className="h-4.5 w-4.5 text-[#DC2626]" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50 truncate">{title}</p>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate mt-0.5">{subtitle}</p>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-zinc-300 dark:text-zinc-600 mt-2.5 flex-shrink-0" />
-                </button>
-              )
-            })}
-          </div>
-        )}
-
-        {isKeywordSearching && (
-          <div className="mx-4 mt-2 mb-4 p-4 flex items-center justify-center gap-2 text-xs text-zinc-500 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl">
-            <div className="animate-spin rounded-full h-4 w-4 border-2 border-[#DC2626] border-t-transparent" />
-            Searching location...
-          </div>
-        )}
-
-        {/* Action Rows: Use Current Location & Add Address */}
-        <div className="bg-white dark:bg-[#0a0a0a] border-b border-zinc-100 dark:border-zinc-800/60 divide-y divide-zinc-100 dark:divide-zinc-800/40">
+        <div className="p-4 bg-gray-50 dark:bg-gray-900 border-b dark:border-gray-800">
           <button 
+            type="button"
+            disabled={isLocating}
             onClick={handleUseCurrentLocation}
-            className="w-full flex items-center gap-4 py-4 px-6 hover:bg-zinc-50 dark:hover:bg-zinc-900/40 transition-all text-left"
+            className="w-full flex items-center gap-4 p-4 bg-white dark:bg-[#1a1a1a] rounded-xl shadow-sm hover:shadow-md transition-all group disabled:opacity-60 text-left"
           >
-            <div className="h-10 w-10 rounded-full bg-red-50 dark:bg-red-950/10 flex items-center justify-center flex-shrink-0">
-              <Crosshair className="h-5 w-5 text-[#DC2626]" />
+            <div className="h-10 w-10 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center flex-shrink-0">
+              {isLocating ? (
+                <div className="animate-spin rounded-full h-5 w-5 border-2 border-[#EB590E] border-t-transparent" />
+              ) : (
+                <Navigation className="h-5 w-5 text-[#EB590E]" />
+              )}
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-[#DC2626] text-[15px]">Use current location</p>
-              <p className="text-xs text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
-                {currentAddress ? currentAddress.replace(/^[a-z0-9]{2,8}\+[a-z0-9]{0,3}[,\s]*/i, '').replace(/,\s*India$/, '') : "Enable GPS for accuracy"}
-              </p>
+            <div className="text-left flex-1 min-w-0">
+              <p className="font-bold text-[#EB590E]">Use Current Location</p>
+              <p className="text-xs text-gray-500 line-clamp-1 truncate">{isLocating ? "Getting current GPS location..." : (currentAddress || "Enable GPS for accuracy")}</p>
             </div>
-            <ChevronRight className="h-5 w-5 text-zinc-300 dark:text-zinc-600 flex-shrink-0" />
-          </button>
-
-          <button 
-            onClick={handleAddAddressClick}
-            className="w-full flex items-center gap-4 py-4 px-6 hover:bg-zinc-50 dark:hover:bg-zinc-900/40 transition-all text-left"
-          >
-            <div className="h-10 w-10 rounded-full bg-red-50 dark:bg-red-950/10 flex items-center justify-center flex-shrink-0">
-              <Plus className="h-5 w-5 text-[#DC2626]" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-[#DC2626] text-[15px]">Add Address</p>
-            </div>
-            <ChevronRight className="h-5 w-5 text-zinc-300 dark:text-zinc-600 flex-shrink-0" />
+            <ChevronRight className="h-5 w-5 text-gray-400 flex-shrink-0" />
           </button>
         </div>
 
-        <div className="p-6">
+        <div className="p-4">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Saved Addresses</h2>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500">Saved Addresses</h2>
+            <Button variant="ghost" className="text-[#EB590E] p-0 h-auto font-bold" onClick={handleAddAddressClick}>
+              <Plus className="h-4 w-4 mr-1" /> Add New
+            </Button>
           </div>
 
           <div className="space-y-4">
-            {profileLoading && addresses.length === 0 ? (
-              // Skeleton loading state
-              [1, 2].map((i) => (
-                <div key={i} className="w-full flex items-start gap-4 p-4 bg-slate-50 dark:bg-[#1a1a1a] rounded-xl animate-pulse">
-                  <div className="h-10 w-10 rounded-full bg-gray-200 dark:bg-gray-800 flex-shrink-0" />
-                  <div className="flex-1 space-y-2">
-                    <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-1/4" />
-                    <div className="h-3 bg-gray-200 dark:bg-gray-800 rounded w-3/4" />
-                  </div>
-                </div>
-              ))
-            ) : addresses.length === 0 ? (
+            {addresses.length === 0 ? (
               <div className="text-center py-10 opacity-50">
-                 <MapPin className="h-12 w-12 mx-auto mb-2 text-gray-400" />
-                 <p>No addresses saved yet</p>
+                <MapPin className="h-12 w-12 mx-auto mb-2 text-gray-400" />
+                <p>No addresses saved yet</p>
               </div>
             ) : (
               addresses.map((addr, idx) => {
                 const Icon = getAddressIcon(addr)
-                const addressLine = [addr.additionalDetails, addr.street, addr.city, addr.state].filter(Boolean).join(", ").replace(/^[a-z0-9]{2,8}\+[a-z0-9]{0,3}[,\s]*/i, '')
                 return (
-                  <div
+                  <button
                     key={getAddressId(addr) || idx}
-                    className="w-full flex items-start gap-3 p-4 bg-slate-50 dark:bg-[#1a1a1a] rounded-xl border border-transparent hover:border-[#DC2626]/15 transition-colors"
+                    onClick={() => handleSelectSavedAddress(addr)}
+                    className="w-full flex items-start gap-4 p-4 bg-slate-50 dark:bg-[#1a1a1a] rounded-xl hover:bg-orange-50 dark:hover:bg-orange-900/10 transition-colors text-left group"
                   >
-                    <button
-                      type="button"
-                      onClick={() => handleSelectSavedAddress(addr)}
-                      className="flex flex-1 items-start gap-3 text-left min-w-0 pr-1"
-                    >
-                      <div className="h-10 w-10 rounded-full bg-white dark:bg-gray-800 flex items-center justify-center shadow-sm flex-shrink-0">
-                        <Icon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <p className="font-bold text-gray-900 dark:text-white capitalize truncate">
-                            {addr.label || "Address"}
-                          </p>
-                          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#DC2626]/10 flex-shrink-0">
-                            <ChevronRight className="h-4 w-4 text-[#DC2626]" strokeWidth={2.5} />
-                          </span>
-                        </div>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mt-1 pr-2">{addressLine}</p>
-                      </div>
-                    </button>
-                    <div className="flex flex-col gap-1.5 pt-1 flex-shrink-0">
-                      <button
-                        type="button"
-                        onClick={(e) => handleEditAddressClick(e, addr)}
-                        className="h-9 w-9 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-500 hover:text-[#DC2626] hover:border-[#DC2626]/30 transition-colors"
-                        aria-label="Edit address"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => handleDeleteAddressClick(e, addr)}
-                        className="h-9 w-9 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-500 hover:text-red-600 hover:border-red-200 transition-colors"
-                        aria-label="Delete address"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                    <div className="h-10 w-10 rounded-full bg-white dark:bg-gray-800 flex items-center justify-center shadow-sm">
+                      <Icon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                     </div>
-                  </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-gray-900 dark:text-white capitalize">{addr.label || "Address"}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">
+                        {[addr.additionalDetails, addr.street, addr.city, addr.state].filter(Boolean).join(", ")}
+                      </p>
+                    </div>
+                    <div className="h-6 w-6 rounded-full border border-gray-200 dark:border-gray-700 mt-2 flex items-center justify-center group-hover:border-[#EB590E]">
+                       <ChevronRight className="h-3 w-3 text-gray-400 group-hover:text-[#EB590E]" />
+                    </div>
+                  </button>
                 )
               })
             )}
@@ -1282,84 +1122,6 @@ export default function AddressSelectorPage() {
           animation: bounce-short 1s infinite ease-in-out;
         }
       `}</style>
-      
-      {isFetchingLocationState && (
-        <div className="fixed inset-0 z-[10000] bg-white/60 dark:bg-[#0a0a0a]/60 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-300 pointer-events-auto">
-          <div className="relative">
-            <div className="w-10 h-10 border-[3px] border-gray-100/30 rounded-full"></div>
-            <div className="absolute top-0 left-0 w-10 h-10 border-[3px] border-[#DC2626] border-t-transparent rounded-full animate-spin"></div>
-          </div>
-          <p className="mt-4 text-[13px] font-bold text-gray-800 dark:text-gray-200 tracking-tight animate-pulse">Fetching Location...</p>
-        </div>
-      )}
-
-      {deleteDialog &&
-        createPortal(
-          <div className="fixed inset-0 z-[10001] flex items-center justify-center p-4">
-            <button
-              type="button"
-              className="absolute inset-0 bg-black/45"
-              style={{
-                opacity: deleteDialog.phase === "open" ? 1 : 0,
-                transition: `opacity ${DELETE_MODAL_ANIM_MS}ms ease`,
-              }}
-              onClick={() => !isDeletingAddress && closeDeleteDialog()}
-              aria-label="Close delete dialog"
-            />
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="delete-address-title"
-              className="relative w-full max-w-[340px] rounded-3xl bg-white dark:bg-[#1a1a1a] shadow-2xl"
-              style={getDeleteModalMotion(deleteDialog.phase)}
-            >
-              <div className="px-6 pt-8 pb-6">
-                <div className="flex flex-col items-center text-center">
-                  <div className="h-14 w-14 rounded-full bg-red-50 dark:bg-red-950/30 flex items-center justify-center mb-4 ring-8 ring-red-50/60 dark:ring-red-950/20">
-                    <Trash2 className="h-6 w-6 text-red-600" />
-                  </div>
-                  <div className="space-y-2 w-full">
-                    <h2 id="delete-address-title" className="text-xl font-bold text-zinc-900 dark:text-white">
-                      Delete address?
-                    </h2>
-                    <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                      This action cannot be undone. You will need to add this address again.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-5 rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60 px-4 py-3.5 text-left">
-                  <p className="text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-1">
-                    {deleteDialog.address?.label || "Address"}
-                  </p>
-                  <p className="text-sm font-medium text-zinc-800 dark:text-zinc-100 leading-relaxed break-words">
-                    {formatAddressPreview(deleteDialog.address) || "Saved delivery address"}
-                  </p>
-                </div>
-
-                <div className="mt-6 flex flex-col gap-3">
-                  <Button
-                    onClick={confirmDeleteAddress}
-                    disabled={isDeletingAddress}
-                    className="w-full h-12 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold text-[15px] shadow-sm"
-                  >
-                    {isDeletingAddress ? "Deleting..." : "Delete address"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={closeDeleteDialog}
-                    disabled={isDeletingAddress}
-                    className="w-full h-12 rounded-xl border border-zinc-200/80 dark:border-zinc-700 bg-zinc-100 hover:bg-zinc-200/90 dark:bg-zinc-800/90 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-100 font-semibold text-[15px] shadow-sm"
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )}
     </AnimatedPage>
   )
 }

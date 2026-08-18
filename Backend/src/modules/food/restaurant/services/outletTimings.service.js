@@ -1,8 +1,9 @@
 import mongoose from 'mongoose';
 import { ValidationError } from '../../../../core/auth/errors.js';
-import { getMondayBasedWeekday, getZonedParts } from '../../../../utils/timezone.js';
-import { FoodRestaurant } from '../models/restaurant.model.js';
+import { invalidateCache } from '../../../../middleware/cache.js';
 import { FoodRestaurantOutletTimings } from '../models/outletTimings.model.js';
+import { FoodRestaurant } from '../models/restaurant.model.js';
+import { getRestaurantLocalTimeParts } from '../../../../utils/timezone.js';
 
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -28,52 +29,13 @@ const normalizeTime = (value, fallback) => {
     return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
 };
 
-const timeToMinutes = (value) => {
-    const normalized = normalizeTime(value, null);
-    if (!normalized) return null;
-    const [h, m] = normalized.split(':').map(Number);
-    return h * 60 + m;
-};
-
-const isWithinTimeWindow = (nowMinutes, openingMinutes, closingMinutes) => {
-    if (openingMinutes === null || closingMinutes === null) return true;
-    if (openingMinutes === closingMinutes) return true;
-    if (closingMinutes > openingMinutes) {
-        return nowMinutes >= openingMinutes && nowMinutes <= closingMinutes;
-    }
-    return nowMinutes >= openingMinutes || nowMinutes <= closingMinutes;
-};
-
-/**
- * Build a full-week timings array from restaurant-level open/close + openDays.
- * Used on onboarding so registration hours become the default for every day.
- */
-export const buildTimingsFromRestaurantHours = ({
-    openingTime,
-    closingTime,
-    openDays,
-    fallbackOpening = '09:00',
-    fallbackClosing = '22:00'
-} = {}) => {
-    const open = normalizeTime(openingTime, fallbackOpening);
-    const close = normalizeTime(closingTime, fallbackClosing);
-
-    const normalizedOpenDays = Array.isArray(openDays)
-        ? openDays.map((d) => normalizeDay(d)).filter(Boolean)
-        : [];
-    // Empty openDays means "all days open" (same as onboarding all selected).
-    const openDaySet = normalizedOpenDays.length > 0 ? new Set(normalizedOpenDays) : null;
-
-    return DAY_NAMES.map((day) => {
-        const isOpen = openDaySet ? openDaySet.has(day) : true;
-        return {
-            day,
-            isOpen,
-            openingTime: isOpen ? open : '',
-            closingTime: isOpen ? close : ''
-        };
-    });
-};
+const defaultTimings = () =>
+    DAY_NAMES.map((day) => ({
+        day,
+        isOpen: true,
+        openingTime: '09:00',
+        closingTime: '22:00'
+    }));
 
 const toClientShape = (doc) => {
     const timings = Array.isArray(doc?.timings) ? doc.timings : [];
@@ -90,58 +52,13 @@ const toClientShape = (doc) => {
     return map;
 };
 
-/**
- * Persist weekly outlet timings for a restaurant (create if missing).
- * Does not overwrite an existing document unless `overwrite` is true.
- */
-export async function seedOutletTimingsForRestaurant(
-    restaurantId,
-    { openingTime, closingTime, openDays } = {},
-    { overwrite = false } = {}
-) {
-    if (!restaurantId || !mongoose.Types.ObjectId.isValid(String(restaurantId))) {
-        throw new ValidationError('Invalid restaurant id');
-    }
-
-    const timings = buildTimingsFromRestaurantHours({ openingTime, closingTime, openDays });
-
-    if (!overwrite) {
-        const existing = await FoodRestaurantOutletTimings.findOne({ restaurantId }).select('_id').lean();
-        if (existing) {
-            return { outletTimings: toClientShape(existing), seeded: false };
-        }
-    }
-
-    const doc = await FoodRestaurantOutletTimings.findOneAndUpdate(
-        { restaurantId },
-        { $set: { timings } },
-        { upsert: true, new: true, setDefaultsOnInsert: true, projection: 'timings updatedAt' }
-    ).lean();
-
-    return { outletTimings: toClientShape(doc), seeded: true };
-}
-
 export async function getOutletTimingsForRestaurant(restaurantId) {
     if (!restaurantId || !mongoose.Types.ObjectId.isValid(String(restaurantId))) {
         throw new ValidationError('Invalid restaurant id');
     }
     const doc = await FoodRestaurantOutletTimings.findOne({ restaurantId }).select('timings updatedAt').lean();
-    if (doc) {
-        return { outletTimings: toClientShape(doc), persisted: true };
-    }
-
-    // No weekly row yet — use restaurant-level onboarding hours (not hardcoded 09–22).
-    const restaurant = await FoodRestaurant.findById(restaurantId)
-        .select('openingTime closingTime openDays')
-        .lean();
-
-    const timings = buildTimingsFromRestaurantHours({
-        openingTime: restaurant?.openingTime,
-        closingTime: restaurant?.closingTime,
-        openDays: restaurant?.openDays
-    });
-
-    return { outletTimings: toClientShape({ timings }), persisted: false };
+    if (!doc) return { outletTimings: toClientShape({ timings: defaultTimings() }) };
+    return { outletTimings: toClientShape(doc) };
 }
 
 export async function upsertOutletTimingsForRestaurant(restaurantId, outletTimings) {
@@ -152,21 +69,14 @@ export async function upsertOutletTimingsForRestaurant(restaurantId, outletTimin
         throw new ValidationError('outletTimings must be an object keyed by day name');
     }
 
-    // Prefer restaurant hours as fallback when a day is open but times omitted.
-    const restaurant = await FoodRestaurant.findById(restaurantId)
-        .select('openingTime closingTime')
-        .lean();
-    const fallbackOpen = normalizeTime(restaurant?.openingTime, '09:00');
-    const fallbackClose = normalizeTime(restaurant?.closingTime, '22:00');
-
     const timings = DAY_NAMES.map((day) => {
         const src = outletTimings[day] && typeof outletTimings[day] === 'object' ? outletTimings[day] : {};
         const isOpen = src.isOpen !== false;
         return {
             day,
             isOpen,
-            openingTime: isOpen ? normalizeTime(src.openingTime, fallbackOpen) : '',
-            closingTime: isOpen ? normalizeTime(src.closingTime, fallbackClose) : ''
+            openingTime: isOpen ? normalizeTime(src.openingTime, '09:00') : '',
+            closingTime: isOpen ? normalizeTime(src.closingTime, '22:00') : ''
         };
     });
 
@@ -176,60 +86,67 @@ export async function upsertOutletTimingsForRestaurant(restaurantId, outletTimin
         { upsert: true, new: true, setDefaultsOnInsert: true, projection: 'timings updatedAt' }
     ).lean();
 
-    return { outletTimings: toClientShape(doc), persisted: true };
-}
+    const { dayName: currentDayName } = getRestaurantLocalTimeParts(new Date());
+    const todayData = timings.find(t => t.day === currentDayName) || timings.find(t => t.isOpen) || timings[0];
 
-/**
- * Shared open-now check (outlet day schedule → restaurant opening/closing).
- * Used by order create so backend matches user-side availability.
- */
-export async function assertRestaurantOpenForOrders(restaurantId, now = new Date()) {
-    if (!restaurantId || !mongoose.Types.ObjectId.isValid(String(restaurantId))) {
-        throw new ValidationError('Invalid restaurant id');
-    }
-
-    const [timingsDoc, restaurant] = await Promise.all([
-        FoodRestaurantOutletTimings.findOne({ restaurantId }).select('timings').lean(),
-        FoodRestaurant.findById(restaurantId).select('openingTime closingTime openDays').lean()
-    ]);
-
-    // Always evaluate against Asia/Kolkata (never server OS timezone).
-    const dayName = DAY_NAMES[getMondayBasedWeekday(now)];
-    const parts = getZonedParts(now);
-    const nowMinutes = parts.hour * 60 + parts.minute;
-
-    let todayTiming = null;
-    if (Array.isArray(timingsDoc?.timings) && timingsDoc.timings.length > 0) {
-        todayTiming = timingsDoc.timings.find((t) => normalizeDay(t?.day) === dayName) || null;
-    }
-
-    if (!todayTiming) {
-        const openDays = Array.isArray(restaurant?.openDays) ? restaurant.openDays : [];
-        if (openDays.length > 0) {
-            const openSet = new Set(openDays.map((d) => normalizeDay(d)).filter(Boolean));
-            if (openSet.size > 0 && !openSet.has(dayName)) {
-                throw new ValidationError('Restaurant is closed today');
+    if (todayData) {
+        await FoodRestaurant.findByIdAndUpdate(restaurantId, {
+            $set: {
+                openingTime: todayData.openingTime,
+                closingTime: todayData.closingTime,
+                openDays: timings.filter(t => t.isOpen).map(t => t.day)
             }
-        }
-    } else if (todayTiming.isOpen === false) {
-        throw new ValidationError('Restaurant is closed today');
+        });
     }
 
-    const openingTime =
-        todayTiming?.openingTime || restaurant?.openingTime || null;
-    const closingTime =
-        todayTiming?.closingTime || restaurant?.closingTime || null;
+    // Invalidate public caches so changes reflect immediately for users
+    void invalidateCache('restaurants:*');
+    void invalidateCache('restaurant_detail:*');
+    void invalidateCache('restaurant_timings:*');
 
-    const openingMinutes = timeToMinutes(openingTime);
-    const closingMinutes = timeToMinutes(closingTime);
-
-    if (openingMinutes === null || closingMinutes === null) {
-        return true;
-    }
-
-    if (!isWithinTimeWindow(nowMinutes, openingMinutes, closingMinutes)) {
-        throw new ValidationError('Restaurant is currently closed');
-    }
-
-    return true;
+    return { outletTimings: toClientShape(doc) };
 }
+
+export async function getOutletTimingsMapForRestaurants(restaurantIds = [], options = {}) {
+    const ids = [
+        ...new Set(
+            (restaurantIds || [])
+                .map((id) => String(id || '').trim())
+                .filter((id) => mongoose.Types.ObjectId.isValid(id))
+        )
+    ];
+
+    if (!ids.length) return new Map();
+
+    const useDefaults = options?.useDefaults !== false;
+    const defaultShape = toClientShape({ timings: defaultTimings() });
+    const objectIds = ids.map((id) => new mongoose.Types.ObjectId(id));
+    const docs = await FoodRestaurantOutletTimings.find({ restaurantId: { $in: objectIds } })
+        .select('restaurantId timings')
+        .lean();
+
+    const map = useDefaults ? new Map(ids.map((id) => [id, defaultShape])) : new Map();
+    for (const doc of docs) {
+        map.set(String(doc.restaurantId), toClientShape(doc));
+    }
+    return map;
+}
+
+export async function attachOutletTimingsToRestaurants(restaurants = [], options = {}) {
+    if (!Array.isArray(restaurants) || restaurants.length === 0) return restaurants;
+
+    const useDefaults = options?.useDefaults !== false;
+    const map = await getOutletTimingsMapForRestaurants(
+        restaurants.map((r) => r._id || r.id || r.restaurantId),
+        { useDefaults },
+    );
+
+    return restaurants.map((r) => {
+        const key = String(r._id || r.id || r.restaurantId || '');
+        return {
+            ...r,
+            outletTimings: map.get(key) || null
+        };
+    });
+}
+

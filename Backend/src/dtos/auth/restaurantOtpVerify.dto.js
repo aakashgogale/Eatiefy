@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ValidationError } from '../../core/auth/errors.js';
+import { normalizePlatform } from '../../utils/platform.js';
 
 const schema = z.object({
     phone: z
@@ -11,8 +12,10 @@ const schema = z.object({
         .min(4, 'OTP must be 4-6 digits')
         .max(6, 'OTP must be 4-6 digits'),
     fcmToken: z.string().optional().nullable(),
-    platform: z.enum(['web', 'mobile']).optional().default('web'),
-    confirmAction: z.enum(["restore", "new"]).optional(),
+    platform: z.preprocess(
+        (value) => normalizePlatform(value, { allowUndefined: true }),
+        z.enum(['web', 'mobile']).optional().default('web')
+    )
 });
 
 export const validateRestaurantOtpVerifyDto = (body) => {

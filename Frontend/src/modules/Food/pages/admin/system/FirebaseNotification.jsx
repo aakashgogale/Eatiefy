@@ -1,4 +1,4 @@
-﻿import { useState } from "react"
+import { useState } from "react"
 import { Cloud, Settings, Info } from "lucide-react"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -8,9 +8,9 @@ const debugError = (...args) => {}
 const languageTabs = [
   { key: "default", label: "Default" },
   { key: "en", label: "English(EN)" },
-  { key: "bn", label: "Bengali - à¦¬à¦¾à¦‚à¦²à¦¾(BN)" },
-  { key: "ar", label: "Arabic - Ø§Ù„Ø¹Ø±Ø¨ÙŠØ© (AR)" },
-  { key: "es", label: "Spanish - español(ES)" }
+  { key: "bn", label: "Bengali - বাংলা(BN)" },
+  { key: "ar", label: "Arabic - العربية (AR)" },
+  { key: "es", label: "Spanish - espa�ol(ES)" }
 ]
 
 const notificationMessages = [
@@ -129,13 +129,13 @@ export default function FirebaseNotification() {
   const [messages, setMessages] = useState(notificationMessages)
   const [firebaseConfig, setFirebaseConfig] = useState({
     serviceFileContent: "",
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
-    fcmProjectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "",
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "",
-    appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "",
-    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || ""
+    apiKey: "AIzaSyC_TqpDR7LNHxFEPd8cGjl_ka_Rj0ebECA",
+    fcmProjectId: "zomato-607fa",
+    messagingSenderId: "1065631021082",
+    authDomain: "zomato-607fa.firebaseapp.com",
+    appId: "1:1065631021082:web:7424afd0ad2054ed6879a3",
+    storageBucket: "zomato-607fa.firebasestorage.app",
+    measurementId: "G-7JJV7JYVRX"
   })
 
   const handleMessageToggle = (id) => {
@@ -164,13 +164,13 @@ export default function FirebaseNotification() {
     setMessages(notificationMessages)
     setFirebaseConfig({
       serviceFileContent: "",
-      apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
-    fcmProjectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "",
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "",
-    appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "",
-    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || ""
+      apiKey: "AIzaSyC_TqpDR7LNHxFEPd8cGjl_ka_Rj0ebECA",
+      fcmProjectId: "zomato-607fa",
+      messagingSenderId: "1065631021082",
+      authDomain: "zomato-607fa.firebaseapp.com",
+      appId: "1:1065631021082:web:7424afd0ad2054ed6879a3",
+      storageBucket: "zomato-607fa.firebasestorage.app",
+      measurementId: "G-7JJV7JYVRX"
     })
   }
 
@@ -430,5 +430,4 @@ export default function FirebaseNotification() {
     </div>
   )
 }
-
 

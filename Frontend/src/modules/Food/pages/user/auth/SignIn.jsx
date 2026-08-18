@@ -1,34 +1,54 @@
 import { useState, useEffect, useRef } from "react"
 import { useNavigate, Link, useSearchParams } from "react-router-dom"
-import { AlertCircle, Loader2 } from "lucide-react"
+import { AlertCircle, Loader2, ArrowRight, ShieldCheck, ArrowLeft } from "lucide-react"
 import AnimatedPage from "@food/components/user/AnimatedPage"
-import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
 import { authAPI } from "@food/api"
-import loginBanner from "@food/assets/loginbanner.png"
-const debugLog = (...args) => {}
-const debugWarn = (...args) => {}
-const debugError = (...args) => {}
+import { motion, AnimatePresence } from "framer-motion"
+import logoImg from "@food/assets/user-app-logo.webp"
+import DynamicLogo from "@food/components/DynamicLogo"
+import loginBgImg from "@food/assets/login_bg.webp"
+import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
 
+const debugError = (...args) => { }
 
 export default function SignIn() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
-  const defaultTestPhone =
-    import.meta.env.VITE_USE_DEFAULT_TEST_PHONE === "true"
-      ? String(import.meta.env.VITE_DEFAULT_TEST_PHONE || "").replace(/\D/g, "").slice(0, 10)
-      : ""
+  const [logoUrl, setLogoUrl] = useState(() => {
+    const cached = getCachedSettings()
+    return cached?.logo?.url || logoImg
+  })
+  const [companyName, setCompanyName] = useState(() => {
+    const cached = getCachedSettings()
+    return cached?.companyName || "Eatiefy"
+  })
 
   const [formData, setFormData] = useState({
-    // phone: "",
-    phone: defaultTestPhone,
-    countryCode: "+91", // required; default +91 for India
+    phone: "",
+    countryCode: "+91",
   })
+  const [isSignUp, setIsSignUp] = useState(false)
 
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const submittingRef = useRef(false)
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const settings = await loadBusinessSettings()
+        if (settings) {
+          if (settings.logo?.url) setLogoUrl(settings.logo.url)
+          if (settings.companyName) setCompanyName(settings.companyName)
+        }
+      } catch (err) {
+        debugError("Error loading business settings:", err)
+      }
+    }
+    fetchSettings()
+  }, [])
 
   useEffect(() => {
     const stored = sessionStorage.getItem("userAuthData")
@@ -51,7 +71,7 @@ export default function SignIn() {
   const validatePhone = (phone) => {
     if (!phone.trim()) return "Phone number is required"
     const cleanPhone = phone.replace(/\D/g, "")
-    if (!/^\d{10}$/.test(cleanPhone)) return "Phone number must be exactly 10 digits"
+    if (!/^\d{10}$/.test(cleanPhone)) return "Phone number must be 10 digits"
     return ""
   }
 
@@ -81,13 +101,14 @@ export default function SignIn() {
       const countryCode = formData.countryCode?.trim() || "+91"
       const phoneDigits = String(formData.phone ?? "").replace(/\D/g, "").slice(0, 10)
       if (phoneDigits.length !== 10) {
-        setError("Phone number must be exactly 10 digits")
+        setError("Phone number must be 10 digits")
         setIsLoading(false)
         submittingRef.current = false
         return
       }
       const fullPhone = `${countryCode} ${phoneDigits}`
-      await authAPI.sendOTP(fullPhone, "login", null)
+      const purpose = isSignUp ? "register" : "login"
+      await authAPI.sendOTP(fullPhone, purpose, null)
 
       const ref = String(searchParams.get("ref") || "").trim()
       const authData = {
@@ -96,7 +117,7 @@ export default function SignIn() {
         email: null,
         name: null,
         referralCode: ref || null,
-        isSignUp: false,
+        isSignUp: isSignUp,
         module: "user",
       }
 
@@ -114,138 +135,188 @@ export default function SignIn() {
     }
   }
 
-  return (
-    <AnimatedPage className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex items-center justify-center p-4">
-      {/* Background decoration (desktop only) */}
-      <div className="fixed inset-0 z-0 hidden md:block opacity-40">
-        <img src={loginBanner} alt="" className="w-full h-full object-cover blur-sm" />
-        <div className="absolute inset-0 bg-white/60 dark:bg-black/80" />
-      </div>
+  const isValidPhone = formData.phone.length === 10
 
-      <div className="w-full max-w-[450px] bg-white dark:bg-[#1a1a1a] rounded-xl shadow-2xl relative z-10 overflow-hidden border border-gray-100 dark:border-gray-800">
-        {/* Banner (Mobile Only) */}
-        <div className="md:hidden w-full h-[180px] relative">
-          <img src={loginBanner} alt="Food Banner" className="w-full h-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-white dark:from-[#1a1a1a] to-transparent" />
+  return (
+    <AnimatedPage className="relative min-h-[100dvh] w-full flex flex-col items-center justify-between font-sans overflow-hidden select-none">
+      {/* Layer 1 – Original Background */}
+      <div 
+        className="absolute inset-0 bg-cover bg-center z-0"
+        style={{ 
+          backgroundImage: `url(${loginBgImg})`,
+          filter: 'blur(1.5px)',
+          transform: 'scale(1.02)'
+        }}
+      />
+      {/* Background Overlay */}
+      <div 
+        className="absolute inset-0 z-[5]"
+        style={{ background: "rgba(0, 0, 0, 0.18)" }}
+      />
+
+      {/* Layer 2 – Blurred Background */}
+      <div 
+        className="absolute inset-0 z-10"
+        style={{
+          backgroundImage: `url(${loginBgImg})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          filter: 'blur(7px)',
+          transform: 'scale(1.03)',
+          opacity: 0.45,
+          maskImage: 'linear-gradient(to bottom, transparent 0%, transparent 30%, black 55%, black 100%)',
+          WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, transparent 30%, black 55%, black 100%)'
+        }}
+      />
+
+      {/* Content Container */}
+      <div className="relative z-20 w-full min-h-[100dvh] flex flex-col justify-between py-6 px-4 sm:px-6">
+        {/* Top Header - Back Button */}
+        <div className="flex items-center justify-between w-full">
+          <button
+            onClick={() => navigate("/food/user")}
+            className="p-2.5 bg-black/35 hover:bg-black/45 backdrop-blur-md rounded-full text-white transition-all active:scale-95 shadow-md flex items-center justify-center cursor-pointer border border-white/10"
+            aria-label="Continue as Guest"
+          >
+            <ArrowLeft className="w-6 h-6 stroke-[2.5]" />
+          </button>
         </div>
 
-        <div className="p-6 sm:p-8 md:p-10 space-y-6 md:space-y-8">
-          <div className="text-center space-y-2 md:space-y-3">
-            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white leading-tight">
-              Login or Signup
-            </h2>
-            <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400">
-              Enter your phone number to continue
-            </p>
-          </div>
+        {/* Hero Tagline */}
+        <motion.div
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.6, delay: 0.1 }}
+          className="text-center px-4 max-w-sm mx-auto my-auto flex items-center justify-center"
+          style={{ minHeight: "20vh" }}
+        >
+          <h1 
+            className="text-white font-bold text-2xl sm:text-3xl tracking-tight leading-snug"
+            style={{ textShadow: '0 2px 10px rgba(0, 0, 0, 0.45)' }}
+          >
+            Delicious food, delivered fresh to your doorstep.
+          </h1>
+        </motion.div>
 
-          <form id="user-signin-form" onSubmit={handleSubmit} className="space-y-5">
-            <div className="space-y-2">
-              <div className="relative flex items-center">
-                <div className="flex items-center px-4 h-12 md:h-14 border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#2a2a2a] text-gray-900 dark:text-white rounded-lg border-r-0 rounded-r-none font-medium">
-                  <span>+91</span>
+        {/* Floating Glassmorphic Form Card */}
+        <motion.div
+          initial={{ y: 50, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+          className="w-full max-w-md mx-auto p-6 sm:p-8 flex flex-col justify-between mb-14 animate-fade-in"
+          style={{
+            background: "rgba(255, 255, 255, 0.85)",
+            border: "1px solid rgba(255, 255, 255, 0.45)",
+            borderRadius: "32px",
+            boxShadow: "0 24px 60px rgba(0, 0, 0, 0.18), 0 8px 20px rgba(0, 0, 0, 0.08)"
+          }}
+        >
+          <div>
+            <div className="flex bg-gray-100/80 p-1 rounded-xl mb-6 border border-gray-200/50">
+              <button
+                type="button"
+                onClick={() => setIsSignUp(false)}
+                className={`flex-1 py-2.5 text-sm font-black rounded-lg transition-all duration-300 ${!isSignUp ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+              >
+                Login
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsSignUp(true)}
+                className={`flex-1 py-2.5 text-sm font-black rounded-lg transition-all duration-300 ${isSignUp ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+              >
+                Register
+              </button>
+            </div>
+            
+            <div className="space-y-1 mb-6">
+              <h2 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">
+                {isSignUp ? "Create Account" : "Welcome Back"}
+              </h2>
+              <p className="text-xs sm:text-sm font-medium text-gray-600">
+                Enter your mobile number to continue.
+              </p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="space-y-2">
+                <div className={`relative flex items-center bg-white border-2 rounded-2xl transition-all duration-200 overflow-hidden shadow-sm ${
+                  isValidPhone 
+                    ? "border-[#659116] ring-4 ring-[#659116]/10" 
+                    : error 
+                    ? "border-red-500 ring-4 ring-red-500/10" 
+                    : "border-[#659116] focus-within:ring-4 focus-within:ring-[#659116]/10"
+                }`}>
+                  <div className="flex items-center gap-1.5 px-4 py-4 bg-white text-gray-900 font-black text-lg border-r border-[#659116]/30 flex-shrink-0 select-none">
+                    <span>🇮🇳</span>
+                    <span>+91</span>
+                  </div>
+
+                  <Input
+                    id="phone"
+                    name="phone"
+                    type="tel"
+                    inputMode="numeric"
+                    maxLength={10}
+                    placeholder="Mobile Number"
+                    value={formData.phone}
+                    onChange={handleChange}
+                    className="flex-1 h-16 text-lg font-black text-gray-900 bg-transparent border-0 outline-none ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 tracking-wider px-4 placeholder:text-gray-400 placeholder:font-normal"
+                  />
+
+                  {isValidPhone && (
+                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="pr-4 text-[#659116]">
+                      <ShieldCheck className="w-5 h-5 fill-[#659116]/20" />
+                    </motion.div>
+                  )}
                 </div>
-                <Input
-                  id="phone"
-                  name="phone"
-                  type="tel"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  maxLength={10}
-                  placeholder="Phone number"
-                  value={formData.phone}
-                  onChange={handleChange}
-                  className={`flex-1 h-12 md:h-14 text-lg bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-white border-gray-300 dark:border-gray-700 rounded-lg rounded-l-none focus-visible:ring-1 focus-visible:ring-primary focus-visible:border-primary ${error ? "border-red-500" : ""} transition-all`}
-                  aria-invalid={error ? "true" : "false"}
-                />
+
+                {error && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex items-center gap-1.5 text-xs font-bold text-red-500 pl-1 pt-0.5"
+                  >
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    <span>{error}</span>
+                  </motion.div>
+                )}
               </div>
 
-              {error && (
-                <div className="flex items-center gap-1.5 text-xs text-red-500 pl-1">
-                  <AlertCircle className="h-3.5 w-3.5" />
-                  <span>{error}</span>
-                </div>
-              )}
-            </div>
-
-            <Button
-              type="submit"
-              form="user-signin-form"
-              className="w-full h-12 md:h-14 bg-primary hover:bg-[#991B1B] text-white font-bold text-base md:text-lg rounded-lg transition-all hover:shadow-lg active:scale-[0.98]"
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                  Sending OTP...
-                </>
-              ) : (
-                "Continue"
-              )}
-            </Button>
-          </form>
-
-          {/* Social login separator */}
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t border-gray-200 dark:border-gray-800" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-white dark:bg-[#1a1a1a] px-3 text-gray-500 dark:text-gray-400 font-medium">
-                or
-              </span>
-            </div>
+              <button
+                type="submit"
+                disabled={isLoading || !isValidPhone}
+                className={`w-full h-16 rounded-2xl font-black text-base uppercase tracking-widest flex items-center justify-center gap-2 transition-all duration-300 shadow-md ${
+                  isValidPhone && !isLoading
+                    ? "bg-[#a6cb82] hover:bg-[#95b873] text-white shadow-[0_8px_20px_rgba(166,203,130,0.3)] active:scale-[0.98] cursor-pointer"
+                    : "bg-[#a6cb82]/60 text-white/80 cursor-not-allowed shadow-none opacity-80"
+                }`}
+              >
+                {isLoading ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <Loader2 className="h-5 w-5 animate-spin text-white" />
+                    <span>Verifying...</span>
+                  </div>
+                ) : (
+                  <>
+                    <span>CONTINUE</span>
+                    <ArrowRight className="w-5 h-5" />
+                  </>
+                )}
+              </button>
+            </form>
           </div>
 
-          {/* Social login buttons */}
-          <div className="grid grid-cols-1 gap-3">
-            <button
-              type="button"
-              className="flex items-center justify-center gap-3 w-full h-12 md:h-14 bg-white dark:bg-[#2a2a2a] border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-[#333] transition-colors"
-            >
-              <svg className="w-5 h-5" viewBox="0 0 24 24">
-                <path
-                  fill="#4285F4"
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
-                />
-                <path
-                  fill="#EA4335"
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.14-4.53z"
-                />
-              </svg>
-              <span className="text-gray-700 dark:text-gray-200 font-medium">Continue with Google</span>
-            </button>
-          </div>
-
-          <div className="text-center text-xs md:text-sm text-gray-500 dark:text-gray-400 pt-2">
-            <p className="mt-8 text-center text-xs text-gray-500 dark:text-gray-400 max-w-xs mx-auto">
-              By continuing, you agree to our{" "}
-              <Link to="/user/profile/terms" className="underline hover:text-gray-900 dark:hover:text-gray-100 transition-colors">
-                Terms of Service
-              </Link>{" "}
-              and{" "}
-              <Link to="/user/profile/privacy" className="underline hover:text-gray-900 dark:hover:text-gray-100 transition-colors">
-                Privacy Policy
-              </Link>
+          <footer className="mt-8 text-center border-t border-gray-200 pt-4 space-y-1">
+            <p className="text-[10px] text-gray-500 font-bold tracking-wide uppercase">
+              BY JOINING, YOU AGREE TO OUR POLICIES
             </p>
-            <div className="flex justify-center gap-2 flex-wrap">
-              <span className="text-gray-300 dark:text-gray-700">•</span>
-              <Link to="/profile/refund" className="underline hover:text-gray-900 dark:hover:text-gray-100 transition-colors">
-                Content Policy
-              </Link>
-            </div>
-          </div>
-        </div>
+            <p className="text-[10px] text-gray-500 font-extrabold uppercase tracking-widest">
+              <Link to="/food/user/profile/terms" className="hover:text-[#659116]">TERMS</Link> • <Link to="/food/user/profile/privacy" className="hover:text-[#659116]">PRIVACY</Link> • <Link to="/food/user/profile/help-content" className="hover:text-[#659116]">SUPPORT</Link>
+            </p>
+          </footer>
+        </motion.div>
       </div>
     </AnimatedPage>
   )
 }
-

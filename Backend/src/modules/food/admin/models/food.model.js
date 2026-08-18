@@ -3,7 +3,8 @@ import mongoose from 'mongoose';
 const foodVariantSchema = new mongoose.Schema(
     {
         name: { type: String, required: true, trim: true },
-        price: { type: Number, required: true, min: 0 }
+        price: { type: Number, required: true, min: 0 },
+        otherPrice: { type: Number, min: 0, default: 0 }
     },
     { _id: true }
 );
@@ -16,22 +17,31 @@ const foodSchema = new mongoose.Schema(
         name: { type: String, required: true, trim: true, index: true },
         description: { type: String, trim: true, default: '' },
         price: { type: Number, required: true, min: 0 },
-        priceOnOtherPlatforms: { type: Number, default: null, min: 0 },
-        otherPlatformGst: { type: Number, default: null, min: 0, max: 100 },
+        /** Compare-at / other-platform price for strikethrough UI. Existing items stay 0. */
+        otherPrice: { type: Number, min: 0, default: 0 },
         variants: { type: [foodVariantSchema], default: [] },
         image: { type: String, trim: true, default: '' },
         foodType: { type: String, enum: ['Veg', 'Non-Veg'], default: 'Non-Veg' },
         isAvailable: { type: Boolean, default: true, index: true },
+        /**
+         * Tracked inventory. null = unlimited (default for existing items).
+         * When a number, order create uses atomic $inc reservation — never CHECK→UPDATE.
+         */
+        stockQuantity: { type: Number, default: null, min: 0 },
+        /** When set, item auto-restores to available after this time (server-side). */
+        stockResumeAt: { type: Date, index: true },
+        stockOffMode: {
+            type: String,
+            enum: ['manual', 'specific-time', 'next-business-day', 'custom-date-time'],
+            default: undefined
+        },
         isRecommended: { type: Boolean, default: false, index: true },
         preparationTime: { type: String, trim: true, default: '' },
         approvalStatus: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'approved', index: true },
         rejectionReason: { type: String, trim: true, default: '' },
         requestedAt: { type: Date },
         approvedAt: { type: Date },
-        rejectedAt: { type: Date },
-        actionType: { type: String, enum: ['NEW', 'UPDATED'], default: 'NEW' },
-        oldData: { type: mongoose.Schema.Types.Mixed, default: null },
-        newData: { type: mongoose.Schema.Types.Mixed, default: null }
+        rejectedAt: { type: Date }
     },
     {
         collection: 'food_items',
@@ -39,11 +49,10 @@ const foodSchema = new mongoose.Schema(
     }
 );
 
-foodSchema.index({ createdAt: -1 });
 foodSchema.index({ restaurantId: 1, createdAt: -1 });
 foodSchema.index({ approvalStatus: 1, createdAt: -1 });
 foodSchema.index({ approvalStatus: 1, requestedAt: -1 });
-foodSchema.index({ requestedAt: -1, createdAt: -1 });
 foodSchema.index({ restaurantId: 1, approvalStatus: 1, createdAt: -1 });
+foodSchema.index({ name: 'text' });
 
 export const FoodItem = mongoose.model('FoodItem', foodSchema);

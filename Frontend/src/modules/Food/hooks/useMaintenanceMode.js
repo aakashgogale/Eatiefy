@@ -22,11 +22,11 @@ export function useMaintenanceMode({ active = true } = {}) {
       setEnabled(next);
 
       try {
-        const raw = localStorage.getItem("ometto_customization_settings");
+        const raw = localStorage.getItem("eatify_customization_settings");
         const parsed = raw ? JSON.parse(raw) : {};
         // Keep the real DB flag in cache; UI lock only follows `next`.
         localStorage.setItem(
-          "ometto_customization_settings",
+          "eatify_customization_settings",
           JSON.stringify({
             ...parsed,
             maintenance_mode_enabled: value === true,

@@ -2,7 +2,7 @@ import * as diningService from '../services/dining.service.js';
 
 export async function getPublicDiningCategories(req, res, next) {
     try {
-        const categories = await diningService.listDiningCategoriesPublic();
+        const categories = await diningService.listDiningCategoriesPublic(req.query || {});
         res.status(200).json({ success: true, message: 'Dining categories fetched successfully', data: categories });
     } catch (error) {
         next(error);

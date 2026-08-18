@@ -11,7 +11,7 @@ import { Badge } from "@food/components/ui/badge"
 import { useProfile } from "@food/context/ProfileContext"
 import { toast } from "sonner"
 
-const ORANGE = "#DC2626"
+const ORANGE = "#EB590E"
 
 const getAddressId = (address) => address?.id || address?._id || ""
 
@@ -38,7 +38,7 @@ const toBackendLabel = (label) => {
 export default function SelectAddress() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { addresses = [], addAddress, setDefaultAddress, getDefaultAddress, isAuthenticated } = useProfile()
+  const { addresses = [], addAddress, setDefaultAddress, getDefaultAddress } = useProfile()
 
   const from = location?.state?.from || "/user/cart"
   const defaultAddress = getDefaultAddress?.() || null
@@ -99,12 +99,6 @@ export default function SelectAddress() {
     const street = String(form.street || "").trim()
     const city = String(form.city || "").trim()
     const state = String(form.state || "").trim()
-    if (!isAuthenticated) {
-      toast.info("Please login to save an address")
-      navigate("/user/auth/login")
-      return
-    }
-
     if (!street || !city || !state) {
       toast.error("Please fill Street, City and State")
       return
@@ -126,7 +120,6 @@ export default function SelectAddress() {
       if (newId) {
         await setDefaultAddress(newId)
       }
-      sessionStorage.setItem("manual_location_update", "true");
       toast.success("Address saved")
       navigate(from, { replace: true })
     } catch (err) {
@@ -240,7 +233,7 @@ export default function SelectAddress() {
                                         {String(addr?.label || "Saved").toLowerCase() === "office" ? "Work" : (addr?.label || "Saved")}
                                       </p>
                                       {addr?.isDefault && (
-                                        <Badge className="bg-orange-100 text-orange-800 dark:bg-[#DC2626]/15 dark:text-orange-200">
+                                        <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-500/15 dark:text-orange-200">
                                           Default
                                         </Badge>
                                       )}

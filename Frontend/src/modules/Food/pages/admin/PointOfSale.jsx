@@ -1,80 +1,72 @@
-import { useState, useEffect, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { Search, TrendingUp, TrendingDown, DollarSign, ShoppingCart, XCircle, Star, Calendar, BarChart3, Users, Award, Package } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Search, TrendingUp, ShoppingCart, XCircle, Star, Calendar, BarChart3, Users, Package, Clock, CreditCard, ChevronDown, Check, Store } from 'lucide-react'
 import { adminAPI } from '@food/api'
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
-const formatRestaurantDisplayId = (mongoId) => {
-  const s = String(mongoId || '').trim()
-  if (!s) return ''
-  if (/^REST\d{6}$/i.test(s)) return s.toUpperCase()
-  return `REST${s.slice(-6).padStart(6, '0')}`
+const EMPTY_SUBSCRIPTION_SUMMARY = {
+  plan: '',
+  planLabel: 'Not billed yet',
+  cycleFee: 0,
+  status: 'paid',
+  statusLabel: 'No outstanding dues',
+  currentBillingMonth: '',
+  currentMonthGmv: 0,
+  lastBilledMonth: null,
+  dueAmount: 0,
+  paidAmount: 0,
+  totalBilled: 0,
+  totalWaived: 0,
+  totalCollected: 0,
+  walletDeductionsTotal: 0,
+  invoiceCount: 0,
+  invoices: [],
+  lastPayment: null,
 }
 
-const POS_SELECTION_STORAGE_KEY = 'admin_pos_restaurant_selection'
-
-const readSavedPosSelection = () => {
-  if (typeof sessionStorage === 'undefined') return null
-  try {
-    const raw = sessionStorage.getItem(POS_SELECTION_STORAGE_KEY)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
-}
-
-const writeSavedPosSelection = (id, name) => {
-  if (typeof sessionStorage === 'undefined') return
-  if (!id) {
-    sessionStorage.removeItem(POS_SELECTION_STORAGE_KEY)
-    return
-  }
-  sessionStorage.setItem(
-    POS_SELECTION_STORAGE_KEY,
-    JSON.stringify({ id: String(id), name: String(name || '') }),
-  )
+const formatSubscriptionPaymentLabel = (eventType = '') => {
+  const key = String(eventType || '').toLowerCase()
+  if (key === 'wallet_deduction') return 'Deducted from wallet'
+  if (key === 'manual_payment') return 'Manual payment recorded'
+  if (key === 'waiver') return 'Due waived'
+  if (key === 'adjustment') return 'Manual adjustment'
+  if (key === 'invoice_generated') return 'Monthly invoice generated'
+  if (key === 'legacy_carryforward') return 'Legacy balance carried forward'
+  return 'Subscription payment'
 }
 
 export default function PointOfSale() {
-  const [searchParams, setSearchParams] = useSearchParams()
-  const initialRestaurantId = searchParams.get('restaurantId') || ''
-  const savedSelection = readSavedPosSelection()
   const [restaurants, setRestaurants] = useState([])
-  const [selectedRestaurant, setSelectedRestaurant] = useState(initialRestaurantId)
-  const [searchQuery, setSearchQuery] = useState(() => {
-    if (initialRestaurantId && savedSelection?.id === initialRestaurantId) {
-      return savedSelection.name || ''
-    }
-    return ''
-  })
-  const [listLoading, setListLoading] = useState(true)
-  const [analyticsLoading, setAnalyticsLoading] = useState(Boolean(initialRestaurantId))
+  const [selectedRestaurant, setSelectedRestaurant] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [loading, setLoading] = useState(false)
   const [restaurantData, setRestaurantData] = useState(null)
   const [paymentSummary, setPaymentSummary] = useState(null)
+  const [subscriptionSummary, setSubscriptionSummary] = useState(EMPTY_SUBSCRIPTION_SUMMARY)
   const [showSearchResults, setShowSearchResults] = useState(false)
+  const [showPickerDropdown, setShowPickerDropdown] = useState(false)
+  const [pickerFilter, setPickerFilter] = useState('')
+  const pickerDropdownRef = useRef(null)
 
   const getRestaurantName = (restaurant) => {
     return String(
-      restaurant?.name ||
       restaurant?.restaurantName ||
+      restaurant?.name ||
       restaurant?.restaurant?.name ||
+      restaurant?.restaurant?.restaurantName ||
       '',
     ).trim()
   }
 
   const getRestaurantCode = (restaurant) => {
-    const existing = String(
+    return String(
       restaurant?.restaurantId ||
       restaurant?.restaurantCode ||
       restaurant?.restaurant?.restaurantId ||
+      restaurant?._id ||
       '',
     ).trim()
-    if (/^REST\d{6}$/i.test(existing)) return existing.toUpperCase()
-
-    const mongoId = restaurant?._id || restaurant?.id || restaurant?.restaurant?._id
-    return formatRestaurantDisplayId(mongoId)
   }
 
   const normalizeRestaurants = (rawList) => {
@@ -82,20 +74,21 @@ export default function PointOfSale() {
 
     return rawList
       .map((restaurant) => {
-        const mongoId = String(
+        const id = String(
           restaurant?._id ||
           restaurant?.id ||
           restaurant?.restaurant?._id ||
+          restaurant?.restaurantId ||
           '',
         ).trim()
-        if (!mongoId) return null
+        if (!id) return null
 
-        const resolvedName = getRestaurantName(restaurant) || `Restaurant ${mongoId.slice(-6)}`
-        const resolvedCode = getRestaurantCode({ ...restaurant, _id: mongoId })
+        const resolvedName = getRestaurantName(restaurant) || `Restaurant ${id.slice(-6)}`
+        const resolvedCode = getRestaurantCode(restaurant) || `REST${id.slice(-6).padStart(6, '0')}`
 
         return {
           ...restaurant,
-          _id: mongoId,
+          _id: id,
           name: resolvedName,
           restaurantId: resolvedCode,
         }
@@ -107,15 +100,19 @@ export default function PointOfSale() {
   const [analyticsData, setAnalyticsData] = useState({
     totalOrders: 0,
     cancelledOrders: 0,
+    notDeliveredOrders: 0,
+    explicitlyCancelledOrders: 0,
+    inProgressOrders: 0,
+    cancelledByRestaurant: 0,
+    cancelledByAdmin: 0,
+    cancelledByUser: 0,
     completedOrders: 0,
     averageRating: 0,
     totalRatings: 0,
-    commissionPercentage: 0,
     monthlyProfit: 0,
     yearlyProfit: 0,
     averageOrderValue: 0,
     totalRevenue: 0,
-    totalCommission: 0,
     restaurantEarning: 0,
     restaurantProfit: 0,
     monthlyOrders: 0,
@@ -127,7 +124,8 @@ export default function PointOfSale() {
     totalCustomers: 0,
     repeatCustomers: 0,
     cancellationRate: 0,
-    completionRate: 0
+    completionRate: 0,
+    inProgressRate: 0
   })
 
   // Fetch restaurants list
@@ -135,37 +133,19 @@ export default function PointOfSale() {
     fetchRestaurants()
   }, [])
 
-  const applyRestaurantSelection = useCallback((restaurantId, list = restaurants) => {
-    const id = String(restaurantId || '')
-    setSelectedRestaurant(id)
-
-    const selected = list.find((r) => r._id === id)
-    setSearchQuery(selected?.name || '')
-    setShowSearchResults(false)
-    writeSavedPosSelection(id, selected?.name || '')
-
-    const next = new URLSearchParams(searchParams)
-    if (id) {
-      next.set('restaurantId', id)
-    } else {
-      next.delete('restaurantId')
-    }
-    setSearchParams(next, { replace: true })
-  }, [restaurants, searchParams, setSearchParams])
-
-  // Sync search label once restaurants list is available
   useEffect(() => {
-    if (!selectedRestaurant || restaurants.length === 0) return
+    if (!showPickerDropdown) return undefined
 
-    const match = restaurants.find((r) => r._id === selectedRestaurant)
-    if (!match) {
-      applyRestaurantSelection('')
-      return
+    const handleClickOutside = (event) => {
+      if (pickerDropdownRef.current && !pickerDropdownRef.current.contains(event.target)) {
+        setShowPickerDropdown(false)
+        setPickerFilter('')
+      }
     }
 
-    setSearchQuery(match.name)
-    writeSavedPosSelection(match._id, match.name)
-  }, [restaurants, selectedRestaurant, applyRestaurantSelection])
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showPickerDropdown])
 
   // Fetch restaurant analytics when restaurant is selected
   useEffect(() => {
@@ -174,18 +154,23 @@ export default function PointOfSale() {
     } else {
       setRestaurantData(null)
       setPaymentSummary(null)
+      setSubscriptionSummary(EMPTY_SUBSCRIPTION_SUMMARY)
       setAnalyticsData({
         totalOrders: 0,
         cancelledOrders: 0,
+        notDeliveredOrders: 0,
+        explicitlyCancelledOrders: 0,
+        inProgressOrders: 0,
+        cancelledByRestaurant: 0,
+        cancelledByAdmin: 0,
+        cancelledByUser: 0,
         completedOrders: 0,
         averageRating: 0,
         totalRatings: 0,
-        commissionPercentage: 0,
         monthlyProfit: 0,
         yearlyProfit: 0,
         averageOrderValue: 0,
         totalRevenue: 0,
-        totalCommission: 0,
         restaurantEarning: 0,
         restaurantProfit: 0,
         monthlyOrders: 0,
@@ -197,34 +182,46 @@ export default function PointOfSale() {
         totalCustomers: 0,
         repeatCustomers: 0,
         cancellationRate: 0,
-        completionRate: 0
+        completionRate: 0,
+        inProgressRate: 0
       })
     }
   }, [selectedRestaurant])
 
   const fetchRestaurants = async () => {
     try {
-      setListLoading(true)
-      const response = await adminAPI.getRestaurants({ limit: 1000, isActive: true })
-      if (response?.data?.success) {
-        const data = response.data.data
-        const rawRestaurants = Array.isArray(data?.restaurants)
-          ? data.restaurants
-          : Array.isArray(data)
-            ? data
+      setLoading(true)
+      const response = await adminAPI.getApprovedRestaurants({
+        limit: 1000,
+        page: 1,
+      })
+
+      const body = response?.data
+      const data = body?.data
+      const rawRestaurants = Array.isArray(data?.restaurants)
+        ? data.restaurants
+        : Array.isArray(data)
+          ? data
+          : Array.isArray(body?.restaurants)
+            ? body.restaurants
             : []
+
+      if (body?.success !== false) {
         setRestaurants(normalizeRestaurants(rawRestaurants))
+      } else {
+        setRestaurants([])
       }
     } catch (error) {
       debugError('Error fetching restaurants:', error)
+      setRestaurants([])
     } finally {
-      setListLoading(false)
+      setLoading(false)
     }
   }
 
   const fetchRestaurantAnalytics = async (restaurantId) => {
     try {
-      setAnalyticsLoading(true)
+      setLoading(true)
       
       // Validate restaurantId
       if (!restaurantId) {
@@ -240,36 +237,31 @@ export default function PointOfSale() {
       debugLog('Analytics response:', analyticsResponse)
       
       if (analyticsResponse?.data?.success && analyticsResponse.data.data) {
-        const { restaurant, analytics, paymentSummary: apiPaymentSummary } = analyticsResponse.data.data
+        const { restaurant, analytics, paymentSummary: apiPaymentSummary, subscriptionSummary: apiSubscriptionSummary } = analyticsResponse.data.data
         
-        debugLog('Analytics data received:', analytics)
-        debugLog('Commission percentage from API:', analytics.commissionPercentage)
-        debugLog('Commission percentage type:', typeof analytics.commissionPercentage)
-        
-        // Set restaurant data
         setRestaurantData(restaurant)
         setPaymentSummary(apiPaymentSummary || null)
+        setSubscriptionSummary({
+          ...EMPTY_SUBSCRIPTION_SUMMARY,
+          ...(apiSubscriptionSummary || {}),
+        })
         
-        // Parse commission percentage - handle both number and string
-        const commissionPercentage = analytics.commissionPercentage !== undefined && analytics.commissionPercentage !== null
-          ? parseFloat(analytics.commissionPercentage) || 0
-          : 0;
-        
-        debugLog('Parsed commission percentage:', commissionPercentage)
-        
-        // Set analytics data - ensure all values are numbers, not null/undefined
         setAnalyticsData({
           totalOrders: Number(analytics.totalOrders) || 0,
-          cancelledOrders: Number(analytics.cancelledOrders) || 0,
+          cancelledOrders: Number(analytics.cancelledOrders ?? analytics.explicitlyCancelledOrders) || 0,
+          notDeliveredOrders: Number(analytics.notDeliveredOrders) || 0,
+          explicitlyCancelledOrders: Number(analytics.explicitlyCancelledOrders ?? analytics.cancelledOrders) || 0,
+          inProgressOrders: Number(analytics.inProgressOrders) || 0,
+          cancelledByRestaurant: Number(analytics.cancelledByRestaurant) || 0,
+          cancelledByAdmin: Number(analytics.cancelledByAdmin) || 0,
+          cancelledByUser: Number(analytics.cancelledByUser) || 0,
           completedOrders: Number(analytics.completedOrders) || 0,
           averageRating: Number(analytics.averageRating) || 0,
           totalRatings: Number(analytics.totalRatings) || 0,
-          commissionPercentage: commissionPercentage,
           monthlyProfit: analytics.monthlyProfit || 0,
           yearlyProfit: analytics.yearlyProfit || 0,
           averageOrderValue: analytics.averageOrderValue || 0,
           totalRevenue: analytics.totalRevenue || 0,
-          totalCommission: analytics.totalCommission || 0,
           restaurantEarning: analytics.restaurantEarning || 0,
           restaurantProfit: analytics.restaurantProfit || 0,
           monthlyOrders: analytics.monthlyOrders || 0,
@@ -281,23 +273,29 @@ export default function PointOfSale() {
           totalCustomers: analytics.totalCustomers || 0,
           repeatCustomers: analytics.repeatCustomers || 0,
           cancellationRate: analytics.cancellationRate || 0,
-          completionRate: analytics.completionRate || 0
+          completionRate: analytics.completionRate || 0,
+          inProgressRate: analytics.inProgressRate || 0
         })
       } else {
         // Fallback to empty data if API fails
         setPaymentSummary(null)
+        setSubscriptionSummary(EMPTY_SUBSCRIPTION_SUMMARY)
         setAnalyticsData({
           totalOrders: 0,
           cancelledOrders: 0,
+          notDeliveredOrders: 0,
+          explicitlyCancelledOrders: 0,
+          inProgressOrders: 0,
+          cancelledByRestaurant: 0,
+          cancelledByAdmin: 0,
+          cancelledByUser: 0,
           completedOrders: 0,
           averageRating: 0,
           totalRatings: 0,
-          commissionPercentage: 0,
           monthlyProfit: 0,
           yearlyProfit: 0,
           averageOrderValue: 0,
           totalRevenue: 0,
-          totalCommission: 0,
           restaurantEarning: 0,
           restaurantProfit: 0,
           monthlyOrders: 0,
@@ -309,7 +307,8 @@ export default function PointOfSale() {
           totalCustomers: 0,
           repeatCustomers: 0,
           cancellationRate: 0,
-          completionRate: 0
+          completionRate: 0,
+          inProgressRate: 0
         })
       }
     } catch (error) {
@@ -332,18 +331,23 @@ export default function PointOfSale() {
       
       // Set empty data on error
       setPaymentSummary(null)
+      setSubscriptionSummary(EMPTY_SUBSCRIPTION_SUMMARY)
       setAnalyticsData({
         totalOrders: 0,
         cancelledOrders: 0,
+        notDeliveredOrders: 0,
+        explicitlyCancelledOrders: 0,
+        inProgressOrders: 0,
+        cancelledByRestaurant: 0,
+        cancelledByAdmin: 0,
+        cancelledByUser: 0,
         completedOrders: 0,
         averageRating: 0,
         totalRatings: 0,
-        commissionPercentage: 0,
         monthlyProfit: 0,
         yearlyProfit: 0,
         averageOrderValue: 0,
         totalRevenue: 0,
-        totalCommission: 0,
         restaurantEarning: 0,
         restaurantProfit: 0,
         monthlyOrders: 0,
@@ -355,10 +359,11 @@ export default function PointOfSale() {
         totalCustomers: 0,
         repeatCustomers: 0,
         cancellationRate: 0,
-        completionRate: 0
+        completionRate: 0,
+        inProgressRate: 0
       })
     } finally {
-      setAnalyticsLoading(false)
+      setLoading(false)
     }
   }
 
@@ -372,9 +377,26 @@ export default function PointOfSale() {
     )
   })
 
+  const pickerFilteredRestaurants = restaurants.filter((restaurant) => {
+    if (!pickerFilter.trim()) return true
+    const query = pickerFilter.toLowerCase()
+    return (
+      restaurant.name?.toLowerCase().includes(query) ||
+      restaurant.restaurantId?.toLowerCase().includes(query) ||
+      restaurant._id?.toLowerCase().includes(query)
+    )
+  })
+
   // Handle restaurant selection from search
   const handleRestaurantSelect = (restaurantId) => {
-    applyRestaurantSelection(restaurantId)
+    setSelectedRestaurant(restaurantId)
+    const selected = restaurants.find(r => r._id === restaurantId)
+    if (selected) {
+      setSearchQuery(selected.name)
+    }
+    setShowSearchResults(false)
+    setShowPickerDropdown(false)
+    setPickerFilter('')
   }
 
   // Handle search input change
@@ -385,7 +407,8 @@ export default function PointOfSale() {
     
     // If search is cleared, clear selection
     if (!value.trim()) {
-      applyRestaurantSelection('')
+      setSelectedRestaurant('')
+      setShowSearchResults(false)
     }
   }
 
@@ -399,7 +422,7 @@ export default function PointOfSale() {
 
   const getSelectedRestaurantName = () => {
     const restaurant = restaurants.find(r => r._id === selectedRestaurant)
-    return restaurant?.name || searchQuery || 'Loading...'
+    return restaurant?.name || 'Select Restaurant'
   }
 
   return (
@@ -409,7 +432,7 @@ export default function PointOfSale() {
         {/* Header Section */}
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-[#334257] mb-2">Restaurant POS Analytics & Benefits</h1>
-          <p className="text-sm text-[#8a94aa]">Track restaurant performance, profits, and commission details</p>
+          <p className="text-sm text-[#8a94aa]">Track restaurant performance, order earnings, and subscription billing</p>
                 </div>
 
         {/* Restaurant Selection Card */}
@@ -454,7 +477,7 @@ export default function PointOfSale() {
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="text-sm font-medium text-[#334257]">{restaurant.name}</p>
-                            <p className="text-xs text-[#8a94aa]">ID: {restaurant.restaurantId}</p>
+                            <p className="text-xs text-[#8a94aa]">ID: {restaurant.restaurantId || restaurant._id}</p>
                           </div>
                           {selectedRestaurant === restaurant._id && (
                             <div className="w-2 h-2 bg-[#006fbd] rounded-full"></div>
@@ -479,37 +502,121 @@ export default function PointOfSale() {
               )}
         </div>
 
-            {/* Alternative: Dropdown Selector */}
+            {/* Restaurant Picker */}
             <div>
-                    <label className="block text-sm font-medium text-[#334257] mb-2">
+              <label className="block text-sm font-medium text-[#334257] mb-2">
                 Or Select from Dropdown
-                    </label>
-                    <div className="relative">
-                      <select 
-                  value={selectedRestaurant}
-                  onChange={(e) => applyRestaurantSelection(e.target.value)}
-                        className="w-full h-11 rounded-md border border-[#e3e6ef] bg-white px-3 pr-10 text-sm text-[#4a5671] focus:outline-none focus:ring-1 focus:ring-[#006fbd]"
-                      >
-                  <option value="">Select Restaurant</option>
-                  {restaurants.map(restaurant => (
-                    <option key={restaurant._id} value={restaurant._id}>
-                      {restaurant.name}
-                          </option>
-                        ))}
-                      </select>
+              </label>
+              <div className="relative" ref={pickerDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowPickerDropdown((open) => !open)}
+                  className={`w-full min-h-11 flex items-center justify-between gap-3 px-3 py-2 rounded-xl border bg-white text-sm transition-all ${
+                    showPickerDropdown
+                      ? 'border-[#006fbd] ring-2 ring-[#006fbd]/15 shadow-sm'
+                      : 'border-[#e3e6ef] hover:border-[#006fbd]/35 hover:shadow-sm'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0 text-left">
+                    <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#006fbd]/15 to-[#006fbd]/5 flex items-center justify-center shrink-0 border border-[#006fbd]/10">
+                      <Store className="w-4 h-4 text-[#006fbd]" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className={`font-medium truncate ${selectedRestaurant ? 'text-[#334257]' : 'text-[#8a94aa]'}`}>
+                        {selectedRestaurant ? getSelectedRestaurantName() : 'Choose a restaurant'}
+                      </p>
+                      {selectedRestaurant ? (
+                        <p className="text-xs text-[#8a94aa] truncate mt-0.5">
+                          ID: {restaurants.find((r) => r._id === selectedRestaurant)?.restaurantId || selectedRestaurant}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-[#8a94aa] mt-0.5">
+                          {restaurants.length} approved restaurant{restaurants.length === 1 ? '' : 's'} available
+                        </p>
+                      )}
                     </div>
                   </div>
+                  <ChevronDown
+                    className={`w-4 h-4 text-[#8a94aa] shrink-0 transition-transform duration-200 ${
+                      showPickerDropdown ? 'rotate-180 text-[#006fbd]' : ''
+                    }`}
+                  />
+                </button>
+
+                {showPickerDropdown && (
+                  <div className="absolute z-50 w-full mt-2 bg-white border border-[#e3e6ef] rounded-xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
+                    <div className="p-3 border-b border-[#e3e6ef] bg-gradient-to-r from-[#f8fafc] to-white">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8a94aa]" />
+                        <input
+                          type="text"
+                          value={pickerFilter}
+                          onChange={(e) => setPickerFilter(e.target.value)}
+                          placeholder="Filter by name or ID..."
+                          className="w-full h-10 pl-9 pr-3 text-sm rounded-lg border border-[#e3e6ef] bg-white text-[#334257] placeholder:text-[#8a94aa] focus:outline-none focus:ring-2 focus:ring-[#006fbd]/20 focus:border-[#006fbd]"
+                        />
+                      </div>
+                      <p className="text-[11px] font-medium text-[#8a94aa] mt-2 uppercase tracking-wide">
+                        {pickerFilteredRestaurants.length} result{pickerFilteredRestaurants.length === 1 ? '' : 's'}
+                      </p>
+                    </div>
+
+                    <div className="max-h-72 overflow-y-auto overscroll-contain">
+                      {loading && restaurants.length === 0 ? (
+                        <div className="px-4 py-8 text-center text-sm text-[#8a94aa]">Loading restaurants...</div>
+                      ) : pickerFilteredRestaurants.length > 0 ? (
+                        pickerFilteredRestaurants.map((restaurant) => {
+                          const isSelected = selectedRestaurant === restaurant._id
+                          return (
+                            <button
+                              key={restaurant._id}
+                              type="button"
+                              onClick={() => handleRestaurantSelect(restaurant._id)}
+                              className={`w-full px-4 py-3 text-left transition-colors border-b border-[#eef1f6] last:border-b-0 ${
+                                isSelected
+                                  ? 'bg-[#006fbd]/8 hover:bg-[#006fbd]/10'
+                                  : 'hover:bg-[#f8fafc]'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                                    isSelected ? 'bg-[#006fbd] text-white' : 'bg-slate-100 text-slate-500'
+                                  }`}>
+                                    <Store className="w-4 h-4" />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-semibold text-[#334257] truncate">{restaurant.name}</p>
+                                    <p className="text-xs text-[#8a94aa] truncate">
+                                      ID: {restaurant.restaurantId || restaurant._id}
+                                    </p>
+                                  </div>
+                                </div>
+                                {isSelected && (
+                                  <div className="w-6 h-6 rounded-full bg-[#006fbd] flex items-center justify-center shrink-0">
+                                    <Check className="w-3.5 h-3.5 text-white" />
+                                  </div>
+                                )}
+                              </div>
+                            </button>
+                          )
+                        })
+                      ) : (
+                        <div className="px-4 py-8 text-center">
+                          <p className="text-sm font-medium text-[#334257]">No restaurants found</p>
+                          <p className="text-xs text-[#8a94aa] mt-1">Try a different search term</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
                   </div>
                 </div>
 
         {/* Analytics Dashboard */}
-        {selectedRestaurant ? (
-          analyticsLoading || listLoading ? (
-          <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-12 text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#006fbd] mx-auto mb-4"></div>
-            <p className="text-sm text-[#8a94aa]">Loading restaurant analytics...</p>
-          </div>
-        ) : (
+        {selectedRestaurant && !loading ? (
           <div className="space-y-6">
             {/* Restaurant Header Info */}
             <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
@@ -517,7 +624,7 @@ export default function PointOfSale() {
                 <div>
                   <h2 className="text-xl font-bold text-[#334257] mb-1">{getSelectedRestaurantName()}</h2>
                   <p className="text-sm text-[#8a94aa]">
-                    Restaurant ID: {restaurants.find(r => r._id === selectedRestaurant)?.restaurantId || formatRestaurantDisplayId(selectedRestaurant)}
+                    Restaurant ID: {restaurants.find(r => r._id === selectedRestaurant)?.restaurantId || selectedRestaurant}
                   </p>
                 </div>
                 <div className={`px-4 py-2 rounded-full text-sm font-semibold ${
@@ -531,7 +638,7 @@ export default function PointOfSale() {
             </div>
 
             {/* Key Metrics Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
               {/* Total Orders */}
               <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
                 <div className="flex items-center justify-between mb-4">
@@ -555,7 +662,22 @@ export default function PointOfSale() {
                 </div>
                 <h3 className="text-sm font-medium text-[#8a94aa] mb-1">Cancelled Orders</h3>
                 <p className="text-2xl font-bold text-[#334257]">{formatNumber(analyticsData.cancelledOrders)}</p>
-                <p className="text-xs text-[#8a94aa] mt-2">Cancellation Rate</p>
+                <p className="text-xs text-[#8a94aa] mt-2">
+                  Restaurant: {formatNumber(analyticsData.cancelledByRestaurant)} | Admin: {formatNumber(analyticsData.cancelledByAdmin)} | User: {formatNumber(analyticsData.cancelledByUser)}
+                </p>
+                </div>
+
+              {/* In Processing Orders */}
+              <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="p-3 bg-orange-100 rounded-lg">
+                    <Clock className="w-6 h-6 text-orange-600" />
+                  </div>
+                  <span className="text-sm font-semibold text-orange-600">{analyticsData.inProgressRate.toFixed(1)}%</span>
+                </div>
+                <h3 className="text-sm font-medium text-[#8a94aa] mb-1">In Processing</h3>
+                <p className="text-2xl font-bold text-[#334257]">{formatNumber(analyticsData.inProgressOrders)}</p>
+                <p className="text-xs text-[#8a94aa] mt-2">Pending, accepted, preparing, on the way</p>
                 </div>
 
               {/* Average Rating */}
@@ -564,25 +686,36 @@ export default function PointOfSale() {
                   <div className="p-3 bg-yellow-100 rounded-lg">
                     <Star className="w-6 h-6 text-yellow-600 fill-yellow-600" />
                   </div>
-                  <span className="text-sm font-semibold text-[#334257]">{analyticsData.averageRating.toFixed(1)}</span>
+                  <span className="text-sm font-semibold text-green-600">+{analyticsData.averageRating}</span>
                 </div>
                 <h3 className="text-sm font-medium text-[#8a94aa] mb-1">Average Rating</h3>
                 <p className="text-2xl font-bold text-[#334257]">{analyticsData.averageRating.toFixed(1)}</p>
                 <p className="text-xs text-[#8a94aa] mt-2">From {formatNumber(analyticsData.totalRatings)} reviews</p>
               </div>
 
-              {/* Commission Rate */}
+              {/* Subscription Plan */}
               <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div className="p-3 bg-purple-100 rounded-lg">
-                    <Award className="w-6 h-6 text-purple-600" />
+                    <CreditCard className="w-6 h-6 text-purple-600" />
                   </div>
-                  <span className="text-sm font-semibold text-purple-600">{analyticsData.commissionPercentage}%</span>
-                  </div>
-                <h3 className="text-sm font-medium text-[#8a94aa] mb-1">Commission Rate</h3>
-                <p className="text-2xl font-bold text-[#334257]">{analyticsData.commissionPercentage}%</p>
-                <p className="text-xs text-[#8a94aa] mt-2">Set Commission</p>
-                  </div>
+                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                    subscriptionSummary.status === 'paid'
+                      ? 'bg-green-100 text-green-700'
+                      : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {subscriptionSummary.status === 'paid' ? 'Paid' : 'Due'}
+                  </span>
+                </div>
+                <h3 className="text-sm font-medium text-[#8a94aa] mb-1">Subscription Plan</h3>
+                <p className="text-2xl font-bold text-[#334257]">{subscriptionSummary.planLabel}</p>
+                <p className="text-xs text-[#8a94aa] mt-2">
+                  Last invoice: {formatCurrency(subscriptionSummary.cycleFee)}
+                  {subscriptionSummary.currentMonthGmv > 0
+                    ? ` · This month GMV: ${formatCurrency(subscriptionSummary.currentMonthGmv)}`
+                    : ''}
+                </p>
+              </div>
                   </div>
 
             {/* Profit & Revenue Section */}
@@ -648,7 +781,8 @@ export default function PointOfSale() {
 
             {/* Detailed Financial Breakdown */}
             <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
-              <h3 className="text-lg font-semibold text-[#334257] mb-4">Financial Breakdown</h3>
+              <h3 className="text-lg font-semibold text-[#334257] mb-1">Financial Breakdown</h3>
+              <p className="text-xs text-[#8a94aa] mb-4">Order earnings plus current subscription billing status for this restaurant.</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-4">
                   <div className="flex justify-between items-center py-3 border-b border-[#e3e6ef]">
@@ -660,11 +794,7 @@ export default function PointOfSale() {
                     <span className="text-base font-semibold text-[#334257]">{formatCurrency(analyticsData.totalRevenue)}</span>
                   </div>
                   <div className="flex justify-between items-center py-3 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Total Commission (Admin)</span>
-                    <span className="text-base font-semibold text-[#006fbd]">{formatCurrency(analyticsData.totalCommission)}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-3 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Restaurant Share</span>
+                    <span className="text-sm text-[#8a94aa]">Restaurant Share (from orders)</span>
                     <span className="text-base font-semibold text-green-600">{formatCurrency(analyticsData.restaurantEarning)}</span>
                   </div>
                   <div className="flex justify-between items-center py-3 border-b border-[#e3e6ef]">
@@ -681,23 +811,36 @@ export default function PointOfSale() {
                     <span className="text-sm text-[#8a94aa]">Completion Rate</span>
                     <span className="text-base font-semibold text-green-600">{analyticsData.completionRate.toFixed(1)}%</span>
                   </div>
-                  <div className="flex justify-between items-center py-3 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Commission Percentage</span>
-                    <span className="text-base font-semibold text-[#334257]">
-                      {analyticsData.commissionPercentage !== undefined && analyticsData.commissionPercentage !== null
-                        ? `${analyticsData.commissionPercentage}%`
-                        : '0%'}
-                    </span>
+                  <div className="rounded-lg border border-purple-100 bg-purple-50/60 p-4 space-y-3">
+                    <p className="text-sm font-semibold text-[#334257]">Subscription billing (monthly postpaid)</p>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-[#8a94aa]">Last billed plan</span>
+                      <span className="text-sm font-semibold text-[#334257]">{subscriptionSummary.planLabel}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-[#8a94aa]">This month GMV</span>
+                      <span className="text-sm font-semibold text-[#334257]">{formatCurrency(subscriptionSummary.currentMonthGmv)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-[#8a94aa]">Outstanding due</span>
+                      <span className={`text-sm font-semibold ${subscriptionSummary.dueAmount > 0 ? 'text-amber-700' : 'text-green-700'}`}>
+                        {formatCurrency(subscriptionSummary.dueAmount)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-[#8a94aa]">Total subscription collected</span>
+                      <span className="text-sm font-semibold text-[#006fbd]">{formatCurrency(subscriptionSummary.totalCollected)}</span>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Restaurant Payments (delivered orders) */}
+            {/* Restaurant Payments (from FoodTransaction ledger) */}
             <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
-              <h3 className="text-lg font-semibold text-[#334257] mb-4">Restaurant Payments (Completed Orders)</h3>
+              <h3 className="text-lg font-semibold text-[#334257] mb-1">Restaurant Payments (Completed Orders)</h3>
               <p className="text-xs text-[#8a94aa] mb-4">
-                Breakdown from delivered orders (same basis as Transaction Report). “Subtotal” reflects total dish value (food price).
+                Order payout breakdown from the transaction ledger. Subscription payments are shown separately on the right.
               </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-3">
@@ -721,6 +864,14 @@ export default function PointOfSale() {
                     <span className="text-sm text-[#8a94aa]">Discount</span>
                     <span className="text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.discount || 0)}</span>
                   </div>
+                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
+                    <span className="text-sm text-[#8a94aa]">Admin Bear Discount</span>
+                    <span className="text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.adminDiscountShare || 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
+                    <span className="text-sm text-[#8a94aa]">Restaurant Bear Discount</span>
+                    <span className="text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.restaurantDiscountShare || 0)}</span>
+                  </div>
                   <div className="flex justify-between items-center py-2">
                     <span className="text-sm font-semibold text-[#334257]">Total Order Value</span>
                     <span className="text-sm font-bold text-[#006fbd]">{formatCurrency(paymentSummary?.total || 0)}</span>
@@ -728,13 +879,79 @@ export default function PointOfSale() {
                 </div>
 
                 <div className="space-y-3">
-                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Restaurant Share</span>
-                    <span className="text-sm font-semibold text-green-700">{formatCurrency(paymentSummary?.restaurantShare || 0)}</span>
+                  <div className="rounded-lg border border-purple-100 bg-purple-50/60 p-3 mb-1">
+                    <p className="text-sm font-semibold text-[#334257] mb-2">Subscription billing</p>
+                    <p className="text-xs text-[#8a94aa] mb-3">
+                      {subscriptionSummary.statusLabel}
+                      {subscriptionSummary.invoiceCount > 0
+                        ? ` · ${subscriptionSummary.invoiceCount} invoice${subscriptionSummary.invoiceCount === 1 ? '' : 's'}`
+                        : ''}
+                    </p>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Restaurant Commission (Admin)</span>
-                    <span className="text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.restaurantCommission || 0)}</span>
+                    <span className="text-sm text-[#8a94aa]">Last billed plan & fee</span>
+                    <span className="text-sm font-semibold text-[#334257]">
+                      {subscriptionSummary.planLabel} · {formatCurrency(subscriptionSummary.cycleFee)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
+                    <span className="text-sm text-[#8a94aa]">Total billed</span>
+                    <span className="text-sm font-semibold text-[#334257]">{formatCurrency(subscriptionSummary.totalBilled)}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
+                    <span className="text-sm text-[#8a94aa]">Total collected</span>
+                    <span className="text-sm font-semibold text-[#006fbd]">{formatCurrency(subscriptionSummary.totalCollected)}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
+                    <span className="text-sm text-[#8a94aa]">Deducted from wallet</span>
+                    <span className="text-sm font-semibold text-[#334257]">{formatCurrency(subscriptionSummary.walletDeductionsTotal)}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
+                    <span className="text-sm text-[#8a94aa]">Waived</span>
+                    <span className="text-sm font-semibold text-purple-700">{formatCurrency(subscriptionSummary.totalWaived)}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
+                    <span className="text-sm text-[#8a94aa]">Outstanding subscription due</span>
+                    <span className={`text-sm font-semibold ${subscriptionSummary.dueAmount > 0 ? 'text-amber-700' : 'text-green-700'}`}>
+                      {formatCurrency(subscriptionSummary.dueAmount)}
+                    </span>
+                  </div>
+                  {subscriptionSummary.lastPayment ? (
+                    <div className="rounded-lg border border-[#e3e6ef] bg-[#f9fafc] p-3">
+                      <p className="text-xs font-semibold text-[#334257] mb-1">Last subscription payment</p>
+                      <p className="text-sm font-semibold text-[#334257]">
+                        {formatCurrency(subscriptionSummary.lastPayment.amount)}
+                      </p>
+                      <p className="text-xs text-[#8a94aa] mt-1">
+                        {formatSubscriptionPaymentLabel(subscriptionSummary.lastPayment.eventType)}
+                        {subscriptionSummary.lastPayment.date
+                          ? ` · ${new Date(subscriptionSummary.lastPayment.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                          : ''}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-[#8a94aa]">No subscription payment recorded yet.</p>
+                  )}
+                  {Array.isArray(subscriptionSummary.invoices) && subscriptionSummary.invoices.length > 0 && (
+                    <div className="rounded-lg border border-[#e3e6ef] bg-[#f9fafc] p-3">
+                      <p className="text-xs font-semibold text-[#334257] mb-2">Monthly billing history</p>
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                        {subscriptionSummary.invoices.map((inv) => (
+                          <div key={inv.billingMonth} className="flex items-center justify-between text-xs">
+                            <span className="text-[#8a94aa]">{inv.billingMonthLabel || inv.billingMonth}</span>
+                            <span className="text-[#8a94aa] capitalize">{inv.planName}</span>
+                            <span className="font-semibold text-[#334257]">{formatCurrency(inv.totalAmount)}</span>
+                            <span className={`font-semibold ${inv.outstandingAmount > 0 ? 'text-amber-700' : 'text-green-700'}`}>
+                              {inv.outstandingAmount > 0 ? `Due ${formatCurrency(inv.outstandingAmount)}` : (inv.status === 'waived' ? 'Waived' : 'Paid')}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
+                    <span className="text-sm text-[#8a94aa]">Restaurant share (orders)</span>
+                    <span className="text-sm font-semibold text-green-700">{formatCurrency(paymentSummary?.restaurantShare || 0)}</span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
                     <span className="text-sm text-[#8a94aa]">Rider Share</span>
@@ -818,7 +1035,7 @@ export default function PointOfSale() {
             {/* Order Statistics Summary */}
             <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
               <h3 className="text-lg font-semibold text-[#334257] mb-4">Order Statistics Summary</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
                 <div className="text-center p-4 bg-blue-50 rounded-lg">
                   <p className="text-2xl font-bold text-blue-600">{formatNumber(analyticsData.totalOrders)}</p>
                   <p className="text-xs text-[#8a94aa] mt-1">Total Orders</p>
@@ -830,6 +1047,13 @@ export default function PointOfSale() {
                 <div className="text-center p-4 bg-red-50 rounded-lg">
                   <p className="text-2xl font-bold text-red-600">{formatNumber(analyticsData.cancelledOrders)}</p>
                   <p className="text-xs text-[#8a94aa] mt-1">Cancelled</p>
+                  <p className="text-[10px] text-[#8a94aa] mt-1">
+                    R: {formatNumber(analyticsData.cancelledByRestaurant)} | A: {formatNumber(analyticsData.cancelledByAdmin)} | U: {formatNumber(analyticsData.cancelledByUser)}
+                  </p>
+                </div>
+                <div className="text-center p-4 bg-orange-50 rounded-lg">
+                  <p className="text-2xl font-bold text-orange-600">{formatNumber(analyticsData.inProgressOrders)}</p>
+                  <p className="text-xs text-[#8a94aa] mt-1">In Processing</p>
                 </div>
                 <div className="text-center p-4 bg-yellow-50 rounded-lg">
                   <p className="text-2xl font-bold text-yellow-600">{analyticsData.completionRate.toFixed(1)}%</p>
@@ -838,11 +1062,10 @@ export default function PointOfSale() {
               </div>
             </div>
           </div>
-        )
-        ) : listLoading ? (
+        ) : selectedRestaurant && loading ? (
           <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-12 text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#006fbd] mx-auto mb-4"></div>
-            <p className="text-sm text-[#8a94aa]">Loading restaurants...</p>
+            <p className="text-sm text-[#8a94aa]">Loading restaurant analytics...</p>
           </div>
         ) : (
           <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-12 text-center">
@@ -851,7 +1074,7 @@ export default function PointOfSale() {
             </div>
             <p className="text-base font-medium text-[#334257] mb-2">Select a Restaurant</p>
             <p className="text-sm text-[#8a94aa] max-w-md mx-auto">
-              Please select a restaurant from the dropdown above to view detailed analytics, profit information, and commission details.
+              Please select a restaurant from the dropdown above to view detailed analytics, order earnings, and subscription billing.
             </p>
           </div>
         )}
@@ -859,4 +1082,3 @@ export default function PointOfSale() {
     </div>
   )
 }
-

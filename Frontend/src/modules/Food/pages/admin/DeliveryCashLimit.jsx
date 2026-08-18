@@ -185,8 +185,7 @@ export default function DeliveryCashLimit() {
                   Minimum Withdrawal Amount (Global)
                 </div>
                 <div className="text-sm text-amber-800/80 mb-3">
-                  Delivery boy can withdraw only when withdrawable amount is <strong>above</strong> this value. Utni
-                  amount ke upar rahega tabhi withdrawal hoga.
+                  Delivery boy can withdraw only when withdrawable amount is <strong>above</strong> this value.
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
@@ -220,11 +219,11 @@ export default function DeliveryCashLimit() {
               </div>
             </div>
           </div>
-
         </div>
       </div>
     </div>
   )
 }
+
 
 

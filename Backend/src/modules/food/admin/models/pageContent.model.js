@@ -17,15 +17,14 @@ const legalPageSchema = new mongoose.Schema(
         title: { type: String, default: '' },
         content: { type: String, default: '' }, // stored as HTML string
         email: { type: String, default: '' },
-        mobile: { type: String, default: '' },
-        faq: { type: String, default: '' }
+        mobile: { type: String, default: '' }
     },
     { _id: false }
 );
 
 const aboutPageSchema = new mongoose.Schema(
     {
-        appName: { type: String, default: 'Appzeto Food' },
+        appName: { type: String, default: 'Eatiefy' },
         version: { type: String, default: '1.0.0' },
         description: { type: String, default: '' },
         logo: { type: String, default: '' },
@@ -40,14 +39,14 @@ const pageContentSchema = new mongoose.Schema(
         key: {
             type: String,
             required: true,
-            unique: true,
             index: true,
-            enum: [
-                'terms', 'terms_user', 'terms_restaurant', 'terms_delivery',
-                'privacy', 'privacy_user', 'privacy_restaurant', 'privacy_delivery',
-                'refund', 'shipping', 'cancellation', 'about',
-                'support_user', 'support_restaurant', 'support_delivery'
-            ]
+            enum: ['terms', 'privacy', 'refund', 'shipping', 'cancellation', 'about', 'support']
+        },
+        module: {
+            type: String,
+            required: true,
+            enum: ['USER', 'DELIVERY', 'RESTAURANT', 'ALL'],
+            default: 'ALL'
         },
         legal: { type: legalPageSchema, default: undefined },
         about: { type: aboutPageSchema, default: undefined },
@@ -56,6 +55,8 @@ const pageContentSchema = new mongoose.Schema(
     },
     { collection: 'food_page_contents', timestamps: true }
 );
+
+pageContentSchema.index({ key: 1, module: 1 }, { unique: true });
 
 export const FoodPageContent = mongoose.model('FoodPageContent', pageContentSchema);
 

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { ArrowLeft, IndianRupee, Plus, ArrowDownCircle, ArrowUpCircle, RefreshCw, Loader2, History } from "lucide-react"
+import { ArrowLeft, IndianRupee, Plus, ArrowDownCircle, ArrowUpCircle, RefreshCw, Loader2 } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { Card, CardContent } from "@food/components/ui/card"
 import AnimatedPage from "@food/components/user/AnimatedPage"
@@ -9,7 +9,6 @@ import { userAPI } from "@food/api"
 import { toast } from "sonner"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
-import { WalletSkeleton } from "@food/components/ui/loading-skeletons"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -59,6 +58,22 @@ export default function Wallet() {
   }, [])
 
   const currentBalance = wallet?.balance || 0
+
+  const referralEarnings = useMemo(() => {
+    if (wallet?.referralEarnings != null) {
+      return Number(wallet.referralEarnings) || 0
+    }
+
+    return transactions
+      .filter(
+        (transaction) =>
+          transaction.type === "addition" &&
+          transaction.status === "Completed" &&
+          (transaction?.metadata?.source === "referral_signup" ||
+            String(transaction.description || "").toLowerCase().startsWith("referral reward"))
+      )
+      .reduce((sum, transaction) => sum + (Number(transaction.amount) || 0), 0)
+  }, [wallet, transactions])
 
   const filteredTransactions = useMemo(() => {
     if (selectedFilter === TRANSACTION_TYPES.ALL) {
@@ -147,7 +162,9 @@ export default function Wallet() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 py-6 md:py-8 lg:py-10 space-y-6 md:space-y-8">
         {loading && (
-          <WalletSkeleton />
+          <div className="flex items-center justify-center py-12 md:py-16 lg:py-20">
+            <Loader2 className="h-8 w-8 md:h-10 md:w-10 animate-spin text-gray-600 dark:text-gray-400" />
+          </div>
         )}
 
         {error && !loading && (
@@ -181,6 +198,13 @@ export default function Wallet() {
                     </p>
                   </div>
 
+                  <div className="mb-2 md:mb-3">
+                    <p className="text-gray-500 dark:text-gray-400 text-xs md:text-sm lg:text-base mb-1">Referral Earnings</p>
+                    <p className="text-lg md:text-xl lg:text-2xl font-semibold text-green-600 dark:text-green-400">
+                      {formatAmount(referralEarnings)}
+                    </p>
+                  </div>
+
                   <p className="text-gray-500 dark:text-gray-400 text-xs md:text-sm lg:text-base text-center md:text-left max-w-md">
                     Add money to enjoy one-tap, seamless payments
                   </p>
@@ -189,7 +213,13 @@ export default function Wallet() {
 
               <div className="flex-shrink-0 w-full md:w-auto">
                 <Button
-                  className="w-full md:w-auto md:min-w-[200px] lg:min-w-[240px] h-12 md:h-14 lg:h-16 bg-green-600 hover:bg-green-700 dark:bg-green-600 dark:hover:bg-green-700 text-white font-semibold text-sm md:text-base lg:text-lg rounded-xl transition-all duration-200 flex items-center justify-center gap-2"
+                  className="w-full md:w-auto md:min-w-[200px] lg:min-w-[240px] h-12 md:h-14 lg:h-16 text-white font-semibold text-sm md:text-base lg:text-lg rounded-xl transition-all duration-200 flex items-center justify-center gap-2"
+                  style={{
+                    background:
+                      "linear-gradient(135deg, rgba(var(--module-theme-rgb,226,173,75),0.94), var(--module-theme-color,#E2AD4B))",
+                    boxShadow:
+                      "0 12px 24px rgba(var(--module-theme-rgb,226,173,75),0.30)",
+                  }}
                   onClick={() => setAddMoneyModalOpen(true)}
                 >
                   <Plus className="h-4 w-4 md:h-5 md:w-5 lg:h-6 lg:w-6" />
@@ -249,6 +279,12 @@ export default function Wallet() {
                               <p className="text-gray-900 dark:text-white font-semibold text-sm md:text-base lg:text-lg truncate mb-1">
                                 {transaction.description}
                               </p>
+                              {(transaction?.metadata?.source === "referral_signup" ||
+                                String(transaction.description || "").toLowerCase().startsWith("referral reward")) && (
+                                <p className="text-[11px] md:text-xs text-green-600 dark:text-green-400 font-medium mb-1">
+                                  Referral reward
+                                </p>
+                              )}
                               <p className="text-gray-500 dark:text-gray-400 text-xs md:text-sm lg:text-base">
                                 {formatDate(transaction.date || transaction.createdAt)}
                               </p>
@@ -265,15 +301,27 @@ export default function Wallet() {
                   ))}
                 </div>
               ) : (
-                <div className="py-16 md:py-20 flex flex-col items-center justify-center text-center px-4">
-                  <div className="w-16 h-16 md:w-20 md:h-20 rounded-2xl bg-gray-50 dark:bg-[#1a1a1a] flex items-center justify-center mb-5 border border-gray-100 dark:border-gray-800 shadow-sm">
-                    <History className="w-8 h-8 md:w-10 md:h-10 text-gray-300 dark:text-gray-600" />
+                <div className="py-12 md:py-16 lg:py-20 xl:py-24">
+                  <div className="space-y-3 md:space-y-4 mb-6 md:mb-8 max-w-2xl mx-auto">
+                    {[1, 2, 3].map((i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-3 md:gap-4 bg-gray-100 dark:bg-gray-800 rounded-xl px-4 md:px-5 lg:px-6 py-3 md:py-4"
+                        style={{
+                          opacity: 0.3 + i * 0.15,
+                        }}
+                      >
+                        <div className="w-10 h-10 md:w-12 md:h-12 bg-gray-200 dark:bg-gray-700 rounded-lg flex-shrink-0" />
+                        <div className="flex-1 space-y-2">
+                          <div className="h-3 md:h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
+                          <div className="h-2 md:h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <h3 className="text-gray-900 dark:text-white font-bold text-base md:text-lg mb-2">
-                    No Transaction History
-                  </h3>
-                  <p className="text-gray-500 dark:text-gray-400 text-xs md:text-sm max-w-xs leading-relaxed">
-                    Your transactions will appear here when you add money or make a purchase.
+
+                  <p className="text-gray-600 dark:text-gray-400 text-sm md:text-base lg:text-lg text-center font-medium">
+                    Your transactions will appear here
                   </p>
                 </div>
               )}

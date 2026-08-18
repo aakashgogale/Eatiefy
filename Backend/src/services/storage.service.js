@@ -1,257 +1,380 @@
-import fs from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
+import axios from 'axios';
 import sharp from 'sharp';
+import { v2 as cloudinary } from 'cloudinary';
 import { config } from '../config/env.js';
 import { ValidationError } from '../core/auth/errors.js';
+import { FoodBusinessSettings } from '../modules/food/admin/models/businessSettings.model.js';
 
-const UPLOADS_ROOT = config.uploadsRoot;
-const usesRemoteStore = () => Boolean(config.uploadRemoteOrigin) && config.nodeEnv !== 'production';
-
-const ensureRoot = async () => {
-    await fs.promises.mkdir(UPLOADS_ROOT, { recursive: true });
-};
-
-/** 'food/restaurants/pan' -> 'food_restaurants_pan' */
-export const flattenFolder = (folder) => {
-    const cleaned = String(folder || 'uploads')
-        .trim()
-        .replace(/\\/g, '/')
-        .replace(/\.{2,}/g, '')
-        .replace(/^\/+|\/+$/g, '')
-        .replace(/[^A-Za-z0-9/_-]/g, '')
-        .replace(/\/+/g, '_');
-    return cleaned || 'uploads';
-};
-
-const randomId = () => crypto.randomBytes(10).toString('hex');
-
-export const buildAssetUrl = (filename) => `${config.assetBaseUrl}/uploads/${filename}`;
-
-export const extractAssetUrl = (value) => {
-    if (!value) return '';
-    if (typeof value === 'string') return value.trim();
-    if (typeof value === 'object') {
-        return String(value.url || value.secure_url || value.imageUrl || value.iconUrl || value.src || '').trim();
-    }
-    return '';
-};
-
-export const extractAssetUrls = (value) => {
-    if (value == null || value === '') return [];
-    if (Array.isArray(value)) {
-        return [...new Set(value.flatMap(extractAssetUrls).filter(Boolean))];
-    }
-    const one = extractAssetUrl(value);
-    return one ? [one] : [];
-};
-
-const encodeToWebp = async (buffer, { maxWidth } = {}) => {
-    try {
-        let pipeline = sharp(buffer, { animated: true, failOn: 'none' });
-        if (maxWidth) {
-            pipeline = pipeline.resize({ width: maxWidth, withoutEnlargement: true });
-        }
-        const meta = await sharp(buffer, { failOn: 'none' }).metadata().catch(() => ({}));
-        const out = await pipeline.webp({ quality: 90, effort: 4 }).toBuffer();
-        if (!out?.length) {
-            throw new Error('empty webp output');
-        }
-        return { buffer: out, ext: 'webp', width: meta.width, height: meta.height };
-    } catch {
-        throw new ValidationError('Could not convert image to WebP. Upload a valid image file.');
-    }
-};
-
-export const resolveStoredFilename = async (urlOrPublicId) => {
-    if (!urlOrPublicId) return null;
-
-    let name = String(urlOrPublicId).trim();
-    if (/^https?:\/\//i.test(name)) {
-        try {
-            name = decodeURIComponent(new URL(name).pathname);
-        } catch {
-            return null;
-        }
-        const marker = name.match(/\/(?:image|video|raw)\/upload\/(.+)$/i);
-        if (marker) {
-            name = marker[1]
-                .split('/')
-                .filter((p) => !/^v\d+$/.test(p))
-                .join('_');
-        }
-    }
-    name = name.replace(/\\/g, '/');
-    if (name.includes('/')) {
-        name = name.replace(/^\/?uploads\//i, '').replace(/\//g, '_');
-    }
-    name = path.basename(name);
-    if (!name || name === '.' || name === '..') return null;
-    if (path.extname(name)) return name;
-
-    try {
-        const entries = await fs.promises.readdir(UPLOADS_ROOT);
-        return entries.find((f) => f.startsWith(`${name}.`)) || null;
-    } catch {
-        return null;
-    }
-};
-
-const writeBufferToDisk = async (data, folder, ext) => {
-    await ensureRoot();
-    const base = `${flattenFolder(folder)}_${randomId()}`;
-    const filename = `${base}.${ext}`;
-    await fs.promises.writeFile(path.join(UPLOADS_ROOT, filename), data);
-    return {
-        secure_url: buildAssetUrl(filename),
-        url: buildAssetUrl(filename),
-        public_id: base,
-        filename,
-        format: ext,
-        bytes: data.length
-    };
-};
-
-const remoteHeaders = () => ({
-    'X-Upload-Secret': config.uploadInternalSecret
-});
-
-const postRemoteFile = async ({ buffer, folder, replaceUrl, originalName, mimeType }) => {
-    const form = new FormData();
-    form.append(
-        'file',
-        new Blob([buffer], { type: mimeType || 'application/octet-stream' }),
-        originalName || 'upload.bin'
-    );
-    form.append('folder', folder || 'uploads');
-    if (replaceUrl) form.append('replaceUrl', String(replaceUrl));
-
-    const response = await fetch(`${config.uploadRemoteOrigin}/api/v1/uploads/internal`, {
-        method: 'POST',
-        headers: remoteHeaders(),
-        body: form
+// ─── Cloudinary SDK Configuration ────────────────────────────────────────────
+if (config.cloudinaryCloudName && config.cloudinaryApiKey && config.cloudinaryApiSecret) {
+    cloudinary.config({
+        cloud_name: config.cloudinaryCloudName,
+        api_key: config.cloudinaryApiKey,
+        api_secret: config.cloudinaryApiSecret,
     });
+}
 
-    const payload = await response.json().catch(() => null);
-    if (!response.ok || !payload?.success || !payload?.data?.url) {
-        throw new ValidationError(payload?.error || payload?.message || 'Failed to upload image to server');
+let cachedMode = null;
+let lastFetchTime = 0;
+
+export const getImageStorageMode = async () => {
+    const now = Date.now();
+    if (cachedMode && (now - lastFetchTime < 5000)) {
+        return cachedMode;
     }
-    return payload.data;
-};
-
-const deleteRemoteAsset = async (url) => {
-    const response = await fetch(`${config.uploadRemoteOrigin}/api/v1/uploads/internal`, {
-        method: 'DELETE',
-        headers: {
-            ...remoteHeaders(),
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ url })
-    });
-    return response.ok;
-};
-
-const deleteFromDisk = async (urlOrPublicId) => {
-    const filename = await resolveStoredFilename(urlOrPublicId);
-    if (!filename) return false;
     try {
-        await fs.promises.unlink(path.join(UPLOADS_ROOT, filename));
-        return true;
-    } catch (err) {
-        if (err.code !== 'ENOENT') {
-            console.error(`Failed to delete upload ${filename}:`, err.message);
-        }
-        return false;
+        const settings = await FoodBusinessSettings.findOne().select('imageStorageMode').lean();
+        cachedMode = settings?.imageStorageMode || 'server';
+        lastFetchTime = now;
+        return cachedMode;
+    } catch {
+        return cachedMode || 'server';
     }
+};
+
+export const invalidateStorageModeCache = () => {
+    cachedMode = null;
+    lastFetchTime = 0;
+};
+
+const uploadToCloudinary = (buffer, folder) => {
+    if (!config.cloudinaryCloudName || !config.cloudinaryApiKey || !config.cloudinaryApiSecret) {
+        throw new ValidationError('Cloudinary credentials are not configured in environment.');
+    }
+    return new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+            {
+                folder,
+                resource_type: 'image',
+            },
+            (error, result) => {
+                if (error) return reject(new ValidationError(`Cloudinary Upload Error: ${error.message}`));
+                resolve({
+                    url: result.secure_url,
+                    secure_url: result.secure_url,
+                    public_id: result.public_id,
+                    path: result.public_id,
+                    filename: result.public_id,
+                    mimeType: result.format ? `image/${result.format}` : 'image/jpeg',
+                    size: result.bytes || buffer.length
+                });
+            }
+        );
+        stream.end(buffer);
+    });
+};
+
+const ALLOWED_MIME_TYPES = new Set([
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+    'video/mp4',
+    'video/webm',
+    'video/quicktime',
+    'video/mov',
+    'video/ogg',
+    'video/m4v',
+    'video/x-msvideo'
+]);
+
+const WEBP_MIME = 'image/webp';
+const GIF_MIME = 'image/gif';
+const FOLDER_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9/_-]*$/;
+
+export const sanitizeUploadFolder = (folder) => {
+    const normalized = String(folder || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    if (!normalized) {
+        throw new ValidationError('Folder is required');
+    }
+    if (normalized.includes('..') || normalized.startsWith('.')) {
+        throw new ValidationError('Invalid folder path');
+    }
+    if (!FOLDER_PATTERN.test(normalized)) {
+        throw new ValidationError('Folder may only contain letters, numbers, /, _, and -');
+    }
+    return normalized;
+};
+
+const buildFilename = (extension) => {
+    const stamp = Date.now();
+    const random = crypto.randomBytes(8).toString('hex');
+    return `${stamp}-${random}${extension}`;
+};
+
+export const fixMediaUrlProtocol = (url) => String(url || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^(https?):\/(?!\/)/i, '$1://')
+    .replace(/^(https?:\/\/)(https?:\/\/)+/i, '$1');
+
+export const buildPublicUrl = (relativePath) => {
+    const cleanPath = String(relativePath || '').replace(/^\/+/, '');
+    const base = fixMediaUrlProtocol(String(config.uploadBaseUrl || '').replace(/\/+$/, ''));
+
+    // Never persist localhost URLs — frontend/nginx resolve /uploads/... per environment
+    if (
+        !base
+        || base === '/uploads'
+        || /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?(\/uploads)?$/i.test(base)
+    ) {
+        return `/uploads/${cleanPath}`;
+    }
+
+    return `${base}/${cleanPath}`;
 };
 
 /**
- * Store an image as WebP on the production server (`/var/www/uploads`).
- * Local/dev backends forward the file to UPLOAD_REMOTE_ORIGIN instead of writing disk.
+ * Normalize any media URL before saving to MongoDB.
+ * Strips localhost origins; fixes protocol typos (https:/ → https://).
  */
-export const storeImageBuffer = async (buffer, folder = 'uploads', options = {}) => {
-    if (!buffer || !buffer.length) {
-        throw new ValidationError('File buffer is required');
+export const normalizeMediaUrlForStorage = (url) => {
+    const trimmed = fixMediaUrlProtocol(url);
+    if (!trimmed) return '';
+
+    if (trimmed.startsWith('/uploads/')) {
+        return trimmed;
     }
 
-    if (usesRemoteStore()) {
-        return postRemoteFile({
-            buffer,
-            folder,
-            replaceUrl: extractAssetUrl(options.replaceUrl),
-            originalName: options.originalName || 'upload.jpg',
-            mimeType: options.mimeType || 'image/jpeg'
+    try {
+        const parsed = new URL(trimmed);
+        if (/^(localhost|127\.0\.0\.1)$/i.test(parsed.hostname) && parsed.pathname.startsWith('/uploads/')) {
+            return parsed.pathname;
+        }
+        if (parsed.pathname.startsWith('/uploads/')) {
+            return fixMediaUrlProtocol(parsed.toString());
+        }
+    } catch {
+        /* not a full URL */
+    }
+
+    return trimmed;
+};
+
+const getAbsolutePath = (relativePath) => {
+    const root = path.resolve(config.uploadStorageRoot);
+    const absolute = path.resolve(root, relativePath);
+    if (!absolute.startsWith(`${root}${path.sep}`) && absolute !== root) {
+        throw new ValidationError('Invalid file path');
+    }
+    return absolute;
+};
+
+const getWebpQuality = () => {
+    const raw = Number(config.uploadWebpQuality);
+    if (!Number.isFinite(raw)) return 90;
+    return Math.min(100, Math.max(1, Math.round(raw)));
+};
+
+const getWebpMaxWidth = () => {
+    const raw = Number(config.uploadWebpMaxWidth);
+    if (!Number.isFinite(raw) || raw < 1) return 2560;
+    return Math.round(raw);
+};
+
+/**
+ * Convert JPEG/PNG/WebP to optimized WebP for storage.
+ * GIF is kept as-is (animation). PNG with alpha uses lossless WebP.
+ */
+export const optimizeImageForStorage = async (inputBuffer, mimeType) => {
+    const normalizedMime = String(mimeType || '').toLowerCase();
+
+    if (normalizedMime === GIF_MIME) {
+        return {
+            buffer: inputBuffer,
+            mimeType: GIF_MIME,
+            extension: '.gif'
+        };
+    }
+
+    if (!['image/jpeg', 'image/jpg', 'image/png', WEBP_MIME].includes(normalizedMime)) {
+        throw new ValidationError('Unsupported image type');
+    }
+
+    const maxWidth = getWebpMaxWidth();
+    const quality = getWebpQuality();
+
+    const metadata = await sharp(inputBuffer, { failOn: 'none' }).metadata();
+    const needsResize = Boolean(metadata.width && metadata.width > maxWidth);
+
+    if (normalizedMime === WEBP_MIME && !needsResize) {
+        return {
+            buffer: inputBuffer,
+            mimeType: WEBP_MIME,
+            extension: '.webp'
+        };
+    }
+
+    let pipeline = sharp(inputBuffer, { failOn: 'none' }).rotate();
+
+    if (needsResize) {
+        pipeline = pipeline.resize({
+            width: maxWidth,
+            withoutEnlargement: true
         });
     }
 
-    const encoded = await encodeToWebp(buffer, options);
-    const stored = await writeBufferToDisk(encoded.buffer, folder, 'webp');
-    if (options.replaceUrl) {
-        await deleteStoredAsset(options.replaceUrl);
-    }
+    const hasAlpha = Boolean(metadata.hasAlpha);
+    const webpOptions = hasAlpha
+        ? { lossless: true, effort: 4 }
+        : { quality, effort: 4, smartSubsample: true };
+
+    const outputBuffer = await pipeline.webp(webpOptions).toBuffer();
+
     return {
-        ...stored,
-        width: encoded.width,
-        height: encoded.height,
-        resource_type: 'image'
+        buffer: outputBuffer,
+        mimeType: WEBP_MIME,
+        extension: '.webp'
     };
 };
 
-/** Store a video/raw buffer (no transcoding). Images should use storeImageBuffer. */
-export const storeFileBuffer = async (buffer, folder = 'uploads', originalName = '', options = {}) => {
-    if (!buffer || !buffer.length) {
-        throw new ValidationError('File buffer is required');
+/** Create upload root (and optional subfolder) if missing. */
+export const ensureUploadStorageReady = async (folder = '') => {
+    const root = path.resolve(config.uploadStorageRoot);
+    await fs.mkdir(root, { recursive: true });
+
+    if (folder) {
+        const safeFolder = sanitizeUploadFolder(folder);
+        await fs.mkdir(getAbsolutePath(safeFolder), { recursive: true });
     }
 
-    if (usesRemoteStore()) {
-        return postRemoteFile({
+    return root;
+};
+
+export const saveImageFile = async (file, folder) => {
+    if (!file?.buffer?.length) {
+        throw new ValidationError('File is required');
+    }
+
+    const mimeType = String(file.mimetype || '').toLowerCase();
+    const isVideo = mimeType.startsWith('video/') || /\.(mp4|webm|mov|m4v|avi|ogg)$/i.test(file.originalname || '');
+
+    if (!ALLOWED_MIME_TYPES.has(mimeType) && !isVideo) {
+        throw new ValidationError('Only JPEG, PNG, WebP, GIF images and MP4, WebM, MOV videos are allowed');
+    }
+
+    const safeFolder = sanitizeUploadFolder(folder);
+
+    // If Video File: Save directly to storage
+    if (isVideo) {
+        const ext = path.extname(file.originalname || '.mp4') || '.mp4';
+        const filename = buildFilename(ext);
+        const relativePath = path.posix.join(safeFolder, filename);
+        const absolutePath = getAbsolutePath(relativePath);
+
+        await ensureUploadStorageReady(safeFolder);
+        await fs.writeFile(absolutePath, file.buffer);
+
+        return {
+            url: buildPublicUrl(relativePath),
+            secure_url: buildPublicUrl(relativePath),
+            public_id: relativePath,
+            path: relativePath,
+            filename,
+            mimeType: mimeType || 'video/mp4',
+            mediaType: 'video',
+            size: file.buffer.length
+        };
+    }
+
+    // Check active image storage mode (Cloudinary vs Server)
+    // Production always uses Cloudinary so all instances share object storage.
+    let mode = await getImageStorageMode();
+    if (config.nodeEnv === 'production') {
+        mode = 'cloudinary';
+    }
+    if (mode === 'cloudinary') {
+        return uploadToCloudinary(file.buffer, safeFolder);
+    }
+
+    // Local server storage for images
+    const optimized = await optimizeImageForStorage(file.buffer, mimeType);
+    const filename = buildFilename(optimized.extension);
+    const relativePath = path.posix.join(safeFolder, filename);
+    const absolutePath = getAbsolutePath(relativePath);
+
+    await ensureUploadStorageReady(safeFolder);
+    await fs.writeFile(absolutePath, optimized.buffer);
+
+    return {
+        url: buildPublicUrl(relativePath),
+        secure_url: buildPublicUrl(relativePath),
+        public_id: relativePath,
+        path: relativePath,
+        filename,
+        mimeType: optimized.mimeType,
+        mediaType: 'image',
+        size: optimized.buffer.length
+    };
+};
+
+export const saveImageBuffer = async (buffer, folder, options = {}) => {
+    return saveImageFile(
+        {
             buffer,
-            folder,
-            replaceUrl: options.replaceUrl,
-            originalName: originalName || 'upload.bin',
-            mimeType: options.mimeType || 'application/octet-stream'
-        });
+            mimetype: options.mimeType || 'image/jpeg',
+            originalname: options.originalname || 'upload.jpg'
+        },
+        folder
+    );
+};
+
+export const deleteStoredFile = async (relativePath) => {
+    const safePath = String(relativePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!safePath) return false;
+
+    const absolutePath = getAbsolutePath(safePath);
+    try {
+        await fs.unlink(absolutePath);
+        return true;
+    } catch (error) {
+        if (error?.code === 'ENOENT') return false;
+        throw error;
+    }
+};
+
+const inferMimeFromUrl = (url) => {
+    const ext = path.extname(new URL(url).pathname).toLowerCase();
+    const map = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.webp': 'image/webp',
+        '.gif': 'image/gif'
+    };
+    return map[ext] || 'image/jpeg';
+};
+
+export const isHostedUploadUrl = (url) => {
+    const normalized = String(url || '').trim();
+    if (!normalized) return false;
+    const base = String(config.uploadBaseUrl || '').replace(/\/+$/, '');
+    if (base && normalized.startsWith(base)) return true;
+    return /\/uploads\//i.test(normalized);
+};
+
+export const saveImageFromUrl = async (imageUrl, folder) => {
+    const url = String(imageUrl || '').trim();
+    if (!url) {
+        throw new ValidationError('Image URL is required');
     }
 
-    const rawExt = path.extname(String(originalName || '')).replace(/[^.A-Za-z0-9]/g, '') || '.bin';
-    const stored = await writeBufferToDisk(buffer, folder, rawExt.replace('.', ''));
-    if (options.replaceUrl) {
-        await deleteStoredAsset(options.replaceUrl);
-    }
-    return stored;
-};
+    const response = await axios.get(url, {
+        responseType: 'arraybuffer',
+        timeout: 30000,
+        maxContentLength: config.uploadMaxFileSizeBytes,
+        maxBodyLength: config.uploadMaxFileSizeBytes
+    });
 
-export const deleteStoredAsset = async (urlOrPublicId) => {
-    const url = extractAssetUrl(urlOrPublicId);
-    if (!url) return false;
-    if (usesRemoteStore()) {
-        try {
-            return await deleteRemoteAsset(url);
-        } catch (err) {
-            console.error('Failed to delete remote upload:', err.message);
-            return false;
-        }
-    }
-    return deleteFromDisk(url);
-};
+    const buffer = Buffer.from(response.data);
+    const mimeType = String(response.headers['content-type'] || inferMimeFromUrl(url)).split(';')[0].trim().toLowerCase();
 
-export const deleteStoredAssets = async (urls = []) => {
-    const list = extractAssetUrls(urls);
-    await Promise.all(list.map((url) => deleteStoredAsset(url)));
+    return saveImageBuffer(buffer, folder, {
+        mimeType,
+        originalname: path.basename(new URL(url).pathname) || 'remote.jpg'
+    });
 };
-
-/** Delete previous files that are no longer referenced after a successful replace. */
-export const deleteReplacedAssets = async (previous, next) => {
-    const prev = new Set(extractAssetUrls(previous));
-    const curr = new Set(extractAssetUrls(next));
-    const removed = [...prev].filter((url) => !curr.has(url));
-    if (!removed.length) return;
-    await deleteStoredAssets(removed);
-};
-
-export const uploadImageBuffer = async (buffer, folder = 'uploads', options = {}) => {
-    const result = await storeImageBuffer(buffer, folder, options);
-    return result.url || result.secure_url;
-};
-
-export { UPLOADS_ROOT };

@@ -1,27 +1,25 @@
 import { z } from 'zod';
-import mongoose from 'mongoose';
 import { ValidationError } from '../../../../core/auth/errors.js';
 
 const rangeSchema = z.object({
     min: z.number().min(0),
     max: z.number().min(0),
-    fee: z.number().min(0)
+    fee: z.number().min(0),
+    deliveryBoyPerKm: z.number().min(0).optional().default(0),
+    deliveryBoyBasePay: z.number().min(0).optional().default(0)
 });
 
 const feeSettingsUpsertSchema = z.object({
-    zoneId: z.string().min(1, 'zoneId is required'),
     deliveryFee: z.number().min(0).nullable().optional(),
     deliveryFeeRanges: z.array(rangeSchema).optional(),
-    freeDeliveryUpTo: z.number().min(0).nullable().optional(),
     platformFee: z.number().min(0).nullable().optional(),
-    packagingFee: z.number().min(0).nullable().optional(),
+    quickDeliveryFee: z.number().min(0).nullable().optional(),
     gstRate: z.number().min(0).max(100).nullable().optional(),
     isActive: z.boolean().optional()
 });
 
 export const validateFeeSettingsUpsertDto = (body) => {
     const normalized = {
-        zoneId: body?.zoneId != null ? String(body.zoneId).trim() : '',
         deliveryFee:
             body?.deliveryFee === null
                 ? null
@@ -32,19 +30,19 @@ export const validateFeeSettingsUpsertDto = (body) => {
             ? body.deliveryFeeRanges.map((r) => ({
                 min: Number(r?.min),
                 max: Number(r?.max),
-                fee: Number(r?.fee)
+                fee: Number(r?.fee),
+                deliveryBoyPerKm: Number(r?.deliveryBoyPerKm || 0),
+                deliveryBoyBasePay: Number(r?.deliveryBoyBasePay || 0)
             }))
             : undefined,
-        freeDeliveryUpTo:
-            body?.freeDeliveryUpTo === null
-                ? null
-                : body?.freeDeliveryUpTo !== undefined
-                    ? Number(body.freeDeliveryUpTo)
-                    : undefined,
         platformFee:
             body?.platformFee === null ? null : body?.platformFee !== undefined ? Number(body.platformFee) : undefined,
-        packagingFee:
-            body?.packagingFee === null ? null : body?.packagingFee !== undefined ? Number(body.packagingFee) : undefined,
+        quickDeliveryFee:
+            body?.quickDeliveryFee === null
+                ? null
+                : body?.quickDeliveryFee !== undefined
+                    ? Number(body.quickDeliveryFee)
+                    : undefined,
         gstRate:
             body?.gstRate === null ? null : body?.gstRate !== undefined ? Number(body.gstRate) : undefined,
         isActive: body?.isActive !== undefined ? Boolean(body.isActive) : undefined
@@ -53,9 +51,6 @@ export const validateFeeSettingsUpsertDto = (body) => {
     const result = feeSettingsUpsertSchema.safeParse(normalized);
     if (!result.success) {
         throw new ValidationError(result.error.errors[0].message);
-    }
-    if (!mongoose.Types.ObjectId.isValid(result.data.zoneId)) {
-        throw new ValidationError('Invalid zoneId');
     }
 
     // Validate ranges: min < max, non-overlapping after sorting
@@ -79,3 +74,4 @@ export const validateFeeSettingsUpsertDto = (body) => {
 
     return result.data;
 };
+

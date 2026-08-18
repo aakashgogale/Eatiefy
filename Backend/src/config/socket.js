@@ -1,14 +1,17 @@
 import { Server } from 'socket.io';
 import { config } from './env.js';
+import { isOriginAllowed } from './cors.js';
 import { logger } from '../utils/logger.js';
 import { verifyAccessToken } from '../core/auth/token.util.js';
 import { getFirebaseDB } from './firebase.js';
+
+import { canDeliveryPartnerUpdateOrderLocation } from './socketAuthz.js';
 
 let io = null;
 
 function logDeliverySocket(message, extra = {}) {
     const suffix = Object.keys(extra).length ? ` ${JSON.stringify(extra)}` : '';
-    // logger.info(`[DeliverySocket] ${message}${suffix}`);
+    logger.info(`[DeliverySocket] ${message}${suffix}`);
 }
 
 function getTokenFromHandshake(socket) {
@@ -44,7 +47,14 @@ const roomNames = {
 export const initSocket = async (server) => {
     io = new Server(server, {
         cors: {
-            origin: config.socketCorsOrigin,
+            origin: (origin, callback) => {
+                if (isOriginAllowed(origin)) {
+                    callback(null, true);
+                } else {
+                    callback(new Error('Not allowed by CORS'));
+                }
+            },
+            credentials: true,
             methods: ['GET', 'POST']
         }
     });
@@ -68,16 +78,16 @@ export const initSocket = async (server) => {
                 });
                 return next(new Error('AUTH_MISSING'));
             }
-            /* logger.info(`[DeliverySocket] Handshake token received`, {
+            logger.info(`[DeliverySocket] Handshake token received`, {
                 socketId: socket.id,
                 origin: socket?.handshake?.headers?.origin || null,
                 host: socket?.handshake?.headers?.host || null,
                 transport: socket?.handshake?.query?.transport || null,
                 tokenPreview: maskToken(token),
-            }); */
+            });
             const decoded = verifyAccessToken(token);
             socket.user = { userId: decoded.userId, role: decoded.role };
-            // logger.info(`Socket auth success: ${decoded.role}:${decoded.userId} for socket ${socket.id}`);
+            logger.info(`Socket auth success: ${decoded.role}:${decoded.userId} for socket ${socket.id}`);
             return next();
         } catch (err) {
             logger.error(`Socket auth failed for socket ${socket.id}: ${err.message}`);
@@ -106,6 +116,10 @@ export const initSocket = async (server) => {
             io.adapter(createAdapter(pubClient, subClient));
             logger.info('Socket.IO Redis adapter attached for horizontal scaling');
         } catch (err) {
+            if (config.nodeEnv === 'production') {
+                logger.error(`Socket.IO Redis adapter REQUIRED in production: ${err.message}`);
+                throw err;
+            }
             logger.warn(`Socket.IO Redis adapter skipped (using in-memory): ${err.message}`);
         }
     }
@@ -113,7 +127,8 @@ export const initSocket = async (server) => {
     io.on('connection', (socket) => {
         const userId = socket.user?.userId;
         const role = socket.user?.role;
-        // logger.info(`Socket client connected: ${socket.id} (${role || 'UNKNOWN'}:${userId || '-'})`);
+        logger.info(`Socket client connected: ${socket.id} (${role || 'UNKNOWN'}:${userId || '-'})`);
+        import('./metrics.js').then((m) => m.incrementSocketConnections(1)).catch(() => {});
 
         // Auto-join role rooms (lets us emit without a custom join).
         if (userId && role) {
@@ -121,7 +136,6 @@ export const initSocket = async (server) => {
             if (role === 'USER') socket.join(roomNames.user(userId));
             if (role === 'DELIVERY_PARTNER') {
                 socket.join(roomNames.delivery(userId));
-                socket.join('all_delivery'); // Global delivery broadcast room
                 logDeliverySocket('Auto-joined delivery room on connect', {
                     socketId: socket.id,
                     deliveryPartnerId: String(userId),
@@ -172,15 +186,47 @@ export const initSocket = async (server) => {
 
         // ─── Live Tracking Events ───────────────────────────────────────
 
-        // Users / restaurants subscribe to an order's real-time tracking room.
-        socket.on('join-tracking', (orderId) => {
+        // Users / restaurants / assigned delivery partner subscribe to an order's tracking room.
+        socket.on('join-tracking', async (orderId) => {
             if (!orderId) return;
             const role = socket.user?.role;
-            if (role !== 'USER' && role !== 'RESTAURANT' && role !== 'DELIVERY_PARTNER') return;
-            const room = roomNames.tracking(orderId);
-            socket.join(room);
-            // logger.info(`Socket ${socket.id} (${role}:${userId}) joined tracking room ${room}`);
-            socket.emit('tracking-room-joined', { room, orderId: String(orderId) });
+            const authedUserId = String(socket.user?.userId || '');
+            if (role !== 'USER' && role !== 'RESTAURANT' && role !== 'DELIVERY_PARTNER' && role !== 'ADMIN') {
+                socket.emit('tracking-room-error', { orderId: String(orderId), error: 'FORBIDDEN' });
+                return;
+            }
+
+            try {
+                const { FoodOrder } = await import('../modules/food/orders/models/order.model.js');
+                const order = await FoodOrder.findById(orderId)
+                    .select('userId restaurantId dispatch.deliveryPartnerId')
+                    .lean();
+                if (!order) {
+                    socket.emit('tracking-room-error', { orderId: String(orderId), error: 'NOT_FOUND' });
+                    return;
+                }
+
+                const allowed =
+                    role === 'ADMIN' ||
+                    (role === 'USER' && String(order.userId) === authedUserId) ||
+                    (role === 'RESTAURANT' && String(order.restaurantId) === authedUserId) ||
+                    (role === 'DELIVERY_PARTNER' &&
+                        String(order.dispatch?.deliveryPartnerId || '') === authedUserId);
+
+                if (!allowed) {
+                    logger.warn(`Socket ${socket.id} denied join-tracking for order ${orderId}`);
+                    socket.emit('tracking-room-error', { orderId: String(orderId), error: 'FORBIDDEN' });
+                    return;
+                }
+
+                const room = roomNames.tracking(orderId);
+                socket.join(room);
+                logger.info(`Socket ${socket.id} (${role}:${userId}) joined tracking room ${room}`);
+                socket.emit('tracking-room-joined', { room, orderId: String(orderId) });
+            } catch (err) {
+                logger.error(`join-tracking failed: ${err.message}`);
+                socket.emit('tracking-room-error', { orderId: String(orderId), error: 'INTERNAL' });
+            }
         });
 
         // Delivery partner emits live GPS location for an active order.
@@ -198,6 +244,31 @@ export const initSocket = async (server) => {
             const heading = Number.isFinite(Number(data.heading)) ? Number(data.heading) : 0;
             const speed = Number.isFinite(Number(data.speed)) ? Number(data.speed) : 0;
             const accuracy = Number.isFinite(Number(data.accuracy)) ? Number(data.accuracy) : null;
+
+            // Authorization: partner may only update location for their assigned order
+            try {
+                const { FoodOrder } = await import('../modules/food/orders/models/order.model.js');
+                const order = await FoodOrder.findById(data.orderId)
+                    .select('dispatch.deliveryPartnerId dispatch.status')
+                    .lean();
+                const allowed = canDeliveryPartnerUpdateOrderLocation({
+                    role: 'DELIVERY_PARTNER',
+                    partnerId: userId,
+                    orderDispatchPartnerId: order?.dispatch?.deliveryPartnerId,
+                    dispatchStatus: order?.dispatch?.status,
+                });
+                if (!allowed) {
+                    socket.emit('tracking-room-error', {
+                        orderId: String(data.orderId),
+                        error: 'FORBIDDEN',
+                        message: 'Not assigned to this order',
+                    });
+                    return;
+                }
+            } catch (err) {
+                logger.error(`update-location authz failed: ${err.message}`);
+                return;
+            }
 
             // Throttle: max one broadcast per 2s per orderId
             const now = Date.now();
@@ -312,13 +383,8 @@ export const initSocket = async (server) => {
         });
 
         socket.on('disconnect', () => {
-            // logger.info(`Socket client disconnected: ${socket.id}`);
-            if (role === 'DELIVERY_PARTNER') {
-                logDeliverySocket('Delivery socket disconnected', {
-                    socketId: socket.id,
-                    deliveryPartnerId: String(userId || ''),
-                });
-            }
+            import('./metrics.js').then((m) => m.incrementSocketConnections(-1)).catch(() => {});
+            logger.info(`Socket client disconnected: ${socket.id}`);
         });
 
         // 🆕 Resync State on Reconnect
@@ -332,12 +398,6 @@ export const initSocket = async (server) => {
             }
             const { resyncState } = await import('../modules/food/orders/services/order.service.js');
             const state = await resyncState(userId, role);
-            if (state.activeOrders?.length) {
-              socket.emit('active_orders', state.activeOrders);
-              if (state.capacity) {
-                socket.emit('delivery_capacity', state.capacity);
-              }
-            }
             if (state.activeOrder) {
               const eventName = role === 'USER' ? 'order_state' : 'active_order';
               socket.emit(eventName, state.activeOrder);
@@ -369,7 +429,6 @@ export const initSocket = async (server) => {
                 socketId: socket.id,
                 deliveryPartnerId: String(userId || ''),
                 hasActiveOrder: Boolean(state.activeOrder),
-                activeOrderCount: Array.isArray(state.activeOrders) ? state.activeOrders.length : 0,
               });
             }
           } catch (err) {

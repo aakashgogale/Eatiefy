@@ -86,7 +86,7 @@ const TESTIMONIALS = [
   {
     name: "Priya Sharma",
     image: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=200",
-    review: "Ometto completely changed how we dine out. Booking tables is seamless, and we never have to wait anymore!",
+    review: "Eatify completely changed how we dine out. Booking tables is seamless, and we never have to wait anymore!",
     rating: 5
   },
   {
@@ -98,7 +98,7 @@ const TESTIMONIALS = [
   {
     name: "Sneha Patel",
     image: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&q=80&w=200",
-    review: "Premium restaurants and amazing UI. Ometto feels incredibly polished and works flawlessly.",
+    review: "Premium restaurants and amazing UI. Eatify feels incredibly polished and works flawlessly.",
     rating: 5
   }
 ]
@@ -192,7 +192,7 @@ export default function MasterLandingPage() {
             transition={{ duration: 0.8, delay: 0.4, ease: "easeOut" }}
             className="text-lg md:text-2xl text-gray-100 mb-10 max-w-2xl mx-auto font-medium drop-shadow-md"
           >
-            Experience fast & easy online ordering <br className="hidden md:block" /> on the Ometto app
+            Experience fast & easy online ordering <br className="hidden md:block" /> on the Eatify app
           </motion.p>
 
           {/* App Store Buttons */}
@@ -203,7 +203,7 @@ export default function MasterLandingPage() {
             className="flex flex-col sm:flex-row items-center gap-4 justify-center relative z-30"
           >
             <a
-              href="https://play.google.com/store/apps/details?id=com.ometto.user"
+              href="https://play.google.com/store/apps/details?id=com.eatify.user"
               target="_blank"
               rel="noopener noreferrer"
               style={{ cursor: 'pointer' }}
@@ -216,7 +216,7 @@ export default function MasterLandingPage() {
               </div>
             </a>
             <a
-              href="https://apps.apple.com/in/app/ometto-food-delivery-takeaway/id6746978568"
+              href="https://apps.apple.com/in/app/eatify-food-delivery-takeaway/id6746978568"
               target="_blank"
               rel="noopener noreferrer"
               style={{ cursor: 'pointer' }}
@@ -429,7 +429,7 @@ export default function MasterLandingPage() {
         </div>
       </section>
 
-      {/* 4. How Ometto Works */}
+      {/* 4. How Eatify Works */}
       <section className="py-24 px-6 bg-[#111] relative overflow-hidden">
         <div className="max-w-7xl mx-auto relative z-10">
           <div className="text-center mb-20">
@@ -483,7 +483,7 @@ export default function MasterLandingPage() {
 
 
 
-      {/* 6. Ometto Experience */}
+      {/* 6. Eatify Experience */}
       <section className="py-24 px-6 bg-white">
         <div className="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-16">
           <motion.div
@@ -588,7 +588,7 @@ export default function MasterLandingPage() {
 
               <div className="flex flex-col sm:flex-row items-center gap-4 justify-center md:justify-start relative z-30">
                 <a
-                  href="https://play.google.com/store/apps/details?id=com.ometto.user"
+                  href="https://play.google.com/store/apps/details?id=com.eatify.user"
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ cursor: 'pointer' }}
@@ -603,7 +603,7 @@ export default function MasterLandingPage() {
                   </div>
                 </a>
                 <a
-                  href="https://apps.apple.com/in/app/ometto-food-delivery-takeaway/id6746978568"
+                  href="https://apps.apple.com/in/app/eatify-food-delivery-takeaway/id6746978568"
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ cursor: 'pointer' }}
@@ -687,14 +687,14 @@ export default function MasterLandingPage() {
             {/* Brand */}
             <div>
               <div className="flex items-center gap-2 mb-6">
-                <img src="/assets/images/ometto_logo_admin.png" alt="Ometto" className="h-14 w-auto object-contain" />
+                <img src="/assets/images/eatify_logo_admin.png" alt="Eatify" className="h-14 w-auto object-contain" />
               </div>
               <p className="text-gray-400 text-sm mb-6 leading-relaxed">
                 India's smartest dining and takeaway platform. Skip the lines, discover new tastes, and dine better.
               </p>
               <div className="flex gap-4 relative z-30">
                 <a
-                  href="https://play.google.com/store/apps/details?id=com.ometto.user"
+                  href="https://play.google.com/store/apps/details?id=com.eatify.user"
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ cursor: 'pointer' }}
@@ -704,7 +704,7 @@ export default function MasterLandingPage() {
                   <img src="/assets/images/playstore_img-removebg-preview.webp" alt="Google Play" className="w-5 h-5 object-contain opacity-70 group-hover:opacity-100 transition-all pointer-events-none" />
                 </a>
                 <a
-                  href="https://apps.apple.com/in/app/ometto-food-delivery-takeaway/id6746978568"
+                  href="https://apps.apple.com/in/app/eatify-food-delivery-takeaway/id6746978568"
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ cursor: 'pointer' }}
@@ -744,7 +744,7 @@ export default function MasterLandingPage() {
                   <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-white shrink-0">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                   </div>
-                  <span>support@ometto.in</span>
+                  <span>support@eatify.in</span>
                 </li>
                 <li className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-white shrink-0">
@@ -758,7 +758,7 @@ export default function MasterLandingPage() {
 
           <div className="border-t border-white/10 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
             <p className="text-gray-500 text-sm">
-              &copy; {new Date().getFullYear()} Ometto Technologies. All rights reserved.
+              &copy; {new Date().getFullYear()} Eatify Technologies. All rights reserved.
             </p>
             <div className="flex gap-4 text-sm text-gray-500">
               <span>Made with ❤️ in India</span>

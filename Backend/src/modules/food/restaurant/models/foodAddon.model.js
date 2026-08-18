@@ -4,6 +4,7 @@ const addonPayloadSchema = new mongoose.Schema(
     {
         name: { type: String, required: true, trim: true },
         description: { type: String, trim: true, default: '' },
+        foodType: { type: String, enum: ['veg', 'non-veg'], default: 'veg' },
         price: { type: Number, required: true, min: 0 },
         image: { type: String, trim: true, default: '' },
         images: { type: [String], default: [] }
@@ -46,4 +47,3 @@ foodAddonSchema.index({ approvalStatus: 1, isDeleted: 1, requestedAt: -1 });
 foodAddonSchema.index({ restaurantId: 1, approvalStatus: 1, isDeleted: 1, requestedAt: -1 });
 
 export const FoodAddon = mongoose.model('FoodAddon', foodAddonSchema);
-

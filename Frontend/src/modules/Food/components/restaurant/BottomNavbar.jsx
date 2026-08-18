@@ -6,8 +6,8 @@ export default function BottomNavbar({ onMenuClick }) {
   const location = useLocation()
 
   const isActive = (path) => {
-    if (path === "/food/restaurant") {
-      return location.pathname === "/food/restaurant"
+    if (path === "/restaurant") {
+      return location.pathname === "/restaurant"
     }
     return location.pathname.startsWith(path)
   }
@@ -16,45 +16,49 @@ export default function BottomNavbar({ onMenuClick }) {
     <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-50">
       <div className="flex items-center justify-around py-2 px-4">
         <button
-          onClick={() => navigate("/food/restaurant")}
+          type="button"
+          onClick={() => navigate("/restaurant")}
           className={`flex flex-col items-center gap-1 p-2 transition-colors ${
-            isActive("/food/restaurant") ? "text-[#B80B3D]" : "text-gray-600"
+            isActive("/restaurant") ? "text-[#ff8100]" : "text-gray-600"
           }`}
         >
           <Home className="w-6 h-6" />
         </button>
         <button
-          onClick={() => navigate("/food/restaurant/orders")}
+          type="button"
+          onClick={() => navigate("/restaurant/orders")}
           className={`flex flex-col items-center gap-1 p-2 transition-colors ${
-            isActive("/food/restaurant/orders") ? "text-[#B80B3D]" : "text-gray-600"
+            isActive("/restaurant/orders") ? "text-[#ff8100]" : "text-gray-600"
           }`}
         >
           <ShoppingBag className="w-6 h-6" />
         </button>
         <button
-          onClick={() => navigate("/food/restaurant/explore")}
+          type="button"
+          onClick={() => navigate("/restaurant/details")}
           className={`flex flex-col items-center gap-1 p-2 -mt-8 transition-colors ${
-            isActive("/food/restaurant/explore") ? "text-[#B80B3D]" : "text-gray-600"
+            isActive("/restaurant/details") ? "text-[#ff8100]" : "text-gray-600"
           }`}
         >
           <div
             className={`rounded-full p-3 shadow-lg border-2 transition-colors ${
-              isActive("/food/restaurant/explore")
-                ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] border-white"
+              isActive("/restaurant/details")
+                ? "bg-[#ff8100] border-white"
                 : "bg-white border-gray-200"
             }`}
           >
             <Store
               className={`w-6 h-6 ${
-                isActive("/food/restaurant/explore") ? "text-white" : "text-gray-600"
+                isActive("/restaurant/details") ? "text-white" : "text-gray-600"
               }`}
             />
           </div>
         </button>
         <button
-          onClick={() => navigate("/food/restaurant/wallet")}
+          type="button"
+          onClick={() => navigate("/restaurant/wallet")}
           className={`flex flex-col items-center gap-1 p-2 transition-colors ${
-            isActive("/food/restaurant/wallet") ? "text-[#B80B3D]" : "text-gray-600"
+            isActive("/restaurant/wallet") ? "text-[#ff8100]" : "text-gray-600"
           }`}
         >
           <Wallet className="w-6 h-6" />
@@ -70,10 +74,10 @@ export default function BottomNavbar({ onMenuClick }) {
               return
             }
             // Fallback: only navigate if onMenuClick is not provided
-            navigate("/food/restaurant/food/all")
+            navigate("/restaurant/food/all")
           }}
           className={`flex flex-col items-center gap-1 p-2 transition-colors ${
-            isActive("/food/restaurant/food/all") ? "text-[#B80B3D]" : "text-gray-600"
+            isActive("/restaurant/food/all") ? "text-[#ff8100]" : "text-gray-600"
           }`}
         >
           <Menu className="w-6 h-6" />
@@ -82,11 +86,3 @@ export default function BottomNavbar({ onMenuClick }) {
     </div>
   )
 }
-
-
-
-
-
-
-
-

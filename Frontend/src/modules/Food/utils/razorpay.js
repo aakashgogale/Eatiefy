@@ -3,45 +3,85 @@
  * Handles Razorpay payment initialization and verification
  */
 
+import { getCompanyName, getModuleLogoUrl, getModulePowerScanning } from "./businessSettings";
+
 let razorpayLoaded = false;
+
+const isLikelyWebView = () => {
+  if (typeof window === "undefined") return false;
+  const ua = window.navigator?.userAgent || "";
+  return (
+    /\bwv\b/i.test(ua) ||
+    /WebView/i.test(ua) ||
+    /; wv\)/i.test(ua) ||
+    /Version\/[\d.]+.*Chrome\/[\d.]+ Mobile/i.test(ua)
+  );
+};
+
+const getActiveModule = () => {
+  if (typeof window === "undefined") return "user";
+  const path = window.location.pathname;
+  if (path.includes("/restaurant")) return "restaurant";
+  if (path.includes("/delivery")) return "delivery";
+  return "user";
+};
+
+const getSquareLogoUrl = (url) => {
+  if (!url) return url;
+  // If it's a Cloudinary URL, we can inject c_fill,g_center,w_200,h_200 to crop it to a perfect square!
+  if (/res\.cloudinary\.com/i.test(url)) {
+    if (url.includes('/image/upload/')) {
+      return url.replace(/\/image\/upload\/(v\d+\/)?/i, (match) => {
+        return match.includes('/v') 
+          ? match.replace('/v', '/c_fill,g_center,w_200,h_200,f_auto,q_auto/v')
+          : match + 'c_fill,g_center,w_200,h_200,f_auto,q_auto/';
+      });
+    }
+  }
+  return url;
+};
 
 /**
  * Load Razorpay checkout script
  */
 export const loadRazorpayScript = () => {
   return new Promise((resolve, reject) => {
-    if (razorpayLoaded) {
+    if (razorpayLoaded || window.Razorpay) {
+      razorpayLoaded = true;
       resolve();
       return;
     }
-
-    if (window.Razorpay) {
-      razorpayLoaded = true;
-      resolve();
+    
+    // Check if script is already added but not yet loaded
+    const existing = document.querySelector('script[src*="razorpay"]');
+    if (existing) {
+      existing.onload = () => {
+        razorpayLoaded = true;
+        resolve();
+      };
+      existing.onerror = () => reject(new Error('Failed to load Razorpay script'));
       return;
     }
 
     const script = document.createElement('script');
     script.src = 'https://checkout.razorpay.com/v1/checkout.js';
     script.async = true;
+    
+    // Add timeout to prevent freeze
+    const timeout = setTimeout(() => {
+      reject(new Error('Razorpay script load timeout'));
+    }, 15000);
+
     script.onload = () => {
+      clearTimeout(timeout);
       razorpayLoaded = true;
       resolve();
     };
     script.onerror = () => {
+      clearTimeout(timeout);
       reject(new Error('Failed to load Razorpay script'));
     };
     document.body.appendChild(script);
-  });
-};
-
-/**
- * Preload the Razorpay SDK in the background (call early, e.g. on cart mount)
- * so that when the user clicks "Place Order", the script is already ready.
- */
-export const preloadRazorpayScript = () => {
-  loadRazorpayScript().catch(() => {
-    // Silently ignore — will retry when payment is initiated
   });
 };
 
@@ -60,7 +100,7 @@ export const preloadRazorpayScript = () => {
  * @param {Object} options.notes - Additional notes
  * @param {Function} options.handler - Success callback
  * @param {Function} options.onError - Error callback
- * @param {Function} options.onClose - Close/cancel callback
+ * @param {Function} options.onClose - Close callback
  */
 export const initRazorpayPayment = async (options) => {
   try {
@@ -71,101 +111,107 @@ export const initRazorpayPayment = async (options) => {
       throw new Error('Razorpay SDK not available');
     }
 
-    let paymentCompleted = false;
-    let closeFired = false;
-
-    // Fire the onClose callback exactly once
-    const fireClose = () => {
-      if (!paymentCompleted && !closeFired) {
-        closeFired = true;
-        if (options.onClose) {
-          options.onClose();
-        }
+    const webViewMode = isLikelyWebView();
+    let restoreWindowOpen = null;
+    const restoreIfNeeded = () => {
+      if (typeof restoreWindowOpen === "function") {
+        restoreWindowOpen();
+        restoreWindowOpen = null;
       }
     };
 
-    // -------------------------------------------------------------------------
-    // visibilitychange listener:
-    // When the user leaves the app for a UPI app (PhonePe / GPay), the page
-    // becomes hidden. When they return (cancel or back in UPI app), the page
-    // becomes visible again. If payment wasn't confirmed, fire onClose so the
-    // user is automatically returned to the cart.
-    // -------------------------------------------------------------------------
-    let leftForUpiApp = false;
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        // Page went to background — user probably went to a UPI app
-        leftForUpiApp = true;
-      } else if (leftForUpiApp) {
-        // App came back to foreground — wait briefly for Razorpay success callback
-        leftForUpiApp = false;
-        setTimeout(() => {
-          // If the success handler wasn't called, the user cancelled in UPI app
-          if (!paymentCompleted) {
-            fireClose();
-          }
-        }, 1500);
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    const activeModule = getActiveModule();
+    const brandName = getCompanyName() || 'Eatiefy';
+    const brandLogoRaw = getModuleLogoUrl(activeModule) || `${window.location.origin}/user-app-logo.webp`;
+    const brandLogo = getSquareLogoUrl(brandLogoRaw);
+    const brandColor = getModulePowerScanning(activeModule)?.themeColor || '#618E17';
 
     const razorpayOptions = {
       key: options.key,
       amount: options.amount,
       currency: options.currency || 'INR',
       order_id: options.order_id,
-      name: options.name || 'Appzeto Food',
+      name: options.name || brandName,
       description: options.description || 'Order Payment',
-      image: options.image || '/assets/images/logo.png',
-      prefill: {
-        name: options.prefill?.name || '',
-        email: options.prefill?.email || '',
-        contact: options.prefill?.contact || ''
-      },
+      image: options.image || brandLogo,
+      prefill: options.prefill || {},
       notes: options.notes || {},
       theme: {
-        color: '#E23744'
+        color: options.theme?.color || brandColor
       },
       handler: function(response) {
-        paymentCompleted = true;
-        closeFired = true; // Prevent onClose from also firing after success
-        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        restoreIfNeeded();
         if (options.handler) {
           options.handler(response);
         }
       },
       modal: {
         ondismiss: function() {
-          document.removeEventListener('visibilitychange', handleVisibilityChange);
-          fireClose();
+          restoreIfNeeded();
+          if (options.onClose) {
+            options.onClose();
+          }
         },
         escape: true,
         animation: true,
-        // Handle Android back button — dismiss modal instead of staying stuck
-        handleback: true,
+        ...options.modal
       },
-      // Disable auto-retry — user should NOT need to cancel twice
       retry: {
-        enabled: false,
-      },
+        enabled: true,
+        max_count: 3,
+        ...options.retry
+      }
     };
 
     const razorpay = new window.Razorpay(razorpayOptions);
-
+    
     // Handle payment failures
     razorpay.on('payment.failed', function(response) {
+      restoreIfNeeded();
       console.error('Razorpay payment failed:', response);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (options.onError) {
         options.onError(response.error || { description: 'Payment failed. Please try again.' });
       }
     });
 
+    // Handle payment method selection failures
+    razorpay.on('payment.method_selection_failed', function(response) {
+      restoreIfNeeded();
+      console.error('Razorpay payment method selection failed:', response);
+      if (options.onError) {
+        options.onError(response.error || { description: 'Please select another payment method.' });
+      }
+    });
+
+    // Flutter/embedded WebViews often block popup windows used during netbanking.
+    // Route popup attempts to same tab so bank auth can continue instead of blank white screen.
+    if (webViewMode && typeof window.open === "function") {
+      const nativeWindowOpen = window.open.bind(window);
+      window.open = (url, target, features) => {
+        try {
+          if (url) {
+            window.location.assign(url);
+            return window;
+          }
+        } catch (err) {
+          console.warn("WebView window.open fallback failed, using native open", err);
+        }
+        return nativeWindowOpen(url, target, features);
+      };
+      restoreWindowOpen = () => {
+        window.open = nativeWindowOpen;
+      };
+    }
+
     // Open Razorpay modal
     razorpay.open();
-
+    
     console.log('✅ Razorpay checkout opened successfully');
+    console.log('Razorpay options:', {
+      key: razorpayOptions.key ? 'Present' : 'Missing',
+      amount: razorpayOptions.amount,
+      order_id: razorpayOptions.order_id
+    });
 
     return razorpay;
   } catch (error) {

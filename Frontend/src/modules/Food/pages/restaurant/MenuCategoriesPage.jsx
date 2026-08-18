@@ -32,8 +32,9 @@ const defaultFormData = {
 
 const approvalBadgeClass = (status) => {
   const value = String(status || "pending").toLowerCase()
-  if (value === "approved") return "bg-emerald-50 text-emerald-700 border-emerald-200"
+  if (value === "approved") return "border-[color:rgba(var(--module-theme-rgb,37,99,235),0.35)] bg-[rgba(var(--module-theme-rgb,37,99,235),0.10)] text-[color:var(--module-theme-color,#2563EB)]"
   if (value === "rejected") return "bg-rose-50 text-rose-700 border-rose-200"
+  if (value === "deactivated") return "bg-slate-100 text-slate-700 border-slate-200"
   return "bg-amber-50 text-amber-700 border-amber-200"
 }
 
@@ -49,7 +50,6 @@ export default function MenuCategoriesPage() {
   const goBack = useRestaurantBackNavigation()
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
-  const [isPureVegRestaurant, setIsPureVegRestaurant] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [editingCategory, setEditingCategory] = useState(null)
   const [formData, setFormData] = useState(defaultFormData)
@@ -57,6 +57,7 @@ export default function MenuCategoriesPage() {
   const [imagePreview, setImagePreview] = useState(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [isPhotoPickerOpen, setIsPhotoPickerOpen] = useState(false)
+  const [isPureVegRestaurant, setIsPureVegRestaurant] = useState(false)
   const fileInputRef = useRef(null)
 
   useEffect(() => {
@@ -64,27 +65,35 @@ export default function MenuCategoriesPage() {
   }, [])
 
   useEffect(() => {
-    const fetchRestaurantDietType = async () => {
+    const fetchRestaurantType = async () => {
       try {
         const response = await restaurantAPI.getCurrentRestaurant()
-        const profile =
-          response?.data?.data?.restaurant ||
-          response?.data?.restaurant ||
-          response?.data?.data ||
-          null
-        const pureVeg = profile?.pureVegRestaurant === true
-        setIsPureVegRestaurant(pureVeg)
-        if (pureVeg) {
-          setFormData((prev) =>
-            prev.foodTypeScope === "Veg" ? prev : { ...prev, foodTypeScope: "Veg" },
-          )
-        }
+        const data = response?.data?.data?.restaurant || response?.data?.restaurant
+        setIsPureVegRestaurant(data?.pureVegRestaurant === true)
       } catch {
-        /* ignore — keep full diet options */
+        setIsPureVegRestaurant(false)
       }
     }
-    fetchRestaurantDietType()
+    fetchRestaurantType()
   }, [])
+
+  useEffect(() => {
+    if (isPureVegRestaurant && formData.foodTypeScope !== "Veg") {
+      setFormData((prev) => ({ ...prev, foodTypeScope: "Veg" }))
+    }
+  }, [isPureVegRestaurant, formData.foodTypeScope])
+
+  // Prevent background scroll when modal is open
+  useEffect(() => {
+    if (showModal || isPhotoPickerOpen) {
+      document.body.style.overflow = "hidden"
+    } else {
+      document.body.style.overflow = "unset"
+    }
+    return () => {
+      document.body.style.overflow = "unset"
+    }
+  }, [showModal, isPhotoPickerOpen])
 
   useEffect(() => {
     const draftCategoryName = String(location.state?.draftCategoryName || "").trim()
@@ -128,10 +137,7 @@ export default function MenuCategoriesPage() {
 
   const openCreateModal = () => {
     setEditingCategory(null)
-    setFormData({
-      ...defaultFormData,
-      foodTypeScope: isPureVegRestaurant ? "Veg" : defaultFormData.foodTypeScope,
-    })
+    setFormData((prev) => ({ ...defaultFormData, foodTypeScope: isPureVegRestaurant ? "Veg" : defaultFormData.foodTypeScope }))
     setSelectedImageFile(null)
     setImagePreview(null)
     setShowModal(true)
@@ -143,14 +149,13 @@ export default function MenuCategoriesPage() {
       return
     }
     setEditingCategory(category)
-    const scope = category?.foodTypeScope || "Veg"
     setFormData({
       name: category?.name || "",
       type: category?.type || "",
       image: category?.image || "",
       isActive: category?.isActive !== false,
       sortOrder: Number.isFinite(Number(category?.sortOrder)) ? Number(category.sortOrder) : 0,
-      foodTypeScope: isPureVegRestaurant ? "Veg" : scope,
+      foodTypeScope: isPureVegRestaurant ? "Veg" : (category?.foodTypeScope || "Veg"),
     })
     setSelectedImageFile(null)
     setImagePreview(category?.image || null)
@@ -172,7 +177,11 @@ export default function MenuCategoriesPage() {
   }
 
   const handleImageClick = () => {
-    setIsPhotoPickerOpen(true)
+    if (isFlutterBridgeAvailable()) {
+      setIsPhotoPickerOpen(true)
+    } else {
+      fileInputRef.current?.click()
+    }
   }
 
   const handleSaveCategory = async () => {
@@ -242,29 +251,175 @@ export default function MenuCategoriesPage() {
       await restaurantAPI.updateCategory(category._id || category.id, {
         isActive: !(category?.isActive !== false),
       })
-      toast.success("Category updated and sent for admin approval")
+      toast.success(
+        category?.isActive !== false
+          ? "Category deactivated"
+          : "Category activated"
+      )
       fetchCategories()
     } catch (error) {
       toast.error(error?.response?.data?.message || "Failed to update category")
     }
   }
 
+  const categoryModalHeader = (
+    <div className="mb-4 flex items-center justify-between">
+      <div>
+        <h2 className="text-lg font-bold text-slate-900">
+          {editingCategory ? "Edit Category" : "Create Category"}
+        </h2>
+        <p className="text-xs text-slate-500 md:text-sm">
+          {editingCategory
+            ? "Any edit sends this category back for admin approval."
+            : "Choose the diet scope carefully before sending it for approval."}
+        </p>
+      </div>
+      <button type="button" onClick={resetModal} className="rounded-full p-1 hover:bg-slate-100">
+        <X className="h-5 w-5 text-slate-600" />
+      </button>
+    </div>
+  )
+
+  const categoryFormFields = (
+    <div className="space-y-4">
+      <div>
+        <label className="mb-2 block text-sm font-medium text-slate-700">Category Name</label>
+        <input
+          type="text"
+          value={formData.name}
+          onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+          placeholder="Enter category name"
+          className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900"
+        />
+      </div>
+
+      <div>
+        <label className="mb-2 block text-sm font-medium text-slate-700">Diet Scope</label>
+        <select
+          value={formData.foodTypeScope}
+          onChange={(e) => setFormData((prev) => ({ ...prev, foodTypeScope: e.target.value }))}
+          className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900"
+          disabled={isPureVegRestaurant}
+        >
+          <option value="Veg">Veg</option>
+          {!isPureVegRestaurant && <option value="Non-Veg">Non-Veg</option>}
+          {!isPureVegRestaurant && <option value="Both">Both</option>}
+        </select>
+        {isPureVegRestaurant && (
+          <p className="mt-1 text-xs text-emerald-700">
+            Pure veg restaurant: category scope is locked to Veg.
+          </p>
+        )}
+      </div>
+
+      <div>
+        <label className="mb-2 block text-sm font-medium text-slate-700">Optional Type Label</label>
+        <input
+          type="text"
+          value={formData.type}
+          onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value }))}
+          placeholder="Examples: Starters, Desserts, Drinks"
+          className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900"
+        />
+      </div>
+
+      <div className="flex items-center gap-3 flex-wrap">
+        {(imagePreview || formData.image) && (
+          <img
+            src={imagePreview || formData.image}
+            alt="Category preview"
+            className="h-16 w-16 rounded-2xl object-cover"
+           loading="lazy" decoding="async" />
+        )}
+        <button
+          type="button"
+          onClick={handleImageClick}
+          className="flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700"
+        >
+          <Upload className="h-4 w-4" />
+          Upload Image
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          accept="image/*"
+          onChange={(e) => handleImageFileChange(e.target.files?.[0])}
+        />
+      </div>
+
+      <label className="flex items-center gap-2 text-sm text-slate-700">
+        <input
+          type="checkbox"
+          checked={formData.isActive}
+          onChange={() => setFormData((prev) => ({ ...prev, isActive: !prev.isActive }))}
+        />
+        Keep category active
+      </label>
+    </div>
+  )
+
+  const categoryFormActions = (
+    <div className="mt-6 flex gap-3">
+      <button
+        type="button"
+        onClick={resetModal}
+        className="flex-1 rounded-xl border border-slate-300 py-3 font-medium text-slate-700"
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        onClick={handleSaveCategory}
+        disabled={uploadingImage}
+        className="flex-1 rounded-xl py-3 font-medium text-white disabled:opacity-60"
+        style={{
+          background:
+            "linear-gradient(135deg, rgba(var(--module-theme-rgb,37,99,235),0.9), var(--module-theme-color,#2563EB))",
+        }}
+      >
+        {uploadingImage ? "Uploading..." : editingCategory ? "Save & Resubmit" : "Create"}
+      </button>
+    </div>
+  )
+
   return (
-    <div className="min-h-screen bg-slate-50 pb-24">
+    <div className="min-h-screen bg-slate-50 pb-24 md:pb-8 md:h-full md:overflow-y-auto">
       <div className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="px-4 py-3 flex items-center gap-3">
-          <button onClick={goBack} className="rounded-full p-1 hover:bg-slate-100">
+        <div className="px-4 py-3 flex items-center gap-3 md:px-8 md:py-5">
+          <button
+            type="button"
+            onClick={goBack}
+            className="rounded-full p-1 hover:bg-slate-100 md:hidden"
+          >
             <ArrowLeft className="h-5 w-5 text-slate-700" />
           </button>
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">Menu Categories</h1>
-            <p className="text-xs text-slate-500">Create categories, track approvals, and resubmit edits safely.</p>
+          <div className="flex-1 md:flex md:items-center md:justify-between md:gap-4">
+            <div>
+              <h1 className="text-xl font-bold text-slate-900 md:text-2xl">Menu Categories</h1>
+              <p className="text-xs text-slate-500 md:text-sm md:mt-1">
+                Create categories, track approvals, and resubmit edits safely.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={openCreateModal}
+              className="hidden md:flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 shrink-0"
+              style={{
+                background:
+                  "linear-gradient(135deg, rgba(var(--module-theme-rgb,37,99,235),0.9), var(--module-theme-color,#2563EB))",
+                boxShadow: "0 10px 22px rgba(var(--module-theme-rgb,37,99,235),0.28)",
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              Add Category
+            </button>
           </div>
         </div>
       </div>
 
-      <div className="p-4 space-y-4">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="p-4 space-y-4 md:px-8 md:py-6 md:space-y-6">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 md:p-5">
           <p className="text-sm font-semibold text-slate-900">How this works</p>
           <p className="mt-2 text-sm text-slate-600">
             New categories stay pending until admin approval. Editing an approved category sends it back for review.
@@ -273,31 +428,37 @@ export default function MenuCategoriesPage() {
         </div>
 
         <button
+          type="button"
           onClick={openCreateModal}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-[#B80B3D] to-[#66001D] px-4 py-3 font-semibold text-white"
+          className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 font-semibold text-white md:hidden"
+          style={{
+            background:
+              "linear-gradient(135deg, rgba(var(--module-theme-rgb,37,99,235),0.9), var(--module-theme-color,#2563EB))",
+            boxShadow: "0 10px 22px rgba(var(--module-theme-rgb,37,99,235),0.28)",
+          }}
         >
           <Plus className="h-5 w-5" />
           Add Category
         </button>
 
         {loading ? (
-          <div className="flex items-center justify-center py-12">
+          <div className="flex items-center justify-center py-12 md:py-20">
             <Loader2 className="h-6 w-6 animate-spin text-slate-500" />
           </div>
         ) : ownCategories.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center md:py-16">
             <p className="text-lg font-semibold text-slate-900">No restaurant categories yet</p>
             <p className="mt-2 text-sm text-slate-500">
-              Start with a category
-              {isPureVegRestaurant
-                ? " for your pure veg menu."
-                : " and choose whether it should accept veg, non-veg, or both kinds of dishes."}
+              Start with a category and choose diet scope for dishes.
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3 md:grid md:grid-cols-2 md:gap-4 md:space-y-0">
             {ownCategories.map((category) => {
-              const status = category?.approvalStatus || "pending"
+              const status =
+                category?.isActive === false
+                  ? "deactivated"
+                  : category?.approvalStatus || "pending"
               const isEditable = category?.canEdit
               const isGlobal = category?.isGlobal
 
@@ -305,76 +466,112 @@ export default function MenuCategoriesPage() {
                 <motion.div
                   key={category._id || category.id}
                   layout
-                  className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                  className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5"
                 >
-                  <div className="flex gap-3">
-                    <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-slate-100">
-                      {category?.image ? (
-                        <img src={category.image} alt={category.name} className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-lg font-bold text-slate-500">
-                          {String(category?.name || "C").slice(0, 1).toUpperCase()}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-base font-semibold text-slate-900">{category.name}</h3>
-                        <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${approvalBadgeClass(status)}`}>
-                          {status === "approved" ? <BadgeCheck className="mr-1 h-3.5 w-3.5" /> : <Clock3 className="mr-1 h-3.5 w-3.5" />}
-                          {status.charAt(0).toUpperCase() + status.slice(1)}
-                        </span>
-                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${scopePillClass(category?.foodTypeScope)}`}>
-                          {category?.foodTypeScope || "Both"}
-                        </span>
-                        {isGlobal && (
-                          <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
-                            <Globe className="mr-1 h-3.5 w-3.5" />
-                            Global
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="mt-2 space-y-1 text-sm text-slate-500">
-                        <p>{category?.itemCount || 0} item(s) linked</p>
-                        {isGlobal ? (
-                          <p>Admin controls this category now, so you can use it but not rename or delete it.</p>
-                        ) : status === "approved" ? (
-                          <p>Editing this category will send it back for admin approval.</p>
+                  <div className="flex gap-3 md:items-start md:justify-between">
+                    <div className="flex min-w-0 flex-1 gap-3">
+                      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-slate-100 md:h-14 md:w-14">
+                        {category?.image ? (
+                          <img
+                            src={category.image}
+                            alt={category.name}
+                            className="h-full w-full object-cover"
+                           loading="lazy" decoding="async" />
                         ) : (
-                          <p>Foods can be added only after approval.</p>
-                        )}
-                        {status === "rejected" && category?.rejectionReason && (
-                          <p className="text-rose-600">Reason: {category.rejectionReason}</p>
+                          <div className="flex h-full w-full items-center justify-center text-lg font-bold text-slate-500">
+                            {String(category?.name || "C").slice(0, 1).toUpperCase()}
+                          </div>
                         )}
                       </div>
-                    </div>
-                  </div>
 
-                  <div className="mt-4 flex items-center gap-2">
-                    <button
-                      onClick={() => handleToggleActive(category)}
-                      className="rounded-xl bg-slate-100 p-2 text-slate-700 disabled:opacity-50"
-                      disabled={!isEditable}
-                      title={category?.isActive !== false ? "Deactivate" : "Activate"}
-                    >
-                      {category?.isActive !== false ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-                    </button>
-                    <button
-                      onClick={() => openEditModal(category)}
-                      className="rounded-xl bg-blue-50 p-2 text-blue-700 disabled:opacity-50"
-                      disabled={!isEditable}
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteCategory(category)}
-                      className="rounded-xl bg-rose-50 p-2 text-rose-700 disabled:opacity-50"
-                      disabled={!category?.canDelete}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-base font-semibold text-slate-900">{category.name}</h3>
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${approvalBadgeClass(status)}`}
+                          >
+                            {status === "approved" ? (
+                              <BadgeCheck className="mr-1 h-3.5 w-3.5" />
+                            ) : status === "deactivated" ? (
+                              <EyeOff className="mr-1 h-3.5 w-3.5" />
+                            ) : (
+                              <Clock3 className="mr-1 h-3.5 w-3.5" />
+                            )}
+                            {status.charAt(0).toUpperCase() + status.slice(1)}
+                          </span>
+                          <span
+                            className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${scopePillClass(category?.foodTypeScope)}`}
+                          >
+                            {category?.foodTypeScope || "Both"}
+                          </span>
+                          {isGlobal && (
+                            <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
+                              <Globe className="mr-1 h-3.5 w-3.5" />
+                              Global
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="mt-2 space-y-1 text-sm text-slate-500">
+                          <p>{category?.itemCount || 0} item(s) linked</p>
+                          <p>
+                            Display order:{" "}
+                            {Number.isFinite(Number(category?.sortOrder))
+                              ? Number(category.sortOrder)
+                              : 0}
+                          </p>
+                          {isGlobal ? (
+                            <p>
+                              Admin controls this category now, so you can use it but not rename or
+                              delete it.
+                            </p>
+                          ) : status === "approved" ? (
+                            <p>Editing this category will send it back for admin approval.</p>
+                          ) : (
+                            <p>Foods can be added only after approval.</p>
+                          )}
+                          {status === "rejected" && category?.rejectionReason && (
+                            <p className="text-rose-600">Reason: {category.rejectionReason}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex items-center gap-2 md:mt-0 md:shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleActive(category)}
+                        className="rounded-xl bg-slate-100 p-2 text-slate-700 disabled:opacity-50 hover:bg-slate-200 transition-colors"
+                        disabled={!isEditable}
+                        title={category?.isActive !== false ? "Deactivate" : "Activate"}
+                      >
+                        {category?.isActive !== false ? (
+                          <Eye className="h-4 w-4" />
+                        ) : (
+                          <EyeOff className="h-4 w-4" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openEditModal(category)}
+                        className="rounded-xl p-2 disabled:opacity-50 transition-colors"
+                        style={{
+                          backgroundColor: "rgba(var(--module-theme-rgb,37,99,235),0.10)",
+                          color: "var(--module-theme-color,#2563EB)",
+                        }}
+                        disabled={!isEditable}
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCategory(category)}
+                        className="rounded-xl bg-rose-50 p-2 text-rose-700 disabled:opacity-50 hover:bg-rose-100 transition-colors"
+                        disabled={!category?.canDelete}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                 </motion.div>
               )
@@ -393,118 +590,31 @@ export default function MenuCategoriesPage() {
               onClick={resetModal}
               className="fixed inset-0 z-50 bg-black/50"
             />
+            {/* Mobile bottom sheet */}
             <motion.div
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
-              className="fixed bottom-0 left-0 right-0 z-50 max-h-[90vh] overflow-y-auto rounded-t-3xl bg-white p-4 shadow-2xl"
+              className="fixed bottom-0 left-0 right-0 z-50 max-h-[90vh] overflow-y-auto rounded-t-3xl bg-white p-4 shadow-2xl md:hidden"
             >
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-bold text-slate-900">
-                    {editingCategory ? "Edit Category" : "Create Category"}
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    {editingCategory
-                      ? "Any edit sends this category back for admin approval."
-                      : "Choose the diet scope carefully before sending it for approval."}
-                  </p>
-                </div>
-                <button onClick={resetModal}>
-                  <X className="h-5 w-5 text-slate-600" />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Category Name</label>
-                  <input
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                    placeholder="Enter category name"
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-[#B80B3D]"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Diet Scope</label>
-                  {isPureVegRestaurant ? (
-                    <div className="w-full rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
-                      Veg (Pure veg restaurant)
-                    </div>
-                  ) : (
-                    <select
-                      value={formData.foodTypeScope}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, foodTypeScope: e.target.value }))}
-                      className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-[#B80B3D]"
-                    >
-                      <option value="Veg">Veg</option>
-                      <option value="Non-Veg">Non-Veg</option>
-                      <option value="Both">Both</option>
-                    </select>
-                  )}
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Optional Type Label</label>
-                  <input
-                    type="text"
-                    value={formData.type}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value }))}
-                    placeholder="Examples: Starters, Desserts, Drinks"
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-[#B80B3D]"
-                  />
-                </div>
-
-                <div className="flex items-center gap-3">
-                  {(imagePreview || formData.image) && (
-                    <img
-                      src={imagePreview || formData.image}
-                      alt="Category preview"
-                      className="h-16 w-16 rounded-2xl object-cover"
-                    />
-                  )}
-                  <button
-                    type="button"
-                    onClick={handleImageClick}
-                    className="flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700"
-                  >
-                    <Upload className="h-4 w-4" />
-                    Upload Image
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    className="hidden"
-                    accept="image/*"
-                    onChange={(e) => handleImageFileChange(e.target.files?.[0])}
-                  />
-                </div>
-
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={formData.isActive}
-                    onChange={() => setFormData((prev) => ({ ...prev, isActive: !prev.isActive }))}
-                  />
-                  Keep category active
-                </label>
-              </div>
-
-              <div className="mt-6 flex gap-3">
-                <button onClick={resetModal} className="flex-1 rounded-xl border border-slate-300 py-3 font-medium text-slate-700">
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveCategory}
-                  disabled={uploadingImage}
-                  className="flex-1 rounded-xl bg-gradient-to-br from-[#B80B3D] to-[#66001D] py-3 font-medium text-white disabled:opacity-60"
-                >
-                  {uploadingImage ? "Uploading..." : editingCategory ? "Save & Resubmit" : "Create"}
-                </button>
-              </div>
+              {categoryModalHeader}
+              {categoryFormFields}
+              {categoryFormActions}
             </motion.div>
+            {/* Desktop centered dialog */}
+            <div className="fixed inset-0 z-50 hidden md:flex items-center justify-center p-6 pointer-events-none">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.96, y: 12 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: 12 }}
+                className="pointer-events-auto w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {categoryModalHeader}
+                {categoryFormFields}
+                {categoryFormActions}
+              </motion.div>
+            </div>
           </>
         )}
       </AnimatePresence>
@@ -521,11 +631,3 @@ export default function MenuCategoriesPage() {
     </div>
   )
 }
-
-
-
-
-
-
-
-

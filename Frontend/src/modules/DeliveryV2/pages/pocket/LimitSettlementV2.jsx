@@ -61,16 +61,16 @@ export const LimitSettlementV2 = () => {
       case 'approved':
         return {
           icon: CheckCircle2,
-          color: 'text-green-600',
-          bgColor: 'bg-green-50',
-          borderColor: 'border-green-200'
+          color: 'theme-text',
+          bgColor: 'theme-bg-soft',
+          borderColor: 'theme-border'
         };
       case 'pending':
         return {
           icon: Clock,
-          color: 'text-blue-600',
-          bgColor: 'bg-blue-50',
-          borderColor: 'border-blue-200'
+          color: 'theme-text',
+          bgColor: 'theme-bg-soft',
+          borderColor: 'theme-border'
         };
       case 'denied':
       case 'rejected':
@@ -91,26 +91,23 @@ export const LimitSettlementV2 = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#f6e9dc] font-poppins pb-32">
-       {/* Header (Old UI Style) */}
-       <div className="bg-white border-b border-gray-200 px-4 py-4 safe-top flex items-center gap-4">
-          <button
-            onClick={goBack}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
-          </button>
-          <h1 className="text-lg md:text-xl font-bold text-gray-900">
-             Available limit settlement
-          </h1>
+    <div className="min-h-screen bg-[#f8f9fa] font-poppins pb-32">
+       {/* Header */}
+       <div className="fixed top-0 inset-x-0 h-20 bg-[#f8f9fa]/90 backdrop-blur-xl z-50 px-5 flex items-center justify-between pb-2 pt-6">
+          <div className="flex items-center gap-3">
+             <button onClick={goBack} className="p-3 bg-white hover:bg-gray-50 border border-gray-100 shadow-sm rounded-[20px] transition-all active:scale-95">
+                <ArrowLeft className="w-5 h-5 text-gray-700" />
+             </button>
+             <h1 className="text-xl font-black text-gray-900 tracking-tight">Available Limit Settlement</h1>
+          </div>
        </div>
 
        {/* Main Content */}
-       <div className="px-4 py-6">
+       <div className="pt-24 px-5 max-w-lg mx-auto">
           {loading ? (
-             <div className="flex flex-col items-center justify-center py-12">
-                <Loader2 className="w-8 h-8 animate-spin text-[#ff8100] mb-4" />
-                <p className="text-gray-600 text-sm font-medium">Loading transactions...</p>
+             <div className="flex flex-col items-center justify-center py-20 gap-3">
+                <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+                <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Loading Transactions...</p>
              </div>
           ) : transactions.length > 0 ? (
              <div className="space-y-4">
@@ -121,23 +118,25 @@ export const LimitSettlementV2 = () => {
                    return (
                       <div
                         key={tx.id || index}
-                        className={`bg-white rounded-xl p-4 shadow-sm border ${statusInfo.borderColor} transition-all active:scale-[0.98]`}
+                        className="bg-white rounded-[28px] p-5 shadow-[0_4px_20px_rgba(0,0,0,0.02)] border border-gray-100 transition-all"
                       >
-                         <div className="flex items-start justify-between mb-3">
+                         <div className="flex items-start justify-between">
                             <div className="flex-1">
-                               <div className="flex items-center gap-2 mb-2">
-                                  <StatusIcon className={`w-4 h-4 ${statusInfo.color}`} />
-                                  <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full ${statusInfo.bgColor} ${statusInfo.color}`}>
-                                     {tx.status}
-                                  </span>
+                               <div className="flex items-center gap-2 mb-3">
+                                  <div className={`px-3 py-1.5 rounded-[12px] flex items-center gap-1.5 ${statusInfo.bgColor} border ${statusInfo.borderColor}`}>
+                                    <StatusIcon className={`w-3.5 h-3.5 ${statusInfo.color}`} />
+                                    <span className={`text-[9px] font-black uppercase tracking-widest ${statusInfo.color}`}>
+                                       {tx.status}
+                                    </span>
+                                  </div>
                                </div>
-                               <p className="text-gray-900 text-xl font-bold mb-1 font-poppins">
+                               <p className="text-gray-900 text-3xl font-black mb-1 tracking-tight">
                                   ₹{tx.amount}
                                </p>
-                               <p className="text-gray-600 text-sm mb-1 font-medium">
+                               <p className="text-gray-900 text-xs font-black mb-1.5">
                                   {tx.description}
                                </p>
-                               <p className="text-gray-400 text-[11px] font-semibold">Date: {tx.date}</p>
+                               <p className="text-gray-400 text-[9px] font-bold uppercase tracking-widest">Date: {tx.date}</p>
                             </div>
                          </div>
                       </div>
@@ -146,11 +145,11 @@ export const LimitSettlementV2 = () => {
              </div>
           ) : (
              <div className="flex flex-col items-center justify-center py-20 px-4 text-center">
-                <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center mb-4 border border-gray-100">
-                   <Clock className="w-8 h-8 text-gray-200" />
+                <div className="w-16 h-16 rounded-[24px] bg-white flex items-center justify-center mb-4 border border-gray-100 shadow-sm">
+                   <Clock className="w-6 h-6 text-gray-300" />
                 </div>
-                <p className="text-gray-900 text-lg font-bold mb-2">No settlement transactions</p>
-                <p className="text-gray-400 text-xs font-semibold leading-relaxed">
+                <p className="text-gray-900 text-lg font-black mb-2 tracking-tight">No Transactions</p>
+                <p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest leading-relaxed max-w-[250px] mx-auto">
                    Whenever you settle the available limit, the payment transactions will appear here.
                 </p>
              </div>

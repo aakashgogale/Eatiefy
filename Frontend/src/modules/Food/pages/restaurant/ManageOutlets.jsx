@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useNavigate, useLocation } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import { motion, AnimatePresence } from "framer-motion"
 import { ArrowLeft, Info } from "lucide-react"
@@ -10,7 +10,6 @@ const debugError = (...args) => {}
 
 export default function ManageOutlets() {
   const navigate = useNavigate()
-  const location = useLocation()
   const goBack = useRestaurantBackNavigation()
   const [showToast, setShowToast] = useState(false)
 
@@ -29,22 +28,22 @@ export default function ManageOutlets() {
     // Navigate based on option selected
     switch (option) {
       case "Timings":
-        navigate("/food/restaurant/outlet-timings", { state: { from: location.pathname } })
+        navigate("/restaurant/outlet-timings")
         break
       case "FSSAI Food License":
-        navigate("/food/restaurant/fssai", { state: { from: location.pathname } })
+        navigate("/restaurant/fssai")
         break
       case "Bank account details":
-        navigate("/food/restaurant/update-bank-details", { state: { from: location.pathname } })
+        navigate("/restaurant/update-bank-details")
         break
       case "Profile picture":
-        navigate("/food/restaurant/outlet-info", { state: { from: location.pathname } })
+        navigate("/restaurant/outlet-info")
         break
       case "Name, address, location":
-        navigate("/food/restaurant/outlet-info", { state: { from: location.pathname } })
+        navigate("/restaurant/outlet-info")
         break
       case "Ratings, reviews":
-        navigate("/food/restaurant/ratings-reviews", { state: { from: location.pathname } })
+        navigate("/restaurant/ratings-reviews")
         break
       case "Delivery area changes":
         setShowToast(true)
@@ -116,7 +115,7 @@ export default function ManageOutlets() {
           >
             <div className="bg-white border border-gray-200 px-4 py-4 rounded-lg shadow-2xl">
               <div className="flex items-start gap-3">
-                <Info className="w-5 h-5 text-[#B80B3D] shrink-0 mt-0.5" />
+                <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
                 <div className="flex-1 space-y-2">
                   <p className="text-sm font-semibold text-gray-900">
                     You can not modify the delivery areas of your restaurant
@@ -133,12 +132,5 @@ export default function ManageOutlets() {
     </div>
   )
 }
-
-
-
-
-
-
-
 
 

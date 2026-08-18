@@ -13,7 +13,7 @@ const languageTabs = [
   { key: "en", label: "English(EN)" },
   { key: "bn", label: "Bengali - ?????(BN)" },
   { key: "ar", label: "Arabic - ??????? (AR)" },
-  { key: "es", label: "Spanish - español(ES)" }
+  { key: "es", label: "Spanish - espaï¿½ol(ES)" }
 ]
 
 export default function EditZoneDialog({ isOpen, onOpenChange, zone, onSave }) {

@@ -28,19 +28,17 @@ const resolveDeliveryBackPath = ({ pathname, state }) => {
   if (normalizedPath === "/signup/details") return "/food/delivery/signup"
   if (normalizedPath === "/signup/documents") return "/food/delivery/signup/details"
   if (normalizedPath === "/otp") return explicitBackPath || "/food/delivery/login"
-  if (normalizedPath === "/terms" || normalizedPath === "/privacy" || normalizedPath === "/help/content") {
-    return explicitBackPath || "/food/delivery/login"
-  }
+  if (normalizedPath === "/terms") return explicitBackPath || "/food/delivery/signup"
 
   if (
     normalizedPath === "/profile/details" ||
     normalizedPath === "/profile/bank" ||
     normalizedPath === "/profile/documents" ||
-    normalizedPath === "/profile/reviews" ||
     normalizedPath === "/profile/terms" ||
     normalizedPath === "/profile/privacy" ||
     normalizedPath === "/help/id-card" ||
-    normalizedPath === "/help/tickets"
+    normalizedPath === "/help/tickets" ||
+    normalizedPath === "/help/order-emergency"
   ) {
     return explicitBackPath || "/food/delivery/profile"
   }

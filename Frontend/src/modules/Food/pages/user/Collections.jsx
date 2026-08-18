@@ -6,18 +6,18 @@ import { Input } from "@food/components/ui/input"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 
 // Import banner
-import collectionsBanner from "@food/assets/collectionspagebanner.png"
+import collectionsBanner from "@food/assets/collectionspagebanner.webp"
 
 // Gradient colors for collection cards
 const gradientColors = [
   "bg-gradient-to-br from-red-400 to-red-600",
-  "bg-gradient-to-br from-orange-400 to-#991B1B",
+  "bg-gradient-to-br from-orange-400 to-orange-600",
   "bg-gradient-to-br from-purple-500 to-pink-600",
   "bg-gradient-to-br from-green-400 to-emerald-600",
   "bg-gradient-to-br from-orange-400 to-red-500",
   "bg-gradient-to-br from-amber-400 to-yellow-600",
   "bg-gradient-to-br from-pink-400 to-rose-600",
-  "bg-gradient-to-br from-amber-400 to-#991B1B",
+  "bg-gradient-to-br from-amber-400 to-orange-600",
 ]
 
 export default function Collections() {
@@ -76,7 +76,7 @@ export default function Collections() {
             src={collectionsBanner}
             alt="Your Collections"
             className="w-full h-full object-cover"
-          />
+           loading="lazy" decoding="async" />
         </div>
       </div>
 
@@ -90,7 +90,7 @@ export default function Collections() {
           >
             Delivery
             {activeTab === "delivery" && (
-              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-20 h-1 bg-[#DC2626] rounded-full" />
+              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-20 h-1 bg-[#EB590E] rounded-full" />
             )}
           </button>
           <button
@@ -100,7 +100,7 @@ export default function Collections() {
           >
             Dining
             {activeTab === "dining" && (
-              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-20 h-1 bg-[#DC2626] rounded-full" />
+              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-20 h-1 bg-[#EB590E] rounded-full" />
             )}
           </button>
         </div>
@@ -146,7 +146,7 @@ export default function Collections() {
                       {/* Right card - Restaurant */}
                       <div className="absolute right-0 top-0 w-14 h-11 bg-white rounded-lg shadow-lg transform rotate-12 overflow-hidden">
                         <div className="w-full h-full bg-gray-50 flex items-center justify-center p-1">
-                          <Store className="h-6 w-6 text-[#DC2626]" />
+                          <Store className="h-6 w-6 text-orange-500" />
                         </div>
                         {/* Striped awning */}
                         <div className="absolute -top-0.5 left-0 right-0 h-2 bg-gradient-to-r from-orange-400 via-white to-orange-400"
@@ -172,8 +172,8 @@ export default function Collections() {
               onClick={() => setIsCreateDialogOpen(true)}
               className="bg-white dark:bg-[#1a1a1a] border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-2xl p-4 h-48 flex flex-col items-center justify-center gap-3 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
             >
-              <div className="w-12 h-12 rounded-full bg-[#F9F9FB] dark:bg-[#DC2626]/20 flex items-center justify-center border-2 border-[#DC2626]/30 dark:border-[#DC2626]/40">
-                <Plus className="h-6 w-6 text-[#DC2626] dark:text-[#DC2626]" />
+              <div className="w-12 h-12 rounded-full bg-[#FFF2EB] dark:bg-[#EB590E]/20 flex items-center justify-center border-2 border-[#EB590E]/30 dark:border-[#EB590E]/40">
+                <Plus className="h-6 w-6 text-[#EB590E] dark:text-[#EB590E]" />
               </div>
               <div className="text-center">
                 <p className="text-gray-700 dark:text-gray-300 font-semibold">Create a new</p>
@@ -224,7 +224,7 @@ export default function Collections() {
                     handleCreateCollection()
                   }
                 }}
-                className="w-full h-12 text-base border-2 border-gray-200 dark:border-gray-700 focus:border-[#DC2626] dark:focus:border-[#DC2626] rounded-xl bg-white dark:bg-[#2a2a2a] text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-gray-400"
+                className="w-full h-12 text-base border-2 border-gray-200 dark:border-gray-700 focus:border-[#EB590E] dark:focus:border-[#EB590E] rounded-xl bg-white dark:bg-[#2a2a2a] text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-gray-400"
                 autoFocus
               />
 
@@ -252,7 +252,7 @@ export default function Collections() {
               <Button
                 onClick={handleCreateCollection}
                 disabled={!newCollectionName.trim()}
-                className="flex-1 h-11 bg-[#DC2626] hover:bg-[#991B1B] text-white rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 h-11 bg-[#EB590E] hover:bg-[#D94F0C] text-white rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Create Collection
               </Button>

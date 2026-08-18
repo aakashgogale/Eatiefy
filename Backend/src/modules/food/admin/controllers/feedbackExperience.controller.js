@@ -1,8 +1,5 @@
 import { FeedbackExperience } from '../models/feedbackExperience.model.js';
 import { sendResponse, sendError } from '../../../../utils/response.js';
-import { FoodUser } from '../../../../core/users/user.model.js';
-import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
-import mongoose from 'mongoose';
 
 /**
  * Create a new feedback experience entry.
@@ -53,7 +50,7 @@ export const createFeedbackExperience = async (req, res) => {
  */
 export const getFeedbackExperiences = async (req, res) => {
     try {
-        const { module, page = 1, limit = 10, startDate, endDate, rating, experience, search } = req.query;
+        const { module, page = 1, limit = 10, startDate, endDate, rating, experience } = req.query;
         const query = {};
         
         if (module) {
@@ -89,43 +86,6 @@ export const getFeedbackExperiences = async (req, res) => {
                 case 'good': query.rating = 4; break;
                 case 'very_good': query.rating = 5; break;
             }
-        }
-
-        const searchRaw = String(search || '').trim().slice(0, 80);
-        if (searchRaw) {
-            const escaped = searchRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const searchRegex = new RegExp(escaped, 'i');
-            const [matchedUsers, matchedRestaurants] = await Promise.all([
-                FoodUser.find({
-                    $or: [{ name: searchRegex }, { phone: searchRegex }, { email: searchRegex }],
-                })
-                    .select('_id')
-                    .limit(100)
-                    .lean(),
-                FoodRestaurant.find({
-                    $or: [
-                        { restaurantName: searchRegex },
-                        { ownerName: searchRegex },
-                        { ownerPhone: searchRegex },
-                        { ownerEmail: searchRegex },
-                    ],
-                })
-                    .select('_id')
-                    .limit(100)
-                    .lean(),
-            ]);
-            const searchOr = [{ comment: searchRegex }];
-            if (mongoose.Types.ObjectId.isValid(searchRaw)) {
-                searchOr.push({ _id: new mongoose.Types.ObjectId(searchRaw) });
-            }
-            if (matchedUsers.length) {
-                searchOr.push({ userId: { $in: matchedUsers.map((u) => u._id) } });
-            }
-            if (matchedRestaurants.length) {
-                searchOr.push({ userId: { $in: matchedRestaurants.map((r) => r._id) } });
-                searchOr.push({ restaurantId: { $in: matchedRestaurants.map((r) => r._id) } });
-            }
-            query.$or = searchOr;
         }
 
         const skip = (parseInt(page) - 1) * parseInt(limit);

@@ -17,12 +17,17 @@ import {
   ArrowLeft,
   Trash2,
   RefreshCw,
-  Loader2
+  Loader2,
+  FileUp,
+  Download,
+  AlertTriangle,
+  Check
 } from "lucide-react"
 import BottomNavOrders from "@food/components/restaurant/BottomNavOrders"
 // Removed foodManagement - now using backend API directly
 import { useNavigate } from "react-router-dom"
 import { restaurantAPI, uploadAPI } from "@food/api"
+import { isFlutterBridgeAvailable, openGallery } from "@food/utils/imageUploadUtils"
 import { toast } from "sonner"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -40,6 +45,70 @@ const getUploadErrorMessage = (error, fileName = "image") => {
 
 const serializeMenuSections = (sections) =>
   JSON.stringify(Array.isArray(sections) ? sections : [])
+
+const buildHubAvailabilityPayload = (reason, customDateTimeValue = "") => {
+  const payload = { isAvailable: false }
+
+  if (reason === "manual") {
+    payload.stockOffMode = "manual"
+    return payload
+  }
+
+  if (reason === "2-hours" || reason === "4-hours") {
+    const resumeAt = new Date()
+    resumeAt.setHours(resumeAt.getHours() + (reason === "2-hours" ? 2 : 4))
+    payload.stockOffMode = "specific-time"
+    payload.stockResumeAt = resumeAt.toISOString()
+    return payload
+  }
+
+  if (reason === "next-business-day") {
+    const resumeAt = new Date()
+    resumeAt.setDate(resumeAt.getDate() + 1)
+    resumeAt.setHours(9, 0, 0, 0)
+    payload.stockOffMode = "next-business-day"
+    payload.stockResumeAt = resumeAt.toISOString()
+    return payload
+  }
+
+  if (reason === "custom" && customDateTimeValue) {
+    const resumeAt = new Date(customDateTimeValue)
+    if (!Number.isNaN(resumeAt.getTime())) {
+      payload.stockOffMode = "custom-date-time"
+      payload.stockResumeAt = resumeAt.toISOString()
+    }
+  }
+
+  return payload
+}
+
+const markMenuItemUnavailable = (sections, itemId) =>
+  (Array.isArray(sections) ? sections : []).map((group) => ({
+    ...group,
+    items: (group.items || []).map((item) =>
+      item.id === itemId ? { ...item, isAvailable: false } : item
+    ),
+    subsections: (group.subsections || []).map((subsection) => ({
+      ...subsection,
+      items: (subsection.items || []).map((item) =>
+        item.id === itemId ? { ...item, isAvailable: false } : item
+      ),
+    })),
+  }))
+
+const markMenuItemAvailable = (sections, itemId) =>
+  (Array.isArray(sections) ? sections : []).map((group) => ({
+    ...group,
+    items: (group.items || []).map((item) =>
+      item.id === itemId ? { ...item, isAvailable: true } : item
+    ),
+    subsections: (group.subsections || []).map((subsection) => ({
+      ...subsection,
+      items: (subsection.items || []).map((item) =>
+        item.id === itemId ? { ...item, isAvailable: true } : item
+      ),
+    })),
+  }))
 
 export default function HubMenu() {
   const navigate = useNavigate()
@@ -94,14 +163,23 @@ export default function HubMenu() {
   const [addonName, setAddonName] = useState("")
   const [addonDescription, setAddonDescription] = useState("")
   const [addonPrice, setAddonPrice] = useState("")
+  const [addonFoodType, setAddonFoodType] = useState("veg")
   const [addonImages, setAddonImages] = useState([])
   const [addonImageFiles, setAddonImageFiles] = useState(new Map())
   const [uploadingAddonImages, setUploadingAddonImages] = useState(false)
   const [editingAddon, setEditingAddon] = useState(null) // Store addon being edited
   const addonFileInputRef = useRef(null)
 
+  // Bulk Upload State
+  const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false)
+  const [bulkUploadFile, setBulkUploadFile] = useState(null)
+  const [isUploading, setIsUploading] = useState(false)
+  const [bulkUploadResults, setBulkUploadResults] = useState(null)
+  const bulkFileInputRef = useRef(null)
+
   // Restaurant info - fetch from backend
   const restaurantName = restaurantData?.name || ""
+  const isPureVegRestaurant = restaurantData?.pureVegRestaurant === true
   const restaurantExpertise = restaurantData?.cuisines?.length > 0 
     ? restaurantData.cuisines.join(", ") 
     : ""
@@ -455,9 +533,7 @@ export default function HubMenu() {
   }, [activeTab])
 
   // Handle add-on image add
-  const handleAddonImageAdd = (e) => {
-    const files = Array.from(e.target.files)
-    
+  const handleAddonImageFilesAdd = (files = []) => {
     const allowedTypes = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/heic", "image/heif"]
     const validFiles = files.filter(file => {
       if (!allowedTypes.includes(file.type)) {
@@ -489,6 +565,23 @@ export default function HubMenu() {
     if (addonFileInputRef.current) {
       addonFileInputRef.current.value = ""
     }
+  }
+
+  const handleAddonImageAdd = (e) => {
+    const files = Array.from(e.target.files || [])
+    handleAddonImageFilesAdd(files)
+  }
+
+  const handleAddonGalleryPick = async () => {
+    if (isFlutterBridgeAvailable()) {
+      await openGallery({
+        onSelectFile: (file) => handleAddonImageFilesAdd(file ? [file] : []),
+        fileNamePrefix: "restaurant-addon-image",
+      })
+      return
+    }
+
+    addonFileInputRef.current?.click()
   }
 
   // Handle add-on image delete
@@ -527,7 +620,7 @@ export default function HubMenu() {
     try {
       setUploadingAddonImages(true)
 
-      // Upload new images to the server
+      // Upload new images to Cloudinary
       const uploadedImageUrls = []
       
       const existingImageUrls = addonImages.filter(img => 
@@ -546,7 +639,7 @@ export default function HubMenu() {
             let uploadResponse
             try {
               uploadResponse = await uploadAPI.uploadMedia(file, {
-                folder: 'appzeto/restaurant/addons'
+                folder: 'eatiefy/restaurant/addons'
               })
             } catch (folderUploadError) {
               // Fallback: retry without folder in case provider/account rejects custom folder.
@@ -579,6 +672,7 @@ export default function HubMenu() {
       const addonData = {
         name: addonName.trim(),
         description: addonDescription.trim(),
+        foodType: addonFoodType === "non-veg" ? "non-veg" : "veg",
         price: parseFloat(addonPrice) || 0,
         image: allImageUrls.length > 0 ? allImageUrls[0] : '',
         images: allImageUrls
@@ -598,6 +692,7 @@ export default function HubMenu() {
       setAddonName("")
       setAddonDescription("")
       setAddonPrice("")
+      setAddonFoodType("veg")
       setAddonImages([])
       setAddonImageFiles(new Map())
       setEditingAddon(null)
@@ -620,6 +715,7 @@ export default function HubMenu() {
     setAddonName(addon.name || "")
     setAddonDescription(addon.description || "")
     setAddonPrice(addon.price?.toString() || "")
+    setAddonFoodType(isPureVegRestaurant ? "veg" : (addon.foodType === "non-veg" ? "non-veg" : "veg"))
     setAddonImages(addon.images && addon.images.length > 0 ? addon.images : (addon.image ? [addon.image] : []))
     setAddonImageFiles(new Map())
     setIsAddAddonModalOpen(true)
@@ -638,6 +734,74 @@ export default function HubMenu() {
     } catch (error) {
       debugError('Error deleting add-on:', error)
       toast.error(error?.response?.data?.message || 'Failed to delete add-on')
+    }
+  }
+
+  useEffect(() => {
+    if (isPureVegRestaurant && addonFoodType !== "veg") {
+      setAddonFoodType("veg")
+    }
+  }, [isPureVegRestaurant, addonFoodType])
+
+  // Bulk Upload Handlers
+  const handleDownloadTemplate = async () => {
+    try {
+      const response = await restaurantAPI.bulkUploadTemplate()
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', 'Bulk_Menu_Template.xlsx')
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      toast.success('Template downloaded successfully')
+    } catch (error) {
+      debugError('Error downloading template:', error)
+      toast.error('Failed to download template')
+    }
+  }
+
+  const handleBulkUpload = async () => {
+    if (!bulkUploadFile) {
+      toast.error('Please select an Excel file first')
+      return
+    }
+
+    try {
+      setIsUploading(true)
+      const response = await restaurantAPI.bulkUpload(bulkUploadFile)
+      
+      if (response.data && response.data.success) {
+        const results = response.data.data || {}
+        const normalizedErrors = Array.isArray(results.errors)
+          ? results.errors
+          : Array.isArray(results.details)
+            ? results.details
+            : []
+        const normalizedResults = { ...results, errors: normalizedErrors }
+        setBulkUploadResults(normalizedResults)
+        toast.info(`Processed ${normalizedResults.success + normalizedResults.failed} items`)
+        
+        if (normalizedResults.success > 0) {
+          fetchMenu() // Refresh menu to show new items
+        }
+      }
+    } catch (error) {
+      debugError('Error uploading menu:', error)
+      toast.error(error?.response?.data?.message || 'Bulk upload failed')
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
+  const onBulkFileChange = (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error('File size exceeds 10MB limit')
+        return
+      }
+      setBulkUploadFile(file)
     }
   }
 
@@ -804,22 +968,26 @@ export default function HubMenu() {
   }
 
   // Toggle item stock status - opens popup
-  const toggleItemStock = (itemId, groupId) => {
+  const toggleItemStock = async (itemId, groupId) => {
     const group = menuData.find(g => g.id === groupId)
     const item = group?.items.find(i => i.id === itemId)
     if (item && item.isAvailable) {
-      // Opening popup to switch off
       setSwitchingOffTarget({ type: 'item', id: itemId, groupId })
       setIsAvailabilityPopupOpen(true)
       setAvailabilityReason(null)
     } else {
-      // Directly turn on (no popup needed)
-      setMenuData(prev => prev.map(g => ({
-        ...g,
-        items: g.items.map(i => 
-          i.id === itemId ? { ...i, isAvailable: true } : i
-        )
-      })))
+      try {
+        await restaurantAPI.updateFood(itemId, {
+          isAvailable: true,
+          stockResumeAt: null,
+          stockOffMode: null,
+        })
+        setMenuData((prev) => markMenuItemAvailable(prev, itemId))
+        toast.success("Item is back in stock")
+      } catch (error) {
+        debugError("Error enabling item availability:", error)
+        toast.error(error?.response?.data?.message || "Failed to update item availability")
+      }
     }
   }
 
@@ -838,50 +1006,33 @@ export default function HubMenu() {
       setIsScheduling(true)
 
       if (switchingOffTarget.type === 'item') {
-        // Schedule item availability via API
-        const scheduleData = {
-          sectionId: switchingOffTarget.groupId,
-          itemId: switchingOffTarget.id,
-          scheduleType: availabilityReason,
-          ...(availabilityReason === 'custom' && { customDateTime }),
-        }
+        const payload = buildHubAvailabilityPayload(availabilityReason, customDateTime)
+        await restaurantAPI.updateFood(switchingOffTarget.id, payload)
+        setMenuData((prev) => markMenuItemUnavailable(prev, switchingOffTarget.id))
 
-        const response = await restaurantAPI.scheduleItemAvailability(scheduleData)
-
-        if (response.data && response.data.success) {
-          // Update local menu data with response
-          if (response.data.data && response.data.data.menu) {
-            setMenuData(response.data.data.menu.sections || [])
-          } else {
-            // Fallback: update locally
-            setMenuData(prev => prev.map(g => ({
-              ...g,
-              items: g.items.map(i => 
-                i.id === switchingOffTarget.id ? { ...i, isAvailable: false } : i
-              ),
-              subsections: g.subsections?.map(sub => ({
-                ...sub,
-                items: sub.items.map(i => 
-                  i.id === switchingOffTarget.id ? { ...i, isAvailable: false } : i
-                )
-              }))
-            })))
-          }
-
-          toast.success(
-            availabilityReason === 'manual'
-              ? 'Item availability updated'
-              : 'Item availability scheduled successfully'
-          )
-        } else {
-          throw new Error(response.data?.message || 'Failed to schedule availability')
-        }
+        toast.success(
+          availabilityReason === 'manual'
+            ? 'Item marked out of stock'
+            : 'Item availability scheduled successfully'
+        )
       } else if (switchingOffTarget.type === 'group') {
-        // For groups, just update locally (no API support yet)
-        setMenuData(prev => prev.map(g => 
-          g.id === switchingOffTarget.id ? { ...g, isEnabled: false } : g
-        ))
-        toast.success('Category availability updated')
+        const group = menuData.find((entry) => entry.id === switchingOffTarget.id)
+        const itemIds = (group?.items || []).map((item) => item.id).filter(Boolean)
+        const payload = buildHubAvailabilityPayload(availabilityReason, customDateTime)
+
+        await Promise.all(itemIds.map((itemId) => restaurantAPI.updateFood(itemId, payload)))
+        setMenuData((prev) =>
+          prev.map((entry) =>
+            entry.id === switchingOffTarget.id
+              ? {
+                  ...entry,
+                  isEnabled: false,
+                  items: (entry.items || []).map((item) => ({ ...item, isAvailable: false })),
+                }
+              : entry
+          )
+        )
+        toast.success('Category items marked out of stock')
       }
 
       setIsAvailabilityPopupOpen(false)
@@ -962,7 +1113,7 @@ export default function HubMenu() {
     if (!subCategoryName.trim() || !selectedGroupForSubCategory) return
     
     // Navigate to new item page with sub-category info
-    navigate('/food/restaurant/hub-menu/item/new', {
+    navigate('/restaurant/hub-menu/item/new', {
       state: {
         groupId: selectedGroupForSubCategory.id,
         category: selectedGroupForSubCategory.name,
@@ -990,7 +1141,7 @@ export default function HubMenu() {
     }
     
     toast.message('Finish category setup on Menu Categories so you can choose veg, non-veg, or both before admin approval.')
-    navigate('/food/restaurant/menu-categories', {
+    navigate('/restaurant/menu-categories', {
       state: {
         draftCategoryName: newCategoryName.trim(),
       }
@@ -1011,7 +1162,7 @@ export default function HubMenu() {
       // Menu editing is disabled on the backend. The menu is generated from food_items.
       // Category deletion must be done via the Menu Categories page and can only happen when it has no items.
       toast.error('Delete categories from Menu Categories (and only when empty).')
-      navigate('/food/restaurant/menu-categories')
+      navigate('/restaurant/menu-categories')
     } catch (error) {
       debugError('Error deleting category:', error)
       toast.error('Failed to delete category')
@@ -1091,7 +1242,7 @@ export default function HubMenu() {
               </button>
               <button
               className="p-2 ml-1 hover:bg-gray-100 rounded-full transition-colors"
-              onClick={() => navigate("/food/restaurant/explore")}
+              onClick={() => navigate("/restaurant/explore")}
             >
               <Menu className="w-5 h-5 text-gray-700" />
             </button>
@@ -1139,7 +1290,7 @@ export default function HubMenu() {
                 onClick={() => handleFilterSelect(filter.id)}
                 className={`flex items-center gap-2 px-2 py-1 text-semibold border-2 rounded-md text-sm font-medium whitespace-nowrap shrink-0 ${
                   activeFilter === filter.id
-                    ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white border-gray-900"
+                    ? "bg-gray-900 text-white border-gray-900"
                     : "bg-white border-gray-200 text-gray-900"
                 }`}
               >
@@ -1152,7 +1303,7 @@ export default function HubMenu() {
             ))}
             <button
               onClick={() => setIsFilterOpen(true)}
-              className="z-10 shrink-0 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white border-2 border-black flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap"
+              className="z-10 shrink-0 bg-black text-white border-2 border-black flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap"
             >
               <SlidersHorizontal className="w-4 h-4" />
               <span>Filter</span>
@@ -1241,7 +1392,7 @@ export default function HubMenu() {
                         )}
                         <p className="text-base font-bold text-gray-900">₹{addon.price}</p>
                         {isRejectedApproval(addon.approvalStatus) && addon.rejectionReason && (
-                          <p className="text-xs text-[#B80B3D] mt-1">Reason: {addon.rejectionReason}</p>
+                          <p className="text-xs text-red-600 mt-1">Reason: {addon.rejectionReason}</p>
                         )}
                         {isPendingApproval(addon.approvalStatus) && addon.published && (
                           <p className="text-xs text-gray-500 mt-1">
@@ -1263,7 +1414,7 @@ export default function HubMenu() {
                         <div className="flex flex-col gap-2">
                           <button
                             onClick={() => handleEditAddon(addon)}
-                            className="p-2 bg-blue-100 text-[#B80B3D] rounded-lg hover:bg-blue-200 transition-colors"
+                            className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors"
                             title="Edit add-on"
                           >
                             <Edit className="h-4 w-4" />
@@ -1282,7 +1433,7 @@ export default function HubMenu() {
                             className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
                               addon.isAvailable === false
                                 ? "bg-green-600 text-white hover:bg-green-700"
-                                : "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white hover:bg-gray-800"
+                                : "bg-gray-900 text-white hover:bg-gray-800"
                             }`}
                             title="Toggle availability"
                           >
@@ -1290,7 +1441,7 @@ export default function HubMenu() {
                           </button>
                           <button
                             onClick={() => handleDeleteAddon(addon)}
-                            className="p-2 bg-red-100 text-[#B80B3D] rounded-lg hover:bg-red-200 transition-colors"
+                            className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors"
                             title="Delete add-on"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -1319,7 +1470,7 @@ export default function HubMenu() {
               {/* Group Header */}
               <div className="py-3 flex items-center justify-between px-4">
                 <div className="flex items-center gap-3 flex-1">
-                  <div className="w-1 h-6 bg-gradient-to-br from-[#B80B3D] to-[#66001D] rounded-r-full" />
+                  <div className="w-1 h-6 bg-red-500 rounded-r-full" />
                   <h3 className="text-base font-bold text-gray-900">
                     {group.name} ({enabledItems})
                   </h3>
@@ -1369,15 +1520,16 @@ export default function HubMenu() {
                               <div
                                 className={`w-4 h-4 rounded-sm border-2 shrink-0 flex items-center justify-center ${
                                   item.foodType === "Veg"
-                                    ? "bg-green-50 border-green-600"
+                                    ? ""
                                     : "bg-red-50 border-red-600"
                                 }`}
+                                style={item.foodType === "Veg" ? { backgroundColor: "#F0FDF4", borderColor: "#16A34A" } : undefined}
                               >
                                 <div className={`w-2 h-2 rounded-full ${
                                   item.foodType === "Veg"
-                                    ? "bg-green-600"
-                                    : "bg-gradient-to-br from-[#B80B3D] to-[#66001D]"
-                                }`} />
+                                    ? ""
+                                    : "bg-red-600"
+                                }`} style={item.foodType === "Veg" ? { backgroundColor: "#16A34A" } : undefined} />
                               </div>
                             </div>
                             <div className="flex items-center gap-2 mb-1">
@@ -1403,7 +1555,7 @@ export default function HubMenu() {
                             </div>
                             <p className="text-sm font-medium text-gray-700 mb-3">₹{item.price}</p>
                             {isRejectedApproval(item.approvalStatus) && item.rejectionReason && (
-                              <p className="text-xs text-[#B80B3D] -mt-2 mb-3">Reason: {item.rejectionReason}</p>
+                              <p className="text-xs text-red-600 -mt-2 mb-3">Reason: {item.rejectionReason}</p>
                             )}
                           </div>
 
@@ -1413,7 +1565,7 @@ export default function HubMenu() {
                               src={item.image}
                               alt={item.name}
                               className="w-20 h-20 rounded-lg object-cover"
-                            />
+                             loading="lazy" decoding="async" />
                             <div className="absolute bottom-1 right-1 bg-black/60 rounded-full p-1">
                               <div className="flex items-center gap-1">
                                 <Camera className="w-3 h-3 text-white" />
@@ -1427,7 +1579,7 @@ export default function HubMenu() {
                         {isPendingApproval(item.approvalStatus) && (
                           <div className="flex items-center justify-center gap-3 mt-4">
                             <button
-                              onClick={() => navigate(`/food/restaurant/hub-menu/item/${item.id}`, { state: { item, groupId: group.id } })}
+                              onClick={() => navigate(`/restaurant/hub-menu/item/${item.id}`, { state: { item, groupId: group.id } })}
                               className="flex items-center gap-1.5 bg-transparent text-gray-700 text-sm font-medium"
                             >
                               <Edit className="w-3.5 h-3.5" />
@@ -1514,7 +1666,7 @@ export default function HubMenu() {
                 )}
                 <button
                   onClick={() => setIsFilterOpen(false)}
-                  className="w-full py-3 rounded-lg font-semibold text-sm bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white hover:bg-gray-800 transition-colors"
+                  className="w-full py-3 rounded-lg font-semibold text-sm bg-gray-900 text-white hover:bg-gray-800 transition-colors"
                 >
                   Confirm
                 </button>
@@ -1554,6 +1706,18 @@ export default function HubMenu() {
                   className="w-full py-3 px-4 text-left rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   <span className="text-sm font-medium text-gray-900">Add item</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setIsAddPopupOpen(false)
+                    setIsBulkUploadModalOpen(true)
+                  }}
+                  className="w-full py-3 px-4 text-left rounded-lg hover:bg-gray-50 transition-colors border-t border-gray-100"
+                >
+                  <div className="flex items-center gap-3">
+                    <FileUp className="w-4 h-4 text-red-500" />
+                    <span className="text-sm font-medium text-gray-900">Bulk Upload Menu</span>
+                  </div>
                 </button>
               </div>
             </motion.div>
@@ -1652,7 +1816,7 @@ export default function HubMenu() {
                       <span className="text-sm font-medium text-gray-900">I will turn it on myself</span>
                     </label>
                     <p className="text-xs text-gray-500 ml-8">
-                      This item will not be visible to customers on the Zomato app till you switch it on.
+                      This item will not be visible to customers on the Zomato app till you turn it on.
                     </p>
                   </div>
                 </div>
@@ -1665,7 +1829,7 @@ export default function HubMenu() {
                   disabled={!availabilityReason || isScheduling || (availabilityReason === 'custom' && !customDateTime)}
                   className={`w-full py-3 rounded-lg font-semibold text-sm transition-colors ${
                     availabilityReason && !isScheduling && (availabilityReason !== 'custom' || customDateTime)
-                      ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white hover:bg-gray-800"
+                      ? "bg-gray-900 text-white hover:bg-gray-800"
                       : "bg-gray-300 text-gray-500 cursor-not-allowed"
                   }`}
                 >
@@ -1685,7 +1849,7 @@ export default function HubMenu() {
           <motion.button
           whileTap={{ scale: 0.96 }}
           onClick={() => setIsAddPopupOpen(true)}
-          className="px-4 py-2 border bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white border-gray-800 rounded-lg text-sm font-bold"
+          className="px-4 py-2 border bg-black text-white border-gray-800 rounded-lg text-sm font-bold"
         >
           + ADD
         </motion.button>)}
@@ -1713,7 +1877,7 @@ export default function HubMenu() {
               {isMenuOpen && (
                 <>
                   <motion.div
-                    className="fixed inset-0 bg-black/50/40 z-30"
+                    className="fixed inset-0 bg-black/40 z-30"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
@@ -1809,9 +1973,9 @@ export default function HubMenu() {
                   </button>
                   <button
                     onClick={handleDeleteCategory}
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left text-sm font-medium text-[#B80B3D] bg-gray-50 hover:bg-red-50 transition-colors"
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left text-sm font-medium text-red-600 bg-gray-50 hover:bg-red-50 transition-colors"
                   >
-                    <Trash2 className="w-5 h-5 text-[#B80B3D]" />
+                    <Trash2 className="w-5 h-5 text-red-600" />
                     <span>Delete category</span>
                   </button>
                 </div>
@@ -1888,7 +2052,7 @@ export default function HubMenu() {
                       disabled={!editCategoryName.trim()}
                       className={`flex-1 py-3 px-4 rounded-lg text-sm font-semibold transition-colors ${
                         editCategoryName.trim()
-                          ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white hover:bg-gray-800"
+                          ? "bg-black text-white hover:bg-gray-800"
                           : "bg-gray-300 text-gray-500 cursor-not-allowed"
                       }`}
                     >
@@ -1968,7 +2132,7 @@ export default function HubMenu() {
                     disabled={!subCategoryName.trim()}
                     className={`w-full py-3 px-4 rounded-lg text-sm font-semibold transition-colors ${
                       subCategoryName.trim()
-                        ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white hover:bg-gray-800"
+                        ? "bg-black text-white hover:bg-gray-800"
                         : "bg-gray-300 text-gray-500 cursor-not-allowed"
                     }`}
                   >
@@ -2040,7 +2204,7 @@ export default function HubMenu() {
                     disabled={!newCategoryName.trim()}
                     className={`w-full py-3 px-4 rounded-lg text-sm font-semibold transition-colors ${
                       newCategoryName.trim()
-                        ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white hover:bg-gray-800"
+                        ? "bg-black text-white hover:bg-gray-800"
                         : "bg-gray-300 text-gray-500 cursor-not-allowed"
                     }`}
                   >
@@ -2141,21 +2305,22 @@ export default function HubMenu() {
                                   src={item.image}
                                   alt={item.name}
                                   className="w-16 h-16 rounded-lg object-cover"
-                                />
+                                 loading="lazy" decoding="async" />
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 mb-1">
                                     <div
                                       className={`w-4 h-4 rounded-sm border-2 shrink-0 flex items-center justify-center ${
                                         item.foodType === "Veg"
-                                          ? "bg-green-50 border-green-600"
+                                          ? ""
                                           : "bg-red-50 border-red-600"
                                       }`}
+                                      style={item.foodType === "Veg" ? { backgroundColor: "#F0FDF4", borderColor: "#16A34A" } : undefined}
                                     >
                                       <div className={`w-2 h-2 rounded-full ${
                                         item.foodType === "Veg"
-                                          ? "bg-green-600"
-                                          : "bg-gradient-to-br from-[#B80B3D] to-[#66001D]"
-                                      }`} />
+                                          ? ""
+                                          : "bg-red-600"
+                                      }`} style={item.foodType === "Veg" ? { backgroundColor: "#16A34A" } : undefined} />
                                     </div>
                                     <h4 className="text-sm font-bold text-gray-900 truncate">
                                       {item.name}
@@ -2163,10 +2328,10 @@ export default function HubMenu() {
                                   </div>
                                   <p className="text-sm font-medium text-gray-700">₹{item.price}</p>
                                   {isRejectedApproval(item.approvalStatus) && item.rejectionReason && (
-                                    <p className="text-xs text-[#B80B3D] mt-1">Reason: {item.rejectionReason}</p>
+                                    <p className="text-xs text-red-600 mt-1">Reason: {item.rejectionReason}</p>
                                   )}
                                   {!item.isAvailable && (
-                                    <span className="text-xs text-[#B80B3D] font-medium">Out of stock</span>
+                                    <span className="text-xs text-red-600 font-medium">Out of stock</span>
                                   )}
                                 </div>
                               </div>
@@ -2201,7 +2366,7 @@ export default function HubMenu() {
                 <div className="px-4 py-3 border-t border-gray-200">
                   <button
                     onClick={() => setIsSearchOpen(false)}
-                    className="w-full py-3 rounded-lg font-semibold text-sm bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white hover:bg-gray-800 transition-colors"
+                    className="w-full py-3 rounded-lg font-semibold text-sm bg-gray-900 text-white hover:bg-gray-800 transition-colors"
                   >
                     View Results ({filteredMenuGroups.reduce((acc, group) => acc + group.items.length, 0)} items)
                   </button>
@@ -2247,7 +2412,7 @@ export default function HubMenu() {
                 {/* Name Field */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Add-on Name <span className="text-[#B80B3D]">*</span>
+                    Add-on Name <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -2275,7 +2440,7 @@ export default function HubMenu() {
                 {/* Price Field */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Price (₹) <span className="text-[#B80B3D]">*</span>
+                    Price (₹) <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="number"
@@ -2289,6 +2454,38 @@ export default function HubMenu() {
                 </div>
 
                 {/* Images Section */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Type <span className="text-red-500">*</span>
+                  </label>
+                  <div className={`grid gap-2 ${isPureVegRestaurant ? "grid-cols-1" : "grid-cols-2"}`}>
+                    <button
+                      type="button"
+                      onClick={() => setAddonFoodType("veg")}
+                      className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                        addonFoodType === "veg"
+                          ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                          : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                      }`}
+                    >
+                      Veg
+                    </button>
+                    {!isPureVegRestaurant && (
+                      <button
+                        type="button"
+                        onClick={() => setAddonFoodType("non-veg")}
+                        className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                          addonFoodType === "non-veg"
+                            ? "border-rose-500 bg-rose-50 text-rose-700"
+                            : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                        }`}
+                      >
+                        Non-veg
+                      </button>
+                    )}
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Images
@@ -2311,7 +2508,7 @@ export default function HubMenu() {
                           )}
                           <button
                             onClick={() => handleAddonImageDelete(index)}
-                            className="absolute top-1 right-1 p-1 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                           >
                             <X className="h-4 w-4" />
                           </button>
@@ -2330,13 +2527,14 @@ export default function HubMenu() {
                     className="hidden"
                     id="addon-image-upload"
                   />
-                  <label
-                    htmlFor="addon-image-upload"
+                  <button
+                    type="button"
+                    onClick={handleAddonGalleryPick}
                     className="flex items-center justify-center gap-2 px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-green-500 hover:bg-green-50 transition-colors"
                   >
                     <Camera className="h-5 w-5 text-gray-500" />
                     <span className="text-sm font-medium text-gray-700">Add Images</span>
-                  </label>
+                  </button>
                   <p className="text-xs text-gray-500 mt-1">Add multiple images (PNG, JPG, WEBP - max 5MB each)</p>
                 </div>
               </div>
@@ -2369,15 +2567,202 @@ export default function HubMenu() {
         )}
       </AnimatePresence>
 
+      {/* Bulk Upload Modal */}
+      <AnimatePresence>
+        {isBulkUploadModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (!isUploading) {
+                  setIsBulkUploadModalOpen(false)
+                  setBulkUploadFile(null)
+                  setBulkUploadResults(null)
+                }
+              }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="relative w-full max-w-lg bg-white sm:rounded-2xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-white">
+                <h3 className="text-xl font-bold text-gray-900">Bulk Menu Upload</h3>
+                <button
+                  onClick={() => {
+                    if (!isUploading) {
+                      setIsBulkUploadModalOpen(false)
+                      setBulkUploadFile(null)
+                      setBulkUploadResults(null)
+                    }
+                  }}
+                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+                {!bulkUploadResults ? (
+                  <>
+                    <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-start gap-4">
+                      <div className="bg-blue-100 p-2 rounded-lg">
+                        <Download className="w-5 h-5 text-blue-600" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-blue-900 mb-1">Step 1: Download Template</h4>
+                        <p className="text-xs text-blue-700 mb-3">
+                          Download our Excel template to correctly format your menu data.
+                        </p>
+                        <button
+                          onClick={handleDownloadTemplate}
+                          className="px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          Download Template
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="bg-red-50 border border-red-100 rounded-xl p-4 flex items-start gap-4">
+                      <div className="bg-red-100 p-2 rounded-lg">
+                        <FileUp className="w-5 h-5 text-red-600" />
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="text-sm font-bold text-red-900 mb-1">Step 2: Upload Excel File</h4>
+                        <p className="text-xs text-red-700 mb-4">
+                          Upload the filled Excel file (max 500 items). Include image URLs if available.
+                        </p>
+                        
+                        <input
+                          type="file"
+                          ref={bulkFileInputRef}
+                          onChange={onBulkFileChange}
+                          accept=".xlsx, .xls"
+                          className="hidden"
+                        />
+                        
+                        <div 
+                          onClick={() => bulkFileInputRef.current?.click()}
+                          className={`
+                            border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center cursor-pointer transition-all
+                            ${bulkUploadFile ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-red-400 hover:bg-red-50/30'}
+                          `}
+                        >
+                          <FileUp className={`w-8 h-8 mb-2 ${bulkUploadFile ? 'text-green-500' : 'text-gray-400'}`} />
+                          <span className="text-sm font-medium text-gray-600">
+                            {bulkUploadFile ? bulkUploadFile.name : 'Click to select Excel file'}
+                          </span>
+                          {bulkUploadFile && (
+                            <span className="text-xs text-green-600 mt-1">File selected</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-4">
+                      <button
+                        onClick={handleBulkUpload}
+                        disabled={!bulkUploadFile || isUploading}
+                        className={`
+                          w-full py-4 rounded-xl font-bold text-white shadow-lg transition-all flex items-center justify-center gap-2
+                          ${!bulkUploadFile || isUploading 
+                              ? 'bg-gray-300 cursor-not-allowed shadow-none' 
+                              : 'bg-red-600 hover:bg-red-700 active:scale-[0.98] shadow-red-200'}
+                        `}
+                      >
+                        {isUploading ? (
+                          <>
+                            <RefreshCw className="w-5 h-5 animate-spin" />
+                            Processing Batch...
+                          </>
+                        ) : (
+                          <>
+                            <FileUp className="w-5 h-5" />
+                            Start Bulk Upload
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center py-4">
+                    <div className={`
+                      w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center
+                      ${bulkUploadResults.failed === 0 ? 'bg-green-100' : 'bg-yellow-100'}
+                    `}>
+                      {bulkUploadResults.failed === 0 ? (
+                        <Check className="w-8 h-8 text-green-600" />
+                      ) : (
+                        <AlertTriangle className="w-8 h-8 text-yellow-600" />
+                      )}
+                    </div>
+                    
+                    <h4 className="text-xl font-bold text-gray-900 mb-2">Upload Complete</h4>
+                    <p className="text-sm text-gray-600 mb-6">
+                      We've processed your menu data.
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-4 mb-8">
+                      <div className="bg-green-50 p-4 rounded-xl border border-green-100">
+                        <div className="text-2xl font-bold text-green-700">{bulkUploadResults.success}</div>
+                        <div className="text-xs font-semibold text-green-600 uppercase tracking-wider">Success</div>
+                      </div>
+                      <div className="bg-red-50 p-4 rounded-xl border border-red-100">
+                        <div className="text-2xl font-bold text-red-700">{bulkUploadResults.failed}</div>
+                        <div className="text-xs font-semibold text-red-600 uppercase tracking-wider">Failed</div>
+                      </div>
+                    </div>
+
+                    {bulkUploadResults.errors && bulkUploadResults.errors.length > 0 && (
+                      <div className="text-left mb-8">
+                        <h5 className="text-sm font-bold text-gray-900 mb-3 ml-1">Issues Found:</h5>
+                        <p className="text-xs text-gray-500 mb-2 ml-1">
+                          Note: Failed rows were skipped. Each row below shows the rejection reason.
+                        </p>
+                        <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 max-h-40 overflow-y-auto space-y-2">
+                          {bulkUploadResults.errors.map((err, idx) => (
+                            <div key={idx} className="flex gap-2 text-xs">
+                              <span className="font-bold text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded whitespace-nowrap h-fit">
+                                Row {err.row}
+                              </span>
+                              <span className="text-red-600 py-0.5">{err.error}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        setIsBulkUploadModalOpen(false)
+                        setBulkUploadFile(null)
+                        setBulkUploadResults(null)
+                      }}
+                      className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold hover:bg-gray-800 transition-colors shadow-lg active:scale-[0.98]"
+                    >
+                      Done & Close
+                    </button>
+                    
+                    {bulkUploadResults.success > 0 && (
+                      <p className="text-xs text-gray-500 mt-4 italic">
+                        * Successfully uploaded items are set to "Pending" status and will be visible on the app after admin approval.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <BottomNavOrders />
     </div>
   )
 }
-
-
-
-
-
-
-
-

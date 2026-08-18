@@ -1,14 +1,14 @@
 import { useState, useMemo } from "react"
-import { Search, Download, ChevronDown, Filter, UtensilsCrossed, Eye, ArrowUpDown, Info, Settings, FileText, FileSpreadsheet, Code } from "lucide-react"
+import { Search, Download, ChevronDown, Filter, UtensilsCrossed, Eye, ArrowUpDown, Info, Settings, FileText, FileSpreadsheet, Code, Calendar } from "lucide-react"
 import { emptyDisbursementReportRestaurants, emptyDisbursementStats } from "@food/utils/adminFallbackData"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@food/components/ui/dialog"
 import { exportReportsToCSV, exportReportsToExcel, exportReportsToPDF, exportReportsToJSON } from "@food/components/admin/reports/reportsExportUtils"
 
 // Import icons from Transaction-report-icons
-import pendingIcon from "@food/assets/Transaction-report-icons/trx1.png"
-import completedIcon from "@food/assets/Transaction-report-icons/trx3.png"
-import canceledIcon from "@food/assets/Transaction-report-icons/trx5.png"
+import pendingIcon from "@food/assets/Transaction-report-icons/trx1.webp"
+import completedIcon from "@food/assets/Transaction-report-icons/trx3.webp"
+import canceledIcon from "@food/assets/Transaction-report-icons/trx5.webp"
 
 export default function DisbursementReportRestaurants() {
   const [searchQuery, setSearchQuery] = useState("")
@@ -19,6 +19,8 @@ export default function DisbursementReportRestaurants() {
     paymentMethod: "All Payment Method",
     status: "All status",
     time: "All Time",
+    fromDate: "",
+    toDate: "",
   })
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -88,6 +90,8 @@ export default function DisbursementReportRestaurants() {
       paymentMethod: "All Payment Method",
       status: "All status",
       time: "All Time",
+      fromDate: "",
+      toDate: "",
     })
   }
 
@@ -117,7 +121,7 @@ export default function DisbursementReportRestaurants() {
             </div>
             <div className="flex flex-col items-center text-center">
               <div className="w-16 h-16 rounded-full bg-green-500 flex items-center justify-center mb-4 relative">
-                <img src={pendingIcon} alt="Pending" className="w-10 h-10" />
+                <img src={pendingIcon} alt="Pending" className="w-10 h-10"  loading="lazy" decoding="async" />
               </div>
               <p className="text-2xl font-bold text-green-600 mb-1">{emptyDisbursementStats.pending}</p>
               <p className="text-sm text-slate-600">Pending Disbursements</p>
@@ -133,7 +137,7 @@ export default function DisbursementReportRestaurants() {
             </div>
             <div className="flex flex-col items-center text-center">
               <div className="w-16 h-16 rounded-full bg-orange-500 flex items-center justify-center mb-4">
-                <img src={completedIcon} alt="Completed" className="w-10 h-10" />
+                <img src={completedIcon} alt="Completed" className="w-10 h-10"  loading="lazy" decoding="async" />
               </div>
               <p className="text-2xl font-bold text-slate-900 mb-1">{emptyDisbursementStats.completed}</p>
               <p className="text-sm text-slate-600">Completed Disbursements</p>
@@ -149,7 +153,7 @@ export default function DisbursementReportRestaurants() {
             </div>
             <div className="flex flex-col items-center text-center">
               <div className="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center mb-4 relative">
-                <img src={canceledIcon} alt="Canceled" className="w-10 h-10" />
+                <img src={canceledIcon} alt="Canceled" className="w-10 h-10"  loading="lazy" decoding="async" />
               </div>
               <p className="text-2xl font-bold text-red-600 mb-1">{emptyDisbursementStats.canceled}</p>
               <p className="text-sm text-slate-600">Canceled Transactions</p>
@@ -189,7 +193,7 @@ export default function DisbursementReportRestaurants() {
                   className="w-full px-4 py-2.5 pr-8 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="All restaurants">All restaurants</option>
-                  <option value="Café Monarch">Café Monarch</option>
+                  <option value="Cafï¿½ Monarch">Cafï¿½ Monarch</option>
                   <option value="Hungry Puppets">Hungry Puppets</option>
                   <option value="Redcliff Cafe">Redcliff Cafe</option>
                 </select>
@@ -237,7 +241,11 @@ export default function DisbursementReportRestaurants() {
                 </label>
                 <select
                   value={filters.time}
-                  onChange={(e) => setFilters(prev => ({ ...prev, time: e.target.value }))}
+                  onChange={(e) => setFilters(prev => ({
+                    ...prev,
+                    time: e.target.value,
+                    ...(e.target.value !== "Custom Range" ? { fromDate: "", toDate: "" } : {}),
+                  }))}
                   className="w-full sm:w-48 px-4 py-2.5 pr-8 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="All Time">All Time</option>
@@ -245,6 +253,7 @@ export default function DisbursementReportRestaurants() {
                   <option value="This Week">This Week</option>
                   <option value="This Month">This Month</option>
                   <option value="This Year">This Year</option>
+                  <option value="Custom Range">Custom Range</option>
                 </select>
                 <ChevronDown className="absolute right-2 bottom-2.5 w-4 h-4 text-slate-500 pointer-events-none" />
               </div>
@@ -273,6 +282,39 @@ export default function DisbursementReportRestaurants() {
               </div>
             </div>
           </div>
+
+          {filters.time === "Custom Range" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+              <div className="relative">
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  From Date
+                </label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                  <input
+                    type="date"
+                    value={filters.fromDate}
+                    onChange={(e) => setFilters(prev => ({ ...prev, fromDate: e.target.value }))}
+                    className="w-full pl-10 pr-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <div className="relative">
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  To Date
+                </label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                  <input
+                    type="date"
+                    value={filters.toDate}
+                    onChange={(e) => setFilters(prev => ({ ...prev, toDate: e.target.value }))}
+                    className="w-full pl-10 pr-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Total Disbursements Table Section */}

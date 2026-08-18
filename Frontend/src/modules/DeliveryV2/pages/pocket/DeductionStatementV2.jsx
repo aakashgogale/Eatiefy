@@ -56,68 +56,66 @@ export const DeductionStatementV2 = () => {
   }, [weekRange]);
 
   return (
-    <div className="min-h-screen bg-[#f6e9dc] font-poppins pb-32">
-       {/* Header (Old Style) */}
-       <div className="bg-white border-b border-gray-200 px-4 py-4 safe-top flex items-center gap-4">
-          <button 
-            onClick={goBack}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
-          </button>
-          <h1 className="text-xl font-bold text-gray-900 leading-none">Deduction statement</h1>
+    <div className="min-h-screen bg-[#f8f9fa] font-poppins pb-32">
+       {/* Header */}
+       <div className="fixed top-0 inset-x-0 h-20 bg-[#f8f9fa]/90 backdrop-blur-xl z-50 px-5 flex items-center justify-between pb-2 pt-6">
+          <div className="flex items-center gap-3">
+             <button onClick={goBack} className="p-3 bg-white hover:bg-gray-50 border border-gray-100 shadow-sm rounded-[20px] transition-all active:scale-95">
+                <ArrowLeft className="w-5 h-5 text-gray-700" />
+             </button>
+             <h1 className="text-xl font-black text-gray-900 tracking-tight">Deduction Statement</h1>
+          </div>
        </div>
 
        {/* Main Content */}
-       <div className="px-4 py-6">
+       <div className="pt-24 px-5 max-w-lg mx-auto">
           <WeekSelector onChange={setWeekRange} />
 
           {/* Transactions List */}
           {loading ? (
-             <div className="flex flex-col items-center justify-center py-12">
-                <Loader2 className="w-8 h-8 animate-spin text-orange-500 mb-4" />
-                <p className="text-gray-600 text-sm font-medium">Loading deductions...</p>
+             <div className="flex flex-col items-center justify-center py-20 gap-3">
+                <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+                <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest">Loading deductions...</p>
              </div>
           ) : deductions.length === 0 ? (
-             <div className="flex flex-col items-center justify-center py-12">
+             <div className="flex flex-col items-center justify-center py-20 px-4 text-center">
                 {/* Classic Empty State Illustration */}
-                <div className="flex flex-col gap-2 mb-6">
+                <div className="flex flex-col gap-3 mb-8 opacity-40">
                    {[...Array(3)].map((_, i) => (
-                      <div key={i} className="bg-white rounded-lg p-4 shadow-sm border border-gray-100 w-64 opacity-50">
-                         <div className="flex items-start gap-3">
-                            <div className={`w-2 h-2 rounded mt-1 ${i === 0 ? 'bg-green-500' : i === 1 ? 'bg-orange-500' : 'bg-blue-500'}`}></div>
-                            <div className="flex-1 space-y-2">
-                               <div className="h-1.5 bg-gray-100 rounded w-3/4"></div>
-                               <div className="h-1.5 bg-gray-100 rounded w-1/2"></div>
+                      <div key={i} className="bg-white rounded-[24px] p-5 shadow-sm border border-gray-100 w-[260px]">
+                         <div className="flex items-center gap-4">
+                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "var(--module-theme-color, #00B761)" }}></div>
+                            <div className="flex-1 space-y-2.5">
+                               <div className="h-2 bg-gray-100 rounded-full w-3/4"></div>
+                               <div className="h-2 bg-gray-100 rounded-full w-1/2"></div>
                             </div>
                          </div>
                       </div>
                    ))}
                 </div>
-                <p className="text-gray-600 text-base font-bold">No transactions</p>
-                <p className="text-gray-400 text-xs font-medium mt-1">Is hafton mein koi deduction nahi hui.</p>
+                <p className="text-gray-900 text-lg font-black mb-2 tracking-tight">No Transactions</p>
+                <p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest leading-relaxed max-w-[250px] mx-auto">
+                   Is hafton mein koi deduction nahi hui.
+                </p>
              </div>
           ) : (
-             <div className="space-y-3 mb-6">
+             <div className="space-y-4 mb-6 mt-4">
                 {deductions.map((item, index) => (
                    <div
                      key={item._id || index}
-                     className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 active:scale-[0.98] transition-all"
+                     className="bg-white rounded-[28px] p-5 shadow-[0_4px_20px_rgba(0,0,0,0.02)] border border-gray-100 active:scale-[0.98] transition-all"
                    >
                       <div className="flex items-center justify-between">
-                         <div className="flex items-center gap-3">
-                            <div className={`w-2 h-2 rounded ${ 
-                               index % 3 === 0 ? 'bg-green-500' : 
-                               index % 3 === 1 ? 'bg-orange-500' : 'bg-blue-500'
-                            }`}></div>
+                         <div className="flex items-center gap-4">
+                            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: "var(--module-theme-color, #00B761)" }}></div>
                             <div>
-                               <p className="text-gray-900 text-sm font-bold leading-tight">{item.description || 'System Deduction'}</p>
-                               <p className="text-gray-400 text-[10px] font-bold mt-1 uppercase tracking-tight">
+                               <p className="text-gray-900 text-sm font-black leading-none tracking-tight mb-2">{item.description || 'System Deduction'}</p>
+                               <p className="text-gray-400 text-[9px] font-bold uppercase tracking-widest leading-none">
                                   {new Date(item.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                                </p>
                             </div>
                          </div>
-                         <div className="text-red-600 text-base font-bold">
+                         <div className="text-red-600 text-xl font-black tracking-tight">
                             -{formatCurrency(item.amount)}
                          </div>
                       </div>

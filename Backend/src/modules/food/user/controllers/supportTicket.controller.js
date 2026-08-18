@@ -13,6 +13,9 @@ export async function createSupportTicketController(req, res, next) {
             return sendError(res, 400, 'Invalid ticket type');
         }
         if (!issueType) return sendError(res, 400, 'issueType required');
+        if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+            return sendError(res, 401, 'Unauthorized or invalid user');
+        }
         const doc = {
             userId: new mongoose.Types.ObjectId(userId),
             type,
@@ -26,7 +29,7 @@ export async function createSupportTicketController(req, res, next) {
             const orderMongoId = new mongoose.Types.ObjectId(body.orderId);
             doc.orderId = orderMongoId;
             // Also try to link restaurantId automatically if possible
-            const { FoodOrder } = await import('../../../food/orders/models/order.model.js');
+            const { FoodOrder } = await import('../../orders/models/order.model.js');
             const order = await FoodOrder.findById(orderMongoId).select('restaurantId').lean();
             if (order?.restaurantId) {
                 doc.restaurantId = order.restaurantId;

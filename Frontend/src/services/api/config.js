@@ -4,9 +4,11 @@
  * - `API_BASE_URL` is used by UI (e.g. banners/debug) and should reflect the same value.
  */
 
+import { normalizeApiBaseUrl } from "./urlUtils.js";
+
 export const API_BASE_URL =
-  typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL
-    ? String(import.meta.env.VITE_API_BASE_URL).replace(/\/$/, "")
+  typeof import.meta !== "undefined"
+    ? normalizeApiBaseUrl(import.meta.env?.VITE_API_BASE_URL)
     : "";
 
 // Minimal shape so existing API_ENDPOINTS.* references do not break
@@ -40,6 +42,8 @@ export const API_ENDPOINTS = {
     TERMS_PUBLIC: "/food/pages/terms",
     PRIVACY: "/food/admin/pages-social-media/privacy",
     PRIVACY_PUBLIC: "/food/pages/privacy",
+    SUPPORT: "/food/admin/pages-social-media/support",
+    SUPPORT_PUBLIC: "/food/pages/support",
     ABOUT: "/food/admin/pages-social-media/about",
     ABOUT_PUBLIC: "/food/pages/about",
     REFUND: "/food/admin/pages-social-media/refund",
@@ -48,9 +52,6 @@ export const API_ENDPOINTS = {
     SHIPPING_PUBLIC: "/food/pages/shipping",
     CANCELLATION: "/food/admin/pages-social-media/cancellation",
     CANCELLATION_PUBLIC: "/food/pages/cancellation",
-    SUPPORT_USER_PUBLIC: "/food/pages/support_user",
-    SUPPORT_RESTAURANT_PUBLIC: "/food/pages/support_restaurant",
-    SUPPORT_DELIVERY_PUBLIC: "/food/pages/support_delivery",
     FEEDBACK_CREATE: "", FEEDBACK_EXPERIENCE: "/food/admin/feedback-experiences", FEEDBACK_EXPERIENCE_CREATE: "/food/restaurant/feedback-experience", FEEDBACK_EXPERIENCE_BY_ID: "",
     SAFETY_EMERGENCY: "/food/admin/safety-emergency-reports",
     // User creates reports via USER context; kept for legacy imports.

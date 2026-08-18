@@ -21,10 +21,3 @@ export default function Hyperpure() {
     </div>
   )
 }
-
-
-
-
-
-
-

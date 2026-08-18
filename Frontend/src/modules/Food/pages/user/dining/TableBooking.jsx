@@ -52,18 +52,14 @@ const getDayName = (date) => date.toLocaleDateString("en-US", { weekday: "long" 
 const buildSlots = (timing) => {
   if (!timing || timing.isOpen === false) return []
   const opening = parseTimeToMinutes(timing.openingTime)
-  let closing = parseTimeToMinutes(timing.closingTime)
+  const closing = parseTimeToMinutes(timing.closingTime)
   if (opening === null || closing === null) return []
-
-  // Handle case where closing time is earlier than opening time (e.g., 2:00 AM next day)
-  if (closing <= opening) {
-    closing += 24 * 60
-  }
 
   const slots = []
   let cursor = opening
+  const end = closing > opening ? closing : opening + 240
 
-  while (cursor <= closing) {
+  while (cursor <= end && slots.length < 16) {
     const hours = Math.floor((cursor % (24 * 60)) / 60)
     const minutes = cursor % 60
     slots.push(formatTimeValue(`${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`))
@@ -131,91 +127,39 @@ export default function TableBooking() {
   })
   const [selectedSlot, setSelectedSlot] = useState(location.state?.selectedTime || null)
   const [selectedMealPeriod, setSelectedMealPeriod] = useState("lunch")
-  const [currentBookings, setCurrentBookings] = useState([])
-  const [currentTime, setCurrentTime] = useState(new Date())
 
-  // Real-time update for slots filtering
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date())
-    }, 60000) // Update every minute
-    return () => clearInterval(timer)
-  }, [])
+    const fetchRestaurant = async () => {
+      try {
+        setLoading(true)
+        const response = await diningAPI.getRestaurantBySlug(slug)
+        if (response?.data?.success) {
+          const apiRestaurant = response?.data?.data?.restaurant || response?.data?.data
+          setRestaurant(apiRestaurant || null)
 
-  const fetchRestaurant = async () => {
-    try {
-      setLoading(true)
-      const response = await diningAPI.getRestaurantBySlug(slug)
-      if (response?.data?.success) {
-        const apiRestaurant = response?.data?.data?.restaurant || response?.data?.data
-        setRestaurant(apiRestaurant || null)
-
-        const restaurantId = apiRestaurant?._id || apiRestaurant?.id || slug
-        
-        // Fetch Bookings for Availability check
-        try {
-            const bookingsRes = await diningAPI.getRestaurantBookings(apiRestaurant)
-            if (bookingsRes.data.success) {
-                setCurrentBookings(Array.isArray(bookingsRes.data.data) ? bookingsRes.data.data : [])
-            }
-        } catch (err) {
-            console.error("Error fetching bookings:", err)
+          const restaurantId = apiRestaurant?._id || apiRestaurant?.id || slug
+          const timingsResponse = await restaurantAPI.getOutletTimingsByRestaurantId(restaurantId)
+          setOutletTimings(timingsResponse?.data?.data?.outletTimings || {})
         }
-
-        const timingsResponse = await restaurantAPI.getOutletTimingsByRestaurantId(restaurantId)
-        setOutletTimings(timingsResponse?.data?.data?.outletTimings || {})
+      } catch {
+        setRestaurant(null)
+      } finally {
+        setLoading(false)
       }
-    } catch {
-      setRestaurant(null)
-    } finally {
-      setLoading(false)
     }
-  }
 
-  useEffect(() => {
     if (location.state?.restaurant) {
       const restaurantId = location.state.restaurant?._id || location.state.restaurant?.id || slug
       restaurantAPI
         .getOutletTimingsByRestaurantId(restaurantId)
         .then((response) => setOutletTimings(response?.data?.data?.outletTimings || {}))
         .catch(() => setOutletTimings({}))
-      
-      // Still fetch bookings even if restaurant is in state
-      diningAPI.getRestaurantBookings(location.state.restaurant)
-        .then(res => {
-            if (res.data.success) setCurrentBookings(Array.isArray(res.data.data) ? res.data.data : [])
-        })
-        .catch(() => {})
-
       setLoading(false)
       return
     }
 
     fetchRestaurant()
   }, [location.state?.restaurant, slug])
-
-  const occupiedSeats = useMemo(() => {
-    const now = new Date()
-    const THIRTY_MINUTES = 30 * 60 * 1000
-
-    return currentBookings
-        .filter(b => {
-            const isApproved = b.status === "approved" || b.status === "accepted" || b.status === "confirmed"
-            const isPending = b.status === "pending"
-            
-            if (isApproved) return true
-            if (isPending) {
-                const createdAt = new Date(b.createdAt || b.date)
-                const ageMs = now - createdAt
-                return ageMs < THIRTY_MINUTES
-            }
-            return false
-        })
-        .reduce((sum, b) => sum + (Number(b.guests) || 0), 0)
-  }, [currentBookings])
-
-  const maxCapacity = restaurant?.diningSettings?.maxGuests || 10
-  const remainingSeats = Math.max(0, maxCapacity - occupiedSeats)
 
   const dates = useMemo(() => buildDates(7), [])
   const selectedDayTiming = useMemo(() => {
@@ -226,23 +170,9 @@ export default function TableBooking() {
     return buildFallbackTiming(restaurant)
   }, [outletTimings, selectedDate, restaurant])
   const allSlots = useMemo(() => buildSlots(selectedDayTiming), [selectedDayTiming])
-
-  const availableSlots = useMemo(() => {
-    const isToday = selectedDate.toDateString() === currentTime.toDateString()
-    if (!isToday) return allSlots
-
-    const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes()
-    const buffer = 15 // Allow booking at least 15 minutes ahead
-
-    return allSlots.filter((slot) => {
-      const slotMinutes = parseTimeToMinutes(slot)
-      return slotMinutes > currentMinutes + buffer
-    })
-  }, [allSlots, selectedDate, currentTime])
-
   const filteredSlots = useMemo(
-    () => availableSlots.filter((slot) => getMealPeriod(slot) === selectedMealPeriod),
-    [availableSlots, selectedMealPeriod]
+    () => allSlots.filter((slot) => getMealPeriod(slot) === selectedMealPeriod),
+    [allSlots, selectedMealPeriod]
   )
 
   useEffect(() => {
@@ -262,9 +192,9 @@ export default function TableBooking() {
   }, [filteredSlots, selectedSlot])
 
   useEffect(() => {
-    if (availableSlots.length === 0) return
-    const hasLunch = availableSlots.some((slot) => getMealPeriod(slot) === "lunch")
-    const hasDinner = availableSlots.some((slot) => getMealPeriod(slot) === "dinner")
+    if (allSlots.length === 0) return
+    const hasLunch = allSlots.some((slot) => getMealPeriod(slot) === "lunch")
+    const hasDinner = allSlots.some((slot) => getMealPeriod(slot) === "dinner")
 
     if (selectedMealPeriod === "lunch" && !hasLunch && hasDinner) {
       setSelectedMealPeriod("dinner")
@@ -272,7 +202,7 @@ export default function TableBooking() {
     if (selectedMealPeriod === "dinner" && !hasDinner && hasLunch) {
       setSelectedMealPeriod("lunch")
     }
-  }, [availableSlots, selectedMealPeriod])
+  }, [allSlots, selectedMealPeriod])
 
   if (loading) return <Loader />
   if (!restaurant) return <div className="p-6 text-center">Restaurant not found</div>
@@ -316,71 +246,55 @@ export default function TableBooking() {
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-[#f5f6fb] dark:bg-[#0d0d0d] pb-40">
-      <div className="relative overflow-hidden bg-gradient-to-b from-[#ffe7c6] via-[#fff1d7] to-[#f5f6fb] dark:from-[#1a1008] dark:via-[#120f08] dark:to-[#0d0d0d] px-4 pb-10 pt-5">
-        <div className="absolute inset-x-0 top-0 h-24 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.65),transparent_65%)] dark:bg-[radial-gradient(circle_at_top,rgba(255,200,100,0.08),transparent_65%)]" />
+    <AnimatedPage className="min-h-screen bg-[#f5f6fb] pb-40">
+      <div className="relative overflow-hidden bg-gradient-to-b from-[#ffe7c6] via-[#fff1d7] to-[#f5f6fb] px-4 pb-10 pt-5">
+        <div className="absolute inset-x-0 top-0 h-24 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.65),transparent_65%)]" />
 
         <div className="relative z-10">
           <button
             onClick={goBack}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-white dark:bg-[#1e1e1e] text-[#383838] dark:text-gray-200 shadow-sm"
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#383838] shadow-sm"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
 
           <div className="mt-6 text-center">
-            <h1 className="text-[30px] font-black tracking-tight text-[#25314a] dark:text-white">Book a table</h1>
-            <p className="mt-1 text-sm font-medium text-[#636363] dark:text-gray-400">{restaurant.name || restaurant.restaurantName}</p>
+            <h1 className="text-[30px] font-black tracking-tight text-[#25314a]">Book a table</h1>
+            <p className="mt-1 text-sm font-medium text-[#636363]">{restaurant.name || restaurant.restaurantName}</p>
           </div>
         </div>
       </div>
 
       <div className="mx-auto -mt-4 max-w-md space-y-4 px-4">
         {!isDiningEnabled && (
-          <section className="rounded-[22px] border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
-            <p className="text-sm font-semibold text-amber-900 dark:text-amber-400">Dining bookings are paused by this restaurant.</p>
-            <p className="mt-1 text-xs text-amber-800 dark:text-amber-500">You can still view details, but new table bookings are disabled right now.</p>
+          <section className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
+            <p className="text-sm font-semibold text-amber-900">Dining bookings are paused by this restaurant.</p>
+            <p className="mt-1 text-xs text-amber-800">You can still view details, but new table bookings are disabled right now.</p>
           </section>
         )}
 
-        <section className="rounded-[22px] bg-white dark:bg-[#1a1a1a] p-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-none dark:border dark:border-white/5">
-          <div className="flex items-center justify-between gap-3 mb-4">
-            <span className="text-sm font-medium text-[#2f3545] dark:text-gray-200">Select number of guests</span>
-            <span className="text-xs font-bold text-[#DC2626] dark:text-red-400 bg-[#fdfafc] dark:bg-[#2a1a1a] px-2 py-1 rounded-lg">
-                {remainingSeats} left
-            </span>
-          </div>
-
-          <div className="grid grid-cols-5 gap-2">
-            {Array.from({ length: maxCapacity }, (_, index) => {
-              const count = index + 1
-              const isBooked = count <= occupiedSeats
-              const isTooLarge = count > remainingSeats && !isBooked
-
-              return (
-                <button
-                  key={count}
-                  disabled={isBooked || isTooLarge}
-                  onClick={() => setSelectedGuests(count)}
-                  className={`flex h-11 items-center justify-center rounded-xl border text-sm font-bold transition-all ${
-                    selectedGuests === count
-                      ? "border-[#ef8f98] bg-[#fffaf9] dark:bg-[#2a1519] text-[#d64f63] shadow-sm"
-                      : isBooked
-                        ? "border-red-900/20 bg-red-900/10 text-red-700/30 dark:text-red-800 cursor-not-allowed"
-                        : isTooLarge
-                          ? "border-white/5 bg-white/5 text-gray-700/20 dark:text-gray-600 cursor-not-allowed"
-                          : "border-[#ececf2] dark:border-white/10 bg-white dark:bg-[#242424] text-[#444b5f] dark:text-gray-300 hover:border-[#ef8f98]/30"
-                  }`}
-                >
-                  {isBooked ? "X" : count}
-                </button>
-              )
-            })}
+        <section className="rounded-[22px] bg-white p-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-medium text-[#2f3545]">Select number of guests</span>
+            <div className="relative">
+              <select
+                value={selectedGuests}
+                onChange={(event) => setSelectedGuests(parseInt(event.target.value, 10))}
+                className="appearance-none rounded-full bg-[#f7f7fb] py-2 pl-4 pr-9 text-sm font-semibold text-[#404040] outline-none"
+              >
+                {Array.from({ length: restaurant.diningSettings?.maxGuests || 10 }, (_, index) => index + 1).map((count) => (
+                  <option key={count} value={count}>
+                    {count}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#808080]" />
+            </div>
           </div>
         </section>
 
-        <section className="rounded-[22px] bg-white dark:bg-[#1a1a1a] p-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-none dark:border dark:border-white/5">
-          <h3 className="text-sm font-medium text-[#2f3545] dark:text-gray-200">Select date</h3>
+        <section className="rounded-[22px] bg-white p-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
+          <h3 className="text-sm font-medium text-[#2f3545]">Select date</h3>
 
           <div className="mt-4 grid grid-cols-3 gap-3">
             {dates.slice(0, 3).map((date, index) => {
@@ -391,14 +305,14 @@ export default function TableBooking() {
                   onClick={() => setSelectedDate(date)}
                   className={`rounded-[18px] border px-3 py-4 text-center transition-colors ${
                     active
-                      ? "border-[#ef8f98] bg-[#fffaf9] dark:bg-[#2a1519]"
-                      : "border-[#ececf2] dark:border-white/10 bg-white dark:bg-[#242424]"
+                      ? "border-[#ef8f98] bg-[#fffaf9]"
+                      : "border-[#ececf2] bg-white"
                   }`}
                 >
-                  <span className="block text-sm font-medium text-[#444b5f] dark:text-gray-200">
+                  <span className="block text-sm font-medium text-[#444b5f]">
                     {index === 0 ? "Today" : index === 1 ? "Tomorrow" : date.toLocaleDateString("en-IN", { weekday: "long" })}
                   </span>
-                  <span className="mt-1 block text-sm text-[#7b8191] dark:text-gray-500">
+                  <span className="mt-1 block text-sm text-[#7b8191]">
                     {date.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
                   </span>
                 </button>
@@ -407,8 +321,8 @@ export default function TableBooking() {
           </div>
         </section>
 
-        <section className="rounded-[22px] bg-white dark:bg-[#1a1a1a] p-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-none dark:border dark:border-white/5">
-          <h3 className="text-sm font-medium text-[#2f3545] dark:text-gray-200">Select time of day</h3>
+        <section className="rounded-[22px] bg-white p-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
+          <h3 className="text-sm font-medium text-[#2f3545]">Select time of day</h3>
 
           <div className="mt-4 flex gap-2">
             {[
@@ -422,8 +336,8 @@ export default function TableBooking() {
                   onClick={() => setSelectedMealPeriod(period.id)}
                   className={`rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
                     active
-                      ? "border-[#ef8f98] bg-white dark:bg-[#2a1519] text-[#d64f63]"
-                      : "border-[#ececf2] dark:border-white/10 bg-[#fafafc] dark:bg-[#242424] text-[#666f82] dark:text-gray-400"
+                      ? "border-[#ef8f98] bg-white text-[#d64f63]"
+                      : "border-[#ececf2] bg-[#fafafc] text-[#666f82]"
                   }`}
                 >
                   {period.label}
@@ -434,7 +348,7 @@ export default function TableBooking() {
 
           <div className="mt-4 grid grid-cols-3 gap-3">
             {filteredSlots.length === 0 ? (
-              <div className="col-span-3 rounded-[18px] border border-dashed border-[#e5e7ef] dark:border-white/10 px-4 py-8 text-center text-sm text-[#7c8394] dark:text-gray-500">
+              <div className="col-span-3 rounded-[18px] border border-dashed border-[#e5e7ef] px-4 py-8 text-center text-sm text-[#7c8394]">
                 No {selectedMealPeriod} slots available for the selected date.
               </div>
             ) : (
@@ -446,12 +360,12 @@ export default function TableBooking() {
                     onClick={() => setSelectedSlot(slot)}
                     className={`rounded-[16px] border px-3 py-4 text-center transition-colors ${
                       active
-                        ? "border-[#ef8f98] bg-[#fffaf9] dark:bg-[#2a1519]"
-                        : "border-[#ececf2] dark:border-white/10 bg-white dark:bg-[#242424]"
+                        ? "border-[#ef8f98] bg-[#fffaf9]"
+                        : "border-[#ececf2] bg-white"
                     }`}
                   >
-                    <span className="block text-sm font-medium text-[#334155] dark:text-gray-200">{slot}</span>
-                    <span className="mt-1 block text-xs font-medium text-[#2d5ea8] dark:text-blue-400">
+                    <span className="block text-sm font-medium text-[#334155]">{slot}</span>
+                    <span className="mt-1 block text-xs font-medium text-[#2d5ea8]">
                       {getOfferLabel(slot)}
                     </span>
                   </button>
@@ -461,22 +375,22 @@ export default function TableBooking() {
           </div>
         </section>
 
-        <section className="rounded-[18px] bg-white dark:bg-[#1a1a1a] px-4 py-5 text-center shadow-[0_8px_24px_rgba(15,23,42,0.05)] dark:shadow-none dark:border dark:border-white/5">
-          <p className="text-sm text-[#6f7687] dark:text-gray-500">
+        <section className="rounded-[18px] bg-white px-4 py-5 text-center shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
+          <p className="text-sm text-[#6f7687]">
             Select your preferred time slot to view available booking options
           </p>
         </section>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-[70] border-t border-[#e6e7ef] dark:border-white/10 bg-[#f5f6fb] dark:bg-[#0d0d0d] p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <div className="fixed bottom-0 left-0 right-0 z-[70] border-t border-[#e6e7ef] bg-[#f5f6fb]/95 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-xl">
         <div className="mx-auto max-w-md">
-          <button
+          <Button
             disabled={!canProceed}
             onClick={handleProceed}
-            className={`h-14 w-full rounded-2xl text-lg font-bold transition-all active:scale-[0.98] ${
+            className={`h-14 w-full rounded-2xl text-lg font-bold ${
               canProceed
-                ? "bg-gradient-to-br from-[#DC2626] to-[#7f1010] text-white"
-                : "bg-[#a4abba] dark:bg-[#2a2a2a] text-white/95 dark:text-white/40 cursor-not-allowed"
+                ? "bg-[#eb4d60] text-white hover:bg-[#d73f52]"
+                : "bg-[#a4abba] text-white/95"
             }`}
           >
             {!isDiningEnabled
@@ -484,7 +398,7 @@ export default function TableBooking() {
               : canProceed
                 ? "Proceed to confirmation"
                 : "Select a time slot to proceed"}
-          </button>
+          </Button>
         </div>
       </div>
     </AnimatedPage>

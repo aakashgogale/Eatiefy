@@ -43,10 +43,11 @@ export async function getPublicApprovedRestaurantAddons(restaurantIdOrSlug) {
                 _id: a._id,
                 name: p.name || '',
                 description: p.description || '',
+                foodType: p.foodType === 'non-veg' ? 'non-veg' : 'veg',
+                isVeg: p.foodType !== 'non-veg',
                 price: Number(p.price) || 0,
                 image: p.image || '',
                 images: Array.isArray(p.images) ? p.images : []
             };
         });
 }
-

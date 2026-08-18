@@ -1,10 +1,9 @@
 import { FoodTransaction } from '../models/foodTransaction.model.js';
 import { FoodRestaurantCommission } from '../../admin/models/restaurantCommission.model.js';
+import { resolveDiscountSplitByCoupon } from '../../shared/discountSplit.util.js';
 import mongoose from 'mongoose';
 
 const RESTAURANT_COMMISSION_CACHE_MS = 60 * 1000;
-/** Platform fallback when a restaurant has no commission rule configured */
-export const DEFAULT_RESTAURANT_COMMISSION_PERCENT = 18.1;
 let restaurantCommissionRulesCache = null;
 let restaurantCommissionRulesLoadedAt = 0;
 
@@ -50,8 +49,7 @@ export function computeRestaurantCommissionAmount(baseAmount, rule) {
 }
 
 export async function getRestaurantCommissionSnapshot(orderDoc) {
-  const baseAmount =
-    Number(orderDoc?.pricing?.baseSubtotal ?? orderDoc?.pricing?.subtotal ?? 0) || 0;
+  const baseAmount = Number(orderDoc?.pricing?.subtotal ?? 0) || 0;
   const restaurantIdRaw =
     orderDoc?.restaurantId?._id ?? orderDoc?.restaurantId ?? null;
 
@@ -59,7 +57,7 @@ export async function getRestaurantCommissionSnapshot(orderDoc) {
     return {
       commissionAmount: 0,
       commissionType: 'percentage',
-      commissionValue: DEFAULT_RESTAURANT_COMMISSION_PERCENT,
+      commissionValue: 0,
       baseAmount,
     };
   }
@@ -72,12 +70,12 @@ export async function getRestaurantCommissionSnapshot(orderDoc) {
     null;
 
   if (!rule) {
-    return computeRestaurantCommissionAmount(baseAmount, {
-      defaultCommission: {
-        type: 'percentage',
-        value: DEFAULT_RESTAURANT_COMMISSION_PERCENT,
-      },
-    });
+    return {
+      commissionAmount: 0,
+      commissionType: 'percentage',
+      commissionValue: 0,
+      baseAmount,
+    };
   }
 
   return computeRestaurantCommissionAmount(baseAmount, rule);
@@ -87,34 +85,55 @@ export async function getRestaurantCommissionSnapshot(orderDoc) {
  * Creates an initial 'pending' transaction when an order is created.
  */
 export async function createInitialTransaction(order) {
-    const { commissionAmount } = await getRestaurantCommissionSnapshot(order);
+    if (!order) return null;
+
+    const { commissionAmount = 0 } = await getRestaurantCommissionSnapshot(order).catch(() => ({ commissionAmount: 0 }));
     
-    // Split logic
-    const totalCustomerPaid = order.pricing?.total || 0;
-    const riderShare = order.riderEarning || 0;
+    // Split logic - Ensure all values are finite numbers
+    const totalCustomerPaid = Number(order.pricing?.total) || 0;
+    const riderShare = Number(order.riderEarning) || 0;
+    
     // Prefer commission already computed & stored on the order (source of truth for this order),
     // fallback to rule snapshot for older orders.
     const restaurantCommissionFromOrder = Number(order.pricing?.restaurantCommission);
     const restaurantCommission =
         Number.isFinite(restaurantCommissionFromOrder) && restaurantCommissionFromOrder > 0
             ? restaurantCommissionFromOrder
-            : (commissionAmount || 0);
-    const baseSubtotal =
-        Number(order.pricing?.baseSubtotal ?? order.pricing?.subtotal ?? 0) || 0;
-    const markupTotal = Math.max(0, Number(order.pricing?.markupTotal ?? 0) || 0);
-    const restaurantNet = baseSubtotal + (order.pricing?.packagingFee || 0) - restaurantCommission;
-    const platformNetProfit = Math.max(
-        0,
-        (order.pricing?.platformFee || 0) +
-            (order.pricing?.deliveryFee || 0) +
-            restaurantCommission +
-            markupTotal -
-            riderShare,
-    );
+            : (Number(commissionAmount) || 0);
+
+    const discount = Number(order.pricing?.discount) || 0;
+    const subtotal = Number(order.pricing?.subtotal) || 0;
+    const packagingFee = Number(order.pricing?.packagingFee) || 0;
+    const platformFee = Number(order.pricing?.platformFee) || 0;
+    const deliveryFee = Number(order.pricing?.deliveryFee) || 0;
+    const deliveryFeeGst = Number(order.pricing?.deliveryFeeGst) || 0;
+    const tax = Number(order.pricing?.tax) || 0;
+
+    let restaurantNet = subtotal + packagingFee - restaurantCommission;
+    let platformNetProfit = platformFee + deliveryFee + deliveryFeeGst + restaurantCommission - riderShare;
+    let adminDiscountShare = 0;
+    let restaurantDiscountShare = 0;
+    let discountAdminBearPercentage = 0;
+    let discountRestaurantBearPercentage = 0;
+
+    // Handle discount attribution via the shared split util (single source of truth).
+    const couponCode = order.pricing?.couponCode;
+    if (discount > 0 && couponCode) {
+        const split = await resolveDiscountSplitByCoupon({ couponCode, discount });
+        adminDiscountShare = split.adminDiscountShare;
+        restaurantDiscountShare = split.restaurantDiscountShare;
+        discountAdminBearPercentage = split.adminBearPercentage;
+        discountRestaurantBearPercentage = split.restaurantBearPercentage;
+    }
+    restaurantNet -= restaurantDiscountShare;
+    platformNetProfit -= adminDiscountShare;
+
+    // Ensure nets are finite and rounded
+    restaurantNet = Math.round((Number(restaurantNet) || 0) * 100) / 100;
+    platformNetProfit = Math.round((Number(platformNetProfit) || 0) * 100) / 100;
 
     const transaction = new FoodTransaction({
         orderId: order._id,
-
         userId: order.userId,
         restaurantId: order.restaurantId,
         deliveryPartnerId: order.dispatch?.deliveryPartnerId,
@@ -123,7 +142,7 @@ export async function createInitialTransaction(order) {
         payment: {
             method: String(order.payment?.method || 'cash'),
             status: String(order.payment?.status || 'cod_pending'),
-            amountDue: Number(order.payment?.amountDue ?? order.pricing?.total ?? 0) || 0,
+            amountDue: Number(order.payment?.amountDue ?? totalCustomerPaid) || 0,
             razorpay: {
                 orderId: String(order.payment?.razorpay?.orderId || ''),
                 paymentId: String(order.payment?.razorpay?.paymentId || ''),
@@ -139,25 +158,29 @@ export async function createInitialTransaction(order) {
             }
         },
         pricing: {
-            subtotal: Number(order.pricing?.subtotal || 0) || 0,
-            baseSubtotal,
-            markupTotal,
-            tax: Number(order.pricing?.tax || 0) || 0,
-            packagingFee: Number(order.pricing?.packagingFee || 0) || 0,
-            deliveryFee: Number(order.pricing?.deliveryFee || 0) || 0,
-            platformFee: Number(order.pricing?.platformFee || 0) || 0,
-            restaurantCommission,
-            discount: Number(order.pricing?.discount || 0) || 0,
-            total: Number(order.pricing?.total || 0) || 0,
+            subtotal: subtotal,
+            tax: tax,
+            packagingFee: packagingFee,
+            deliveryFee: deliveryFee,
+            deliveryFeeGst: deliveryFeeGst,
+            platformFee: platformFee,
+            restaurantCommission: restaurantCommission,
+            discount: discount,
+            couponCode: couponCode ? String(couponCode).toUpperCase() : null,
+            total: totalCustomerPaid,
             currency: String(order.pricing?.currency || order.currency || 'INR'),
         },
         amounts: {
-            totalCustomerPaid,
+            totalCustomerPaid: totalCustomerPaid,
             restaurantShare: Math.max(0, restaurantNet),
-            restaurantCommission,
-            riderShare,
-            platformNetProfit,
-            taxAmount: order.pricing?.tax || 0
+            restaurantCommission: restaurantCommission,
+            riderShare: riderShare,
+            platformNetProfit: platformNetProfit,
+            taxAmount: tax,
+            adminDiscountShare,
+            restaurantDiscountShare,
+            discountAdminBearPercentage,
+            discountRestaurantBearPercentage
         },
         gateway: {
             razorpayOrderId: order.payment?.razorpay?.orderId,
@@ -197,12 +220,6 @@ export async function updateTransactionStatus(orderId, kind, details = {}) {
     if (details.razorpayPaymentId) transaction.gateway.razorpayPaymentId = details.razorpayPaymentId;
     if (details.razorpaySignature) transaction.gateway.razorpaySignature = details.razorpaySignature;
     
-    // Sync payment method if provided (e.g. switching from cash to QR)
-    if (details.paymentMethod) {
-        transaction.paymentMethod = details.paymentMethod;
-        transaction.payment.method = details.paymentMethod;
-    }
-
     transaction.history.push({
         kind,
         amount: transaction.amounts.totalCustomerPaid,
@@ -212,22 +229,6 @@ export async function updateTransactionStatus(orderId, kind, details = {}) {
     });
 
     await transaction.save();
-
-    // Sync back to order as well
-    if (details.paymentMethod || details.status) {
-        try {
-            const updateFields = {};
-            if (details.paymentMethod) updateFields['payment.method'] = details.paymentMethod;
-            if (details.status === 'captured') updateFields['payment.status'] = 'paid';
-            
-            await mongoose.model('FoodOrder').updateOne(
-                { _id: orderId },
-                { $set: updateFields }
-            );
-        } catch (err) {
-            console.error('Failed to sync transaction status to order:', err.message);
-        }
-    }
 
     return transaction;
 }

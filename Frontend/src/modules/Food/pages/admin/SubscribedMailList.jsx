@@ -143,7 +143,7 @@ export default function SubscribedMailList() {
                       <span className="text-sm font-medium text-slate-700">{email.sl}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-medium text-slate-900">{email.email || "NA"}</span>
+                      <span className="text-sm font-medium text-slate-900">{email.email}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="text-sm text-slate-700">{email.createdAt}</span>

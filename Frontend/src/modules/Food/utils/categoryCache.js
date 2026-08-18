@@ -25,7 +25,7 @@ export const clearCategoryBrowseStorage = () => {
 };
 
 export const getCategoryListCacheKey = (zoneId) =>
-  `ometto_cat_list_zone_${zoneId || "all"}`;
+  `eatify_cat_list_zone_${zoneId || "all"}`;
 
 export const peekCategoryListCache = (zoneId) => {
   const key = getCategoryListCacheKey(zoneId);
@@ -51,7 +51,7 @@ export const getCategoryRestaurantCacheKeys = (
   const zone = zoneId || "";
   const raw = normalizeCatKeyPart(selectedCategory);
   const keys = new Set();
-  if (raw) keys.add(`ometto_cat_${raw}_zone_${zone}`);
+  if (raw) keys.add(`eatify_cat_${raw}_zone_${zone}`);
 
   const matched = (Array.isArray(categories) ? categories : []).find(
     (cat) =>
@@ -62,8 +62,8 @@ export const getCategoryRestaurantCacheKeys = (
   if (matched) {
     const slug = normalizeCatKeyPart(matched.slug);
     const id = normalizeCatKeyPart(matched.id);
-    if (slug) keys.add(`ometto_cat_${slug}_zone_${zone}`);
-    if (id && id !== "all") keys.add(`ometto_cat_${id}_zone_${zone}`);
+    if (slug) keys.add(`eatify_cat_${slug}_zone_${zone}`);
+    if (id && id !== "all") keys.add(`eatify_cat_${id}_zone_${zone}`);
   }
 
   return [...keys];

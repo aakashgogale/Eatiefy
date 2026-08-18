@@ -981,7 +981,7 @@ async function syncFirebaseConfigToServiceWorker(registration, firebasePublicEnv
 
   const post = (sw) => {
     try {
-      sw?.postMessage({ type: "OMETTO_FCM_CONFIG", config });
+      sw?.postMessage({ type: "EATIFY_FCM_CONFIG", config });
     } catch {
       // ignore
     }
@@ -1600,3 +1600,12 @@ export async function registerWebPushForCurrentModule(pathname = window.location
   await registerNativeWebViewFcmToken(moduleName);
   return null;
 }
+
+
+export const resolveDeviceFcmToken = async (moduleName = "user", options = {}) => {
+  try {
+    return await registerModuleFcmToken(moduleName);
+  } catch {
+    return null;
+  }
+};

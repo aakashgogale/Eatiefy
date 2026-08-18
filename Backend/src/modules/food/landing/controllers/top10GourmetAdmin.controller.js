@@ -7,20 +7,12 @@ export const listGourmetAdmin = async (req, res, next) => {
     try {
         const docs = await FoodGourmetRestaurant.find({}).sort({ priority: 1, createdAt: -1 }).lean();
         const restaurantIds = [...new Set(docs.map((d) => d.restaurantId))];
-        const restaurantFilter = { _id: { $in: restaurantIds } };
-        if (req.query.zoneId && String(req.query.zoneId).trim()) {
-            restaurantFilter.zoneId = String(req.query.zoneId).trim();
-        }
-        const restaurants = await FoodRestaurant.find(restaurantFilter)
-            .select('restaurantName area city profileImage rating zoneId')
+        const restaurants = await FoodRestaurant.find({ _id: { $in: restaurantIds } })
+            .select('restaurantName area city profileImage rating')
             .lean();
         const restaurantMap = new Map(restaurants.map((r) => [r._id.toString(), r]));
         const list = docs.map((d) => {
             const r = restaurantMap.get(d.restaurantId?.toString());
-            // If zoneId is requested but this restaurant doesn't match, skip it
-            if (!r && req.query.zoneId && String(req.query.zoneId).trim()) {
-                return null;
-            }
             return {
                 _id: d._id,
                 restaurantId: d.restaurantId,
@@ -36,7 +28,7 @@ export const listGourmetAdmin = async (req, res, next) => {
                     city: r.city
                 } : null
             };
-        }).filter(Boolean);
+        });
         res.status(200).json({
             success: true,
             message: 'Gourmet restaurants fetched',

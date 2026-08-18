@@ -16,7 +16,7 @@ const foodExploreIconSchema = new mongoose.Schema(
         },
         linkType: {
             type: String,
-            enum: ['offers', 'gourmet', 'top-10', 'collections', 'under-250', 'custom'],
+            enum: ['offers', 'gourmet', 'top-10', 'collections', 'custom'],
             default: 'custom'
         },
         targetPath: {
@@ -30,12 +30,6 @@ const foodExploreIconSchema = new mongoose.Schema(
         isActive: {
             type: Boolean,
             default: true,
-            index: true
-        },
-        zoneId: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'FoodZone',
-            default: null,
             index: true
         }
     },

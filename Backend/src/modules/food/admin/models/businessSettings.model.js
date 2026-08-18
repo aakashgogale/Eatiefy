@@ -2,8 +2,8 @@ import mongoose from 'mongoose';
 
 const businessSettingsSchema = new mongoose.Schema(
     {
-        companyName: { type: String, required: true, default: 'Appzeto' },
-        email: { type: String, required: true, default: 'admin@appzeto.com' },
+        companyName: { type: String, required: true, default: 'Eatiefy' },
+        email: { type: String, required: true, default: 'admin@eatiefy.com' },
         phone: {
             countryCode: { type: String, default: '+91' },
             number: { type: String, default: '' }
@@ -19,6 +19,42 @@ const businessSettingsSchema = new mongoose.Schema(
         favicon: {
             url: { type: String, default: '' },
             publicId: { type: String, default: '' }
+        },
+        restaurantLogo: {
+            url: { type: String, default: '' },
+            publicId: { type: String, default: '' }
+        },
+        restaurantFavicon: {
+            url: { type: String, default: '' },
+            publicId: { type: String, default: '' }
+        },
+        deliveryLogo: {
+            url: { type: String, default: '' },
+            publicId: { type: String, default: '' }
+        },
+        deliveryFavicon: {
+            url: { type: String, default: '' },
+            publicId: { type: String, default: '' }
+        },
+        powerScanning: {
+            user: {
+                themeColor: { type: String, default: '#618E17' },
+                fontFamily: { type: String, default: 'Poppins' }
+            },
+            restaurant: {
+                themeColor: { type: String, default: '#2563EB' },
+                fontFamily: { type: String, default: 'Poppins' }
+            },
+            delivery: {
+                themeColor: { type: String, default: '#00B761' },
+                fontFamily: { type: String, default: 'Poppins' }
+            }
+        },
+        orderAcceptanceTimeMinutes: { type: Number, default: 4, min: 1, max: 20 },
+        imageStorageMode: {
+            type: String,
+            enum: ['server', 'cloudinary'],
+            default: 'server'
         }
     },
     { timestamps: true }

@@ -1,26 +1,30 @@
 import mongoose from 'mongoose';
-import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
-import { logger } from '../../../../utils/logger.js';
+import { ValidationError } from '../../../../core/auth/errors.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
+import { FoodRestaurantOutletTimings } from '../../restaurant/models/outletTimings.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
 import { DeliverySupportTicket } from '../../delivery/models/supportTicket.model.js';
+import { FoodNotification } from '../../../../core/notifications/models/notification.model.js';
+import { sendNotificationToOwner } from '../../../../core/notifications/firebase.service.js';
+import { FoodRestaurantSubscriptionSettings } from '../models/restaurantSubscriptionSettings.model.js';
 import { FoodZone } from '../models/zone.model.js';
+import { invalidateActiveZonesCache } from '../../landing/controllers/zonePublic.controller.js';
 import { FoodCategory } from '../models/category.model.js';
 import { FoodItem } from '../models/food.model.js';
 import { FoodOffer } from '../models/offer.model.js';
 import { FoodOfferUsage } from '../models/offerUsage.model.js';
 import { DeliveryBonusTransaction } from '../models/deliveryBonusTransaction.model.js';
+import { TargetBonusRule } from '../models/targetBonusRule.model.js';
+import { DeliveryTargetEligibility } from '../models/deliveryTargetEligibility.model.js';
 import { FoodEarningAddon } from '../models/earningAddon.model.js';
 import { FoodEarningAddonHistory } from '../models/earningAddonHistory.model.js';
 import { FoodRestaurantCommission } from '../models/restaurantCommission.model.js';
 import { FoodDeliveryCommissionRule } from '../models/deliveryCommissionRule.model.js';
 import { FoodFeeSettings } from '../models/feeSettings.model.js';
-import { invalidateCommissionRulesCache } from '../../orders/services/riderEarning.service.js';
 import { FeedbackExperience } from '../models/feedbackExperience.model.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { FoodRefreshToken } from '../../../../core/refreshTokens/refreshToken.model.js';
 import { FoodDeliveryCashLimit } from '../models/deliveryCashLimit.model.js';
-import { FoodTopRestaurant } from '../models/topRestaurant.model.js';
 import { FoodDeliveryEmergencyHelp } from '../models/deliveryEmergencyHelp.model.js';
 import { FoodReferralSettings } from '../models/referralSettings.model.js';
 import { FoodReferralLog } from '../models/referralLog.model.js';
@@ -29,20 +33,17 @@ import { FoodAddon } from '../../restaurant/models/foodAddon.model.js';
 import { FoodSupportTicket } from '../../user/models/supportTicket.model.js';
 import { FoodRestaurantSupportTicket } from '../../restaurant/models/supportTicket.model.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
-import {
-    toStartOfDayInTimeZone,
-    toEndOfDayInTimeZone,
-    getWeekRangeInTimeZone,
-    getMonthRangeInTimeZone,
-    getZonedParts,
-    zonedWallTimeToUtc,
-} from '../../../../utils/timezone.js';
+import { isCancelledOrder, CANCELLED_ORDER_STATUSES } from '../../orders/services/order.helpers.js';
 import { FoodTransaction } from '../../orders/models/foodTransaction.model.js';
-import { deleteReplacedAssets, deleteStoredAssets, extractAssetUrls } from '../../../../services/storage.service.js';
 import { FoodRestaurantWithdrawal } from '../../restaurant/models/foodRestaurantWithdrawal.model.js';
 import { FoodDeliveryWithdrawal } from '../../delivery/models/foodDeliveryWithdrawal.model.js';
 import { FoodDeliveryWallet } from '../../delivery/models/deliveryWallet.model.js';
 import { FoodDeliveryCashDeposit } from '../../delivery/models/foodDeliveryCashDeposit.model.js';
+import { FoodUnregisteredRestaurant } from '../../restaurant/models/unregisteredRestaurant.model.js';
+import { FoodAdmin } from '../../../../core/admin/admin.model.js';
+import { getAdminRestaurantSubscriptionHistory as getAdminRestaurantSubscriptionHistoryFromRestaurant } from '../../restaurant/services/subscriptionHistory.service.js';
+import { FoodRestaurantSubscriptionHistory } from '../../restaurant/models/subscriptionHistory.model.js';
+import { ADMIN_FULL_PERMISSIONS, isValidPermissionPayload, sanitizeAdminPermissions } from '../../../../constants/permissions.js';
 import {
     backfillLegacyCategoryWorkflow,
     categoryAllowsFoodType,
@@ -51,11 +52,19 @@ import {
 } from '../../shared/categoryWorkflow.js';
 import {
     extractRawFoodVariants,
+    getFoodDisplayOtherPrice,
     getFoodDisplayPrice,
     hasFoodVariants,
     normalizeFoodVariantsInput,
     serializeFoodVariants
 } from './foodVariant.service.js';
+import { resolveDiscountSplit } from '../../shared/discountSplit.util.js';
+import {
+    isRestaurantEarnedOrder,
+    computeRestaurantOrderShare,
+} from '../../shared/restaurantPayout.util.js';
+
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const parseBooleanLike = (value, fieldName) => {
     if (typeof value === 'boolean') return value;
@@ -71,13 +80,6 @@ const toFiniteNumber = (value) => {
     if (value === null || value === undefined || value === '') return null;
     const num = typeof value === 'number' ? value : Number(String(value).trim());
     return Number.isFinite(num) ? num : null;
-};
-
-const toRestaurantDisplayId = (mongoId) => {
-    const s = String(mongoId || '');
-    if (!s) return '';
-    if (/^REST\d{6}$/i.test(s)) return s.toUpperCase();
-    return `REST${s.slice(-6).padStart(6, '0')}`;
 };
 
 const normalizeRestaurantTime = (value) => {
@@ -130,9 +132,46 @@ const validateOpeningClosingTimes = (openingTime, closingTime) => {
     if (open === close) {
         throw new ValidationError('Opening time and closing time cannot be same');
     }
-    if (close < open) {
-        throw new ValidationError('Closing time cannot be less than opening time');
-    }
+};
+
+const normalizeDayName = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    const exact = DAY_NAMES.find((d) => d.toLowerCase() === raw.toLowerCase());
+    if (exact) return exact;
+    const abbr = raw.slice(0, 3).toLowerCase();
+    return DAY_NAMES.find((d) => d.toLowerCase().startsWith(abbr)) || null;
+};
+
+const syncAdminRestaurantOutletTimings = async (restaurantDoc) => {
+    const openingTime = normalizeRestaurantTime(restaurantDoc?.openingTime) || '09:00';
+    const closingTime = normalizeRestaurantTime(restaurantDoc?.closingTime) || '22:00';
+    const normalizedOpenDays = Array.isArray(restaurantDoc?.openDays)
+        ? [...new Set(restaurantDoc.openDays.map(normalizeDayName).filter(Boolean))]
+        : [];
+    const fallbackOpenDays = new Set(normalizedOpenDays.length ? normalizedOpenDays : DAY_NAMES);
+
+    const existing = await FoodRestaurantOutletTimings.findOne({ restaurantId: restaurantDoc._id })
+        .select('timings')
+        .lean();
+    const existingTimings = Array.isArray(existing?.timings) ? existing.timings : [];
+
+    const timings = DAY_NAMES.map((day) => {
+        const current = existingTimings.find((slot) => normalizeDayName(slot?.day) === day);
+        const isOpen = current ? current.isOpen !== false : fallbackOpenDays.has(day);
+        return {
+            day,
+            isOpen,
+            openingTime: isOpen ? openingTime : '',
+            closingTime: isOpen ? closingTime : '',
+        };
+    });
+
+    await FoodRestaurantOutletTimings.updateOne(
+        { restaurantId: restaurantDoc._id },
+        { $set: { timings } },
+        { upsert: true }
+    );
 };
 
 export async function getRestaurantComplaints(query = {}) {
@@ -179,6 +218,22 @@ export async function getRestaurantComplaints(query = {}) {
     ]);
 
     return { complaints, total, page, limit };
+}
+
+export async function getRestaurantComplaintStats(query = {}) {
+    const baseFilter = { type: 'order' };
+    if (query.complaintType && query.complaintType !== 'all') {
+        baseFilter.issueType = query.complaintType;
+    }
+
+    const [open, inProgress, resolved, total] = await Promise.all([
+        FoodSupportTicket.countDocuments({ ...baseFilter, status: 'open' }),
+        FoodSupportTicket.countDocuments({ ...baseFilter, status: 'in-progress' }),
+        FoodSupportTicket.countDocuments({ ...baseFilter, status: 'resolved' }),
+        FoodSupportTicket.countDocuments(baseFilter),
+    ]);
+
+    return { total, open, inProgress, resolved };
 }
 
 export async function globalSearch(query = '') {
@@ -253,7 +308,7 @@ export async function globalSearch(query = '') {
         id: i._id,
         type: 'Product',
         title: i.name,
-        description: `Price: â‚¹${i.price}`,
+        description: `Price: ₹${i.price}`,
         path: `/admin/food/foods?productId=${i._id}`
     }));
 
@@ -269,89 +324,11 @@ export async function globalSearch(query = '') {
         id: a._id,
         type: 'Addon',
         title: a.name,
-        description: `Price: â‚¹${a.price}`,
+        description: `Price: ₹${a.price}`,
         path: `/admin/food/addons`
     }));
 
     return results;
-}
-
-export async function getArchivedAccounts() {
-    const [users, restaurants, deliveryPartners] = await Promise.all([
-        FoodUser.find({ isActive: false })
-            .select('name phone email profileImage createdAt updatedAt deletedAt')
-            .lean(),
-        FoodRestaurant.find({ status: 'deleted' })
-            .select('restaurantName ownerPhone ownerEmail profileImage createdAt updatedAt deletedAt')
-            .lean(),
-        FoodDeliveryPartner.find({ status: 'deleted' })
-            .select('name phone email profilePhoto createdAt updatedAt deletedAt')
-            .lean(),
-    ]);
-
-    console.log(`[Archived-Debug] Found Inactive Users: ${users.length}, Restaurants: ${restaurants.length}, Delivery: ${deliveryPartners.length}`);
-
-    // Helper to get original phone (remove _deleted_ suffix)
-    const getOriginalPhone = (p) => String(p || '').split('_')[0];
-
-    const archived = [
-        ...users.map(u => ({
-            id: u._id,
-            name: u.name || 'Unnamed User',
-            phone: u.phone,
-            originalPhone: getOriginalPhone(u.phone),
-            email: u.email || 'N/A',
-            profileImage: u.profileImage,
-            role: 'User',
-            type: 'user',
-            deletedAt: u.deletedAt || u.updatedAt,
-            status: 'Deleted'
-        })),
-        ...restaurants.map(r => ({
-            id: r._id,
-            name: r.restaurantName,
-            phone: r.ownerPhone,
-            originalPhone: getOriginalPhone(r.ownerPhone),
-            email: r.ownerEmail || 'N/A',
-            profileImage: r.profileImage,
-            role: 'Restaurant',
-            type: 'restaurant',
-            deletedAt: r.deletedAt || r.updatedAt,
-            status: 'Deleted'
-        })),
-        ...deliveryPartners.map(d => ({
-            id: d._id,
-            name: d.name,
-            phone: d.phone,
-            originalPhone: getOriginalPhone(d.phone),
-            email: d.email || 'N/A',
-            profileImage: d.profilePhoto,
-            role: 'Delivery Partner',
-            type: 'delivery',
-            deletedAt: d.deletedAt || d.updatedAt,
-            status: 'Deleted'
-        }))
-    ];
-
-    // For each archived entity, check if a NEW account exists with the original phone
-    const enhancedArchived = await Promise.all(archived.map(async (acc) => {
-        let newAccount = null;
-        if (acc.type === 'user') {
-            newAccount = await FoodUser.findOne({ phone: acc.originalPhone, isActive: true }).select('createdAt').lean();
-        } else if (acc.type === 'restaurant') {
-            newAccount = await FoodRestaurant.findOne({ ownerPhone: acc.originalPhone, status: { $ne: 'deleted' } }).select('createdAt').lean();
-        } else if (acc.type === 'delivery') {
-            newAccount = await FoodDeliveryPartner.findOne({ phone: acc.originalPhone, status: { $ne: 'deleted' } }).select('createdAt').lean();
-        }
-
-        return {
-            ...acc,
-            newAccountCreatedAt: newAccount ? newAccount.createdAt : null
-        };
-    }));
-
-    // Sort by deletedAt (updatedAt) descending
-    return enhancedArchived.sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt));
 }
 
 export async function updateRestaurantComplaint(id, updateData) {
@@ -359,7 +336,9 @@ export async function updateRestaurantComplaint(id, updateData) {
         throw new ValidationError('Invalid complaint ID');
     }
     const update = {};
-    if (updateData.status) update.status = updateData.status;
+    if (updateData.status && ['open', 'in-progress', 'resolved'].includes(String(updateData.status))) {
+        update.status = String(updateData.status);
+    }
     if (updateData.adminResponse !== undefined) update.adminResponse = updateData.adminResponse;
 
     const updated = await FoodSupportTicket.findByIdAndUpdate(
@@ -377,116 +356,130 @@ export async function getRestaurants(query) {
     const page = Math.max(parseInt(query.page, 10) || 1, 1);
     const skip = (page - 1) * limit;
     const status = query.status;
+    const search = String(query.search || '').trim();
+    const isActiveRaw = query.isActive;
+    const sortBy = String(query.sortBy || 'created-desc').trim();
+    const includeStats = query.includeStats === 'true' || query.includeStats === true;
+
     const filter = {};
-    if (query.zoneId && String(query.zoneId).trim()) {
-        filter.zoneId = new mongoose.Types.ObjectId(String(query.zoneId).trim());
-    }
-    if (status && ['pending', 'approved', 'rejected', 'banned'].includes(status)) {
+    if (status && ['pending', 'approved', 'rejected'].includes(status)) {
         filter.status = status;
     }
-    const [restaurants, total] = await Promise.all([
-        FoodRestaurant.find(filter)
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limit)
-            .select('restaurantName location area city profileImage coverImages status ownerName ownerPhone zoneId rating totalRatings pureVegRestaurant')
-            .populate('zoneId', 'name zoneName')
-            .lean(),
-        FoodRestaurant.countDocuments(filter)
-    ]);
-    return {
-        restaurants: restaurants.map((r) => ({ ...r, restaurantId: toRestaurantDisplayId(r._id) })),
-        total,
-        page,
-        limit,
+    if (search) {
+        const raw = search.slice(0, 80);
+        const escaped = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const normalized = raw.toLowerCase().trim().replace(/\s+/g, ' ');
+        const phoneDigits = raw.replace(/\D/g, '');
+        const or = [
+            { restaurantName: { $regex: escaped, $options: 'i' } },
+            { ownerName: { $regex: escaped, $options: 'i' } },
+            { ownerEmail: { $regex: escaped, $options: 'i' } },
+            { ownerPhone: { $regex: escaped, $options: 'i' } },
+            { primaryContactNumber: { $regex: escaped, $options: 'i' } },
+        ];
+        if (normalized.length >= 2) {
+            or.push({ restaurantNameNormalized: { $regex: normalized, $options: 'i' } });
+        }
+        if (phoneDigits.length >= 4) {
+            or.push({ ownerPhoneLast10: { $regex: phoneDigits } });
+            or.push({ ownerPhoneDigits: { $regex: phoneDigits } });
+        }
+        filter.$or = or;
+    }
+    if (isActiveRaw === 'true' || isActiveRaw === true) {
+        // Treat missing isActive as active (legacy restaurants may not have the field).
+        filter.isActive = { $ne: false };
+    } else if (isActiveRaw === 'false' || isActiveRaw === false) {
+        filter.isActive = false;
+    }
+
+    const sortMap = {
+        'created-desc': { createdAt: -1 },
+        'created-asc': { createdAt: 1 },
+        'name-asc': { restaurantName: 1 },
+        'name-desc': { restaurantName: -1 },
+        'owner-asc': { ownerName: 1 },
+        'owner-desc': { ownerName: -1 },
+        'rating-asc': { rating: 1 },
+        'rating-desc': { rating: -1 },
+        'active-asc': { isActive: 1 },
+        'active-desc': { isActive: -1 },
     };
+    const sort = sortMap[sortBy] || { createdAt: -1 };
+
+    const listPromise = FoodRestaurant.find(filter)
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .select('restaurantName slug location area city status ownerName ownerPhone primaryContactNumber zoneId profileImage coverImages menuImages rating totalRatings isActive isAcceptingOrders openingTime closingTime openDays pureVegRestaurant email')
+        .populate('zoneId', 'name zoneName')
+        .lean();
+    const countPromise = FoodRestaurant.countDocuments(filter);
+
+    const statsFilter = status && ['pending', 'approved', 'rejected'].includes(status)
+        ? { status }
+        : {};
+    const statsPromises = includeStats
+        ? [
+            FoodRestaurant.countDocuments(statsFilter),
+            FoodRestaurant.countDocuments({ ...statsFilter, isActive: { $ne: false } }),
+            FoodRestaurant.countDocuments({ ...statsFilter, isActive: false }),
+        ]
+        : [];
+
+    const [restaurants, total, statsTotal, statsActive, statsInactive] = await Promise.all([
+        listPromise,
+        countPromise,
+        ...statsPromises,
+    ]);
+
+    const result = { restaurants, total, page, limit };
+    if (includeStats) {
+        result.stats = {
+            total: Number(statsTotal || 0),
+            active: Number(statsActive || 0),
+            inactive: Number(statsInactive || 0),
+        };
+    }
+    return result;
 }
 
 
-const CANCELLED_ORDER_STATUSES = ['cancelled_by_user', 'cancelled_by_restaurant', 'cancelled_by_admin'];
-// Broad "in progress" set used by live activity / charts — not the Pending Orders card.
 const PENDING_ORDER_STATUSES = ['created', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up'];
-// Must match admin Pending Orders page (`listOrdersAdmin` status=pending → orderStatus=created).
-const DASHBOARD_PENDING_ORDER_STATUSES = ['created'];
-// Confirmed + kitchen stages (pending page is only brand-new `created` orders).
-const DASHBOARD_PROCESSING_ORDER_STATUSES = ['confirmed', 'preparing', 'ready_for_pickup'];
-// Matches admin Food On The Way page (`listOrdersAdmin` status=food-on-the-way).
-const DASHBOARD_IN_TRANSIT_ORDER_STATUSES = ['picked_up', 'reached_drop'];
-const DELIVERED_ORDER_STATUS_EXPR = { $eq: ['$orderStatus', 'delivered'] };
-/** Same visibility rule as listOrdersAdmin base filter (exclude unpaid online checkouts). */
-const ADMIN_VISIBLE_PAYMENT_EXPR = {
-    $or: [
-        { $in: [{ $toLower: { $ifNull: ['$payment.method', ''] } }, ['cash', 'wallet']] },
-        {
-            $in: [
-                { $toLower: { $ifNull: ['$payment.status', ''] } },
-                ['paid', 'authorized', 'captured', 'settled', 'refunded']
-            ]
-        },
-        { $in: ['$orderStatus', CANCELLED_ORDER_STATUSES] }
-    ]
-};
-const IS_CASH_COD_METHOD_EXPR = {
-    $in: [
-        { $toLower: { $ifNull: ['$payment.method', ''] } },
-        ['cash', 'cod', 'cash on delivery']
-    ]
-};
-const COD_AMOUNT_EXPR = {
-    $ifNull: [
-        {
-            $cond: [
-                { $gt: [{ $ifNull: ['$payment.amountDue', 0] }, 0] },
-                '$payment.amountDue',
-                null
-            ]
-        },
-        { $ifNull: ['$pricing.total', 0] }
-    ]
-};
-const OPEN_COD_ORDER_EXPR = {
-    $and: [
-        IS_CASH_COD_METHOD_EXPR,
-        { $ne: ['$orderStatus', 'delivered'] },
-        { $not: { $in: ['$orderStatus', CANCELLED_ORDER_STATUSES] } }
-    ]
-};
-const COLLECTED_COD_ORDER_EXPR = {
-    $and: [
-        IS_CASH_COD_METHOD_EXPR,
-        DELIVERED_ORDER_STATUS_EXPR
-    ]
-};
-const DASHBOARD_PLATFORM_FEE_EXPR = { $ifNull: ['$pricing.platformFee', 0] };
-const DASHBOARD_DELIVERY_FEE_EXPR = { $ifNull: ['$pricing.deliveryFee', 0] };
-const DASHBOARD_RIDER_EARNING_EXPR = { $ifNull: ['$riderEarning', 0] };
 
 const getDateRangeByPeriod = (periodRaw) => {
     const period = String(periodRaw || 'overall').trim().toLowerCase();
     if (!period || period === 'overall' || period === 'all') return null;
 
     const now = new Date();
+    const start = new Date(now);
+    const end = new Date(now);
 
     if (period === 'today') {
-        return { start: toStartOfDayInTimeZone(now), end: toEndOfDayInTimeZone(now) };
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+        return { start, end };
     }
 
     if (period === 'week') {
-        const range = getWeekRangeInTimeZone(now);
-        return { start: range.start, end: range.end };
+        start.setHours(0, 0, 0, 0);
+        start.setDate(start.getDate() - start.getDay());
+        end.setTime(start.getTime());
+        end.setDate(start.getDate() + 6);
+        end.setHours(23, 59, 59, 999);
+        return { start, end };
     }
 
     if (period === 'month') {
-        const range = getMonthRangeInTimeZone(now);
-        return { start: range.start, end: range.end };
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+        return { start: monthStart, end: monthEnd };
     }
 
     if (period === 'year') {
-        const p = getZonedParts(now);
-        return {
-            start: zonedWallTimeToUtc({ year: p.year, month: 1, day: 1, hour: 0, minute: 0, second: 0, ms: 0 }),
-            end: zonedWallTimeToUtc({ year: p.year, month: 12, day: 31, hour: 23, minute: 59, second: 59, ms: 999 }),
-        };
+        const yearStart = new Date(now.getFullYear(), 0, 1);
+        const yearEnd = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+        return { start: yearStart, end: yearEnd };
     }
 
     return null;
@@ -501,18 +494,17 @@ export async function getDashboardStats(query = {}) {
         ? new mongoose.Types.ObjectId(query.zoneId)
         : null;
 
-    const zoneRestaurantIds = zoneId
-        ? await FoodRestaurant.find({ zoneId }).distinct('_id')
-        : null;
-
-    // Include ALL orders in the period/zone matching Transaction Report and All Orders
-    const orderMatch = {};
+    const orderMatch = {
+        $or: [
+            { "payment.method": { $in: ["cash", "wallet"] } },
+            { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } },
+        ],
+    };
     if (periodRange) {
         orderMatch.createdAt = { $gte: periodRange.start, $lte: periodRange.end };
     }
-    // Zone scope via restaurant (matches Transaction Report + listOrdersAdmin).
     if (zoneId) {
-        orderMatch.restaurantId = { $in: zoneRestaurantIds || [] };
+        orderMatch.zoneId = zoneId;
     }
 
     const restaurantMatch = {};
@@ -520,6 +512,9 @@ export async function getDashboardStats(query = {}) {
         restaurantMatch.zoneId = zoneId;
     }
 
+    const zoneRestaurantIds = zoneId
+        ? await FoodRestaurant.find({ zoneId }).distinct('_id')
+        : null;
     const zoneScopedRestaurantMatch = zoneId
         ? { restaurantId: { $in: zoneRestaurantIds || [] } }
         : {};
@@ -558,182 +553,35 @@ export async function getDashboardStats(query = {}) {
                             $cond: [{ $in: ['$orderStatus', PENDING_ORDER_STATUSES] }, 1, 0]
                         }
                     },
-                    dashboardPending: {
-                        $sum: {
-                            $cond: [
-                                {
-                                    $and: [
-                                        { $in: ['$orderStatus', DASHBOARD_PENDING_ORDER_STATUSES] },
-                                        ADMIN_VISIBLE_PAYMENT_EXPR
-                                    ]
-                                },
-                                1,
-                                0
-                            ]
-                        }
-                    },
-                    dashboardProcessing: {
-                        $sum: {
-                            $cond: [
-                                {
-                                    $and: [
-                                        { $in: ['$orderStatus', DASHBOARD_PROCESSING_ORDER_STATUSES] },
-                                        ADMIN_VISIBLE_PAYMENT_EXPR
-                                    ]
-                                },
-                                1,
-                                0
-                            ]
-                        }
-                    },
-                    dashboardInTransit: {
-                        $sum: {
-                            $cond: [
-                                {
-                                    $and: [
-                                        { $in: ['$orderStatus', DASHBOARD_IN_TRANSIT_ORDER_STATUSES] },
-                                        ADMIN_VISIBLE_PAYMENT_EXPR
-                                    ]
-                                },
-                                1,
-                                0
-                            ]
-                        }
-                    },
-                    refunded: {
-                        $sum: {
-                            $cond: [
-                                {
-                                    $and: [
-                                        { $eq: [{ $toLower: { $ifNull: ['$payment.status', ''] } }, 'refunded'] },
-                                        {
-                                            $not: {
-                                                $in: [
-                                                    { $toLower: { $ifNull: ['$payment.method', ''] } },
-                                                    ['cash', 'cod', 'cash on delivery']
-                                                ]
-                                            }
-                                        }
-                                    ]
-                                },
-                                1,
-                                0
-                            ]
-                        }
-                    },
                     revenueTotal: { 
                         $sum: { 
-                            $cond: [DELIVERED_ORDER_STATUS_EXPR, { $ifNull: ['$pricing.total', 0] }, 0] 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.total', 0] }, 0] 
                         } 
                     },
                     commissionTotal: { 
                         $sum: { 
-                            $cond: [DELIVERED_ORDER_STATUS_EXPR, { $ifNull: ['$pricing.restaurantCommission', 0] }, 0] 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.restaurantCommission', 0] }, 0] 
                         } 
                     },
                     platformFeeTotal: { 
                         $sum: { 
-                            $cond: [DELIVERED_ORDER_STATUS_EXPR, DASHBOARD_PLATFORM_FEE_EXPR, 0] 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.platformFee', 0] }, 0] 
                         } 
-                    },
-                    markupTotal: {
-                        $sum: {
-                            $cond: [DELIVERED_ORDER_STATUS_EXPR, { $ifNull: ['$pricing.markupTotal', 0] }, 0]
-                        }
                     },
                     deliveryFeeTotal: { 
                         $sum: { 
-                            $cond: [DELIVERED_ORDER_STATUS_EXPR, DASHBOARD_DELIVERY_FEE_EXPR, 0] 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.deliveryFee', 0] }, 0] 
                         } 
-                    },
-                    riderEarningTotal: {
-                        $sum: {
-                            $cond: [DELIVERED_ORDER_STATUS_EXPR, DASHBOARD_RIDER_EARNING_EXPR, 0]
-                        }
                     },
                     gstTotal: { 
                         $sum: { 
-                            $cond: [DELIVERED_ORDER_STATUS_EXPR, { $ifNull: ['$pricing.tax', 0] }, 0] 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.tax', 0] }, 0] 
                         } 
                     },
-                    // COD pipeline: include pending/processing cash orders (not only delivered)
-                    codCollectedTotal: {
-                        $sum: {
-                            $cond: [COLLECTED_COD_ORDER_EXPR, COD_AMOUNT_EXPR, 0]
-                        }
-                    },
-                    codOpenTotal: {
-                        $sum: {
-                            $cond: [OPEN_COD_ORDER_EXPR, COD_AMOUNT_EXPR, 0]
-                        }
-                    },
-                    codOpenOrders: {
-                        $sum: {
-                            $cond: [OPEN_COD_ORDER_EXPR, 1, 0]
-                        }
-                    },
-                    cashOrderCount: {
-                        $sum: {
-                            $cond: [IS_CASH_COD_METHOD_EXPR, 1, 0]
-                        }
-                    },
-                    onlineOrderCount: {
-                        $sum: {
-                            $cond: [
-                                {
-                                    $and: [
-                                        { $not: [IS_CASH_COD_METHOD_EXPR] },
-                                        ADMIN_VISIBLE_PAYMENT_EXPR
-                                    ]
-                                },
-                                1,
-                                0
-                            ]
-                        }
-                    },
-                    deliveryBoyEarningTotal: {
-                        $sum: {
-                            $cond: [
-                                {
-                                    $and: [
-                                        DELIVERED_ORDER_STATUS_EXPR,
-                                        { $ne: [{ $ifNull: ['$dispatch.deliveryPartnerId', null] }, null] }
-                                    ]
-                                },
-                                DASHBOARD_RIDER_EARNING_EXPR,
-                                0
-                            ]
-                        }
-                    },
-                    // Restaurant earning uses restaurant base (before admin markup)
-                    restaurantEarningTotal: {
-                        $sum: {
-                            $cond: [
-                                DELIVERED_ORDER_STATUS_EXPR,
-                                {
-                                    $max: [
-                                        0,
-                                        {
-                                            $subtract: [
-                                                {
-                                                    $add: [
-                                                        {
-                                                            $ifNull: [
-                                                                '$pricing.baseSubtotal',
-                                                                { $ifNull: ['$pricing.subtotal', 0] },
-                                                            ],
-                                                        },
-                                                        { $ifNull: ['$pricing.packagingFee', 0] }
-                                                    ]
-                                                },
-                                                { $ifNull: ['$pricing.restaurantCommission', 0] }
-                                            ]
-                                        }
-                                    ]
-                                },
-                                0
-                            ]
-                        }
+                    adminNetProfit: { 
+                        $sum: { 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$platformProfit', 0] }, 0] 
+                        } 
                     }
                 }
             }
@@ -764,7 +612,7 @@ export async function getDashboardStats(query = {}) {
                         $sum: {
                             $cond: [
                                 { $eq: ['$orderStatus', 'delivered'] },
-                                { $ifNull: ['$pricing.restaurantCommission', 0] },
+                                { $ifNull: ['$platformProfit', { $ifNull: ['$pricing.platformFee', 0] }] },
                                 0
                             ]
                         }
@@ -779,10 +627,9 @@ export async function getDashboardStats(query = {}) {
         FoodDeliveryPartner.countDocuments({ status: 'pending' }),
         FoodItem.countDocuments({ approvalStatus: 'approved', ...zoneScopedRestaurantMatch }),
         FoodAddon.countDocuments({ approvalStatus: 'approved', isDeleted: { $ne: true }, ...zoneScopedRestaurantMatch }),
-        // Total Customers is always the count of all registered users. A customer is
-        // not tied to a zone (they can order from anywhere), so the zone filter does
-        // not apply here — it stays the same across all zones.
-        FoodUser.countDocuments({}),
+        zoneId
+            ? FoodOrder.distinct('userId', { ...orderMatch, userId: { $ne: null } }).then((ids) => ids.length)
+            : FoodUser.countDocuments({}),
         FoodRestaurant.find({ ...restaurantMatch, status: 'pending' }).sort({ createdAt: -1 }).limit(5).select('restaurantName createdAt').lean(),
         FoodDeliveryPartner.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(5).select('name createdAt').lean(),
         FoodOrder.find({ 
@@ -892,23 +739,11 @@ export async function getDashboardStats(query = {}) {
     liveSignals.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
     const finalLiveSignals = liveSignals.slice(0, 15);
 
-    let totals = orderTotalsAgg?.[0] || {};
-
-    // IMPORTANT:
-    // Gross revenue / fees must come from FoodOrder delivered rows (pricing.total, etc.).
-    // Overwriting with FoodTransaction caused undercount (e.g. delivered GMV 5441 vs
-    // ledger "captured" sum 4714) because:
-    //  - COD txs can remain status "pending" if not synced on delivery
-    //  - ledger enum has no "settled"; wrong fields were used for fee cards
-    //    (platformFee mapped to platformNetProfit, deliveryFee to riderShare)
-    // FoodOrder is what ops manually verify against delivered order totals.
-
-    // Monthly chart: use FoodOrder delivered sums (same source as Gross revenue)
-    const finalMonthlyAgg = monthlyAgg || [];
+    const totals = orderTotalsAgg?.[0] || {};
 
     const now = new Date();
     const monthlyMap = new Map(
-        (finalMonthlyAgg || []).map((row) => {
+        (monthlyAgg || []).map((row) => {
             const key = `${row._id?.year}-${row._id?.month}`;
             return [key, row];
         })
@@ -929,49 +764,22 @@ export async function getDashboardStats(query = {}) {
         });
     }
 
-    const commissionTotal = Number(totals.commissionTotal || 0);
-    const platformFeeTotal = Number(totals.platformFeeTotal || 0);
-    const markupTotal = Number(totals.markupTotal || 0);
-    const deliveryFeeTotal = Number(totals.deliveryFeeTotal || 0);
-    const riderEarningTotal = Number(totals.riderEarningTotal || 0);
-    const gstTotal = Number(totals.gstTotal || 0);
-    // Delivery fee kept by platform after paying riders
-    const deliveryProfit = Math.max(0, deliveryFeeTotal - riderEarningTotal);
-    // Platform Total = Comm + Platform fee + Admin markup + Delivery net + GST
-    const totalAdminEarnings =
-        Math.round((commissionTotal + platformFeeTotal + markupTotal + deliveryProfit + gstTotal) * 100) / 100;
-
     return {
         orders: {
             total: Number(totals.totalOrders || 0),
             byStatus: {
                 delivered: Number(totals.delivered || 0),
                 cancelled: Number(totals.cancelled || 0),
-                pending: Number(totals.dashboardPending || 0),
-                processing: Number(totals.dashboardProcessing || 0),
-                inTransit: Number(totals.dashboardInTransit || 0),
-                refunded: Number(totals.refunded || 0)
+                pending: Number(totals.pending || 0)
             }
         },
         revenue: { total: Number(totals.revenueTotal || 0) },
-        cod: {
-            collected: Number(totals.codCollectedTotal || 0),
-            open: Number(totals.codOpenTotal || 0),
-            total: Number(totals.codCollectedTotal || 0) + Number(totals.codOpenTotal || 0),
-            openOrders: Number(totals.codOpenOrders || 0),
-            cashOrders: Number(totals.cashOrderCount || 0),
-            onlineOrders: Number(totals.onlineOrderCount || 0)
-        },
-        commission: { total: commissionTotal },
-        platformFee: { total: platformFeeTotal },
-        markup: { total: markupTotal },
-        deliveryFee: { total: deliveryFeeTotal },
-        riderEarnings: { total: riderEarningTotal },
-        deliveryBoyEarning: Number(totals.deliveryBoyEarningTotal || 0),
-        restaurantEarning: Number(totals.restaurantEarningTotal || 0),
-        gst: { total: gstTotal },
-        totalAdminEarnings,
-        deliveryProfit,
+        commission: { total: Number(totals.commissionTotal || 0) },
+        platformFee: { total: Number(totals.platformFeeTotal || 0) },
+        deliveryFee: { total: Number(totals.deliveryFeeTotal || 0) },
+        gst: { total: Number(totals.gstTotal || 0) },
+        totalAdminEarnings: Number(totals.adminNetProfit || 0) + Number(totals.gstTotal || 0),
+        deliveryProfit: Number(totals.adminNetProfit || 0) - Number(totals.commissionTotal || 0) - Number(totals.platformFeeTotal || 0),
         restaurants: {
             total: Number(restaurantsTotal || 0),
             pendingRequests: Number(restaurantsPending || 0)
@@ -984,9 +792,7 @@ export async function getDashboardStats(query = {}) {
         addons: { total: Number(addonsTotal || 0) },
         customers: { total: Number(customersTotal || 0) },
         orderStats: {
-            // Align with /admin/food/orders/pending (created + visible payment only).
-            pending: Number(totals.dashboardPending || 0),
-            processing: Number(totals.dashboardProcessing || 0),
+            pending: Number(totals.pending || 0),
             completed: Number(totals.delivered || 0)
         },
         monthlyData,
@@ -1012,322 +818,162 @@ function formatTimeAgo(date) {
 
 
 export async function getTransactionReport(query = {}) {
-    const { fromDate, toDate, zone, restaurant, search, time } = query;
-    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 20, 1), 5000);
-    const page = Math.max(parseInt(query.page, 10) || 1, 1);
-    const skip = (page - 1) * limit;
+    const { fromDate, toDate, zone, restaurant, search } = query;
     const match = {};
 
-    // Prefer explicit ISO range from client; else compute Asia/Kolkata ranges from `time`
-    const timeLabel = String(time || '').trim().toLowerCase();
     if (fromDate && toDate) {
         match.createdAt = { $gte: new Date(fromDate), $lte: new Date(toDate) };
-    } else if (timeLabel && timeLabel !== 'all time' && timeLabel !== 'all') {
-        const now = new Date();
-        if (timeLabel === 'today') {
-            match.createdAt = {
-                $gte: toStartOfDayInTimeZone(now),
-                $lte: toEndOfDayInTimeZone(now),
-            };
-        } else if (timeLabel === 'this week') {
-            const range = getWeekRangeInTimeZone(now);
-            match.createdAt = { $gte: range.start, $lte: range.end };
-        } else if (timeLabel === 'this month') {
-            const range = getMonthRangeInTimeZone(now);
-            match.createdAt = { $gte: range.start, $lte: range.end };
-        }
     }
 
-    const searchRaw = String(search || '').trim().slice(0, 80);
-    if (searchRaw) {
-        const escaped = searchRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const searchRegex = new RegExp(escaped, 'i');
-        const [matchedUsers, matchedRestaurants] = await Promise.all([
-            FoodUser.find({
-                $or: [{ name: searchRegex }, { phone: searchRegex }, { email: searchRegex }],
-            })
-                .select('_id')
-                .limit(100)
-                .lean(),
-            FoodRestaurant.find({
-                $or: [
-                    { restaurantName: searchRegex },
-                    { ownerPhone: searchRegex },
-                    { primaryContactNumber: searchRegex },
-                ],
-            })
-                .select('_id')
-                .limit(100)
-                .lean(),
-        ]);
-        const searchOr = [
-            { orderId: searchRegex },
-            { order_id: searchRegex },
-            { customerName: searchRegex },
+    if (search) {
+        const searchRegex = new RegExp(String(search).trim(), "i");
+        const matchingOrders = await FoodOrder.find({ orderId: { $regex: searchRegex } })
+            .select('_id')
+            .lean();
+
+        match.$or = [
+            { orderReadableId: { $regex: searchRegex } },
+            { orderId: { $in: matchingOrders.map((order) => order._id) } }
         ];
-        if (mongoose.Types.ObjectId.isValid(searchRaw)) {
-            searchOr.push({ _id: new mongoose.Types.ObjectId(searchRaw) });
-        }
-        if (matchedUsers.length) {
-            searchOr.push({ userId: { $in: matchedUsers.map((u) => u._id) } });
-        }
-        if (matchedRestaurants.length) {
-            searchOr.push({ restaurantId: { $in: matchedRestaurants.map((r) => r._id) } });
-        }
-        match.$or = searchOr;
     }
 
-    if ((zone && zone !== 'All Zones') || (restaurant && restaurant !== 'All restaurants')) {
+    if (zone || restaurant) {
         const restFilter = {};
 
-        if (zone && zone !== 'All Zones') {
-            if (mongoose.Types.ObjectId.isValid(zone)) {
-                restFilter.zoneId = new mongoose.Types.ObjectId(zone);
-            } else {
-                const matchedZone = await FoodZone.findOne({
-                    $or: [{ name: zone }, { zoneName: zone }]
-                })
-                    .select('_id')
-                    .lean();
-                if (matchedZone?._id) {
-                    restFilter.zoneId = matchedZone._id;
+        if (zone) {
+            const zoneRaw = String(zone).trim();
+            if (zoneRaw) {
+                if (mongoose.Types.ObjectId.isValid(zoneRaw)) {
+                    restFilter.zoneId = new mongoose.Types.ObjectId(zoneRaw);
                 } else {
-                    restFilter.zoneId = new mongoose.Types.ObjectId();
+                    const matchedZone = await FoodZone.findOne({
+                        $or: [{ name: zoneRaw }, { zoneName: zoneRaw }]
+                    })
+                        .select('_id')
+                        .lean();
+                    if (matchedZone?._id) {
+                        restFilter.zoneId = matchedZone._id;
+                    } else {
+                        match.restaurantId = { $in: [] };
+                    }
                 }
             }
         }
 
         if (restaurant && restaurant !== 'All restaurants') {
-            if (mongoose.Types.ObjectId.isValid(restaurant)) {
-                restFilter._id = new mongoose.Types.ObjectId(restaurant);
-            } else {
-                const restDoc = await FoodRestaurant.findOne({ restaurantName: restaurant })
-                    .select('_id')
-                    .lean();
-                if (restDoc) {
+            const restaurantRaw = String(restaurant).trim();
+            if (restaurantRaw) {
+                let restDoc = null;
+                if (mongoose.Types.ObjectId.isValid(restaurantRaw)) {
+                    restDoc = await mongoose
+                        .model('FoodRestaurant')
+                        .findById(restaurantRaw)
+                        .select('_id')
+                        .lean();
+                } else {
+                    restDoc = await mongoose.model('FoodRestaurant').findOne({
+                        $or: [{ restaurantName: restaurantRaw }, { name: restaurantRaw }]
+                    })
+                        .select('_id')
+                        .lean();
+                }
+                if (restDoc?._id) {
                     restFilter._id = restDoc._id;
                 } else {
-                    restFilter._id = new mongoose.Types.ObjectId();
+                    match.restaurantId = { $in: [] };
                 }
             }
         }
 
-        const restaurantsList = await FoodRestaurant.find(restFilter).select('_id').lean();
-        match.restaurantId = { $in: restaurantsList.map((r) => r._id) };
+        if (!match.restaurantId && Object.keys(restFilter).length > 0) {
+            const restaurantsList = await mongoose
+                .model('FoodRestaurant')
+                .find(restFilter)
+                .select('_id')
+                .lean();
+            match.restaurantId = { $in: restaurantsList.map((r) => r._id) };
+        }
     }
 
-    // Source of truth = FoodOrder (same as dashboard GMV). Ledger alone undercounted / drifted.
-    const [orders, total, summaryOrders] = await Promise.all([
-        FoodOrder.find(match)
-            .populate('userId', 'name')
-            .populate('restaurantId', 'restaurantName')
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limit)
-            .lean(),
-        FoodOrder.countDocuments(match),
-        FoodOrder.find(match)
-            .select('pricing orderStatus payment riderEarning dispatch.deliveryPartnerId')
-            .lean(),
-    ]);
+    // Include only resolved transactions for reports (or all to match orders)
+    // We will query the FoodTransaction table directly as it is the ledger
+    const transactionRows = await FoodTransaction.find(match)
+        .populate('orderId')
+        .populate('userId', 'name')
+        .populate('restaurantId', 'restaurantName')
+        .sort({ createdAt: -1 })
+        .lean();
 
-    const orderIds = orders.map((o) => o._id).filter(Boolean);
-    const txRows = orderIds.length
-        ? await FoodTransaction.find({ orderId: { $in: orderIds } })
-            .select('orderId status amounts payment')
-            .lean()
-        : [];
-    const txByOrderId = new Map(txRows.map((t) => [String(t.orderId), t]));
-
-    const toNum = (v) => {
-        const n = Number(v);
-        return Number.isFinite(n) ? n : 0;
-    };
-
-    const resolveDisplayStatus = (order, tx) => {
-        const os = String(order?.orderStatus || '').toLowerCase();
-        const pay = String(order?.payment?.status || tx?.payment?.status || '').toLowerCase();
-        const txStatus = String(tx?.status || '').toLowerCase();
-
-        // UI never shows ledger jargon like "captured" / "settled"
-        if (pay === 'refunded' || txStatus === 'refunded') return 'Refunded';
-        if (os === 'delivered') return 'Delivered';
-        if (os.startsWith('cancelled')) return 'Cancelled';
-        if (['preparing', 'ready_for_pickup', 'picked_up', 'out_for_delivery'].includes(os)) {
-            return 'Processing';
-        }
-        if (['confirmed', 'accepted'].includes(os)) return 'Confirmed';
-        if (
-            pay === 'cod_pending' ||
-            pay === 'created' ||
-            pay === 'pending' ||
-            txStatus === 'pending' ||
-            os === 'created' ||
-            os === 'pending'
-        ) {
-            return 'Pending';
-        }
-        // Paid online / wallet but not delivered yet — still in progress
-        if (pay === 'paid' || pay === 'authorized' || txStatus === 'captured' || txStatus === 'settled') {
-            return 'Processing';
-        }
-        if (os) {
-            return os
-                .split('_')
-                .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
-                .join(' ');
-        }
-        return 'Pending';
-    };
-
-    const transactions = orders.map((order) => {
+    const transactions = transactionRows.map((tx) => {
+        const order = tx.orderId || {};
         const pricing = order.pricing || {};
-        const tx = txByOrderId.get(String(order._id));
-        const subtotal = toNum(pricing.subtotal);
-        const packagingFee = toNum(pricing.packagingFee);
-        const deliveryFee = toNum(pricing.deliveryFee);
-        const tax = toNum(pricing.tax);
-        const discount = toNum(pricing.discount);
-        const total = toNum(pricing.total);
-        const platformFeeStored = pricing.platformFee;
-        const platformFee =
-            platformFeeStored !== undefined && platformFeeStored !== null
-                ? toNum(platformFeeStored)
-                : Math.max(0, total - subtotal - packagingFee - deliveryFee - tax + discount);
+        const subtotal = Number(pricing.subtotal || 0) || 0;
+        const packagingFee = Number(pricing.packagingFee || 0) || 0;
+        const deliveryFee = Number(pricing.deliveryFee || 0) || 0;
+        const tax = Number(pricing.tax || 0) || 0;
+        const discount = Number(pricing.discount || 0) || 0;
+        const total = Number(pricing.total || 0) || 0;
 
+        // "Platform fee" should come from pricing.platformFee when available.
+        // For older orders where pricing.platformFee isn't stored, derive it from the pricing equation:
+        // total = subtotal + packagingFee + deliveryFee + platformFee + tax - discount
+        const platformFeeDerived = Math.max(
+            0,
+            total - subtotal - packagingFee - deliveryFee - tax + discount
+        );
+        const platformFee =
+            pricing.platformFee !== undefined && pricing.platformFee !== null
+                ? Number(pricing.platformFee || 0) || 0
+                : platformFeeDerived;
         return {
-            id: order._id,
-            orderId: order.orderId || 'N/A',
-            restaurant: order.restaurantId?.restaurantName || 'N/A',
-            restaurantId: order.restaurantId?._id || order.restaurantId || null,
-            customerName: order.userId?.name || order.customerName || 'Guest',
+            id: tx._id,
+            orderId: tx.orderReadableId || order.orderId || 'N/A',
+            restaurant: tx.restaurantId?.restaurantName || 'N/A',
+            customerName: tx.userId?.name || 'Guest',
             totalItemAmount: subtotal,
-            restaurantBaseAmount: toNum(pricing.baseSubtotal ?? Math.max(0, subtotal - toNum(pricing.markupTotal))),
-            adminMarkup: toNum(pricing.markupTotal),
-            itemDiscount: discount,
-            couponDiscount: discount,
-            couponCode: pricing.couponCode || order.couponCode || null,
-            referralDiscount: toNum(pricing.referralDiscount || order.referralDiscount),
-            discountedAmount: Math.max(0, subtotal - discount),
-            vatTax: tax,
-            deliveryCharge: deliveryFee,
+            itemDiscount: pricing.discount || 0,
+            couponDiscount: pricing.discount || 0,
+            adminDiscountShare: Number(tx.amounts?.adminDiscountShare || 0),
+            restaurantDiscountShare: Number(tx.amounts?.restaurantDiscountShare || 0),
+            referralDiscount: 0, // Placeholder
+            discountedAmount: Math.max(0, (pricing.subtotal || 0) - (pricing.discount || 0)),
+            vatTax: tx.amounts?.taxAmount || pricing.tax || 0,
+            deliveryCharge: pricing.deliveryFee || 0,
             platformFee,
-            orderAmount: total,
-            status: resolveDisplayStatus(order, tx),
-            orderStatus: order.orderStatus || null,
-            createdAt: order.createdAt || null,
+            orderAmount: tx.amounts?.totalCustomerPaid || pricing.total || 0,
+            status: tx.status
         };
     });
 
     let completedTransaction = 0;
     let refundedTransaction = 0;
     let adminEarning = 0;
-    let adminCommission = 0;
-    let adminPlatformFee = 0;
-    let adminMarkup = 0;
-    let adminDeliveryNet = 0;
-    let adminGst = 0;
     let restaurantEarning = 0;
     let deliverymanEarning = 0;
-    const markupByRestaurantMap = new Map();
 
-    for (const order of summaryOrders) {
-        const pricing = order.pricing || {};
-        const orderTotal = toNum(pricing.total);
-        const commission = toNum(pricing.restaurantCommission);
-        const platformFee = toNum(pricing.platformFee);
-        const deliveryFee = toNum(pricing.deliveryFee);
-        const tax = toNum(pricing.tax);
-        const rider = toNum(order.riderEarning);
-        const subtotal = toNum(pricing.subtotal);
-        const baseSubtotal = toNum(pricing.baseSubtotal ?? pricing.subtotal);
-        const markupTotal = toNum(pricing.markupTotal);
-        const packaging = toNum(pricing.packagingFee);
-        const os = String(order.orderStatus || '').toLowerCase();
-        const pay = String(order?.payment?.status || '').toLowerCase();
-        const deliveryNet = Math.max(0, deliveryFee - rider);
-        const restaurantName = order.restaurantId?.restaurantName || 'Unknown';
-        const restaurantKey = String(order.restaurantId?._id || order.restaurantId || restaurantName);
-
-        if (os === 'delivered') {
-            completedTransaction += orderTotal;
-            // Align with dashboard Platform Total components
-            adminEarning += commission + platformFee + markupTotal + deliveryNet + tax;
-            adminCommission += commission;
-            adminPlatformFee += platformFee;
-            adminMarkup += markupTotal;
-            adminDeliveryNet += deliveryNet;
-            adminGst += tax;
-            restaurantEarning += Math.max(0, baseSubtotal + packaging - commission);
-            if (markupTotal > 0) {
-                const prev = markupByRestaurantMap.get(restaurantKey) || {
-                    restaurantId: restaurantKey,
-                    restaurant: restaurantName,
-                    adminMarkup: 0,
-                    orders: 0,
-                };
-                prev.adminMarkup += markupTotal;
-                prev.orders += 1;
-                markupByRestaurantMap.set(restaurantKey, prev);
-            }
-            // Same as Delivery Earning page: delivered + assigned partner + riderEarning
-            if (order?.dispatch?.deliveryPartnerId) {
-                deliverymanEarning += rider;
-            }
+    for (const tx of transactionRows) {
+        // Calculate Summary
+        if (tx.status === 'captured' || tx.status === 'settled' || (tx.orderId && tx.orderId.orderStatus === 'delivered')) {
+            completedTransaction += tx.amounts?.totalCustomerPaid || 0;
+            adminEarning += tx.amounts?.platformNetProfit || 0;
+            restaurantEarning += tx.amounts?.restaurantShare || 0;
+            deliverymanEarning += tx.amounts?.riderShare || 0;
         }
-
-        const method = String(order?.payment?.method || '').toLowerCase();
-        const isCashCod =
-            method === 'cash' ||
-            method === 'cod' ||
-            method === 'cash on delivery';
-        // Real money refunds only (online/wallet). Never count COD cancels.
-        const isActuallyRefunded = !isCashCod && pay === 'refunded';
-        if (isActuallyRefunded) {
-            refundedTransaction += orderTotal;
+        if (tx.status === 'refunded' || (tx.orderId && tx.orderId.orderStatus === 'cancelled_by_admin')) {
+            // Count number of refunded transactions according to old logic or sum them
+            refundedTransaction += tx.amounts?.totalCustomerPaid || 0;
         }
     }
 
-    return {
-        transactions,
-        summary: {
-            completedTransaction: Math.round(completedTransaction * 100) / 100,
-            refundedTransaction: Math.round(refundedTransaction * 100) / 100,
-            // Same as dashboard "Platform Total"
-            adminEarning: Math.round(adminEarning * 100) / 100,
-            platformTotal: Math.round(adminEarning * 100) / 100,
-            platformTotalBreakdown: {
-                commission: Math.round(adminCommission * 100) / 100,
-                platformFee: Math.round(adminPlatformFee * 100) / 100,
-                markup: Math.round(adminMarkup * 100) / 100,
-                deliveryNet: Math.round(adminDeliveryNet * 100) / 100,
-                gst: Math.round(adminGst * 100) / 100,
-            },
-            adminMarkupTotal: Math.round(adminMarkup * 100) / 100,
-            markupByRestaurant: [...markupByRestaurantMap.values()]
-                .map((row) => ({
-                    ...row,
-                    adminMarkup: Math.round(row.adminMarkup * 100) / 100,
-                }))
-                .sort((a, b) => b.adminMarkup - a.adminMarkup),
-            restaurantEarning: Math.round(restaurantEarning * 100) / 100,
-            deliverymanEarning: Math.round(deliverymanEarning * 100) / 100,
-        },
-        meta: {
-            orderCount: orders.length,
-            source: 'food_orders',
-            page,
-            limit,
-            total,
-            totalPages: Math.ceil(total / limit) || 1,
-        },
-        pagination: {
-            page,
-            limit,
-            total,
-            totalPages: Math.ceil(total / limit) || 1,
-        },
+    const summary = {
+        completedTransaction,
+        refundedTransaction, // Returning amount instead of count for consistency, frontend might expect count though
+        adminEarning,
+        restaurantEarning,
+        deliverymanEarning,
     };
+
+    return { transactions, summary };
 }
 
 export async function getRestaurantReport(query = {}) {
@@ -1373,7 +1019,7 @@ export async function getRestaurantReport(query = {}) {
 
     const formatCurrency = (value) => `\u20B9${Number(value || 0).toFixed(2)}`;
 
-    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 20, 1), 5000);
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 1000, 1), 5000);
     const page = Math.max(parseInt(query.page, 10) || 1, 1);
     const skip = (page - 1) * limit;
 
@@ -1447,7 +1093,19 @@ export async function getRestaurantReport(query = {}) {
         return { restaurants: [], total, page, limit };
     }
 
-    const orderCreatedAtFilter = parseTimeRange(query.time);
+    const orderCreatedAtFilter = (() => {
+        if (query.fromDate || query.toDate) {
+            const createdAt = {};
+            if (query.fromDate) {
+                createdAt.$gte = new Date(query.fromDate);
+            }
+            if (query.toDate) {
+                createdAt.$lte = new Date(query.toDate);
+            }
+            return Object.keys(createdAt).length ? createdAt : null;
+        }
+        return parseTimeRange(query.time);
+    })();
     const orderMatch = {
         restaurantId: { $in: restaurantIds },
         $or: [
@@ -1538,101 +1196,205 @@ export async function getRestaurantReport(query = {}) {
     return { restaurants, total, page, limit };
 }
 
+function buildTaxReportDateMatch(fromDate, toDate) {
+    const createdAt = {};
+    if (fromDate) {
+        createdAt.$gte = new Date(fromDate);
+    }
+    if (toDate) {
+        const end = new Date(toDate);
+        if (!Number.isNaN(end.getTime())) {
+            end.setHours(23, 59, 59, 999);
+            createdAt.$lte = end;
+        }
+    }
+    return Object.keys(createdAt).length > 0 ? createdAt : null;
+}
+
+function normalizeTaxReportCalculateTax(value) {
+    return String(value || 'percentage').toLowerCase().replace(/\s+/g, '_');
+}
+
+function shouldRecalculateTaxAtRate(taxRate, calculateTax) {
+    const rate = Number(taxRate);
+    return (
+        Number.isFinite(rate) &&
+        rate > 0 &&
+        normalizeTaxReportCalculateTax(calculateTax) === 'percentage'
+    );
+}
+
+function buildOrderTaxAmountExpression(taxRate, calculateTax) {
+    if (shouldRecalculateTaxAtRate(taxRate, calculateTax)) {
+        const rate = Number(taxRate) / 100;
+        return {
+            $round: [
+                {
+                    $multiply: [
+                        {
+                            $max: [
+                                0,
+                                {
+                                    $subtract: [
+                                        { $ifNull: ['$pricing.subtotal', 0] },
+                                        { $ifNull: ['$pricing.discount', 0] }
+                                    ]
+                                }
+                            ]
+                        },
+                        rate
+                    ]
+                },
+                0
+            ]
+        };
+    }
+    return { $ifNull: ['$pricing.tax', 0] };
+}
+
+function computeOrderTaxAmount(pricing = {}, taxRate, calculateTax) {
+    if (shouldRecalculateTaxAtRate(taxRate, calculateTax)) {
+        const rate = Number(taxRate) / 100;
+        const taxableBase = Math.max(
+            0,
+            (Number(pricing.subtotal) || 0) - (Number(pricing.discount) || 0)
+        );
+        return Math.round(taxableBase * rate);
+    }
+    return Number(pricing.tax) || 0;
+}
+
+async function loadOffersByRestaurantIds(restaurantIds = []) {
+    const uniqueIds = [...new Set(
+        (restaurantIds || [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => mongoose.Types.ObjectId.isValid(id)),
+    )];
+    if (!uniqueIds.length) return new Map();
+
+    const objectIds = uniqueIds.map((id) => new mongoose.Types.ObjectId(id));
+    const offers = await FoodOffer.find({
+        $or: [
+            { restaurantScope: { $ne: 'selected' } },
+            { restaurantId: { $in: objectIds } },
+            { restaurantIds: { $in: objectIds } },
+        ],
+    }).lean();
+
+    const offersByRestaurantId = new Map();
+    for (const restaurantId of uniqueIds) {
+        const scopedOffers = offers.filter((offer) => {
+            if (offer?.restaurantScope !== 'selected') return true;
+            const selectedIds = Array.isArray(offer.restaurantIds) && offer.restaurantIds.length > 0
+                ? offer.restaurantIds
+                : [offer.restaurantId].filter(Boolean);
+            return selectedIds.some((id) => String(id) === restaurantId);
+        });
+        offersByRestaurantId.set(restaurantId, scopedOffers);
+    }
+    return offersByRestaurantId;
+}
+
+async function summarizeRestaurantEarningsForTaxReport(orders = [], { taxRate, calculateTax } = {}) {
+    const earnedOrders = (orders || []).filter(isRestaurantEarnedOrder);
+    if (!earnedOrders.length) {
+        return { grouped: new Map(), totalEarnings: 0, totalTax: 0 };
+    }
+
+    const orderIds = earnedOrders.map((order) => order._id);
+    const restaurantIds = earnedOrders.map((order) => order.restaurantId);
+    const [transactions, offersByRestaurantId] = await Promise.all([
+        FoodTransaction.find({ orderId: { $in: orderIds } })
+            .select('orderId pricing amounts')
+            .lean(),
+        loadOffersByRestaurantIds(restaurantIds),
+    ]);
+    const txByOrderId = new Map(transactions.map((tx) => [String(tx.orderId), tx]));
+
+    const grouped = new Map();
+    let totalEarnings = 0;
+    let totalTax = 0;
+
+    for (const order of earnedOrders) {
+        const restaurantId = String(order.restaurantId);
+        const tx = txByOrderId.get(String(order._id));
+        const pricing = tx?.pricing || order.pricing || {};
+        const offers = offersByRestaurantId.get(restaurantId) || [];
+        const earnings = computeRestaurantOrderShare(order, tx, offers, restaurantId);
+        const taxAmount = computeOrderTaxAmount(pricing, taxRate, calculateTax);
+
+        if (!grouped.has(restaurantId)) {
+            grouped.set(restaurantId, { totalEarnings: 0, totalTax: 0, orderCount: 0 });
+        }
+        const bucket = grouped.get(restaurantId);
+        bucket.totalEarnings += earnings;
+        bucket.totalTax += taxAmount;
+        bucket.orderCount += 1;
+        totalEarnings += earnings;
+        totalTax += taxAmount;
+    }
+
+    return { grouped, totalEarnings, totalTax };
+}
+
 export async function getTaxReport(query = {}) {
-    const { fromDate, toDate, search } = query;
-    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 20, 1), 5000);
-    const page = Math.max(parseInt(query.page, 10) || 1, 1);
-    const skip = (page - 1) * limit;
+    const { fromDate, toDate, search, taxRate, calculateTax } = query;
     const match = {
-        orderStatus: 'delivered' // Typically tax is reported on delivered/completed orders
+        orderStatus: { $nin: ['pending_payment'] },
     };
 
-    if (fromDate && toDate) {
-        match.createdAt = { $gte: new Date(fromDate), $lte: new Date(toDate) };
+    const createdAt = buildTaxReportDateMatch(fromDate, toDate);
+    if (createdAt) {
+        match.createdAt = createdAt;
     }
 
-    const searchRaw = String(search || '').trim().slice(0, 80);
-    const pipeline = [
-        { $match: match },
-        {
-            $group: {
-                _id: '$restaurantId',
-                totalIncome: { $sum: { $ifNull: ['$pricing.total', 0] } },
-                totalTax: { $sum: { $ifNull: ['$pricing.tax', 0] } },
-                orderCount: { $sum: 1 }
-            }
-        },
-        {
-            $lookup: {
-                from: 'food_restaurants',
-                localField: '_id',
-                foreignField: '_id',
-                as: 'restaurant'
-            }
-        },
-        { $unwind: { path: '$restaurant', preserveNullAndEmptyArrays: true } },
-        {
-            $project: {
-                incomeSource: { $ifNull: ['$restaurant.restaurantName', 'Unknown Restaurant'] },
-                totalIncome: 1,
-                totalTax: 1,
-                orderCount: 1
-            }
-        },
-    ];
-
-    if (searchRaw) {
-        const escaped = searchRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        pipeline.push({
-            $match: {
-                incomeSource: { $regex: escaped, $options: 'i' },
-            },
-        });
+    if (search) {
+        match.orderId = { $regex: search, $options: 'i' };
     }
 
-    pipeline.push(
-        { $sort: { totalTax: -1 } },
-        {
-            $facet: {
-                rows: [{ $skip: skip }, { $limit: limit }],
-                totals: [
-                    {
-                        $group: {
-                            _id: null,
-                            count: { $sum: 1 },
-                            totalIncome: { $sum: '$totalIncome' },
-                            totalTax: { $sum: '$totalTax' },
-                        },
-                    },
-                ],
-            },
-        }
+    const orders = await FoodOrder.find(match)
+        .select('restaurantId orderStatus status deliveryState pricing createdAt orderId')
+        .lean();
+
+    const { grouped, totalEarnings, totalTax } = await summarizeRestaurantEarningsForTaxReport(
+        orders,
+        { taxRate, calculateTax },
     );
 
-    const [facet] = await FoodOrder.aggregate(pipeline);
-    const taxData = facet?.rows || [];
-    const totals = facet?.totals?.[0] || { count: 0, totalIncome: 0, totalTax: 0 };
+    const restaurantObjectIds = [...grouped.keys()]
+        .filter((id) => mongoose.Types.ObjectId.isValid(id))
+        .map((id) => new mongoose.Types.ObjectId(id));
+    const restaurants = restaurantObjectIds.length
+        ? await FoodRestaurant.find({ _id: { $in: restaurantObjectIds } })
+            .select('restaurantName')
+            .lean()
+        : [];
+    const restaurantNameById = new Map(restaurants.map((row) => [String(row._id), row.restaurantName]));
+
+    const taxData = [...grouped.entries()]
+        .map(([restaurantId, item]) => ({
+            _id: restaurantId,
+            incomeSource: restaurantNameById.get(restaurantId) || 'Unknown Restaurant',
+            totalIncome: item.totalEarnings,
+            totalTax: item.totalTax,
+            orderCount: item.orderCount,
+        }))
+        .sort((a, b) => b.totalTax - a.totalTax);
 
     const reports = taxData.map((item, index) => ({
-        sl: skip + index + 1,
+        sl: index + 1,
         id: item._id,
         incomeSource: item.incomeSource,
-        totalIncome: `\u20B9${Number(item.totalIncome || 0).toFixed(2)}`,
-        totalTax: `\u20B9${Number(item.totalTax || 0).toFixed(2)}`,
-        orderCount: item.orderCount
+        totalIncome: `\u20B9${item.totalIncome.toFixed(2)}`,
+        totalTax: `\u20B9${item.totalTax.toFixed(2)}`,
+        orderCount: item.orderCount,
     }));
 
     return {
         reports,
         stats: {
-            totalIncome: `\u20B9${Number(totals.totalIncome || 0).toFixed(2)}`,
-            totalTax: `\u20B9${Number(totals.totalTax || 0).toFixed(2)}`
-        },
-        pagination: {
-            page,
-            limit,
-            total: Number(totals.count || 0),
-            totalPages: Math.ceil(Number(totals.count || 0) / limit) || 1,
+            totalIncome: `\u20B9${totalEarnings.toFixed(2)}`,
+            totalTax: `\u20B9${totalTax.toFixed(2)}`,
         },
     };
 }
@@ -1642,32 +1404,51 @@ export async function getTaxReportDetail(restaurantId, query = {}) {
         throw new ValidationError('Invalid restaurant ID');
     }
 
-    const { fromDate, toDate } = query;
+    const { fromDate, toDate, taxRate, calculateTax } = query;
     const match = {
         restaurantId: new mongoose.Types.ObjectId(restaurantId),
-        orderStatus: 'delivered'
+        orderStatus: { $nin: ['pending_payment'] },
     };
 
-    if (fromDate && toDate) {
-        match.createdAt = { $gte: new Date(fromDate), $lte: new Date(toDate) };
+    const createdAt = buildTaxReportDateMatch(fromDate, toDate);
+    if (createdAt) {
+        match.createdAt = createdAt;
     }
 
     const orders = await FoodOrder.find(match)
-        .select('orderId pricing createdAt orderStatus')
+        .select('orderId orderStatus status deliveryState pricing createdAt restaurantId')
         .sort({ createdAt: -1 })
         .lean();
+
+    const earnedOrders = orders.filter(isRestaurantEarnedOrder);
+    const orderIds = earnedOrders.map((order) => order._id);
+    const [transactions, offers] = await Promise.all([
+        orderIds.length
+            ? FoodTransaction.find({ orderId: { $in: orderIds } })
+                .select('orderId pricing amounts')
+                .lean()
+            : [],
+        loadOffersByRestaurantIds([restaurantId]).then((map) => map.get(String(restaurantId)) || []),
+    ]);
+    const txByOrderId = new Map(transactions.map((tx) => [String(tx.orderId), tx]));
 
     const restaurant = await FoodRestaurant.findById(restaurantId).select('restaurantName').lean();
 
     return {
         restaurantName: restaurant?.restaurantName || 'Unknown Restaurant',
-        orders: orders.map(o => ({
-            id: o._id,
-            orderId: o.orderId,
-            totalAmount: `\u20B9${(o.pricing?.total || 0).toFixed(2)}`,
-            taxAmount: `\u20B9${(o.pricing?.tax || 0).toFixed(2)}`,
-            date: o.createdAt
-        }))
+        orders: earnedOrders.map((order) => {
+            const tx = txByOrderId.get(String(order._id));
+            const pricing = tx?.pricing || order.pricing || {};
+            const earnings = computeRestaurantOrderShare(order, tx, offers, restaurantId);
+            const taxAmount = computeOrderTaxAmount(pricing, taxRate, calculateTax);
+            return {
+                id: order._id,
+                orderId: order.orderId,
+                totalAmount: `\u20B9${earnings.toFixed(2)}`,
+                taxAmount: `\u20B9${taxAmount.toFixed(2)}`,
+                date: order.createdAt,
+            };
+        }),
     };
 }
 
@@ -1707,19 +1488,72 @@ export async function getCustomers(query = {}) {
 
     const sort = {};
     const sortBy = String(query.sortBy || '').trim();
+    const needsOrderSort = sortBy === 'orders-asc' || sortBy === 'orders-desc';
     if (sortBy === 'name-asc') sort.name = 1;
     else if (sortBy === 'name-desc') sort.name = -1;
-    else sort.createdAt = -1;
+    else if (!needsOrderSort) sort.createdAt = -1;
 
-    const [docs, total] = await Promise.all([
-        FoodUser.find(filter)
-            .sort(sort)
-            .skip(skip)
-            .limit(limit)
-            .select('name email phone countryCode isVerified isActive isCodBlocked createdAt profileImage')
-            .lean(),
-        FoodUser.countDocuments(filter)
-    ]);
+    let docs = [];
+    let total = 0;
+
+    if (needsOrderSort) {
+        const orderDir = sortBy === 'orders-asc' ? 1 : -1;
+        [docs, total] = await Promise.all([
+            FoodUser.aggregate([
+                { $match: filter },
+                {
+                    $lookup: {
+                        from: 'food_orders',
+                        let: { uid: '$_id' },
+                        pipeline: [
+                            {
+                                $match: {
+                                    $expr: { $eq: ['$userId', '$$uid'] },
+                                    orderStatus: 'delivered',
+                                },
+                            },
+                            { $project: { total: { $ifNull: ['$pricing.total', 0] } } },
+                        ],
+                        as: 'deliveredOrders',
+                    },
+                },
+                {
+                    $addFields: {
+                        totalOrder: { $size: '$deliveredOrders' },
+                        totalOrderAmount: { $sum: '$deliveredOrders.total' },
+                    },
+                },
+                { $sort: { totalOrder: orderDir, createdAt: -1 } },
+                { $skip: skip },
+                { $limit: limit },
+                {
+                    $project: {
+                        name: 1,
+                        email: 1,
+                        phone: 1,
+                        countryCode: 1,
+                        isVerified: 1,
+                        isActive: 1,
+                        createdAt: 1,
+                        profileImage: 1,
+                        totalOrder: 1,
+                        totalOrderAmount: 1,
+                    },
+                },
+            ]),
+            FoodUser.countDocuments(filter),
+        ]);
+    } else {
+        [docs, total] = await Promise.all([
+            FoodUser.find(filter)
+                .sort(sort)
+                .skip(skip)
+                .limit(limit)
+                .select('name email phone countryCode isVerified isActive createdAt profileImage')
+                .lean(),
+            FoodUser.countDocuments(filter),
+        ]);
+    }
 
     const sanitizeUrl = (s) => {
         if (!s) return '';
@@ -1727,10 +1561,15 @@ export async function getCustomers(query = {}) {
         return str.replace(/^`+|`+$/g, '').trim();
     };
 
-    const userIds = docs.map((u) => u._id).filter(Boolean);
+    const userIds = needsOrderSort ? [] : docs.map((u) => u._id).filter(Boolean);
     const orderStats = userIds.length > 0
         ? await FoodOrder.aggregate([
-            { $match: { userId: { $in: userIds } } },
+            {
+                $match: {
+                    userId: { $in: userIds },
+                    orderStatus: 'delivered'
+                }
+            },
             {
                 $group: {
                     _id: '$userId',
@@ -1752,7 +1591,12 @@ export async function getCustomers(query = {}) {
     );
 
     let customers = docs.map((u) => {
-        const stats = orderStatsMap.get(String(u._id)) || { totalOrder: 0, totalOrderAmount: 0 };
+        const stats = needsOrderSort
+            ? {
+                totalOrder: Number(u.totalOrder || 0),
+                totalOrderAmount: Number(u.totalOrderAmount || 0),
+            }
+            : orderStatsMap.get(String(u._id)) || { totalOrder: 0, totalOrderAmount: 0 };
         return ({
         id: u._id,
         _id: u._id,
@@ -1764,7 +1608,6 @@ export async function getCustomers(query = {}) {
         status: u.isActive !== false,
         isActive: u.isActive !== false,
         isVerified: u.isVerified === true,
-        isCodBlocked: u.isCodBlocked === true,
         totalOrder: stats.totalOrder,
         totalOrderAmount: stats.totalOrderAmount,
         joiningDate: u.createdAt,
@@ -1786,26 +1629,17 @@ export async function getCustomerById(id) {
     if (!u) return null;
     const customerObjectId = new mongoose.Types.ObjectId(id);
     const orderStats = await FoodOrder.aggregate([
-        { $match: { userId: customerObjectId } },
+        {
+            $match: {
+                userId: customerObjectId,
+                orderStatus: 'delivered'
+            }
+        },
         {
             $group: {
                 _id: '$userId',
                 totalOrders: { $sum: 1 },
-                totalOrderAmount: { $sum: { $ifNull: ['$pricing.total', 0] } },
-                totalDeliveredOrders: {
-                    $sum: { $cond: [{ $eq: ['$orderStatus', 'delivered'] }, 1, 0] }
-                },
-                totalCancelledOrders: {
-                    $sum: {
-                        $cond: [{
-                            $in: ['$orderStatus', [
-                                'cancelled_by_user',
-                                'cancelled_by_restaurant',
-                                'cancelled_by_admin'
-                            ]]
-                        }, 1, 0]
-                    }
-                }
+                totalOrderAmount: { $sum: { $ifNull: ['$pricing.total', 0] } }
             }
         }
     ]);
@@ -1826,12 +1660,9 @@ export async function getCustomerById(id) {
         status: u.isActive !== false,
         isActive: u.isActive !== false,
         isVerified: u.isVerified === true,
-        isCodBlocked: u.isCodBlocked === true,
         totalOrders: Number(stats.totalOrders || 0),
         totalOrder: Number(stats.totalOrders || 0),
         totalOrderAmount: Number(stats.totalOrderAmount || 0),
-        totalDeliveredOrders: Number(stats.totalDeliveredOrders || 0),
-        totalCancelledOrders: Number(stats.totalCancelledOrders || 0),
         joiningDate: u.createdAt,
         createdAt: u.createdAt,
         updatedAt: u.updatedAt
@@ -1853,23 +1684,14 @@ export async function updateCustomerStatus(id, isActive) {
     return updated;
 }
 
-export async function updateCustomerCodStatus(id, isCodBlocked) {
-    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
-    const updatedDoc = await FoodUser.findByIdAndUpdate(
-        id,
-        { $set: { isCodBlocked: Boolean(isCodBlocked) } },
-        { new: true }
-    );
-    if (!updatedDoc) return null;
-    return updatedDoc.toObject();
-}
-
 export async function getSupportTickets(query = {}) {
     const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 1000);
     const page = Math.max(parseInt(query.page, 10) || 1, 1);
     const skip = (page - 1) * limit;
     const source = String(query.source || 'all').toLowerCase();
     const search = String(query.search || '').trim();
+    const type = query.type ? String(query.type) : '';
+    const category = query.category ? String(query.category) : '';
 
     const userFilter = {};
     const restaurantFilter = {};
@@ -1877,11 +1699,11 @@ export async function getSupportTickets(query = {}) {
         userFilter.status = String(query.status);
         restaurantFilter.status = String(query.status);
     }
-    if (query.type && ['order', 'restaurant', 'other'].includes(String(query.type))) {
-        userFilter.type = String(query.type);
+    if (type && ['order', 'restaurant', 'other'].includes(type)) {
+        userFilter.type = type;
     }
-    if (query.category && ['orders', 'payments', 'menu', 'restaurant', 'technical', 'other'].includes(String(query.category))) {
-        restaurantFilter.category = String(query.category);
+    if (category && ['orders', 'payments', 'menu', 'restaurant', 'technical', 'other'].includes(category)) {
+        restaurantFilter.category = category;
     }
 
     const userSearchOr = [];
@@ -1914,19 +1736,27 @@ export async function getSupportTickets(query = {}) {
         if (orderIds.length) {
             userSearchOr.push({ orderId: { $in: orderIds.map((o) => o._id) } });
         }
+        if (mongoose.Types.ObjectId.isValid(search)) {
+            userSearchOr.push({ _id: new mongoose.Types.ObjectId(search) });
+            restaurantSearchOr.push({ _id: new mongoose.Types.ObjectId(search) });
+        }
     }
     if (userSearchOr.length) userFilter.$or = userSearchOr;
     if (restaurantSearchOr.length) restaurantFilter.$or = restaurantSearchOr;
 
     const shouldFetchUser = source === 'all' || source === 'user';
-    const shouldFetchRestaurant = source === 'all' || source === 'restaurant';
+    const shouldFetchRestaurant =
+        (source === 'all' || source === 'restaurant') && !type;
+
+    const fetchCap = source === 'all' ? skip + limit : limit;
+    const fetchSkip = source === 'all' ? 0 : skip;
 
     const [userList, userTotal, restaurantList, restaurantTotal] = await Promise.all([
         shouldFetchUser
             ? FoodSupportTicket.find(userFilter)
                   .sort({ createdAt: -1 })
-                  .skip(source === 'all' ? 0 : skip)
-                  .limit(source === 'all' ? limit * page : limit)
+                  .skip(fetchSkip)
+                  .limit(fetchCap)
                   .populate('userId', 'name phone email')
                   .populate('restaurantId', 'restaurantName city area')
                   .populate({
@@ -1940,8 +1770,8 @@ export async function getSupportTickets(query = {}) {
         shouldFetchRestaurant
             ? FoodRestaurantSupportTicket.find(restaurantFilter)
                   .sort({ createdAt: -1 })
-                  .skip(source === 'all' ? 0 : skip)
-                  .limit(source === 'all' ? limit * page : limit)
+                  .skip(fetchSkip)
+                  .limit(fetchCap)
                   .populate('restaurantId', 'restaurantName city area')
                   .lean()
             : Promise.resolve([]),
@@ -2065,6 +1895,50 @@ export async function getSupportTickets(query = {}) {
     return { tickets, total, page, limit };
 }
 
+export async function getFoodSupportTicketStats(query = {}) {
+    const source = String(query.source || 'all').toLowerCase();
+    const type = query.type ? String(query.type) : '';
+    const category = query.category ? String(query.category) : '';
+
+    const userFilter = {};
+    const restaurantFilter = {};
+    if (type && ['order', 'restaurant', 'other'].includes(type)) {
+        userFilter.type = type;
+    }
+    if (category && ['orders', 'payments', 'menu', 'restaurant', 'technical', 'other'].includes(category)) {
+        restaurantFilter.category = category;
+    }
+
+    const shouldFetchUser = source === 'all' || source === 'user';
+    const shouldFetchRestaurant =
+        (source === 'all' || source === 'restaurant') && !type;
+
+    const countStatuses = async (model, filter) => {
+        const [open, inProgress, resolved, total] = await Promise.all([
+            model.countDocuments({ ...filter, status: 'open' }),
+            model.countDocuments({ ...filter, status: 'in-progress' }),
+            model.countDocuments({ ...filter, status: 'resolved' }),
+            model.countDocuments(filter),
+        ]);
+        return { open, inProgress, resolved, total };
+    };
+
+    const empty = { open: 0, inProgress: 0, resolved: 0, total: 0 };
+    const [userCounts, restaurantCounts] = await Promise.all([
+        shouldFetchUser ? countStatuses(FoodSupportTicket, userFilter) : Promise.resolve(empty),
+        shouldFetchRestaurant
+            ? countStatuses(FoodRestaurantSupportTicket, restaurantFilter)
+            : Promise.resolve(empty),
+    ]);
+
+    return {
+        total: userCounts.total + restaurantCounts.total,
+        open: userCounts.open + restaurantCounts.open,
+        inProgress: userCounts.inProgress + restaurantCounts.inProgress,
+        resolved: userCounts.resolved + restaurantCounts.resolved,
+    };
+}
+
 export async function updateSupportTicket(id, body = {}) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     const source = String(body.source || 'user').toLowerCase();
@@ -2078,55 +1952,96 @@ export async function updateSupportTicket(id, body = {}) {
     if (!Object.keys(set).length) return null;
     const model = source === 'restaurant' ? FoodRestaurantSupportTicket : FoodSupportTicket;
     const updated = await model.findByIdAndUpdate(id, { $set: set }, { new: true }).lean();
+
+    // Send notification if admin response was added
+    if (updated && set.adminResponse) {
+        const ownerType = source === 'restaurant' ? 'RESTAURANT' : 'USER';
+        const ownerId = updated.restaurantId || updated.userId;
+
+        if (ownerId) {
+            await FoodNotification.create({
+                ownerType,
+                ownerId,
+                title: 'Support Ticket Response',
+                message: `Admin has responded to your ticket: "${updated.subject}"`,
+                source: 'SUPPORT_RESPONSE',
+                category: 'support',
+                metadata: { ticketId: updated._id, source }
+            }).catch(err => console.error('Error creating support notification:', err));
+
+            // Also send push notification (FCM)
+            await sendNotificationToOwner({
+                ownerType,
+                ownerId,
+                payload: {
+                    title: 'Support Ticket Response',
+                    body: `Admin has responded to your ticket: "${updated.subject}"`,
+                    data: {
+                        type: 'SUPPORT_RESPONSE',
+                        ticketId: String(updated._id),
+                        source
+                    }
+                }
+            }).catch(err => console.error('Error sending support push notification:', err));
+        }
+    }
+
     return updated || null;
 }
 
 // ----- Restaurant Commission (admin) -----
-export async function getRestaurantCommissions() {
-    const list = await FoodRestaurantCommission.find({})
-        .sort({ createdAt: -1 })
-        .populate({ path: 'restaurantId', select: 'restaurantName' })
-        .lean();
+export async function getRestaurantCommissions(query = {}) {
+    const page = Math.max(1, parseInt(query.page, 10) || 1);
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 200);
+    const skip = (page - 1) * limit;
 
-    const commissions = list.map((c, index) => {
-        const mongoRestaurantId = c.restaurantId?._id ? String(c.restaurantId._id) : String(c.restaurantId || '');
-        return {
+    const [list, total] = await Promise.all([
+        FoodRestaurantCommission.find({})
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .select('restaurantId defaultCommission notes status createdAt')
+            .populate({ path: 'restaurantId', select: 'restaurantName' })
+            .lean(),
+        FoodRestaurantCommission.countDocuments({})
+    ]);
+
+    const commissions = list.map((c, index) => ({
         _id: c._id,
-        sl: index + 1,
-        restaurantId: toRestaurantDisplayId(mongoRestaurantId),
+        sl: skip + index + 1,
+        restaurantId: c.restaurantId?._id ? String(c.restaurantId._id) : String(c.restaurantId),
         restaurantName: c.restaurantId?.restaurantName || '',
-        restaurant: mongoRestaurantId
-            ? {
-                _id: mongoRestaurantId,
-                name: c.restaurantId?.restaurantName || '',
-                restaurantId: toRestaurantDisplayId(mongoRestaurantId),
-            }
-            : null,
-        defaultCommission: c.defaultCommission || { type: 'percentage', value: 18 },
+        restaurant: c.restaurantId?._id ? { _id: c.restaurantId._id, name: c.restaurantId.restaurantName } : null,
+        defaultCommission: c.defaultCommission || { type: 'percentage', value: 0 },
         notes: c.notes || '',
         status: c.status !== false
-    };
-    });
+    }));
 
-    return { commissions };
+    return {
+        commissions,
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.max(1, Math.ceil(total / limit))
+        }
+    };
 }
 
 export async function getRestaurantCommissionBootstrap() {
     const [commissionsData, restaurantsData] = await Promise.all([
-        getRestaurantCommissions(),
+        getRestaurantCommissions({ page: 1, limit: 200 }),
         getRestaurants({ status: 'approved', limit: 1000, page: 1 })
     ]);
 
     const commissionByRestaurantId = new Set(
-        (commissionsData.commissions || [])
-            .map((c) => String(c.restaurant?._id || ''))
-            .filter(Boolean)
+        (commissionsData.commissions || []).map((c) => String(c.restaurantId))
     );
 
     const restaurants = (restaurantsData.restaurants || []).map((r) => ({
         _id: r._id,
         name: r.restaurantName || r.name || '',
-        restaurantId: toRestaurantDisplayId(r._id),
+        restaurantId: r._id ? `REST${r._id.toString().slice(-6).padStart(6, '0')}` : '',
         ownerName: r.ownerName || '',
         hasCommissionSetup: commissionByRestaurantId.has(String(r._id))
     }));
@@ -2140,19 +2055,12 @@ export async function getRestaurantCommissionById(id) {
         .populate({ path: 'restaurantId', select: 'restaurantName' })
         .lean();
     if (!doc) return null;
-    const mongoRestaurantId = doc.restaurantId?._id ? String(doc.restaurantId._id) : String(doc.restaurantId || '');
     return {
         _id: doc._id,
-        restaurantId: toRestaurantDisplayId(mongoRestaurantId),
-        restaurant: mongoRestaurantId
-            ? {
-                _id: mongoRestaurantId,
-                name: doc.restaurantId?.restaurantName || '',
-                restaurantId: toRestaurantDisplayId(mongoRestaurantId),
-            }
-            : null,
+        restaurantId: doc.restaurantId?._id ? String(doc.restaurantId._id) : String(doc.restaurantId),
+        restaurant: doc.restaurantId?._id ? { _id: doc.restaurantId._id, name: doc.restaurantId.restaurantName } : null,
         restaurantName: doc.restaurantId?.restaurantName || '',
-        defaultCommission: doc.defaultCommission || { type: 'percentage', value: 18 },
+        defaultCommission: doc.defaultCommission || { type: 'percentage', value: 0 },
         notes: doc.notes || '',
         status: doc.status !== false
     };
@@ -2165,7 +2073,7 @@ export async function createRestaurantCommission(body) {
     }
     const created = await FoodRestaurantCommission.create({
         restaurantId: body.restaurantId,
-        defaultCommission: body.defaultCommission || { type: 'percentage', value: 18 },
+        defaultCommission: body.defaultCommission,
         notes: body.notes || '',
         status: true
     });
@@ -2198,23 +2106,23 @@ export async function toggleRestaurantCommissionStatus(id) {
 }
 
 // ----- Delivery Boy Commission Rule (admin) -----
-function requireValidZoneId(zoneId) {
-    const raw = zoneId != null ? String(zoneId).trim() : '';
-    if (!raw || !mongoose.Types.ObjectId.isValid(raw)) {
-        throw new ValidationError('zoneId is required');
-    }
-    return raw;
-}
+export async function getDeliveryCommissionRules(query = {}) {
+    const page = Math.max(1, parseInt(query.page, 10) || 1);
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 100);
+    const skip = (page - 1) * limit;
 
-export async function getDeliveryCommissionRules(zoneId) {
-    const zid = requireValidZoneId(zoneId);
-    const list = await FoodDeliveryCommissionRule.find({ zoneId: zid })
-        .sort({ createdAt: -1 })
-        .lean();
+    const [list, total] = await Promise.all([
+        FoodDeliveryCommissionRule.find({})
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .select('name minDistance maxDistance commissionPerKm basePayout status createdAt')
+            .lean(),
+        FoodDeliveryCommissionRule.countDocuments({})
+    ]);
     const commissions = list.map((r, index) => ({
         _id: r._id,
-        sl: index + 1,
-        zoneId: r.zoneId,
+        sl: skip + index + 1,
         name: r.name || '',
         minDistance: r.minDistance,
         maxDistance: r.maxDistance ?? null,
@@ -2222,7 +2130,15 @@ export async function getDeliveryCommissionRules(zoneId) {
         basePayout: r.basePayout,
         status: r.status !== false
     }));
-    return { commissions };
+    return {
+        commissions,
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.max(1, Math.ceil(total / limit))
+        }
+    };
 }
 
 function validateCommissionRuleSet(rules) {
@@ -2258,11 +2174,10 @@ function validateCommissionRuleSet(rules) {
 }
 
 export async function createDeliveryCommissionRule(body) {
-    const zid = requireValidZoneId(body.zoneId);
-    const zoneExists = await FoodZone.exists({ _id: zid });
-    if (!zoneExists) throw new ValidationError('Invalid zoneId');
-
-    const existing = await FoodDeliveryCommissionRule.find({ zoneId: zid }).lean();
+    const existing = await FoodDeliveryCommissionRule.find({})
+        .select('minDistance maxDistance commissionPerKm basePayout status')
+        .limit(200)
+        .lean();
     const candidate = [
         ...existing,
         {
@@ -2275,7 +2190,6 @@ export async function createDeliveryCommissionRule(body) {
     ];
     validateCommissionRuleSet(candidate);
     const created = await FoodDeliveryCommissionRule.create({
-        zoneId: zid,
         name: body.name || '',
         minDistance: body.minDistance,
         maxDistance: body.maxDistance ?? null,
@@ -2283,17 +2197,15 @@ export async function createDeliveryCommissionRule(body) {
         basePayout: body.basePayout,
         status: body.status ?? true
     });
-    invalidateCommissionRulesCache(zid);
     return created.toObject();
 }
 
 export async function updateDeliveryCommissionRule(id, body) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
-    const current = await FoodDeliveryCommissionRule.findById(id).lean();
-    if (!current) return null;
-
-    const zid = String(current.zoneId);
-    const existing = await FoodDeliveryCommissionRule.find({ zoneId: zid }).lean();
+    const existing = await FoodDeliveryCommissionRule.find({})
+        .select('_id minDistance maxDistance commissionPerKm basePayout status')
+        .limit(200)
+        .lean();
     const candidate = existing.map((r) =>
         String(r._id) === String(id)
             ? {
@@ -2320,67 +2232,38 @@ export async function updateDeliveryCommissionRule(id, body) {
         },
         { new: true }
     ).lean();
-    invalidateCommissionRulesCache(zid);
     return updated;
 }
 
 export async function deleteDeliveryCommissionRule(id) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     const deleted = await FoodDeliveryCommissionRule.findByIdAndDelete(id).lean();
-    if (deleted?.zoneId) invalidateCommissionRulesCache(deleted.zoneId);
     return deleted ? { id } : null;
 }
 
 export async function toggleDeliveryCommissionRuleStatus(id, status) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
-    const current = await FoodDeliveryCommissionRule.findById(id).lean();
-    if (!current) return null;
-
-    const zid = String(current.zoneId);
-    const existing = await FoodDeliveryCommissionRule.find({ zoneId: zid }).lean();
-    const candidate = existing.map((r) =>
-        String(r._id) === String(id)
-            ? { ...r, status: Boolean(status) }
-            : r
-    );
-    // Allow turning off non-base slabs; still enforce one active base slab when enabling/disabling
-    if (Boolean(status) === false) {
-        const remainingActive = candidate.filter((r) => r.status !== false);
-        if (!remainingActive.some((r) => Number(r.minDistance || 0) === 0)) {
-            throw new ValidationError('Cannot disable the only active base slab (minDistance = 0)');
-        }
-    } else {
-        validateCommissionRuleSet(candidate);
-    }
-
     const updated = await FoodDeliveryCommissionRule.findByIdAndUpdate(
         id,
         { $set: { status: Boolean(status) } },
         { new: true }
     ).lean();
-    invalidateCommissionRulesCache(zid);
     return updated;
 }
 
 // ----- Fee Settings (admin) -----
-export async function getFeeSettings(zoneId) {
-    const zid = requireValidZoneId(zoneId);
-    const doc = await FoodFeeSettings.findOne({ zoneId: zid, isActive: true })
-        .sort({ createdAt: -1 })
-        .lean();
+export async function getFeeSettings() {
+    const doc = await FoodFeeSettings.findOne().sort({ createdAt: -1 }).lean();
     // If not configured yet, return null so UI does not show defaults automatically.
     return { feeSettings: doc || null };
 }
 
 export async function upsertFeeSettings(body) {
-    const zid = requireValidZoneId(body.zoneId);
-    const zoneExists = await FoodZone.exists({ _id: zid });
-    if (!zoneExists) throw new ValidationError('Invalid zoneId');
-
-    // One active fee settings doc per zone.
-    const existing = await FoodFeeSettings.findOne({ zoneId: zid }).sort({ createdAt: -1 });
+    // Single active doc pattern: keep only one active record.
+    const existing = await FoodFeeSettings.findOne().sort({ createdAt: -1 });
+    console.log('[DEBUG] upsertFeeSettings - existing:', existing ? 'Yes' : 'No');
     if (existing) {
-        const $set = { zoneId: zid };
+        const $set = {};
         const $unset = {};
 
         if (body.deliveryFee === null) $unset.deliveryFee = 1;
@@ -2388,20 +2271,16 @@ export async function upsertFeeSettings(body) {
 
         if (body.deliveryFeeRanges !== undefined) $set.deliveryFeeRanges = body.deliveryFeeRanges;
 
-        if (body.freeDeliveryUpTo === null) $unset.freeDeliveryUpTo = 1;
-        else if (body.freeDeliveryUpTo !== undefined) $set.freeDeliveryUpTo = body.freeDeliveryUpTo;
-
         if (body.platformFee === null) $unset.platformFee = 1;
         else if (body.platformFee !== undefined) $set.platformFee = body.platformFee;
 
-        if (body.packagingFee === null) $unset.packagingFee = 1;
-        else if (body.packagingFee !== undefined) $set.packagingFee = body.packagingFee;
+        if (body.quickDeliveryFee === null) $unset.quickDeliveryFee = 1;
+        else if (body.quickDeliveryFee !== undefined) $set.quickDeliveryFee = body.quickDeliveryFee;
 
         if (body.gstRate === null) $unset.gstRate = 1;
         else if (body.gstRate !== undefined) $set.gstRate = body.gstRate;
 
         if (body.isActive !== undefined) $set.isActive = body.isActive;
-        else $set.isActive = true;
 
         const update = {};
         if (Object.keys($set).length) update.$set = $set;
@@ -2413,16 +2292,15 @@ export async function upsertFeeSettings(body) {
     }
 
     const payload = {
-        zoneId: zid,
         deliveryFeeRanges: body.deliveryFeeRanges ?? [],
         isActive: body.isActive !== false
     };
     if (body.deliveryFee !== undefined && body.deliveryFee !== null) payload.deliveryFee = body.deliveryFee;
-    if (body.freeDeliveryUpTo !== undefined && body.freeDeliveryUpTo !== null) payload.freeDeliveryUpTo = body.freeDeliveryUpTo;
     if (body.platformFee !== undefined && body.platformFee !== null) payload.platformFee = body.platformFee;
-    if (body.packagingFee !== undefined && body.packagingFee !== null) payload.packagingFee = body.packagingFee;
+    if (body.quickDeliveryFee !== undefined && body.quickDeliveryFee !== null) payload.quickDeliveryFee = body.quickDeliveryFee;
     if (body.gstRate !== undefined && body.gstRate !== null) payload.gstRate = body.gstRate;
 
+    console.log('[DEBUG] Creating NEW settings with payload:', JSON.stringify(payload, null, 2));
     const created = await FoodFeeSettings.create(payload);
     return created.toObject();
 }
@@ -2598,11 +2476,10 @@ export async function getContactMessages(query = {}) {
 // ----- Delivery Cash Limit (admin) -----
 export async function getDeliveryCashLimitSettings() {
     const doc = await FoodDeliveryCashLimit.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
-    const settings = doc || { deliveryCashLimit: 0, deliveryWithdrawalLimit: 100, maxConcurrentOrders: 1, isActive: true };
+    const settings = doc || { deliveryCashLimit: 0, deliveryWithdrawalLimit: 100, isActive: true };
     return {
         deliveryCashLimit: Number(settings.deliveryCashLimit) || 0,
-        deliveryWithdrawalLimit: Number(settings.deliveryWithdrawalLimit) || 100,
-        maxConcurrentOrders: Math.min(5, Math.max(1, Number(settings.maxConcurrentOrders ?? 1))),
+        deliveryWithdrawalLimit: Number(settings.deliveryWithdrawalLimit) || 100
     };
 }
 
@@ -2610,184 +2487,49 @@ export async function upsertDeliveryCashLimitSettings(body = {}) {
     const existing = await FoodDeliveryCashLimit.findOne({ isActive: true }).sort({ createdAt: -1 });
     const nextCashLimit = body.deliveryCashLimit;
     const nextWithdrawalLimit = body.deliveryWithdrawalLimit;
-    const nextMaxConcurrent = body.maxConcurrentOrders;
-
-    const clampMaxConcurrent = (value) =>
-        Math.min(5, Math.max(1, Number(value) || 1));
 
     if (existing) {
         if (nextCashLimit !== undefined) existing.deliveryCashLimit = Math.max(0, Number(nextCashLimit) || 0);
         if (nextWithdrawalLimit !== undefined) existing.deliveryWithdrawalLimit = Math.max(0, Number(nextWithdrawalLimit) || 0);
-        if (nextMaxConcurrent !== undefined) existing.maxConcurrentOrders = clampMaxConcurrent(nextMaxConcurrent);
         await existing.save();
         return {
             deliveryCashLimit: existing.deliveryCashLimit,
-            deliveryWithdrawalLimit: existing.deliveryWithdrawalLimit,
-            maxConcurrentOrders: existing.maxConcurrentOrders,
+            deliveryWithdrawalLimit: existing.deliveryWithdrawalLimit
         };
     }
 
     const created = await FoodDeliveryCashLimit.create({
         deliveryCashLimit: nextCashLimit !== undefined ? Math.max(0, Number(nextCashLimit) || 0) : 0,
         deliveryWithdrawalLimit: nextWithdrawalLimit !== undefined ? Math.max(0, Number(nextWithdrawalLimit) || 0) : 100,
-        maxConcurrentOrders: nextMaxConcurrent !== undefined ? clampMaxConcurrent(nextMaxConcurrent) : 1,
         isActive: true
     });
 
     return {
         deliveryCashLimit: created.deliveryCashLimit,
-        deliveryWithdrawalLimit: created.deliveryWithdrawalLimit,
-        maxConcurrentOrders: created.maxConcurrentOrders,
+        deliveryWithdrawalLimit: created.deliveryWithdrawalLimit
     };
-}
-
-// ----- Top Restaurants (admin curated, per zone + type) -----
-const TOP_RESTAURANT_TYPES = ['delivery', 'takeaway'];
-const MAX_TOP_RESTAURANTS = 10;
-
-const normalizeTopType = (value) => {
-    const t = String(value || 'delivery').trim().toLowerCase();
-    return TOP_RESTAURANT_TYPES.includes(t) ? t : 'delivery';
-};
-
-/**
- * Returns the candidate restaurants for a zone (+ type) along with each one's
- * current top rank (1-based) if it has been curated. Search is handled on the
- * client so the full candidate set is returned here.
- */
-export async function getTopRestaurantsForAdmin(query = {}) {
-    const zoneIdRaw = String(query.zoneId || '').trim();
-    if (!zoneIdRaw || !mongoose.Types.ObjectId.isValid(zoneIdRaw)) {
-        throw new ValidationError('A valid zoneId is required');
-    }
-    const type = normalizeTopType(query.type);
-    const zoneObjectId = new mongoose.Types.ObjectId(zoneIdRaw);
-
-    const filter = { status: 'approved', zoneId: zoneObjectId };
-    if (type === 'takeaway') {
-        filter['takeawaySettings.isEnabled'] = true;
-    }
-
-    const [restaurants, topDoc] = await Promise.all([
-        FoodRestaurant.find(filter)
-            .select('restaurantName location area city profileImage status ownerName ownerPhone zoneId rating totalRatings takeawaySettings')
-            .populate('zoneId', 'name zoneName')
-            .lean(),
-        FoodTopRestaurant.findOne({ zoneId: zoneObjectId, type }).lean(),
-    ]);
-
-    const orderedIds = Array.isArray(topDoc?.restaurants) ? topDoc.restaurants.map((id) => String(id)) : [];
-    const rankMap = new Map();
-    orderedIds.forEach((id, index) => rankMap.set(id, index + 1));
-
-    const withRank = restaurants.map((r) => ({
-        ...r,
-        rank: rankMap.get(String(r._id)) || null,
-    }));
-
-    return {
-        type,
-        zoneId: zoneIdRaw,
-        maxTop: MAX_TOP_RESTAURANTS,
-        restaurants: withRank,
-    };
-}
-
-/**
- * Saves the ordered top-restaurant list for a zone + type. Receives an ordered
- * array of restaurantIds (index 0 = #Top1). Validates that the ids are unique,
- * within the limit, and are approved restaurants in that zone (takeaway-enabled
- * for the takeaway list). The ordering itself encodes the ranks.
- */
-export async function saveTopRestaurantsForAdmin(body = {}, adminId = null) {
-    const zoneIdRaw = String(body.zoneId || '').trim();
-    if (!zoneIdRaw || !mongoose.Types.ObjectId.isValid(zoneIdRaw)) {
-        throw new ValidationError('A valid zoneId is required');
-    }
-    const type = normalizeTopType(body.type);
-    const zoneObjectId = new mongoose.Types.ObjectId(zoneIdRaw);
-
-    const rawIds = Array.isArray(body.restaurantIds) ? body.restaurantIds : [];
-    if (rawIds.length > MAX_TOP_RESTAURANTS) {
-        throw new ValidationError(`You can select a maximum of ${MAX_TOP_RESTAURANTS} top restaurants`);
-    }
-
-    // Validate ids: valid ObjectIds, no duplicates.
-    const ids = [];
-    const seen = new Set();
-    for (const raw of rawIds) {
-        const idStr = String(raw || '').trim();
-        if (!mongoose.Types.ObjectId.isValid(idStr)) {
-            throw new ValidationError('Invalid restaurant id in top list');
-        }
-        if (seen.has(idStr)) {
-            throw new ValidationError('A restaurant cannot appear twice in the top list');
-        }
-        seen.add(idStr);
-        ids.push(idStr);
-    }
-
-    if (ids.length > 0) {
-        // Ensure every id is an approved restaurant in this zone (and takeaway-enabled when needed).
-        const validFilter = {
-            _id: { $in: ids.map((id) => new mongoose.Types.ObjectId(id)) },
-            status: 'approved',
-            zoneId: zoneObjectId,
-        };
-        if (type === 'takeaway') {
-            validFilter['takeawaySettings.isEnabled'] = true;
-        }
-        const validCount = await FoodRestaurant.countDocuments(validFilter);
-        if (validCount !== ids.length) {
-            throw new ValidationError('One or more selected restaurants are not valid for this zone/type');
-        }
-    }
-
-    const orderedObjectIds = ids.map((id) => new mongoose.Types.ObjectId(id));
-
-    const updated = await FoodTopRestaurant.findOneAndUpdate(
-        { zoneId: zoneObjectId, type },
-        { $set: { restaurants: orderedObjectIds, updatedBy: adminId || null } },
-        { new: true, upsert: true, setDefaultsOnInsert: true }
-    ).lean();
-
-    return {
-        zoneId: zoneIdRaw,
-        type,
-        restaurantIds: (updated?.restaurants || []).map((id) => String(id)),
-    };
-}
-
-/**
- * Used by the public restaurant list to fetch the curated, ordered ids for a
- * zone + type. Returns [] when nothing is curated so the normal list is shown.
- */
-export async function getTopRestaurantIds(zoneId, type) {
-    const zoneIdRaw = String(zoneId || '').trim();
-    if (!zoneIdRaw || !mongoose.Types.ObjectId.isValid(zoneIdRaw)) return [];
-    const normalizedType = normalizeTopType(type);
-    const doc = await FoodTopRestaurant.findOne({
-        zoneId: new mongoose.Types.ObjectId(zoneIdRaw),
-        type: normalizedType,
-    }).select('restaurants').lean();
-    return Array.isArray(doc?.restaurants) ? doc.restaurants.map((id) => String(id)) : [];
 }
 
 // ----- Delivery Emergency Help (admin) -----
 export async function getDeliveryEmergencyHelp() {
     const doc = await FoodDeliveryEmergencyHelp.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
-    const data = doc || {
-        medicalEmergency: '',
-        accidentHelpline: '',
-        contactPolice: '',
+    
+    // Provide sensible defaults for India if numbers are not configured
+    const defaults = {
+        medicalEmergency: '102',
+        accidentHelpline: '108',
+        contactPolice: '100',
         insurance: '',
         isActive: true
     };
+
+    const data = doc || defaults;
+
     return {
-        medicalEmergency: data.medicalEmergency || '',
-        accidentHelpline: data.accidentHelpline || '',
-        contactPolice: data.contactPolice || '',
-        insurance: data.insurance || ''
+        medicalEmergency: (data.medicalEmergency || defaults.medicalEmergency).trim(),
+        accidentHelpline: (data.accidentHelpline || defaults.accidentHelpline).trim(),
+        contactPolice: (data.contactPolice || defaults.contactPolice).trim(),
+        insurance: (data.insurance || '').trim()
     };
 }
 
@@ -2885,59 +2627,215 @@ export async function getRestaurantById(id) {
         .lean();
 }
 
-function posDeliveredOrderMoneyBreakdown(order) {
-    const pricing = order?.pricing || {};
-    const toNum = (v) => {
-        const n = Number(v);
-        return Number.isFinite(n) ? n : 0;
-    };
+function formatSubscriptionPlanLabel(plan) {
+    const key = String(plan || '').trim().toLowerCase();
+    if (key === 'starter') return 'Starter';
+    if (key === 'growth') return 'Growth';
+    if (key === 'premium') return 'Premium';
+    if (!key) return 'Not assigned';
+    return key.charAt(0).toUpperCase() + key.slice(1);
+}
 
-    const subtotal = toNum(pricing.subtotal);
-    const baseSubtotal = toNum(pricing.baseSubtotal ?? pricing.subtotal);
-    const markupTotal = toNum(pricing.markupTotal);
-    const packagingFee = toNum(pricing.packagingFee);
-    const deliveryFee = toNum(pricing.deliveryFee);
-    const tax = toNum(pricing.tax);
-    const discount = toNum(pricing.discount);
-    const total = toNum(pricing.total);
-    const commission = toNum(pricing.restaurantCommission);
-    const platformFeeStored = pricing.platformFee;
-    const platformFee =
-        platformFeeStored !== undefined && platformFeeStored !== null
-            ? toNum(platformFeeStored)
-            : Math.max(0, total - subtotal - packagingFee - deliveryFee - tax + discount);
-    const rider = toNum(order?.riderEarning);
-    const riderShare = order?.dispatch?.deliveryPartnerId ? rider : 0;
-    const restaurantShare = Math.max(0, baseSubtotal + packagingFee - commission);
-    const platformNetProfit = Math.max(0, platformFee + deliveryFee + commission + markupTotal - riderShare);
+/**
+ * Invoice-based subscription summary for the admin POS analytics view
+ * (calendar-month postpaid billing).
+ */
+async function buildRestaurantSubscriptionSummary(restaurantId) {
+    const rId = new mongoose.Types.ObjectId(String(restaurantId));
+
+    const [
+        { FoodSubscriptionInvoice },
+        { FoodSubscriptionTransaction },
+        billingService,
+    ] = await Promise.all([
+        import('../../restaurant/models/subscriptionInvoice.model.js'),
+        import('../../restaurant/models/subscriptionTransaction.model.js'),
+        import('../../restaurant/services/subscriptionBilling.service.js'),
+    ]);
+
+    const currentMonth = billingService.formatBillingMonth(new Date());
+    const { start: monthStart } = billingService.getMonthWindow(currentMonth);
+
+    const [invoiceAgg, latestInvoice, lastPaymentTx, currentGmv, invoices] = await Promise.all([
+        FoodSubscriptionInvoice.aggregate([
+            { $match: { restaurantId: rId } },
+            {
+                $group: {
+                    _id: null,
+                    totalBilled: { $sum: { $ifNull: ['$totalAmount', 0] } },
+                    totalPaid: { $sum: { $ifNull: ['$paidAmount', 0] } },
+                    totalWaived: { $sum: { $ifNull: ['$waivedAmount', 0] } },
+                    totalOutstanding: { $sum: { $ifNull: ['$outstandingAmount', 0] } },
+                    invoiceCount: { $sum: 1 },
+                },
+            },
+        ]),
+        FoodSubscriptionInvoice.findOne({ restaurantId: rId, billingMonth: { $ne: 'legacy' } })
+            .sort({ billingMonth: -1 })
+            .lean(),
+        FoodSubscriptionTransaction.findOne({
+            restaurantId: rId,
+            type: { $in: ['wallet_deduction', 'manual_payment'] },
+        })
+            .sort({ createdAt: -1 })
+            .lean(),
+        billingService.computeMonthlyGmv(rId, monthStart, new Date()),
+        FoodSubscriptionInvoice.find({ restaurantId: rId })
+            .sort({ billingMonth: -1 })
+            .limit(12)
+            .lean(),
+    ]);
+
+    const walletDeductionAgg = await FoodSubscriptionTransaction.aggregate([
+        { $match: { restaurantId: rId, type: 'wallet_deduction' } },
+        { $group: { _id: null, total: { $sum: { $ifNull: ['$amount', 0] } }, count: { $sum: 1 } } },
+    ]);
+
+    const agg = invoiceAgg?.[0] || {};
+    const dueAmount = Math.max(0, Number(agg.totalOutstanding) || 0);
+    const planKey = String(latestInvoice?.planName || '').trim().toLowerCase();
 
     return {
-        subtotal,
-        baseSubtotal,
-        markupTotal,
-        packagingFee,
-        deliveryFee,
-        tax,
-        discount,
-        total,
-        commission,
-        platformFee,
-        riderShare,
-        restaurantShare,
-        platformNetProfit,
+        billingModel: 'calendar_month_postpaid',
+        currentBillingMonth: currentMonth,
+        currentMonthGmv: Number(currentGmv?.gmv) || 0,
+        plan: planKey,
+        planLabel: latestInvoice ? formatSubscriptionPlanLabel(planKey) : 'Not billed yet',
+        cycleFee: Math.max(0, Number(latestInvoice?.totalAmount) || 0),
+        lastBilledMonth: latestInvoice?.billingMonth || null,
+        status: dueAmount > 0 ? 'due' : 'paid',
+        statusLabel: dueAmount > 0 ? 'Outstanding dues pending' : 'No outstanding dues',
+        dueAmount,
+        paidAmount: Math.max(0, Number(agg.totalPaid) || 0),
+        totalBilled: Math.max(0, Number(agg.totalBilled) || 0),
+        totalWaived: Math.max(0, Number(agg.totalWaived) || 0),
+        totalCollected: Math.max(0, Number(agg.totalPaid) || 0),
+        walletDeductionsTotal: Math.max(0, Number(walletDeductionAgg?.[0]?.total) || 0),
+        invoiceCount: Math.max(0, Number(agg.invoiceCount) || 0),
+        invoices: invoices.map((inv) => ({
+            billingMonth: inv.billingMonth,
+            billingMonthLabel: billingService.billingMonthLabel(inv.billingMonth),
+            gmv: inv.gmv,
+            planName: inv.planName,
+            totalAmount: inv.totalAmount,
+            paidAmount: inv.paidAmount,
+            waivedAmount: inv.waivedAmount,
+            outstandingAmount: inv.outstandingAmount,
+            status: inv.status,
+        })),
+        lastPayment: lastPaymentTx
+            ? {
+                amount: Math.max(0, Number(lastPaymentTx.amount) || 0),
+                eventType: String(lastPaymentTx.type || ''),
+                paymentType: lastPaymentTx.type === 'wallet_deduction' ? 'wallet' : 'manual',
+                date: lastPaymentTx.createdAt || null,
+                note: String(lastPaymentTx.remarks || '').trim(),
+            }
+            : null,
     };
 }
 
 export async function getRestaurantAnalytics(restaurantId) {
     if (!restaurantId || !mongoose.Types.ObjectId.isValid(restaurantId)) return null;
     const rId = new mongoose.Types.ObjectId(restaurantId);
+    const restaurantOrderMatch = {
+        $or: [
+            { restaurantId: rId },
+            { restaurantId: String(restaurantId) },
+        ],
+    };
 
-    const [restaurant, commissionDoc, orders] = await Promise.all([
+    const [restaurant, commissionDoc, orders, txRows, orderStatsRows, relevantOffers] = await Promise.all([
         FoodRestaurant.findById(rId).lean(),
         FoodRestaurantCommission.findOne({ restaurantId: rId, status: { $ne: false } }).lean(),
-        FoodOrder.find({ restaurantId: rId })
-            .select('orderStatus createdAt userId pricing riderEarning dispatch.deliveryPartnerId')
+        FoodOrder.find(restaurantOrderMatch).lean(),
+        FoodTransaction.find({ restaurantId: rId })
+            .populate('orderId', 'orderStatus deliveryState createdAt pricing')
+            .sort({ createdAt: -1 })
             .lean(),
+        FoodOrder.aggregate([
+            { $match: restaurantOrderMatch },
+            {
+                $addFields: {
+                    statusNormalized: {
+                        $toLower: {
+                            $trim: {
+                                input: { $ifNull: ['$orderStatus', '$status', ''] },
+                            },
+                        },
+                    },
+                },
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalOrders: { $sum: 1 },
+                    completedOrders: {
+                        $sum: {
+                            $cond: [{ $eq: ['$statusNormalized', 'delivered'] }, 1, 0],
+                        },
+                    },
+                    notDeliveredOrders: {
+                        $sum: {
+                            $cond: [{ $ne: ['$statusNormalized', 'delivered'] }, 1, 0],
+                        },
+                    },
+                    explicitlyCancelledOrders: {
+                        $sum: {
+                            $cond: [
+                                { $in: ['$statusNormalized', CANCELLED_ORDER_STATUSES] },
+                                1,
+                                0,
+                            ],
+                        },
+                    },
+                    cancelledByRestaurant: {
+                        $sum: {
+                            $cond: [{ $eq: ['$statusNormalized', 'cancelled_by_restaurant'] }, 1, 0],
+                        },
+                    },
+                    cancelledByAdmin: {
+                        $sum: {
+                            $cond: [{ $eq: ['$statusNormalized', 'cancelled_by_admin'] }, 1, 0],
+                        },
+                    },
+                    cancelledByUser: {
+                        $sum: {
+                            $cond: [{ $eq: ['$statusNormalized', 'cancelled_by_user'] }, 1, 0],
+                        },
+                    },
+                    inProgressOrders: {
+                        $sum: {
+                            $cond: [
+                                {
+                                    $in: [
+                                        '$statusNormalized',
+                                        [
+                                            'created',
+                                            'confirmed',
+                                            'preparing',
+                                            'ready_for_pickup',
+                                            'reached_pickup',
+                                            'picked_up',
+                                            'reached_drop',
+                                        ],
+                                    ],
+                                },
+                                1,
+                                0,
+                            ],
+                        },
+                    },
+                },
+            },
+        ]),
+        FoodOffer.find({
+            $or: [
+                { restaurantScope: { $ne: 'selected' } },
+                { restaurantId: rId },
+                { restaurantIds: rId },
+            ],
+        }).lean(),
     ]);
 
     if (!restaurant) return null;
@@ -2945,76 +2843,125 @@ export async function getRestaurantAnalytics(restaurantId) {
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
-    const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;
 
-    const cancelledOrders = orders.filter((o) => CANCELLED_ORDER_STATUSES.includes(o.orderStatus));
-    const deliveredOrders = orders.filter((o) => o.orderStatus === 'delivered');
+    const toStatus = (value) => String(value || '').trim().toLowerCase();
+    const isCompletedOrder = (order) => {
+        if (isCancelledOrder(order)) return false;
+        const orderStatus = toStatus(order?.orderStatus || order?.status);
+        const deliveryPhase = toStatus(order?.deliveryState?.currentPhase);
+        return orderStatus === 'delivered' || deliveryPhase === 'delivered' || deliveryPhase === 'completed';
+    };
+    const getPricing = (row) => row?.pricing || row?.orderId?.pricing || {};
+    const getAmount = (row, key) => {
+        const value = row?.amounts?.[key];
+        return value === undefined || value === null ? null : Number(value);
+    };
+    const getRestaurantShare = (row) => {
+        const explicitShare = getAmount(row, 'restaurantShare');
+        if (Number.isFinite(explicitShare)) return explicitShare;
+        const pricing = getPricing(row);
+        const subtotal = Number(pricing?.subtotal) || 0;
+        const packagingFee = Number(pricing?.packagingFee) || 0;
+        const commission = Number(pricing?.restaurantCommission) || 0;
+        return Math.max(0, subtotal + packagingFee - commission);
+    };
+    const getOrderFromRow = (row) => (row?.orderId && typeof row.orderId === 'object' ? row.orderId : row);
+    const getDiscountShares = (row) => {
+        const pricing = getPricing(row);
+        const amounts = row?.amounts || {};
+        const order = getOrderFromRow(row);
+        return resolveDiscountSplit({
+            order,
+            pricing,
+            amounts,
+            offers: relevantOffers,
+            restaurantId: rId,
+        });
+    };
 
-    const sumBreakdown = (list, pick) =>
-        roundMoney(
-            (list || []).reduce((sum, order) => sum + (Number(pick(posDeliveredOrderMoneyBreakdown(order))) || 0), 0),
-        );
+    const completedOrders = orders.filter(isCompletedOrder);
+    const orderStats = orderStatsRows?.[0] || {};
+    const totalOrdersCount = Number(orderStats.totalOrders) || orders.length;
+    const completedOrdersCount = Number(orderStats.completedOrders) || 0;
+    const notDeliveredOrdersCount = Number(orderStats.notDeliveredOrders) || 0;
+    const explicitlyCancelledOrdersCount = Number(orderStats.explicitlyCancelledOrders) || 0;
+    const inProgressOrdersCount = Number(orderStats.inProgressOrders) || 0;
 
-    const totalRevenue = sumBreakdown(deliveredOrders, (b) => b.total);
-    const totalCommission = sumBreakdown(deliveredOrders, (b) => b.commission);
-    const restaurantEarning = sumBreakdown(deliveredOrders, (b) => b.restaurantShare);
+    // Money metrics should come from the ledger (FoodTransaction), not FoodOrder.
+    const completedTxByOrderId = new Map(
+        (txRows || [])
+            .filter((tx) => tx?.orderId && isCompletedOrder(tx.orderId))
+            .map((tx) => [String(tx.orderId?._id || tx.orderId), tx])
+    );
+    // Prefer the ledger snapshot per order, but do not drop a completed order
+    // just because its transaction row is missing.
+    const completedMoneyRows = completedOrders.map(
+        (order) => completedTxByOrderId.get(String(order._id)) || order
+    );
+
+    const sum = (arr, pick) => (arr || []).reduce((s, it) => s + (Number(pick(it)) || 0), 0);
+
+    // 1) Total order value (gross customer paid)
+    const totalRevenue = sum(completedMoneyRows, (row) => getAmount(row, 'totalCustomerPaid') ?? getPricing(row)?.total);
+
+    // 2) Restaurant share (payout to restaurant)
+    const restaurantEarning = sum(completedMoneyRows, getRestaurantShare);
+
+    // 3) Restaurant commission paid to admin
+    const totalCommission = sum(completedMoneyRows, (row) => getAmount(row, 'restaurantCommission') ?? getPricing(row)?.restaurantCommission);
+
+    // 4) Restaurant profit (in this system, equals restaurant share)
     const restaurantProfit = restaurantEarning;
 
-    const monthlyDelivered = deliveredOrders.filter((o) => {
+    const monthlyOrdersList = orders.filter(o => {
         const d = new Date(o.createdAt);
         return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
     });
-    const yearlyDelivered = deliveredOrders.filter((o) => {
+    const monthlyCompletedMoneyRows = completedMoneyRows.filter((row) => {
+        const d = new Date(row?.createdAt || row?.orderId?.createdAt || 0);
+        return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+    });
+    const monthlyProfit = sum(monthlyCompletedMoneyRows, getRestaurantShare);
+
+    const yearlyOrdersList = orders.filter(o => {
         const d = new Date(o.createdAt);
         return d.getFullYear() === currentYear;
     });
+    const yearlyCompletedMoneyRows = completedMoneyRows.filter((row) => {
+        const d = new Date(row?.createdAt || row?.orderId?.createdAt || 0);
+        return d.getFullYear() === currentYear;
+    });
+    const yearlyProfit = sum(yearlyCompletedMoneyRows, getRestaurantShare);
 
-    const monthlyProfit = sumBreakdown(monthlyDelivered, (b) => b.restaurantShare);
-    const yearlyProfit = sumBreakdown(yearlyDelivered, (b) => b.restaurantShare);
+    const avgOrderValue = completedMoneyRows.length > 0 ? totalRevenue / completedMoneyRows.length : 0;
 
-    const monthlyProfitByKey = {};
-    const yearlyProfitByKey = {};
-    for (const order of deliveredOrders) {
-        const d = new Date(order.createdAt);
-        const monthKey = `${d.getFullYear()}-${d.getMonth()}`;
-        const yearKey = String(d.getFullYear());
-        const share = posDeliveredOrderMoneyBreakdown(order).restaurantShare;
-        monthlyProfitByKey[monthKey] = (monthlyProfitByKey[monthKey] || 0) + share;
-        yearlyProfitByKey[yearKey] = (yearlyProfitByKey[yearKey] || 0) + share;
-    }
-    const activeMonthCount = Object.keys(monthlyProfitByKey).length;
-    const activeYearCount = Object.keys(yearlyProfitByKey).length;
-    const averageMonthlyProfit =
-        activeMonthCount > 0 ? roundMoney(restaurantEarning / activeMonthCount) : 0;
-    const averageYearlyProfit =
-        activeYearCount > 0 ? roundMoney(restaurantEarning / activeYearCount) : 0;
-
-    const totalOrdersCount = orders.length;
-    const avgOrderValue =
-        deliveredOrders.length > 0 ? roundMoney(totalRevenue / deliveredOrders.length) : 0;
-
-    const uniqueCustomers = new Set(orders.map((o) => String(o.userId))).size;
+    const uniqueCustomers = new Set(orders.map(o => String(o.userId))).size;
     const customerOrderCounts = orders.reduce((acc, o) => {
         const uid = String(o.userId);
         acc[uid] = (acc[uid] || 0) + 1;
         return acc;
     }, {});
-    const repeatCustomers = Object.values(customerOrderCounts).filter((count) => count > 1).length;
+    const repeatCustomers = Object.values(customerOrderCounts).filter(count => count > 1).length;
 
+    // 5) Restaurant commission percent
     const commissionType = commissionDoc?.defaultCommission?.type || 'percentage';
     const commissionValue = Number(commissionDoc?.defaultCommission?.value || 0) || 0;
-    const completedSubtotal = sumBreakdown(deliveredOrders, (b) => b.subtotal);
+    const completedSubtotal = sum(completedMoneyRows, (row) => getPricing(row)?.subtotal);
     const computedCommissionPercent =
         commissionType === 'percentage'
             ? commissionValue
-            : completedSubtotal > 0
-              ? roundMoney((totalCommission / completedSubtotal) * 100)
-              : 0;
+            : (completedSubtotal > 0 ? (totalCommission / completedSubtotal) * 100 : 0);
 
     const analytics = {
         totalOrders: totalOrdersCount,
-        cancelledOrders: cancelledOrders.length,
-        completedOrders: deliveredOrders.length,
+        cancelledOrders: explicitlyCancelledOrdersCount,
+        explicitlyCancelledOrders: explicitlyCancelledOrdersCount,
+        inProgressOrders: inProgressOrdersCount,
+        notDeliveredOrders: notDeliveredOrdersCount,
+        completedOrders: completedOrdersCount,
+        cancelledByRestaurant: Number(orderStats.cancelledByRestaurant) || 0,
+        cancelledByAdmin: Number(orderStats.cancelledByAdmin) || 0,
+        cancelledByUser: Number(orderStats.cancelledByUser) || 0,
         averageRating: Number(restaurant.rating || 0),
         totalRatings: Number(restaurant.totalRatings || 0),
         commissionPercentage: computedCommissionPercent,
@@ -3023,43 +2970,44 @@ export async function getRestaurantAnalytics(restaurantId) {
         averageOrderValue: avgOrderValue,
         totalRevenue,
         totalCommission,
-        restaurantEarning,
+        restaurantEarning, // restaurant share
         restaurantProfit,
-        monthlyOrders: monthlyDelivered.length,
-        yearlyOrders: yearlyDelivered.length,
-        averageMonthlyProfit,
-        averageYearlyProfit,
+        monthlyOrders: monthlyOrdersList.length,
+        yearlyOrders: yearlyOrdersList.length,
+        averageMonthlyProfit: monthlyProfit, // Placeholder: can be improved if historical data exists
+        averageYearlyProfit: yearlyProfit,   // Placeholder: can be improved if historical data exists
         status: restaurant.status === 'approved' ? 'active' : 'inactive',
         joinDate: restaurant.createdAt,
         totalCustomers: uniqueCustomers,
         repeatCustomers,
-        cancellationRate: totalOrdersCount > 0 ? roundMoney((cancelledOrders.length / totalOrdersCount) * 100) : 0,
-        completionRate: totalOrdersCount > 0 ? roundMoney((deliveredOrders.length / totalOrdersCount) * 100) : 0,
+        cancellationRate: totalOrdersCount > 0 ? (explicitlyCancelledOrdersCount / totalOrdersCount) * 100 : 0,
+        completionRate: totalOrdersCount > 0 ? (completedOrdersCount / totalOrdersCount) * 100 : 0,
+        inProgressRate: totalOrdersCount > 0 ? (inProgressOrdersCount / totalOrdersCount) * 100 : 0,
     };
 
     const paymentSummary = {
-        subtotal: sumBreakdown(deliveredOrders, (b) => b.subtotal),
-        tax: sumBreakdown(deliveredOrders, (b) => b.tax),
-        packagingFee: sumBreakdown(deliveredOrders, (b) => b.packagingFee),
-        deliveryFee: sumBreakdown(deliveredOrders, (b) => b.deliveryFee),
-        platformFee: sumBreakdown(deliveredOrders, (b) => b.platformFee),
-        discount: sumBreakdown(deliveredOrders, (b) => b.discount),
+        // Pricing (what customer paid components)
+        subtotal: sum(completedMoneyRows, (row) => getPricing(row)?.subtotal),
+        tax: sum(completedMoneyRows, (row) => getPricing(row)?.tax ?? getAmount(row, 'taxAmount')),
+        packagingFee: sum(completedMoneyRows, (row) => getPricing(row)?.packagingFee),
+        deliveryFee: sum(completedMoneyRows, (row) => getPricing(row)?.deliveryFee),
+        platformFee: sum(completedMoneyRows, (row) => getPricing(row)?.platformFee),
+        discount: sum(completedMoneyRows, (row) => getPricing(row)?.discount),
+        adminDiscountShare: sum(completedMoneyRows, (row) => getDiscountShares(row).adminDiscountShare),
+        restaurantDiscountShare: sum(completedMoneyRows, (row) => getDiscountShares(row).restaurantDiscountShare),
         total: totalRevenue,
         currency: 'INR',
+
+        // Split (who got what)
         restaurantShare: restaurantEarning,
         restaurantCommission: totalCommission,
-        riderShare: sumBreakdown(deliveredOrders, (b) => b.riderShare),
-        platformNetProfit: sumBreakdown(deliveredOrders, (b) => b.platformNetProfit),
+        riderShare: sum(completedMoneyRows, (row) => getAmount(row, 'riderShare') ?? row?.riderEarning),
+        platformNetProfit: sum(completedMoneyRows, (row) => getAmount(row, 'platformNetProfit') ?? row?.platformProfit),
     };
 
-    return {
-        restaurant: {
-            ...restaurant,
-            restaurantId: toRestaurantDisplayId(restaurant._id),
-        },
-        analytics,
-        paymentSummary,
-    };
+    const subscriptionSummary = await buildRestaurantSubscriptionSummary(rId);
+
+    return { restaurant, analytics, paymentSummary, subscriptionSummary };
 }
 
 export async function getRestaurantMenuById(id) {
@@ -3079,40 +3027,39 @@ export async function updateRestaurantMenuById(id, menu) {
     return doc.menu || { sections: [] };
 }
 
-export async function getPendingRestaurants(query = {}) {
-    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 20, 1), 500);
-    const page = Math.max(parseInt(query.page, 10) || 1, 1);
-    const skip = (page - 1) * limit;
-
-    const filter = { status: { $in: ['pending', 'rejected'] } };
-    if (query.search && String(query.search).trim()) {
-        const term = String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const searchRegex = new RegExp(term, 'i');
-        filter.$or = [
-            { restaurantName: searchRegex },
-            { ownerName: searchRegex },
-            { ownerPhone: searchRegex },
-            { ownerEmail: searchRegex },
-        ];
-    }
-
-    const [restaurants, total] = await Promise.all([
-        FoodRestaurant.find(filter)
-            .populate('zoneId', 'name zoneName')
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limit)
-            .lean(),
-        FoodRestaurant.countDocuments(filter),
-    ]);
-
-    const list = restaurants.map((r, i) => ({
+export async function getPendingRestaurants() {
+    const restaurants = await FoodRestaurant.find({
+        $or: [
+            { status: { $in: ['pending', 'rejected'] } },
+            { locationUpdateStatus: 'pending' }
+        ]
+    })
+        .populate('zoneId', 'name zoneName')
+        .populate('pendingZoneId', 'name zoneName')
+        .sort({ createdAt: -1 })
+        .lean();
+    return restaurants.map((r, i) => ({
         ...r,
-        sl: skip + i + 1,
+        sl: i + 1,
         zone: r.zoneId?.zoneName || r.zoneId?.name || null,
+        pendingZone: r.pendingZoneId?.zoneName || r.pendingZoneId?.name || null,
     }));
+}
 
-    return { restaurants: list, total, page, limit };
+export async function getUnregisteredRestaurants() {
+    const list = await FoodUnregisteredRestaurant.find()
+        .sort({ createdAt: -1 })
+        .lean();
+    return list.map((item, index) => ({
+        ...item,
+        sl: index + 1
+    }));
+}
+
+export async function deleteUnregisteredRestaurant(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) throw new ValidationError('Invalid unregistered restaurant id');
+    const deleted = await FoodUnregisteredRestaurant.findByIdAndDelete(id).lean();
+    return deleted;
 }
 
 export async function updateRestaurantById(id, body = {}) {
@@ -3141,8 +3088,13 @@ export async function updateRestaurantById(id, body = {}) {
         doc.pureVegRestaurant = parseBooleanLike(body.pureVegRestaurant, 'pureVegRestaurant');
     }
 
+    if (body.isActive !== undefined) {
+        doc.isActive = parseBooleanLike(body.isActive, 'isActive');
+    }
+
     if (body.isAcceptingOrders !== undefined) {
         doc.isAcceptingOrders = parseBooleanLike(body.isAcceptingOrders, 'isAcceptingOrders');
+        doc.outsideHoursOverride = false;
     }
 
     if (body.cuisines !== undefined) {
@@ -3220,42 +3172,63 @@ export async function updateRestaurantById(id, body = {}) {
     }
 
     await doc.save();
+
+    if (body.openingTime !== undefined || body.closingTime !== undefined) {
+        await syncAdminRestaurantOutletTimings(doc);
+
+        const { invalidateCache } = await import('../../../../middleware/cache.js');
+        void invalidateCache('restaurants:*');
+        void invalidateCache('restaurant_detail:*');
+        void invalidateCache('restaurant_timings:*');
+    }
+
     return FoodRestaurant.findById(id).select('-__v').populate('zoneId', 'name zoneName serviceLocation isActive').lean();
 }
 
 export async function updateRestaurantStatus(id, body = {}) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
-    const existing = await FoodRestaurant.findById(id)
-        .select('status ownerEmail restaurantName profileImage pendingApprovalType')
-        .lean();
-    if (!existing) return null;
+    const doc = await FoodRestaurant.findById(id);
+    if (!doc) return null;
 
-    const raw = body.status !== undefined ? body.status : body.isActive;
-    const isActive = parseBooleanLike(raw, 'status');
-    const status = isActive ? 'approved' : 'banned';
+    const rawStatus = body.status;
+    const rawIsActive = body.isActive;
 
-    const updated = await FoodRestaurant.findByIdAndUpdate(
-        id,
-        {
-            $set: {
-                status,
-                approvedAt: isActive ? new Date() : undefined,
-                rejectedAt: isActive ? undefined : new Date()
-            },
-            $unset: {
-                rejectionReason: 1
-            }
-        },
-        { new: true, runValidators: false }
-    ).lean();
-
-    if (updated && isActive) {
-        logger.info(`[ADMIN-STATUS] Restaurant ${id} activated (ban/unban) — triggering approval email/FCM`);
-        const isChangesApproval = existing.pendingApprovalType === 'changes';
-        await sendRestaurantApprovalNotifications(updated, existing, isChangesApproval);
+    // 1. Explicit isActive update (e.g. banning / unbanning / activating an approved restaurant)
+    if (rawIsActive !== undefined) {
+        doc.isActive = parseBooleanLike(rawIsActive, 'isActive');
     }
 
-    return updated;
+    // 2. Status update
+    if (rawStatus !== undefined) {
+        if (typeof rawStatus === 'string') {
+            const normalized = rawStatus.trim().toLowerCase();
+            if (['approved', 'pending', 'rejected'].includes(normalized)) {
+                doc.status = normalized;
+                if (normalized === 'approved') {
+                    doc.approvedAt = new Date();
+                    doc.rejectedAt = undefined;
+                    doc.rejectionReason = undefined;
+                } else if (normalized === 'rejected') {
+                    doc.rejectedAt = new Date();
+                    doc.rejectionReason = body.rejectionReason || 'Disabled by admin';
+                }
+            }
+        } else if (typeof rawStatus === 'boolean') {
+            // Boolean status is interpreted as active/inactive toggle
+            doc.isActive = rawStatus;
+        }
+    }
+
+    await doc.save();
+
+    try {
+        const { invalidateCache } = await import('../../../../middleware/cache.js');
+        void invalidateCache('restaurants:*');
+        void invalidateCache('restaurant_detail:*');
+        void invalidateCache('restaurant_timings:*');
+    } catch (_) {}
+
+    return FoodRestaurant.findById(id).select('-__v').populate('zoneId', 'name zoneName serviceLocation isActive').lean();
 }
 
 export async function updateRestaurantLocation(id, body = {}) {
@@ -3523,11 +3496,7 @@ export async function updateCategory(id, body) {
     }
 
     if (body.name !== undefined) doc.name = String(body.name || '').trim();
-    if (body.image !== undefined) {
-        const nextImage = String(body.image || '').trim();
-        await deleteReplacedAssets(doc.image, nextImage);
-        doc.image = nextImage;
-    }
+    if (body.image !== undefined) doc.image = String(body.image || '').trim();
     if (body.type !== undefined) doc.type = String(body.type || '').trim();
     if (body.foodTypeScope !== undefined) doc.foodTypeScope = nextFoodTypeScope;
     if (!doc.restaurantId && doc.createdByRestaurantId) {
@@ -3552,12 +3521,17 @@ export async function updateCategory(id, body) {
 
 export async function deleteCategory(id) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
-    const inUse = await FoodItem.countDocuments({ categoryId: id });
-    if (inUse > 0) {
-        throw new ValidationError('Cannot delete category while it has items');
-    }
+    const categoryObjectId = new mongoose.Types.ObjectId(id);
+    await FoodItem.updateMany(
+        { categoryId: categoryObjectId },
+        {
+            $set: {
+                categoryId: null,
+                categoryName: ''
+            }
+        }
+    );
     const deleted = await FoodCategory.findByIdAndDelete(id).lean();
-    if (deleted) await deleteStoredAssets(deleted.image);
     return deleted ? { id } : null;
 }
 
@@ -3652,6 +3626,13 @@ export async function updateRestaurantAddonAdmin(addonId, body) {
     const updatePayload = {};
     if (body.name !== undefined) updatePayload.name = String(body.name || '').trim();
     if (body.description !== undefined) updatePayload.description = String(body.description || '').trim();
+    if (body.foodType !== undefined) {
+        const foodType = String(body.foodType || '').trim().toLowerCase();
+        if (!['veg', 'non-veg'].includes(foodType)) {
+            throw new ValidationError('Food type must be veg or non-veg');
+        }
+        updatePayload.foodType = foodType;
+    }
     if (body.price !== undefined) {
         const p = Number(body.price);
         if (!Number.isFinite(p) || p < 0) throw new ValidationError('Price must be a valid positive number');
@@ -3715,16 +3696,13 @@ export async function approveRestaurantAddon(addonId) {
             await notifyOwnersSafely(
                 [{ ownerType: 'RESTAURANT', ownerId: updated.restaurantId }],
                 {
-                    title: 'Addon Approved! ✅',
+                    title: 'Addon Approved! âœ…',
                     body: `Your addon "${updated.published?.name || 'New Addon'}" has been approved and is now live.`,
-                    image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
-                    sendToAllDevices: true,
+                    image: 'https://i.ibb.co/5GzXz7r/Eatiefy-Brand-Image.png',
                     data: {
                         type: 'addon_approved',
                         addonId: String(updated._id),
-                        restaurantId: String(updated.restaurantId),
-                        targetUrl: '/food/restaurant',
-                        link: '/food/restaurant',
+                        restaurantId: String(updated.restaurantId)
                     }
                 }
             );
@@ -3761,17 +3739,14 @@ export async function rejectRestaurantAddon(addonId, reason) {
             await notifyOwnersSafely(
                 [{ ownerType: 'RESTAURANT', ownerId: updated.restaurantId }],
                 {
-                    title: 'Addon Rejected ❌',
+                    title: 'Addon Rejected âŒ',
                     body: `Your addon request for "${updated.draft?.name || 'New Addon'}" was rejected. Reason: ${rejectionReason}`,
-                    image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
-                    sendToAllDevices: true,
+                    image: 'https://i.ibb.co/5GzXz7r/Eatiefy-Brand-Image.png',
                     data: {
                         type: 'addon_rejected',
                         addonId: String(updated._id),
                         restaurantId: String(updated.restaurantId),
-                        reason: rejectionReason,
-                        targetUrl: '/food/restaurant',
-                        link: '/food/restaurant',
+                        reason: rejectionReason
                     }
                 }
             );
@@ -3806,19 +3781,16 @@ export async function getFoods(query) {
 
     const [list, total] = await Promise.all([
         FoodItem.find(filter)
-            .select('-oldData -newData')
-            .sort({ _id: -1 })
+            .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
             .lean(),
         FoodItem.countDocuments(filter)
     ]);
 
-    const validRestaurantIds = Array.from(new Set(
-        list.map((f) => String(f.restaurantId)).filter(id => id && mongoose.Types.ObjectId.isValid(id))
-    ));
-    const restaurants = validRestaurantIds.length
-        ? await FoodRestaurant.find({ _id: { $in: validRestaurantIds } }).select('restaurantName').lean()
+    const restaurantIds = Array.from(new Set(list.map((f) => String(f.restaurantId)).filter(Boolean)));
+    const restaurants = restaurantIds.length
+        ? await FoodRestaurant.find({ _id: { $in: restaurantIds } }).select('restaurantName').lean()
         : [];
     const restaurantMap = new Map(restaurants.map((r) => [String(r._id), r.restaurantName]));
 
@@ -3832,12 +3804,12 @@ export async function getFoods(query) {
         name: f.name,
         description: f.description || '',
         price: getFoodDisplayPrice(f),
+        otherPrice: getFoodDisplayOtherPrice(f),
         variants: serializeFoodVariants(f.variants),
         variations: serializeFoodVariants(f.variants),
         image: f.image || '',
         foodType: f.foodType || 'Non-Veg',
         isAvailable: f.isAvailable !== false,
-        isRecommended: f.isRecommended === true,
         preparationTime: f.preparationTime || '',
         approvalStatus: f.approvalStatus || 'approved',
         createdAt: f.createdAt,
@@ -3890,14 +3862,17 @@ const getAdminFoodCreatePricing = (body = {}) => {
     if (variants.length > 0) {
         return {
             price: getFoodDisplayPrice({ variants }),
+            otherPrice: getFoodDisplayOtherPrice({ variants }),
             variants
         };
     }
 
     const price = Number(body.price);
     if (!Number.isFinite(price) || price <= 0) throw new ValidationError('Price must be greater than 0');
+    const otherPrice = Number(body.otherPrice);
     return {
         price,
+        otherPrice: Number.isFinite(otherPrice) && otherPrice > 0 ? otherPrice : 0,
         variants: []
     };
 };
@@ -3913,6 +3888,7 @@ const getAdminFoodUpdatedPricing = (existing = {}, body = {}) => {
 
         if (variants.length > 0) {
             update.price = getFoodDisplayPrice({ variants });
+            update.otherPrice = getFoodDisplayOtherPrice({ variants });
             return update;
         }
 
@@ -3921,6 +3897,12 @@ const getAdminFoodUpdatedPricing = (existing = {}, body = {}) => {
             throw new ValidationError('Base price must be greater than 0 when variants are removed');
         }
         update.price = nextBasePrice;
+        if (body.otherPrice !== undefined) {
+            const otherPrice = Number(body.otherPrice);
+            update.otherPrice = Number.isFinite(otherPrice) && otherPrice > 0 ? otherPrice : 0;
+        } else {
+            update.otherPrice = 0;
+        }
         return update;
     }
 
@@ -3931,6 +3913,14 @@ const getAdminFoodUpdatedPricing = (existing = {}, body = {}) => {
         const price = Number(body.price);
         if (!Number.isFinite(price) || price <= 0) throw new ValidationError('Price must be greater than 0');
         update.price = price;
+    }
+
+    if (body.otherPrice !== undefined) {
+        if (existingHasVariants) {
+            throw new ValidationError('Update variants instead of base other price for foods with variants');
+        }
+        const otherPrice = Number(body.otherPrice);
+        update.otherPrice = Number.isFinite(otherPrice) && otherPrice > 0 ? otherPrice : 0;
     }
 
     return update;
@@ -3953,8 +3943,7 @@ export async function createFood(body) {
     if (restaurant.pureVegRestaurant === true && foodType !== 'Veg') {
         throw new ValidationError('Pure veg restaurants can only use veg foods');
     }
-    const { price, variants } = getAdminFoodCreatePricing(body);
-    const image = typeof body.image === 'string' ? body.image.trim() : '';
+    const { price, otherPrice, variants } = getAdminFoodCreatePricing(body);
 
     let categoryName = typeof body.categoryName === 'string' ? body.categoryName.trim() : '';
     if (!categoryName && typeof body.category === 'string') categoryName = body.category.trim();
@@ -3972,15 +3961,11 @@ export async function createFood(body) {
         name,
         description: typeof body.description === 'string' ? body.description.trim() : '',
         price,
-        priceOnOtherPlatforms: body.priceOnOtherPlatforms ? Number(body.priceOnOtherPlatforms) : null,
-        otherPlatformGst: body.otherPlatformGst !== undefined && body.otherPlatformGst !== null
-            ? Number(body.otherPlatformGst)
-            : null,
+        otherPrice,
         variants,
-        image,
+        image: typeof body.image === 'string' ? body.image.trim() : '',
         foodType,
         isAvailable: body.isAvailable !== false,
-        isRecommended: body.isRecommended === true,
         preparationTime: typeof body.preparationTime === 'string' ? body.preparationTime.trim() : '',
         approvalStatus: 'approved'
     });
@@ -4006,21 +3991,11 @@ export async function updateFood(id, body) {
     }
     const pricingUpdate = getAdminFoodUpdatedPricing(doc.toObject(), body);
     if (pricingUpdate.price !== undefined) doc.price = pricingUpdate.price;
+    if (pricingUpdate.otherPrice !== undefined) doc.otherPrice = pricingUpdate.otherPrice;
     if (pricingUpdate.variants !== undefined) doc.variants = pricingUpdate.variants;
-    if (body.priceOnOtherPlatforms !== undefined) doc.priceOnOtherPlatforms = body.priceOnOtherPlatforms ? Number(body.priceOnOtherPlatforms) : null;
-    if (body.otherPlatformGst !== undefined) {
-        doc.otherPlatformGst = body.otherPlatformGst !== null && body.otherPlatformGst !== ''
-            ? Number(body.otherPlatformGst)
-            : null;
-    }
-    if (body.image !== undefined) {
-        const image = String(body.image || '').trim();
-        await deleteReplacedAssets(doc.image, image);
-        doc.image = image;
-    }
+    if (body.image !== undefined) doc.image = String(body.image || '').trim();
     if (body.foodType !== undefined) doc.foodType = targetFoodType;
     if (body.isAvailable !== undefined) doc.isAvailable = body.isAvailable !== false;
-    if (body.isRecommended !== undefined) doc.isRecommended = body.isRecommended === true;
     if (body.preparationTime !== undefined) doc.preparationTime = String(body.preparationTime || '').trim();
     if (body.categoryId !== undefined || body.categoryName !== undefined || body.category !== undefined || body.foodType !== undefined) {
         const nextCategoryName = body.categoryName !== undefined
@@ -4042,8 +4017,59 @@ export async function updateFood(id, body) {
 export async function deleteFood(id) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     const deleted = await FoodItem.findByIdAndDelete(id).lean();
-    if (deleted) await deleteStoredAssets(deleted.image);
+    if (deleted?.restaurantId) {
+        try {
+            const { invalidateCache } = await import('../../../../middleware/cache.js');
+            await invalidateCache(`restaurant_menu:${deleted.restaurantId}`);
+        } catch (cacheErr) {
+            console.error('Failed to invalidate cache after food delete:', cacheErr);
+        }
+    }
     return deleted ? { id } : null;
+}
+
+export async function bulkDeleteFoods({ restaurantId, foodIds = [], selectAll = false, search = '' }) {
+    if (!restaurantId || !mongoose.Types.ObjectId.isValid(restaurantId)) {
+        throw new ValidationError('Valid restaurantId is required');
+    }
+
+    const restaurant = await FoodRestaurant.findById(restaurantId).select('_id').lean();
+    if (!restaurant?._id) {
+        throw new ValidationError('Restaurant not found');
+    }
+
+    const filter = { restaurantId: new mongoose.Types.ObjectId(restaurantId) };
+
+    if (selectAll) {
+        const term = String(search || '').trim();
+        if (term) {
+            filter.$or = [
+                { name: { $regex: term, $options: 'i' } },
+                { categoryName: { $regex: term, $options: 'i' } },
+            ];
+        }
+    } else {
+        const ids = (Array.isArray(foodIds) ? foodIds : [])
+            .filter((id) => mongoose.Types.ObjectId.isValid(id))
+            .map((id) => new mongoose.Types.ObjectId(id));
+        if (ids.length === 0) {
+            throw new ValidationError('No valid food items selected');
+        }
+        filter._id = { $in: ids };
+    }
+
+    const result = await FoodItem.deleteMany(filter);
+
+    if (result.deletedCount > 0) {
+        try {
+            const { invalidateCache } = await import('../../../../middleware/cache.js');
+            await invalidateCache(`restaurant_menu:${restaurantId}`);
+        } catch (cacheErr) {
+            console.error('Failed to invalidate cache after bulk food delete:', cacheErr);
+        }
+    }
+
+    return { deletedCount: result.deletedCount };
 }
 
 /** Admin creates a restaurant (JSON body with image URLs already uploaded). Single API. */
@@ -4152,199 +4178,113 @@ export async function createRestaurantByAdmin(body) {
         throw new ValidationError('Owner phone or primary contact number is required');
     }
 
+    // Prevent duplicate restaurant onboarding with the same contact number
+    // across existing restaurants and restaurant-auth users.
+    const phoneCandidates = [doc.ownerPhone, doc.primaryContactNumber]
+        .map((v) => String(v || '').trim())
+        .filter(Boolean);
+    const normalizedPhoneCandidates = Array.from(
+        new Set(
+            phoneCandidates.flatMap((phone) => {
+                const digits = phone.replace(/\D/g, '');
+                const last10 = digits.slice(-10);
+                return [phone, digits, last10].filter(Boolean);
+            })
+        )
+    );
+
+    if (normalizedPhoneCandidates.length) {
+        const duplicateRestaurant = await FoodRestaurant.findOne({
+            $or: [
+                { ownerPhone: { $in: normalizedPhoneCandidates } },
+                { primaryContactNumber: { $in: normalizedPhoneCandidates } },
+                { ownerPhoneDigits: { $in: normalizedPhoneCandidates } },
+                { ownerPhoneLast10: { $in: normalizedPhoneCandidates } },
+            ],
+        })
+            .select('_id restaurantName ownerPhone primaryContactNumber')
+            .lean();
+
+        if (duplicateRestaurant?._id) {
+            throw new ValidationError('A restaurant with this phone number already exists');
+        }
+
+        const duplicateRestaurantUser = await FoodUser.findOne({
+            role: 'RESTAURANT',
+            phone: { $in: normalizedPhoneCandidates },
+        })
+            .select('_id phone')
+            .lean();
+
+        if (duplicateRestaurantUser?._id) {
+            throw new ValidationError('A restaurant account with this phone number already exists');
+        }
+    }
+
     const restaurant = await FoodRestaurant.create(doc);
-
-    try {
-        const { seedOutletTimingsForRestaurant } = await import(
-            '../../restaurant/services/outletTimings.service.js'
-        );
-        await seedOutletTimingsForRestaurant(restaurant._id, {
-            openingTime: normalizedOpeningTime,
-            closingTime: normalizedClosingTime,
-            openDays: doc.openDays || []
-        });
-    } catch (e) {
-        logger.warn(
-            `[OutletTimings] Failed to seed timings for admin-created restaurant ${restaurant._id}: ${e?.message || e}`
-        );
-    }
-
     return restaurant.toObject();
-}
-
-async function sendRestaurantApprovalNotifications(restaurant, existing = {}, isChangesApproval = false) {
-    const restaurantId = String(restaurant._id);
-    const recipientEmail = String(restaurant.ownerEmail || existing.ownerEmail || '').trim();
-    const restaurantName = restaurant.restaurantName || existing.restaurantName || 'your restaurant';
-
-    const pushTitle = isChangesApproval
-        ? 'Profile Changes Approved! ✅'
-        : 'Congratulations! 🎉';
-    const pushBody = isChangesApproval
-        ? `Your profile changes for "${restaurantName}" have been approved and are now live.`
-        : `Your restaurant "${restaurantName}" has been approved. You can now start receiving orders!`;
-    const targetUrl = isChangesApproval
-        ? '/food/restaurant'
-        : '/food/restaurant/pending-verification';
-
-    logger.info(`[APPROVE-EMAIL] Restaurant ${restaurantId} — ownerEmail=${recipientEmail || 'MISSING'}`);
-
-    try {
-        const { notifyOwnersSafely, listOwnerTokens } = await import('../../../../core/notifications/firebase.service.js');
-        const tokens = await listOwnerTokens({ ownerType: 'RESTAURANT', ownerId: restaurant._id });
-        logger.info(`[APPROVE-FCM] Restaurant ${restaurantId} — deviceTokens=${tokens.length}${isChangesApproval ? ' (changes)' : ''}`);
-
-        const fcmResult = await notifyOwnersSafely(
-            [{ ownerType: 'RESTAURANT', ownerId: restaurant._id }],
-            {
-                title: pushTitle,
-                body: pushBody,
-                image: restaurant.profileImage || 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
-                sendToAllDevices: true,
-                data: {
-                    type: isChangesApproval ? 'restaurant_changes_approved' : 'restaurant_approved',
-                    restaurantId,
-                    targetUrl,
-                    link: targetUrl,
-                }
-            }
-        );
-        const delivered = Array.isArray(fcmResult)
-            ? fcmResult.reduce((sum, item) => sum + (item?.successCount || 0), 0)
-            : fcmResult?.successCount || 0;
-        logger.info(`[APPROVE-FCM] Restaurant ${restaurantId} — pushDelivered=${delivered}`);
-    } catch (e) {
-        logger.error(`[APPROVE-FCM] Restaurant ${restaurantId} — FCM failed: ${e?.message || e}`);
-    }
-
-    if (!recipientEmail) {
-        logger.warn(`[APPROVE-EMAIL] Restaurant ${restaurantId} — email skipped (no ownerEmail)`);
-        return false;
-    }
-
-    try {
-        const { sendRestaurantApprovalEmail } = await import('../../../../utils/email.js');
-        const emailSent = await sendRestaurantApprovalEmail({
-            to: recipientEmail,
-            restaurantName,
-            restaurantId,
-            isChangesApproval
-        });
-        if (emailSent) {
-            logger.info(`[APPROVE-EMAIL] Restaurant ${restaurantId} — email sent to ${recipientEmail}`);
-        } else {
-            logger.warn(`[APPROVE-EMAIL] Restaurant ${restaurantId} — email FAILED for ${recipientEmail}`);
-        }
-        return emailSent;
-    } catch (e) {
-        logger.error(`[APPROVE-EMAIL] Restaurant ${restaurantId} — email error: ${e?.message || e}`);
-        return false;
-    }
-}
-
-async function sendDeliveryApprovalNotifications(partner, existing = {}, isChangesApproval = false) {
-    const partnerId = String(partner._id);
-    let recipientEmail = String(partner.email || existing.email || '').trim().toLowerCase();
-    const partnerName = partner.name || existing.name || 'Partner';
-
-    const pushTitle = isChangesApproval
-        ? 'Profile Changes Approved! ✅'
-        : 'Welcome Aboard! 🛵';
-    const pushBody = isChangesApproval
-        ? 'Your delivery profile changes have been approved. You can continue delivering with Ometto.'
-        : 'Your delivery partner application has been approved. You can now go online and start earning!';
-    const targetUrl = isChangesApproval
-        ? '/food/delivery'
-        : '/food/delivery/pending-verification';
-
-    if (!recipientEmail && mongoose.Types.ObjectId.isValid(partnerId)) {
-        const fresh = await FoodDeliveryPartner.findById(partnerId).select('email name').lean();
-        recipientEmail = String(fresh?.email || '').trim().toLowerCase();
-    }
-
-    logger.info(`[APPROVE-EMAIL] Delivery ${partnerId} — email=${recipientEmail || 'MISSING'}`);
-
-    try {
-        const { notifyOwnerSafely, listOwnerTokens } = await import('../../../../core/notifications/firebase.service.js');
-        const tokens = await listOwnerTokens({ ownerType: 'DELIVERY_PARTNER', ownerId: partner._id });
-        logger.info(`[APPROVE-FCM] Delivery ${partnerId} — deviceTokens=${tokens.length}${tokens.length ? ` (platform fields: web+mobile)` : ' — NO TOKENS IN DB'}${isChangesApproval ? ' (changes)' : ''}`);
-
-        if (!tokens.length) {
-            logger.warn(`[APPROVE-FCM] Delivery ${partnerId} — push skipped; partner has no FCM token saved`);
-        } else {
-            const fcmResult = await notifyOwnerSafely(
-                { ownerType: 'DELIVERY_PARTNER', ownerId: partner._id },
-                {
-                    title: pushTitle,
-                    body: pushBody,
-                    image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
-                    sendToAllDevices: true,
-                    data: {
-                        type: isChangesApproval ? 'delivery_changes_approved' : 'onboarding_approved',
-                        partnerId,
-                        targetUrl,
-                        link: targetUrl,
-                    }
-                }
-            );
-            logger.info(`[APPROVE-FCM] Delivery ${partnerId} — pushDelivered=${fcmResult?.successCount ?? 0}`);
-        }
-    } catch (e) {
-        logger.error(`[APPROVE-FCM] Delivery ${partnerId} — FCM failed: ${e?.message || e}`);
-    }
-
-    if (!recipientEmail) {
-        logger.warn(`[APPROVE-EMAIL] Delivery ${partnerId} — email skipped (no email)`);
-        return false;
-    }
-
-    try {
-        const { sendDeliveryApprovalEmail } = await import('../../../../utils/email.js');
-        const emailSent = await sendDeliveryApprovalEmail({
-            to: recipientEmail,
-            partnerName,
-            partnerId,
-            isChangesApproval
-        });
-        if (emailSent) {
-            logger.info(`[APPROVE-EMAIL] Delivery ${partnerId} — email sent to ${recipientEmail}`);
-        } else {
-            logger.warn(`[APPROVE-EMAIL] Delivery ${partnerId} — email FAILED for ${recipientEmail}`);
-        }
-        return emailSent;
-    } catch (e) {
-        logger.error(`[APPROVE-EMAIL] Delivery ${partnerId} — email error: ${e?.message || e}`);
-        return false;
-    }
 }
 
 export async function approveRestaurant(id) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
 
-    logger.info(`[ADMIN-APPROVE] approveRestaurant service called id=${id}`);
-
-    const existing = await FoodRestaurant.findById(id).select('status ownerEmail restaurantName pendingApprovalType').lean();
+    const existing = await FoodRestaurant.findById(id).lean();
     if (!existing) return null;
-    const isChangesApproval = existing.pendingApprovalType === 'changes';
+
+    const $set = {
+        status: 'approved',
+        approvedAt: new Date()
+    };
+    const $unset = {
+        rejectedAt: 1,
+        rejectionReason: 1
+    };
+
+    if (existing.locationUpdateStatus === 'pending' && existing.pendingLocation) {
+        const pending = existing.pendingLocation;
+        $set.location = pending;
+        $set.addressLine1 = pending.addressLine1 || existing.addressLine1 || '';
+        $set.addressLine2 = pending.addressLine2 || existing.addressLine2 || '';
+        $set.area = pending.area || existing.area || '';
+        $set.city = pending.city || existing.city || '';
+        $set.state = pending.state || existing.state || '';
+        $set.pincode = pending.pincode || existing.pincode || '';
+        $set.landmark = pending.landmark || existing.landmark || '';
+        if (existing.pendingZoneId) {
+            $set.zoneId = existing.pendingZoneId;
+        }
+        $set.locationUpdateStatus = 'approved';
+        $set.locationUpdateReviewedAt = new Date();
+        $unset.pendingLocation = 1;
+        $unset.pendingZoneId = 1;
+        $unset.locationUpdateRequestedAt = 1;
+        $unset.locationRejectionReason = 1;
+    }
 
     const updated = await FoodRestaurant.findByIdAndUpdate(
         id,
-        {
-            $set: {
-                status: 'approved',
-                approvedAt: new Date(),
-                pendingApprovalType: 'registration'
-            },
-            $unset: {
-                rejectedAt: 1,
-                rejectionReason: 1
-            }
-        },
+        { $set, $unset },
         { new: true, runValidators: false }
     ).lean();
 
     if (updated) {
-        await sendRestaurantApprovalNotifications(updated, existing, isChangesApproval);
+        try {
+            const { notifyOwnersSafely } = await import('../../../../core/notifications/firebase.service.js');
+            await notifyOwnersSafely(
+                [{ ownerType: 'RESTAURANT', ownerId: updated._id }],
+                {
+                    title: 'Congratulations! ',
+                    body: `Your restaurant "${updated.restaurantName}" has been approved.`,
+                    image: updated.profileImage || 'https://i.ibb.co/5GzXz7r/Eatiefy-Brand-Image.png',
+                    data: {
+                        type: 'restaurant_approved',
+                        restaurantId: String(updated._id)
+                    }
+                }
+            );
+        } catch (e) {
+            console.error('Failed to send restaurant approval notification:', e);
+        }
     }
     return updated;
 }
@@ -4352,10 +4292,28 @@ export async function approveRestaurant(id) {
 export async function rejectRestaurant(id, reason) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
 
-    const existing = await FoodRestaurant.findById(id).select('status ownerEmail pendingApprovalType').lean();
+    const existing = await FoodRestaurant.findById(id).lean();
     if (!existing) return null;
-    const isChangesRejection = existing.pendingApprovalType === 'changes';
-    const trimmedReason = typeof reason === 'string' ? reason.trim() : undefined;
+
+    if (existing.status === 'approved' && existing.locationUpdateStatus === 'pending') {
+        const updated = await FoodRestaurant.findByIdAndUpdate(
+            id,
+            {
+                $set: {
+                    locationUpdateStatus: 'rejected',
+                    locationUpdateReviewedAt: new Date(),
+                    locationRejectionReason: typeof reason === 'string' ? reason.trim() : ''
+                },
+                $unset: {
+                    pendingLocation: 1,
+                    pendingZoneId: 1,
+                    locationUpdateRequestedAt: 1
+                }
+            },
+            { new: true, runValidators: false }
+        ).lean();
+        return updated;
+    }
 
     const updated = await FoodRestaurant.findByIdAndUpdate(
         id,
@@ -4363,159 +4321,64 @@ export async function rejectRestaurant(id, reason) {
             $set: {
                 status: 'rejected',
                 rejectedAt: new Date(),
-                rejectionReason: trimmedReason,
-                approvedAt: null,
-                pendingApprovalType: 'registration'
+                rejectionReason: typeof reason === 'string' ? reason.trim() : undefined,
+                approvedAt: null
             }
         },
         { new: true, runValidators: false }
     ).lean();
 
     if (updated) {
-        const recipientEmail = String(updated.ownerEmail || existing.ownerEmail || '').trim();
-
         try {
             const { notifyOwnersSafely } = await import('../../../../core/notifications/firebase.service.js');
-            const rejectTitle = isChangesRejection
-                ? 'Profile Changes Rejected ❌'
-                : 'Update on Registration 📋';
-            const rejectBody = isChangesRejection
-                ? `Your profile changes for "${updated.restaurantName}" were rejected. Reason: ${reason || 'Incomplete documents'}.`
-                : `Your restaurant registration for "${updated.restaurantName}" has been rejected. Reason: ${reason || 'Incomplete documents'}.`;
-            const targetUrl = isChangesRejection ? '/food/restaurant' : '/food/restaurant/pending-verification';
             await notifyOwnersSafely(
                 [{ ownerType: 'RESTAURANT', ownerId: updated._id }],
                 {
-                    title: rejectTitle,
-                    body: rejectBody,
-                    image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
-                    sendToAllDevices: true,
+                    title: 'Update on Registration ðŸ“‹',
+                    body: `Your restaurant registration for "${updated.restaurantName}" has been rejected. Reason: ${reason || 'Incomplete documents'}.`,
+                    image: 'https://i.ibb.co/5GzXz7r/Eatiefy-Brand-Image.png',
                     data: {
-                        type: isChangesRejection ? 'restaurant_changes_rejected' : 'restaurant_rejected',
+                        type: 'restaurant_rejected',
                         restaurantId: String(updated._id),
-                        reason: reason || '',
-                        targetUrl,
-                        link: targetUrl,
+                        reason: reason || ''
                     }
                 }
             );
         } catch (e) {
             console.error('Failed to send restaurant rejection notification:', e);
         }
-
-        if (recipientEmail) {
-            try {
-                const { sendRestaurantRejectionEmail } = await import('../../../../utils/email.js');
-                const emailSent = await sendRestaurantRejectionEmail({
-                    to: recipientEmail,
-                    restaurantName: updated.restaurantName,
-                    restaurantId: String(updated._id),
-                    reason: updated.rejectionReason || trimmedReason,
-                    isChangesRejection
-                });
-                if (emailSent) {
-                    console.info(`Restaurant rejection email sent to ${recipientEmail} for ${updated._id}`);
-                } else {
-                    console.warn(`Restaurant rejection email was not sent for ${updated._id} (${recipientEmail})`);
-                }
-            } catch (e) {
-                console.error('Failed to send restaurant rejection email:', e);
-            }
-        }
     }
     return updated;
 }
 
-export async function deleteRestaurant(id) {
-    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
-    const restaurantId = new mongoose.Types.ObjectId(id);
-
-    const restaurant = await FoodRestaurant.findById(restaurantId).lean();
-    if (!restaurant) return null;
-
-    const [foods, addons, categories] = await Promise.all([
-        FoodItem.find({ restaurantId }).select('image').lean(),
-        FoodAddon.find({ restaurantId }).select('draft.image draft.images published.image published.images').lean(),
-        FoodCategory.find({ restaurantId }).select('image').lean()
-    ]);
-
-    const imageUrls = [
-        ...extractAssetUrls(restaurant.profileImage),
-        ...extractAssetUrls(restaurant.coverImages),
-        ...extractAssetUrls(restaurant.menuImages),
-        ...extractAssetUrls(restaurant.panImage),
-        ...extractAssetUrls(restaurant.gstImage),
-        ...extractAssetUrls(restaurant.fssaiImage),
-        ...extractAssetUrls(restaurant.upiQrImage),
-        ...foods.flatMap((item) => extractAssetUrls(item.image)),
-        ...addons.flatMap((addon) => [
-            ...extractAssetUrls(addon?.draft?.image),
-            ...extractAssetUrls(addon?.draft?.images),
-            ...extractAssetUrls(addon?.published?.image),
-            ...extractAssetUrls(addon?.published?.images)
-        ]),
-        ...categories.flatMap((category) => extractAssetUrls(category.image))
-    ];
-
-    await Promise.all([
-        // Delete all food items
-        FoodItem.deleteMany({ restaurantId }),
-        // Delete all addons
-        FoodAddon.deleteMany({ restaurantId }),
-        // Delete restaurant-specific categories
-        FoodCategory.deleteMany({ restaurantId }),
-        // Delete commissions
-        FoodRestaurantCommission.deleteMany({ restaurantId }),
-        // Delete withdrawals
-        FoodRestaurantWithdrawal.deleteMany({ restaurantId }),
-        // Delete support tickets
-        FoodRestaurantSupportTicket.deleteMany({ restaurantId }),
-        // Delete offers linked to this restaurant
-        FoodOffer.deleteMany({ restaurantId, restaurantScope: 'selected' }),
-        // Finally delete the restaurant
-        FoodRestaurant.findByIdAndDelete(restaurantId)
-    ]);
-
-    await deleteStoredAssets(imageUrls);
-
-    return { id: restaurantId };
-}
-
 // ----- Offers & Coupons -----
 export async function getAllOffers(query = {}) {
-    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 20, 1), 500);
-    const page = Math.max(parseInt(query.page, 10) || 1, 1);
+    const page = Math.max(1, parseInt(query.page, 10) || 1);
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 100);
     const skip = (page - 1) * limit;
 
-    const filter = {};
-    if (query.search && String(query.search).trim()) {
-        const term = String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const searchRegex = new RegExp(term, 'i');
-        const restaurants = await FoodRestaurant.find({ restaurantName: searchRegex }).select('_id').lean();
-        filter.$or = [{ couponCode: searchRegex }];
-        if (restaurants.length) {
-            filter.$or.push({ restaurantId: { $in: restaurants.map((r) => r._id) } });
-        }
-    }
-
     const [list, total] = await Promise.all([
-        FoodOffer.find(filter)
+        FoodOffer.find({})
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
+            .select('couponCode discountType discountValue customerScope restaurantScope restaurantId restaurantIds minOrderValue maxDiscount usageLimit usedCount startDate endDate status showInCart createdByRole adminBearPercentage restaurantBearPercentage createdAt')
             .populate({ path: 'restaurantId', select: 'restaurantName' })
+            .populate({ path: 'restaurantIds', select: 'restaurantName' })
             .lean(),
-        FoodOffer.countDocuments(filter),
+        FoodOffer.countDocuments({})
     ]);
 
     const offers = list.map((o, index) => {
         const now = Date.now();
         const endTs = o.endDate ? new Date(o.endDate).getTime() : null;
         const isExpired = Boolean(endTs && now >= endTs);
-        const restaurantName =
-            o.restaurantScope === 'selected'
-                ? (o.restaurantId?.restaurantName || 'Selected Restaurant')
-                : 'All Restaurants';
+        const selectedRestaurants = Array.isArray(o.restaurantIds) && o.restaurantIds.length > 0
+            ? o.restaurantIds
+            : (o.restaurantId ? [o.restaurantId] : []);
+        const restaurantName = o.restaurantScope === 'selected'
+            ? (selectedRestaurants.map((restaurant) => restaurant?.restaurantName).filter(Boolean).join(', ') || 'Selected Restaurants')
+            : 'All Restaurants';
 
         const discountPercentage = o.discountType === 'percentage' ? Number(o.discountValue) : 0;
 
@@ -4530,7 +4393,6 @@ export async function getAllOffers(query = {}) {
             dishName: 'All Items',
             couponCode: o.couponCode,
             customerGroup: o.customerScope === 'first-time' ? 'new' : 'all',
-            customerScope: o.customerScope || 'all',
             discountType: o.discountType,
             discountPercentage,
             originalPrice,
@@ -4538,21 +4400,27 @@ export async function getAllOffers(query = {}) {
             status: isExpired ? 'inactive' : (o.status || 'active'),
             showInCart: o.showInCart !== false,
             endDate: o.endDate || null,
-            startDate: o.startDate || null,
             // Additional info for admin UI (backward compatible)
-            minOrderValue: Number(o.minOrderValue) > 0 ? Number(o.minOrderValue) : null,
+            minOrderValue: o.minOrderValue ?? 0,
             maxDiscount: o.maxDiscount ?? null,
             usageLimit: o.usageLimit ?? null,
-            perUserLimit: o.perUserLimit ?? null,
             usedCount: o.usedCount ?? 0,
-            isFirstOrderOnly: o.isFirstOrderOnly === true,
             restaurantScope: o.restaurantScope,
-            restaurantId: o.restaurantScope === 'selected' ? String(o.restaurantId?._id || o.restaurantId || '') : null,
-            couponType: o.couponType || 'all'
+            createdByRole: o.createdByRole || 'ADMIN',
+            adminBearPercentage: Number(o.adminBearPercentage ?? (o.createdByRole === 'RESTAURANT' ? 0 : 100)),
+            restaurantBearPercentage: Number(o.restaurantBearPercentage ?? (o.createdByRole === 'RESTAURANT' ? 100 : 0))
         };
     });
 
-    return { offers, total, page, limit };
+    return {
+        offers,
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.max(1, Math.ceil(total / limit))
+        }
+    };
 }
 
 export async function createAdminOffer(body) {
@@ -4568,27 +4436,33 @@ export async function createAdminOffer(body) {
         customerScope: body.customerScope,
         restaurantScope: body.restaurantScope,
         restaurantId: body.restaurantScope === 'selected' ? body.restaurantId : undefined,
-        minOrderValue: Number(body.minOrderValue) > 0 ? Number(body.minOrderValue) : null,
+        restaurantIds: body.restaurantScope === 'selected' ? body.restaurantIds : [],
+        minOrderValue: body.minOrderValue ?? 0,
         maxDiscount: body.maxDiscount ?? null,
         usageLimit: body.usageLimit ?? null,
         perUserLimit: body.perUserLimit ?? null,
         startDate: body.startDate,
-        isFirstOrderOnly: body.isFirstOrderOnly === true,
+        isFirstOrderOnly: body.isFirstOrderOnly ?? false,
         endDate: body.endDate,
         status: body.endDate && new Date(body.endDate).getTime() <= Date.now() ? 'inactive' : 'active',
         showInCart: true,
-        couponType: body.couponType || 'all'
+        createdByRole: 'ADMIN',
+        adminBearPercentage: body.adminBearPercentage ?? 100,
+        restaurantBearPercentage: body.restaurantBearPercentage ?? 0
     });
 
-    if (doc.restaurantScope === 'selected' && doc.restaurantId) {
+    const selectedRestaurantIds = doc.restaurantScope === 'selected'
+        ? (doc.restaurantIds?.length ? doc.restaurantIds : [doc.restaurantId]).filter(Boolean)
+        : [];
+    if (selectedRestaurantIds.length > 0) {
         try {
             const { notifyOwnersSafely } = await import('../../../../core/notifications/firebase.service.js');
             await notifyOwnersSafely(
-                [{ ownerType: 'RESTAURANT', ownerId: doc.restaurantId }],
+                selectedRestaurantIds.map((ownerId) => ({ ownerType: 'RESTAURANT', ownerId })),
                 {
-                    title: 'New Campaign Invitation! Ã°Å¸â€œÂ¢',
+                    title: 'New Campaign Invitation! ðŸ“¢',
                     body: `You have been invited to join a new campaign: "${doc.couponCode}". Check it out now!`,
-                    image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
+                    image: 'https://i.ibb.co/5GzXz7r/Eatiefy-Brand-Image.png',
                     data: {
                         type: 'campaign_invitation',
                         offerId: String(doc._id),
@@ -4602,46 +4476,6 @@ export async function createAdminOffer(body) {
     }
 
     return doc.toObject();
-}
-
-export async function updateAdminOffer(id, body) {
-    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
-        throw new ValidationError('Invalid offer ID');
-    }
-
-    const existing = await FoodOffer.findOne({
-        couponCode: body.couponCode,
-        _id: { $ne: new mongoose.Types.ObjectId(id) }
-    }).lean();
-    if (existing) {
-        throw new ValidationError('Coupon code already exists');
-    }
-
-    const updated = await FoodOffer.findByIdAndUpdate(
-        id,
-        {
-            $set: {
-                couponCode: body.couponCode,
-                couponType: body.couponType || 'all',
-                discountType: body.discountType,
-                discountValue: body.discountValue,
-                customerScope: body.customerScope,
-                restaurantScope: body.restaurantScope,
-                restaurantId: body.restaurantScope === 'selected' ? body.restaurantId : undefined,
-                minOrderValue: Number(body.minOrderValue) > 0 ? Number(body.minOrderValue) : null,
-                maxDiscount: body.maxDiscount ?? null,
-                usageLimit: body.usageLimit ?? null,
-                perUserLimit: body.perUserLimit ?? null,
-                startDate: body.startDate || undefined,
-                endDate: body.endDate || undefined,
-                isFirstOrderOnly: body.isFirstOrderOnly === true,
-                status: body.endDate && new Date(body.endDate).getTime() <= Date.now() ? 'inactive' : 'active',
-            }
-        },
-        { new: true }
-    ).lean();
-
-    return updated;
 }
 
 export async function updateAdminOfferCartVisibility(offerId, itemId, showInCart) {
@@ -4672,7 +4506,8 @@ export async function expireExpiredOffers() {
 }
 // ----- Delivery join requests -----
 export async function getDeliveryJoinRequests(query) {
-    const { status = 'pending', page = 1, limit = 1000, search, zone, vehicleType } = query;
+    const { status = 'pending', page = 1, limit: rawLimit = 100, search, zone, vehicleType } = query;
+    const limit = Math.min(Math.max(Number(rawLimit) || 100, 1), 200);
     const filter = {};
     if (status === 'pending') filter.status = 'pending';
     else if (status === 'denied' || status === 'rejected') filter.status = 'rejected';
@@ -4703,8 +4538,8 @@ export async function getDeliveryJoinRequests(query) {
         filter.vehicleType = { $regex: vehicleType.trim(), $options: 'i' };
     }
 
-    const skip = Math.max(0, (Number(page) || 1) - 1) * Math.max(1, Math.min(1000, Number(limit) || 100));
-    const limitNum = Math.max(1, Math.min(1000, Number(limit) || 100));
+    const skip = Math.max(0, (Number(page) || 1) - 1) * limit;
+    const limitNum = limit;
 
     const list = await FoodDeliveryPartner.find(filter)
         .sort({ createdAt: -1 })
@@ -4719,6 +4554,7 @@ export async function getDeliveryJoinRequests(query) {
         email: doc.email || '',
         phone: doc.phone || '',
         zone: doc.city || doc.state || doc.address || '',
+        jobType: doc.jobType || '',
         vehicleType: doc.vehicleType || '',
         status: doc.status === 'rejected' ? 'denied' : doc.status,
         rejectionReason: doc.rejectionReason || undefined,
@@ -4826,12 +4662,220 @@ export async function updateDeliverySupportTicket(id, body = {}) {
         if (ticket.adminResponse) ticket.respondedAt = new Date();
     }
     await ticket.save();
+
+    // Send notification if admin response was added
+    if (adminResponse !== undefined && ticket.adminResponse && ticket.deliveryPartnerId) {
+        await FoodNotification.create({
+            ownerType: 'DELIVERY_PARTNER',
+            ownerId: ticket.deliveryPartnerId,
+            title: 'Support Ticket Response',
+            message: `Admin has responded to your ticket: "${ticket.subject}"`,
+            source: 'SUPPORT_RESPONSE',
+            category: 'support',
+            metadata: { ticketId: ticket._id }
+        }).catch(err => console.error('Error creating delivery support notification:', err));
+
+        // Also send push notification (FCM)
+        await sendNotificationToOwner({
+            ownerType: 'DELIVERY_PARTNER',
+            ownerId: ticket.deliveryPartnerId,
+            payload: {
+                title: 'Support Ticket Response',
+                body: `Admin has responded to your ticket: "${ticket.subject}"`,
+                data: {
+                    type: 'SUPPORT_RESPONSE',
+                    ticketId: String(ticket._id)
+                }
+            }
+        }).catch(err => console.error('Error sending delivery support push notification:', err));
+    }
+
     return ticket.toObject();
+}
+
+/**
+ * Subscription Settings
+ */
+export const getRestaurantSubscriptionSettings = async () => {
+    const settings = await FoodRestaurantSubscriptionSettings.findOne();
+    const raw = settings ? settings.toObject() : {};
+    const starterPrice = Number(raw?.starterPrice ?? raw?.silverPrice ?? 999) || 999;
+    const growthPrice = Number(raw?.growthPrice ?? raw?.goldPrice ?? 1999) || 1999;
+    const premiumPrice = Number(raw?.premiumPrice ?? 2999) || 2999;
+    const starterMinGmv = Number(raw?.starterMinGmv ?? 0) || 0;
+    const starterMaxGmv = Number(raw?.starterMaxGmv ?? 30000) || 30000;
+    const growthMinGmv = Number(raw?.growthMinGmv ?? (starterMaxGmv + 0.01)) || (starterMaxGmv + 0.01);
+    const growthMaxGmv = Number(raw?.growthMaxGmv ?? 60000) || 60000;
+    const premiumMinGmv = Number(raw?.premiumMinGmv ?? (growthMaxGmv + 0.01)) || (growthMaxGmv + 0.01);
+    const onboardingFee = Math.max(0, Number(raw?.onboardingFee ?? 0) || 0);
+
+    let planCatalog = null;
+    try {
+        const { buildPlanCatalog, GST_RATE } = await import('../../restaurant/services/subscriptionPlan.service.js');
+        planCatalog = buildPlanCatalog({
+            starterPrice,
+            growthPrice,
+            premiumPrice,
+            starterMinGmv,
+            starterMaxGmv,
+            growthMinGmv,
+            growthMaxGmv,
+            premiumMinGmv,
+        });
+        return {
+            ...raw,
+            starterPrice,
+            growthPrice,
+            premiumPrice,
+            starterMinGmv,
+            starterMaxGmv,
+            growthMinGmv,
+            growthMaxGmv,
+            premiumMinGmv,
+            onboardingFee,
+            planCatalog,
+            gstRate: GST_RATE,
+        };
+    } catch {
+        return {
+            ...raw,
+            starterPrice,
+            growthPrice,
+            premiumPrice,
+            starterMinGmv,
+            starterMaxGmv,
+            growthMinGmv,
+            growthMaxGmv,
+            premiumMinGmv,
+            onboardingFee,
+        };
+    }
+};
+
+
+export const updateRestaurantSubscriptionSettings = async (data) => {
+    let settings = await FoodRestaurantSubscriptionSettings.findOne();
+    if (!settings) {
+        settings = new FoodRestaurantSubscriptionSettings();
+    }
+
+    if (data.starterPrice !== undefined) settings.starterPrice = Math.max(0, Number(data.starterPrice) || 0);
+    if (data.growthPrice !== undefined) settings.growthPrice = Math.max(0, Number(data.growthPrice) || 0);
+    if (data.premiumPrice !== undefined) settings.premiumPrice = Math.max(0, Number(data.premiumPrice) || 0);
+    if (data.starterMinGmv !== undefined) settings.starterMinGmv = Math.max(0, Number(data.starterMinGmv) || 0);
+    if (data.starterMaxGmv !== undefined) settings.starterMaxGmv = Math.max(0, Number(data.starterMaxGmv) || 0);
+    if (data.growthMinGmv !== undefined) settings.growthMinGmv = Math.max(0, Number(data.growthMinGmv) || 0);
+    if (data.growthMaxGmv !== undefined) settings.growthMaxGmv = Math.max(0, Number(data.growthMaxGmv) || 0);
+    if (data.premiumMinGmv !== undefined) settings.premiumMinGmv = Math.max(0, Number(data.premiumMinGmv) || 0);
+    if (data.onboardingFee !== undefined) settings.onboardingFee = Math.max(0, Number(data.onboardingFee) || 0);
+
+    // Keep ranges monotonic and contiguous by default.
+    settings.starterMinGmv = Math.min(Number(settings.starterMinGmv || 0), Number(settings.starterMaxGmv || 0));
+    if (Number(settings.growthMinGmv || 0) < Number(settings.starterMaxGmv || 0)) {
+        settings.growthMinGmv = Number(settings.starterMaxGmv || 0);
+    }
+    if (Number(settings.growthMaxGmv || 0) < Number(settings.growthMinGmv || 0)) {
+        settings.growthMaxGmv = Number(settings.growthMinGmv || 0);
+    }
+    if (Number(settings.premiumMinGmv || 0) < Number(settings.growthMaxGmv || 0)) {
+        settings.premiumMinGmv = Number(settings.growthMaxGmv || 0);
+    }
+
+    await settings.save();
+    return getRestaurantSubscriptionSettings();
+};
+
+export const getAdminRestaurantSubscriptionHistory = async (query = {}) => {
+    return getAdminRestaurantSubscriptionHistoryFromRestaurant(query);
+};
+
+// ----- Delivery partners (approved list) -----
+/**
+ * Private helper to get financial stats for multiple delivery partners in bulk.
+ */
+async function getBulkDeliveryPartnerStats(partnerIds) {
+    if (!partnerIds || partnerIds.length === 0) return new Map();
+
+    const [earnings, cash, deposits, bonuses, withdrawals, ordersCount] = await Promise.all([
+        // Total Earnings
+        FoodOrder.aggregate([
+            { $match: { 'dispatch.deliveryPartnerId': { $in: partnerIds }, orderStatus: 'delivered' } },
+            { $group: { _id: '$dispatch.deliveryPartnerId', total: { $sum: { $ifNull: ['$riderEarning', 0] } } } }
+        ]),
+        // Cash Collected (COD)
+        FoodOrder.aggregate([
+            { $match: { 
+                'dispatch.deliveryPartnerId': { $in: partnerIds }, 
+                orderStatus: 'delivered', 
+                $or: [ { paymentMethod: 'cash' }, { 'payment.method': 'cash' } ] 
+            } },
+            { $group: { _id: '$dispatch.deliveryPartnerId', total: { $sum: { $ifNull: ['$pricing.total', 0] } } } }
+        ]),
+        // Cash Deposits
+        FoodDeliveryCashDeposit.aggregate([
+            { $match: { deliveryPartnerId: { $in: partnerIds }, status: 'Completed' } },
+            { $group: { _id: '$deliveryPartnerId', total: { $sum: '$amount' } } }
+        ]),
+        // Bonuses
+        DeliveryBonusTransaction.aggregate([
+            { $match: { deliveryPartnerId: { $in: partnerIds } } },
+            { $group: { _id: '$deliveryPartnerId', total: { $sum: '$amount' } } }
+        ]),
+        // Withdrawals
+        FoodDeliveryWithdrawal.aggregate([
+            { $match: { deliveryPartnerId: { $in: partnerIds }, status: { $in: ['approved', 'pending'] } } },
+            { $group: { 
+                _id: '$deliveryPartnerId', 
+                approved: { $sum: { $cond: [{ $eq: ['$status', 'approved'] }, '$amount', 0] } },
+                pending: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, '$amount', 0] } }
+            } }
+        ]),
+        // Total Delivered Orders
+        FoodOrder.aggregate([
+            { $match: { 'dispatch.deliveryPartnerId': { $in: partnerIds }, orderStatus: 'delivered' } },
+            { $group: { _id: '$dispatch.deliveryPartnerId', count: { $sum: 1 } } }
+        ])
+    ]);
+
+    const statsMap = new Map();
+    partnerIds.forEach(id => {
+        const idStr = id.toString();
+        statsMap.set(idStr, {
+            totalEarning: 0,
+            cashCollected: 0,
+            totalDeposited: 0,
+            bonus: 0,
+            totalWithdrawn: 0,
+            pendingWithdrawal: 0,
+            totalOrders: 0
+        });
+    });
+
+    earnings.forEach(row => { if (row._id) statsMap.get(row._id.toString()).totalEarning = row.total; });
+    cash.forEach(row => { if (row._id) statsMap.get(row._id.toString()).cashCollected = row.total; });
+    deposits.forEach(row => { if (row._id) statsMap.get(row._id.toString()).totalDeposited = row.total; });
+    bonuses.forEach(row => { if (row._id) statsMap.get(row._id.toString()).bonus = row.total; });
+    withdrawals.forEach(row => { 
+        if (row._id) {
+            statsMap.get(row._id.toString()).totalWithdrawn = row.approved;
+            statsMap.get(row._id.toString()).pendingWithdrawal = row.pending;
+        }
+    });
+    ordersCount.forEach(row => { if (row._id) statsMap.get(row._id.toString()).totalOrders = row.count; });
+
+    // Calculate final pocket balance and other fields
+    for (const [id, stats] of statsMap) {
+        stats.pocketBalance = stats.totalEarning + stats.bonus - stats.totalWithdrawn - stats.pendingWithdrawal;
+        stats.cashInHand = stats.cashCollected - stats.totalDeposited;
+    }
+
+    return statsMap;
 }
 
 // ----- Delivery partners (approved list) -----
 export async function getDeliveryPartners(query) {
-    const { page = 1, limit = 1000, search } = query;
+    const { page = 1, limit: rawLimit = 100, search } = query;
+    const limit = Math.min(Math.max(Number(rawLimit) || 100, 1), 200);
     const filter = { status: 'approved' };
     if (search && typeof search === 'string' && search.trim()) {
         const term = search.trim();
@@ -4856,65 +4900,50 @@ export async function getDeliveryPartners(query) {
         FoodDeliveryPartner.countDocuments(filter)
     ]);
 
-    // Fetch total orders for these partners in real-time
-    const partnerIds = list.map((p) => p._id);
-    const orderCounts = await FoodOrder.aggregate([
-        {
-            $match: {
-                'dispatch.deliveryPartnerId': { $in: partnerIds },
-                orderStatus: 'delivered'
-            }
-        },
-        {
-            $group: {
-                _id: '$dispatch.deliveryPartnerId',
-                count: { $sum: 1 }
-            }
-        }
-    ]);
+    const partnerIds = list.map(p => p._id);
+    const statsMap = await getBulkDeliveryPartnerStats(partnerIds);
 
-    const countsMap = new Map(
-        (orderCounts || []).map((c) => [String(c._id), c.count])
-    );
-
-    // Average rating computed from actual order ratings (kept consistent with the
-    // delivery app's My Reviews; avoids the drifting partner.rating aggregate field).
-    const ratingAgg = await FoodOrder.aggregate([
-        {
-            $match: {
-                'dispatch.deliveryPartnerId': { $in: partnerIds },
-                'ratings.deliveryPartner.rating': { $exists: true, $ne: null }
+    const deliveryPartners = list.map((doc, index) => {
+        const stats = statsMap.get(doc._id.toString()) || {};
+        const lastLat = toFiniteNumber(doc.lastLat ?? doc.lastLocation?.coordinates?.[1]);
+        const lastLng = toFiniteNumber(doc.lastLng ?? doc.lastLocation?.coordinates?.[0]);
+        const lastLocation = lastLat !== null && lastLng !== null
+            ? {
+                lat: lastLat,
+                lng: lastLng,
+                latitude: lastLat,
+                longitude: lastLng,
+                timestamp: doc.lastLocationAt ? new Date(doc.lastLocationAt).getTime() : null
             }
-        },
-        {
-            $group: {
-                _id: '$dispatch.deliveryPartnerId',
-                avg: { $avg: '$ratings.deliveryPartner.rating' },
-                count: { $sum: 1 }
-            }
-        }
-    ]);
-
-    const ratingMap = new Map(
-        (ratingAgg || []).map((r) => [String(r._id), { avg: Math.round((r.avg || 0) * 10) / 10, count: r.count }])
-    );
-
-    const deliveryPartners = list.map((doc, index) => ({
-        _id: doc._id,
-        sl: skip + index + 1,
-        name: doc.name || '',
-        email: doc.email || '',
-        phone: doc.phone || '',
-        deliveryId: doc._id ? `DP-${doc._id.toString().slice(-8).toUpperCase()}` : null,
-        zone: doc.city || doc.state || doc.address || '',
-        vehicleType: doc.vehicleType || '',
-        status: doc.status,
-        totalOrders: countsMap.get(String(doc._id)) || 0,
-        rating: ratingMap.get(String(doc._id))?.avg || 0,
-        totalRatings: ratingMap.get(String(doc._id))?.count || 0,
-        profilePhoto: doc.profilePhoto || null,
-        profileImage: doc.profilePhoto ? { url: doc.profilePhoto } : null
-    }));
+            : null;
+        return {
+            _id: doc._id,
+            sl: skip + index + 1,
+            name: doc.name || '',
+            email: doc.email || '',
+            phone: doc.phone || '',
+            deliveryId: doc._id ? `DP-${doc._id.toString().slice(-8).toUpperCase()}` : null,
+            zone: doc.city || doc.state || doc.address || '',
+            vehicleType: doc.vehicleType || '',
+            status: doc.status,
+            availabilityStatus: doc.availabilityStatus || 'offline',
+            isOnline: doc.availabilityStatus === 'online',
+            lastLocation,
+            lastLat,
+            lastLng,
+            lastLocationAt: doc.lastLocationAt || null,
+            profilePhoto: doc.profilePhoto || null,
+            profileImage: doc.profilePhoto ? { url: doc.profilePhoto } : null,
+            // Stats fields
+            totalOrders: stats.totalOrders || 0,
+            pocketBalance: stats.pocketBalance || 0,
+            cashInHand: stats.cashInHand || 0,
+            totalEarning: stats.totalEarning || 0,
+            bonus: stats.bonus || 0,
+            totalWithdrawn: stats.totalWithdrawn || 0,
+            pendingWithdrawal: stats.pendingWithdrawal || 0
+        };
+    });
 
     return {
         deliveryPartners,
@@ -4935,7 +4964,8 @@ function generateBonusTransactionId() {
 }
 
 export async function getDeliveryPartnerBonusTransactions(query = {}) {
-    const { page = 1, limit = 1000, search } = query;
+    const { page = 1, limit: rawLimit = 100, search } = query;
+    const limit = Math.min(Math.max(Number(rawLimit) || 100, 1), 200);
     const filter = {};
 
     // For search (name/phone/email/transactionId) we do a two-step lookup to keep it simple.
@@ -4979,6 +5009,7 @@ export async function getDeliveryPartnerBonusTransactions(query = {}) {
             amount: t.amount,
             bonus: t.amount, // legacy compatibility
             reference: t.reference || '',
+            bonusType: t.bonusType || 'manual',
             createdAt: t.createdAt
         };
     });
@@ -5010,25 +5041,39 @@ export async function addDeliveryPartnerBonus(body, adminUser) {
         exists = await DeliveryBonusTransaction.findOne({ transactionId }).lean();
     }
 
+    const amountToCredit = Number(body.amount) || 0;
+    if (amountToCredit <= 0) {
+        throw new ValidationError('Bonus amount must be greater than 0');
+    }
+
     const created = await DeliveryBonusTransaction.create({
         deliveryPartnerId: body.deliveryPartnerId,
         transactionId,
-        amount: body.amount,
+        amount: amountToCredit,
         reference: body.reference || '',
-        createdByAdminId: adminUser?._id
+        createdByAdminId: adminUser?._id,
+        bonusType: body.bonusType === 'target' ? 'target' : 'manual',
+        eligibilityId: body.eligibilityId || null,
     });
+
+    // Keep wallet ledger in sync so pocket balance updates immediately in delivery app.
+    await FoodDeliveryWallet.findOneAndUpdate(
+        { deliveryPartnerId: body.deliveryPartnerId },
+        { $inc: { balance: amountToCredit, totalBonus: amountToCredit } },
+        { upsert: true }
+    );
 
     try {
         const { notifyOwnerSafely } = await import('../../../../core/notifications/firebase.service.js');
         await notifyOwnerSafely(
             { ownerType: 'DELIVERY_PARTNER', ownerId: body.deliveryPartnerId },
             {
-                title: 'Bonus Credited! Ã°Å¸Å½Å ',
-                body: `You have received a bonus of \u20B9${body.amount}. ${body.reference || 'Great job!'}`,
-                image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
+                title: 'Bonus Credited!',
+                body: `You have received a bonus of \u20B9${amountToCredit}. ${body.reference || 'Great job!'}`,
+                image: 'https://i.ibb.co/5GzXz7r/Eatiefy-Brand-Image.png',
                 data: {
                     type: 'bonus_credited',
-                    amount: String(body.amount),
+                    amount: String(amountToCredit),
                     transactionId: created.transactionId
                 }
             }
@@ -5046,11 +5091,8 @@ export async function getDeliveryEarnings(query = {}) {
     const limit = Math.max(1, Math.min(1000, parseInt(query.limit, 10) || 50));
     const skip = (page - 1) * limit;
 
-    // Align with Transaction Report deliveryman earning:
-    // only delivered orders, and only real riderEarning (no deliveryFee fallback).
     const filter = {
-        'dispatch.deliveryPartnerId': { $ne: null },
-        orderStatus: 'delivered',
+        'dispatch.deliveryPartnerId': { $ne: null }
     };
 
     // Date range filters
@@ -5110,16 +5152,15 @@ export async function getDeliveryEarnings(query = {}) {
 
     const search = String(query.search || '').trim();
     if (search) {
-        const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(escaped, 'i');
+        const regex = new RegExp(search, 'i');
 
         const [partners, restaurants] = await Promise.all([
             FoodDeliveryPartner.find({
                 $or: [{ name: regex }, { phone: regex }, { email: regex }]
-            }).select('_id').limit(100).lean(),
+            }).select('_id').lean(),
             FoodRestaurant.find({
                 $or: [{ restaurantName: regex }, { name: regex }]
-            }).select('_id').limit(100).lean()
+            }).select('_id').lean()
         ]);
 
         const partnerIds = partners.map((p) => p._id);
@@ -5148,7 +5189,17 @@ export async function getDeliveryEarnings(query = {}) {
                 $group: {
                     _id: null,
                     totalEarnings: {
-                        $sum: { $ifNull: ['$riderEarning', 0] }
+                        $sum: {
+                            $ifNull: [
+                                '$riderEarning',
+                                {
+                                    $ifNull: [
+                                        '$deliveryPartnerSettlement',
+                                        { $ifNull: ['$pricing.deliveryFee', 0] }
+                                    ]
+                                }
+                            ]
+                        }
                     },
                     totalOrders: { $sum: 1 }
                 }
@@ -5159,8 +5210,12 @@ export async function getDeliveryEarnings(query = {}) {
 
     const earnings = orders.map((order) => {
         const partner = order?.dispatch?.deliveryPartnerId;
-        // Real rider earning only — never fall back to delivery fee (that is not rider payout)
-        const amount = Number(order?.riderEarning || 0) || 0;
+        const amount = Number(
+            order?.riderEarning ??
+            order?.deliveryPartnerSettlement ??
+            order?.pricing?.deliveryFee ??
+            0
+        ) || 0;
 
         return {
             transactionId: String(order._id),
@@ -5184,7 +5239,7 @@ export async function getDeliveryEarnings(query = {}) {
         earnings,
         summary: {
             totalDeliveryPartners,
-            totalEarnings: Math.round(Number(agg.totalEarnings || 0) * 100) / 100,
+            totalEarnings: Number(agg.totalEarnings || 0),
             totalOrders: Number(agg.totalOrders || 0)
         },
         pagination: {
@@ -5198,27 +5253,18 @@ export async function getDeliveryEarnings(query = {}) {
 
 // ----- Earning Addon Offers (admin) -----
 export async function getEarningAddons(query = {}) {
-    const { page = 1, limit = 20, search } = query;
-    const filter = {};
-
-    if (search && typeof search === 'string' && search.trim()) {
-        const term = search.trim();
-        filter.$or = [
-            { title: { $regex: term, $options: 'i' } },
-            { description: { $regex: term, $options: 'i' } }
-        ];
-    }
-
-    const skip = Math.max(0, (Number(page) || 1) - 1) * Math.max(1, Math.min(1000, Number(limit) || 20));
-    const limitNum = Math.max(1, Math.min(1000, Number(limit) || 20));
+    const page = Math.max(1, parseInt(query.page, 10) || 1);
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 100);
+    const skip = (page - 1) * limit;
 
     const [list, total] = await Promise.all([
-        FoodEarningAddon.find(filter)
+        FoodEarningAddon.find({})
             .sort({ createdAt: -1 })
             .skip(skip)
-            .limit(limitNum)
+            .limit(limit)
+            .select('title description requiredOrders earningAmount startDate endDate maxRedemptions currentRedemptions status createdAt updatedAt')
             .lean(),
-        FoodEarningAddon.countDocuments(filter)
+        FoodEarningAddon.countDocuments({})
     ]);
 
     const now = Date.now();
@@ -5238,10 +5284,10 @@ export async function getEarningAddons(query = {}) {
     return {
         earningAddons,
         pagination: {
-            page: Number(page) || 1,
-            limit: limitNum,
+            page,
+            limit,
             total,
-            pages: Math.ceil(total / limitNum) || 1
+            totalPages: Math.max(1, Math.ceil(total / limit))
         }
     };
 }
@@ -5286,7 +5332,8 @@ export async function toggleEarningAddonStatus(id, status) {
 
 // ----- Earning Addon History (admin) -----
 export async function getEarningAddonHistory(query = {}) {
-    const { page = 1, limit = 1000, search } = query;
+    const { page = 1, limit: rawLimit = 100, search } = query;
+    const limit = Math.min(Math.max(Number(rawLimit) || 100, 1), 200);
     const filter = {};
 
     // Optional search by delivery partner name/phone/email or offer title.
@@ -5397,9 +5444,9 @@ export async function creditEarningAddonHistory(historyId, notes) {
         await notifyOwnerSafely(
             { ownerType: 'DELIVERY_PARTNER', ownerId: doc.deliveryPartnerId },
             {
-                title: 'Incentive Credited! Ã°Å¸Å½Â¯',
+                title: 'Incentive Credited! ðŸŽ¯',
                 body: `Your incentive for "${doc.offerId?.title || 'Earning Addon'}" has been approved and moved to your pocket.`,
-                image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
+                image: 'https://i.ibb.co/5GzXz7r/Eatiefy-Brand-Image.png',
                 data: {
                     type: 'incentive_credited',
                     historyId: String(doc._id),
@@ -5429,9 +5476,9 @@ export async function cancelEarningAddonHistory(historyId, reason) {
         await notifyOwnerSafely(
             { ownerType: 'DELIVERY_PARTNER', ownerId: doc.deliveryPartnerId },
             {
-                title: 'Incentive Update Ã°Å¸â€œâ€¹',
+                title: 'Incentive Update ðŸ“‹',
                 body: `Your incentive request for "${doc.offerId?.title || 'Earning Addon'}" was not approved. Reason: ${doc.cancelReason || 'Ineligible'}`,
-                image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
+                image: 'https://i.ibb.co/5GzXz7r/Eatiefy-Brand-Image.png',
                 data: {
                     type: 'incentive_rejected',
                     historyId: String(doc._id),
@@ -5516,25 +5563,8 @@ export async function getDeliveryPartnerById(id) {
     const partner = await FoodDeliveryPartner.findById(id).lean();
     if (!partner) return null;
     const deliveryId = partner._id ? `DP-${partner._id.toString().slice(-8).toUpperCase()}` : null;
-
-    // Average rating from actual order ratings (consistent with My Reviews; the
-    // stored partner.rating aggregate can drift from real data).
-    const ratingAgg = await FoodOrder.aggregate([
-        {
-            $match: {
-                'dispatch.deliveryPartnerId': partner._id,
-                'ratings.deliveryPartner.rating': { $exists: true, $ne: null }
-            }
-        },
-        { $group: { _id: null, avg: { $avg: '$ratings.deliveryPartner.rating' }, count: { $sum: 1 } } }
-    ]);
-    const computedRating = ratingAgg?.[0]?.avg ? Math.round(ratingAgg[0].avg * 10) / 10 : 0;
-    const computedTotalRatings = ratingAgg?.[0]?.count || 0;
-
     return {
         ...partner,
-        rating: computedRating,
-        totalRatings: computedTotalRatings,
         email: partner.email || null,
         deliveryId,
         status: partner.status === 'rejected' ? 'blocked' : partner.status,
@@ -5639,41 +5669,39 @@ export async function getDeliverymanReviews(query = {}) {
 }
 
 export async function approveDeliveryPartner(id) {
-    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const partner = await FoodDeliveryPartner.findById(id);
+    if (!partner) return null;
+    partner.status = 'approved';
+    partner.approvedAt = new Date();
+    partner.rejectedAt = undefined;
+    partner.rejectionReason = undefined;
+    await partner.save();
 
-    logger.info(`[ADMIN-APPROVE] approveDeliveryPartner service called id=${id}`);
-
-    const existing = await FoodDeliveryPartner.findById(id)
-        .select('status email name pendingApprovalType')
-        .lean();
-    if (!existing) return null;
-    const isChangesApproval = existing.pendingApprovalType === 'changes';
-
-    const updated = await FoodDeliveryPartner.findByIdAndUpdate(
-        id,
-        {
-            $set: {
-                status: 'approved',
-                approvedAt: new Date(),
-                pendingApprovalType: 'registration'
-            },
-            $unset: {
-                rejectedAt: 1,
-                rejectionReason: 1
+    try {
+        const { notifyOwnerSafely } = await import('../../../../core/notifications/firebase.service.js');
+        await notifyOwnerSafely(
+            { ownerType: 'DELIVERY_PARTNER', ownerId: partner._id },
+            {
+                title: 'Welcome Aboard!',
+                body: `Your delivery partner application has been approved. You can now go online and start earning!`,
+                image: 'https://i.ibb.co/5GzXz7r/Eatiefy-Brand-Image.png',
+                data: {
+                    type: 'delivery_partner_approved',
+                    eventType: 'delivery_partner_approved',
+                    partnerId: String(partner._id),
+                    targetUrl: '/delivery'
+                }
             }
-        },
-        { new: true, runValidators: false }
-    ).lean();
-
-    if (!updated) return null;
-
-    await sendDeliveryApprovalNotifications(updated, existing, isChangesApproval);
+        );
+    } catch (e) {
+        console.error('Failed to send delivery partner approval notification:', e);
+    }
 
     // Referral crediting: on approval, credit the referrer partner's pocket balance via DeliveryBonusTransaction.
     try {
-        const referrerId = updated.referredBy ? String(updated.referredBy) : '';
+        const referrerId = partner.referredBy ? String(partner.referredBy) : '';
         if (referrerId && mongoose.Types.ObjectId.isValid(referrerId)) {
-            const already = await FoodReferralLog.findOne({ refereeId: updated._id, role: 'DELIVERY_PARTNER' }).lean();
+            const already = await FoodReferralLog.findOne({ refereeId: partner._id, role: 'DELIVERY_PARTNER' }).lean();
             if (!already) {
                 const settingsDoc = await FoodReferralSettings.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
                 const reward = Math.max(0, Number(settingsDoc?.referralRewardDelivery) || 0);
@@ -5683,7 +5711,7 @@ export async function approveDeliveryPartner(id) {
                 if (referrer && referrer.status === 'approved' && reward > 0 && limit > 0 && Number(referrer.referralCount || 0) < limit) {
                     const log = await FoodReferralLog.create({
                         referrerId: referrer._id,
-                        refereeId: updated._id,
+                        refereeId: partner._id,
                         role: 'DELIVERY_PARTNER',
                         rewardAmount: reward,
                         status: 'credited'
@@ -5699,7 +5727,7 @@ export async function approveDeliveryPartner(id) {
                 } else {
                     await FoodReferralLog.create({
                         referrerId: new mongoose.Types.ObjectId(referrerId),
-                        refereeId: updated._id,
+                        refereeId: partner._id,
                         role: 'DELIVERY_PARTNER',
                         rewardAmount: reward,
                         status: 'rejected',
@@ -5713,81 +5741,42 @@ export async function approveDeliveryPartner(id) {
         // eslint-disable-next-line no-console
         console.warn('Referral crediting failed (delivery approval):', e?.message || e);
     }
-    return updated;
+    return partner.toObject();
 }
 
 export async function rejectDeliveryPartner(id, reason) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
-
-    const existing = await FoodDeliveryPartner.findById(id).select('status email pendingApprovalType').lean();
-    if (!existing) return null;
-    const isChangesRejection = existing.pendingApprovalType === 'changes';
-    const trimmedReason = typeof reason === 'string' ? reason.trim() : undefined;
-
     const updated = await FoodDeliveryPartner.findByIdAndUpdate(
         id,
         {
             $set: {
                 status: 'rejected',
                 rejectedAt: new Date(),
-                rejectionReason: trimmedReason,
-                approvedAt: null,
-                pendingApprovalType: 'registration'
+                rejectionReason: typeof reason === 'string' ? reason.trim() : undefined,
+                approvedAt: null
             }
         },
         { new: true }
     ).lean();
 
     if (updated) {
-        const recipientEmail = String(updated.email || existing.email || '').trim();
-
         try {
             const { notifyOwnerSafely } = await import('../../../../core/notifications/firebase.service.js');
-            const rejectTitle = isChangesRejection
-                ? 'Profile Changes Rejected ❌'
-                : 'Onboarding Update 📋';
-            const rejectBody = isChangesRejection
-                ? `Your delivery profile changes were rejected. Reason: ${reason || 'Incomplete documents'}.`
-                : `Your application to join as a delivery partner was rejected. Reason: ${reason || 'Incomplete documents'}.`;
-            const targetUrl = isChangesRejection ? '/food/delivery' : '/food/delivery/pending-verification';
             await notifyOwnerSafely(
                 { ownerType: 'DELIVERY_PARTNER', ownerId: updated._id },
                 {
-                    title: rejectTitle,
-                    body: rejectBody,
-                    image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
-                    sendToAllDevices: true,
+                    title: 'Onboarding Update ðŸ“‹',
+                    body: `Your application to join as a delivery partner was rejected. Reason: ${reason || 'Incomplete documents'}.`,
+                    image: 'https://i.ibb.co/5GzXz7r/Eatiefy-Brand-Image.png',
                     data: {
-                        type: isChangesRejection ? 'delivery_changes_rejected' : 'onboarding_rejected',
+                        type: 'onboarding_rejected',
                         partnerId: String(updated._id),
-                        reason: reason || '',
-                        targetUrl,
-                        link: targetUrl,
+                        reason: reason || ''
                     }
                 }
             );
         } catch (e) {
             console.error('Failed to send delivery partner rejection notification:', e);
-        }
-
-        if (recipientEmail) {
-            try {
-                const { sendDeliveryRejectionEmail } = await import('../../../../utils/email.js');
-                const emailSent = await sendDeliveryRejectionEmail({
-                    to: recipientEmail,
-                    partnerName: updated.name,
-                    partnerId: String(updated._id),
-                    reason: updated.rejectionReason || trimmedReason,
-                    isChangesRejection
-                });
-                if (emailSent) {
-                    console.info(`Delivery rejection email sent to ${recipientEmail} for ${updated._id}`);
-                } else {
-                    console.warn(`Delivery rejection email was not sent for ${updated._id} (${recipientEmail})`);
-                }
-            } catch (e) {
-                console.error('Failed to send delivery partner rejection email:', e);
-            }
         }
     }
     return updated;
@@ -5846,6 +5835,7 @@ export async function createZone(body) {
         isActive: body.isActive !== false
     });
     await zone.save();
+    void invalidateActiveZonesCache();
     return { zone: zone.toObject() };
 }
 
@@ -5868,11 +5858,13 @@ export async function updateZone(id, body) {
     if (zone.name) zone.serviceLocation = zone.serviceLocation || zone.name;
 
     await zone.save();
+    void invalidateActiveZonesCache();
     return { zone: zone.toObject() };
 }
 
 export async function deleteZone(id) {
     const zone = await FoodZone.findByIdAndDelete(id);
+    if (zone) void invalidateActiveZonesCache();
     return zone ? { id } : null;
 }
 
@@ -5888,19 +5880,6 @@ export async function getWithdrawals(query = {}) {
     }
     if (query.restaurantId && mongoose.Types.ObjectId.isValid(query.restaurantId)) {
         filter.restaurantId = new mongoose.Types.ObjectId(query.restaurantId);
-    }
-
-    if (query.search && String(query.search).trim()) {
-        const term = String(query.search).trim();
-        if (!Number.isNaN(Number(term))) {
-            filter.amount = Number(term);
-        } else {
-            const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const restaurants = await FoodRestaurant.find({
-                restaurantName: { $regex: escaped, $options: 'i' },
-            }).select('_id').lean();
-            filter.restaurantId = { $in: restaurants.map((r) => r._id) };
-        }
     }
 
     const [withdrawals, total] = await Promise.all([
@@ -5964,20 +5943,10 @@ export async function getDeliveryWithdrawals(query = {}) {
         filter.status = query.status.toLowerCase();
     }
 
-    if (query.search && String(query.search).trim()) {
-        const term = String(query.search).trim();
-        if (!Number.isNaN(Number(term))) {
-            filter.amount = Number(term);
-        } else {
-            const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const partners = await FoodDeliveryPartner.find({
-                $or: [
-                    { name: { $regex: escaped, $options: 'i' } },
-                    { phone: { $regex: escaped, $options: 'i' } },
-                    { profilePartnerId: { $regex: escaped, $options: 'i' } },
-                ],
-            }).select('_id').lean();
-            filter.deliveryPartnerId = { $in: partners.map((p) => p._id) };
+    if (query.search) {
+        // Search by amount or placeholder for name (name requires join usually)
+        if (!isNaN(query.search)) {
+            filter.amount = Number(query.search);
         }
     }
 
@@ -6005,40 +5974,67 @@ export async function getDeliveryWithdrawals(query = {}) {
 
 export async function updateDeliveryWithdrawalStatus(id, { status, adminNote, rejectionReason, transactionId }) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) throw new ValidationError('Invalid withdrawal ID');
-    
-    const update = {
-        status: String(status).toLowerCase(),
-        adminNote,
-        rejectionReason,
-        transactionId,
-        processedAt: new Date()
-    };
 
-    const updated = await FoodDeliveryWithdrawal.findByIdAndUpdate(
-        id,
-        { $set: update },
-        { new: true }
-    ).populate('deliveryPartnerId', 'name phone profilePartnerId').lean();
+    const normalizedStatus = String(status || '').toLowerCase() === 'processed'
+        ? 'approved'
+        : String(status || '').toLowerCase();
 
-    if (!updated) throw new ValidationError('Withdrawal request not found');
+    if (!['approved', 'rejected', 'pending'].includes(normalizedStatus)) {
+        throw new ValidationError('Invalid withdrawal status');
+    }
 
-    // If approved, deduct from wallet balance
-    if (status.toLowerCase() === 'approved' || status.toLowerCase() === 'processed') {
-        const amount = Number(updated.amount || 0);
-        if (amount > 0) {
+    const existing = await FoodDeliveryWithdrawal.findById(id);
+    if (!existing) throw new ValidationError('Withdrawal request not found');
+
+    const previousStatus = String(existing.status || '').toLowerCase();
+    const nextStatus = normalizedStatus;
+    const amount = Number(existing.amount || 0);
+    const deliveryPartnerId = existing.deliveryPartnerId;
+
+    if (previousStatus !== 'pending' && previousStatus !== nextStatus) {
+        throw new ValidationError(`Cannot change a ${previousStatus} withdrawal request`);
+    }
+
+    if (amount > 0 && previousStatus === 'pending' && nextStatus !== 'pending') {
+        const wallet = await FoodDeliveryWallet.findOne({ deliveryPartnerId });
+        const currentBalance = Number(wallet?.balance) || 0;
+        const currentLocked = Number(wallet?.lockedAmount) || 0;
+
+        if (nextStatus === 'approved') {
+            if (currentBalance < amount) {
+                throw new ValidationError('Delivery wallet balance is lower than the requested amount');
+            }
+
             await FoodDeliveryWallet.findOneAndUpdate(
-                { deliveryPartnerId: updated.deliveryPartnerId?._id || updated.deliveryPartnerId },
-                { 
-                    $inc: { 
+                { deliveryPartnerId },
+                {
+                    $inc: {
                         balance: -amount,
-                        totalSettled: amount 
-                    } 
+                        totalSettled: amount,
+                        lockedAmount: -Math.min(currentLocked, amount)
+                    }
                 }
+            );
+        }
+
+        if (nextStatus === 'rejected' && currentLocked > 0) {
+            await FoodDeliveryWallet.findOneAndUpdate(
+                { deliveryPartnerId },
+                { $inc: { lockedAmount: -Math.min(currentLocked, amount) } }
             );
         }
     }
 
-    return updated;
+    existing.status = nextStatus;
+    existing.adminNote = adminNote;
+    existing.rejectionReason = rejectionReason;
+    existing.transactionId = transactionId;
+    existing.processedAt = nextStatus === 'pending' ? undefined : new Date();
+    await existing.save();
+
+    return FoodDeliveryWithdrawal.findById(id)
+        .populate('deliveryPartnerId', 'name phone profilePartnerId')
+        .lean();
 }
 
 /**
@@ -6069,130 +6065,24 @@ export async function getDeliveryWallets(query = {}) {
     const cashLimitSettings = await FoodDeliveryCashLimit.findOne({ isActive: true }).lean();
     const globalLimit = Number(cashLimitSettings?.deliveryCashLimit || 0);
 
-    const partnerIds = partners.map(p => new mongoose.Types.ObjectId(p._id)).filter(Boolean);
-
-    let earningsList = [];
-    let cashCollectedList = [];
-    let cashDepositsList = [];
-    let bonusList = [];
-    let withdrawalList = [];
-    let allWallets = [];
-
-    if (partnerIds.length > 0) {
-        [
-            earningsList,
-            cashCollectedList,
-            cashDepositsList,
-            bonusList,
-            withdrawalList,
-            allWallets
-        ] = await Promise.all([
-            FoodOrder.aggregate([
-                { $match: { 'dispatch.deliveryPartnerId': { $in: partnerIds }, orderStatus: 'delivered' } },
-                { $group: { _id: '$dispatch.deliveryPartnerId', totalEarned: { $sum: { $ifNull: ['$riderEarning', 0] } } } }
-            ]),
-            FoodOrder.aggregate([
-                {
-                    $match: {
-                        'dispatch.deliveryPartnerId': { $in: partnerIds },
-                        orderStatus: 'delivered',
-                        'payment.method': { $in: ['cash', 'cod'] }
-                    }
-                },
-                { $group: { _id: '$dispatch.deliveryPartnerId', cashCollected: { $sum: { $ifNull: ['$pricing.total', 0] } } } }
-            ]),
-            FoodDeliveryCashDeposit.aggregate([
-                {
-                    $match: {
-                        deliveryPartnerId: { $in: partnerIds },
-                        status: 'Completed'
-                    }
-                },
-                { $group: { _id: '$deliveryPartnerId', depositedCash: { $sum: { $ifNull: ['$amount', 0] } } } }
-            ]),
-            DeliveryBonusTransaction.aggregate([
-                { $match: { deliveryPartnerId: { $in: partnerIds } } },
-                { $group: { _id: '$deliveryPartnerId', total: { $sum: '$amount' } } }
-            ]),
-            FoodDeliveryWithdrawal.aggregate([
-                { $match: { deliveryPartnerId: { $in: partnerIds } } },
-                {
-                    $group: {
-                        _id: '$deliveryPartnerId',
-                        totalWithdrawn: {
-                            $sum: {
-                                $cond: [{ $eq: ['$status', 'approved'] }, { $ifNull: ['$amount', 0] }, 0]
-                            }
-                        },
-                        pendingWithdrawals: {
-                            $sum: {
-                                $cond: [{ $eq: ['$status', 'pending'] }, { $ifNull: ['$amount', 0] }, 0]
-                            }
-                        }
-                    }
-                }
-            ]),
-            FoodDeliveryWallet.find({ deliveryPartnerId: { $in: partnerIds } }).lean()
-        ]);
-    }
-
-    const earningsMap = new Map(earningsList.map(e => [String(e._id), e.totalEarned]));
-    const cashCollectedMap = new Map(cashCollectedList.map(c => [String(c._id), c.cashCollected]));
-    const cashDepositsMap = new Map(cashDepositsList.map(d => [String(d._id), d.depositedCash]));
-    const bonusMap = new Map(bonusList.map(b => [String(b._id), b.total]));
-    const withdrawalMap = new Map(withdrawalList.map(w => [String(w._id), w]));
-    const walletMap = new Map(allWallets.map(w => [String(w.deliveryPartnerId), w]));
+    const partnerIds = partners.map(p => p._id);
+    const statsMap = await getBulkDeliveryPartnerStats(partnerIds);
 
     const wallets = partners.map((p) => {
-        const partnerIdStr = String(p._id);
-        const wallet = walletMap.get(partnerIdStr);
-        const partnerIdstr = p._id ? `DP-${p._id.toString().slice(-8).toUpperCase()}` : '—';
-        
-        if (!p._id) {
-            return {
-                walletId: wallet?._id,
-                deliveryId: p._id,
-                name: p.name,
-                phone: p.phone || '',
-                deliveryIdString: partnerIdstr,
-                pocketBalance: 0,
-                totalCashLimit: globalLimit,
-                remainingCashLimit: globalLimit,
-                cashCollected: 0,
-                cashDeposited: 0,
-                totalEarning: 0,
-                bonus: 0,
-                totalWithdrawn: 0,
-                cashInHand: 0,
-            };
-        }
-
-        const totalEarned = Number(earningsMap.get(partnerIdStr)) || 0;
-        const grossCashCollected = Number(cashCollectedMap.get(partnerIdStr)) || 0;
-        const totalDepositedCash = Number(cashDepositsMap.get(partnerIdStr)) || 0;
-        const cashInHand = Math.max(0, grossCashCollected - totalDepositedCash);
-        const totalBonus = Number(bonusMap.get(partnerIdStr)) || 0;
-        
-        const wInfo = withdrawalMap.get(partnerIdStr);
-        const totalWithdrawn = Number(wInfo?.totalWithdrawn) || 0;
-        const pendingWithdrawals = Number(wInfo?.pendingWithdrawals) || 0;
-        const pocketBalance = Math.max(0, (totalEarned + totalBonus) - (totalWithdrawn + pendingWithdrawals));
-
+        const stats = statsMap.get(p._id.toString()) || {};
         return {
-            walletId: wallet?._id,
+            walletId: p._id, // Using partner ID as wallet ID fallback
             deliveryId: p._id,
             name: p.name,
-            phone: p.phone || '',
-            deliveryIdString: partnerIdstr,
-            pocketBalance,
-            totalCashLimit: globalLimit,
-            remainingCashLimit: Math.max(0, globalLimit - cashInHand),
-            cashCollected: grossCashCollected,
-            cashDeposited: totalDepositedCash,
-            totalEarning: totalEarned,
-            bonus: totalBonus,
-            totalWithdrawn,
-            cashInHand,
+            deliveryIdString: p.phone,
+            pocketBalance: stats.pocketBalance || 0,
+            remainingCashLimit: Math.max(0, globalLimit - (stats.cashInHand || 0)),
+            cashCollected: stats.cashInHand || 0,
+            totalEarning: stats.totalEarning || 0,
+            bonus: stats.bonus || 0,
+            totalWithdrawn: stats.totalWithdrawn || 0,
+            availableCashLimit: globalLimit,
+            totalOrders: stats.totalOrders || 0
         };
     });
 
@@ -6208,36 +6098,58 @@ export async function getDeliveryWallets(query = {}) {
 }
 
 /**
+ * Update delivery partner wallet manually (admin)
+ */
+export async function updateDeliveryBoyWallet(data) {
+    const { deliveryId, pocketBalance, cashInHand } = data;
+    if (!deliveryId) throw new ValidationError('Delivery partner ID required');
+
+    let wallet = await FoodDeliveryWallet.findOne({ deliveryPartnerId: deliveryId });
+    if (!wallet) {
+        wallet = new FoodDeliveryWallet({
+            deliveryPartnerId: deliveryId,
+            balance: pocketBalance || 0,
+            cashInHand: cashInHand || 0
+        });
+    } else {
+        if (pocketBalance !== undefined) wallet.balance = pocketBalance;
+        if (cashInHand !== undefined) wallet.cashInHand = cashInHand;
+    }
+
+    await wallet.save();
+    return wallet.toObject();
+}
+
+/**
+ * Deactivate a delivery partner (admin)
+ */
+export async function deleteDeliveryPartner(id) {
+    const partner = await FoodDeliveryPartner.findById(id);
+    if (!partner) throw new NotFoundError('Delivery partner not found');
+
+    partner.status = 'deactivated';
+    await partner.save();
+
+    // Optional: You could also clear FCM tokens to log them out
+    // partner.fcmTokens = [];
+    // await partner.save();
+
+    return partner.toObject();
+}
+
+/**
  * Fetch cash limit settlement (deposit) transactions
  */
 export async function getCashLimitSettlements(query = {}) {
     const limit = parseInt(query.limit, 10) || 20;
     const page = parseInt(query.page, 10) || 1;
     const skip = (page - 1) * limit;
-    const search = String(query.search || '').trim();
-    const statusFilter = String(query.status || '').trim();
 
     const filter = {};
-    if (statusFilter && statusFilter.toLowerCase() !== 'all') {
-        filter.status = statusFilter;
-    }
-
-    if (search) {
-        if (search.startsWith('pay_') || search.startsWith('order_')) {
-            filter.$or = [
-                { razorpayPaymentId: search },
-                { razorpayOrderId: search },
-            ];
-        } else {
-            const partnerIds = await FoodDeliveryPartner.find({
-                $or: [
-                    { name: { $regex: search, $options: 'i' } },
-                    { phone: { $regex: search, $options: 'i' } },
-                ],
-            })
-                .select('_id')
-                .lean();
-            filter.deliveryPartnerId = { $in: partnerIds.map((p) => p._id) };
+    if (query.search) {
+        // Search by razorpay ID or find partner IDs to search by partner
+        if (query.search.startsWith('pay_')) {
+            filter.razorpayPaymentId = query.search;
         }
     }
 
@@ -6256,17 +6168,10 @@ export async function getCashLimitSettlements(query = {}) {
         createdAt: d.createdAt,
         deliveryId: d.deliveryPartnerId?._id,
         deliveryName: d.deliveryPartnerId?.name || 'N/A',
-        deliveryPhone: d.deliveryPartnerId?.phone || 'N/A',
         deliveryIdString: d.deliveryPartnerId?.phone || 'N/A',
         amount: Number(d.amount || 0),
         status: d.status,
-        paymentMethod: String(d.paymentMethod || 'razorpay').toLowerCase() === 'cash'
-            ? 'Cash'
-            : 'Razorpay',
-        razorpayPaymentId: String(d.paymentMethod || '').toLowerCase() === 'cash'
-            ? 'N/A'
-            : (d.razorpayPaymentId || '-'),
-        razorpayOrderId: d.razorpayOrderId || '-',
+        razorpayPaymentId: d.razorpayPaymentId || '-'
     }));
 
     return { 
@@ -6274,154 +6179,9 @@ export async function getCashLimitSettlements(query = {}) {
         pagination: { 
             total, 
             page, 
-            limit, 
-            pages: Math.ceil(total / limit) || 1 
-        } 
-    };
-}
-
-/**
- * Admin confirms or rejects a pending cash deposit submission.
- */
-export async function updateCashLimitSettlementStatus(depositId, body = {}, adminUser = null) {
-    if (!depositId || !mongoose.Types.ObjectId.isValid(String(depositId))) {
-        throw new ValidationError('Invalid settlement id');
-    }
-
-    const action = String(body.action || '').trim().toLowerCase();
-    if (!['received', 'not_received'].includes(action)) {
-        throw new ValidationError('action must be received or not_received');
-    }
-
-    const deposit = await FoodDeliveryCashDeposit.findById(depositId);
-    if (!deposit) throw new NotFoundError('Settlement not found');
-
-    if (deposit.status !== 'Pending') {
-        throw new ValidationError(`Settlement is already ${deposit.status}`);
-    }
-
-    if (String(deposit.paymentMethod || '').toLowerCase() !== 'cash') {
-        throw new ValidationError('Only cash submissions can be confirmed manually');
-    }
-
-    const nextStatus = action === 'received' ? 'Completed' : 'Failed';
-    deposit.status = nextStatus;
-    deposit.confirmationAction = action;
-    deposit.adminId = adminUser?._id || null;
-    deposit.adminNote = action === 'received'
-        ? 'Cash received and confirmed by admin'
-        : 'Cash not received — marked by admin';
-    await deposit.save();
-
-    const { getDeliveryPartnerWalletEnhanced, notifyDeliveryPartnerCashDepositStatus } = await import('../../delivery/services/deliveryFinance.service.js');
-    const wallet = await getDeliveryPartnerWalletEnhanced(deposit.deliveryPartnerId);
-
-    await notifyDeliveryPartnerCashDepositStatus(deposit.deliveryPartnerId, {
-        amount: deposit.amount,
-        status: nextStatus,
-        wallet,
-    });
-
-    return {
-        deposit: deposit.toObject(),
-        wallet,
-    };
-}
-
-function getManualCashSubmissionFilter(extra = {}) {
-    return {
-        paymentMethod: 'cash',
-        $or: [
-            { razorpayPaymentId: { $exists: false } },
-            { razorpayPaymentId: null },
-            { razorpayPaymentId: '' },
-        ],
-        ...extra,
-    };
-}
-
-export async function countPendingCashConfirmations() {
-    return FoodDeliveryCashDeposit.countDocuments(
-        getManualCashSubmissionFilter({ status: 'Pending' }),
-    );
-}
-
-function mapCashConfirmationRow(d) {
-    const paymentMethod = 'Cash';
-    const confirmationAction = d.confirmationAction || null;
-    let actionLabel = null;
-    if (confirmationAction === 'received') actionLabel = 'Received';
-    if (confirmationAction === 'not_received') actionLabel = 'Not Received';
-
-    let statusLabel = d.status || 'Pending';
-
-    return {
-        id: d._id,
-        createdAt: d.createdAt,
-        deliveryId: d.deliveryPartnerId?._id,
-        deliveryName: d.deliveryPartnerId?.name || 'N/A',
-        deliveryPhone: d.deliveryPartnerId?.phone || 'N/A',
-        deliveryIdString: d.deliveryPartnerId?.phone || 'N/A',
-        amount: Number(d.amount || 0),
-        status: statusLabel,
-        rawStatus: d.status,
-        paymentMethod,
-        confirmationAction,
-        actionLabel,
-        razorpayPaymentId: 'N/A',
-    };
-}
-
-/**
- * Cash submissions that need admin confirmation (paymentMethod = cash, manual submit).
- */
-export async function getCashConfirmations(query = {}) {
-    const limit = parseInt(query.limit, 10) || 20;
-    const page = parseInt(query.page, 10) || 1;
-    const skip = (page - 1) * limit;
-    const search = String(query.search || '').trim();
-    const tab = String(query.tab || 'all').trim().toLowerCase();
-
-    const filter = getManualCashSubmissionFilter();
-
-    if (tab === 'pending') {
-        filter.status = 'Pending';
-    } else if (tab === 'confirmed') {
-        filter.confirmationAction = { $in: ['received', 'not_received'] };
-    }
-
-    if (search) {
-        const partnerIds = await FoodDeliveryPartner.find({
-            $or: [
-                { name: { $regex: search, $options: 'i' } },
-                { phone: { $regex: search, $options: 'i' } },
-            ],
-        })
-            .select('_id')
-            .lean();
-        filter.deliveryPartnerId = { $in: partnerIds.map((p) => p._id) };
-    }
-
-    const [deposits, total] = await Promise.all([
-        FoodDeliveryCashDeposit.find(filter)
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limit)
-            .populate('deliveryPartnerId', 'name phone')
-            .lean(),
-        FoodDeliveryCashDeposit.countDocuments(filter),
-    ]);
-
-    const transactions = deposits.map(mapCashConfirmationRow);
-
-    return {
-        transactions,
-        pagination: {
-            total,
-            page,
             limit,
-            pages: Math.ceil(total / limit) || 1,
-        },
+            pages: Math.ceil(total / limit) || 1
+        }
     };
 }
 
@@ -6441,21 +6201,14 @@ export async function getSidebarBadges() {
             pendingEarningAddons,
             pendingSafetyReports,
             pendingEmergencyHelp,
-            pendingRestaurantComplaints,
-            pendingCashConfirmations,
+            pendingRestaurantComplaints
         ] = await Promise.all([
             FoodRestaurant.countDocuments({ status: 'pending' }),
             FoodDeliveryPartner.countDocuments({ status: 'pending' }),
             FoodItem.countDocuments({ approvalStatus: 'pending' }),
             FoodAddon.countDocuments({ approvalStatus: 'pending' }),
-            FoodOrder.countDocuments({
-                orderStatus: 'created',
-                $or: [
-                    { "payment.method": { $in: ["cash", "wallet"] } },
-                    { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } }
-                ]
-            }),
-            FoodOrder.countDocuments({ paymentMethod: 'offline_payment', orderStatus: { $in: ['created', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'pending'] } }),
+            FoodOrder.countDocuments({ orderStatus: 'pending' }),
+            FoodOrder.countDocuments({ paymentMethod: 'offline_payment', orderStatus: 'pending' }),
             FoodRestaurantWithdrawal.countDocuments({ status: 'pending' }),
             FoodDeliveryWithdrawal.countDocuments({ status: 'pending' }),
             FoodSupportTicket.countDocuments({ status: 'open', userId: { $exists: true }, restaurantId: { $exists: false } }),
@@ -6463,8 +6216,7 @@ export async function getSidebarBadges() {
             FoodEarningAddonHistory.countDocuments({ status: 'pending' }),
             FoodSafetyEmergencyReport.countDocuments({ status: 'pending' }),
             FoodDeliveryEmergencyHelp.countDocuments({ status: 'pending' }),
-            FoodSupportTicket.countDocuments({ type: 'order', status: 'pending' }),
-            countPendingCashConfirmations(),
+            FoodSupportTicket.countDocuments({ status: 'open', restaurantId: { $exists: true } })
         ]);
 
         return {
@@ -6476,7 +6228,6 @@ export async function getSidebarBadges() {
             offlinePayments: pendingOfflinePayments,
             restaurantWithdrawals: pendingRestaurantWithdrawals,
             deliveryWithdrawals: pendingDeliveryWithdrawals,
-            cashConfirmations: pendingCashConfirmations,
             userSupportTickets: openUserSupportTickets,
             deliverySupportTickets: openDeliverySupportTickets,
             earningAddons: pendingEarningAddons,
@@ -6489,99 +6240,548 @@ export async function getSidebarBadges() {
         return {};
     }
 }
+export async function bulkApproveFoodItems(restaurantId) {
+    const filter = { approvalStatus: 'pending', isDeleted: { $ne: true } };
+    
+    if (restaurantId && mongoose.Types.ObjectId.isValid(restaurantId)) {
+        filter.restaurantId = new mongoose.Types.ObjectId(restaurantId);
+    }
+
+    const now = new Date();
+
+    // 1. Bulk Approve Food Items
+    const foodResult = await FoodItem.updateMany(
+        filter,
+        {
+            $set: {
+                approvalStatus: 'approved',
+                approvedAt: now,
+                rejectionReason: ''
+            }
+        }
+    );
+
+    // 2. Bulk Approve Addons
+    // For addons, we need to move 'draft' to 'published'
+    // UpdateMany with pipeline (if MongoDB 4.2+) or manual loop
+    // To be efficient for bulk admin use, we'll use a loop if the count is small, 
+    // or a direct update if we just want to set the status (though published should ideally match)
+    const addonResult = await FoodAddon.updateMany(
+        filter,
+        [
+            {
+                $set: {
+                    published: '$draft',
+                    approvalStatus: 'approved',
+                    approvedAt: now,
+                    rejectionReason: ''
+                }
+            }
+        ]
+    );
+
+    // 3. Invalidate Cache if restaurantId is provided
+    if (restaurantId && mongoose.Types.ObjectId.isValid(restaurantId)) {
+        try {
+            const { invalidateCache } = await import('../../../../middleware/cache.js');
+            await invalidateCache(`restaurant_menu:${restaurantId}`);
+        } catch (cacheErr) {
+            console.error('Failed to invalidate cache after bulk approval:', cacheErr);
+        }
+    }
+
+    return {
+        foodItems: foodResult,
+        addons: addonResult,
+        modifiedCount: (foodResult.modifiedCount || 0) + (addonResult.modifiedCount || 0)
+    };
+}
+
+export async function deleteRestaurant(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        throw new ValidationError('Invalid restaurant ID');
+    }
+
+    const restaurant = await FoodRestaurant.findById(id).lean();
+    if (!restaurant) {
+        return null;
+    }
+
+    // Delete the restaurant
+    await FoodRestaurant.findByIdAndDelete(id);
+
+    // Delete associated food items
+    await FoodItem.deleteMany({ restaurantId: id });
+
+    // Delete associated addons
+    await FoodAddon.deleteMany({ restaurantId: id });
+
+    // Delete associated categories if they are restaurant-specific
+    // Assuming categories are global unless they have a restaurantId field (need to check FoodCategory model)
+    await FoodCategory.deleteMany({ restaurantId: id });
+
+    // Delete associated user/owner account if it's a restaurant role
+    if (restaurant.ownerPhone) {
+        await FoodUser.deleteOne({ phone: restaurant.ownerPhone, role: 'RESTAURANT' });
+    }
+
+    return restaurant;
+}
+
+const toEmail = (value) => String(value || '').trim().toLowerCase();
+
+export async function createSubAdmin(payload = {}, actorId) {
+    const email = toEmail(payload.email);
+    const password = String(payload.password || '').trim();
+    const name = String(payload.name || '').trim();
+
+    if (!email || !password) {
+        throw new ValidationError('Email and password are required');
+    }
+
+    const existing = await FoodAdmin.findOne({ email }).lean();
+    if (existing) {
+        throw new ValidationError('Admin with this email already exists');
+    }
+
+    const subAdmin = await FoodAdmin.create({
+        email,
+        password,
+        name,
+        phone: String(payload.phone || '').trim(),
+        role: 'ADMIN',
+        adminType: 'sub_admin',
+        permissions: {},
+        isActive: true,
+        isDeleted: false,
+        createdBy: actorId || null,
+        updatedBy: actorId || null,
+    });
+
+    return FoodAdmin.findById(subAdmin._id).select('-password').lean();
+}
+
+export async function getSubAdmins(query = {}) {
+    const filter = { adminType: 'sub_admin' };
+    if (query.includeDeleted !== 'true') {
+        filter.isDeleted = false;
+    }
+    if (query.status === 'active') filter.isActive = true;
+    if (query.status === 'inactive') filter.isActive = false;
+
+    const search = String(query.search || '').trim();
+    if (search) {
+        filter.$or = [
+            { name: { $regex: search, $options: 'i' } },
+            { email: { $regex: search, $options: 'i' } },
+            { phone: { $regex: search, $options: 'i' } },
+        ];
+    }
+
+    const items = await FoodAdmin.find(filter)
+        .select('-password')
+        .sort({ createdAt: -1 })
+        .lean();
+    return { items };
+}
+
+export async function getSubAdminById(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        throw new ValidationError('Invalid sub-admin id');
+    }
+    const item = await FoodAdmin.findOne({ _id: id, adminType: 'sub_admin' }).select('-password').lean();
+    if (!item) throw new ValidationError('Sub-admin not found');
+    return item;
+}
+
+export async function updateSubAdminProfile(id, payload = {}, actorId) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        throw new ValidationError('Invalid sub-admin id');
+    }
+    const update = { updatedBy: actorId || null };
+    if (payload.name !== undefined) update.name = String(payload.name || '').trim();
+    if (payload.phone !== undefined) update.phone = String(payload.phone || '').trim();
+    if (payload.email !== undefined) update.email = toEmail(payload.email);
+
+    const updated = await FoodAdmin.findOneAndUpdate(
+        { _id: id, adminType: 'sub_admin', isDeleted: false },
+        { $set: update },
+        { new: true }
+    ).select('-password').lean();
+    if (!updated) throw new ValidationError('Sub-admin not found');
+    return updated;
+}
+
+export async function updateSubAdminPermissions(id, rawPermissions = {}, actorId) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        throw new ValidationError('Invalid sub-admin id');
+    }
+    if (!isValidPermissionPayload(rawPermissions)) {
+        throw new ValidationError('Invalid permissions payload');
+    }
+    const permissions = sanitizeAdminPermissions(rawPermissions);
+    const updated = await FoodAdmin.findOneAndUpdate(
+        { _id: id, adminType: 'sub_admin', isDeleted: false },
+        { $set: { permissions, updatedBy: actorId || null } },
+        { new: true }
+    ).select('-password').lean();
+    if (!updated) throw new ValidationError('Sub-admin not found');
+    return updated;
+}
+
+export async function updateSubAdminStatus(id, isActive, actorId) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        throw new ValidationError('Invalid sub-admin id');
+    }
+    const updated = await FoodAdmin.findOneAndUpdate(
+        { _id: id, adminType: 'sub_admin', isDeleted: false },
+        { $set: { isActive: Boolean(isActive), updatedBy: actorId || null } },
+        { new: true }
+    ).select('-password').lean();
+    if (!updated) throw new ValidationError('Sub-admin not found');
+    return updated;
+}
+
+export async function deleteSubAdmin(id, actorId) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        throw new ValidationError('Invalid sub-admin id');
+    }
+    const updated = await FoodAdmin.findOneAndUpdate(
+        { _id: id, adminType: 'sub_admin', isDeleted: false },
+        { $set: { isDeleted: true, isActive: false, updatedBy: actorId || null } },
+        { new: true }
+    ).select('-password').lean();
+    if (!updated) throw new ValidationError('Sub-admin not found');
+    return updated;
+}
+
+export function getAdminPermissionCatalog() {
+    return {
+        actions: ['view', 'create', 'edit', 'delete', 'export'],
+        sections: Object.keys(ADMIN_FULL_PERMISSIONS).map((section) => ({
+            key: section,
+            actions: ADMIN_FULL_PERMISSIONS[section],
+        })),
+    };
+}
+
+// ===== TARGET BONUS RULES =====
 
 /**
- * Admin-triggered Razorpay refund for a paid online order.
- * Status correction + gateway refund — does not re-run cancel automations.
+ * Returns the IST-based date string (YYYY-MM-DD) for a given JS Date object.
+ * Used to build the eligibility window for daily rules.
  */
-export async function processRefund(orderId, refundAmount) {
-    if (!mongoose.Types.ObjectId.isValid(orderId)) {
-        throw new ValidationError('Invalid order id');
+function toISTDateString(date = new Date()) {
+    // IST = UTC+5:30
+    const ist = new Date(date.getTime() + 5.5 * 60 * 60 * 1000);
+    return ist.toISOString().slice(0, 10);
+}
+
+/**
+ * Compute the "window start" date string for a rule's targetType.
+ * daily   → today (YYYY-MM-DD)
+ * weekly  → Monday of current week
+ * monthly → 1st of current month
+ */
+function getWindowDateString(targetType) {
+    const now = new Date();
+    const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+    if (targetType === 'daily') {
+        return istNow.toISOString().slice(0, 10);
+    }
+    if (targetType === 'weekly') {
+        const day = istNow.getUTCDay(); // 0=Sun
+        const diff = day === 0 ? 6 : day - 1; // days since Monday
+        const monday = new Date(istNow);
+        monday.setUTCDate(monday.getUTCDate() - diff);
+        return monday.toISOString().slice(0, 10);
+    }
+    // monthly
+    return `${istNow.toISOString().slice(0, 7)}-01`;
+}
+
+export async function getTargetBonusRules(query = {}) {
+    const filter = {};
+    if (query.status) filter.status = query.status;
+    if (query.targetType) filter.targetType = query.targetType;
+
+    const rules = await TargetBonusRule.find(filter).sort({ createdAt: -1 }).lean();
+    return rules;
+}
+
+export async function createTargetBonusRule(body, adminUser) {
+    const { name, targetType, minimumOrders, bonusAmount, status = 'active' } = body;
+    if (!name || !name.trim()) throw new ValidationError('Rule name is required');
+    if (!['daily', 'weekly', 'monthly'].includes(targetType)) throw new ValidationError('Invalid target type');
+    if (!minimumOrders || minimumOrders < 1) throw new ValidationError('Minimum orders must be at least 1');
+    if (bonusAmount == null || bonusAmount < 0) throw new ValidationError('Bonus amount must be non-negative');
+
+    // Enforce: only one active rule per type
+    if (status === 'active') {
+        const existing = await TargetBonusRule.findOne({ targetType, status: 'active' }).lean();
+        if (existing) {
+            throw new ValidationError(`An active ${targetType} rule already exists. Please deactivate it first.`);
+        }
     }
 
-    const order = await FoodOrder.findById(orderId);
-    if (!order) throw new NotFoundError('Order not found');
+    const rule = await TargetBonusRule.create({
+        name: name.trim(),
+        targetType,
+        minimumOrders: Number(minimumOrders),
+        bonusAmount: Number(bonusAmount),
+        status,
+        createdByAdminId: adminUser?._id,
+    });
+    return rule.toObject();
+}
 
-    const method = String(order.payment?.method || '').toLowerCase();
-    const status = String(order.payment?.status || '').toLowerCase();
-    const paymentId = order.payment?.razorpay?.paymentId;
-    const alreadyProcessed =
-        String(order.payment?.refund?.status || '').toLowerCase() === 'processed';
+export async function updateTargetBonusRule(id, body, adminUser) {
+    const rule = await TargetBonusRule.findById(id);
+    if (!rule) throw new ValidationError('Target bonus rule not found');
 
-    if (!['razorpay', 'razorpay_qr'].includes(method)) {
-        throw new ValidationError('Refund via Razorpay is only for online payments');
-    }
-    if (status !== 'paid' && status !== 'refunded') {
-        throw new ValidationError('Order payment is not in a refundable paid state');
-    }
-    if (alreadyProcessed || status === 'refunded') {
-        return order;
-    }
-    if (!paymentId) {
-        throw new ValidationError('Razorpay payment id missing on this order');
-    }
+    const { name, targetType, minimumOrders, bonusAmount, status } = body;
 
-    const amount = Number(
-        refundAmount != null && refundAmount !== ''
-            ? refundAmount
-            : order.pricing?.total ?? order.payment?.amountDue ?? 0,
-    );
-    if (!Number.isFinite(amount) || amount <= 0) {
-        throw new ValidationError('Invalid refund amount');
-    }
-
-    const { initiateRazorpayRefund, isRazorpayConfigured } = await import(
-        '../../orders/helpers/razorpay.helper.js'
-    );
-    if (!isRazorpayConfigured()) {
-        throw new ValidationError('Razorpay is not configured on this server');
+    // Check for one-active-per-type conflict (if activating or changing type)
+    const newStatus = status !== undefined ? status : rule.status;
+    const newType = targetType || rule.targetType;
+    if (newStatus === 'active') {
+        const conflict = await TargetBonusRule.findOne({
+            _id: { $ne: id },
+            targetType: newType,
+            status: 'active',
+        }).lean();
+        if (conflict) {
+            throw new ValidationError(`An active ${newType} rule already exists. Deactivate it first.`);
+        }
     }
 
-    const refundResult = await initiateRazorpayRefund(paymentId, amount);
-    if (!refundResult.success) {
-        order.payment.refund = {
-            status: 'failed',
-            destination: 'source',
-            amount,
-            refundId: '',
-            processedAt: null,
-        };
-        order.markModified('payment');
-        await order.save();
-        throw new ValidationError(refundResult.error || 'Razorpay refund failed');
+    if (name !== undefined) rule.name = name.trim();
+    if (targetType !== undefined) rule.targetType = targetType;
+    if (minimumOrders !== undefined) rule.minimumOrders = Number(minimumOrders);
+    if (bonusAmount !== undefined) rule.bonusAmount = Number(bonusAmount);
+    if (status !== undefined) rule.status = status;
+
+    await rule.save();
+    return rule.toObject();
+}
+
+export async function deleteTargetBonusRule(id) {
+    const rule = await TargetBonusRule.findByIdAndDelete(id).lean();
+    if (!rule) throw new ValidationError('Target bonus rule not found');
+    return rule;
+}
+
+export async function toggleTargetBonusRuleStatus(id) {
+    const rule = await TargetBonusRule.findById(id);
+    if (!rule) throw new ValidationError('Target bonus rule not found');
+
+    if (rule.status === 'inactive') {
+        // Activating: check for conflict
+        const conflict = await TargetBonusRule.findOne({
+            _id: { $ne: id },
+            targetType: rule.targetType,
+            status: 'active',
+        }).lean();
+        if (conflict) {
+            throw new ValidationError(`An active ${rule.targetType} rule already exists. Deactivate it first.`);
+        }
+        rule.status = 'active';
+    } else {
+        rule.status = 'inactive';
     }
 
-    order.payment.status = 'refunded';
-    order.payment.refund = {
-        status: 'processed',
-        destination: 'source',
-        amount,
-        refundId: refundResult.refundId || '',
-        processedAt: new Date(),
-    };
-    order.markModified('payment');
-    await order.save();
+    await rule.save();
+    return rule.toObject();
+}
 
+// ===== ELIGIBILITY TRACKING =====
+
+/**
+ * Called fire-and-forget when an order status becomes "delivered".
+ * Counts how many orders this partner delivered in the current window
+ * for each active rule, and upserts the eligibility record.
+ * Never credits the wallet — only marks as eligible.
+ */
+export async function checkAndMarkEligibility(deliveryPartnerId, orderId) {
     try {
-        await FoodTransaction.updateOne(
-            { orderId: order._id },
-            {
-                $set: { 'payment.status': 'refunded' },
-                $push: {
-                    history: {
-                        kind: 'refunded',
-                        amount,
-                        at: new Date(),
-                        note: `Admin Razorpay refund ${refundResult.refundId || ''}`.trim(),
-                        recordedBy: { role: 'ADMIN' },
+        const activeRules = await TargetBonusRule.find({ status: 'active' }).lean();
+        if (!activeRules.length) return;
+
+        for (const rule of activeRules) {
+            const windowDate = getWindowDateString(rule.targetType);
+
+            // Build the time window boundaries
+            const windowStart = new Date(windowDate + 'T00:00:00.000+05:30');
+            let windowEnd;
+            if (rule.targetType === 'daily') {
+                windowEnd = new Date(windowDate + 'T23:59:59.999+05:30');
+            } else if (rule.targetType === 'weekly') {
+                const end = new Date(windowStart);
+                end.setUTCDate(end.getUTCDate() + 6);
+                end.setUTCHours(23, 59, 59, 999);
+                windowEnd = end;
+            } else {
+                // monthly — last day of the month
+                const nextMonth = new Date(windowStart);
+                nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+                nextMonth.setUTCDate(0);
+                nextMonth.setUTCHours(23, 59, 59, 999);
+                windowEnd = nextMonth;
+            }
+
+            // Count delivered orders in the window for this partner
+            const ordersCompleted = await FoodOrder.countDocuments({
+                'dispatch.deliveryPartnerId': deliveryPartnerId,
+                orderStatus: 'delivered',
+                updatedAt: { $gte: windowStart, $lte: windowEnd },
+            });
+
+            if (ordersCompleted < rule.minimumOrders) continue; // Not eligible yet
+
+            // Upsert eligibility record (ignore if already bonus_given)
+            const existing = await DeliveryTargetEligibility.findOne({
+                deliveryPartnerId,
+                ruleId: rule._id,
+                date: windowDate,
+            }).lean();
+
+            if (existing && existing.status === 'bonus_given') continue; // Already processed
+
+            await DeliveryTargetEligibility.findOneAndUpdate(
+                { deliveryPartnerId, ruleId: rule._id, date: windowDate },
+                {
+                    $set: {
+                        ordersCompleted,
+                        targetOrders: rule.minimumOrders,
+                        bonusAmount: rule.bonusAmount,
+                        status: 'eligible',
                     },
                 },
-            },
-        );
+                { upsert: true, new: true }
+            );
+        }
     } catch (err) {
-        logger.warn(`processRefund ledger sync failed for ${orderId}: ${err?.message || err}`);
+        console.error('[checkAndMarkEligibility] Error:', err);
+    }
+}
+
+// ===== ELIGIBLE BONUSES (ADMIN VIEW) =====
+
+export async function getEligibleBonuses(query = {}) {
+    const filter = {};
+
+    // Date filter
+    const dateStr = query.date || toISTDateString();
+    filter.date = dateStr;
+
+    if (query.status && ['eligible', 'bonus_given'].includes(query.status)) {
+        filter.status = query.status;
     }
 
-    return order;
+    const rawRecords = await DeliveryTargetEligibility.find(filter)
+        .populate('deliveryPartnerId', 'name phone deliveryId profileImage')
+        .populate('ruleId', 'name targetType minimumOrders bonusAmount')
+        .sort({ createdAt: -1 })
+        .lean();
+
+    // Apply search filter
+    let records = rawRecords;
+    if (query.search) {
+        const q = query.search.toLowerCase();
+        records = rawRecords.filter((r) => {
+            const name = r.deliveryPartnerId?.name?.toLowerCase() || '';
+            const id = r.deliveryPartnerId?.deliveryId?.toLowerCase() || '';
+            return name.includes(q) || id.includes(q);
+        });
+    }
+
+    return records;
+}
+
+export async function getEligibleBonusSummary() {
+    const dateStr = toISTDateString();
+    const [eligible, bonusGiven] = await Promise.all([
+        DeliveryTargetEligibility.countDocuments({ date: dateStr, status: 'eligible' }),
+        DeliveryTargetEligibility.countDocuments({ date: dateStr, status: 'bonus_given' }),
+    ]);
+    return { eligible, bonusGiven, total: eligible + bonusGiven };
+}
+
+export async function markBonusGiven(eligibilityId, bonusTransactionId, adminUser) {
+    const record = await DeliveryTargetEligibility.findById(eligibilityId);
+    if (!record) throw new ValidationError('Eligibility record not found');
+    if (record.status === 'bonus_given') throw new ValidationError('Bonus already marked as given');
+
+    record.status = 'bonus_given';
+    record.bonusTransactionId = bonusTransactionId || null;
+    record.approvedByAdminId = adminUser?._id || null;
+    record.approvedAt = new Date();
+    await record.save();
+    return record.toObject();
+}
+
+// ===== DELIVERY PARTNER — MY BONUS STATUS =====
+
+export async function getDeliveryPartnerMyBonusStatus(deliveryPartnerId) {
+    const dateStr = toISTDateString();
+
+    // Get all active rules to show target
+    const activeRules = await TargetBonusRule.find({ status: 'active' }).lean();
+
+    const results = [];
+
+    for (const rule of activeRules) {
+        const windowDate = getWindowDateString(rule.targetType);
+
+        // Count orders completed today/this week/this month
+        const windowStart = new Date(windowDate + 'T00:00:00.000+05:30');
+        let windowEnd;
+        if (rule.targetType === 'daily') {
+            windowEnd = new Date(windowDate + 'T23:59:59.999+05:30');
+        } else if (rule.targetType === 'weekly') {
+            const end = new Date(windowStart);
+            end.setUTCDate(end.getUTCDate() + 6);
+            end.setUTCHours(23, 59, 59, 999);
+            windowEnd = end;
+        } else {
+            const nextMonth = new Date(windowStart);
+            nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+            nextMonth.setUTCDate(0);
+            nextMonth.setUTCHours(23, 59, 59, 999);
+            windowEnd = nextMonth;
+        }
+
+        const ordersCompleted = await FoodOrder.countDocuments({
+            'dispatch.deliveryPartnerId': deliveryPartnerId,
+            orderStatus: 'delivered',
+            updatedAt: { $gte: windowStart, $lte: windowEnd },
+        });
+
+        // Check eligibility record
+        const eligibility = await DeliveryTargetEligibility.findOne({
+            deliveryPartnerId,
+            ruleId: rule._id,
+            date: windowDate,
+        }).lean();
+
+        results.push({
+            rule: {
+                _id: rule._id,
+                name: rule.name,
+                targetType: rule.targetType,
+                minimumOrders: rule.minimumOrders,
+                bonusAmount: rule.bonusAmount,
+            },
+            windowDate,
+            ordersCompleted,
+            targetOrders: rule.minimumOrders,
+            bonusAmount: rule.bonusAmount,
+            isEligible: ordersCompleted >= rule.minimumOrders,
+            approvalStatus: eligibility?.status || null, // null = not yet eligible, 'eligible' = pending, 'bonus_given' = approved
+            approvedAt: eligibility?.approvedAt || null,
+        });
+    }
+
+    return results;
 }
 

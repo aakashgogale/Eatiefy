@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom"
 import { ArrowLeft, Bell, RefreshCw, X } from "lucide-react"
 import { restaurantAPI } from "@food/api"
 import useNotificationInbox from "@food/hooks/useNotificationInbox"
-import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -23,9 +22,25 @@ const getStatusLabel = (status = "") => {
   return "Order update"
 }
 
+const getStatusBadge = (message = "") => {
+  const normalized = String(message).toLowerCase()
+  if (normalized.includes("delivered")) {
+    return { label: "Delivered", className: "bg-emerald-50 text-emerald-700 border-emerald-200" }
+  }
+  if (normalized.includes("cancelled") || normalized.includes("rejected")) {
+    return { label: "Issue", className: "bg-red-50 text-red-700 border-red-200" }
+  }
+  if (normalized.includes("preparing") || normalized.includes("ready")) {
+    return { label: "Kitchen", className: "bg-amber-50 text-amber-700 border-amber-200" }
+  }
+  if (normalized.includes("new order")) {
+    return { label: "New", className: "bg-blue-50 text-blue-700 border-blue-200" }
+  }
+  return { label: "Update", className: "bg-slate-100 text-slate-700 border-slate-200" }
+}
+
 export default function Notifications() {
   const navigate = useNavigate()
-  const goBack = useRestaurantBackNavigation()
   const [loading, setLoading] = useState(true)
   const [orders, setOrders] = useState([])
   const [dismissedIds, setDismissedIds] = useState(() => {
@@ -133,25 +148,41 @@ export default function Notifications() {
     await Promise.all([fetchNotifications(), refreshBroadcastNotifications()])
   }
 
+  const unreadBroadcastCount = notifications.filter((item) => item.source === "broadcast" && !item.read).length
+
   return (
-    <div className="min-h-screen bg-white flex flex-col">
-      {/* Header */}
-      <div className="px-4 pt-4 pb-3 flex items-center gap-3 border-b border-gray-200">
-        <button
-          onClick={goBack}
-          className="p-2 rounded-full hover:bg-gray-100"
-          aria-label="Back"
-        >
-          <ArrowLeft className="w-5 h-5 text-gray-900" />
-        </button>
-        <h1 className="text-base font-semibold text-gray-900 flex-1">Notifications</h1>
-        <button
-          onClick={handleRefresh}
-          className="p-2 rounded-full hover:bg-gray-100"
-          aria-label="Refresh"
-        >
-          <RefreshCw className="w-4 h-4 text-gray-700" />
-        </button>
+    <div className="min-h-screen bg-gradient-to-b from-slate-100 via-slate-50 to-white flex flex-col">
+      <div className="px-4 pt-4 pb-4 bg-white border-b border-slate-200 sticky top-0 z-10">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate("/restaurant")}
+            className="p-2 rounded-full hover:bg-slate-100 transition-colors"
+            aria-label="Back"
+          >
+            <ArrowLeft className="w-5 h-5 text-slate-900" />
+          </button>
+          <h1 className="text-base font-semibold text-slate-900 flex-1">Notifications</h1>
+          <button
+            onClick={handleRefresh}
+            className="p-2 rounded-full hover:bg-slate-100 transition-colors"
+            aria-label="Refresh"
+          >
+            <RefreshCw className="w-4 h-4 text-slate-700" />
+          </button>
+        </div>
+        <div className="mt-3 rounded-xl border border-slate-200 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-3 text-white">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs text-slate-200">Inbox</p>
+              <p className="text-lg font-semibold leading-tight">{notifications.length} Notifications</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] px-2 py-1 rounded-full bg-white/15 border border-white/20">
+                Unread: {unreadBroadcastCount}
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="flex-1 px-4 pt-4 pb-28">
@@ -159,7 +190,7 @@ export default function Notifications() {
           <div className="flex justify-end mb-2">
             <button
               onClick={clearAll}
-              className="text-xs font-medium text-[#B80B3D] hover:text-red-700"
+              className="text-xs font-medium text-red-600 hover:text-red-700"
             >
               Clear all
             </button>
@@ -167,40 +198,54 @@ export default function Notifications() {
         )}
 
         {loading || broadcastLoading ? (
-          <div className="text-center text-sm text-gray-600 py-12">Loading notifications...</div>
+          <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-600">Loading notifications...</div>
         ) : notifications.length === 0 ? (
-          <div className="text-center text-sm text-gray-600 py-12">No notifications</div>
+          <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center">
+            <Bell className="w-8 h-8 text-slate-400 mx-auto mb-3" />
+            <p className="text-sm font-medium text-slate-700">No notifications yet</p>
+            <p className="text-xs text-slate-500 mt-1">New order and broadcast updates will appear here.</p>
+          </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {notifications.map((item) => (
-              <div
-                key={item.id}
-                onClick={() => item.source === "broadcast" ? markBroadcastAsRead(item.id) : undefined}
-                className={`border rounded-lg p-3 flex items-start justify-between gap-3 ${item.source === "broadcast" && !item.read ? "border-blue-200 bg-blue-50/40 cursor-pointer" : "border-gray-200"}`}
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    {item.source === "broadcast" && <Bell className="w-4 h-4 text-[#B80B3D]" />}
-                    <p className="text-sm font-medium text-gray-900">{item.message}</p>
+              (() => {
+                const badge = item.source === "broadcast"
+                  ? { label: "Broadcast", className: "bg-indigo-50 text-indigo-700 border-indigo-200" }
+                  : getStatusBadge(item.message)
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => item.source === "broadcast" ? markBroadcastAsRead(item.id) : undefined}
+                    className={`rounded-xl border p-3.5 flex items-start justify-between gap-3 transition-all ${item.source === "broadcast" && !item.read ? "border-blue-200 bg-blue-50 shadow-sm cursor-pointer" : "border-slate-300 bg-slate-50/95 shadow-sm hover:bg-white hover:border-slate-400"}`}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        {item.source === "broadcast" && <Bell className="w-4 h-4 text-blue-600" />}
+                        <span className={`text-[11px] px-2 py-0.5 rounded-full border font-medium ${badge.className}`}>
+                          {badge.label}
+                        </span>
+                      </div>
+                      <p className="text-sm font-semibold text-slate-900 leading-5">{item.message}</p>
+                      {item.source === "broadcast" ? (
+                        <p className="text-xs text-slate-600 mt-1">{item.detail || "Admin notification"}</p>
+                      ) : (
+                        <p className="text-xs text-slate-600 mt-1">Order ID: {item.orderId}</p>
+                      )}
+                      <p className="text-xs text-slate-500 mt-1.5">{item.time}</p>
+                    </div>
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        removeNotification(item.id, item.source)
+                      }}
+                      className="p-1.5 rounded-full hover:bg-slate-100 transition-colors"
+                      aria-label="Remove notification"
+                    >
+                      <X className="w-4 h-4 text-slate-600" />
+                    </button>
                   </div>
-                  {item.source === "broadcast" ? (
-                    <p className="text-xs text-gray-600 mt-0.5">{item.detail || "Admin notification"}</p>
-                  ) : (
-                    <p className="text-xs text-gray-600 mt-0.5">Order: {item.orderId}</p>
-                  )}
-                  <p className="text-xs text-gray-500 mt-1">{item.time}</p>
-                </div>
-                <button
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    removeNotification(item.id, item.source)
-                  }}
-                  className="p-1.5 rounded-full hover:bg-gray-100"
-                  aria-label="Remove notification"
-                >
-                  <X className="w-4 h-4 text-gray-600" />
-                </button>
-              </div>
+                )
+              })()
             ))}
           </div>
         )}
@@ -208,11 +253,3 @@ export default function Notifications() {
     </div>
   )
 }
-
-
-
-
-
-
-
-

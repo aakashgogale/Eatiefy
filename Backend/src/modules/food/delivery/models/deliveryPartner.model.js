@@ -42,7 +42,9 @@ const deliveryPartnerSchema = new mongoose.Schema(
         vehicleNumber: {
             type: String,
             unique: true,
-            sparse: true
+            sparse: true,
+            trim: true,
+            uppercase: true
         },
         panNumber: {
             type: String
@@ -76,17 +78,12 @@ const deliveryPartnerSchema = new mongoose.Schema(
         },
         status: {
             type: String,
-            enum: ['pending', 'approved', 'rejected', 'deleted'],
+            enum: ['pending', 'approved', 'rejected', 'deactivated'],
             default: 'pending'
         },
         rejectionReason: { type: String },
         rejectedAt: { type: Date },
         approvedAt: { type: Date },
-        pendingApprovalType: {
-            type: String,
-            enum: ['registration', 'changes'],
-            default: 'registration'
-        },
         bankAccountHolderName: { type: String },
         bankAccountNumber: { type: String },
         bankIfscCode: { type: String },
@@ -120,8 +117,7 @@ const deliveryPartnerSchema = new mongoose.Schema(
             max: 5,
             set: normalizeRatingValue
         },
-        totalRatings: { type: Number, default: 0, min: 0 },
-        deletedAt: { type: Date }
+        totalRatings: { type: Number, default: 0, min: 0 }
     },
     {
         collection: 'food_delivery_partners',

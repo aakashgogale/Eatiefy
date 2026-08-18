@@ -2,233 +2,140 @@ import mongoose from 'mongoose';
 import { FoodOrder, FoodSettings } from '../models/order.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
-import { FoodDeliveryCashDeposit } from '../../delivery/models/foodDeliveryCashDeposit.model.js';
-import { FoodDeliveryCashLimit } from '../../admin/models/deliveryCashLimit.model.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
 import { logger } from '../../../../utils/logger.js';
+import { config } from '../../../../config/env.js';
 import { getIO, rooms } from '../../../../config/socket.js';
 import { addOrderJob } from '../../../../queues/producers/order.producer.js';
 import {
   buildDeliverySocketPayload,
   buildOrderIdentityFilter,
+  getBusyDeliveryPartnerIds,
   haversineKm,
   notifyOwnerSafely,
   notifyOwnersSafely,
 } from './order.helpers.js';
-import {
-  getActiveZoneById,
-  isPartnerInsideZone,
-  detectZoneIdForPoint,
-  isPointInZonePolygon,
-} from '../../utils/zoneGeo.js';
+import { fetchDrivingRoute } from '../utils/googleMaps.js';
+import { parseGeoPoint } from '../../shared/geo.utils.js';
 
-/** Never offer a job farther than this, even inside a large/misdrawn zone. */
-const HARD_MAX_OFFER_DISTANCE_KM = 40;
-
-async function filterPartnersByCashLimit(partners = [], options = {}) {
-  if (!Array.isArray(partners) || partners.length === 0) return [];
-  const requiredAmount = Math.max(0, Number(options.requiredAmount || 0));
-  const allowOverLimitFallback = options.allowOverLimitFallback !== false;
-
-  const limitDoc = await FoodDeliveryCashLimit.findOne({ isActive: true })
-    .sort({ createdAt: -1 })
-    .lean();
-  const totalCashLimit = Number(limitDoc?.deliveryCashLimit || 0);
-
-  // Treat missing/non-positive setting as "no cap" to avoid blocking all dispatch.
-  if (!Number.isFinite(totalCashLimit) || totalCashLimit <= 0) {
-    return partners.map((p) => ({
-      ...p,
-      availableCashLimit: Number.MAX_SAFE_INTEGER,
-      allowOverLimit: false,
-      requiredCashForOrder: requiredAmount,
-    }));
+/**
+ * Resolve restaurant → customer road distance once per dispatch broadcast.
+ * Falls back to pricing Haversine when Directions is unavailable.
+ */
+async function enrichPayloadWithTripRoadDistance(order, payload) {
+  const existingRoadKm = order?.tripDistanceKm ?? order?.pricing?.roadDistanceKm;
+  if (Number.isFinite(Number(existingRoadKm))) {
+    const km = Number(Number(existingRoadKm).toFixed(2));
+    const minsRaw = order?.tripDurationMins ?? order?.pricing?.roadDurationMins;
+    const tripDurationMins = Number.isFinite(Number(minsRaw))
+      ? Math.ceil(Number(minsRaw))
+      : payload.tripDurationMins;
+    return {
+      ...payload,
+      tripDistanceKm: km,
+      tripDurationMins: tripDurationMins ?? null,
+      distanceKm: km,
+    };
   }
 
-  const partnerIds = partners
-    .map((p) => p?.partnerId || p?._id)
-    .filter(Boolean)
-    .map((id) => new mongoose.Types.ObjectId(String(id)));
+  const restaurantPoint =
+    parseGeoPoint(order?.restaurantId) ||
+    parseGeoPoint(order?.restaurantId?.location);
+  const customerPoint = parseGeoPoint(order?.deliveryAddress);
 
-  if (partnerIds.length === 0) return [];
+  if (!restaurantPoint || !customerPoint) {
+    return payload;
+  }
 
-  const [cashAgg, depositsAgg] = await Promise.all([
-    FoodOrder.aggregate([
-      {
-        $match: {
-          'dispatch.deliveryPartnerId': { $in: partnerIds },
-          orderStatus: 'delivered',
-          'payment.method': 'cash',
-        },
-      },
-      {
-        $group: {
-          _id: '$dispatch.deliveryPartnerId',
-          grossCashCollected: { $sum: { $ifNull: ['$pricing.total', 0] } },
-        },
-      },
-    ]),
-    FoodDeliveryCashDeposit.aggregate([
-      {
-        $match: {
-          deliveryPartnerId: { $in: partnerIds },
-          status: 'Completed',
-        },
-      },
-      {
-        $group: {
-          _id: '$deliveryPartnerId',
-          depositedCash: { $sum: { $ifNull: ['$amount', 0] } },
-        },
-      },
-    ]),
-  ]);
+  try {
+    const route = await fetchDrivingRoute(restaurantPoint, customerPoint);
+    if (route.distanceKm != null) {
+      const tripDurationMins =
+        route.durationSeconds != null
+          ? Math.ceil(route.durationSeconds / 60)
+          : null;
 
-  const grossCashByPartner = new Map(
-    (cashAgg || []).map((row) => [String(row._id), Number(row.grossCashCollected || 0)]),
-  );
-  const depositedByPartner = new Map(
-    (depositsAgg || []).map((row) => [String(row._id), Number(row.depositedCash || 0)]),
-  );
+      // Persist so subsequent offers / reconnects reuse road distance.
+      if (order?._id) {
+        FoodOrder.updateOne(
+          { _id: order._id },
+          {
+            $set: {
+              tripDistanceKm: route.distanceKm,
+              tripDurationMins,
+              'pricing.roadDistanceKm': route.distanceKm,
+              'pricing.roadDurationMins': tripDurationMins,
+            },
+          },
+        ).catch(() => {});
+      }
 
-  const withCapacity = partners.map((p) => {
-    const partnerId = String(p?.partnerId || p?._id || '');
-    if (!partnerId) return null;
-    const grossCash = grossCashByPartner.get(partnerId) || 0;
-    const depositedCash = depositedByPartner.get(partnerId) || 0;
-    const cashInHand = Math.max(0, grossCash - depositedCash);
-    const availableCashLimit = Math.max(0, totalCashLimit - cashInHand);
-    return {
-      ...p,
-      availableCashLimit,
-      allowOverLimit: false,
-      requiredCashForOrder: requiredAmount,
-    };
-  }).filter(Boolean);
+      return {
+        ...payload,
+        tripDistanceKm: route.distanceKm,
+        tripDurationMins,
+        distanceKm: route.distanceKm,
+      };
+    }
+  } catch (err) {
+    logger.warn(`Trip road distance enrichment failed: ${err?.message || err}`);
+  }
 
-  // Base block: riders with zero available limit should not receive fresh offers.
-  const baseEligible = withCapacity.filter((p) => Number(p.availableCashLimit || 0) > 0);
-  if (baseEligible.length === 0) return [];
-
-  if (requiredAmount <= 0) return baseEligible;
-
-  const sufficient = baseEligible.filter(
-    (p) => Number(p.availableCashLimit || 0) >= requiredAmount,
-  );
-  if (sufficient.length > 0) return sufficient;
-
-  if (!allowOverLimitFallback) return [];
-
-  // Fallback: keep order moving by offering to highest available-limit riders.
-  return baseEligible
-    .slice()
-    .sort((a, b) => Number(b.availableCashLimit || 0) - Number(a.availableCashLimit || 0))
-    .map((p) => ({
-      ...p,
-      allowOverLimit: true,
-    }));
+  return payload;
 }
 
 async function listNearbyOnlineDeliveryPartners(
   restaurantId,
-  {
-    maxKm = 15,
-    limit = 25,
-    requiredAmount = 0,
-    allowOverLimitFallback = true,
-    zoneId = null,
-  } = {},
+  { maxKm = 15, limit = 25 } = {},
 ) {
   const rId = (restaurantId?._id || restaurantId).toString();
   const restaurant = await FoodRestaurant.findById(rId)
-    .select('location zoneId')
+    .select("location")
     .lean();
 
-  const [rLng, rLat] = restaurant?.location?.coordinates?.length === 2
-    ? restaurant.location.coordinates
-    : [null, null];
-
-  // Prefer zone from restaurant GPS so a wrong restaurant.zoneId cannot leak cross-city.
-  const gpsZoneId =
-    rLat != null && rLng != null ? await detectZoneIdForPoint(rLat, rLng) : null;
-  const resolvedZoneId =
-    gpsZoneId || String(zoneId || restaurant?.zoneId || '').trim() || null;
-  const zoneDoc = resolvedZoneId ? await getActiveZoneById(resolvedZoneId) : null;
-
-  // Without a service zone we must not broadcast globally (cross-city leak).
-  if (!zoneDoc) {
-    logger.warn(
-      `listNearbyOnlineDeliveryPartners: no zone for restaurant ${rId}; skipping partner search`,
-    );
-    return { restaurant: restaurant || null, partners: [] };
+  if (!restaurant?.location?.coordinates?.length) {
+    // Without restaurant coords we cannot safely match riders by zone/proximity.
+    return { restaurant: null, partners: [] };
   }
 
-  // If restaurant pin is outside the resolved zone polygon, do not dispatch.
-  if (
-    rLat != null &&
-    rLng != null &&
-    !isPointInZonePolygon(rLat, rLng, zoneDoc.coordinates || [])
-  ) {
-    logger.warn(
-      `listNearbyOnlineDeliveryPartners: restaurant ${rId} GPS outside zone ${resolvedZoneId}; skipping`,
-    );
-    return { restaurant: restaurant || null, partners: [] };
-  }
-
-  const allowedStatuses =
-    process.env.NODE_ENV === 'production' ? ['approved'] : ['approved', 'pending'];
-  const STALE_GPS_MS = 10 * 60 * 1000;
-  const offerRadiusKm = Math.min(
-    Math.max(Number(maxKm) || 15, 1),
-    HARD_MAX_OFFER_DISTANCE_KM,
-  );
-
+  const [rLng, rLat] = restaurant.location.coordinates;
   const allOnline = await FoodDeliveryPartner.find({
-    availabilityStatus: 'online',
-    status: { $in: allowedStatuses },
+    availabilityStatus: "online",
   })
-    .select('_id status lastLat lastLng lastLocationAt name')
+    .select("_id status lastLat lastLng lastLocationAt name")
     .lean();
 
-  // Zone-first: only partners currently inside the order/restaurant zone.
-  const inZonePartners = (allOnline || []).filter((p) => {
-    if (p.lastLat == null || p.lastLng == null || !p.lastLocationAt) return false;
-    const ageMs = Date.now() - new Date(p.lastLocationAt).getTime();
-    if (!Number.isFinite(ageMs) || ageMs > STALE_GPS_MS) return false;
-    return isPartnerInsideZone(p, zoneDoc);
-  });
+  const scored = [];
+  const allowedStatuses = process.env.NODE_ENV === 'production' ? ['approved'] : ['approved', 'pending'];
+  // Allow online riders whose GPS was received (up to 24h during active session)
+  const STALE_GPS_MS = 24 * 60 * 60 * 1000;
 
-  if (inZonePartners.length === 0) {
-    return { restaurant: restaurant || null, partners: [] };
-  }
+  for (const p of allOnline) {
+    if (!allowedStatuses.includes(p.status)) continue;
 
-  let scored = [];
-  if (rLat != null && rLng != null) {
-    for (const p of inZonePartners) {
-      const d = haversineKm(rLat, rLng, p.lastLat, p.lastLng);
-      if (Number.isFinite(d) && d <= offerRadiusKm) {
-        scored.push({ partnerId: p._id, distanceKm: d, status: p.status });
-      }
+    const isStale = !p.lastLocationAt || (Date.now() - new Date(p.lastLocationAt).getTime()) > STALE_GPS_MS;
+    if (p.lastLat == null || p.lastLng == null || isStale) {
+      continue;
     }
-    scored.sort((a, b) => a.distanceKm - b.distanceKm);
-  } else {
-    // No restaurant GPS — refuse dispatch rather than guessing city-wide.
-    logger.warn(
-      `listNearbyOnlineDeliveryPartners: restaurant ${rId} missing GPS; skipping`,
-    );
-    return { restaurant: restaurant || null, partners: [] };
+
+    const d = haversineKm(rLat, rLng, p.lastLat, p.lastLng);
+    if (Number.isFinite(d) && d <= maxKm) {
+      scored.push({ partnerId: p._id, distanceKm: d, status: p.status });
+    }
   }
 
+  scored.sort((a, b) => a.distanceKm - b.distanceKm);
   const picked = scored.slice(0, Math.max(1, limit));
+
   if (picked.length === 0) {
-    return { restaurant: restaurant || null, partners: [] };
+    return { partners: [] };
   }
 
-  const cashEligibleFinal = await filterPartnersByCashLimit(picked, {
-    requiredAmount,
-    allowOverLimitFallback,
-  });
-  return { restaurant: restaurant || null, partners: cashEligibleFinal };
+  const final = (config.env === 'production')
+    ? picked.filter(p => p.status === 'approved')
+    : picked;
+
+  return { partners: final };
 }
 
 export async function getDispatchSettings() {
@@ -252,29 +159,32 @@ export async function updateDispatchSettings(dispatchMode, adminId) {
 
 export async function tryAutoAssign(orderId, options = {}) {
   const attempt = options.attempt || 1;
-  const lockTimeout = 55000; // 55 seconds lock interval
-
-  const dispatchableStatuses = new Set([
-    'preparing',
-    'ready_for_pickup',
-    'ready',
-    'picked_up',
-  ]);
+  const lockTimeout = 45000; // 45 seconds lock interval
+  const staleThreshold = new Date(Date.now() - 15000);
 
   const order = await FoodOrder.findOneAndUpdate(
     {
       _id: new mongoose.Types.ObjectId(orderId),
-      orderType: 'delivery',
-      orderStatus: { $in: Array.from(dispatchableStatuses) },
-      $or: [
-        { 'dispatch.status': 'unassigned' },
+      $and: [
         {
-          'dispatch.status': 'assigned',
-          'dispatch.acceptedAt': { $exists: false },
-          'dispatch.assignedAt': { $lt: new Date(Date.now() - lockTimeout) }
+          $or: [
+            { 'dispatch.status': 'unassigned' },
+            { 'dispatch.status': { $exists: false } },
+            {
+              'dispatch.status': 'assigned',
+              'dispatch.acceptedAt': { $exists: false },
+              'dispatch.assignedAt': { $lt: new Date(Date.now() - lockTimeout) }
+            }
+          ]
+        },
+        {
+          $or: [
+            { 'dispatch.dispatchingAt': { $exists: false } },
+            { 'dispatch.dispatchingAt': null },
+            { 'dispatch.dispatchingAt': { $lt: staleThreshold } }
+          ]
         }
-      ],
-      'dispatch.dispatchingAt': { $exists: false }
+      ]
     },
     {
       $set: { 'dispatch.dispatchingAt': new Date() }
@@ -283,15 +193,24 @@ export async function tryAutoAssign(orderId, options = {}) {
   ).populate(['restaurantId', 'userId']);
 
   if (!order) {
-    logger.info(`tryAutoAssign: Skip for ${orderId} (not dispatchable, already dispatching, accepted, or multi-attempt lock active).`);
+    logger.info(`tryAutoAssign: Skip for ${orderId} (already dispatching, accepted, or multi-attempt lock active).`);
     return null;
+  }
+
+  // Decoupling: Ensure order is accepted by restaurant before dispatching to delivery boys
+  const DISPATCHABLE_STATUSES = ['confirmed', 'preparing', 'ready_for_pickup', 'ready', 'reached_pickup', 'picked_up', 'reached_drop'];
+  if (!DISPATCHABLE_STATUSES.includes(order.orderStatus)) {
+    logger.info(`tryAutoAssign: Skip for ${orderId} (status ${order.orderStatus} not dispatchable yet).`);
+    return order;
   }
 
   try {
     const offeredIds = (order.dispatch?.offeredTo || []).map(o => o.partnerId.toString());
-    const paymentMethod = String(order.payment?.method || 'cash').toLowerCase();
-    const isCashOrder = paymentMethod === 'cash';
-    const requiredAmount = isCashOrder ? Number(order?.pricing?.total || 0) : 0;
+    const permanentlyExcludedIds = new Set(
+      (order.dispatch?.offeredTo || [])
+        .filter((offer) => offer.action === 'deassigned')
+        .map((offer) => offer.partnerId.toString())
+    );
     
     // RADIUS EXPANSION LOGIC
     // Attempt 1: 15km, Attempt 2: 25km, Attempt 3: 40km, Attempt 4+: 60km
@@ -300,59 +219,13 @@ export async function tryAutoAssign(orderId, options = {}) {
     if (attempt === 3) maxKm = 40;
     if (attempt >= 4) maxKm = 60;
 
-    const searchOptions = {
-      maxKm,
-      limit: 15,
-      requiredAmount,
-      allowOverLimitFallback: true,
-      zoneId: order.zoneId || order.restaurantId?.zoneId || null,
-    };
-    const { partners: nearbyPartners } = await listNearbyOnlineDeliveryPartners(
-      order.restaurantId,
-      searchOptions,
-    );
+    const searchOptions = { maxKm, limit: 15 };
+    const { partners } = await listNearbyOnlineDeliveryPartners(order.restaurantId, searchOptions);
+    const busyPartnerIds = await getBusyDeliveryPartnerIds();
 
-    // Multi-order: skip riders already at concurrent capacity (one query).
-    const limitDoc = await FoodDeliveryCashLimit.findOne({ isActive: true })
-      .sort({ createdAt: -1 })
-      .select('maxConcurrentOrders')
-      .lean();
-    const maxConcurrent = Math.min(
-      5,
-      Math.max(1, Number(limitDoc?.maxConcurrentOrders ?? 1)),
-    );
-    const nearbyIds = (nearbyPartners || [])
-      .map((p) => p.partnerId || p._id)
-      .filter(Boolean)
-      .map((id) => new mongoose.Types.ObjectId(String(id)));
-
-    let activeByPartner = new Map();
-    if (nearbyIds.length > 0) {
-      const activeAgg = await FoodOrder.aggregate([
-        {
-          $match: {
-            'dispatch.deliveryPartnerId': { $in: nearbyIds },
-            'dispatch.status': 'accepted',
-            orderStatus: { $in: ['preparing', 'ready_for_pickup', 'picked_up'] },
-          },
-        },
-        { $group: { _id: '$dispatch.deliveryPartnerId', count: { $sum: 1 } } },
-      ]);
-      activeByPartner = new Map(
-        (activeAgg || []).map((row) => [String(row._id), Number(row.count || 0)]),
-      );
-    }
-
-    const partners = (nearbyPartners || []).filter((p) => {
-      const id = String(p.partnerId || p._id || '');
-      const active = activeByPartner.get(id) || 0;
-      return active < maxConcurrent;
-    });
-    
     // TIERED ALERT LOGIC
     // Phase 2: Broadcast to all (Attempt 3+)
     // Phase 3: Admin Alert (Attempt 5+ or roughly 5 mins)
-    const isPhase2 = attempt >= 3;
     const isPhase3 = attempt >= 6; // ~6 minutes (60s * 6)
 
     if (isPhase3) {
@@ -372,20 +245,32 @@ export async function tryAutoAssign(orderId, options = {}) {
       }
     }
 
-    const eligible = partners.filter(p => !offeredIds.includes(p.partnerId.toString()));
+    const eligible = partners.filter((partner) => {
+      const partnerKey = partner.partnerId.toString();
+      if (offeredIds.includes(partnerKey)) return false;
+      if (busyPartnerIds.has(partnerKey)) return false;
+      return true;
+    });
 
     if (eligible.length === 0) {
       logger.info(`tryAutoAssign: No NEW eligible partners in ${maxKm}km for order ${order._id}. Restarting hunt...`);
       
       // If we ran out of new eligible partners, we might want to re-offer to everyone (Phase 2 style)
       const io = getIO();
-      if (io && partners.length > 0) {
-        const payload = buildDeliverySocketPayload(order, order.restaurantId);
-        for (const p of partners) {
+      const reofferEligible = partners.filter((partner) => {
+        const partnerKey = partner.partnerId.toString();
+        if (permanentlyExcludedIds.has(partnerKey)) return false;
+        if (busyPartnerIds.has(partnerKey)) return false;
+        return true;
+      });
+      if (io && reofferEligible.length > 0) {
+        const basePayload = buildDeliverySocketPayload(order, order.restaurantId);
+        const payload = await enrichPayloadWithTripRoadDistance(order, basePayload);
+        for (const p of reofferEligible) {
           const roomName = rooms.delivery(p.partnerId);
-          const eventPayload = { ...payload, pickupDistanceKm: p.distanceKm };
-          io.to(roomName).emit('new_order', eventPayload);
-          io.to(roomName).emit('new_order_available', eventPayload);
+          io.to(roomName).emit('new_order', { ...payload, pickupDistanceKm: p.distanceKm });
+          io.to(roomName).emit('new_order_available', { ...payload, pickupDistanceKm: p.distanceKm });
+          io.to(roomName).emit('play_notification_sound', { ...payload, orderId: order.order_id || order.orderId || order._id });
         }
       }
 
@@ -401,64 +286,46 @@ export async function tryAutoAssign(orderId, options = {}) {
     }
 
     const io = getIO();
-    const payload = buildDeliverySocketPayload(order, order.restaurantId);
+    const basePayload = buildDeliverySocketPayload(order, order.restaurantId);
+    const payload = await enrichPayloadWithTripRoadDistance(order, basePayload);
 
-    const phase1Batch = eligible.slice(0, Math.min(3, eligible.length));
-
-    if (isPhase2) {
-      // PHASE 2 BROADCAST: Notify everyone remaining
-      logger.info(`[Phase 2] Broadcasting order ${order._id} to ${eligible.length} riders.`);
-      for (const p of eligible) {
-        const roomName = rooms.delivery(p.partnerId);
-        if (io) {
-          const eventPayload = { ...payload, pickupDistanceKm: p.distanceKm };
-          io.to(roomName).emit('new_order', eventPayload);
-          io.to(roomName).emit('new_order_available', eventPayload);
-        }
-      }
-    } else {
-      // PHASE 1: Offer to top few nearby riders (avoid single-partner bottleneck).
-      const lead = phase1Batch[0];
-      if (lead) {
-        logger.info(`[Phase 1] Offering order ${order._id} to ${phase1Batch.length} riders (lead ${lead.partnerId}, ${lead.distanceKm}km)`);
-      }
-
-      for (const p of phase1Batch) {
-        const roomName = rooms.delivery(p.partnerId);
-        if (io) {
-          const eventPayload = { ...payload, pickupDistanceKm: p.distanceKm };
-          io.to(roomName).emit('new_order', eventPayload);
-          io.to(roomName).emit('new_order_available', eventPayload);
-        }
-      }
-
-      if (lead) {
-        try {
-          await notifyOwnerSafely(
-            { ownerType: 'DELIVERY_PARTNER', ownerId: lead.partnerId },
-            {
-              title: 'New order assigned!',
-              body: `You have 60 seconds to accept Order #${order.order_id || order._id}.`,
-              data: {
-                type: 'new_order',
-                orderId: order.order_id || order._id.toString(),
-                orderMongoId: order._id.toString(),
-              },
-            },
-          );
-        } catch (err) {
-          logger.warn(`Push notification failed for partner ${lead.partnerId}: ${err.message}`);
-        }
+    // BROADCAST: Notify all eligible riders
+    // tripDistanceKm = restaurant ↔ customer (road); pickupDistanceKm = rider → restaurant (ranking only)
+    logger.info(`Broadcasting order ${order._id} to ${eligible.length} riders. tripDistanceKm=${payload.tripDistanceKm}`);
+    for (const p of eligible) {
+      const roomName = rooms.delivery(p.partnerId);
+      if (io) {
+        io.to(roomName).emit('new_order', { ...payload, pickupDistanceKm: p.distanceKm });
+        io.to(roomName).emit('new_order_available', { ...payload, pickupDistanceKm: p.distanceKm });
+        io.to(roomName).emit('play_notification_sound', { ...payload, orderId: order.order_id || order.orderId || order._id });
       }
     }
 
-    const partnersToRecord = isPhase2 ? eligible : phase1Batch;
-    const offeredToEntries = partnersToRecord.map(p => ({
+    // Batch Push Notifications
+    const pushTargets = eligible.map(p => ({
+      ownerType: 'DELIVERY_PARTNER',
+      ownerId: p.partnerId
+    }));
+
+    if (pushTargets.length > 0) {
+      try {
+        await notifyOwnersSafely(
+          pushTargets,
+          {
+            title: 'New order available!',
+            body: `Order #${order.order_id || order._id} is available. You have 60 seconds to accept!`,
+            data: { type: 'new_order', orderId: order._id.toString() },
+          }
+        );
+      } catch (err) {
+        logger.warn(`Push notifications failed for broadcast on order ${order._id}: ${err.message}`);
+      }
+    }
+
+    const offeredToEntries = eligible.map(p => ({
       partnerId: p.partnerId,
       at: new Date(),
-      action: 'offered',
-      allowOverLimit: Boolean(p.allowOverLimit),
-      requiredCashForOrder: Number(p.requiredCashForOrder || requiredAmount || 0),
+      action: 'offered'
     }));
 
     order.dispatch.status = 'unassigned';
@@ -521,7 +388,7 @@ export async function resendDeliveryNotificationRestaurant(orderId, restaurantId
 
   if (!order) throw new NotFoundError('Order not found');
 
-  const activeStatuses = ['preparing', 'ready_for_pickup', 'ready'];
+  const activeStatuses = ['confirmed', 'preparing', 'ready_for_pickup', 'ready'];
   if (!activeStatuses.includes(order.orderStatus)) {
     throw new ValidationError(`Cannot resend notification for order in status: ${order.orderStatus}`);
   }
@@ -530,15 +397,29 @@ export async function resendDeliveryNotificationRestaurant(orderId, restaurantId
     throw new ValidationError('A delivery partner has already accepted this order.');
   }
 
-  const paymentMethod = String(order.payment?.method || 'cash').toLowerCase();
-  const requiredAmount = paymentMethod === 'cash' ? Number(order?.pricing?.total || 0) : 0;
-  const preview = await listNearbyOnlineDeliveryPartners(order.restaurantId, {
-    maxKm: 15,
-    limit: 15,
-    requiredAmount,
-    allowOverLimitFallback: true,
-  });
-  const shortlistedCount = Array.isArray(preview?.partners) ? preview.partners.length : 0;
+  order.dispatch.status = 'unassigned';
+  order.dispatch.deliveryPartnerId = null;
+  order.dispatch.offeredTo = [];
+  await order.save();
+
+  await tryAutoAssign(order._id);
+  return { success: true };
+}
+
+export async function resendDeliveryNotificationAdmin(orderId) {
+  const identity = buildOrderIdentityFilter(orderId);
+  const order = await FoodOrder.findOne(identity);
+
+  if (!order) throw new NotFoundError('Order not found');
+
+  const activeStatuses = ['confirmed', 'preparing', 'ready_for_pickup', 'ready', 'reached_pickup'];
+  if (!activeStatuses.includes(order.orderStatus)) {
+    throw new ValidationError(`Cannot resend notification for order in status: ${order.orderStatus}`);
+  }
+
+  if (order.dispatch?.status === 'accepted') {
+    throw new ValidationError('A delivery partner has already accepted this order. Please use Deassign & Resend instead.');
+  }
 
   order.dispatch.status = 'unassigned';
   order.dispatch.deliveryPartnerId = null;
@@ -546,33 +427,5 @@ export async function resendDeliveryNotificationRestaurant(orderId, restaurantId
   await order.save();
 
   await tryAutoAssign(order._id);
-
-  const refreshed = await FoodOrder.findById(order._id)
-    .select('dispatch.offeredTo dispatch.status dispatch.deliveryPartnerId')
-    .lean();
-  const notifiedCount = Array.isArray(refreshed?.dispatch?.offeredTo)
-    ? refreshed.dispatch.offeredTo.filter((entry) => entry?.action === 'offered').length
-    : 0;
-  const notifiedPartnerIds = Array.isArray(refreshed?.dispatch?.offeredTo)
-    ? refreshed.dispatch.offeredTo
-        .filter((entry) => entry?.action === 'offered' && entry?.partnerId)
-        .map((entry) => String(entry.partnerId))
-    : [];
-  const io = getIO();
-  const connectedSocketCount = io
-    ? notifiedPartnerIds.reduce((count, pid) => {
-        const roomName = rooms.delivery(pid);
-        const roomSize = io?.sockets?.adapter?.rooms?.get(roomName)?.size || 0;
-        return count + roomSize;
-      }, 0)
-    : 0;
-
-  return {
-    success: true,
-    notifiedCount,
-    shortlistedCount,
-    requiredAmount,
-    connectedSocketCount,
-    dispatchStatus: refreshed?.dispatch?.status || 'unassigned',
-  };
+  return { success: true };
 }

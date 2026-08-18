@@ -24,25 +24,27 @@ export const validateConfig = () => {
         missing.push('REDIS_ENABLED=true (required when BULLMQ_ENABLED=true)');
     }
 
-    // ASSET_BASE_URL is baked into every stored image URL.
-    const assetBase = String(process.env.ASSET_BASE_URL || process.env.API_BASE_URL || '').trim();
+    // Production hard requirements for horizontal scale + idempotency
     if (config.nodeEnv === 'production') {
-        if (process.env.UPLOAD_REMOTE_ORIGIN) {
-            missing.push('UPLOAD_REMOTE_ORIGIN must not be set in production (this server writes /var/www/uploads)');
+        if (!config.redisEnabled || !config.redisUrl) {
+            missing.push('REDIS_ENABLED=true and REDIS_URL (required in production)');
         }
-        if (!assetBase) {
-            missing.push('ASSET_BASE_URL (e.g. https://omettofood.com — stored in every image URL)');
-        } else if (!/^https:\/\//i.test(assetBase)) {
-            missing.push(`ASSET_BASE_URL must be an https:// origin (got "${assetBase}")`);
-        } else if (/localhost|127\.0\.0\.1/i.test(assetBase)) {
-            missing.push(`ASSET_BASE_URL must not point at localhost in production (got "${assetBase}")`);
+        if (!config.cloudinaryCloudName || !config.cloudinaryApiKey || !config.cloudinaryApiSecret) {
+            missing.push('CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET (required in production for multi-instance uploads)');
         }
-    } else if (!config.uploadRemoteOrigin) {
-        missing.push('UPLOAD_REMOTE_ORIGIN (e.g. https://omettofood.com) so local uploads go to the server, not a local folder');
     }
 
     if (missing.length > 0) {
         logger.error(`Missing required environment variables: ${missing.join(', ')}`);
         process.exit(1);
+    }
+
+    if (config.nodeEnv === 'production' && config.useDefaultOtp) {
+        logger.error('USE_DEFAULT_OTP=true is forbidden in production');
+        process.exit(1);
+    }
+
+    if (config.nodeEnv === 'production' && !config.razorpayWebhookSecret && config.razorpayKeyId) {
+        logger.warn('RAZORPAY_WEBHOOK_SECRET is not set — payment webhooks cannot be verified');
     }
 };

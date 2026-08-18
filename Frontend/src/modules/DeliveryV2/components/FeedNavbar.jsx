@@ -6,7 +6,7 @@ import { HelpCircle, ArrowRight, Phone, Ambulance, AlertTriangle, Shield, Shield
 import { toast } from "sonner";
 import { deliveryAPI } from "@food/api";
 import { useCompanyName } from "@food/hooks/useCompanyName";
-import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings";
+import { getCachedSettings, getModuleLogoUrl, loadBusinessSettings } from "@food/utils/businessSettings";
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -67,22 +67,22 @@ export default function FeedNavbar({ className = "" }) {
   useEffect(() => {
     const loadLogo = async () => {
       const cached = getCachedSettings()
-      if (cached?.logo?.url) {
-        setLogoUrl(cached.logo.url)
+      const cachedLogo = getModuleLogoUrl("delivery")
+      if (cachedLogo) {
+        setLogoUrl(cachedLogo)
       } else {
-        const settings = await loadBusinessSettings()
-        if (settings?.logo?.url) {
-          setLogoUrl(settings.logo.url)
-        }
+        await loadBusinessSettings()
+        const resolvedLogo = getModuleLogoUrl("delivery")
+        if (resolvedLogo) setLogoUrl(resolvedLogo)
       }
     }
     loadLogo()
 
     const handleSettingsUpdate = () => {
       const cached = getCachedSettings()
-      if (cached?.logo?.url) {
-        setLogoUrl(cached.logo.url)
-      }
+      if (!cached) return
+      const resolvedLogo = getModuleLogoUrl("delivery")
+      if (resolvedLogo) setLogoUrl(resolvedLogo)
     }
     window.addEventListener('businessSettingsUpdated', handleSettingsUpdate)
     return () => window.removeEventListener('businessSettingsUpdated', handleSettingsUpdate)
@@ -407,14 +407,11 @@ export default function FeedNavbar({ className = "" }) {
 
   return (
     <>
-    <div 
-      className={`px-4 py-3 flex items-center justify-between sticky top-0 z-50 border-b border-gray-200 ${className}`}
-      style={{ background: 'linear-gradient(33deg, #15498b 0%, #000000 100%)' }}
-    >
+    <div className={`bg-white px-4 py-3 flex items-center justify-between sticky top-0 z-50 border-b border-gray-200 ${className}`}>
         {/* Logo and Online/Offline Toggle */}
       <div className="flex items-center gap-3">
         {logoUrl && (
-          <img src={logoUrl} alt="Logo" className="h-8 w-auto object-contain" />
+          <img src={logoUrl} alt="Logo" className="h-8 w-auto object-contain"  loading="lazy" decoding="async" onError={(e) => { e.target.onerror = null; e.target.src = "/delivery-partner-logo.webp"; }} />
         )}
         <div className="relative" style={{ zIndex: 100 }}>
           <button
@@ -481,11 +478,7 @@ export default function FeedNavbar({ className = "" }) {
               }}
             />
           ) : (
-            <img
-              src="/assets/images/profile_avatar.webp"
-              alt="Profile"
-              className="w-full h-full object-cover"
-            />
+            <User className="w-5 h-5 text-gray-500" />
           )}
         </button>
       </div>
@@ -589,4 +582,3 @@ export default function FeedNavbar({ className = "" }) {
     </>
   );
 }
-

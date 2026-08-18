@@ -9,12 +9,23 @@ import { Card, CardTitle, CardContent } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
 import { RestaurantGridSkeleton } from "@food/components/ui/loading-skeletons"
 import { useProfile } from "@food/context/ProfileContext"
-import { useZone } from "@food/hooks/useZone"
-import { useLocation } from "@food/hooks/useLocation"
+import { useDeliveryLocation } from "@food/context/DeliveryLocationContext"
 import { restaurantAPI } from "@food/api"
+import { API_BASE_URL } from "@food/api/config"
 import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
-import { filterRestaurantsForVegMode } from "@food/utils/vegMode"
-import { normalizeImageUrl } from "@food/utils/common"
+
+const BACKEND_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "")
+
+const normalizeImageUrl = (imageUrl) => {
+  if (typeof imageUrl !== "string" || !imageUrl.trim()) return ""
+  const trimmed = imageUrl.trim()
+  if (/^(https?:)?\/\//i.test(trimmed) || /^data:/i.test(trimmed) || /^blob:/i.test(trimmed)) {
+    return trimmed
+  }
+  return trimmed.startsWith("/")
+    ? `${BACKEND_ORIGIN}${trimmed}`
+    : `${BACKEND_ORIGIN}/${trimmed}`
+}
 
 const pickRestaurantImage = (restaurant) => {
   const candidates = [
@@ -30,17 +41,11 @@ const pickRestaurantImage = (restaurant) => {
 }
 
 export default function Restaurants() {
-  const { addFavorite, removeFavorite, isFavorite, orderType, vegMode, vegModeOption } = useProfile()
-  const { location: userLocation } = useLocation()
-  const { zoneId } = useZone(userLocation)
+  const { addFavorite, removeFavorite, isFavorite } = useProfile()
+  const { effectiveLocation: userLocation, zoneId } = useDeliveryLocation()
   const [restaurants, setRestaurants] = useState([])
   const [loading, setLoading] = useState(true)
   const showRestaurantsSkeleton = useDelayedLoading(loading)
-
-  const visibleRestaurants = useMemo(
-    () => filterRestaurantsForVegMode(restaurants, { vegMode, vegModeOption }),
-    [restaurants, vegMode, vegModeOption],
-  )
 
   useEffect(() => {
     let cancelled = false
@@ -59,15 +64,7 @@ export default function Restaurants() {
           []
         if (cancelled) return
 
-        // Apply Takeaway filter if orderType is takeaway
-        const filteredList = list.filter((restaurant) => {
-          if (orderType === "takeaway") {
-            return restaurant.takeawaySettings?.isEnabled || restaurant.takeawayAvailable;
-          }
-          return true;
-        });
-
-        const transformed = filteredList.map((restaurant) => {
+        const transformed = list.map((restaurant) => {
           const slug =
             restaurant?.slug ||
             String(restaurant?.name || "")
@@ -83,9 +80,7 @@ export default function Restaurants() {
             name: restaurant?.name || "Unknown Restaurant",
             cuisine,
             rating: Number(restaurant?.rating || 0) || 4.5,
-            deliveryTime: (orderType === "takeaway")
-              ? (restaurant.preparationTime || "20-25 mins")
-              : restaurant?.estimatedDeliveryTime || (restaurant?.estimatedDeliveryTimeMinutes ? `${restaurant.estimatedDeliveryTimeMinutes} mins` : "25-30 mins"),
+            deliveryTime: restaurant?.estimatedDeliveryTime || (restaurant?.estimatedDeliveryTimeMinutes ? `${restaurant.estimatedDeliveryTimeMinutes} mins` : "25-30 mins"),
             distance: restaurant?.distance ? (typeof restaurant.distance === 'number' ? `${restaurant.distance.toFixed(1)} km` : restaurant.distance) : "1.2 km",
             priceRange: restaurant?.priceRange || "$$",
             image: pickRestaurantImage(restaurant),
@@ -108,16 +103,16 @@ export default function Restaurants() {
     return () => {
       cancelled = true
     }
-  }, [zoneId, orderType])
+  }, [zoneId])
 
-  const hasRestaurants = useMemo(() => visibleRestaurants.length > 0, [visibleRestaurants.length])
+  const hasRestaurants = useMemo(() => restaurants.length > 0, [restaurants.length])
 
   return (
     <AnimatedPage className="min-h-screen bg-gradient-to-b from-yellow-50/30 dark:from-[#0a0a0a] via-white dark:via-[#0a0a0a] to-orange-50/20 dark:to-[#0a0a0a]">
       <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 xl:px-12 py-4 sm:py-6 md:py-8 lg:py-10 space-y-4 sm:space-y-6 lg:space-y-8">
         <ScrollReveal>
           <div className="flex items-center gap-3 sm:gap-4 lg:gap-5 mb-4 lg:mb-6">
-            <Link to="/food/user">
+            <Link to="/">
               <Button variant="ghost" size="icon" className="rounded-full h-8 w-8 sm:h-10 sm:w-10 lg:h-12 lg:w-12 hover:bg-gray-100 dark:hover:bg-gray-800">
                 <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6 text-gray-900 dark:text-gray-100" />
               </Button>
@@ -136,7 +131,7 @@ export default function Restaurants() {
           <div className="py-16 text-center text-sm text-gray-500">No restaurants available right now.</div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 lg:gap-5 xl:gap-6 pt-2 sm:pt-3 lg:pt-4">
-            {visibleRestaurants.map((restaurant, index) => {
+            {restaurants.map((restaurant, index) => {
               const favorite = isFavorite(restaurant.slug)
 
               const handleToggleFavorite = (e) => {
@@ -202,7 +197,7 @@ export default function Restaurants() {
                                   <span className="font-medium whitespace-nowrap">{restaurant.distance}</span>
                                 </div>
                               </div>
-                              <Button className="bg-[#DC2626] hover:opacity-90 dark:hover:opacity-80 text-white text-xs sm:text-sm h-7 sm:h-8 px-3 sm:px-4 flex-shrink-0 transition-opacity">
+                              <Button className="bg-primary-orange hover:opacity-90 dark:hover:opacity-80 text-white text-xs sm:text-sm h-7 sm:h-8 px-3 sm:px-4 flex-shrink-0 transition-opacity">
                                 Order Now
                               </Button>
                             </div>
@@ -214,7 +209,7 @@ export default function Restaurants() {
                             src={restaurant.image || "https://via.placeholder.com/400x300?text=Restaurant"}
                             alt={restaurant.name}
                             className="w-full h-full object-cover"
-                          />
+                           loading="lazy" decoding="async" />
                           <div className="absolute inset-0 bg-gradient-to-l from-black/20 dark:from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                         </div>
                       </div>

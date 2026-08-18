@@ -1,11 +1,10 @@
-import { useState, useEffect } from "react"
-import { Search, Download, ChevronDown, Filter, Briefcase, RefreshCw, Settings, ArrowUpDown, FileText, FileSpreadsheet, Code, Loader2, Star } from "lucide-react"
+﻿import { useState, useMemo, useEffect } from "react"
+import { Search, Download, ChevronDown, Filter, Briefcase, RefreshCw, Settings, ArrowUpDown, FileText, FileSpreadsheet, Code, Loader2, Star, Calendar } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@food/components/ui/dialog"
 import { exportReportsToCSV, exportReportsToExcel, exportReportsToPDF, exportReportsToJSON } from "@food/components/admin/reports/reportsExportUtils"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
-import AdminListPagination from "@food/components/admin/AdminListPagination"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -13,24 +12,15 @@ const debugError = (...args) => {}
 
 export default function RestaurantReport() {
   const [searchQuery, setSearchQuery] = useState("")
-  const [debouncedSearch, setDebouncedSearch] = useState("")
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(() => {
-    try {
-      return Number(localStorage.getItem("admin_restaurant_report_pageSize")) || 20
-    } catch {
-      return 20
-    }
-  })
-  const [totalItems, setTotalItems] = useState(0)
   const [restaurants, setRestaurants] = useState([])
   const [loading, setLoading] = useState(true)
-  const [isRefreshing, setIsRefreshing] = useState(false)
   const [filters, setFilters] = useState({
     zone: "All Zones",
     all: "All",
     type: "All types",
     time: "All Time",
+    fromDate: "",
+    toDate: "",
   })
   const [zones, setZones] = useState([])
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -50,39 +40,32 @@ export default function RestaurantReport() {
     fetchZones()
   }, [])
 
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300)
-    return () => clearTimeout(t)
-  }, [searchQuery])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [filters, debouncedSearch])
-
   // Fetch restaurant report data
   useEffect(() => {
     const fetchRestaurantReport = async () => {
       try {
-        setIsRefreshing(true)
+        setLoading(true)
         
         const params = {
           zone: filters.zone !== "All Zones" ? filters.zone : undefined,
           all: filters.all !== "All" ? filters.all : undefined,
           type: filters.type !== "All types" ? filters.type : undefined,
-          time: filters.time !== "All Time" ? filters.time : undefined,
-          search: debouncedSearch || undefined,
-          page: currentPage,
-          limit: pageSize,
+          time: filters.time !== "All Time" && filters.time !== "Custom Range" ? filters.time : undefined,
+          fromDate: filters.time === "Custom Range" && filters.fromDate
+            ? new Date(`${filters.fromDate}T00:00:00`).toISOString()
+            : undefined,
+          toDate: filters.time === "Custom Range" && filters.toDate
+            ? new Date(`${filters.toDate}T23:59:59`).toISOString()
+            : undefined,
+          search: searchQuery || undefined
         }
 
         const response = await adminAPI.getRestaurantReport(params)
 
         if (response?.data?.success && response.data.data) {
           setRestaurants(response.data.data.restaurants || [])
-          setTotalItems(response.data.data.total ?? 0)
         } else {
           setRestaurants([])
-          setTotalItems(0)
           if (response?.data?.message) {
             toast.error(response.data.message)
           }
@@ -91,15 +74,19 @@ export default function RestaurantReport() {
         debugError("Error fetching restaurant report:", error)
         toast.error("Failed to fetch restaurant report")
         setRestaurants([])
-        setTotalItems(0)
       } finally {
         setLoading(false)
-        setIsRefreshing(false)
       }
     }
 
     fetchRestaurantReport()
-  }, [filters, debouncedSearch, currentPage, pageSize])
+  }, [filters, searchQuery])
+
+  const filteredRestaurants = useMemo(() => {
+    return restaurants // Backend already filters, so just return restaurants
+  }, [restaurants])
+
+  const totalRestaurants = filteredRestaurants.length
 
   const handleReset = () => {
     setFilters({
@@ -107,13 +94,14 @@ export default function RestaurantReport() {
       all: "All",
       type: "All types",
       time: "All Time",
+      fromDate: "",
+      toDate: "",
     })
     setSearchQuery("")
-    setCurrentPage(1)
   }
 
   const handleExport = (format) => {
-    if (restaurants.length === 0) {
+    if (filteredRestaurants.length === 0) {
       alert("No data to export")
       return
     }
@@ -129,10 +117,10 @@ export default function RestaurantReport() {
       { key: "averageRatings", label: "Average Ratings" },
     ]
     switch (format) {
-      case "csv": exportReportsToCSV(restaurants, headers, "restaurant_report"); break
-      case "excel": exportReportsToExcel(restaurants, headers, "restaurant_report"); break
-      case "pdf": exportReportsToPDF(restaurants, headers, "restaurant_report", "Restaurant Report"); break
-      case "json": exportReportsToJSON(restaurants, "restaurant_report"); break
+      case "csv": exportReportsToCSV(filteredRestaurants, headers, "restaurant_report"); break
+      case "excel": exportReportsToExcel(filteredRestaurants, headers, "restaurant_report"); break
+      case "pdf": exportReportsToPDF(filteredRestaurants, headers, "restaurant_report", "Restaurant Report"); break
+      case "json": exportReportsToJSON(filteredRestaurants, "restaurant_report"); break
     }
   }
 
@@ -143,33 +131,23 @@ export default function RestaurantReport() {
   const activeFiltersCount = (filters.zone !== "All Zones" ? 1 : 0) + (filters.all !== "All" ? 1 : 0) + (filters.type !== "All types" ? 1 : 0) + (filters.time !== "All Time" ? 1 : 0)
 
   const renderStars = (rating, reviews) => {
-    const numericRating = Number(rating || 0)
-    const safeReviews = Number(reviews || 0)
-    const fullStars = Math.floor(numericRating)
-    const hasHalfStar = numericRating % 1 >= 0.5
-    const emptyStars = Math.max(0, 5 - fullStars - (hasHalfStar ? 1 : 0))
-
+    if (!rating || rating === 0) {
+      return <span className="text-sm text-slate-400">No ratings</span>
+    }
+    // Convert 1-10 rating to 1-5 scale if needed
+    const normalizedRating = rating > 5 ? rating / 2 : rating
+    const fullStars = Math.floor(normalizedRating)
+    const hasHalfStar = (normalizedRating % 1) >= 0.5
+    const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0)
     return (
-      <div className="flex items-center gap-2">
-        <div className="flex items-center gap-0.5">
-          {Array.from({ length: fullStars }).map((_, index) => (
-            <Star key={`full-${index}`} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-          ))}
-          {hasHalfStar && (
-            <Star className="w-3.5 h-3.5 fill-amber-200 text-amber-400" />
-          )}
-          {Array.from({ length: emptyStars }).map((_, index) => (
-            <Star key={`empty-${index}`} className="w-3.5 h-3.5 text-slate-300" />
-          ))}
-        </div>
-        <span className="text-sm text-slate-700 whitespace-nowrap">
-          {numericRating.toFixed(1)} ({safeReviews})
-        </span>
-      </div>
+      <span className="flex items-center gap-1">
+        <span className="text-yellow-500 font-bold">{fullStars > 0 ? "★".repeat(fullStars) : ''}{hasHalfStar ? "★" : ''}{emptyStars > 0 ? "☆".repeat(emptyStars) : ''}</span>
+        <span className="text-sm text-slate-500">({reviews || 0})</span>
+      </span>
     )
   }
 
-  if (loading && restaurants.length === 0) {
+  if (loading) {
     return (
       <div className="p-4 lg:p-6 bg-slate-50 min-h-screen flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
@@ -209,7 +187,7 @@ export default function RestaurantReport() {
                 >
                   <option value="All Zones">All Zones</option>
                   {zones.map(zone => (
-                    <option key={zone._id} value={zone.name}>{zone.name}</option>
+                    <option key={zone._id} value={zone.zoneName}>{zone.zoneName}</option>
                   ))}
                 </select>
                 <ChevronDown className="absolute right-2 bottom-2.5 w-4 h-4 text-slate-500 pointer-events-none" />
@@ -253,7 +231,11 @@ export default function RestaurantReport() {
                 </label>
                 <select
                   value={filters.time}
-                  onChange={(e) => setFilters(prev => ({ ...prev, time: e.target.value }))}
+                  onChange={(e) => setFilters(prev => ({
+                    ...prev,
+                    time: e.target.value,
+                    ...(e.target.value !== "Custom Range" ? { fromDate: "", toDate: "" } : {}),
+                  }))}
                   className="w-full px-4 py-2.5 pr-8 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="All Time">All Time</option>
@@ -261,10 +243,44 @@ export default function RestaurantReport() {
                   <option value="This Week">This Week</option>
                   <option value="This Month">This Month</option>
                   <option value="This Year">This Year</option>
+                  <option value="Custom Range">Custom Range</option>
                 </select>
                 <ChevronDown className="absolute right-2 bottom-2.5 w-4 h-4 text-slate-500 pointer-events-none" />
               </div>
             </div>
+
+            {filters.time === "Custom Range" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full lg:w-auto">
+                <div className="relative">
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    From Date
+                  </label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                    <input
+                      type="date"
+                      value={filters.fromDate}
+                      onChange={(e) => setFilters(prev => ({ ...prev, fromDate: e.target.value }))}
+                      className="w-full pl-10 pr-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+                <div className="relative">
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    To Date
+                  </label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                    <input
+                      type="date"
+                      value={filters.toDate}
+                      onChange={(e) => setFilters(prev => ({ ...prev, toDate: e.target.value }))}
+                      className="w-full pl-10 pr-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="flex items-end gap-3">
               <button
@@ -295,7 +311,7 @@ export default function RestaurantReport() {
         {/* Restaurant Report Table Section */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-            <h2 className="text-xl font-bold text-slate-900">Restaurant Report Table {totalItems}</h2>
+            <h2 className="text-xl font-bold text-slate-900">Restaurant Report Table {totalRestaurants}</h2>
 
             <div className="flex items-center gap-3">
               <div className="relative flex-1 sm:flex-initial min-w-[250px]">
@@ -307,9 +323,6 @@ export default function RestaurantReport() {
                   className="pl-4 pr-10 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
                 <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                {isRefreshing && (
-                  <Loader2 className="absolute right-9 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 animate-spin" />
-                )}
               </div>
 
               <DropdownMenu>
@@ -412,7 +425,7 @@ export default function RestaurantReport() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-100">
-                {restaurants.length === 0 ? (
+                {filteredRestaurants.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="px-6 py-20 text-center">
                       <div className="flex flex-col items-center justify-center">
@@ -422,7 +435,7 @@ export default function RestaurantReport() {
                     </td>
                   </tr>
                 ) : (
-                  restaurants.map((restaurant) => (
+                  filteredRestaurants.map((restaurant) => (
                     <tr key={restaurant.sl} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm font-medium text-slate-700">{restaurant.sl}</span>
@@ -462,7 +475,7 @@ export default function RestaurantReport() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`text-sm font-medium ${
-                          restaurant.totalAdminCommission.startsWith('?-') || restaurant.totalAdminCommission.startsWith('-?')
+                          restaurant.totalAdminCommission.startsWith('Rs.-') || restaurant.totalAdminCommission.startsWith('-Rs.')
                             ? 'text-red-600'
                             : 'text-slate-900'
                         }`}>
@@ -473,7 +486,7 @@ export default function RestaurantReport() {
                         <span className="text-sm text-slate-700">{restaurant.totalVATTAX}</span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {renderStars(restaurant.averageRatings, restaurant.reviews)}
+                        <span className="text-sm text-slate-700">{renderStars(restaurant.averageRatings, restaurant.reviews)}</span>
                       </td>
                     </tr>
                   ))
@@ -481,21 +494,6 @@ export default function RestaurantReport() {
               </tbody>
             </table>
           </div>
-
-          <AdminListPagination
-            currentPage={currentPage}
-            pageSize={pageSize}
-            totalItems={totalItems}
-            onPageChange={setCurrentPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size)
-              try {
-                localStorage.setItem("admin_restaurant_report_pageSize", String(size))
-              } catch {}
-              setCurrentPage(1)
-            }}
-            itemLabel="restaurants"
-          />
         </div>
       </div>
 
@@ -526,3 +524,4 @@ export default function RestaurantReport() {
     </div>
   )
 }
+

@@ -1,92 +1,88 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Info, Phone, Upload, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { adminAPI } from "@food/api";
 import { setCachedSettings, updateFavicon, updateTitle } from "@food/utils/businessSettings";
-import { EMAIL_REGEX } from "@/shared/utils/emailValidation";
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
+const BUSINESS_EMAIL_REGEX = /^(?!.*\.\.)([A-Za-z0-9]+[._%+-]?)*[A-Za-z0-9]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}$/
 
-const emptyForm = {
-  companyName: "",
-  email: "",
-  phoneCountryCode: "+91",
-  phoneNumber: "",
-  address: "",
-  state: "",
-  pincode: "",
-  region: "",
-};
+const hasSuspiciousEmailTld = (emailValue) => {
+  const email = String(emailValue || "").trim().toLowerCase()
+  const domain = email.split("@")[1] || ""
+  const tld = domain.split(".").pop() || ""
+  if (!tld) return true
+  // Block malformed TLDs like "commm", "cooom", etc.
+  if (/^com+$/i.test(tld) && tld !== "com") return true
+  if (/(.)\1{2,}/.test(tld)) return true
+  return false
+}
 
-const settingsToForm = (settings) => ({
-  companyName: settings?.companyName || "",
-  email: settings?.email || "",
-  phoneCountryCode: settings?.phone?.countryCode || "+91",
-  phoneNumber: settings?.phone?.number || "",
-  address: settings?.address || "",
-  state: settings?.state || "",
-  pincode: settings?.pincode || "",
-  region: settings?.region || "India",
-});
 
 export default function BusinessSetup() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [imageStorageMode, setImageStorageMode] = useState("server");
+  const [imageModeSaving, setImageModeSaving] = useState(false);
   const [logoPreview, setLogoPreview] = useState(null);
   const [faviconPreview, setFaviconPreview] = useState(null);
+  const [restaurantLogoPreview, setRestaurantLogoPreview] = useState(null);
+  const [restaurantFaviconPreview, setRestaurantFaviconPreview] = useState(null);
+  const [deliveryLogoPreview, setDeliveryLogoPreview] = useState(null);
+  const [deliveryFaviconPreview, setDeliveryFaviconPreview] = useState(null);
   const [logoFile, setLogoFile] = useState(null);
   const [faviconFile, setFaviconFile] = useState(null);
-  const [removeLogo, setRemoveLogo] = useState(false);
-  const [removeFavicon, setRemoveFavicon] = useState(false);
-  const [savedForm, setSavedForm] = useState(emptyForm);
-  const [savedLogoUrl, setSavedLogoUrl] = useState(null);
-  const [savedFaviconUrl, setSavedFaviconUrl] = useState(null);
+  const [restaurantLogoFile, setRestaurantLogoFile] = useState(null);
+  const [restaurantFaviconFile, setRestaurantFaviconFile] = useState(null);
+  const [deliveryLogoFile, setDeliveryLogoFile] = useState(null);
+  const [deliveryFaviconFile, setDeliveryFaviconFile] = useState(null);
   const logoInputRef = useRef(null);
   const faviconInputRef = useRef(null);
+  const restaurantLogoInputRef = useRef(null);
+  const restaurantFaviconInputRef = useRef(null);
+  const deliveryLogoInputRef = useRef(null);
+  const deliveryFaviconInputRef = useRef(null);
 
-  const [formData, setFormData] = useState(emptyForm);
-
-  const hasChanges = useMemo(() => {
-    const formDirty = Object.keys(emptyForm).some(
-      (key) => String(formData[key] ?? "") !== String(savedForm[key] ?? ""),
-    );
-    const logoDirty = Boolean(logoFile) || (removeLogo && Boolean(savedLogoUrl));
-    const faviconDirty =
-      Boolean(faviconFile) || (removeFavicon && Boolean(savedFaviconUrl));
-    return formDirty || logoDirty || faviconDirty;
-  }, [
-    formData,
-    savedForm,
-    logoFile,
-    faviconFile,
-    removeLogo,
-    removeFavicon,
-    savedLogoUrl,
-    savedFaviconUrl,
-  ]);
+  const [formData, setFormData] = useState({
+    companyName: "",
+    email: "",
+    phoneCountryCode: "+91",
+    phoneNumber: "",
+    address: "",
+    state: "",
+    pincode: "",
+    region: "",
+  });
 
   // Fetch business settings on mount
   useEffect(() => {
     fetchBusinessSettings();
+    fetchImageStorageMode();
   }, []);
 
-  const applySettingsToState = (settings) => {
-    const nextForm = settingsToForm(settings);
-    const nextLogo = settings?.logo?.url || null;
-    const nextFavicon = settings?.favicon?.url || null;
-    setFormData(nextForm);
-    setSavedForm(nextForm);
-    setLogoPreview(nextLogo);
-    setFaviconPreview(nextFavicon);
-    setSavedLogoUrl(nextLogo);
-    setSavedFaviconUrl(nextFavicon);
-    setRemoveLogo(false);
-    setRemoveFavicon(false);
-    setLogoFile(null);
-    setFaviconFile(null);
-    if (logoInputRef.current) logoInputRef.current.value = "";
-    if (faviconInputRef.current) faviconInputRef.current.value = "";
+  const fetchImageStorageMode = async () => {
+    try {
+      const res = await adminAPI.getImageStorageMode();
+      const mode = res?.data?.data?.imageStorageMode || res?.data?.imageStorageMode || "server";
+      setImageStorageMode(mode);
+    } catch {
+      // silently fall back to 'server'
+    }
+  };
+
+  const handleImageStorageModeToggle = async (mode) => {
+    if (mode === imageStorageMode || imageModeSaving) return;
+    try {
+      setImageModeSaving(true);
+      await adminAPI.updateImageStorageMode(mode);
+      setImageStorageMode(mode);
+      toast.success(`Image storage switched to ${mode === "cloudinary" ? "Cloudinary CDN" : "Server Storage"}`);
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to update image storage mode");
+    } finally {
+      setImageModeSaving(false);
+    }
   };
 
   const fetchBusinessSettings = async () => {
@@ -96,7 +92,36 @@ export default function BusinessSetup() {
       const settings = response?.data?.data || response?.data;
 
       if (settings) {
-        applySettingsToState(settings);
+        setFormData({
+          companyName: settings.companyName || "",
+          email: settings.email || "",
+          phoneCountryCode: settings.phone?.countryCode || "+91",
+          phoneNumber: settings.phone?.number || "",
+          address: settings.address || "",
+          state: settings.state || "",
+          pincode: settings.pincode || "",
+          region: settings.region || "India",
+        });
+
+        // Set logo and favicon previews if they exist
+        if (settings.logo?.url) {
+          setLogoPreview(settings.logo.url);
+        }
+        if (settings.favicon?.url) {
+          setFaviconPreview(settings.favicon.url);
+        }
+        if (settings.restaurantLogo?.url) {
+          setRestaurantLogoPreview(settings.restaurantLogo.url);
+        }
+        if (settings.restaurantFavicon?.url) {
+          setRestaurantFaviconPreview(settings.restaurantFavicon.url);
+        }
+        if (settings.deliveryLogo?.url) {
+          setDeliveryLogoPreview(settings.deliveryLogo.url);
+        }
+        if (settings.deliveryFavicon?.url) {
+          setDeliveryFaviconPreview(settings.deliveryFavicon.url);
+        }
       }
     } catch (error) {
       debugError("Error fetching business settings:", error);
@@ -129,7 +154,8 @@ export default function BusinessSetup() {
         toast.error("Email is required");
         return;
       }
-      if (!EMAIL_REGEX.test(formData.email.trim())) {
+      const normalizedEmail = formData.email.trim()
+      if (!BUSINESS_EMAIL_REGEX.test(normalizedEmail) || hasSuspiciousEmailTld(normalizedEmail)) {
         toast.error("Please enter a valid email address");
         return;
       }
@@ -154,15 +180,13 @@ export default function BusinessSetup() {
       // Prepare form data
       const dataToSend = {
         companyName: formData.companyName.trim(),
-        email: formData.email.trim(),
+        email: normalizedEmail,
         phoneCountryCode: formData.phoneCountryCode,
         phoneNumber: formData.phoneNumber.trim(),
         address: formData.address.trim(),
         state: formData.state.trim(),
         pincode: formData.pincode.trim(),
         region: formData.region,
-        removeLogo: removeLogo && !logoFile,
-        removeFavicon: removeFavicon && !faviconFile,
       };
 
       // Prepare files
@@ -173,6 +197,18 @@ export default function BusinessSetup() {
       if (faviconFile) {
         files.favicon = faviconFile;
       }
+      if (restaurantLogoFile) {
+        files.restaurantLogo = restaurantLogoFile;
+      }
+      if (restaurantFaviconFile) {
+        files.restaurantFavicon = restaurantFaviconFile;
+      }
+      if (deliveryLogoFile) {
+        files.deliveryLogo = deliveryLogoFile;
+      }
+      if (deliveryFaviconFile) {
+        files.deliveryFavicon = deliveryFaviconFile;
+      }
 
       const response = await adminAPI.updateBusinessSettings(dataToSend, files);
       const updatedSettings = response?.data?.data || response?.data;
@@ -180,11 +216,31 @@ export default function BusinessSetup() {
       if (updatedSettings) {
         // Update global cache immediately
         setCachedSettings(updatedSettings);
-        applySettingsToState(updatedSettings);
 
-        // Restore default site favicon when admin favicon was removed
-        if (!updatedSettings.favicon?.url) {
-          updateFavicon(null);
+        // Update previews with new URLs if files were uploaded
+        if (updatedSettings.logo?.url) {
+          setLogoPreview(updatedSettings.logo.url);
+          setLogoFile(null);
+        }
+        if (updatedSettings.favicon?.url) {
+          setFaviconPreview(updatedSettings.favicon.url);
+          setFaviconFile(null);
+        }
+        if (updatedSettings.restaurantLogo?.url) {
+          setRestaurantLogoPreview(updatedSettings.restaurantLogo.url);
+          setRestaurantLogoFile(null);
+        }
+        if (updatedSettings.restaurantFavicon?.url) {
+          setRestaurantFaviconPreview(updatedSettings.restaurantFavicon.url);
+          setRestaurantFaviconFile(null);
+        }
+        if (updatedSettings.deliveryLogo?.url) {
+          setDeliveryLogoPreview(updatedSettings.deliveryLogo.url);
+          setDeliveryLogoFile(null);
+        }
+        if (updatedSettings.deliveryFavicon?.url) {
+          setDeliveryFaviconPreview(updatedSettings.deliveryFavicon.url);
+          setDeliveryFaviconFile(null);
         }
       }
 
@@ -201,19 +257,30 @@ export default function BusinessSetup() {
   };
 
   const handleReset = () => {
-    if (!hasChanges) return;
-    setFormData(savedForm);
-    setLogoPreview(savedLogoUrl);
-    setFaviconPreview(savedFaviconUrl);
+    fetchBusinessSettings();
     setLogoFile(null);
     setFaviconFile(null);
-    setRemoveLogo(false);
-    setRemoveFavicon(false);
+    setRestaurantLogoFile(null);
+    setRestaurantFaviconFile(null);
+    setDeliveryLogoFile(null);
+    setDeliveryFaviconFile(null);
     if (logoInputRef.current) {
       logoInputRef.current.value = "";
     }
     if (faviconInputRef.current) {
       faviconInputRef.current.value = "";
+    }
+    if (restaurantLogoInputRef.current) {
+      restaurantLogoInputRef.current.value = "";
+    }
+    if (restaurantFaviconInputRef.current) {
+      restaurantFaviconInputRef.current.value = "";
+    }
+    if (deliveryLogoInputRef.current) {
+      deliveryLogoInputRef.current.value = "";
+    }
+    if (deliveryFaviconInputRef.current) {
+      deliveryFaviconInputRef.current.value = "";
     }
     toast.info("Form reset to saved values");
   };
@@ -232,9 +299,7 @@ export default function BusinessSetup() {
       {/* Page header */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl lg:text-2xl font-bold text-slate-900">Business setup</h1>
-          </div>
+          <h1 className="text-xl lg:text-2xl font-bold text-slate-900">Business setup</h1>
           <p className="text-xs lg:text-sm text-slate-500 mt-1">
             Manage your company information, general configuration and business rules.
           </p>
@@ -408,7 +473,6 @@ export default function BusinessSetup() {
                     }
 
                     setLogoFile(file);
-                    setRemoveLogo(false);
                     const reader = new FileReader();
                     reader.onloadend = () => {
                       setLogoPreview(reader.result);
@@ -427,14 +491,13 @@ export default function BusinessSetup() {
                         src={logoPreview}
                         alt="Logo preview"
                         className="w-full h-full object-contain"
-                      />
+                       loading="lazy" decoding="async" />
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           setLogoPreview(null);
                           setLogoFile(null);
-                          setRemoveLogo(true);
                           if (logoInputRef.current) {
                             logoInputRef.current.value = "";
                           }
@@ -477,7 +540,6 @@ export default function BusinessSetup() {
                     }
 
                     setFaviconFile(file);
-                    setRemoveFavicon(false);
                     const reader = new FileReader();
                     reader.onloadend = () => {
                       setFaviconPreview(reader.result);
@@ -496,14 +558,13 @@ export default function BusinessSetup() {
                         src={faviconPreview}
                         alt="Favicon preview"
                         className="w-full h-full object-contain"
-                      />
+                       loading="lazy" decoding="async" />
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           setFaviconPreview(null);
                           setFaviconFile(null);
-                          setRemoveFavicon(true);
                           if (faviconInputRef.current) {
                             faviconInputRef.current.value = "";
                           }
@@ -522,6 +583,311 @@ export default function BusinessSetup() {
                 </div>
               </div>
             </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Restaurant Logo</label>
+                <input
+                  ref={restaurantLogoInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/webp"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const allowedTypes = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
+                    if (!allowedTypes.includes(file.type)) {
+                      toast.error("Invalid file type. Please upload PNG, JPG, JPEG, or WEBP.");
+                      return;
+                    }
+                    const maxSize = 5 * 1024 * 1024;
+                    if (file.size > maxSize) {
+                      toast.error("File size exceeds 5MB limit.");
+                      return;
+                    }
+                    setRestaurantLogoFile(file);
+                    const reader = new FileReader();
+                    reader.onloadend = () => setRestaurantLogoPreview(reader.result);
+                    reader.readAsDataURL(file);
+                  }}
+                  className="hidden"
+                />
+                <div
+                  onClick={() => restaurantLogoInputRef.current?.click()}
+                  className="border border-dashed border-slate-300 rounded-lg bg-slate-50/60 h-28 flex items-center justify-center cursor-pointer hover:bg-slate-100 transition-colors relative overflow-hidden"
+                >
+                  {restaurantLogoPreview ? (
+                    <>
+                      <img src={restaurantLogoPreview} alt="Restaurant logo preview" className="w-full h-full object-contain"  loading="lazy" decoding="async" />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRestaurantLogoPreview(null);
+                          setRestaurantLogoFile(null);
+                          if (restaurantLogoInputRef.current) restaurantLogoInputRef.current.value = "";
+                        }}
+                        className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </>
+                  ) : (
+                    <div className="text-center">
+                      <Upload className="w-5 h-5 text-slate-400 mx-auto mb-1" />
+                      <p className="text-xs text-slate-400">Click to upload restaurant logo</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Restaurant Favicon</label>
+                <input
+                  ref={restaurantFaviconInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/webp,image/x-icon"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const allowedTypes = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/x-icon"];
+                    if (!allowedTypes.includes(file.type)) {
+                      toast.error("Invalid file type. Please upload PNG, JPG, JPEG, WEBP, or ICO.");
+                      return;
+                    }
+                    const maxSize = 5 * 1024 * 1024;
+                    if (file.size > maxSize) {
+                      toast.error("File size exceeds 5MB limit.");
+                      return;
+                    }
+                    setRestaurantFaviconFile(file);
+                    const reader = new FileReader();
+                    reader.onloadend = () => setRestaurantFaviconPreview(reader.result);
+                    reader.readAsDataURL(file);
+                  }}
+                  className="hidden"
+                />
+                <div
+                  onClick={() => restaurantFaviconInputRef.current?.click()}
+                  className="border border-dashed border-slate-300 rounded-lg bg-slate-50/60 h-28 flex items-center justify-center cursor-pointer hover:bg-slate-100 transition-colors relative overflow-hidden"
+                >
+                  {restaurantFaviconPreview ? (
+                    <>
+                      <img src={restaurantFaviconPreview} alt="Restaurant favicon preview" className="w-full h-full object-contain"  loading="lazy" decoding="async" />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRestaurantFaviconPreview(null);
+                          setRestaurantFaviconFile(null);
+                          if (restaurantFaviconInputRef.current) restaurantFaviconInputRef.current.value = "";
+                        }}
+                        className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </>
+                  ) : (
+                    <div className="text-center">
+                      <Upload className="w-5 h-5 text-slate-400 mx-auto mb-1" />
+                      <p className="text-xs text-slate-400">Click to upload restaurant favicon</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Delivery Logo</label>
+                <input
+                  ref={deliveryLogoInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/webp"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const allowedTypes = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
+                    if (!allowedTypes.includes(file.type)) {
+                      toast.error("Invalid file type. Please upload PNG, JPG, JPEG, or WEBP.");
+                      return;
+                    }
+                    const maxSize = 5 * 1024 * 1024;
+                    if (file.size > maxSize) {
+                      toast.error("File size exceeds 5MB limit.");
+                      return;
+                    }
+                    setDeliveryLogoFile(file);
+                    const reader = new FileReader();
+                    reader.onloadend = () => setDeliveryLogoPreview(reader.result);
+                    reader.readAsDataURL(file);
+                  }}
+                  className="hidden"
+                />
+                <div
+                  onClick={() => deliveryLogoInputRef.current?.click()}
+                  className="border border-dashed border-slate-300 rounded-lg bg-slate-50/60 h-28 flex items-center justify-center cursor-pointer hover:bg-slate-100 transition-colors relative overflow-hidden"
+                >
+                  {deliveryLogoPreview ? (
+                    <>
+                      <img src={deliveryLogoPreview} alt="Delivery logo preview" className="w-full h-full object-contain"  loading="lazy" decoding="async" />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeliveryLogoPreview(null);
+                          setDeliveryLogoFile(null);
+                          if (deliveryLogoInputRef.current) deliveryLogoInputRef.current.value = "";
+                        }}
+                        className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </>
+                  ) : (
+                    <div className="text-center">
+                      <Upload className="w-5 h-5 text-slate-400 mx-auto mb-1" />
+                      <p className="text-xs text-slate-400">Click to upload delivery logo</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Delivery Favicon</label>
+                <input
+                  ref={deliveryFaviconInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/webp,image/x-icon"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const allowedTypes = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/x-icon"];
+                    if (!allowedTypes.includes(file.type)) {
+                      toast.error("Invalid file type. Please upload PNG, JPG, JPEG, WEBP, or ICO.");
+                      return;
+                    }
+                    const maxSize = 5 * 1024 * 1024;
+                    if (file.size > maxSize) {
+                      toast.error("File size exceeds 5MB limit.");
+                      return;
+                    }
+                    setDeliveryFaviconFile(file);
+                    const reader = new FileReader();
+                    reader.onloadend = () => setDeliveryFaviconPreview(reader.result);
+                    reader.readAsDataURL(file);
+                  }}
+                  className="hidden"
+                />
+                <div
+                  onClick={() => deliveryFaviconInputRef.current?.click()}
+                  className="border border-dashed border-slate-300 rounded-lg bg-slate-50/60 h-28 flex items-center justify-center cursor-pointer hover:bg-slate-100 transition-colors relative overflow-hidden"
+                >
+                  {deliveryFaviconPreview ? (
+                    <>
+                      <img src={deliveryFaviconPreview} alt="Delivery favicon preview" className="w-full h-full object-contain"  loading="lazy" decoding="async" />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeliveryFaviconPreview(null);
+                          setDeliveryFaviconFile(null);
+                          if (deliveryFaviconInputRef.current) deliveryFaviconInputRef.current.value = "";
+                        }}
+                        className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </>
+                  ) : (
+                    <div className="text-center">
+                      <Upload className="w-5 h-5 text-slate-400 mx-auto mb-1" />
+                      <p className="text-xs text-slate-400">Click to upload delivery favicon</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Image Storage Configuration */}
+          <div className="px-4 py-4 border-t border-slate-100">
+            <h3 className="text-sm font-semibold text-slate-900 mb-1 flex items-center gap-2">
+              Image Storage Configuration
+            </h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Choose where uploaded images are stored. Only one mode can be active at a time.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Server Storage Option */}
+              <div
+                className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
+                  imageStorageMode === "server"
+                    ? "bg-blue-50 border-blue-300"
+                    : "bg-slate-50 border-slate-200"
+                }`}
+              >
+                <div>
+                  <p className="text-xs font-semibold text-slate-800">Server Storage</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Images saved locally on the VPS and served via nginx.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  id="toggle-server-storage"
+                  onClick={() => handleImageStorageModeToggle("server")}
+                  disabled={imageModeSaving}
+                  className={`relative inline-flex h-5 w-10 shrink-0 items-center rounded-full border-2 transition-colors focus:outline-none disabled:opacity-50 ${
+                    imageStorageMode === "server"
+                      ? "border-blue-600 bg-blue-600"
+                      : "border-slate-300 bg-slate-200"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                      imageStorageMode === "server" ? "translate-x-5" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Cloudinary CDN Option */}
+              <div
+                className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
+                  imageStorageMode === "cloudinary"
+                    ? "bg-purple-50 border-purple-300"
+                    : "bg-slate-50 border-slate-200"
+                }`}
+              >
+                <div>
+                  <p className="text-xs font-semibold text-slate-800">Cloudinary CDN</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Images uploaded to Cloudinary and served from a global CDN.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  id="toggle-cloudinary-storage"
+                  onClick={() => handleImageStorageModeToggle("cloudinary")}
+                  disabled={imageModeSaving}
+                  className={`relative inline-flex h-5 w-10 shrink-0 items-center rounded-full border-2 transition-colors focus:outline-none disabled:opacity-50 ${
+                    imageStorageMode === "cloudinary"
+                      ? "border-purple-600 bg-purple-600"
+                      : "border-slate-300 bg-slate-200"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                      imageStorageMode === "cloudinary" ? "translate-x-5" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {imageModeSaving && (
+                <p className="text-[11px] text-slate-400 flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Saving...
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Save Button Section */}
@@ -534,7 +900,7 @@ export default function BusinessSetup() {
                 <button
                   type="button"
                   onClick={handleReset}
-                  disabled={saving || !hasChanges}
+                  disabled={saving}
                   className="px-4 py-2 text-xs font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Reset
@@ -542,7 +908,7 @@ export default function BusinessSetup() {
                 <button
                   type="button"
                   onClick={handleSave}
-                  disabled={saving || !hasChanges}
+                  disabled={saving}
                   className="px-4 py-2 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {saving ? (
@@ -577,4 +943,3 @@ function ToggleSwitch({ initial = false }) {
     </button>
   );
 }
-

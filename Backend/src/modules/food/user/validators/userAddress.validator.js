@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ValidationError } from '../../../../core/auth/errors.js';
 
-const labelSchema = z.enum(['Home', 'Office', 'Other']).default('Home');
+const labelSchema = z.string().max(50).default('Home');
 
 const coordSchema = z
     .number()

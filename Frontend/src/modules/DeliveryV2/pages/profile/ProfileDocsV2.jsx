@@ -3,9 +3,9 @@ import { ArrowLeft, Eye, Edit2, Loader2, Camera, X, Plus, FileText, Image as Ima
 import { motion, AnimatePresence } from 'framer-motion';
 import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
-import { openCamera, openGallery } from "@food/utils/imageUploadUtils";
-import { prepareUploadFile } from "@/shared/utils/imageCompressor";
+import { openCamera } from "@food/utils/imageUploadUtils";
 import useDeliveryBackNavigation from '../../hooks/useDeliveryBackNavigation';
+import useCloseOnBrowserBack from '../../hooks/useCloseOnBrowserBack';
 
 /**
  * ProfileDocsV2 - Restored Old UI for Registration Documents & Vehicle Info.
@@ -18,6 +18,7 @@ export const ProfileDocsV2 = () => {
   const [showViewer, setShowViewer] = useState(null); // { title: string, url: string }
   const [uploadField, setUploadField] = useState(null)
   const fileInputRef = useRef(null);
+  useCloseOnBrowserBack(Boolean(showViewer), () => setShowViewer(null), "profile-doc-viewer");
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -34,10 +35,7 @@ export const ProfileDocsV2 = () => {
      if (!file) return;
      setIsUpdating(true);
      const formData = new FormData();
-     formData.append(
-       field,
-       await prepareUploadFile(file, field === "profilePhoto" ? { preset: "profile" } : {}),
-     );
+     formData.append(field, file);
      try {
         const res = await deliveryAPI.updateProfileMultipart(formData);
         if (res?.data?.success) {
@@ -58,11 +56,7 @@ export const ProfileDocsV2 = () => {
 
   const handlePickFromGallery = (field) => {
     setUploadField(field)
-    openGallery({
-      onSelectFile: (file) => handleUpdate(field, file),
-      fileNamePrefix: `profile-doc-${field}`,
-      fallbackInputRef: fileInputRef,
-    })
+    fileInputRef.current?.click()
   }
 
   const getDocStatus = (doc) => {
@@ -123,7 +117,7 @@ export const ProfileDocsV2 = () => {
                    </div>
                    {doc.data?.document && (
                       <div className="mt-2 w-24 h-16 rounded-xl border border-gray-100 overflow-hidden shadow-inner bg-gray-50 flex items-center justify-center">
-                         <img src={doc.data.document} className="w-full h-full object-cover opacity-50 grayscale" alt="Preview" />
+                         <img src={doc.data.document} className="w-full h-full object-cover opacity-50 grayscale" alt="Preview"  loading="lazy" decoding="async" />
                       </div>
                    )}
                 </div>
@@ -147,7 +141,7 @@ export const ProfileDocsV2 = () => {
                       <button onClick={() => setShowViewer(null)} className="p-3 bg-gray-50 rounded-full text-gray-400"><X className="w-6 h-6" /></button>
                    </div>
                    <div className="p-2">
-                      <img src={showViewer.url} className="w-full h-full object-contain rounded-2xl max-h-[70vh]" alt="Identity Doc" />
+                      <img src={showViewer.url} className="w-full h-full object-contain rounded-2xl max-h-[70vh]" alt="Identity Doc"  loading="lazy" decoding="async" />
                    </div>
                 </motion.div>
              </div>

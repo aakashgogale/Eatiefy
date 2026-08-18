@@ -1,10 +1,9 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { ShoppingCart } from 'lucide-react';
 import { useCart } from "@food/context/CartContext";
-import { useProfile } from "@food/context/ProfileContext";
 import { useEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap';
-import dishFallbackImage from "@food/assets/dish_fallback.webp";
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -29,12 +28,9 @@ export default function AddToCartAnimation({
   hideOnPages = true,
   linkTo = '/food/user/cart',
   dynamicBottom = null,
+  variant = 'pill',
 }) {
   const { items, itemCount, total, lastAddEvent, lastRemoveEvent } = useCart();
-  const { orderType } = useProfile();
-  const isTakeaway = orderType === 'takeaway';
-  // Navigate to the correct cart for the active mode
-  const cartLinkTo = isTakeaway ? '/food/user/cart' : (linkTo || '/food/user/cart');
   const location = useLocation();
   const navigate = useNavigate();
   const linkRef = useRef(null);
@@ -344,7 +340,7 @@ export default function AddToCartAnimation({
       // Step 1: Scale up with glow
       tl.to(linkRef.current, {
         scale: 1.08,
-        boxShadow: '0 10px 25px rgba(220, 38, 38, 0.4)',
+        boxShadow: '0 10px 25px rgba(235, 89, 14, 0.4)',
         duration: 0.15,
         ease: 'power2.out',
         transformOrigin: 'center center',
@@ -353,7 +349,7 @@ export default function AddToCartAnimation({
         // Step 2: Bounce back
         .to(linkRef.current, {
           scale: 1.0,
-          boxShadow: '0 4px 12px rgba(220, 38, 38, 0.3)',
+          boxShadow: '0 4px 12px rgba(235, 89, 14, 0.3)',
           duration: 0.2,
           ease: 'power2.inOut',
         })
@@ -391,16 +387,17 @@ export default function AddToCartAnimation({
             objectFit: 'cover',
           }}
         >
-          <img
-            src={removedProduct?.image || removedProduct?.product?.imageUrl || dishFallbackImage}
-            alt={removedProduct?.name || removedProduct?.product?.name || 'Item'}
-            className="w-full h-full object-cover rounded-full"
-            onError={(e) => {
-              if (e.currentTarget.src !== dishFallbackImage) {
-                e.currentTarget.src = dishFallbackImage
-              }
-            }}
-          />
+          {removedProduct.product?.imageUrl ? (
+            <img
+              src={removedProduct.product.imageUrl}
+              alt={removedProduct.product.name}
+              className="w-full h-full object-cover rounded-full"
+             loading="lazy" decoding="async" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-neutral-200 text-neutral-400 text-xs font-semibold rounded-full">
+              {removedProduct.product?.name?.charAt(0).toUpperCase() || '?'}
+            </div>
+          )}
         </div>
       )}
 
@@ -414,16 +411,17 @@ export default function AddToCartAnimation({
             objectFit: 'cover',
           }}
         >
-          <img
-            src={flyingProduct?.image || flyingProduct?.product?.imageUrl || dishFallbackImage}
-            alt={flyingProduct?.name || flyingProduct?.product?.name || 'Item'}
-            className="w-full h-full object-cover rounded-full"
-            onError={(e) => {
-              if (e.currentTarget.src !== dishFallbackImage) {
-                e.currentTarget.src = dishFallbackImage
-              }
-            }}
-          />
+          {flyingProduct?.product?.imageUrl ? (
+            <img
+              src={flyingProduct.product.imageUrl}
+              alt={flyingProduct?.product?.name || 'Item'}
+              className="w-full h-full object-cover rounded-full"
+             loading="lazy" decoding="async" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-neutral-200 text-neutral-400 text-xs font-semibold rounded-full">
+              {flyingProduct?.product?.name?.charAt(0)?.toUpperCase() || '?'}
+            </div>
+          )}
         </div>
       )}
 
@@ -446,10 +444,9 @@ export default function AddToCartAnimation({
             style={{
               position: 'fixed',
               bottom: dynamicBottom ? undefined : `${bottomOffset || 20}px`,
-              // Full-width wrapper must NOT steal bottom-nav taps
-              pointerEvents: 'none',
+              pointerEvents: 'auto',
             }}
-            className={`left-0 right-0 z-[9990] flex justify-center px-4 pb-4 md:pb-6 transition-all duration-300 ease-in-out bg-transparent ${dynamicBottom || ''}`}
+            className={`left-0 right-0 z-[9999] flex ${variant === 'bar' ? 'px-4' : 'justify-center px-4'} pb-4 md:pb-6 transition-all duration-300 ease-in-out bg-transparent`}
           >
             <button
               ref={linkRef}
@@ -457,82 +454,99 @@ export default function AddToCartAnimation({
                 e.preventDefault();
                 e.stopPropagation();
                 debugLog('View cart clicked, navigating to:', linkTo);
-              navigate(cartLinkTo, { state: { from: location.pathname } });
+                navigate(linkTo);
               }}
-              className={`bg-gradient-to-r from-[#991b1b] via-[#DC2626] to-[#991b1b] text-white rounded-full shadow-xl shadow-[#DC2626]/30 px-3 py-2 flex items-center gap-2 hover:from-[#991b1b] hover:via-[#DC2626] hover:to-[#991b1b] transition-all duration-300 pointer-events-auto border border-[#DC2626]/30 backdrop-blur-sm cursor-pointer touch-manipulation ${pillClassName}`}
+              className={`text-white shadow-[0_8px_18px_rgba(0,0,0,0.16)] transition-all duration-300 pointer-events-auto border border-white/20 cursor-pointer hover:shadow-[0_10px_22px_rgba(0,0,0,0.2)] ${
+                variant === 'bar'
+                  ? 'w-full rounded-2xl px-4 py-3.5 flex items-center justify-between gap-3'
+                  : 'rounded-full px-3.5 py-2 flex items-center gap-2.5'
+              } ${pillClassName}`}
+              style={{
+                background: 'linear-gradient(135deg, rgba(var(--module-theme-rgb,226,173,75),0.94), rgba(var(--module-theme-rgb,226,173,75),0.78))',
+              }}
             >
-              {/* Left: Product thumbnails */}
-              <div className="flex items-center -space-x-4">
-                {thumbnailItems.map((item, idx) => {
-                  const imgSrc = item?.image || item?.product?.imageUrl || item?.imageUrl || dishFallbackImage
-                  return (
-                    <motion.div
-                      key={item?.product?.id || item?.id || `thumb-${idx}`}
-                      initial={{ scale: 0, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      transition={{
-                        delay: idx * 0.1,
-                        type: 'spring',
-                        stiffness: 500,
-                        damping: 25,
-                      }}
-                      className="w-7 h-7 rounded-full border-2 border-white/90 overflow-hidden bg-white flex-shrink-0 shadow-md"
-                    >
-                      <img
-                        src={imgSrc}
-                        alt={item?.name || item?.product?.name || 'Item'}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          if (e.currentTarget.src !== dishFallbackImage) {
-                            e.currentTarget.src = dishFallbackImage
-                          }
+              {variant === 'bar' ? (
+                <>
+                  <span className="text-sm font-semibold truncate">
+                    {itemCount} {itemCount === 1 ? 'Item' : 'Items'} | ₹{Math.round(total || 0)}
+                  </span>
+                  <span className="flex items-center gap-2 text-sm font-semibold shrink-0">
+                    View Cart
+                    <ShoppingCart className="h-4 w-4" />
+                  </span>
+                </>
+              ) : (
+                <>
+                  {/* Left: Product thumbnails */}
+                  <div className="flex items-center -space-x-4">
+                    {thumbnailItems.map((item, idx) => (
+                      <motion.div
+                        key={item?.product?.id || item?.id || `thumb-${idx}`}
+                        initial={{ scale: 0, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{
+                          delay: idx * 0.1,
+                          type: 'spring',
+                          stiffness: 500,
+                          damping: 25,
                         }}
+                    className="w-7 h-7 rounded-full border border-white/70 overflow-hidden bg-white/95 flex-shrink-0 shadow-sm"
+                      >
+                        {item?.product?.imageUrl ? (
+                          <img
+                            src={item.product.imageUrl}
+                            alt={item?.product?.name || 'Item'}
+                            className="w-full h-full object-cover"
+                           loading="lazy" decoding="async" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-neutral-200 text-neutral-400 text-xs font-semibold">
+                            {item?.product?.name?.charAt(0)?.toUpperCase() || '?'}
+                          </div>
+                        )}
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  {/* Middle: Text */}
+                  <motion.div
+                    className="flex flex-col min-w-[64px]"
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.1, duration: 0.3 }}
+                  >
+                    <span className="text-xs font-semibold leading-tight tracking-[0.01em]">View cart</span>
+                    <span className="text-[10px] opacity-90 leading-tight font-medium">
+                      {itemCount} {itemCount === 1 ? 'item' : 'items'}
+                    </span>
+                  </motion.div>
+
+                  {/* Right: Arrow icon */}
+                  <motion.div
+                    className="ml-auto bg-white/20 rounded-full p-1.5"
+                    initial={{ opacity: 0, x: 10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.15, duration: 0.3 }}
+                    whileHover={{ scale: 1.1, rotate: -5 }}
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="text-white"
+                    >
+                      <path
+                        d="M6 12L10 8L6 4"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
                       />
-                    </motion.div>
-                  )
-                })}
-              </div>
-
-              {/* Middle: Text */}
-              <motion.div
-                className="flex flex-col"
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.1, duration: 0.3 }}
-              >
-                <span className="text-xs font-bold leading-tight drop-shadow-sm">
-                  {isTakeaway ? 'Takeaway Cart' : 'View cart'}
-                </span>
-                <span className="text-[10px] opacity-95 leading-tight font-medium">
-                  {itemCount} {itemCount === 1 ? 'item' : 'items'}
-                </span>
-              </motion.div>
-
-              {/* Right: Arrow icon */}
-              <motion.div
-                className="ml-auto bg-white/25 rounded-full p-1 backdrop-blur-sm"
-                initial={{ opacity: 0, x: 10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.15, duration: 0.3 }}
-                whileHover={{ scale: 1.1, rotate: -5 }}
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="text-white"
-                >
-                  <path
-                    d="M6 12L10 8L6 4"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </motion.div>
+                    </svg>
+                  </motion.div>
+                </>
+              )}
             </button>
           </motion.div>
         )}
@@ -540,4 +554,3 @@ export default function AddToCartAnimation({
     </>
   );
 }
-

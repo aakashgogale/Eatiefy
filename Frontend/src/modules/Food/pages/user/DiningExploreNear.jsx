@@ -203,7 +203,7 @@ export default function DiningExploreNear() {
             src={nearAndTopRated}
             alt="Near and Top Rated"
             className="w-full h-full object-cover"
-          />
+           loading="lazy" decoding="async" />
         </div>
 
         {/* Navbar with Back Button - Overlay on top of image */}
@@ -254,7 +254,7 @@ export default function DiningExploreNear() {
                   }
                 }}
                 placeholder="Search for restaurants, cuisines, dishes..."
-                className="w-full h-12 sm:h-14 md:h-16 pl-12 sm:pl-14 pr-12 sm:pr-14 rounded-xl border-2 border-gray-200 focus:border-[#DC2626] bg-white shadow-sm text-base sm:text-lg md:text-xl"
+                className="w-full h-12 sm:h-14 md:h-16 pl-12 sm:pl-14 pr-12 sm:pr-14 rounded-xl border-2 border-gray-200 focus:border-[#EB590E] bg-white shadow-sm text-base sm:text-lg md:text-xl"
               />
               <Search className="absolute left-4 sm:left-5 md:left-6 top-1/2 -translate-y-1/2 h-5 w-5 sm:h-6 sm:w-6 md:h-7 md:w-7 text-gray-400" />
               <Button
@@ -271,7 +271,7 @@ export default function DiningExploreNear() {
           </div>
 
           {/* Popular Restaurants Around You Section */}
-          <div className="mb-4 mt-2 sm:mt-4">
+          <div className="mb-6 mt-8 sm:mt-12">
             <div className="mb-6">
               <div className="flex items-center justify-center mb-2">
                 <h3 className="px-3 text-sm font-semibold text-gray-500 uppercase tracking-wide text-center">
@@ -283,7 +283,7 @@ export default function DiningExploreNear() {
             {/* Filters */}
             <section className="py-1 mb-4">
               <div
-                className="relative z-10 flex items-center gap-1.5 sm:gap-2 overflow-x-auto overflow-y-visible scrollbar-hide py-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto scrollbar-hide pb-1"
                 style={{
                   scrollbarWidth: "none",
                   msOverflowStyle: "none",
@@ -293,7 +293,7 @@ export default function DiningExploreNear() {
                 <Button
                   variant="outline"
                   onClick={() => setIsFilterOpen(true)}
-                  className="h-7 sm:h-8 px-2 sm:px-3 rounded-full flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 font-medium transition-all bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
+                  className="h-7 sm:h-8 px-2 sm:px-3 rounded-md flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 font-medium transition-all bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
                 >
                   <SlidersHorizontal className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span className="text-xs sm:text-sm font-bold text-black">Filters</span>
@@ -316,9 +316,9 @@ export default function DiningExploreNear() {
                       key={filter.id}
                       variant="outline"
                       onClick={() => toggleFilter(filter.id)}
-                      className={`h-7 sm:h-8 px-2 sm:px-3 rounded-full flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 transition-all font-medium ${isActive
-                        ? 'bg-[#DC2626] text-white border-[#DC2626] hover:bg-[#991B1B]'
-                        : 'bg-white border border-gray-200 hover:bg-gray-50 text-gray-600'
+                      className={`h-7 sm:h-8 px-2 sm:px-3 rounded-md flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 transition-all font-medium ${isActive
+                          ? 'bg-[#EB590E] text-white border-[#EB590E] hover:bg-[#D94F0C]'
+                          : 'bg-white border border-gray-200 hover:bg-gray-50 text-gray-600'
                         }`}
                     >
                       {Icon && <Icon className={`h-3 w-3 sm:h-4 sm:w-4 ${isActive ? 'fill-white' : ''}`} />}
@@ -386,7 +386,7 @@ export default function DiningExploreNear() {
                         </Button>
 
                         {/* Blue Section - Bottom 40% */}
-                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-r from-[#DC2626] to-transparent" style={{ height: '40%' }}>
+                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-r from-[#EB590E] to-transparent" style={{ height: '40%' }}>
                           <div className="h-full flex flex-col justify-end">
                             <div className="pl-4 sm:pl-5 pb-4 sm:pb-5">
                               <p className="text-white text-xs sm:text-sm font-medium uppercase tracking-wide mb-1">
@@ -427,7 +427,7 @@ export default function DiningExploreNear() {
                         {/* Offer Badge */}
                         {restaurant.offer && (
                           <div className="flex items-center gap-2 text-sm">
-                            <BadgePercent className="h-4 w-4 text-[#DC2626]" strokeWidth={2} />
+                            <BadgePercent className="h-4 w-4 text-[#EB590E]" strokeWidth={2} />
                             <span className="text-gray-700 font-medium">{restaurant.offer}</span>
                           </div>
                         )}
@@ -461,7 +461,7 @@ export default function DiningExploreNear() {
                   setSortBy(null)
                   setSelectedCuisine(null)
                 }}
-                className="text-[#DC2626] font-medium text-sm"
+                className="text-[#EB590E] font-medium text-sm"
               >
                 Clear all
               </button>
@@ -485,11 +485,11 @@ export default function DiningExploreNear() {
                     <button
                       key={tab.id}
                       onClick={() => setActiveFilterTab(tab.id)}
-                      className={`flex flex-col items-center gap-1 py-4 px-2 text-center relative transition-colors ${isActive ? 'bg-white text-[#DC2626]' : 'text-gray-500 hover:bg-gray-100'
+                      className={`flex flex-col items-center gap-1 py-4 px-2 text-center relative transition-colors ${isActive ? 'bg-white text-[#EB590E]' : 'text-gray-500 hover:bg-gray-100'
                         }`}
                     >
                       {isActive && (
-                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#DC2626] rounded-r" />
+                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#EB590E] rounded-r" />
                       )}
                       <Icon className="h-5 w-5" strokeWidth={1.5} />
                       <span className="text-xs font-medium leading-tight">{tab.label}</span>

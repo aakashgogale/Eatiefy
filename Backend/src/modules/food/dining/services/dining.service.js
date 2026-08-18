@@ -1,12 +1,8 @@
 import mongoose from 'mongoose';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
-import { FoodZone } from '../../admin/models/zone.model.js';
 import { FoodDiningCategory } from '../models/diningCategory.model.js';
 import { FoodDiningRestaurant } from '../models/diningRestaurant.model.js';
-import { FoodDiningRequest } from '../models/diningRequest.model.js';
-import { FoodItem } from '../../admin/models/food.model.js';
-import { deleteReplacedAssets, deleteStoredAssets } from '../../../../services/storage.service.js';
 
 const slugify = (value) =>
     String(value || '')
@@ -14,35 +10,6 @@ const slugify = (value) =>
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/(^-|-$)/g, '');
-
-const zoneToPolygon = (zoneDoc) => {
-    const coords = Array.isArray(zoneDoc?.coordinates) ? zoneDoc.coordinates : [];
-    if (coords.length < 3) return null;
-    const ring = coords
-        .map((c) => [Number(c.longitude), Number(c.latitude)])
-        .filter((pair) => pair.every((n) => Number.isFinite(n)));
-    if (ring.length < 3) return null;
-    const first = ring[0];
-    const last = ring[ring.length - 1];
-    if (first[0] !== last[0] || first[1] !== last[1]) ring.push(first);
-    return { type: 'Polygon', coordinates: [ring] };
-};
-
-const buildRestaurantZoneCondition = async (zoneIdValue) => {
-    const zoneOr = [{ zoneId: new mongoose.Types.ObjectId(zoneIdValue) }];
-    try {
-        const zoneDoc = await FoodZone.findById(zoneIdValue).select('isActive coordinates location').lean();
-        if (zoneDoc?.isActive) {
-            const polygon = zoneToPolygon(zoneDoc);
-            if (polygon) {
-                zoneOr.push({ location: { $geoWithin: { $geometry: polygon } } });
-            }
-        }
-    } catch {
-        // Fall back to zoneId match only.
-    }
-    return { $or: zoneOr };
-};
 
 const toObjectIdArray = (values) =>
     Array.from(
@@ -65,7 +32,7 @@ async function syncRestaurantDiningSettings(restaurantId, diningDoc) {
                 diningSettings: {
                     isEnabled: Boolean(diningDoc?.isEnabled),
                     maxGuests: Math.max(1, Number(diningDoc?.maxGuests) || 6),
-                    diningType: Array.isArray(diningDoc?.diningType) ? diningDoc.diningType : (primaryCategory?.slug ? [primaryCategory.slug] : ['family-dining'])
+                    diningType: primaryCategory?.slug || 'family-dining'
                 }
             }
         },
@@ -173,11 +140,30 @@ function mapDiningRestaurant(restaurant, diningDoc, categoriesById) {
     };
 }
 
-export async function listDiningCategoriesAdmin() {
-    const categories = await FoodDiningCategory.find({})
-        .sort({ sortOrder: 1, createdAt: -1 })
-        .lean();
-    return { categories: categories.map(mapCategory) };
+export async function listDiningCategoriesAdmin(query = {}) {
+    const page = Math.max(1, parseInt(query.page, 10) || 1);
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 100);
+    const skip = (page - 1) * limit;
+
+    const [categories, total] = await Promise.all([
+        FoodDiningCategory.find({})
+            .sort({ sortOrder: 1, createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .select('name slug imageUrl isActive sortOrder restaurantIds createdAt updatedAt')
+            .lean(),
+        FoodDiningCategory.countDocuments({})
+    ]);
+
+    return {
+        categories: categories.map(mapCategory),
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.max(1, Math.ceil(total / limit))
+        }
+    };
 }
 
 export async function createDiningCategory(body = {}) {
@@ -225,9 +211,7 @@ export async function updateDiningCategory(id, body = {}) {
         doc.slug = nextSlug;
     }
     if (body.imageUrl !== undefined) {
-        const nextUrl = String(body.imageUrl || '').trim();
-        await deleteReplacedAssets(doc.imageUrl, nextUrl);
-        doc.imageUrl = nextUrl;
+        doc.imageUrl = String(body.imageUrl || '').trim();
     }
     if (body.isActive !== undefined) {
         doc.isActive = body.isActive !== false;
@@ -251,7 +235,6 @@ export async function deleteDiningCategory(id) {
 
     const category = await FoodDiningCategory.findByIdAndDelete(id).lean();
     if (!category) return null;
-    await deleteStoredAssets(category.imageUrl);
 
     const categoryId = new mongoose.Types.ObjectId(id);
     const diningDocs = await FoodDiningRestaurant.find({ categoryIds: categoryId });
@@ -272,17 +255,31 @@ export async function deleteDiningCategory(id) {
     return { id };
 }
 
-export async function listDiningRestaurantsAdmin() {
-    const [restaurants, diningDocs, categories] = await Promise.all([
+export async function listDiningRestaurantsAdmin(query = {}) {
+    const page = Math.max(1, parseInt(query.page, 10) || 1);
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 100);
+    const skip = (page - 1) * limit;
+
+    const [restaurants, total, categories] = await Promise.all([
         FoodRestaurant.find({})
             .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
             .select('restaurantName ownerName ownerPhone profileImage coverImages menuImages location area city status rating pureVegRestaurant diningSettings')
             .lean(),
-        FoodDiningRestaurant.find({})
-            .select('restaurantId categoryIds primaryCategoryId isEnabled maxGuests pureVegRestaurant')
-            .lean(),
-        FoodDiningCategory.find({}).select('name slug imageUrl').lean()
+        FoodRestaurant.countDocuments({}),
+        FoodDiningCategory.find({})
+            .select('name slug imageUrl')
+            .limit(200)
+            .lean()
     ]);
+
+    const diningDocs = restaurants.length
+        ? await FoodDiningRestaurant.find({ restaurantId: { $in: restaurants.map((r) => r._id) } })
+            .select('restaurantId categoryIds primaryCategoryId isEnabled maxGuests pureVegRestaurant')
+            .limit(limit)
+            .lean()
+        : [];
 
     const categoriesById = new Map(categories.map((category) => [String(category._id), category]));
     const diningByRestaurantId = new Map(diningDocs.map((doc) => [String(doc.restaurantId), doc]));
@@ -291,7 +288,15 @@ export async function listDiningRestaurantsAdmin() {
         mapDiningRestaurant(restaurant, diningByRestaurantId.get(String(restaurant._id)), categoriesById)
     );
 
-    return { restaurants: items };
+    return {
+        restaurants: items,
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.max(1, Math.ceil(total / limit))
+        }
+    };
 }
 
 export async function updateDiningRestaurant(restaurantId, body = {}) {
@@ -359,29 +364,46 @@ export async function updateDiningRestaurant(restaurantId, body = {}) {
     await syncCategoryRestaurantLinks(restaurant._id, validCategoryIds);
     await syncRestaurantDiningSettings(restaurant._id, diningDoc);
 
-    const categories = await FoodDiningCategory.find({}).select('name slug imageUrl').lean();
+    const categoryLookupIds = diningDoc.categoryIds || [];
+    const categories = categoryLookupIds.length
+        ? await FoodDiningCategory.find({ _id: { $in: categoryLookupIds } })
+            .select('name slug imageUrl')
+            .lean()
+        : [];
     const categoriesById = new Map(categories.map((category) => [String(category._id), category]));
 
     return mapDiningRestaurant(restaurant, diningDoc.toObject(), categoriesById);
 }
 
-export async function listDiningCategoriesPublic() {
+export async function listDiningCategoriesPublic(query = {}) {
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 100);
     const categories = await FoodDiningCategory.find({ isActive: true })
         .sort({ sortOrder: 1, createdAt: -1 })
+        .limit(limit)
+        .select('name slug imageUrl isActive sortOrder restaurantIds createdAt updatedAt')
         .lean();
     return categories.map(mapCategory);
 }
 
 export async function listDiningRestaurantsPublic(query = {}) {
-    const filter = { isEnabled: true };
     const categoryValue = String(query.category || '').trim();
     const cityValue = String(query.city || '').trim();
-    const zoneIdValue = String(query.zoneId || '').trim();
 
-    if (!zoneIdValue || !mongoose.Types.ObjectId.isValid(zoneIdValue)) {
-        return [];
+    // 1. Build the base filter for FoodRestaurant
+    const restaurantFilter = {
+        'diningSettings.isEnabled': true,
+        status: 'approved'
+    };
+
+    // 2. Apply city filter if provided
+    if (cityValue) {
+        restaurantFilter.$or = [
+            { city: { $regex: cityValue, $options: 'i' } },
+            { 'location.city': { $regex: cityValue, $options: 'i' } }
+        ];
     }
 
+    // 3. Apply category filter if provided
     if (categoryValue) {
         const category = await FoodDiningCategory.findOne({
             $or: [
@@ -389,219 +411,53 @@ export async function listDiningRestaurantsPublic(query = {}) {
                 { slug: categoryValue.toLowerCase() }
             ].filter(Boolean)
         }).lean();
+
         if (!category) {
             return [];
         }
-        filter.categoryIds = category._id;
+        restaurantFilter._id = { $in: category.restaurantIds || [] };
     }
 
-    const restaurantMatch = {};
-    const restaurantAndConditions = [];
-
-    if (cityValue) {
-        restaurantAndConditions.push({
-            $or: [
-                { city: { $regex: cityValue, $options: 'i' } },
-                { 'location.city': { $regex: cityValue, $options: 'i' } }
-            ]
-        });
-    }
-
-    if (zoneIdValue && mongoose.Types.ObjectId.isValid(zoneIdValue)) {
-        restaurantAndConditions.push(await buildRestaurantZoneCondition(zoneIdValue));
-    }
-
-    if (restaurantAndConditions.length > 0) {
-        restaurantMatch.$and = restaurantAndConditions;
-    }
-
-    const diningDocs = await FoodDiningRestaurant.find(filter)
-        .populate({
-            path: 'restaurantId',
-            select: 'restaurantName restaurantNameNormalized ownerName ownerPhone profileImage coverImages menuImages cuisines location area city zoneId status rating diningSettings estimatedDeliveryTime estimatedDeliveryTimeMinutes featuredDish featuredPrice offer openingTime closingTime openDays isAcceptingOrders costForTwo pureVegRestaurant',
-            match: restaurantMatch
-        })
-        .populate('categoryIds', 'name slug imageUrl')
+    // 4. Fetch restaurants (hard-capped)
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 100);
+    const restaurants = await FoodRestaurant.find(restaurantFilter)
+        .select('restaurantName restaurantNameNormalized ownerName ownerPhone profileImage coverImages menuImages cuisines location area city status rating diningSettings estimatedDeliveryTime estimatedDeliveryTimeMinutes featuredDish featuredPrice offer openingTime closingTime openDays isAcceptingOrders costForTwo pureVegRestaurant')
+        .limit(limit)
         .lean();
 
-    const enabledDocs = diningDocs.filter((doc) => doc.restaurantId);
-    const restaurantObjectIds = enabledDocs
-        .map((doc) => doc.restaurantId?._id)
-        .filter(Boolean);
+    if (restaurants.length === 0) {
+        return [];
+    }
 
-    const nonVegRestaurantIds = restaurantObjectIds.length
-        ? await FoodItem.distinct('restaurantId', {
-            restaurantId: { $in: restaurantObjectIds },
-            approvalStatus: 'approved',
-            foodType: 'Non-Veg',
-        })
-        : [];
-    const nonVegRestaurantIdSet = new Set(nonVegRestaurantIds.map((id) => String(id)));
+    const restaurantIds = restaurants.map(r => r._id);
 
-    return enabledDocs.map((doc) => {
-        const restaurant = doc.restaurantId;
-        const rid = String(restaurant._id);
-        const hasNonVegMenu = nonVegRestaurantIdSet.has(rid);
-        const pureVegRestaurant =
-            doc.pureVegRestaurant === true || restaurant?.pureVegRestaurant === true;
+    // 5. Fetch dining metadata from FoodDiningRestaurant for these restaurants
+    const diningMetadata = await FoodDiningRestaurant.find({
+        restaurantId: { $in: restaurantIds }
+    })
+    .select('restaurantId categoryIds maxGuests pureVegRestaurant')
+    .populate('categoryIds', 'name slug imageUrl')
+    .limit(limit)
+    .lean();
 
+    const metadataMap = new Map();
+    diningMetadata.forEach(m => {
+        metadataMap.set(String(m.restaurantId), m);
+    });
+
+    // 6. Map combined results
+    return restaurants.map((r) => {
+        const meta = metadataMap.get(String(r._id));
         return {
-            ...restaurant,
-            restaurant,
-            categories: doc.categoryIds || [],
-            pureVegRestaurant,
-            hasNonVegMenu,
-            isPureVeg: !hasNonVegMenu,
+            ...r,
+            restaurant: r,
+            categories: meta?.categoryIds || [],
             diningSettings: {
                 isEnabled: true,
-                maxGuests: Math.max(1, Number(doc.maxGuests) || 6),
-                pureVegRestaurant,
-                diningType: doc.categoryIds?.[0]?.slug || restaurant?.diningSettings?.diningType || ''
+                maxGuests: Math.max(1, Number(meta?.maxGuests || r.diningSettings?.maxGuests) || 6),
+                pureVegRestaurant: r.pureVegRestaurant === true || meta?.pureVegRestaurant === true,
+                diningType: meta?.categoryIds?.[0]?.slug || r.diningSettings?.diningType || 'family-dining'
             }
         };
     });
-}
-
-// ==================== DINING SETTINGS REQUESTS ====================
-
-export async function createDiningRequest(restaurantId, settings = {}) {
-    if (!mongoose.Types.ObjectId.isValid(restaurantId)) {
-        throw new ValidationError('Invalid restaurant ID');
-    }
-
-    // Check if there is already a pending request
-    const existing = await FoodDiningRequest.findOne({
-        restaurantId,
-        status: 'pending'
-    }).lean();
-
-    if (existing) {
-        throw new ValidationError('You already have a pending request awaiting approval');
-    }
-
-    // Deduplicate and sanitize categories
-    let diningType = settings.diningType
-    if (Array.isArray(diningType)) {
-        diningType = [...new Set(diningType.map(t => String(t).trim()))].filter(Boolean)
-    } else {
-        diningType = String(diningType || '').split(',').map(t => t.trim()).filter(Boolean)
-        diningType = [...new Set(diningType)]
-    }
-
-    if (diningType.length === 0) diningType = ['family-dining']
-
-    const created = await FoodDiningRequest.create({
-        restaurantId,
-        requestedSettings: {
-            isEnabled: Boolean(settings.isEnabled),
-            maxGuests: parseInt(settings.maxGuests, 10) >= 0 ? parseInt(settings.maxGuests, 10) : 6,
-            diningType: diningType
-        }
-    });
-
-    return created.toObject();
-}
-
-export async function getPendingDiningRequest(restaurantId) {
-    if (!mongoose.Types.ObjectId.isValid(restaurantId)) return null;
-    return await FoodDiningRequest.findOne({
-        restaurantId,
-        status: 'pending'
-    }).lean();
-}
-
-export async function listAllPendingDiningRequests() {
-    return await FoodDiningRequest.find({ status: 'pending' })
-        .populate({
-            path: 'restaurantId',
-            select: 'restaurantName profileImage location'
-        })
-        .sort({ createdAt: -1 })
-        .lean()
-        .then(docs => docs.map(doc => ({
-            ...doc,
-            restaurant: doc.restaurantId ? {
-                _id: doc.restaurantId._id,
-                name: doc.restaurantId.restaurantName,
-                profileImage: doc.restaurantId.profileImage ? { url: doc.restaurantId.profileImage } : null,
-                address: doc.restaurantId.location?.formattedAddress || ''
-            } : null,
-            restaurantId: doc.restaurantId?._id
-        })));
-}
-
-export async function approveDiningRequest(requestId) {
-    if (!mongoose.Types.ObjectId.isValid(requestId)) {
-        throw new ValidationError('Invalid request ID');
-    }
-
-    const request = await FoodDiningRequest.findById(requestId);
-    if (!request || request.status !== 'pending') {
-        throw new ValidationError('Pending request not found');
-    }
-
-    const { restaurantId, requestedSettings } = request;
-
-    // Sanitize diningType from request (handle array or messy string)
-    let finalDiningType = request.requestedSettings.diningType;
-    if (!Array.isArray(finalDiningType)) {
-        finalDiningType = String(finalDiningType || '').split(',').map(s => s.trim()).filter(Boolean);
-    }
-    finalDiningType = [...new Set(finalDiningType)];
-
-    // Find the Category IDs based on slugs
-    const selectedCategories = await FoodDiningCategory.find({
-        slug: { $in: finalDiningType }
-    }).select('_id').lean();
-    const categoryIds = selectedCategories.map(c => c._id);
-
-    // Apply changes to FoodDiningRestaurant
-    await FoodDiningRestaurant.findOneAndUpdate(
-        { restaurantId },
-        {
-            $set: {
-                isEnabled: request.requestedSettings.isEnabled,
-                maxGuests: request.requestedSettings.maxGuests,
-                categoryIds: categoryIds,
-                primaryCategoryId: categoryIds[0] || null
-            }
-        },
-        { upsert: true }
-    );
-
-    // Apply changes to FoodRestaurant
-    await FoodRestaurant.findByIdAndUpdate(
-        restaurantId,
-        {
-            $set: {
-                diningSettings: {
-                    isEnabled: request.requestedSettings.isEnabled,
-                    maxGuests: request.requestedSettings.maxGuests,
-                    diningType: finalDiningType
-                }
-            }
-        }
-    );
-
-    request.status = 'approved';
-    await request.save();
-
-    return request.toObject();
-}
-
-export async function rejectDiningRequest(requestId, reason = '') {
-    if (!mongoose.Types.ObjectId.isValid(requestId)) {
-        throw new ValidationError('Invalid request ID');
-    }
-
-    const request = await FoodDiningRequest.findById(requestId);
-    if (!request || request.status !== 'pending') {
-        throw new ValidationError('Pending request not found');
-    }
-
-    request.status = 'rejected';
-    request.rejectionReason = String(reason || '').trim() || null;
-    await request.save();
-
-    return request.toObject();
 }

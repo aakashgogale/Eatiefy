@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Plus, Clock, CheckCircle, 
-  XCircle, Loader2, Eye, MessageSquare, ChevronRight 
+  XCircle, Loader2, Eye, MessageSquare, ChevronRight, AlertTriangle
 } from 'lucide-react';
 import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
@@ -57,10 +57,22 @@ export const SupportTicketsV2 = () => {
         {/* Create Action */}
         <button 
           onClick={() => navigate("/food/delivery/help/tickets/create")}
-          className="w-full bg-black text-white p-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all"
+          className="w-full text-white p-5 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 active:scale-95 transition-all"
+          style={{
+            background: "linear-gradient(135deg, rgba(var(--module-theme-rgb, 0,183,97), 0.88), var(--module-theme-color, #00B761))",
+            boxShadow: "0 12px 24px rgba(var(--module-theme-rgb, 0,183,97), 0.30)",
+          }}
         >
           <Plus className="w-5 h-5" />
           Raise New Ticket
+        </button>
+
+        <button
+          onClick={() => navigate("/food/delivery/help/order-emergency")}
+          className="flex w-full items-center justify-center gap-3 rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-black uppercase tracking-widest text-red-700 active:scale-95 transition-all"
+        >
+          <AlertTriangle className="h-5 w-5" />
+          Active Order Emergency
         </button>
 
         {/* List */}

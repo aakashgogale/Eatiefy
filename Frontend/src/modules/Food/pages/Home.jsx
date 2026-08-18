@@ -5,7 +5,7 @@ import { motion } from "framer-motion"
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
-import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png"
+const quickSpicyLogo = "/user-app-logo.webp"
 
 export default function Home() {
   const navigate = useNavigate()
@@ -60,7 +60,7 @@ export default function Home() {
               </div>
             )}
           </div>
-          <CardTitle className="text-3xl font-bold text-center">{companyName || "Ometto Food"}</CardTitle>
+          <CardTitle className="text-3xl font-bold text-center">{companyName || "Eatiefy"}</CardTitle>
           <CardDescription className="text-lg">
             Welcome to the Food Delivery Platform
           </CardDescription>
@@ -73,15 +73,15 @@ export default function Home() {
                 <span className="font-semibold">User</span>
               </Button>
             </Link>
-            <Link to="/food/restaurant" className="block">
+            <Link to="/restaurant" className="block">
               <Button variant="outline" className="w-full h-24 flex flex-col items-center justify-center">
-                <span className="text-2xl mb-2">🧑‍🍳</span>
+                <span className="text-2xl mb-2">???</span>
                 <span className="font-semibold">Restaurant</span>
               </Button>
             </Link>
-            <Link to="/food/restaurant/login" className="block">
+            <Link to="/restaurant/auth/sign-in" className="block">
               <Button variant="outline" className="w-full h-24 flex flex-col items-center justify-center border-2 border-[#ff8100] hover:bg-[#ff8100]/10">
-                <span className="text-2xl mb-2">🔑</span>
+                <span className="text-2xl mb-2">??</span>
                 <span className="font-semibold">Restaurant Login</span>
               </Button>
             </Link>

@@ -4,6 +4,20 @@ const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
+const SUBADMIN_EMAIL_REGEX = /^(?!.*\.\.)([A-Za-z0-9]+[._%+-]?)*[A-Za-z0-9]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}$/
+const INDIAN_MOBILE_REGEX = /^[6-9]\d{9}$/
+const NAME_REGEX = /^[A-Za-z]+(?:\s+[A-Za-z]+)*$/
+
+const hasSuspiciousEmailTld = (emailValue) => {
+  const email = String(emailValue || "").trim().toLowerCase()
+  const domain = email.split("@")[1] || ""
+  const tld = domain.split(".").pop() || ""
+  if (!tld) return true
+  if (/^com+$/i.test(tld) && tld !== "com") return true
+  if (/(.)\1{2,}/.test(tld)) return true
+  return false
+}
+
 
 export default function AddEmployee() {
   const [showPassword, setShowPassword] = useState(false)
@@ -33,6 +47,26 @@ export default function AddEmployee() {
 
   const handleSubmit = (e) => {
     e.preventDefault()
+    const firstName = String(formData.firstName || "").trim()
+    const lastName = String(formData.lastName || "").trim()
+    const email = String(formData.email || "").trim().toLowerCase()
+    const phone = String(formData.phone || "").trim()
+    if (!firstName || !NAME_REGEX.test(firstName)) {
+      alert("First name should contain only letters and spaces")
+      return
+    }
+    if (!lastName || !NAME_REGEX.test(lastName)) {
+      alert("Last name should contain only letters and spaces")
+      return
+    }
+    if (!SUBADMIN_EMAIL_REGEX.test(email) || hasSuspiciousEmailTld(email)) {
+      alert("Please enter a valid email address")
+      return
+    }
+    if (!INDIAN_MOBILE_REGEX.test(phone)) {
+      alert("Enter a valid 10-digit Indian mobile number")
+      return
+    }
     debugLog("Form submitted:", formData)
     alert("Employee added successfully!")
   }
@@ -85,7 +119,12 @@ export default function AddEmployee() {
                     <input
                       type="text"
                       value={formData.firstName}
-                      onChange={(e) => handleInputChange("firstName", e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange(
+                          "firstName",
+                          e.target.value.replace(/[^A-Za-z\s]/g, "").replace(/\s{2,}/g, " "),
+                        )
+                      }
                       placeholder="Ex: John"
                       className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                     />
@@ -99,7 +138,12 @@ export default function AddEmployee() {
                     <input
                       type="text"
                       value={formData.lastName}
-                      onChange={(e) => handleInputChange("lastName", e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange(
+                          "lastName",
+                          e.target.value.replace(/[^A-Za-z\s]/g, "").replace(/\s{2,}/g, " "),
+                        )
+                      }
                       placeholder="Ex: Doe"
                       className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                     />
@@ -167,7 +211,10 @@ export default function AddEmployee() {
                     <input
                       type="tel"
                       value={formData.phone}
-                      onChange={(e) => handleInputChange("phone", e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange("phone", e.target.value.replace(/\D/g, "").slice(0, 10))
+                      }
+                      maxLength={10}
                       placeholder="Phone number"
                       className="flex-1 px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                     />
@@ -293,4 +340,3 @@ export default function AddEmployee() {
     </div>
   )
 }
-

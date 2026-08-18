@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
+import { normalizeDeliveryAddress } from '../../shared/geo.utils.js';
 
 const toGeoPoint = ({ latitude, longitude }) => {
     if (latitude === undefined || longitude === undefined) return undefined;
@@ -15,13 +16,13 @@ const normalizeLabel = (label) => {
     if (v === 'Work') return 'Office';
     if (v === 'home' || v === 'Home') return 'Home';
     if (v === 'office' || v === 'Office') return 'Office';
-    if (v === 'other' || v === 'Other') return 'Other';
-    return 'Other';
+    return v || 'Other';
 };
 
 export const listAddresses = async (userId) => {
     const user = await FoodUser.findById(userId).select('addresses').lean();
-    return { addresses: user?.addresses || [] };
+    const addresses = (user?.addresses || []).map((address) => normalizeDeliveryAddress(address));
+    return { addresses };
 };
 
 export const addAddress = async (userId, dto) => {
@@ -53,7 +54,7 @@ export const addAddress = async (userId, dto) => {
         existing.phone = address.phone;
         if (address.location) existing.location = address.location;
         await user.save();
-        return { address: existing.toObject() };
+        return { address: normalizeDeliveryAddress(existing.toObject()) };
     }
 
     // First address becomes default automatically
@@ -64,7 +65,7 @@ export const addAddress = async (userId, dto) => {
     user.addresses.push(address);
     await user.save();
     const saved = user.addresses[user.addresses.length - 1];
-    return { address: saved.toObject() };
+    return { address: normalizeDeliveryAddress(saved.toObject()) };
 };
 
 export const updateAddress = async (userId, addressId, dto) => {
@@ -88,7 +89,7 @@ export const updateAddress = async (userId, addressId, dto) => {
     if (location) address.location = location;
 
     await user.save();
-    return { address: address.toObject() };
+    return { address: normalizeDeliveryAddress(address.toObject()) };
 };
 
 export const deleteAddress = async (userId, addressId) => {
@@ -135,6 +136,6 @@ export const setDefaultAddress = async (userId, addressId) => {
     await user.save();
 
     const updated = user.addresses.id(addressId);
-    return { address: updated?.toObject() };
+    return { address: normalizeDeliveryAddress(updated?.toObject()) };
 };
 

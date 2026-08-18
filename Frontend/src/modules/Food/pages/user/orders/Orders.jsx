@@ -1,19 +1,22 @@
 import { useState, useEffect } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { ArrowLeft, Search, MoreVertical, ChevronRight, Star, RotateCcw, AlertCircle, Loader2, Clock, X, Share2, MessageCircle, Send, Copy, Mail, MessagesSquare, Link2 } from "lucide-react"
 import { orderAPI } from "@food/api"
 import { useCart } from "@food/context/CartContext"
 import { toast } from "sonner"
 import { getCompanyNameAsync } from "@food/utils/businessSettings"
-const debugLog = (...args) => {}
-const debugWarn = (...args) => {}
-const debugError = (...args) => {}
+const debugLog = (...args) => { }
+const debugWarn = (...args) => { }
+const debugError = (...args) => { }
+
+const toNum = (value) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
 
 
 export default function Orders() {
   const navigate = useNavigate()
-  const goBack = useAppBackNavigation()
   const { replaceCart } = useCart()
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
@@ -49,18 +52,10 @@ export default function Orders() {
 
   // Calculate countdown for an order
   const calculateCountdown = (order) => {
-    if (!order || 
-        order.status === 'delivered' || 
-        String(order.status).toLowerCase().includes('cancel')) {
+    if (!order ||
+      order.status === 'delivered' ||
+      String(order.status).toLowerCase().includes('cancel')) {
       return null
-    }
-
-    if (order.preparationTime && order.acceptedAt) {
-      const acceptedAt = new Date(order.acceptedAt)
-      const now = new Date()
-      const elapsedMinutes = Math.floor((now - acceptedAt) / (1000 * 60))
-      const remainingMinutes = Math.max(0, order.preparationTime - elapsedMinutes)
-      return remainingMinutes > 0 ? remainingMinutes : null
     }
 
     const createdAt = new Date(order.createdAt)
@@ -88,9 +83,22 @@ export default function Orders() {
     }
 
     updateCountdowns()
-    const interval = setInterval(updateCountdowns, 10000) // Update every 10 seconds for better UX
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return
+      updateCountdowns()
+    }, 10000) // Update every 10 seconds for better UX
 
-    return () => clearInterval(interval)
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        updateCountdowns()
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
   }, [orders])
 
   // Get order status text
@@ -103,11 +111,95 @@ export default function Orders() {
     return status || 'confirmed'
   }
 
-  // NOTE: The rating popup is intentionally NOT auto-triggered here.
-  // The post-delivery rating flow lives in OrderTracking.jsx (shown when the user
-  // taps back after a delivered order). On the Orders list, ratings are only opened
-  // via the explicit "Rate Restaurant" button so the popup never pops up on its own
-  // when the user simply visits Profile → Orders.
+  // Auto-show rating popup when order is delivered (only once per order)
+  useEffect(() => {
+    if (orders.length === 0 || ratingModal.open) {
+      return
+    }
+
+    debugLog('?? Checking for delivered orders to show rating popup...', {
+      totalOrders: orders.length,
+      shownRatingForOrders: Array.from(shownRatingForOrders)
+    })
+
+    // Find delivered orders that haven't been rated and haven't shown popup yet
+    const deliveredOrders = orders.filter(order => {
+      // Check originalStatus first (from backend), then fallback to transformed status
+      const originalStatus = order.originalStatus || order.status || ''
+      const transformedStatus = order.status || ''
+
+      // Check if order is delivered - check both original and transformed status
+      const isDelivered =
+        originalStatus === 'delivered' ||
+        originalStatus === 'completed' ||
+        originalStatus.toLowerCase() === 'delivered' ||
+        originalStatus.toLowerCase() === 'completed' ||
+        transformedStatus === 'delivered' ||
+        transformedStatus === 'completed' ||
+        transformedStatus.toLowerCase() === 'delivered' ||
+        transformedStatus.toLowerCase() === 'completed'
+
+      const hasRestaurantRating = Number.isFinite(Number(order.restaurantRating))
+      const hasDeliveryPartner = !!(order.deliveryPartnerId || order.deliveryPartnerName)
+      const hasDeliveryRating = Number.isFinite(Number(order.deliveryPartnerRating))
+      const hasRating = hasRestaurantRating && (!hasDeliveryPartner || hasDeliveryRating)
+
+      const orderId = order.id || order._id || order.mongoId
+      const hasShownPopup = shownRatingForOrders.has(orderId)
+
+      // Also check if order has deliveredAt timestamp (indicates it was delivered)
+      const hasDeliveredAt = order.deliveredAt !== null && order.deliveredAt !== undefined
+
+      const shouldShow = (isDelivered || hasDeliveredAt) && !hasRating && !hasShownPopup
+
+      debugLog(`?? Order ${orderId}:`, {
+        originalStatus,
+        transformedStatus,
+        isDelivered,
+        hasDeliveredAt,
+        hasRating,
+        restaurantRating: order.restaurantRating,
+        deliveryPartnerRating: order.deliveryPartnerRating,
+        hasShownPopup,
+        shouldShow
+      })
+
+      return shouldShow
+    })
+
+    debugLog('? Found delivered orders needing rating:', deliveredOrders.length)
+
+    // Show popup for the first delivered order that needs rating
+    if (deliveredOrders.length > 0) {
+      const orderToRate = deliveredOrders[0]
+      const orderId = orderToRate.id || orderToRate._id || orderToRate.mongoId
+
+      debugLog('?? Showing rating popup for order:', {
+        orderId,
+        restaurant: orderToRate.restaurant,
+        status: orderToRate.status
+      })
+
+      // Mark as shown to prevent multiple popups (before showing to prevent race conditions)
+      setShownRatingForOrders(prev => new Set([...prev, orderId]))
+
+      // Small delay to ensure smooth UX
+      setTimeout(() => {
+        debugLog('? Opening rating modal for order:', {
+          orderId: orderId,
+          restaurant: orderToRate.restaurant,
+          status: orderToRate.status,
+          originalStatus: orderToRate.originalStatus
+        })
+        setRatingModal({ open: true, order: orderToRate })
+        setSelectedRestaurantRating(null)
+        setSelectedDeliveryRating(null)
+        setRestaurantFeedbackText("")
+        setDeliveryFeedbackText("")
+      }, 800) // Show after 0.8 seconds
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, shownRatingForOrders, ratingModal.open])
 
   // Fetch orders from backend API
   useEffect(() => {
@@ -201,6 +293,22 @@ export default function Orders() {
             const restaurantRating = order.ratings?.restaurant?.rating || null
             const deliveryPartnerRating = order.ratings?.deliveryPartner?.rating || null
 
+            const pricing = order.pricing || {}
+            const itemSubtotal = (order.items || []).reduce((sum, item) => {
+              const qty = toNum(item?.quantity || 1)
+              const price = toNum(item?.price || item?.unitPrice || 0)
+              return sum + (qty * price)
+            }, 0)
+            const subtotal = toNum(pricing.subtotal ?? pricing.itemTotal ?? pricing.itemsTotal ?? itemSubtotal)
+            const deliveryFee = toNum(pricing.deliveryFee ?? pricing.deliveryCharge ?? pricing.shippingFee ?? 0)
+            const packagingFee = toNum(pricing.packagingFee ?? pricing.packagingCharges ?? 0)
+            const platformFee = toNum(pricing.platformFee ?? pricing.serviceFee ?? pricing.convenienceFee ?? 0)
+            const quickDeliveryFee = toNum(pricing.quickDeliveryFee ?? 0)
+            const tax = toNum(pricing.tax ?? pricing.taxesAndCharges ?? pricing.taxAndCharges ?? 0)
+            const discount = toNum(pricing.discount ?? 0)
+            const computedTotal = Math.max(0, subtotal + deliveryFee + packagingFee + platformFee + tax - discount)
+            const total = toNum(pricing.total ?? order.total ?? computedTotal) || computedTotal
+
             return {
               id: order._id?.toString() || order.orderId || `ORD-${order._id}`,
               mongoId: order._id,
@@ -217,15 +325,19 @@ export default function Orders() {
                 price: item.price || 0,
                 image: item.image || null,
                 description: item.description || null,
-                isVeg: item.isVeg === true || item.foodType === 'Veg' || item.category === 'veg' || item.type === 'veg',
+                isVeg: item.isVeg !== undefined ? item.isVeg : (item.category === 'veg' || item.type === 'veg'),
                 _id: item._id || item.id,
                 id: item.id || item._id
               })),
-              total: order.pricing?.total || order.total || 0,
-              subtotal: order.pricing?.subtotal || 0,
-              deliveryFee: order.pricing?.deliveryFee || 0,
-              tax: order.pricing?.tax || 0,
-              pricing: order.pricing || {}, // Keep full pricing object for discounts, coupons
+              total,
+              subtotal,
+              deliveryFee,
+              packagingFee,
+              platformFee,
+              quickDeliveryFee,
+              basePlatformFee: Math.max(0, platformFee - quickDeliveryFee),
+              tax,
+              pricing: { ...pricing, discount }, // Keep full pricing object for discounts, coupons
               payment: order.payment || {},
               paymentMethod: order.payment?.method || order.paymentMethod,
               restaurant: order.restaurantId?.restaurantName || order.restaurantId?.name || order.restaurantName || 'Restaurant',
@@ -246,13 +358,11 @@ export default function Orders() {
               eta: order.eta || { min: order.estimatedDeliveryTime || 30, max: order.estimatedDeliveryTime || 30 },
               estimatedDeliveryTime: order.estimatedDeliveryTime || 30,
               preparationTime: order.preparationTime || 0,
-              acceptedAt: order.acceptedAt || null,
               deliveredAt: order.deliveredAt || null,
               deliveryPartnerId: order.deliveryPartnerId?._id || order.deliveryPartnerId || null,
               deliveryPartnerName: order.deliveryPartnerId?.name || order.deliveryPartnerName || null,
               deliveryPartnerPhone: order.deliveryPartnerId?.phone || order.deliveryPartnerPhone || null,
-              note: order.note || null,
-              orderType: order.orderType || 'delivery'
+              note: order.note || null
             }
           })
 
@@ -295,13 +405,25 @@ export default function Orders() {
 
     fetchOrders()
 
-    // Poll for order updates every 20 seconds to detect delivered orders
-    // This ensures rating popup shows quickly when order is delivered
+    // Poll for order updates every 20 seconds to detect delivered orders.
+    // Pause polling in background tabs to reduce unnecessary CPU/network usage.
     const pollInterval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return
       fetchOrders()
     }, 20000) // Poll every 20 seconds
 
-    return () => clearInterval(pollInterval)
+    // When user returns to tab, refresh immediately for fresh status.
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        fetchOrders()
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+
+    return () => {
+      clearInterval(pollInterval)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
   }, [])
 
   // Format date helper
@@ -396,26 +518,19 @@ export default function Orders() {
   }
 
   const copyToClipboard = async (text) => {
+    const textArea = document.createElement("textarea")
+    textArea.value = text
+    textArea.style.position = "fixed"
+    textArea.style.opacity = "0"
+    document.body.appendChild(textArea)
+    textArea.select()
     try {
-      await navigator.clipboard.writeText(text)
+      document.execCommand("copy")
       toast.success("Link copied to clipboard!")
-    } catch (error) {
-      const textArea = document.createElement("textarea")
-      textArea.value = text
-      textArea.style.position = "fixed"
-      textArea.style.opacity = "0"
-      document.body.appendChild(textArea)
-      textArea.select()
-      try {
-        document.execCommand("copy")
-        toast.success("Link copied to clipboard!")
-      } catch (err) {
-        toast.error("Failed to copy link")
-      }
-      if (document.body.contains(textArea)) {
-        document.body.removeChild(textArea)
-      }
+    } catch (err) {
+      toast.error("Failed to copy link")
     }
+    document.body.removeChild(textArea)
   }
 
   const openShareTarget = (target) => {
@@ -505,14 +620,7 @@ Order again from this restaurant in the ${companyName} app.`
 
   const handleViewOrderDetails = (order) => {
     setActiveMenuOrderId(null)
-    const status = String(order.status || '').toLowerCase()
-    const isTerminal = ['delivered', 'cancelled', 'completed', 'failed'].includes(status) || status.includes('cancelled')
-    
-    if (isTerminal) {
-      navigate(`/user/orders/${order.id}/details`)
-    } else {
-      navigate(`/user/orders/${order.id}`)
-    }
+    navigate(`/user/orders/${order.id}/details`)
   }
 
   // Open rating modal for an order
@@ -591,12 +699,14 @@ Order again from this restaurant in the ${companyName} app.`
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] pb-10">
-        <div className="bg-white dark:bg-[#121212] p-4 flex items-center shadow-sm sticky top-0 z-10 border-b dark:border-gray-800">
-          <ArrowLeft className="w-6 h-6 text-gray-700 dark:text-gray-300 cursor-pointer" onClick={goBack} />
-          <h1 className="ml-4 text-xl font-semibold text-gray-800 dark:text-gray-100">Your Orders</h1>
+        <div className="bg-white dark:bg-zinc-900 p-4 flex items-center shadow-sm sticky top-0 z-10 border-b border-gray-100 dark:border-zinc-800">
+          <Link to="/user">
+            <ArrowLeft className="w-6 h-6 text-gray-700 dark:text-gray-200 cursor-pointer" />
+          </Link>
+          <h1 className="ml-4 text-xl font-semibold text-gray-800 dark:text-white">Your Orders</h1>
         </div>
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 text-[#DC2626] animate-spin" />
+          <Loader2 className="w-8 h-8 text-[#EB590E] animate-spin" />
         </div>
       </div>
     )
@@ -605,14 +715,16 @@ Order again from this restaurant in the ${companyName} app.`
   if (orders.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] pb-10">
-        <div className="bg-white dark:bg-[#121212] p-4 flex items-center shadow-sm sticky top-0 z-10 border-b dark:border-gray-800">
-          <ArrowLeft className="w-6 h-6 text-gray-700 dark:text-gray-300 cursor-pointer" onClick={goBack} />
-          <h1 className="ml-4 text-xl font-semibold text-gray-800 dark:text-gray-100">Your Orders</h1>
-        </div>
-        <div className="px-4 py-8 text-center text-gray-600 dark:text-gray-400">
-          <p>You haven't placed any orders yet</p>
+        <div className="bg-white dark:bg-zinc-900 p-4 flex items-center shadow-sm sticky top-0 z-10 border-b border-gray-100 dark:border-zinc-800">
           <Link to="/user">
-            <button className="mt-4 text-[#DC2626] font-medium">Start Ordering</button>
+            <ArrowLeft className="w-6 h-6 text-gray-700 dark:text-gray-200 cursor-pointer" />
+          </Link>
+          <h1 className="ml-4 text-xl font-semibold text-gray-800 dark:text-white">Your Orders</h1>
+        </div>
+        <div className="px-4 py-8 text-center">
+          <p className="text-gray-600 dark:text-gray-400">You haven't placed any orders yet</p>
+          <Link to="/user">
+            <button className="mt-4 text-[#EB590E] font-medium">Start Ordering</button>
           </Link>
         </div>
       </div>
@@ -620,23 +732,25 @@ Order again from this restaurant in the ${companyName} app.`
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] pb-10 font-sans">
+    <div className="min-h-screen bg-gray-50 dark:bg-slate-950 pb-10 font-sans">
       {/* Header */}
-      <div className="bg-white dark:bg-[#121212] p-4 flex items-center shadow-sm sticky top-0 z-10 border-b dark:border-gray-800">
-        <ArrowLeft className="w-6 h-6 text-gray-700 dark:text-gray-300 cursor-pointer" onClick={goBack} />
-        <h1 className="ml-4 text-xl font-semibold text-gray-800 dark:text-gray-100">Your Orders</h1>
+      <div className="bg-white dark:bg-slate-900 p-4 flex items-center shadow-sm sticky top-0 z-10 border-b border-gray-100 dark:border-slate-800">
+        <Link to="/user">
+          <ArrowLeft className="w-6 h-6 text-gray-700 dark:text-gray-200 cursor-pointer" />
+        </Link>
+        <h1 className="ml-4 text-xl font-semibold text-gray-800 dark:text-white">Your Orders</h1>
       </div>
 
       {/* Search Bar */}
-      <div className="p-4 bg-white dark:bg-[#121212] mt-1 border-b dark:border-gray-800">
-        <div className="flex items-center bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 shadow-sm">
-          <Search className="w-5 h-5 text-[#DC2626]" />
+      <div className="p-4 bg-white dark:bg-slate-900 mt-1">
+        <div className="flex items-center bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-3 py-2 shadow-sm">
+          <Search className="w-5 h-5 text-[#EB590E]" />
           <input
             type="text"
             placeholder="Search by restaurant or dish"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="flex-1 ml-3 bg-transparent outline-none text-gray-600 dark:text-gray-300 placeholder-gray-400"
+            className="flex-1 ml-3 outline-none text-gray-600 dark:text-gray-200 bg-transparent placeholder-gray-400"
           />
         </div>
       </div>
@@ -644,8 +758,8 @@ Order again from this restaurant in the ${companyName} app.`
       {/* Orders List */}
       <div className="px-4 py-2 space-y-4">
         {filteredOrders.length === 0 ? (
-          <div className="bg-white dark:bg-[#121212] rounded-xl shadow-sm border border-gray-100 dark:border-gray-800 p-8 text-center">
-            <p className="text-gray-600 dark:text-gray-400">No orders found matching your search</p>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
+            <p className="text-gray-600">No orders found matching your search</p>
           </div>
         ) : (
           filteredOrders.map((order) => {
@@ -667,20 +781,20 @@ Order again from this restaurant in the ${companyName} app.`
             const isDelivered = order.status === 'delivered'
             const isRestaurantCancelled = order.isRestaurantCancelled || order.status === 'restaurant_cancelled'
             const isUserCancelled = order.isUserCancelled || (isCancelled && order.cancelledBy === 'user')
-            // Prefer restaurant image; fallback to food image from first item, then generic food photo
+            // Prefer food image from first item; fallback to restaurant image, then generic food photo
             const firstItemImage = order.items?.[0]?.image
-            const restaurantImage = order.restaurantImage
-              || firstItemImage
+            const restaurantImage = firstItemImage
+              || order.restaurantImage
               || "https://images.unsplash.com/photo-1604908176997-125188eb3c52?auto=format&fit=crop&w=200&q=80"
             const location = order.restaurantLocation || `${order.address?.city || ''}, ${order.address?.state || ''}`.trim() || 'Location not available'
 
             return (
-              <div key={order.id} className="relative bg-white dark:bg-[#121212] rounded-xl shadow-sm border border-gray-100 dark:border-gray-800 overflow-hidden">
+              <div key={order.id} className="relative bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 overflow-hidden">
                 {/* Card Header: Restaurant Info */}
                 <div className="flex items-start justify-between p-4 pb-2">
                   <div className="flex gap-3">
                     {/* Restaurant Image */}
-                    <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg bg-gray-200 overflow-hidden flex-shrink-0">
+                    <div className="w-14 h-14 rounded-lg bg-gray-200 overflow-hidden flex-shrink-0">
                       <img
                         src={restaurantImage}
                         alt={order.restaurant}
@@ -692,31 +806,20 @@ Order again from this restaurant in the ${companyName} app.`
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-base sm:text-lg leading-tight truncate flex items-center gap-2 flex-wrap">
-                        {order.restaurant}
-                        {order.orderType === 'takeaway' ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 text-[9px] font-extrabold text-[#D97706] bg-[#FEF3C7] border border-[#F59E0B]/30 rounded-full uppercase tracking-wider shadow-sm">
-                            🥡 Takeaway (Self-Pick)
-                          </span>
-                        ) : order.orderType === 'dining' ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 text-[9px] font-extrabold text-[#2563EB] bg-[#DBEAFE] border border-[#3B82F6]/30 rounded-full uppercase tracking-wider shadow-sm">
-                            🍽️ Dining In
-                          </span>
-                        ) : null}
-                      </h3>
-                      <p className="text-[10px] sm:text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                      <h3 className="font-semibold text-gray-800 dark:text-white text-lg leading-tight">{order.restaurant}</h3>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
                         Order ID: <span className="font-semibold text-gray-700 dark:text-gray-300">{order.orderId || order.id}</span>
                       </p>
-                      <p className="text-[11px] sm:text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{location}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{location}</p>
                       {order.deliveryPartnerName && (
-                        <p className="text-xs text-gray-600 mt-1">
+                        <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
                           <span className="font-medium">Delivery:</span> {order.deliveryPartnerName}
                           {order.deliveryPartnerPhone && ` | ${order.deliveryPartnerPhone}`}
                         </p>
                       )}
                       {order.restaurantId && (
                         <Link to={`/user/restaurants/${order.restaurantId}`}>
-                          <button className="text-xs text-[#DC2626] font-medium flex items-center mt-1 hover:text-[#991B1B]">
+                          <button className="text-xs text-[#EB590E] font-medium flex items-center mt-1 hover:text-[#D94F0C]">
                             View menu <span className="ml-0.5">&gt;</span>
                           </button>
                         </Link>
@@ -735,18 +838,18 @@ Order again from this restaurant in the ${companyName} app.`
 
                 {/* Three-dots dropdown menu */}
                 {activeMenuOrderId === order.id && (
-                  <div className="absolute right-3 top-10 z-20 w-40 rounded-xl bg-white dark:bg-[#1a1a1a] shadow-lg border border-gray-100 dark:border-gray-800 py-1 text-xs">
+                  <div className="absolute right-3 top-10 z-20 w-40 rounded-xl bg-white shadow-lg border border-gray-100 py-1 text-xs">
                     <button
                       type="button"
                       onClick={() => handleShareRestaurant(order)}
-                      className="w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-800 dark:text-gray-200"
+                      className="w-full text-left px-3 py-2 hover:bg-gray-50 text-gray-800"
                     >
                       Share restaurant
                     </button>
                     <button
                       type="button"
                       onClick={() => handleViewOrderDetails(order)}
-                      className="w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-800 dark:text-gray-200"
+                      className="w-full text-left px-3 py-2 hover:bg-gray-50 text-gray-800"
                     >
                       Order details
                     </button>
@@ -754,13 +857,13 @@ Order again from this restaurant in the ${companyName} app.`
                 )}
 
                 {/* Separator */}
-                <div className="border-t border-dashed border-gray-200 dark:border-gray-800 mx-4 my-1"></div>
+                <div className="border-t border-dashed border-gray-200 dark:border-slate-700 mx-4 my-1"></div>
 
                 {/* Items List */}
                 <div className="px-4 py-2 space-y-2">
                   {order.items && order.items.length > 0 ? (
                     order.items.map((item, idx) => {
-                      const isVeg = item.isVeg === true || item.foodType === 'Veg' || item.category === 'veg' || item.type === 'veg'
+                      const isVeg = item.isVeg !== undefined ? item.isVeg : (item.category === 'veg' || item.type === 'veg')
                       const itemName = item.name || item.foodName || 'Item'
                       const itemQuantity = item.quantity || 1
                       const itemPrice = item.price || 0
@@ -769,9 +872,9 @@ Order again from this restaurant in the ${companyName} app.`
 
                       return (
                         <div key={item._id || item.id || item.itemId || idx} className="flex items-start gap-3">
-                          {/* Item Image - Hidden on very small screens to save space */}
+                          {/* Item Image */}
                           {itemImage && (
-                            <div className="hidden sm:block w-10 h-10 rounded-lg bg-gray-100 overflow-hidden flex-shrink-0">
+                            <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden flex-shrink-0">
                               <img
                                 src={itemImage}
                                 alt={itemName}
@@ -801,9 +904,9 @@ Order again from this restaurant in the ${companyName} app.`
                                 )}
                               </div>
                               <div className="text-right flex-shrink-0">
-                                <span className="text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-100">{"\u20B9"}{itemTotal.toFixed(2)}</span>
+                                <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">{"\u20B9"}{itemTotal.toFixed(2)}</span>
                                 {itemQuantity > 1 && (
-                                  <p className="hidden sm:block text-[10px] text-gray-500 dark:text-gray-400">{"\u20B9"}{itemPrice.toFixed(2)} each</p>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">{"\u20B9"}{itemPrice.toFixed(2)} each</p>
                                 )}
                               </div>
                             </div>
@@ -817,180 +920,179 @@ Order again from this restaurant in the ${companyName} app.`
                 </div>
 
                 {/* Order Summary Section */}
-                <div className="px-3 sm:px-4 py-2 sm:py-3 bg-gray-50 dark:bg-[#1a1a1a] rounded-lg mx-3 sm:mx-4 mb-2">
-                  <div className="space-y-1">
+                <div className="px-4 py-3 bg-gray-50 dark:bg-slate-950/50 rounded-lg mx-4 mb-2">
+                  <div className="space-y-1.5">
                     {order.subtotal > 0 && (
-                      <div className="hidden sm:flex justify-between text-xs">
+                      <div className="flex justify-between text-xs">
                         <span className="text-gray-600 dark:text-gray-400">Subtotal</span>
                         <span className="text-gray-800 dark:text-gray-200 font-medium">{"\u20B9"}{order.subtotal.toFixed(2)}</span>
                       </div>
                     )}
-                    {order.deliveryFee > 0 && (
-                      <div className="hidden sm:flex justify-between text-xs">
-                        <span className="text-gray-600 dark:text-gray-400">Delivery Fee</span>
-                        <span className="text-gray-800 dark:text-gray-200 font-medium">{"\u20B9"}{order.deliveryFee.toFixed(2)}</span>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-600 dark:text-gray-400">Delivery Fee</span>
+                      <span className="text-gray-800 dark:text-gray-200 font-medium">
+                        {order.deliveryFee > 0 ? `\u20B9${order.deliveryFee.toFixed(2)}` : "Free"}
+                      </span>
+                    </div>
+                    {order.quickDeliveryFee > 0 && (
+                      <div className="flex justify-between text-xs font-semibold">
+                        <span className="text-[#E2AD4B]">Quick Mode</span>
+                        <span className="text-[#E2AD4B]">{"\u20B9"}{order.quickDeliveryFee.toFixed(2)}</span>
                       </div>
                     )}
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-600 dark:text-gray-400">Platform Fee</span>
+                      <span className="text-gray-800 dark:text-gray-200 font-medium">
+                        {order.basePlatformFee > 0 ? `\u20B9${order.basePlatformFee.toFixed(2)}` : "Free"}
+                      </span>
+                    </div>
                     {order.tax > 0 && (
-                      <div className="hidden sm:flex justify-between text-xs">
+                      <div className="flex justify-between text-xs">
                         <span className="text-gray-600 dark:text-gray-400">Tax</span>
                         <span className="text-gray-800 dark:text-gray-200 font-medium">{"\u20B9"}{order.tax.toFixed(2)}</span>
                       </div>
                     )}
                     {order.pricing?.discount > 0 && (
-                      <div className="flex justify-between text-[11px] sm:text-xs">
-                        <span className="text-green-600">Discount Applied</span>
-                        <span className="text-green-600 font-medium">-{"\u20B9"}{order.pricing.discount.toFixed(2)}</span>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-green-600 dark:text-green-400">Discount</span>
+                        <span className="text-green-600 dark:text-green-400 font-medium">-{"\u20B9"}{order.pricing.discount.toFixed(2)}</span>
                       </div>
                     )}
                     {order.pricing?.couponCode && (
-                      <div className="hidden sm:flex justify-between text-xs">
-                        <span className="text-gray-600">Coupon</span>
-                        <span className="text-gray-800 font-medium">{order.pricing.couponCode}</span>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-600 dark:text-gray-400">Coupon Applied</span>
+                        <span className="text-gray-800 dark:text-gray-200 font-medium">{order.pricing.couponCode}</span>
                       </div>
                     )}
-                    <div className="sm:border-t border-gray-200 dark:border-gray-700 sm:pt-1.5 sm:mt-1.5">
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-200">Total Bill</span>
-                        <span className="text-base sm:text-lg font-bold text-gray-900 dark:text-gray-100">{"\u20B9"}{order.total.toFixed(2)}</span>
+                    <div className="border-t border-gray-200 dark:border-slate-700 pt-1.5 mt-1.5">
+                      <div className="flex justify-between">
+                        <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">Total</span>
+                        <span className="text-base font-bold text-gray-900 dark:text-white">{"\u20B9"}{order.total.toFixed(2)}</span>
                       </div>
                     </div>
                   </div>
                 </div>
 
+                {/* Date and Payment Info */}
+                <div className="px-4 py-2 flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-xs text-gray-400">Order placed on {formatDate(order.createdAt)}</p>
+                    {order.deliveredAt && (
+                      <p className="text-xs text-gray-400 mt-0.5">Delivered on {formatDate(order.deliveredAt)}</p>
+                    )}
+                    {order.payment && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Payment: <span className="font-medium capitalize">
+                          {order.payment.method === 'cash' || order.payment.method === 'cod' ? 'Cash on Delivery' :
+                            order.payment.method === 'wallet' ? 'Wallet' :
+                              order.payment.method === 'razorpay' ? 'Online' :
+                                order.payment.method || 'N/A'}
+                        </span>
+                        {order.payment.status && (
+                          <span className={`ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium ${order.payment.status === 'completed' || (order.payment.status === 'cod_pending' && isDelivered) ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                            order.payment.status === 'failed' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                              order.payment.status === 'pending' || order.payment.status === 'cod_pending' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                                'bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-gray-300'
+                            }`}>
+                            {(order.payment.status === 'cod_pending' && isDelivered) ? 'paid' : order.payment.status}
+                          </span>
+                        )}
+                      </p>
+                    )}
+                    {isDelivered && !paymentFailed && (
+                      <p className="text-xs font-medium text-green-600 mt-1">Delivered</p>
+                    )}
+                    {isRestaurantCancelled && (
+                      <p className="text-xs font-medium text-red-500 mt-1">Restaurant Cancelled</p>
+                    )}
+                    {isUserCancelled && (
+                      <p className="text-xs font-medium text-gray-500 mt-1">Cancelled by you</p>
+                    )}
+                    {isCancelled && !isRestaurantCancelled && !isUserCancelled && (
+                      <p className="text-xs font-medium text-gray-500 mt-1">Cancelled</p>
+                    )}
+                  </div>
+                  <div className="flex items-center ml-4">
+                    <Link to={`/user/orders/${order.id}`}>
+                      <button className="text-xs text-[#EB590E] font-medium hover:text-[#D94F0C] flex items-center gap-1">
+                        View Details
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </Link>
+                  </div>
+                </div>
+
                 {/* Separator */}
-                <div className="border-t border-gray-100 dark:border-gray-800 mx-4 my-2"></div>
+                <div className="border-t border-gray-100 dark:border-zinc-800 mx-4"></div>
 
-                {/* Footer Section */}
-                <div className="px-4 pb-4 pt-1 space-y-3">
-                  {/* Row 1: Date, Payment Info, and Status Badge */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                    <div className="flex items-center gap-2 flex-wrap text-gray-500 dark:text-gray-400">
-                      <span className="font-semibold text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800/80 px-2.5 py-1 rounded-lg border border-gray-200/50 dark:border-gray-700/50">
-                        Placed: {formatDate(order.createdAt)}
-                      </span>
-                      <span className="hidden sm:inline text-gray-300 dark:text-gray-700">•</span>
-                      <span className="font-semibold text-gray-700 dark:text-gray-300">
-                        {order.payment?.method === 'cash' || order.payment?.method === 'cod' ? 'Cash on Delivery' :
-                          order.payment?.method === 'wallet' ? 'Wallet' : 'Online'}
-                      </span>
-                      {order.payment?.status && (
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${
-                          (order.payment.status === 'completed' || (isDelivered && isCodOrWallet)) 
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900/50' 
-                            : order.payment.status === 'failed' 
-                              ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-900/50' 
-                              : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900/50'
-                        }`}>
-                          {(isDelivered && isCodOrWallet) ? 'Paid' : order.payment.status}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Status Badge */}
-                    <div className="flex items-center">
-                      {isRestaurantCancelled ? (
-                        <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-900/50">
-                          Cancelled
-                        </span>
-                      ) : paymentFailed ? (
-                        <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-900/50">
-                          Payment Failed
-                        </span>
-                      ) : isDelivered ? (
-                        <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-green-600 text-white shadow-sm border border-green-600">
-                          {order.orderType === "takeaway" ? "Picked UP" : "Delivered"}
-                        </span>
-                      ) : isUserCancelled || (isCancelled && order.cancelledBy === 'user') ? (
-                        <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-900/50">
-                          Cancelled By You
-                        </span>
-                      ) : isCancelled ? (
-                        <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-900/50">
-                          Cancelled
-                        </span>
-                      ) : (order.orderType === 'takeaway' && (order.status === 'ready' || order.status === 'ready_for_pickup')) ? (
-                        <span className="px-3 py-1 rounded-full text-[10px] font-black bg-green-600 text-white shadow-sm border border-green-600 uppercase tracking-widest">
-                          Ready for Pickup
-                        </span>
-                      ) : (
-                        <span className="px-3 py-1 rounded-full text-[10px] font-black bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900/50 uppercase tracking-wider animate-pulse">
-                          {order.status === 'preparing' ? 'Preparing' : order.status === 'outForDelivery' ? 'Out for Delivery' : order.status === 'placed' ? 'Order Placed' : 'Confirmed'}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Row 2: Secondary Metadata / Ratings and Actions */}
-                  <div className="flex items-center justify-between pt-1">
-                    {/* Left: Ratings or Countdowns or Cancellation Details */}
-                    <div className="flex-1 min-w-0 pr-4">
-                      {isRestaurantCancelled ? (
-                        <div className="flex flex-col gap-0.5">
-                          {order.cancellationReason && (
-                            <p className="text-xs text-red-500 dark:text-red-400 font-medium italic truncate">
-                              Reason: {order.cancellationReason}
-                            </p>
-                          )}
-                          <p className="text-[10px] text-gray-400 dark:text-gray-500">Refund processed in 24-48 hours</p>
+                {/* Card Footer: Actions */}
+                <div className="px-4 py-3 flex items-center justify-between">
+                  {/* Left Side: Rating or Error */}
+                  {isRestaurantCancelled ? (
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <div className="bg-red-100 p-1 rounded-full">
+                          <AlertCircle className="w-4 h-4 text-red-500" />
                         </div>
-                      ) : paymentFailed ? (
-                        <span className="text-xs text-red-500 font-medium">Please try ordering again</span>
-                      ) : isDelivered && order.restaurantRating && (!order.deliveryPartnerId || order.deliveryPartnerRating) ? (
-                        <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-                          <span>Your rating:</span>
-                          <div className="flex bg-green-600 text-white px-1.5 py-0.5 rounded text-[10px] font-bold items-center gap-0.5 h-4.5">
-                            <span className="opacity-90">Food</span>
-                            {order.restaurantRating}<Star className="w-2.5 h-2.5 fill-current text-white" />
+                        <span className="text-xs font-semibold text-red-500">Restaurant Cancelled</span>
+                      </div>
+                      <p className="text-xs text-gray-600 ml-7">If prepaid, refund is sent automatically to the original payment method.</p>
+                    </div>
+                  ) : paymentFailed ? (
+                    <div className="flex items-center gap-2">
+                      <div className="bg-red-100 p-1 rounded-full">
+                        <AlertCircle className="w-4 h-4 text-red-500" />
+                      </div>
+                      <span className="text-xs font-semibold text-red-500">Payment failed</span>
+                    </div>
+                  ) : isDelivered && order.restaurantRating && (!order.deliveryPartnerId || order.deliveryPartnerRating) ? (
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm text-gray-800">You rated</span>
+                        <div className="flex bg-yellow-400 text-white px-1 rounded text-[10px] items-center gap-0.5 h-4">
+                          R {order.restaurantRating}<Star className="w-2 h-2 fill-current" />
+                        </div>
+                        {order.deliveryPartnerId && (
+                          <div className="flex bg-blue-500 text-white px-1 rounded text-[10px] items-center gap-0.5 h-4">
+                            D {order.deliveryPartnerRating}<Star className="w-2 h-2 fill-current" />
                           </div>
-                          {order.deliveryPartnerId && order.deliveryPartnerRating && (
-                            <div className="flex bg-green-600 text-white px-1.5 py-0.5 rounded text-[10px] font-bold items-center gap-0.5 h-4.5">
-                              <span className="opacity-90">Delivery</span>
-                              {order.deliveryPartnerRating}<Star className="w-2.5 h-2.5 fill-current text-white" />
-                            </div>
-                          )}
-                        </div>
-                      ) : isDelivered ? (
-                        <button
-                          type="button"
-                          onClick={() => handleOpenRating(order)}
-                          className="text-xs text-slate-500 hover:text-[#DC2626] dark:text-slate-400 font-bold flex items-center gap-1 transition-colors"
-                        >
-                          <Star className="w-3.5 h-3.5 text-slate-400 fill-none" />
-                          {order.orderType === "takeaway" ? "Rate Restaurant" : "Rate Restaurant & Delivery"}
-                        </button>
-                      ) : (
-                        <div>
-                          {/* Countdown Timer */}
-                          {countdowns[order.id] && countdowns[order.id] > 0 && (
-                            <div className="flex items-center gap-1 text-xs text-[#DC2626] font-semibold">
-                              <Clock size={12} className="animate-pulse" />
-                              <span>{countdowns[order.id]} min{countdowns[order.id] !== 1 ? 's' : ''} remaining</span>
-                            </div>
-                          )}
+                        )}
+                      </div>
+                    </div>
+                  ) : isDelivered ? (
+                    <div>
+                      <p className="text-xs text-gray-500">Order delivered</p>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenRating(order)}
+                        className="text-xs text-[#EB590E] font-medium mt-0.5 flex items-center"
+                      >
+                        Rate restaurant & delivery <span className="ml-0.5">&gt;</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-xs text-gray-500">{order.status === 'preparing' ? 'Preparing' : order.status === 'outForDelivery' ? 'Out for delivery' : order.status === 'confirmed' ? 'Order confirmed' : ''}</p>
+                      {/* Countdown Timer */}
+                      {countdowns[order.id] && countdowns[order.id] > 0 && (
+                        <div className="flex items-center gap-1 mt-1 text-xs text-[#EB590E] font-medium">
+                          <Clock size={12} />
+                          <span>{countdowns[order.id]} min{countdowns[order.id] !== 1 ? 's' : ''} remaining</span>
                         </div>
                       )}
                     </div>
+                  )}
 
-                    {/* Right: View Details & Reorder buttons */}
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      <Link to={(isDelivered || isCancelled) ? `/user/orders/${order.id}/details` : `/user/orders/${order.id}`}>
-                        <span className="text-xs font-bold text-gray-600 dark:text-gray-400 hover:text-[#DC2626] dark:hover:text-[#DC2626] transition-colors cursor-pointer flex items-center gap-0.5">
-                          View Details <ChevronRight className="w-3.5 h-3.5" />
-                        </span>
-                      </Link>
-
-                      {isDelivered && !paymentFailed && (
-                        <button
-                          onClick={() => handleReorder(order)}
-                          className="bg-[#DC2626] hover:bg-[#991B1B] text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm hover:shadow-[#DC2626]/20 transition-all duration-150 active:scale-95"
-                        >
-                          <RotateCcw className="w-3 h-3" />
-                          Reorder
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                  {/* Right Side: Reorder Button */}
+                  {isDelivered && !paymentFailed && (
+                    <button
+                      onClick={() => handleReorder(order)}
+                      className="bg-[#EB590E] hover:bg-[#D94F0C] text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1 shadow-sm transition-colors"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Reorder
+                    </button>
+                  )}
                 </div>
               </div>
             )
@@ -998,17 +1100,17 @@ Order again from this restaurant in the ${companyName} app.`
         )}
       </div>
 
-       {/* Footer Branding */}
+      {/* Footer Branding */}
       <div className="flex justify-center mt-8 mb-4">
-        <h1 className="text-4xl font-black text-gray-200 dark:text-gray-800 tracking-tighter italic uppercase">ometto</h1>
+        <h1 className="text-4xl font-black text-gray-200 dark:text-zinc-900 tracking-tighter italic capitalize">Eatiefy</h1>
       </div>
 
       {/* Rating & Feedback Modal */}
       {ratingModal.open && ratingModal.order && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-md rounded-3xl bg-white dark:bg-[#121212] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border dark:border-gray-800">
+          <div className="w-full max-w-md rounded-3xl bg-white dark:bg-zinc-900 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
             {/* Header with gradient */}
-            <div className="bg-gradient-to-r from-[#DC2626] to-[#991B1B] px-6 py-5">
+            <div className="bg-gradient-to-r from-[#EB590E] to-[#D94F0C] px-6 py-5">
               <div className="flex items-center justify-between mb-2">
                 <h2 className="text-xl font-bold text-white flex items-center gap-2">
                   <Star className="w-5 h-5 fill-white" />
@@ -1025,9 +1127,9 @@ Order again from this restaurant in the ${companyName} app.`
               <p className="text-sm text-white/90">{ratingModal.order.restaurant}</p>
             </div>
 
-            <div className="px-6 py-6 font-sans">
+            <div className="px-6 py-6">
               <div className="mb-6">
-                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">
+                <p className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
                   Restaurant rating (out of 5)
                 </p>
                 <div className="flex items-center justify-center gap-2 mb-3">
@@ -1042,8 +1144,8 @@ Order again from this restaurant in the ${companyName} app.`
                       >
                         <Star
                           className={`w-10 h-10 transition-all ${isActive
-                              ? "text-yellow-400 fill-yellow-400 drop-shadow-lg"
-                              : "text-gray-300 hover:text-yellow-200"
+                            ? "text-yellow-400 fill-yellow-400 drop-shadow-lg"
+                            : "text-gray-300 dark:text-zinc-800 hover:text-yellow-200"
                             }`}
                         />
                       </button>
@@ -1054,14 +1156,14 @@ Order again from this restaurant in the ${companyName} app.`
                   rows={2}
                   value={restaurantFeedbackText}
                   onChange={(e) => setRestaurantFeedbackText(e.target.value)}
-                  className="w-full rounded-xl border-2 border-gray-200 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] px-4 py-2 text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#DC2626] focus:border-[#DC2626] resize-none transition-all"
+                  className="w-full rounded-xl border-2 border-gray-200 dark:border-zinc-800 bg-transparent px-4 py-2 text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#EB590E] focus:border-[#EB590E] resize-none transition-all"
                   placeholder="Restaurant feedback (optional)"
                 />
               </div>
 
               {ratingModalHasDeliveryPartner && (
                 <div className="mb-6">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
                     Delivery partner rating (out of 5)
                   </p>
                   <div className="flex items-center justify-center gap-2 mb-3">
@@ -1076,8 +1178,8 @@ Order again from this restaurant in the ${companyName} app.`
                         >
                           <Star
                             className={`w-10 h-10 transition-all ${isActive
-                                ? "text-yellow-400 fill-yellow-400 drop-shadow-lg"
-                                : "text-gray-300 hover:text-yellow-200"
+                              ? "text-yellow-400 fill-yellow-400 drop-shadow-lg"
+                              : "text-gray-300 dark:text-zinc-800 hover:text-yellow-200"
                               }`}
                           />
                         </button>
@@ -1088,7 +1190,7 @@ Order again from this restaurant in the ${companyName} app.`
                     rows={2}
                     value={deliveryFeedbackText}
                     onChange={(e) => setDeliveryFeedbackText(e.target.value)}
-                    className="w-full rounded-xl border-2 border-gray-200 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] px-4 py-2 text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#DC2626] focus:border-[#DC2626] resize-none transition-all"
+                    className="w-full rounded-xl border-2 border-gray-200 dark:border-zinc-800 bg-transparent px-4 py-2 text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#EB590E] focus:border-[#EB590E] resize-none transition-all"
                     placeholder="Delivery partner feedback (optional)"
                   />
                 </div>
@@ -1099,7 +1201,13 @@ Order again from this restaurant in the ${companyName} app.`
                 type="button"
                 disabled={ratingSubmitDisabled}
                 onClick={handleSubmitRating}
-                className="w-full rounded-xl bg-gradient-to-r from-[#DC2626] to-[#991B1B] text-white text-base font-bold py-3.5 hover:from-[#991B1B] hover:to-[#C44409] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-[#DC2626]/30 flex items-center justify-center gap-2"
+                className="w-full rounded-xl text-white text-base font-bold py-3.5 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                style={{
+                  background:
+                    "linear-gradient(135deg, rgba(var(--module-theme-rgb,226,173,75),0.94), var(--module-theme-color,#E2AD4B))",
+                  boxShadow:
+                    "0 12px 24px rgba(var(--module-theme-rgb,226,173,75),0.30)",
+                }}
               >
                 {submittingRating ? (
                   <>
@@ -1123,29 +1231,35 @@ Order again from this restaurant in the ${companyName} app.`
       )}
 
       {showShareModal && sharePayload && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm px-4 pb-4 pt-10 sm:items-center">
-          <div className="w-full max-w-sm rounded-3xl bg-white dark:bg-[#121212] shadow-2xl overflow-hidden border dark:border-gray-800">
-            <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 px-5 py-4">
+        <div 
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 px-4 pb-4 pt-10 sm:items-center backdrop-blur-[2px]"
+          onClick={() => setShowShareModal(false)}
+        >
+          <div 
+            className="w-full max-w-sm rounded-3xl bg-white dark:bg-zinc-900 shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-gray-100 dark:border-zinc-800 px-5 py-4">
               <div>
-                <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Share restaurant</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Choose an app to share this restaurant</p>
+                <h3 className="text-base font-semibold text-gray-900 dark:text-white">Share restaurant</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Native share available ho to sab supported apps wahan dikhenge</p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowShareModal(false)}
-                className="rounded-full p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                className="rounded-full p-2 text-gray-500 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-zinc-800"
                 aria-label="Close share modal"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="px-5 py-5 space-y-3 font-sans">
+            <div className="px-5 py-5 space-y-3">
               {typeof navigator !== "undefined" && navigator.share && (
                 <button
                   type="button"
                   onClick={handleSystemShareFromModal}
-                  className="w-full rounded-2xl bg-[#DC2626] px-4 py-3 text-sm font-semibold text-white flex items-center justify-center gap-2 hover:bg-[#991B1B] transition-colors"
+                  className="w-full rounded-2xl bg-[#EB590E] px-4 py-3 text-sm font-semibold text-white flex items-center justify-center gap-2 hover:bg-[#D94F0C] transition-colors"
                 >
                   <Share2 className="w-4 h-4" />
                   Share via apps
@@ -1156,7 +1270,7 @@ Order again from this restaurant in the ${companyName} app.`
                 <button
                   type="button"
                   onClick={() => openShareTarget("whatsapp")}
-                  className="rounded-2xl border border-gray-200 dark:border-gray-800 px-3 py-4 text-xs font-medium text-gray-700 dark:text-gray-200 flex flex-col items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  className="rounded-2xl border border-gray-200 dark:border-zinc-800 px-3 py-4 text-xs font-medium text-gray-700 dark:text-gray-300 flex flex-col items-center gap-2 hover:bg-gray-50 dark:hover:bg-zinc-800"
                 >
                   <MessageCircle className="w-5 h-5 text-green-600" />
                   WhatsApp
@@ -1164,7 +1278,7 @@ Order again from this restaurant in the ${companyName} app.`
                 <button
                   type="button"
                   onClick={() => openShareTarget("telegram")}
-                  className="rounded-2xl border border-gray-200 dark:border-gray-800 px-3 py-4 text-xs font-medium text-gray-700 dark:text-gray-200 flex flex-col items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  className="rounded-2xl border border-gray-200 dark:border-zinc-800 px-3 py-4 text-xs font-medium text-gray-700 dark:text-gray-300 flex flex-col items-center gap-2 hover:bg-gray-50 dark:hover:bg-zinc-800"
                 >
                   <Send className="w-5 h-5 text-sky-500" />
                   Telegram
@@ -1172,7 +1286,7 @@ Order again from this restaurant in the ${companyName} app.`
                 <button
                   type="button"
                   onClick={() => openShareTarget("email")}
-                  className="rounded-2xl border border-gray-200 dark:border-gray-800 px-3 py-4 text-xs font-medium text-gray-700 dark:text-gray-200 flex flex-col items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  className="rounded-2xl border border-gray-200 dark:border-zinc-800 px-3 py-4 text-xs font-medium text-gray-700 dark:text-gray-300 flex flex-col items-center gap-2 hover:bg-gray-50 dark:hover:bg-zinc-800"
                 >
                   <Mail className="w-5 h-5 text-rose-500" />
                   Email
@@ -1180,7 +1294,7 @@ Order again from this restaurant in the ${companyName} app.`
                 <button
                   type="button"
                   onClick={() => openShareTarget("sms")}
-                  className="rounded-2xl border border-gray-200 dark:border-gray-800 px-3 py-4 text-xs font-medium text-gray-700 dark:text-gray-200 flex flex-col items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  className="rounded-2xl border border-gray-200 dark:border-zinc-800 px-3 py-4 text-xs font-medium text-gray-700 dark:text-gray-300 flex flex-col items-center gap-2 hover:bg-gray-50 dark:hover:bg-zinc-800"
                 >
                   <MessagesSquare className="w-5 h-5 text-violet-500" />
                   SMS
@@ -1188,7 +1302,7 @@ Order again from this restaurant in the ${companyName} app.`
                 <button
                   type="button"
                   onClick={() => openShareTarget("facebook")}
-                  className="rounded-2xl border border-gray-200 dark:border-gray-800 px-3 py-4 text-xs font-medium text-gray-700 dark:text-gray-200 flex flex-col items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  className="rounded-2xl border border-gray-200 dark:border-zinc-800 px-3 py-4 text-xs font-medium text-gray-700 dark:text-gray-300 flex flex-col items-center gap-2 hover:bg-gray-50 dark:hover:bg-zinc-800"
                 >
                   <Share2 className="w-5 h-5 text-blue-600" />
                   Facebook
@@ -1196,15 +1310,15 @@ Order again from this restaurant in the ${companyName} app.`
                 <button
                   type="button"
                   onClick={() => openShareTarget("x")}
-                  className="rounded-2xl border border-gray-200 dark:border-gray-800 px-3 py-4 text-xs font-medium text-gray-700 dark:text-gray-200 flex flex-col items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  className="rounded-2xl border border-gray-200 dark:border-zinc-800 px-3 py-4 text-xs font-medium text-gray-700 dark:text-gray-300 flex flex-col items-center gap-2 hover:bg-gray-50 dark:hover:bg-zinc-800"
                 >
-                  <Link2 className="w-5 h-5 text-gray-900 dark:text-gray-100" />
+                  <Link2 className="w-5 h-5 text-gray-900 dark:text-white" />
                   X
                 </button>
                 <button
                   type="button"
                   onClick={() => openShareTarget("linkedin")}
-                  className="rounded-2xl border border-gray-200 dark:border-gray-800 px-3 py-4 text-xs font-medium text-gray-700 dark:text-gray-200 flex flex-col items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  className="rounded-2xl border border-gray-200 dark:border-zinc-800 px-3 py-4 text-xs font-medium text-gray-700 dark:text-gray-300 flex flex-col items-center gap-2 hover:bg-gray-50 dark:hover:bg-zinc-800"
                 >
                   <Share2 className="w-5 h-5 text-blue-700" />
                   LinkedIn
@@ -1212,7 +1326,7 @@ Order again from this restaurant in the ${companyName} app.`
                 <button
                   type="button"
                   onClick={copyShareLink}
-                  className="rounded-2xl border border-gray-200 dark:border-gray-800 px-3 py-4 text-xs font-medium text-gray-700 dark:text-gray-200 flex flex-col items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  className="rounded-2xl border border-gray-200 dark:border-zinc-800 px-3 py-4 text-xs font-medium text-gray-700 dark:text-gray-300 flex flex-col items-center gap-2 hover:bg-gray-50 dark:hover:bg-zinc-800"
                 >
                   <Copy className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                   Copy link
@@ -1225,4 +1339,3 @@ Order again from this restaurant in the ${companyName} app.`
     </div>
   )
 }
-

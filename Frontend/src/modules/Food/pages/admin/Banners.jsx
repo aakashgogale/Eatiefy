@@ -42,7 +42,7 @@ export default function Banners() {
     { key: "en", label: "English(EN)" },
     { key: "bn", label: "Bengali - বাংলা(BN)" },
     { key: "ar", label: "Arabic - العربية (AR)" },
-    { key: "es", label: "Spanish - espa�ol(ES)" },
+    { key: "es", label: "Spanish - espa�ol(ES)" },
   ]
 
   const filteredBanners = useMemo(() => {
@@ -134,7 +134,7 @@ export default function Banners() {
                   value={formData.title}
                   onChange={(e) => handleInputChange("title", e.target.value)}
                   placeholder="New banner"
-                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-blue-500 text-sm"
+                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                 />
               </div>
 
@@ -145,7 +145,7 @@ export default function Banners() {
                 <select
                   value={formData.zone}
                   onChange={(e) => handleInputChange("zone", e.target.value)}
-                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-blue-500 text-sm"
+                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                 >
                   <option value="">---Select---</option>
                   <option value="asia">Asia</option>
@@ -160,7 +160,7 @@ export default function Banners() {
                 <select
                   value={formData.bannerType}
                   onChange={(e) => handleInputChange("bannerType", e.target.value)}
-                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-blue-500 text-sm"
+                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                 >
                   <option value="Restaurant wise">Restaurant wise</option>
                   <option value="Zone wise">Zone wise</option>
@@ -174,10 +174,10 @@ export default function Banners() {
                 <select
                   value={formData.restaurant}
                   onChange={(e) => handleInputChange("restaurant", e.target.value)}
-                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-blue-500 text-sm"
+                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                 >
                   <option value="">Select</option>
-                  <option value="cafe-monarch">Caf� Monarch</option>
+                  <option value="cafe-monarch">Caf� Monarch</option>
                   <option value="hungry-puppets">Hungry Puppets</option>
                 </select>
               </div>
@@ -207,7 +207,7 @@ export default function Banners() {
               </button>
               <button
                 type="submit"
-                className="px-6 py-2.5 text-sm font-medium rounded-lg bg-green-600 text-white hover:bg-blue-700 transition-all shadow-md"
+                className="px-6 py-2.5 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-all shadow-md"
               >
                 Submit
               </button>
@@ -292,7 +292,7 @@ export default function Banners() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <button
                         onClick={() => handleToggleStatus(banner.sl)}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${banner.status ? "bg-green-600" : "bg-slate-300"
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${banner.status ? "bg-blue-600" : "bg-slate-300"
                           }`}
                       >
                         <span

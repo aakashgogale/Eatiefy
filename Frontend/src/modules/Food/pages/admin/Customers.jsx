@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useEffect } from "react"
+import { useState, useEffect } from "react"
 import { useSearchParams } from "react-router-dom"
-import { Search, Download, ChevronDown, Eye, FileDown, FileSpreadsheet, FileText, X, Mail, Phone, MapPin, Package, IndianRupee, Calendar as CalendarIcon, User, CheckCircle, XCircle } from "lucide-react"
+import { Search, Download, ChevronDown, ChevronLeft, ChevronRight, Calendar, Eye, FileDown, FileSpreadsheet, FileText, X, Mail, Phone, MapPin, Package, IndianRupee, Calendar as CalendarIcon, User, CheckCircle, XCircle } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { exportCustomersToCSV, exportCustomersToExcel, exportCustomersToPDF } from "@food/components/admin/customers/customersExportUtils"
 import { adminAPI } from "@food/api"
@@ -10,14 +10,15 @@ const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
+const PAGE_SIZE = 20
 
 export default function Customers() {
   const [searchQuery, setSearchQuery] = useState("")
+  const [searchInput, setSearchInput] = useState("")
   const [customers, setCustomers] = useState([])
   const [loading, setLoading] = useState(true)
   const [totalCustomers, setTotalCustomers] = useState(0)
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(() => Number(localStorage.getItem('admin_customers_pageSize')) || 20)
+  const [page, setPage] = useState(1)
   const [selectedCustomer, setSelectedCustomer] = useState(null)
   const [userDetails, setUserDetails] = useState(null)
   const [loadingDetails, setLoadingDetails] = useState(false)
@@ -30,77 +31,24 @@ export default function Customers() {
     chooseFirst: "",
   })
 
-  const [globalCodBlockedFeatureEnabled, setGlobalCodBlockedFeatureEnabled] = useState(true)
+  const totalPages = Math.max(1, Math.ceil(totalCustomers / PAGE_SIZE))
+  const showingFrom = totalCustomers === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
+  const showingTo = Math.min(page * PAGE_SIZE, totalCustomers)
 
   useEffect(() => {
-    let cancelled = false
-    const fetchGlobalConfig = async () => {
-      try {
-        const res = await adminAPI.getCustomizationSettings()
-        if (!cancelled && res?.data?.data) {
-          const config = res.data.data
-          if (config.cod_blocking_feature_enabled !== undefined) {
-            setGlobalCodBlockedFeatureEnabled(config.cod_blocking_feature_enabled)
-          }
-        }
-      } catch (err) {
-        debugError("Error fetching global config", err)
-      }
+    if (!loading && page > totalPages) {
+      setPage(totalPages)
     }
-    fetchGlobalConfig()
-    return () => { cancelled = true }
-  }, [])
-
-  const filteredCustomers = useMemo(() => {
-    let result = [...customers]
-
-    // Search is handled by the API globally — do not re-filter the current page only.
-
-    // Filter by order date when that field is available in the API payload.
-
-    // Filter by joining date
-    if (filters.joiningDate) {
-      result = result.filter(customer => {
-        // Parse joining date from format "17 Oct 2021"
-        const customerDate = new Date(customer.joiningDate)
-        const filterDate = new Date(filters.joiningDate)
-        return customerDate.toDateString() === filterDate.toDateString()
-      })
-    }
-
-    // Filter by status
-    if (filters.status) {
-      if (filters.status === "active") {
-        result = result.filter(customer => customer.status === true)
-      } else if (filters.status === "inactive") {
-        result = result.filter(customer => customer.status === false)
-      }
-    }
-
-    // Sort by options
-    if (filters.sortBy) {
-      if (filters.sortBy === "name-asc") {
-        result.sort((a, b) => a.name.localeCompare(b.name))
-      } else if (filters.sortBy === "name-desc") {
-        result.sort((a, b) => b.name.localeCompare(a.name))
-      } else if (filters.sortBy === "orders-asc") {
-        result.sort((a, b) => a.totalOrder - b.totalOrder)
-      } else if (filters.sortBy === "orders-desc") {
-        result.sort((a, b) => b.totalOrder - a.totalOrder)
-      }
-    }
-
-    // Limit results if "Choose First" is set
-    if (filters.chooseFirst && parseInt(filters.chooseFirst) > 0) {
-      result = result.slice(0, parseInt(filters.chooseFirst))
-    }
-
-    return result
-  }, [customers, filters])
+  }, [loading, page, totalPages])
 
   const handleFilterChange = (field, value) => {
+    setPage(1)
     setFilters(prev => ({ ...prev, [field]: value }))
-    setCurrentPage(1)
+  }
+
+  const handleSearch = () => {
+    setPage(1)
+    setSearchQuery(searchInput.trim())
   }
 
   const formatDateTime = (value) => {
@@ -124,42 +72,32 @@ export default function Customers() {
 
   // Fetch customers from API
   useEffect(() => {
-    setCurrentPage(1)
-  }, [searchQuery])
-
-  useEffect(() => {
     let cancelled = false
     const fetchCustomers = async () => {
       try {
         setLoading(true)
+        const chooseFirst = parseInt(filters.chooseFirst, 10)
+        const useChooseFirst = Number.isFinite(chooseFirst) && chooseFirst > 0
         const params = {
-          limit: pageSize,
-          page: currentPage,
+          limit: useChooseFirst ? chooseFirst : PAGE_SIZE,
+          page: useChooseFirst ? 1 : page,
           ...(searchQuery && { search: searchQuery }),
           ...(filters.status && { status: filters.status }),
           ...(filters.joiningDate && { joiningDate: filters.joiningDate }),
           ...(filters.sortBy && { sortBy: filters.sortBy }),
-          ...(filters.chooseFirst && { chooseFirst: filters.chooseFirst }),
+          ...(useChooseFirst && { chooseFirst }),
         }
 
         const response = await adminAPI.getCustomers(params)
-        const data = response?.data?.data || response?.data?.data || response?.data
+        const data = response?.data?.data || response?.data
 
-        const list = Array.isArray(data?.customers)
-          ? data.customers
-          : Array.isArray(data?.users)
-            ? data.users
-            : Array.isArray(data)
-              ? data
-              : []
+        const list = data?.customers || data?.users || []
         if (!cancelled && Array.isArray(list)) {
           setCustomers(list)
-          setTotalCustomers(data?.total || list.length)
-        } else {
-          if (!cancelled) {
-            setCustomers([])
-            setTotalCustomers(0)
-          }
+          setTotalCustomers(Number(data?.total) || list.length)
+        } else if (!cancelled) {
+          setCustomers([])
+          setTotalCustomers(0)
         }
       } catch (error) {
         debugError('Error fetching customers:', error)
@@ -173,25 +111,21 @@ export default function Customers() {
       }
     }
 
-    const delay = searchQuery ? 250 : 0
-    const t = setTimeout(fetchCustomers, delay)
+    const t = setTimeout(fetchCustomers, 250)
     return () => {
       cancelled = true
       clearTimeout(t)
     }
-  }, [currentPage, pageSize, searchQuery, filters.status, filters.joiningDate, filters.sortBy, filters.chooseFirst])
+  }, [page, searchQuery, filters.status, filters.joiningDate, filters.sortBy, filters.chooseFirst])
 
   const [searchParams] = useSearchParams()
   const userIdFromUrl = searchParams.get("userId")
 
   useEffect(() => {
-    if (userIdFromUrl && customers.length > 0) {
-      const customer = customers.find(c => c.id === userIdFromUrl || c._id === userIdFromUrl)
-      if (customer) {
-        handleViewDetails(customer.id || customer.sl || customer._id)
-      }
+    if (userIdFromUrl) {
+      handleViewDetails(userIdFromUrl)
     }
-  }, [userIdFromUrl, customers])
+  }, [userIdFromUrl])
 
   const handleToggleStatus = async (customerId) => {
     try {
@@ -215,28 +149,6 @@ export default function Customers() {
       // Revert optimistic update
       setCustomers(customers.map(c =>
         c.id === customerId ? { ...c, status: !c.status } : c
-      ))
-    }
-  }
-
-  const handleToggleCodStatus = async (customerId) => {
-    try {
-      const customer = customers.find(c => (c._id || c.id) === customerId)
-      if (!customer) return
-
-      const newCodStatus = !customer.isCodBlocked
-
-      setCustomers(customers.map(c =>
-        (c.id || c._id) === customerId ? { ...c, isCodBlocked: newCodStatus } : c
-      ))
-
-      await adminAPI.updateCustomerCodStatus(customerId, newCodStatus)
-      toast.success(`User COD ${newCodStatus ? 'blocked' : 'unblocked'} successfully`)
-    } catch (error) {
-      debugError('Error updating COD status:', error)
-      toast.error('Failed to update COD status')
-      setCustomers(customers.map(c =>
-        (c.id || c._id) === customerId ? { ...c, isCodBlocked: !c.isCodBlocked } : c
       ))
     }
   }
@@ -266,7 +178,7 @@ export default function Customers() {
   }
 
   const handleExport = (format) => {
-    if (filteredCustomers.length === 0) {
+    if (customers.length === 0) {
       toast.error("No customers to export")
       return
     }
@@ -275,15 +187,15 @@ export default function Customers() {
     try {
       switch (format) {
         case "csv":
-          exportCustomersToCSV(filteredCustomers, filename)
+          exportCustomersToCSV(customers, filename)
           toast.success("CSV export started")
           break
         case "excel":
-          exportCustomersToExcel(filteredCustomers, filename)
+          exportCustomersToExcel(customers, filename)
           toast.success("Excel export started")
           break
         case "pdf":
-          exportCustomersToPDF(filteredCustomers, filename)
+          exportCustomersToPDF(customers, filename)
           toast.success("PDF download started")
           break
         default:
@@ -320,6 +232,7 @@ export default function Customers() {
               <div className="relative">
                 <input
                   type="date"
+                  max={new Date().toISOString().split("T")[0]}
                   value={filters.orderDate}
                   onChange={(e) => handleFilterChange("orderDate", e.target.value)}
                   className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
@@ -334,6 +247,7 @@ export default function Customers() {
               <div className="relative">
                 <input
                   type="date"
+                  max={new Date().toISOString().split("T")[0]}
                   value={filters.joiningDate}
                   onChange={(e) => handleFilterChange("joiningDate", e.target.value)}
                   className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
@@ -387,18 +301,21 @@ export default function Customers() {
             </div>
           </div>
 
-          <div className="mt-4 flex items-center justify-between">
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <button
-                onClick={() => {
-                  // Filters are applied automatically via useMemo
-                }}
+                type="button"
+                onClick={handleSearch}
                 className="px-6 py-2.5 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-all"
               >
                 Apply Filters
               </button>
               <button
+                type="button"
                 onClick={() => {
+                  setPage(1)
+                  setSearchInput("")
+                  setSearchQuery("")
                   setFilters({
                     orderDate: "",
                     joiningDate: "",
@@ -413,7 +330,9 @@ export default function Customers() {
               </button>
             </div>
             <div className="text-sm text-slate-600">
-              {loading ? 'Loading...' : `Showing ${filteredCustomers.length} of ${totalCustomers} customers`}
+              {loading
+                ? "Loading..."
+                : `Showing ${showingFrom}-${showingTo} of ${totalCustomers} customers`}
             </div>
           </div>
         </div>
@@ -423,12 +342,8 @@ export default function Customers() {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold text-slate-900">Customer list</h2>
-              <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700 flex items-center justify-center min-w-[2.5rem] h-7">
-                {loading ? (
-                  <span className="w-5 h-3 rounded bg-slate-300/80 animate-pulse" />
-                ) : (
-                  totalCustomers
-                )}
+              <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
+                {totalCustomers}
               </span>
             </div>
 
@@ -436,12 +351,10 @@ export default function Customers() {
               <div className="relative flex-1 sm:flex-initial min-w-[200px]">
                 <input
                   type="text"
-                  placeholder="Ex: Search by name"
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value)
-                    setCurrentPage(1)
-                  }}
+                  placeholder="Ex: Search by name, email, or phone"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSearch()}
                   className="pl-10 pr-4 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400"
                 />
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -477,57 +390,58 @@ export default function Customers() {
 
           {/* Table */}
           <div className="overflow-x-auto">
-            <table className="w-full min-w-full">
+            <table className="w-full min-w-[980px]">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  <th className="px-3 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Sl</th>
-                  <th className="px-3 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Name</th>
-                  <th className="px-3 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Contact Info</th>
-                  <th className="px-3 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Total Order</th>
-                  <th className="px-3 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Total Amount</th>
-                  <th className="px-3 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Joining Date</th>
-                  <th className="px-3 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Active/Inactive</th>
-                  {globalCodBlockedFeatureEnabled && (
-                    <th className="px-3 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">COD Blocked</th>
-                  )}
-                  <th className="px-3 py-4 text-center text-[10px] font-bold text-slate-700 uppercase tracking-wider">Actions</th>
+                  <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Sl</th>
+                  <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Name</th>
+                  <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Contact Information</th>
+                  <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Total Order</th>
+                  <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Total Order Amount</th>
+                  <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Joining Date</th>
+                  <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Active/Inactive</th>
+                  <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-700 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={globalCodBlockedFeatureEnabled ? 9 : 8} className="px-6 py-8 text-center">
+                    <td colSpan={8} className="px-6 py-8 text-center">
                       <div className="text-sm text-slate-500">Loading customers...</div>
                     </td>
                   </tr>
-                ) : filteredCustomers.length === 0 ? (
+                ) : customers.length === 0 ? (
                   <tr>
-                    <td colSpan={globalCodBlockedFeatureEnabled ? 9 : 8} className="px-6 py-8 text-center">
+                    <td colSpan={8} className="px-6 py-8 text-center">
                       <div className="text-sm text-slate-500">No customers found</div>
                     </td>
                   </tr>
                 ) : (
-                  filteredCustomers.map((customer, index) => (
-                    <tr key={customer.id || customer.sl} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-3 py-4 whitespace-nowrap">
-                        <span className="text-sm font-medium text-slate-700">{(currentPage - 1) * pageSize + index + 1}</span>
+                  customers.map((customer, index) => (
+                    <tr key={customer.id || customer._id || customer.sl} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-sm font-medium text-slate-700">
+                          {(page - 1) * PAGE_SIZE + index + 1}
+                        </span>
                       </td>
-                      <td className="px-3 py-4">
+                      <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div 
-                            className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 overflow-hidden cursor-pointer hover:opacity-80 transition-all border border-slate-200"
-                            style={{ background: 'linear-gradient(135deg, #E8EEF7 0%, #C5D3E5 100%)' }}
+                            className="w-10 h-10 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center shrink-0 overflow-hidden cursor-pointer hover:opacity-80 transition-all border border-slate-100"
                             onClick={() => handleViewDetails(customer._id || customer.id || customer.sl)}
                           >
-                            <img
-                              src={customer.profileImage || "/assets/images/profile_avatar.webp"}
-                              alt={customer.name}
-                              className="w-full h-full object-cover"
-                              style={{ mixBlendMode: 'multiply' }}
-                              onError={(e) => {
-                                e.currentTarget.src = "/assets/images/profile_avatar.webp"
-                              }}
-                            />
+                            {customer.profileImage ? (
+                              <img
+                                src={customer.profileImage}
+                                alt={customer.name}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = "none"
+                                }}
+                              />
+                            ) : (
+                              <span className="text-xs font-semibold">{getInitials(customer.name)}</span>
+                            )}
                           </div>
                           <span 
                             className="text-sm font-medium text-slate-900 cursor-pointer hover:text-blue-600 transition-colors"
@@ -537,25 +451,25 @@ export default function Customers() {
                           </span>
                         </div>
                       </td>
-                      <td className="px-3 py-4">
+                      <td className="px-6 py-4">
                         <div className="flex flex-col">
-                          <span className="text-sm text-slate-700">{customer.email || "NA"}</span>
+                          <span className="text-sm text-slate-700">{customer.email}</span>
                           <span className="text-xs text-slate-500">{customer.phone}</span>
                         </div>
                       </td>
-                      <td className="px-3 py-4 whitespace-nowrap">
+                      <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm text-slate-700">{customer.totalOrder || 0}</span>
                       </td>
-                      <td className="px-3 py-4 whitespace-nowrap">
-                        <span className="text-sm font-medium text-slate-900">{"\u20B9"} {(customer.totalOrderAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-sm font-medium text-slate-900">Rs. {(customer.totalOrderAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </td>
-                      <td className="px-3 py-4 whitespace-nowrap">
+                      <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm text-slate-700">{formatDateTime(customer.joiningDate)}</span>
                       </td>
-                      <td className="px-3 py-4 whitespace-nowrap">
+                      <td className="px-6 py-4 whitespace-nowrap">
                         <button
                           onClick={() => handleToggleStatus(customer.id || customer.sl)}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${customer.status ? "bg-green-600" : "bg-slate-300"
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${customer.status ? "bg-blue-600" : "bg-slate-300"
                             }`}
                         >
                           <span
@@ -564,21 +478,7 @@ export default function Customers() {
                           />
                         </button>
                       </td>
-                      {globalCodBlockedFeatureEnabled && (
-                        <td className="px-3 py-4 whitespace-nowrap">
-                          <button
-                            onClick={() => handleToggleCodStatus(customer.id || customer.sl || customer._id)}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 ${customer.isCodBlocked ? "bg-red-600" : "bg-slate-300"
-                              }`}
-                          >
-                            <span
-                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${customer.isCodBlocked ? "translate-x-6" : "translate-x-1"
-                                }`}
-                            />
-                          </button>
-                        </td>
-                      )}
-                      <td className="px-3 py-4 whitespace-nowrap text-center">
+                      <td className="px-6 py-4 whitespace-nowrap text-center">
                         <button
                           onClick={() => handleViewDetails(customer._id || customer.id || customer.sl)}
                           className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors"
@@ -593,96 +493,33 @@ export default function Customers() {
             </table>
           </div>
 
-          {/* Pagination Controls */}
-          {totalCustomers > 0 && (
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-100 bg-white px-4 py-4 sm:px-6 mt-4">
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-500 font-medium">Rows per page:</span>
-                <select
-                  value={pageSize}
-                  onChange={(e) => {
-                    const size = Number(e.target.value)
-                    setPageSize(size)
-                    localStorage.setItem('admin_customers_pageSize', size)
-                    setCurrentPage(1)
-                  }}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400 cursor-pointer shadow-sm"
-                >
-                  <option value={10}>10</option>
-                  <option value={20}>20</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                </select>
-              </div>
-
-              <div className="flex flex-1 justify-between sm:hidden w-full">
+          {!loading && totalCustomers > PAGE_SIZE && !filters.chooseFirst ? (
+            <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-200 pt-4">
+              <p className="text-sm text-slate-600">
+                Page {page} of {totalPages}
+              </p>
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-                  disabled={currentPage === 1}
-                  className="relative inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors"
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-slate-200 text-sm disabled:opacity-50 hover:bg-slate-50"
                 >
+                  <ChevronLeft className="w-4 h-4" />
                   Previous
                 </button>
                 <button
-                  onClick={() => setCurrentPage((prev) => Math.min(prev + 1, Math.ceil(totalCustomers / pageSize)))}
-                  disabled={currentPage >= Math.ceil(totalCustomers / pageSize)}
-                  className="relative ml-3 inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors"
+                  type="button"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-slate-200 text-sm disabled:opacity-50 hover:bg-slate-50"
                 >
                   Next
+                  <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
-
-              <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between w-full">
-                <div className="pl-4">
-                  <p className="text-sm text-slate-600">
-                    Showing <span className="font-semibold text-slate-900">{Math.min(totalCustomers, (currentPage - 1) * pageSize + 1)}</span> to{" "}
-                    <span className="font-semibold text-slate-900">{Math.min(totalCustomers, currentPage * pageSize)}</span> of{" "}
-                    <span className="font-semibold text-slate-900">{totalCustomers}</span> customers
-                  </p>
-                </div>
-                <div>
-                  <nav className="isolate inline-flex -space-x-px rounded-md shadow-sm gap-1" aria-label="Pagination">
-                    <button
-                      onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-                      disabled={currentPage === 1}
-                      className="relative inline-flex items-center rounded-md px-2.5 py-1.5 text-slate-500 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 transition-colors"
-                    >
-                      &lt;
-                    </button>
-                    {Array.from({ length: Math.ceil(totalCustomers / pageSize) }, (_, i) => i + 1)
-                      .filter(page => page === 1 || page === Math.ceil(totalCustomers / pageSize) || (page >= currentPage - 2 && page <= currentPage + 2))
-                      .map((page, index, arr) => {
-                        const showEllipsisBefore = index > 0 && page - arr[index - 1] > 1;
-                        return (
-                          <React.Fragment key={page}>
-                            {showEllipsisBefore && (
-                              <span className="px-3 py-1.5 text-slate-400 text-sm">...</span>
-                            )}
-                            <button
-                              onClick={() => setCurrentPage(page)}
-                              className={`relative inline-flex items-center px-3.5 py-1.5 text-sm font-semibold rounded-md transition-colors ${
-                                currentPage === page
-                                  ? "bg-slate-900 text-white"
-                                  : "text-slate-700 border border-slate-200 hover:bg-slate-50"
-                              }`}
-                            >
-                              {page}
-                            </button>
-                          </React.Fragment>
-                        );
-                      })}
-                    <button
-                      onClick={() => setCurrentPage((prev) => Math.min(prev + 1, Math.ceil(totalCustomers / pageSize)))}
-                      disabled={currentPage >= Math.ceil(totalCustomers / pageSize)}
-                      className="relative inline-flex items-center rounded-md px-2.5 py-1.5 text-slate-500 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 transition-colors"
-                    >
-                      &gt;
-                    </button>
-                  </nav>
-                </div>
-              </div>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -702,17 +539,12 @@ export default function Customers() {
               {/* Profile Section */}
               <div className="bg-slate-50 rounded-xl p-4 sm:p-5">
                 <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-                  <div 
-                    className="w-16 h-16 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden border border-slate-200"
-                    style={{ background: 'linear-gradient(135deg, #E8EEF7 0%, #C5D3E5 100%)' }}
-                  >
-                    <img
-                      src={userDetails.profileImage || "/assets/images/profile_avatar.webp"}
-                      alt={userDetails.name}
-                      className="w-full h-full rounded-full object-cover"
-                      style={{ mixBlendMode: 'multiply' }}
-                      onError={(e) => { e.currentTarget.src = "/assets/images/profile_avatar.webp" }}
-                    />
+                  <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center flex-shrink-0">
+                    {userDetails.profileImage ? (
+                      <img src={userDetails.profileImage} alt={userDetails.name} className="w-full h-full rounded-full object-cover"  loading="lazy" decoding="async" />
+                    ) : (
+                      <User className="w-8 h-8 text-slate-400" />
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2 mb-2">
@@ -732,7 +564,7 @@ export default function Customers() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
                       <div className="flex items-center gap-2 text-sm text-slate-600 min-w-0">
                         <Mail className="w-4 h-4" />
-                        <span className="truncate">{userDetails.email || "NA"}</span>
+                        <span className="truncate">{userDetails.email}</span>
                       </div>
                       <div className="flex items-center gap-2 text-sm text-slate-600 min-w-0">
                         <Phone className="w-4 h-4" />
@@ -765,7 +597,7 @@ export default function Customers() {
                     <span className="text-xs font-semibold text-slate-700">Total Spent</span>
                   </div>
                   <p className="text-xl font-bold text-green-600">
-                    {"\u20B9"}{(userDetails.totalOrderAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    Rs. {(userDetails.totalOrderAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 </div>
                 <div className="bg-purple-50 rounded-lg p-3">
@@ -823,7 +655,7 @@ export default function Customers() {
                           <p className="text-xs text-slate-600">{order.restaurantName}</p>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-semibold text-slate-900">{"\u20B9"}{(order.total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                          <p className="text-sm font-semibold text-slate-900">Rs. {(order.total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                           <p className="text-xs text-slate-600 capitalize">{order.status}</p>
                         </div>
                       </div>

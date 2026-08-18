@@ -32,14 +32,14 @@ const CategoryList = ({ loading, categories, onCategoryClick }) => {
               onClick={() => onCategoryClick(category)}
               className="flex-shrink-0 flex flex-col items-center gap-2 sm:gap-3 cursor-pointer group"
             >
-              <div className="relative w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 lg:w-28 lg:h-28 rounded-full bg-white dark:bg-[#1a1a1a] shadow-md group-hover:shadow-xl transition-all duration-300 p-1 ring-2 ring-transparent group-hover:ring-[#DC2626]/20 overflow-hidden">
+              <div className="relative w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 lg:w-28 lg:h-28 rounded-full bg-white dark:bg-[#1a1a1a] shadow-md group-hover:shadow-xl transition-all duration-300 p-1 ring-2 ring-transparent group-hover:ring-primary-orange/20 overflow-hidden">
                 <OptimizedImage
                   src={category.image}
                   alt={category.name}
                   className="w-full h-full object-cover rounded-full"
                 />
               </div>
-              <span className="text-[10px] sm:text-xs md:text-sm font-semibold text-gray-700 dark:text-gray-300 group-hover:text-[#DC2626] text-center whitespace-normal max-w-[80px] sm:max-w-[100px] leading-tight line-clamp-2 transition-colors duration-300">
+              <span className="text-xs sm:text-sm md:text-base font-bold text-gray-800 dark:text-gray-200 group-hover:text-primary-orange text-center whitespace-normal max-w-[84px] sm:max-w-[100px] leading-tight line-clamp-2 transition-colors duration-300">
                 {category.name}
               </span>
             </motion.div>

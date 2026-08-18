@@ -9,7 +9,6 @@ import { Button } from "@food/components/ui/button"
 import { Badge } from "@food/components/ui/badge"
 import { useOrders } from "@food/context/OrdersContext"
 import { useCompanyName } from "@food/hooks/useCompanyName"
-import { orderAPI } from "@food/api"
 
 export default function OrderInvoice() {
   const companyName = useCompanyName()
@@ -46,7 +45,7 @@ export default function OrderInvoice() {
     return (
       <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a] p-4">
         <div className="max-w-4xl mx-auto text-center py-20">
-          <div className="w-8 h-8 border-2 border-[#DC2626] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <div className="w-8 h-8 border-2 border-[#EB590E] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <p className="text-muted-foreground">Generating invoice...</p>
         </div>
       </AnimatedPage>
@@ -93,14 +92,14 @@ export default function OrderInvoice() {
               color: #333;
             }
             .invoice-header {
-              border-bottom: 2px solid #DC2626;
+              border-bottom: 2px solid #EB590E;
               padding-bottom: 20px;
               margin-bottom: 30px;
             }
             .invoice-title {
               font-size: 32px;
               font-weight: bold;
-              color: #DC2626;
+              color: #EB590E;
               margin-bottom: 10px;
             }
             .invoice-details {
@@ -137,8 +136,8 @@ export default function OrderInvoice() {
             .grand-total {
               font-size: 24px;
               font-weight: bold;
-              color: #DC2626;
-              border-top: 2px solid #DC2626;
+              color: #EB590E;
+              border-top: 2px solid #EB590E;
               padding-top: 10px;
             }
             @media print {
@@ -190,7 +189,7 @@ export default function OrderInvoice() {
               </Button>
               <Button
                 onClick={handleDownloadPDF}
-                className="bg-[#DC2626] hover:bg-[#991B1B] flex items-center gap-2 text-xs sm:text-sm h-9 sm:h-10"
+                className="bg-[#EB590E] hover:bg-[#D94F0C] flex items-center gap-2 text-xs sm:text-sm h-9 sm:h-10"
               >
                 <Download className="h-3 w-3 sm:h-4 sm:w-4 text-white" />
                 <span className="hidden sm:inline text-white">Download PDF</span>
@@ -206,15 +205,15 @@ export default function OrderInvoice() {
               {/* Invoice Header */}
               <div className="invoice-header">
                 <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
-                  <FileText className="h-6 w-6 sm:h-8 sm:w-8 text-[#DC2626]" />
-                  <h2 className="invoice-title text-xl sm:text-2xl md:text-3xl text-[#DC2626] font-bold">INVOICE</h2>
+                  <FileText className="h-6 w-6 sm:h-8 sm:w-8 text-[#EB590E]" />
+                  <h2 className="invoice-title text-xl sm:text-2xl md:text-3xl text-[#EB590E] font-bold">INVOICE</h2>
                 </div>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0">
                   <div>
                     <p className="text-xs sm:text-sm text-muted-foreground">{companyName}</p>
                     <p className="text-xs sm:text-sm text-muted-foreground">Food Delivery Platform</p>
                   </div>
-                  <Badge className="bg-[#DC2626] text-white text-sm sm:text-base md:text-lg px-3 sm:px-4 py-1.5 sm:py-2 w-fit">
+                  <Badge className="bg-[#EB590E] text-white text-sm sm:text-base md:text-lg px-3 sm:px-4 py-1.5 sm:py-2 w-fit">
                     {order.status.toUpperCase()}
                   </Badge>
                 </div>
@@ -223,60 +222,60 @@ export default function OrderInvoice() {
               {/* Invoice Details */}
               <div className="invoice-details grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 md:gap-8 mt-4 sm:mt-6">
                 <div>
-                  <h3 className="font-bold mb-2 text-sm sm:text-base dark:text-gray-100">Bill To:</h3>
-                  <p className="text-xs sm:text-sm dark:text-gray-300">{order.address?.street}</p>
+                  <h3 className="font-bold mb-2 text-sm sm:text-base">Bill To:</h3>
+                  <p className="text-xs sm:text-sm">{order.address?.street}</p>
                   {order.address?.additionalDetails && (
-                    <p className="text-xs sm:text-sm dark:text-gray-300">{order.address.additionalDetails}</p>
+                    <p className="text-xs sm:text-sm">{order.address.additionalDetails}</p>
                   )}
-                  <p className="text-xs sm:text-sm dark:text-gray-300">
+                  <p className="text-xs sm:text-sm">
                     {order.address?.city}, {order.address?.state} {order.address?.zipCode}
                   </p>
                 </div>
                 <div className="text-left sm:text-right">
-                  <h3 className="font-bold mb-2 text-sm sm:text-base dark:text-gray-100">Invoice Details:</h3>
-                  <p className="text-xs sm:text-sm dark:text-gray-300"><strong>Invoice #:</strong> {order.id}</p>
-                  <p className="text-xs sm:text-sm dark:text-gray-300"><strong>Date:</strong> {formatDate(order.createdAt)}</p>
-                  <p className="text-xs sm:text-sm dark:text-gray-300"><strong>Payment:</strong> {order.paymentMethod?.type?.toUpperCase() || "Card"}</p>
+                  <h3 className="font-bold mb-2 text-sm sm:text-base">Invoice Details:</h3>
+                  <p className="text-xs sm:text-sm"><strong>Invoice #:</strong> {order.id}</p>
+                  <p className="text-xs sm:text-sm"><strong>Date:</strong> {formatDate(order.createdAt)}</p>
+                  <p className="text-xs sm:text-sm"><strong>Payment:</strong> {order.paymentMethod?.type?.toUpperCase() || "Card"}</p>
                 </div>
               </div>
 
               {/* Items Table */}
               <div className="invoice-items mt-4 sm:mt-6">
-                <h3 className="font-bold mb-3 sm:mb-4 text-sm sm:text-base dark:text-gray-100">Order Items:</h3>
+                <h3 className="font-bold mb-3 sm:mb-4 text-sm sm:text-base">Order Items:</h3>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-xs sm:text-sm dark:text-gray-300">
+                  <table className="w-full text-xs sm:text-sm">
                     <thead>
-                      <tr className="border-b dark:border-gray-800">
-                        <th className="px-2 sm:px-3 py-2 text-left dark:text-gray-200">Item</th>
-                        <th className="px-2 sm:px-3 py-2 text-center hidden sm:table-cell dark:text-gray-200">Quantity</th>
-                        <th className="px-2 sm:px-3 py-2 text-right hidden md:table-cell dark:text-gray-200">Unit Price</th>
-                        <th className="px-2 sm:px-3 py-2 text-right dark:text-gray-200">Total</th>
+                      <tr>
+                        <th className="px-2 sm:px-3 py-2 text-left">Item</th>
+                        <th className="px-2 sm:px-3 py-2 text-center hidden sm:table-cell">Quantity</th>
+                        <th className="px-2 sm:px-3 py-2 text-right hidden md:table-cell">Unit Price</th>
+                        <th className="px-2 sm:px-3 py-2 text-right">Total</th>
                       </tr>
                     </thead>
                     <tbody>
                       {order.items.map((item) => (
-                        <tr key={item.id} className="border-b dark:border-gray-800">
+                        <tr key={item.id} className="border-b">
                           <td className="px-2 sm:px-3 py-2 sm:py-3">
                             <div className="flex items-center gap-2 sm:gap-3">
                               <img
                                 src={item.image}
                                 alt={item.name}
                                 className="w-8 h-8 sm:w-12 sm:h-12 object-cover rounded flex-shrink-0"
-                              />
+                               loading="lazy" decoding="async" />
                               <div className="min-w-0 flex-1">
-                                <span className="font-medium block dark:text-gray-100">{item.name}</span>
+                                <span className="font-medium block">{item.name}</span>
                                 {item.variantName ? (
-                                  <span className="text-xs text-gray-500 dark:text-gray-400">{item.variantName}</span>
+                                  <span className="text-xs text-gray-500">{item.variantName}</span>
                                 ) : null}
                                 <span className="text-muted-foreground sm:hidden text-xs">
-                                  Qty: {item.quantity} × ₹{item.price.toFixed(2)}
+                                  Qty: {item.quantity} � ${item.price.toFixed(2)}
                                 </span>
                               </div>
                             </div>
                           </td>
-                          <td className="px-2 sm:px-3 py-2 sm:py-3 text-center hidden sm:table-cell dark:text-gray-100">{item.quantity}</td>
-                          <td className="px-2 sm:px-3 py-2 sm:py-3 text-right hidden md:table-cell dark:text-gray-100">₹{item.price.toFixed(2)}</td>
-                          <td className="px-2 sm:px-3 py-2 sm:py-3 text-right font-medium dark:text-gray-100">₹{(item.price * item.quantity).toFixed(2)}</td>
+                          <td className="px-2 sm:px-3 py-2 sm:py-3 text-center hidden sm:table-cell">{item.quantity}</td>
+                          <td className="px-2 sm:px-3 py-2 sm:py-3 text-right hidden md:table-cell">${item.price.toFixed(2)}</td>
+                          <td className="px-2 sm:px-3 py-2 sm:py-3 text-right font-medium">${(item.price * item.quantity).toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -286,44 +285,28 @@ export default function OrderInvoice() {
 
               {/* Total Section */}
               <div className="total-section mt-4 sm:mt-6">
-                <div className="total-row flex justify-between text-xs sm:text-sm sm:text-base py-1 sm:py-2 dark:text-gray-300">
+                <div className="total-row flex justify-between text-xs sm:text-sm sm:text-base py-1 sm:py-2">
                   <span>Subtotal:</span>
-                  <span>₹{order.subtotal.toFixed(2)}</span>
+                  <span>${order.subtotal.toFixed(2)}</span>
                 </div>
-                {order.packagingFee > 0 && (
-                  <div className="total-row flex justify-between text-xs sm:text-sm sm:text-base py-1 sm:py-2 dark:text-gray-300">
-                    <span>Packaging Fee:</span>
-                    <span>₹{order.packagingFee.toFixed(2)}</span>
-                  </div>
-                )}
-                {order.platformFee > 0 && (
-                  <div className="total-row flex justify-between text-xs sm:text-sm sm:text-base py-1 sm:py-2 dark:text-gray-300">
-                    <span>Platform Fee:</span>
-                    <span>₹{order.platformFee.toFixed(2)}</span>
-                  </div>
-                )}
-                <div className="total-row flex justify-between text-xs sm:text-sm sm:text-base py-1 sm:py-2 dark:text-gray-300">
+                <div className="total-row flex justify-between text-xs sm:text-sm sm:text-base py-1 sm:py-2">
                   <span>Delivery Fee:</span>
-                  <span>₹{order.deliveryFee.toFixed(2)}</span>
+                  <span>${order.deliveryFee.toFixed(2)}</span>
                 </div>
-                <div className="total-row flex justify-between text-xs sm:text-sm sm:text-base py-1 sm:py-2 dark:text-gray-300">
-                  <span>GST:</span>
-                  <span>₹{order.tax.toFixed(2)}</span>
+                <div className="total-row flex justify-between text-xs sm:text-sm sm:text-base py-1 sm:py-2">
+                  <span>Tax:</span>
+                  <span>${order.tax.toFixed(2)}</span>
                 </div>
-                <div className="total-row flex justify-between text-xs sm:text-sm sm:text-base py-1 sm:py-2 text-green-600 dark:text-green-400">
-                  <span>Discount:</span>
-                  <span>{order.discount > 0 ? '' : ''}₹{Math.abs(order.discount).toFixed(2)}</span>
-                </div>
-                <div className="grand-total flex justify-between text-base sm:text-lg md:text-xl md:text-2xl pt-2 sm:pt-3 mt-2 sm:mt-3 border-t-2 border-[#DC2626] dark:text-gray-100">
+                <div className="grand-total flex justify-between text-base sm:text-lg md:text-xl md:text-2xl pt-2 sm:pt-3 mt-2 sm:mt-3 border-t-2 border-[#EB590E]">
                   <span>Total:</span>
-                  <span>₹{order.total.toFixed(2)}</span>
+                  <span>${order.total.toFixed(2)}</span>
                 </div>
               </div>
 
               {/* Footer */}
-              <div className="mt-6 sm:mt-8 pt-4 sm:pt-6 border-t dark:border-gray-800 text-center text-xs sm:text-sm text-muted-foreground">
-                <p className="dark:text-gray-400">Thank you for your order!</p>
-                <p className="mt-1 sm:mt-2 dark:text-gray-400">For any queries, please contact our support team.</p>
+              <div className="mt-6 sm:mt-8 pt-4 sm:pt-6 border-t text-center text-xs sm:text-sm text-muted-foreground">
+                <p>Thank you for your order!</p>
+                <p className="mt-1 sm:mt-2">For any queries, please contact our support team.</p>
               </div>
             </CardContent>
           </Card>

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react"
-import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import { ChevronLeft, Loader2, Send } from "lucide-react"
 import { restaurantAPI } from "@food/api"
@@ -35,7 +34,6 @@ const getStatusStyle = (status) => {
 }
 
 export default function RestaurantSupport() {
-  const navigate = useNavigate()
   const goBack = useRestaurantBackNavigation()
   const [tickets, setTickets] = useState([])
   const [loading, setLoading] = useState(true)
@@ -107,45 +105,45 @@ export default function RestaurantSupport() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      <div className="sticky top-0 z-40 bg-white border-b border-slate-200">
-        <div className="px-4 py-3 flex items-center gap-3">
+    <div className="min-h-screen bg-slate-50 flex flex-col md:min-h-full md:h-full md:overflow-hidden md:pb-8">
+      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200 shrink-0">
+        <div className="px-4 py-3 flex items-center gap-3 md:max-w-6xl md:mx-auto md:px-8 md:py-5 md:w-full">
           <button
             onClick={goBack}
-            className="p-1 hover:bg-slate-100 rounded-full transition-colors"
+            className="p-1 hover:bg-slate-100 rounded-full transition-colors md:hidden"
             aria-label="Go back"
           >
             <ChevronLeft className="w-6 h-6 text-slate-900" />
           </button>
           <div>
-            <h1 className="text-lg font-bold text-slate-900">Support</h1>
-            <p className="text-xs text-slate-500">Raise issue and track admin response</p>
+            <h1 className="text-lg font-bold text-slate-900 md:text-2xl">Support</h1>
+            <p className="text-xs text-slate-500 md:text-sm">Raise issue and track admin response</p>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 pb-28">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <div className="rounded-xl border border-slate-200 bg-white p-3">
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 pb-28 md:min-h-0 md:max-w-6xl md:mx-auto md:px-8 md:py-6 md:pb-8 md:w-full md:grid md:grid-cols-2 md:gap-6 md:items-start md:space-y-0">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 md:col-span-2">
+          <div className="rounded-xl border border-slate-200 bg-white p-3 md:p-4 md:shadow-sm">
             <p className="text-xs text-slate-500">Total</p>
-            <p className="text-lg font-bold text-slate-900">{stats.total}</p>
+            <p className="text-lg font-bold text-slate-900 md:text-xl">{stats.total}</p>
           </div>
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 md:p-4">
             <p className="text-xs text-amber-700">Open</p>
-            <p className="text-lg font-bold text-amber-800">{stats.open}</p>
+            <p className="text-lg font-bold text-amber-800 md:text-xl">{stats.open}</p>
           </div>
-          <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 md:p-4">
             <p className="text-xs text-blue-700">In progress</p>
-            <p className="text-lg font-bold text-blue-800">{stats.inProgress}</p>
+            <p className="text-lg font-bold text-blue-800 md:text-xl">{stats.inProgress}</p>
           </div>
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 md:p-4">
             <p className="text-xs text-emerald-700">Resolved</p>
-            <p className="text-lg font-bold text-emerald-800">{stats.resolved}</p>
+            <p className="text-lg font-bold text-emerald-800 md:text-xl">{stats.resolved}</p>
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
-          <h2 className="text-sm font-bold text-slate-900">Raise support ticket</h2>
+        <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3 md:p-6 md:shadow-sm">
+          <h2 className="text-sm font-bold text-slate-900 md:text-base">Raise support ticket</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <select
               value={form.category}
@@ -195,22 +193,26 @@ export default function RestaurantSupport() {
             value={form.description}
             onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
             placeholder="Describe your issue"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm min-h-24 resize-none"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm min-h-24 resize-none md:min-h-32"
             maxLength={1000}
           />
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-xl bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-[#6a2f56] text-white py-4 text-sm font-bold disabled:opacity-60 flex items-center justify-center gap-2 shadow-lg shadow-[#B80B3D]/20 transition-all active:scale-[0.98]"
+            className="w-full rounded-lg text-white py-2.5 text-sm font-semibold disabled:opacity-60 flex items-center justify-center gap-2"
+            style={{
+              background: "linear-gradient(135deg, rgba(var(--module-theme-rgb,37,99,235),0.9), var(--module-theme-color,#2563EB))",
+              boxShadow: "0 8px 18px rgba(var(--module-theme-rgb,37,99,235),0.25)",
+            }}
           >
             {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             Submit Ticket
           </button>
         </form>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3 md:p-6 md:shadow-sm md:max-h-[calc(100vh-16rem)] md:overflow-y-auto">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-sm font-bold text-slate-900">My tickets</h2>
+            <h2 className="text-sm font-bold text-slate-900 md:text-base">My tickets</h2>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
@@ -236,7 +238,7 @@ export default function RestaurantSupport() {
           ) : (
             <div className="space-y-3">
               {tickets.map((ticket) => (
-                <div key={ticket._id} className="rounded-xl border border-slate-200 p-3">
+                <div key={ticket._id} className="rounded-xl border border-slate-200 p-3 md:p-4 hover:border-slate-300 transition-colors">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-xs font-semibold text-slate-500">
                       #{String(ticket._id).slice(-6)} • {new Date(ticket.createdAt).toLocaleString()}
@@ -275,13 +277,10 @@ export default function RestaurantSupport() {
           )}
         </div>
       </div>
+
+      <div className="md:hidden">
+        <BottomNavOrders />
+      </div>
     </div>
   )
 }
-
-
-
-
-
-
-

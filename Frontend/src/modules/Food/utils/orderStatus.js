@@ -18,6 +18,47 @@ export const ORDER_STATUS = {
 }
 
 /**
+ * Human-readable labels for raw backend order statuses, used by
+ * order-timeline views (restaurant OrderDetailPage, admin ViewOrderDialog).
+ */
+export const STATUS_TIMELINE_LABELS = {
+  pending_payment: "Awaiting Payment",
+  created: "Order Placed",
+  confirmed: "Order Accepted",
+  preparing: "Preparing",
+  ready_for_pickup: "Ready for Pickup",
+  reached_pickup: "Rider at Restaurant",
+  picked_up: "Picked Up",
+  reached_drop: "Rider at Doorstep",
+  delivered: "Delivered",
+  cancelled_by_user: "Cancelled by Customer",
+  cancelled_by_restaurant: "Cancelled by Restaurant",
+  cancelled_by_admin: "Cancelled by Admin",
+}
+
+export const getTimelineStatusLabel = (status) => {
+  const key = String(status || "").toLowerCase().trim()
+  if (!key) return "Updated"
+  return (
+    STATUS_TIMELINE_LABELS[key] ||
+    key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  )
+}
+
+const TIMELINE_ROLE_LABELS = {
+  USER: "Customer",
+  RESTAURANT: "Restaurant",
+  DELIVERY_PARTNER: "Delivery Partner",
+  ADMIN: "Admin",
+  SYSTEM: "System",
+}
+
+export const getTimelineRoleLabel = (role) => {
+  const key = String(role || "").toUpperCase().trim()
+  return TIMELINE_ROLE_LABELS[key] || key || ""
+}
+
+/**
  * Get order status from backend (No longer uses localStorage)
  * @param {string|number} orderId - The order ID
  * @returns {string} - The order status, defaults to "Pending"

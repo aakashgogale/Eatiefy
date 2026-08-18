@@ -1,29 +1,26 @@
-import { Link, useLocation as useRouterLocation } from "react-router-dom"
+import { Link } from "react-router-dom"
 import { useState, useEffect } from "react"
+import DynamicLogo from "@food/components/DynamicLogo"
 import { MapPin, ShoppingCart, Trophy } from "lucide-react"
 import { Button } from "@food/components/ui/button"
-import { Avatar, AvatarFallback, AvatarImage } from "@food/components/ui/avatar"
+import { Avatar, AvatarFallback } from "@food/components/ui/avatar"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@food/components/ui/dropdown-menu"
-import { useLocation } from "@food/hooks/useLocation"
+import { useDeliveryLocation } from "@food/context/DeliveryLocationContext"
 import { useCart } from "@food/context/CartContext"
 import { useLocationSelector } from "./UserLayout"
-import { useProfile } from "@food/context/ProfileContext"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
-import { isModuleAuthenticated } from "@food/utils/auth"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
 
 export default function Navbar() {
-  const routerLocation = useRouterLocation()
-  const { location, loading } = useLocation()
-  const { userProfile } = useProfile()
+  const { effectiveLocation: location, displayAddressText, loading } = useDeliveryLocation()
   const { getCartCount } = useCart()
   const { openLocationSelector } = useLocationSelector()
   const cartCount = getCartCount()
@@ -92,9 +89,9 @@ export default function Navbar() {
   const userPoints = 99
 
   return (
-    <nav className="z-50 w-full backdrop-blur-md bg-white/70 border-b border-gray-100 shadow-sm">
-      <div className="w-full px-4">
-        <div className="flex h-14 sm:h-16 items-center justify-between gap-2 sm:gap-3">
+    <nav className="z-50 w-full backdrop-blur-md bg-gradient-to-b from-page-bg/80 via-page-bg/50 to-page-bg/20 border-b border-gray-200/50">
+      <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8">
+        <div className="flex h-16 sm:h-18 md:h-20 items-center justify-between gap-2 sm:gap-3 md:gap-4">
           {/* Location Section */}
           <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
             {/* Location - 2 Row Layout */}
@@ -109,13 +106,15 @@ export default function Navbar() {
                 </span>
               ) : (
                 <div className="flex flex-col items-start w-full min-w-0">
-                  <span className="text-xs sm:text-sm flex flex-row items-center gap-1 font-bold text-left text-foreground truncate w-full">
+                  <span className="text-xs sm:text-sm flex flex-row items-center gap-1 font-semibold text-left text-foreground truncate w-full">
                     <MapPin className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-black flex-shrink-0" />
-                    {location?.area || location?.subLocality || location?.city || "Select Location"}
+                    {cityName}
                   </span>
-                  <span className="text-[10px] sm:text-xs text-muted-foreground pt-0.5 text-left truncate w-full">
-                    {[location?.state, location?.pincode].filter(Boolean).join(", ") || location?.city || "Location"}
-                  </span>
+                  {location?.state && (
+                    <span className="text-[10px] sm:text-xs text-black pt-1 text-left truncate w-full">
+                      {stateName}
+                    </span>
+                  )}
                 </div>
               )}
             </Button>
@@ -138,7 +137,7 @@ export default function Navbar() {
                 {companyName}
               </span>
             ) : (
-              <img src={quickSpicyLogo} alt="Logo" className="h-8 w-8 sm:h-10 sm:w-10 md:h-12 md:w-12 object-contain" />
+              <DynamicLogo module="user" fallback={null} alt="Logo" className="h-8 w-8 sm:h-10 sm:w-10 md:h-12 md:w-12 object-contain" />
             )}
           </Link>
 
@@ -150,21 +149,21 @@ export default function Navbar() {
 
 
               size="icon"
-              className="relative h-10 w-10 hover:bg-gray-100"
+              className="relative h-10 w-10 sm:h-11 sm:w-11 md:h-12 md:w-12 hover:bg-gray-100"
               title={`${userPoints} Points`}
             >
-              <Trophy className="h-5 w-5 text-primary" />
-              <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-primary text-white text-[10px] flex items-center justify-center font-bold shadow-sm">
+              <Trophy className="h-4 w-4 sm:h-5 sm:w-5 md:h-6 md:w-6 text-primary-orange dark:text-orange-400" />
+              <span className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 h-4 w-4 sm:h-5 sm:w-5 rounded-full bg-primary-orange text-white text-[10px] sm:text-xs flex items-center justify-center font-semibold">
                 {userPoints > 999 ? "999+" : userPoints}
               </span>
             </Button>
 
             {/* Cart */}
-            <Link to="/food/cart" state={{ from: routerLocation.pathname }}>
-              <Button variant="ghost" size="icon" className="relative h-10 w-10 hover:bg-gray-100">
-                <ShoppingCart className="h-5 w-5 text-gray-700" />
+            <Link to="/food/cart">
+              <Button variant="ghost" size="icon" className="relative h-10 w-10 sm:h-11 sm:w-11 md:h-12 md:w-12 hover:bg-gray-100">
+                <ShoppingCart className="h-4 w-4 sm:h-5 sm:w-5 md:h-6 md:w-6 dark:text-gray-300" />
                 {cartCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-primary text-white text-[10px] flex items-center justify-center font-bold shadow-sm">
+                  <span className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 h-4 w-4 sm:h-5 sm:w-5 rounded-full bg-primary-orange text-white text-[10px] sm:text-xs flex items-center justify-center font-semibold">
                     {cartCount > 99 ? "99+" : cartCount}
                   </span>
                 )}
@@ -174,35 +173,19 @@ export default function Navbar() {
             {/* Profile */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="rounded-full h-11 w-11 sm:h-12 sm:w-12 hover:bg-gray-100"
-                  onClick={(e) => {
-                    if (!isModuleAuthenticated('user')) {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      window.dispatchEvent(new CustomEvent('show-login-required'));
-                    }
-                  }}
-                >
-                  <Avatar className="h-10 w-10">
-                    <AvatarImage 
-                      src={userProfile?.profileImage || "/assets/images/profile_avatar.webp"} 
-                      alt="Profile" 
-                      className="object-cover"
-                    />
-                    <AvatarFallback className="bg-primary text-white text-xs">
-                      <img src="/assets/images/profile_avatar.webp" alt="Profile" className="object-cover w-full h-full" />
+                <Button variant="ghost" size="icon" className="rounded-full h-10 w-10 sm:h-11 sm:w-11 md:h-12 md:w-12 hover:bg-gray-100">
+                  <Avatar className="h-7 w-7 sm:h-8 sm:w-8 md:h-9 md:w-9">
+                    <AvatarFallback className="bg-primary-orange text-white text-xs sm:text-sm md:text-base">
+                      A
                     </AvatarFallback>
                   </Avatar>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
-                <Link to="/food/user/cart" state={{ from: routerLocation.pathname }}>
+                <Link to="/food/user/cart">
                   <DropdownMenuItem>YOUR CART</DropdownMenuItem>
                 </Link>
-                <Link to="/food/user/profile" state={{ from: routerLocation.pathname }}>
+                <Link to="/food/user/profile">
                   <DropdownMenuItem>Profile</DropdownMenuItem>
                 </Link>
                 <Link to="/food/user/orders">
@@ -214,7 +197,7 @@ export default function Navbar() {
                 <Link to="/food/user/help">
                   <DropdownMenuItem>Help</DropdownMenuItem>
                 </Link>
-                <Link to="/user/auth/login">
+                <Link to="/food/user/auth/login">
                   <DropdownMenuItem>Sign Out</DropdownMenuItem>
                 </Link>
               </DropdownMenuContent>

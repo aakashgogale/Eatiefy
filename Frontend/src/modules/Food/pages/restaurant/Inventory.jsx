@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react"
+import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   Search,
@@ -14,23 +14,25 @@ import {
   ChevronRight,
   X,
   ThumbsUp,
-  Pencil
+  Pencil,
+  FileUp,
+  Download,
+  AlertTriangle,
+  Check,
+  RefreshCw
 } from "lucide-react"
 import RestaurantNavbar from "@food/components/restaurant/RestaurantNavbar"
 import BottomNavOrders from "@food/components/restaurant/BottomNavOrders"
 import { Switch } from "@food/components/ui/switch"
 import { useNavigate } from "react-router-dom"
 import { restaurantAPI, uploadAPI } from "@food/api"
+import { isFlutterBridgeAvailable, openGallery } from "@food/utils/imageUploadUtils"
 import { toast } from "sonner"
-import { openGallery } from "@food/utils/imageUploadUtils"
-import dishFallbackImage from "@food/assets/dish_fallback.webp"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
-
 const INVENTORY_STORAGE_KEY = "restaurant_inventory_state"
-const INVENTORY_RECOMMENDED_KEY = "restaurant_inventory_recommended_map"
 const ADDON_FORM_STORAGE_KEY = "restaurant_addon_form_data"
 const INVENTORY_ACTIVE_TAB_KEY = "restaurant_inventory_active_tab"
 const INVENTORY_ADDON_FORM_KEY = "restaurant_inventory_addon_form"
@@ -53,6 +55,34 @@ const ADDON_FILTER_OPTIONS = [
   { value: "pending", label: "Pending" },
   { value: "rejected", label: "Rejected" },
 ]
+const ADDON_TYPE_OPTIONS = [
+  { value: "veg", label: "Veg" },
+  { value: "non-veg", label: "Non-veg" },
+]
+
+const applyStockRulesToCategories = (categories, stockRules) => {
+  const nowMs = Date.now()
+  return (categories || []).map((category) => {
+    const ruledItems = (category.items || []).map((item) => {
+      const rule = stockRules?.[String(item.id)] || null
+      const isActiveRule =
+        rule &&
+        (rule.mode === "manual" ||
+          (rule.resumeAt && new Date(rule.resumeAt).getTime() > nowMs))
+      if (!isActiveRule) {
+        return { ...item, stockRule: null }
+      }
+      return { ...item, inStock: false, isAvailable: false, stockRule: rule }
+    })
+
+    return {
+      ...category,
+      items: ruledItems,
+      itemCount: ruledItems.length,
+      inStock: ruledItems.length > 0 ? ruledItems.every((i) => i.inStock) : true,
+    }
+  })
+}
 
 const getApprovalDisplayMeta = (approvalStatus) => {
   const normalizedStatus = String(approvalStatus || "approved").toLowerCase()
@@ -570,7 +600,7 @@ function TimePickerWheel({
           <div className="border-t border-gray-200 px-4 py-4 flex justify-center">
             <button
               onClick={handleConfirm}
-              className="text-[#B80B3D] hover:text-blue-700 font-medium text-base transition-colors"
+              className="text-blue-600 hover:text-blue-700 font-medium text-base transition-colors"
             >
               Okay
             </button>
@@ -716,9 +746,9 @@ function SimpleCalendar({ selectedDate, onDateSelect, isOpen, onClose }) {
                     className={`h-10 text-sm rounded transition-colors ${!isCurrent
                         ? 'text-gray-300'
                         : isSelectedDate
-                          ? 'bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white'
+                          ? 'bg-black text-white'
                           : isTodayDate
-                            ? 'bg-[#f9f0f7] text-[#B80B3D] font-semibold'
+                            ? 'bg-gray-100 text-black font-semibold'
                             : 'text-gray-700 hover:bg-gray-100'
                       }`}
                   >
@@ -748,6 +778,7 @@ export default function Inventory() {
   const [searchQuery, setSearchQuery] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
   const [selectedFilter, setSelectedFilter] = useState("all")
+  const [activeDesktopCategory, setActiveDesktopCategory] = useState("all")
   const [isLoading, setIsLoading] = useState(false)
   const [loadingInventory, setLoadingInventory] = useState(false)
   const [categories, setCategories] = useState(() => {
@@ -768,8 +799,15 @@ export default function Inventory() {
   const [expandedCategories, setExpandedCategories] = useState([])
   const [togglePopupOpen, setTogglePopupOpen] = useState(false)
   const [toggleTarget, setToggleTarget] = useState(null)
-  const [isConfirming, setIsConfirming] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isAddPopupOpen, setIsAddPopupOpen] = useState(false)
+  const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false)
+  const [bulkUploadFile, setBulkUploadFile] = useState(null)
+  const [isUploading, setIsUploading] = useState(false)
+  const [bulkUploadResults, setBulkUploadResults] = useState(null)
+  const bulkFileInputRef = useRef(null)
+
+
   // Toggle popup state
   const [selectedOption, setSelectedOption] = useState("specific-time")
   const [hours, setHours] = useState(3)
@@ -778,6 +816,7 @@ export default function Inventory() {
   const [showCalendar, setShowCalendar] = useState(false)
   const [showTimePicker, setShowTimePicker] = useState(false)
   const [restaurantProfile, setRestaurantProfile] = useState(null)
+  const isPureVegRestaurant = restaurantProfile?.pureVegRestaurant === true
   const [stockRules, setStockRules] = useState(() => {
     try {
       if (typeof window === "undefined") return {}
@@ -805,23 +844,103 @@ export default function Inventory() {
   const [addons, setAddons] = useState([])
   const [loadingAddons, setLoadingAddons] = useState(false)
   const [isAddAddonOpen, setIsAddAddonOpen] = useState(false)
+
+  useEffect(() => {
+    if (!filterOpen) return undefined
+
+    window.history.pushState({ ...(window.history.state || {}), inventoryFilterOpen: true }, "")
+    const handlePopState = () => {
+      setFilterOpen(false)
+    }
+
+    window.addEventListener("popstate", handlePopState)
+    return () => {
+      window.removeEventListener("popstate", handlePopState)
+    }
+  }, [filterOpen])
+
+  // Bulk Upload Handlers
+  const handleDownloadTemplate = async () => {
+    try {
+      const response = await restaurantAPI.bulkUploadTemplate()
+      
+      // Explicitly set the MIME type for Excel files to ensure mobile webviews (like Flutter) 
+      // interpret the file extension correctly instead of defaulting to .txt
+      const blob = new Blob([response.data], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      })
+      
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', 'Bulk_Menu_Template.xlsx')
+      document.body.appendChild(link)
+      link.click()
+      
+      // Cleanup
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url)
+        link.remove()
+      }, 100)
+      
+      toast.success('Template downloaded successfully')
+    } catch (error) {
+      debugError('Error downloading template:', error)
+      toast.error('Failed to download template')
+    }
+  }
+
+  const handleBulkUpload = async () => {
+    if (!bulkUploadFile) {
+      toast.error('Please select an Excel file first')
+      return
+    }
+
+    try {
+      setIsUploading(true)
+      const response = await restaurantAPI.bulkUpload(bulkUploadFile)
+      
+      if (response.data && response.data.success) {
+        const results = response.data.data || {}
+        const normalizedErrors = Array.isArray(results.errors)
+          ? results.errors
+          : Array.isArray(results.details)
+            ? results.details
+            : []
+        const normalizedResults = { ...results, errors: normalizedErrors }
+        setBulkUploadResults(normalizedResults)
+        toast.info(`Processed ${normalizedResults.success + normalizedResults.failed} items`)
+        
+        // Refresh data in background without reloading the page
+        if (normalizedResults.success > 0) {
+            fetchMenuAndAddons()
+        }
+      }
+    } catch (error) {
+      debugError('Error uploading menu:', error)
+      toast.error(error?.response?.data?.message || 'Bulk upload failed')
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
+  const onBulkFileChange = (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error('File size exceeds 10MB limit')
+        return
+      }
+      setBulkUploadFile(file)
+    }
+  }
   const [addonName, setAddonName] = useState("")
   const [addonDescription, setAddonDescription] = useState("")
   const [addonPrice, setAddonPrice] = useState("")
+  const [addonFoodType, setAddonFoodType] = useState("veg")
   const [addonImageFile, setAddonImageFile] = useState(null)
   const [addonImagePreview, setAddonImagePreview] = useState("")
   const [savingAddon, setSavingAddon] = useState(false)
-  const [recommendedMap, setRecommendedMap] = useState(() => {
-    try {
-      if (typeof window === "undefined") return {}
-      const raw = localStorage.getItem(INVENTORY_RECOMMENDED_KEY)
-      const parsed = raw ? JSON.parse(raw) : {}
-      return parsed && typeof parsed === "object" ? parsed : {}
-    } catch (error) {
-      debugWarn("Failed to load recommended map:", error)
-      return {}
-    }
-  })
 
   // Inventory tabs
   const inventoryTabs = ["all-items", "add-ons"]
@@ -850,191 +969,121 @@ export default function Inventory() {
     fetchRestaurantProfile()
   }, [])
 
-  // Fetch menu items from API and convert to inventory format
-  useEffect(() => {
-    const fetchMenuData = async () => {
-      try {
-        setLoadingInventory(true)
-        
-        // Fetch menu from API
-        const menuResponse = await restaurantAPI.getMenu()
-        
-        if (menuResponse.data && menuResponse.data.success && menuResponse.data.data && menuResponse.data.data.menu) {
-          const menuSections = menuResponse.data.data.menu.sections || []
-          
-          // Convert menu sections to inventory categories
-          const convertedCategories = menuSections.map((section, sectionIndex) => {
-            // Collect all items from section and subsections
-            const allItems = []
-            
-            // Add direct items from section
-            if (Array.isArray(section.items)) {
-              section.items.forEach(item => {
-                  allItems.push({
-                  id: String(item.id || Date.now() + Math.random()),
-                  name: item.name || "Unnamed Item",
-                  description: item.description || "",
-                  image: item.image || "",
-                  images: item.image ? [item.image] : [],
-                  price: item.price ?? "",
-                  variants: Array.isArray(item.variants) ? item.variants : (Array.isArray(item.variations) ? item.variations : []),
-                  category: section.name || "",
-                  categoryId: section.categoryId || section.id || "",
-                  inStock: item.isAvailable !== undefined ? item.isAvailable : true,
-                  isAvailable: item.isAvailable !== undefined ? item.isAvailable : true,
-                  isVeg: item.foodType === "Veg",
-                  foodType: item.foodType || "Non-Veg",
-                  approvalStatus: String(item.approvalStatus || "approved").toLowerCase(),
-                  rejectionReason: item.rejectionReason || "",
-                  // Backend menu is generated from food_items and currently doesn't persist "recommended".
-                  // Keep as a local UI preference keyed by food item id, but respect backend if it provides it.
-                  isRecommended: Boolean(item.recommended === true || item.isRecommended === true || item.is_recommended === true || recommendedMap?.[String(item.id)]),
-                  stockQuantity: item.stock || "Unlimited",
-                  unit: item.itemSizeUnit || "piece",
-                  expiryDate: null,
-                  lastRestocked: null,
-                })
+  const stockRulesRef = useRef(stockRules)
+  stockRulesRef.current = stockRules
+
+  // Reusable fetch function — must NOT depend on stockRules (that caused refetch + stale overwrite on toggle)
+  const fetchMenuAndAddons = useCallback(async () => {
+    try {
+      setLoadingInventory(true)
+      setLoadingAddons(true)
+
+      const [menuResponse, addonsResponse] = await Promise.all([
+        restaurantAPI.getMenu(),
+        restaurantAPI.getAddons(),
+      ])
+
+      if (menuResponse.data && menuResponse.data.success && menuResponse.data.data && menuResponse.data.data.menu) {
+        const menuSections = menuResponse.data.data.menu.sections || []
+        const convertedCategories = menuSections.map((section, sectionIndex) => {
+          const allItems = []
+          if (Array.isArray(section.items)) {
+            section.items.forEach(item => {
+              allItems.push({
+                id: String(item.id || Date.now() + Math.random()),
+                name: item.name || "Unnamed Item",
+                description: item.description || "",
+                image: item.image || "",
+                images: item.image ? [item.image] : [],
+                price: item.price ?? "",
+                variants: Array.isArray(item.variants) ? item.variants : (Array.isArray(item.variations) ? item.variations : []),
+                category: section.name || "",
+                categoryId: section.categoryId || section.id || "",
+                inStock: item.isAvailable !== undefined ? item.isAvailable : true,
+                isAvailable: item.isAvailable !== undefined ? item.isAvailable : true,
+                isVeg: item.foodType === "Veg",
+                foodType: item.foodType || "Non-Veg",
+                approvalStatus: String(item.approvalStatus || "approved").toLowerCase(),
+                rejectionReason: item.rejectionReason || "",
+                isRecommended: item.isRecommended === true,
+                stockQuantity: item.stock || "Unlimited",
+                unit: item.itemSizeUnit || "piece",
               })
-            }
-            
-            // Add items from subsections
-            if (Array.isArray(section.subsections)) {
-              section.subsections.forEach(subsection => {
-                if (Array.isArray(subsection.items)) {
-                  subsection.items.forEach(item => {
+            })
+          }
+
+          if (Array.isArray(section.subsections)) {
+            section.subsections.forEach(subsection => {
+              if (Array.isArray(subsection.items)) {
+                subsection.items.forEach(item => {
                   allItems.push({
-                  id: String(item.id || Date.now() + Math.random()),
-                  name: item.name || "Unnamed Item",
-                  description: item.description || "",
-                  image: item.image || "",
-                  images: item.image ? [item.image] : [],
-                  price: item.price ?? "",
-                  variants: Array.isArray(item.variants) ? item.variants : (Array.isArray(item.variations) ? item.variations : []),
-                  category: section.name || subsection.name || "",
-                  categoryId: section.categoryId || section.id || "",
-                  inStock: item.isAvailable !== undefined ? item.isAvailable : true,
-                  isAvailable: item.isAvailable !== undefined ? item.isAvailable : true,
-                  isVeg: item.foodType === "Veg",
-                  foodType: item.foodType || "Non-Veg",
-                  approvalStatus: String(item.approvalStatus || "approved").toLowerCase(),
-                  rejectionReason: item.rejectionReason || "",
-                  isRecommended: Boolean(item.recommended === true || item.isRecommended === true || item.is_recommended === true || recommendedMap?.[String(item.id)]),
-                  stockQuantity: item.stock || "Unlimited",
-                  unit: item.itemSizeUnit || "piece",
-                  expiryDate: null,
-                  lastRestocked: null,
-                })
+                    id: String(item.id || Date.now() + Math.random()),
+                    name: item.name || "Unnamed Item",
+                    description: item.description || "",
+                    image: item.image || "",
+                    images: item.image ? [item.image] : [],
+                    price: item.price ?? "",
+                    variants: Array.isArray(item.variants) ? item.variants : (Array.isArray(item.variations) ? item.variations : []),
+                    category: section.name || subsection.name || "",
+                    categoryId: section.categoryId || section.id || "",
+                    inStock: item.isAvailable !== undefined ? item.isAvailable : true,
+                    isAvailable: item.isAvailable !== undefined ? item.isAvailable : true,
+                    isVeg: item.foodType === "Veg",
+                    foodType: item.foodType || "Non-Veg",
+                    approvalStatus: String(item.approvalStatus || "approved").toLowerCase(),
+                    rejectionReason: item.rejectionReason || "",
+                    isRecommended: item.isRecommended === true,
+                    stockQuantity: item.stock || "Unlimited",
+                    unit: item.itemSizeUnit || "piece",
                   })
-                }
-              })
-            }
-            
-            // Use category's isEnabled from menu API, not calculated from items
-            // Category toggle should be independent of item toggles
-            // Menu snapshots are disabled on backend; treat category toggle as derived from items (all in stock).
-            const categoryInStock = allItems.length > 0 ? allItems.every(i => i.inStock) : true
-            const itemCount = allItems.length
-            
-            return {
-              id: section.id || `category-${sectionIndex}`,
-              name: section.name || "Unnamed Category",
-              description: section.description || "",
-              itemCount: itemCount,
-              inStock: categoryInStock,
-              items: allItems,
-              order: section.order !== undefined ? section.order : sectionIndex,
-            }
-          })
-
-          const nowMs = Date.now()
-          const withStockRules = convertedCategories.map((category) => {
-            const ruledItems = (category.items || []).map((item) => {
-              const rule = stockRules?.[String(item.id)] || null
-              const isActiveRule =
-                rule &&
-                (rule.mode === "manual" ||
-                  (rule.resumeAt && new Date(rule.resumeAt).getTime() > nowMs))
-
-              if (!isActiveRule) return item
-              return {
-                ...item,
-                inStock: false,
-                isAvailable: false,
-                stockRule: rule,
+                })
               }
             })
+          }
 
-            return {
-              ...category,
-              items: ruledItems,
-              itemCount: ruledItems.length,
-              inStock: ruledItems.length > 0 ? ruledItems.every((item) => item.inStock) : true,
-            }
-          })
-          
-          setCategories(withStockRules)
-          setExpandedCategories(withStockRules.map(c => c.id))
-        } else {
-          // Empty menu - start fresh
-          setCategories([])
-          setExpandedCategories([])
-        }
-      } catch (error) {
-        // Only log and show toast if it's not a network/timeout error
-        if (error.code !== 'ERR_NETWORK' && error.code !== 'ECONNABORTED' && !error.message?.includes('timeout')) {
-        debugError('Error fetching menu data:', error)
-          toast.error('Failed to load menu data')
-        } else if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
-          // Silently handle network errors - backend is not running
-          // The axios interceptor already handles these with proper error messages
-        }
-        setCategories([])
-        setExpandedCategories([])
-      } finally {
-        setLoadingInventory(false)
+          const categoryInStock = allItems.length > 0 ? allItems.every(i => i.inStock) : true
+          return {
+            id: section.id || `category-${sectionIndex}`,
+            name: section.name || "Unnamed Category",
+            description: section.description || "",
+            itemCount: allItems.length,
+            inStock: categoryInStock,
+            items: allItems,
+            order: section.order !== undefined ? section.order : sectionIndex,
+          }
+        })
+
+        setCategories(applyStockRulesToCategories(convertedCategories, stockRulesRef.current))
+        setExpandedCategories(convertedCategories.map(c => c.id))
       }
-    }
-    
-    fetchMenuData()
-  }, [recommendedMap])
 
-  // Note: Menu items are now displayed from menu API
-  // Stock status updates should be managed through the menu API, not inventory API
-  // Auto-save disabled since we're displaying menu data, not inventory data
-
-  // Fetch add-ons when add-ons tab is active
-  const fetchAddons = async (showLoading = true) => {
-    try {
-      if (showLoading) setLoadingAddons(true)
-      const response = await restaurantAPI.getAddons()
-      const data = response?.data?.data?.addons || response?.data?.addons || []
-      const getAddonCreatedMs = (addon = {}) => {
-        const candidates = [addon.requestedAt, addon.createdAt, addon.updatedAt]
-          .map((v) => new Date(v).getTime())
-          .find((ms) => Number.isFinite(ms) && ms > 0)
-        if (candidates) return candidates
-        const rawId = String(addon.id || "")
-        const match = rawId.match(/\d{10,}/)
-        if (!match) return 0
-        const fromId = Number(match[0])
-        return Number.isFinite(fromId) ? fromId : 0
+      if (addonsResponse.data && addonsResponse.data.success) {
+        setAddons(addonsResponse.data.data.addons || [])
       }
-      const sortedAddons = [...data].sort((a, b) => getAddonCreatedMs(b) - getAddonCreatedMs(a))
-      setAddons(sortedAddons)
     } catch (error) {
-      debugError('Error fetching add-ons:', error)
-      toast.error('Failed to load add-ons')
-      setAddons([])
+      if (error.code !== 'ERR_NETWORK' && error.code !== 'ECONNABORTED' && !error.message?.includes('timeout')) {
+        debugError('Error fetching data:', error)
+        toast.error('Failed to load menu data')
+      }
     } finally {
-      if (showLoading) setLoadingAddons(false)
+      setLoadingInventory(false)
+      setLoadingAddons(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
-    if (activeTab === "add-ons") {
-      fetchAddons(true)
-    }
-  }, [activeTab])
+    fetchMenuAndAddons()
+  }, [fetchMenuAndAddons])
+
+  // Re-apply local stock rules when they change — without refetching menu from API
+  useEffect(() => {
+    setCategories((prev) => {
+      if (!prev.length) return prev
+      return applyStockRulesToCategories(prev, stockRules)
+    })
+  }, [stockRules])
+
+
 
   // Persist active tab
   useEffect(() => {
@@ -1054,6 +1103,7 @@ export default function Inventory() {
         setAddonName(parsed?.name || "")
         setAddonDescription(parsed?.description || "")
         setAddonPrice(parsed?.price || "")
+        setAddonFoodType(parsed?.foodType === "non-veg" ? "non-veg" : "veg")
         if (parsed?.isOpen) setIsAddAddonOpen(true)
         if (parsed?.preview) {
           setAddonImagePreview(parsed.preview)
@@ -1070,12 +1120,19 @@ export default function Inventory() {
         name: addonName,
         description: addonDescription,
         price: addonPrice,
+        foodType: addonFoodType,
         preview: addonImagePreview,
         isOpen: isAddAddonOpen
       }
       localStorage.setItem(INVENTORY_ADDON_FORM_KEY, JSON.stringify(payload))
     } catch {}
-  }, [addonName, addonDescription, addonPrice, addonImagePreview, isAddAddonOpen])
+  }, [addonName, addonDescription, addonPrice, addonFoodType, addonImagePreview, isAddAddonOpen])
+
+  useEffect(() => {
+    if (isPureVegRestaurant && addonFoodType !== "veg") {
+      setAddonFoodType("veg")
+    }
+  }, [isPureVegRestaurant, addonFoodType])
 
   const resetAddonForm = () => {
     if (addonImagePreview && addonImagePreview.startsWith("blob:")) {
@@ -1084,6 +1141,7 @@ export default function Inventory() {
     setAddonName("")
     setAddonDescription("")
     setAddonPrice("")
+    setAddonFoodType("veg")
     setAddonImageFile(null)
     setAddonImagePreview("")
     if (addonImageInputRef.current) {
@@ -1093,7 +1151,7 @@ export default function Inventory() {
     localStorage.removeItem(INVENTORY_ADDON_FORM_KEY)
   }
 
-  const processAddonImageFile = (file) => {
+  const handleAddonImageFileSelect = (file) => {
     if (!file) return
     const allowed = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/heic", "image/heif"]
     if (!allowed.includes(file.type)) {
@@ -1113,16 +1171,21 @@ export default function Inventory() {
   }
 
   const handleAddonImageSelect = (e) => {
-    processAddonImageFile(e.target.files?.[0])
+    const file = e.target.files?.[0]
+    handleAddonImageFileSelect(file)
     e.target.value = ""
   }
 
-  const handleAddonImagePick = () => {
-    openGallery({
-      onSelectFile: processAddonImageFile,
-      fileNamePrefix: "addon-image",
-      fallbackInputRef: addonImageInputRef,
-    })
+  const handleAddonGalleryPick = async () => {
+    if (isFlutterBridgeAvailable()) {
+      await openGallery({
+        onSelectFile: handleAddonImageFileSelect,
+        fileNamePrefix: "restaurant-addon-image",
+      })
+      return
+    }
+
+    addonImageInputRef.current?.click()
   }
 
   const handleSaveAddon = async () => {
@@ -1139,12 +1202,13 @@ export default function Inventory() {
     try {
       let imageUrl = ""
       if (addonImageFile) {
-        const uploadRes = await uploadAPI.uploadMedia(addonImageFile, { folder: "appzeto/restaurant/addons" })
+        const uploadRes = await uploadAPI.uploadMedia(addonImageFile, { folder: "eatiefy/restaurant/addons" })
         imageUrl = uploadRes?.data?.data?.url || uploadRes?.data?.url || ""
       }
       const payload = {
         name: addonName.trim(),
         description: addonDescription.trim(),
+        foodType: addonFoodType === "non-veg" ? "non-veg" : "veg",
         price: parsedPrice,
         image: imageUrl,
         images: imageUrl ? [imageUrl] : [],
@@ -1153,7 +1217,7 @@ export default function Inventory() {
       toast.success("Add-on submitted to admin for approval")
       resetAddonForm()
       setIsAddAddonOpen(false)
-      fetchAddons(true)
+      void fetchMenuAndAddons()
     } catch (error) {
       debugError("Error saving add-on:", error)
       toast.error(error?.response?.data?.message || "Failed to save add-on")
@@ -1335,8 +1399,21 @@ export default function Inventory() {
     }
 
     runExpiryCheck()
-    const intervalId = setInterval(runExpiryCheck, 15000)
-    return () => clearInterval(intervalId)
+    const guardedExpiryCheck = () => {
+      if (typeof document !== "undefined" && document.hidden) return
+      void runExpiryCheck()
+    }
+    const intervalId = setInterval(guardedExpiryCheck, 15000)
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        void runExpiryCheck()
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    return () => {
+      clearInterval(intervalId)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
   }, [stockRules])
 
   // Calculate total items
@@ -1345,30 +1422,16 @@ export default function Inventory() {
     [categories]
   )
 
-  const activeFilterOptions = useMemo(() => {
-    if (activeTab === "add-ons") return ADDON_FILTER_OPTIONS
-    const isPureVeg = restaurantProfile?.pureVegRestaurant === true
-    if (!isPureVeg) return MENU_FILTER_OPTIONS
-    // Pure-veg restaurants: hide veg/non-veg diet filters
-    return MENU_FILTER_OPTIONS.filter(
-      (option) => option.value !== "veg" && option.value !== "non-veg",
-    )
-  }, [activeTab, restaurantProfile?.pureVegRestaurant])
+  const activeFilterOptions = useMemo(
+    () => (activeTab === "add-ons" ? ADDON_FILTER_OPTIONS : MENU_FILTER_OPTIONS),
+    [activeTab]
+  )
 
   useEffect(() => {
     if (!activeFilterOptions.some((option) => option.value === selectedFilter)) {
       setSelectedFilter("all")
     }
   }, [activeFilterOptions, selectedFilter])
-
-  useEffect(() => {
-    if (
-      restaurantProfile?.pureVegRestaurant === true &&
-      (selectedFilter === "non-veg" || selectedFilter === "veg")
-    ) {
-      setSelectedFilter("all")
-    }
-  }, [restaurantProfile?.pureVegRestaurant, selectedFilter])
 
   const filterMenuItems = (items = [], filterValue = "all") => {
     if (filterValue === "all") return items
@@ -1505,28 +1568,35 @@ export default function Inventory() {
   }
 
   // Update menu API when category/item toggles change
-  const updateAvailabilityAPI = async (categoryId, itemId, isAvailable) => {
-    try {
-      if (!categoryId) return
-
-      // Backend source of truth is food_items. Update availability via /food/restaurant/foods/:id.
-      if (itemId) {
-        await restaurantAPI.updateFood(itemId, { isAvailable: Boolean(isAvailable) })
-        return
-      }
-
-      const category = categories.find((c) => c.id === categoryId)
-      const items = category?.items || []
-      // Bulk update all items in a category.
-      await Promise.all(
-        items.map((it) =>
-          restaurantAPI.updateFood(it.id, { isAvailable: Boolean(isAvailable) }),
-        ),
-      )
-    } catch (error) {
-      debugError('Error updating availability:', error)
-      toast.error(error?.response?.data?.message || 'Failed to update availability')
+  const buildAvailabilityPayload = (isAvailable, stockRule = null) => {
+    const payload = { isAvailable: Boolean(isAvailable) }
+    if (!isAvailable && stockRule) {
+      if (stockRule.mode) payload.stockOffMode = stockRule.mode
+      if (stockRule.resumeAt) payload.stockResumeAt = stockRule.resumeAt
+    } else if (isAvailable) {
+      payload.stockResumeAt = null
+      payload.stockOffMode = null
     }
+    return payload
+  }
+
+  const updateAvailabilityAPI = async (categoryId, itemId, isAvailable, stockRule = null) => {
+    const payload = buildAvailabilityPayload(isAvailable, stockRule)
+
+    if (itemId) {
+      await restaurantAPI.updateFood(itemId, payload)
+      return
+    }
+
+    if (!categoryId) return
+
+    const category = categories.find((c) => c.id === categoryId)
+    const items = category?.items || []
+    await Promise.all(
+      items.map((it) =>
+        restaurantAPI.updateFood(it.id, payload),
+      ),
+    )
   }
 
   const getTargetItemIds = (type, categoryId, itemId) => {
@@ -1545,7 +1615,19 @@ export default function Inventory() {
     if (nextChecked) {
       const targetItemIds = getTargetItemIds(type, categoryId, itemId)
 
-      // Turning ON - apply immediately without popup
+      // Turning ON - update API first so a background refetch cannot restore stale "off" state
+      try {
+        if (type === "category") {
+          await updateAvailabilityAPI(categoryId, null, true)
+        } else {
+          await updateAvailabilityAPI(categoryId, itemId, true)
+        }
+      } catch (error) {
+        debugError('Error updating availability:', error)
+        toast.error(error?.response?.data?.message || 'Failed to update availability')
+        return
+      }
+
       setCategories(prev =>
         prev.map(category => {
           if (category.id !== categoryId) return category
@@ -1570,8 +1652,6 @@ export default function Inventory() {
               ? { ...item, inStock: true, isAvailable: true, stockRule: null }
               : item
           )
-          // Don't automatically update category inStock when item is toggled
-          // Category toggle should be independent
           return {
             ...category,
             items: updatedItems,
@@ -1586,13 +1666,6 @@ export default function Inventory() {
         })
         return next
       })
-
-      // Update menu API
-      if (type === "category") {
-        await updateAvailabilityAPI(categoryId, null, true)
-      } else {
-        await updateAvailabilityAPI(categoryId, itemId, true)
-      }
       return
     }
 
@@ -1609,7 +1682,10 @@ export default function Inventory() {
 
   // Handle toggle confirm
   const handleToggleConfirm = async () => {
-    if (!toggleTarget || isConfirming) return
+    if (!toggleTarget) {
+      setTogglePopupOpen(false)
+      return
+    }
 
     const { type, categoryId, itemId } = toggleTarget
     const targetItemIds = getTargetItemIds(type, categoryId, itemId)
@@ -1632,11 +1708,6 @@ export default function Inventory() {
         return
       }
     }
-
-    // Close popup immediately to prevent double-clicks
-    setTogglePopupOpen(false)
-    setToggleTarget(null)
-    setIsConfirming(true)
 
     // Apply OFF state for item or category
     setCategories(prev =>
@@ -1663,6 +1734,8 @@ export default function Inventory() {
             ? { ...item, inStock: false, isAvailable: false, stockRule: nextRule }
             : item
         )
+        // Don't automatically update category inStock when item is toggled
+        // Category toggle should be independent
         return {
           ...category,
           items: updatedItems,
@@ -1681,13 +1754,18 @@ export default function Inventory() {
     // Update menu API
     try {
       if (type === "category") {
-        await updateAvailabilityAPI(categoryId, null, false)
+        await updateAvailabilityAPI(categoryId, null, false, nextRule)
       } else {
-        await updateAvailabilityAPI(categoryId, itemId, false)
+        await updateAvailabilityAPI(categoryId, itemId, false, nextRule)
       }
-    } finally {
-      setIsConfirming(false)
+    } catch (error) {
+      debugError('Error updating availability:', error)
+      toast.error(error?.response?.data?.message || 'Failed to update availability')
+      return
     }
+
+    setTogglePopupOpen(false)
+    setToggleTarget(null)
   }
 
   // Get category data for popup
@@ -1736,7 +1814,7 @@ export default function Inventory() {
     const item = category?.items.find(i => i.id === itemId)
     const newRecommendationStatus = !item?.isRecommended
 
-    // Update local state
+    // Update local state immediately for UI responsiveness
     setCategories(prev =>
       prev.map(category => {
         if (category.id !== categoryId) return category
@@ -1750,16 +1828,26 @@ export default function Inventory() {
       })
     )
 
-    // Persist local recommended preference (backend doesn't support it yet).
+    // Persist to backend
     try {
-      setRecommendedMap((prev) => {
-        const next = { ...(prev || {}) }
-        next[String(itemId)] = Boolean(newRecommendationStatus)
-        localStorage.setItem(INVENTORY_RECOMMENDED_KEY, JSON.stringify(next))
-        return next
-      })
+      await restaurantAPI.updateFood(itemId, { isRecommended: newRecommendationStatus })
+      toast.success(newRecommendationStatus ? "Marked as recommended" : "Removed from recommended")
     } catch (error) {
-      debugWarn("Failed to persist recommended state:", error)
+      debugError("Failed to update recommendation status:", error)
+      toast.error("Failed to update recommendation")
+      // Revert local state on error
+      setCategories(prev =>
+        prev.map(category => {
+          if (category.id !== categoryId) return category
+          const updatedItems = category.items.map(item =>
+            item.id === itemId ? { ...item, isRecommended: !newRecommendationStatus } : item
+          )
+          return {
+            ...category,
+            items: updatedItems,
+          }
+        })
+      )
     }
   }
 
@@ -1792,9 +1880,9 @@ export default function Inventory() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f3f5f8] flex flex-col">
-      {/* Navbar */}
-      <div className="sticky top-0 z-50 bg-white">
+    <div className="min-h-screen bg-[#f3f5f8] flex flex-col md:h-full md:overflow-hidden">
+      {/* Navbar - mobile only (component also hides on md+) */}
+      <div className="sticky top-0 z-50 bg-white md:hidden">
         <RestaurantNavbar
           showSearch={false}
           showOfflineOnlineTag={false}
@@ -1802,16 +1890,50 @@ export default function Inventory() {
         />
       </div>
 
+      {/* DESKTOP HEADER */}
+      <div className="hidden md:block border-b border-slate-200 bg-white shrink-0">
+        <div className="px-6 py-5 flex items-start justify-between gap-6">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Menu inventory</h1>
+            <p className="text-sm text-slate-500 mt-1">Manage dishes, stock, and add-ons</p>
+          </div>
+          <div className="flex items-center gap-6 text-sm">
+            <div className="text-right">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Categories</p>
+              <p className="text-lg font-bold text-slate-900">{categories.length}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Items</p>
+              <p className="text-lg font-bold text-slate-900">{categories.reduce((acc, cat) => acc + (cat.items?.length || 0), 0)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">In stock</p>
+              <p className="text-lg font-bold text-emerald-700">{categories.reduce((acc, cat) => acc + (cat.items?.filter(i => i.inStock)?.length || 0), 0)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Paused</p>
+              <p className="text-lg font-bold text-amber-700">{categories.reduce((acc, cat) => acc + (cat.items?.filter(i => !i.inStock)?.length || 0), 0)}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Tabs */}
-      <div className="bg-[#f3f5f8] px-4 pt-4 pb-4">
-        <div ref={tabBarRef} className="grid grid-cols-2 gap-3">
+      <div className="bg-[#f3f5f8] px-4 md:px-0 md:bg-white md:border-b md:border-slate-200 pt-4 pb-4 md:py-0 shrink-0">
+        <div className="md:px-6 md:py-4 flex md:items-center md:justify-between md:gap-6">
+        <div ref={tabBarRef} className="grid grid-cols-2 gap-3 md:inline-flex md:bg-slate-100 md:rounded-xl md:p-1 md:grid-cols-none md:gap-1 w-full md:w-auto">
           <motion.button
             onClick={() => setActiveTab("all-items")}
-            className={`relative overflow-hidden rounded-[24px] border px-4 py-3 text-sm font-semibold ${
+            className={`relative overflow-hidden rounded-[24px] md:rounded-xl border md:border-none px-5 py-4 md:py-2 text-sm font-semibold whitespace-nowrap ${
               activeTab === "all-items"
-                ? "border-[#B80B3D] text-white shadow-[0_18px_32px_-24px_rgba(126,56,102,0.6)]"
-                : "border-[#ead6e3] bg-white/90 text-[#6d6470] shadow-[0_16px_40px_-34px_rgba(109,100,112,0.35)]"
+                ? "text-white md:shadow-none"
+                : "border-white/80 bg-white/80 text-slate-700 shadow-[0_16px_40px_-34px_rgba(15,23,42,0.4)] md:bg-transparent md:shadow-none md:hover:bg-transparent"
             }`}
+            style={activeTab === "all-items" ? {
+              borderColor: "rgba(var(--module-theme-rgb, 37,99,235), 0.45)",
+              color: "var(--module-theme-color, #2563EB)",
+              boxShadow: "0 18px 32px -24px rgba(var(--module-theme-rgb, 37,99,235), 0.65)",
+            } : undefined}
             animate={{
               scale: activeTab === "all-items" ? 1.02 : 1,
             }}
@@ -1820,7 +1942,8 @@ export default function Inventory() {
             {activeTab === "all-items" && (
               <motion.div
                 layoutId="activeTabBackground"
-                className="absolute inset-0 rounded-[24px] bg-gradient-to-br from-[#B80B3D] to-[#66001D] -z-10"
+                className="absolute inset-0 rounded-[24px] md:rounded-xl -z-10 md:bg-white md:shadow-sm"
+                style={{ backgroundColor: "rgba(var(--module-theme-rgb, 37,99,235), 0.16)" }}
                 initial={false}
                 transition={{
                   type: "spring",
@@ -1829,11 +1952,15 @@ export default function Inventory() {
                 }}
               />
             )}
-            <span className="relative z-10 flex min-h-7 items-center justify-center gap-2 leading-none">
-              <span className="whitespace-nowrap">All items</span>
-              <span className={`inline-flex min-h-5 min-w-[24px] items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                activeTab === "all-items" ? "bg-white text-[#B80B3D]" : "bg-[#f6ecf3] text-[#6d6470]"
-              }`}>
+            <span className="relative z-10 flex items-center justify-center gap-2">
+              <span className="md:hidden">All items</span>
+              <span className="hidden md:inline">Menu Items</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                activeTab === "all-items" ? "" : "bg-slate-100 text-slate-600"
+              }`} style={activeTab === "all-items" ? {
+                backgroundColor: "rgba(var(--module-theme-rgb, 37,99,235), 0.14)",
+                color: "var(--module-theme-color, #2563EB)",
+              } : undefined}>
                 {totalItems}
               </span>
             </span>
@@ -1841,11 +1968,16 @@ export default function Inventory() {
 
           <motion.button
             onClick={() => setActiveTab("add-ons")}
-            className={`relative overflow-hidden rounded-[24px] border px-4 py-3 text-sm font-semibold ${
+            className={`relative overflow-hidden rounded-[24px] md:rounded-xl border md:border-none px-5 py-4 md:py-2 text-sm font-semibold whitespace-nowrap ${
               activeTab === "add-ons"
-                ? "border-[#B80B3D] text-white shadow-[0_18px_32px_-24px_rgba(126,56,102,0.6)]"
-                : "border-[#ead6e3] bg-white/90 text-[#6d6470] shadow-[0_16px_40px_-34px_rgba(109,100,112,0.35)]"
+                ? "text-white md:shadow-none"
+                : "border-white/80 bg-white/80 text-slate-700 shadow-[0_16px_40px_-34px_rgba(15,23,42,0.4)] md:bg-transparent md:shadow-none md:hover:bg-transparent"
             }`}
+            style={activeTab === "add-ons" ? {
+              borderColor: "rgba(var(--module-theme-rgb, 37,99,235), 0.45)",
+              color: "var(--module-theme-color, #2563EB)",
+              boxShadow: "0 18px 32px -24px rgba(var(--module-theme-rgb, 37,99,235), 0.65)",
+            } : undefined}
             animate={{
               scale: activeTab === "add-ons" ? 1.02 : 1,
             }}
@@ -1854,7 +1986,8 @@ export default function Inventory() {
             {activeTab === "add-ons" && (
               <motion.div
                 layoutId="activeTabBackground"
-                className="absolute inset-0 rounded-[24px] bg-gradient-to-br from-[#B80B3D] to-[#66001D] -z-10"
+                className="absolute inset-0 rounded-[24px] md:rounded-xl -z-10 md:bg-white md:shadow-sm"
+                style={{ backgroundColor: "rgba(var(--module-theme-rgb, 37,99,235), 0.16)" }}
                 initial={false}
                 transition={{
                   type: "spring",
@@ -1863,85 +1996,69 @@ export default function Inventory() {
                 }}
               />
             )}
-            <span className="relative z-10 flex min-h-7 items-center justify-center gap-2 leading-none">
-              <span className="whitespace-nowrap">Add ons</span>
-              <span className={`inline-flex min-h-5 min-w-[24px] items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                activeTab === "add-ons" ? "bg-white text-[#B80B3D]" : "bg-[#f6ecf3] text-[#6d6470]"
-              }`}>
+            <span className="relative z-10 flex items-center justify-center gap-2">
+              <span>Add-ons</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                activeTab === "add-ons" ? "" : "bg-slate-100 text-slate-600"
+              }`} style={activeTab === "add-ons" ? {
+                backgroundColor: "rgba(var(--module-theme-rgb, 37,99,235), 0.14)",
+                color: "var(--module-theme-color, #2563EB)",
+              } : undefined}>
                 {addons.length}
               </span>
             </span>
           </motion.button>
+        </div>
+
+        {/* Desktop toolbar */}
+        <div className="hidden md:flex flex-1 items-center gap-3 min-w-0">
+          <div className="flex-1 relative min-w-0">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={activeTab === "add-ons" ? "Search add-ons..." : "Search categories or dishes..."}
+              className="w-full h-11 pl-11 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-300 focus:bg-white transition-colors"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setFilterOpen(true)}
+            className="relative h-11 px-4 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2 shrink-0"
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+            Filters
+            {selectedFilter !== "all" ? (
+              <span
+                className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full"
+                style={{ backgroundColor: "var(--module-theme-color, #2563EB)" }}
+              />
+            ) : null}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (activeTab === "add-ons") setIsAddAddonOpen(true)
+              else navigate("/food/restaurant/hub-menu/item/new")
+            }}
+            className="h-11 px-5 text-white rounded-xl font-semibold transition-colors flex items-center gap-2 shrink-0 hover:opacity-90"
+            style={{ backgroundColor: "var(--module-theme-color, #16a34a)" }}
+          >
+            <Plus className="w-4 h-4" />
+            {activeTab === "add-ons" ? "Add add-on" : "Add item"}
+          </button>
+        </div>
         </div>
       </div>
 
       {/* Main Content */}
       <div
         ref={contentContainerRef}
-        className="flex-1 overflow-y-auto px-4 pb-32"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onMouseDown={(e) => {
-          const target = e.target
-          // Don't handle swipe if starting on topbar
-          if (tabBarRef.current?.contains(target)) return
-
-          mouseStartX.current = e.clientX
-          mouseEndX.current = e.clientX
-          isMouseDown.current = true
-          isSwiping.current = false
-        }}
-        onMouseMove={(e) => {
-          if (isMouseDown.current) {
-            if (!isSwiping.current) {
-              const deltaX = Math.abs(e.clientX - mouseStartX.current)
-              if (deltaX > 10) {
-                isSwiping.current = true
-              }
-            }
-            if (isSwiping.current) {
-              mouseEndX.current = e.clientX
-            }
-          }
-        }}
-        onMouseUp={() => {
-          if (isMouseDown.current && isSwiping.current) {
-            const swipeDistance = mouseStartX.current - mouseEndX.current
-            const minSwipeDistance = 50
-
-            if (Math.abs(swipeDistance) > minSwipeDistance && !isTransitioning) {
-              const currentIndex = inventoryTabs.findIndex(tab => tab === activeTab)
-              let newIndex = currentIndex
-
-              if (swipeDistance > 0 && currentIndex < inventoryTabs.length - 1) {
-                newIndex = currentIndex + 1
-              } else if (swipeDistance < 0 && currentIndex > 0) {
-                newIndex = currentIndex - 1
-              }
-
-              if (newIndex !== currentIndex) {
-                setIsTransitioning(true)
-                setTimeout(() => {
-                  setActiveTab(inventoryTabs[newIndex])
-                  setTimeout(() => setIsTransitioning(false), 300)
-                }, 50)
-              }
-            }
-          }
-
-          isMouseDown.current = false
-          isSwiping.current = false
-          mouseStartX.current = 0
-          mouseEndX.current = 0
-        }}
-        onMouseLeave={() => {
-          isMouseDown.current = false
-          isSwiping.current = false
-        }}
+        className="flex-1 overflow-y-auto px-4 pb-32 md:px-0 md:pb-0 md:bg-slate-50 md:min-h-0 md:overflow-hidden md:flex md:flex-col"
       >
-        {/* Search and Filter */}
-        <div className="sticky top-0 z-30 -mx-4 px-4 pb-4 bg-[#f3f5f8]/95 backdrop-blur supports-[backdrop-filter]:bg-[#f3f5f8]/80">
+        {/* Mobile Search and Filter */}
+        <div className="md:hidden sticky top-0 z-30 -mx-4 px-4 pb-4 bg-[#f3f5f8]/95 backdrop-blur supports-[backdrop-filter]:bg-[#f3f5f8]/80">
           <div className="overflow-hidden rounded-[28px] border border-white/80 bg-white/90 p-4 shadow-[0_20px_48px_-34px_rgba(15,23,42,0.45)] backdrop-blur">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -1961,7 +2078,7 @@ export default function Inventory() {
                     setSearchQuery("")
                     setSelectedFilter("all")
                   }}
-                  className="rounded-full border border-[#e7d5e0] px-3 py-1.5 text-xs font-semibold text-[#6b4d62] transition-colors hover:border-[#d5bdd0] hover:bg-[#f9f0f7]"
+                  className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
                 >
                   Clear all
                 </button>
@@ -1976,7 +2093,7 @@ export default function Inventory() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder={activeTab === "add-ons" ? "Search add-ons by name or status" : "Search categories or menu items"}
-                  className="h-12 w-full rounded-[20px] border border-[#e7d5e0] bg-[#fcf7fb] pl-11 pr-10 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#c796b8] focus:bg-white focus:outline-none"
+                  className="h-12 w-full rounded-[20px] border border-slate-200 bg-slate-50 pl-11 pr-10 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-300 focus:bg-white focus:outline-none"
                 />
                 {searchQuery ? (
                   <button
@@ -1992,24 +2109,15 @@ export default function Inventory() {
 
               <button
                 onClick={() => setFilterOpen(true)}
-                className="relative flex h-12 items-center justify-center gap-2 rounded-[20px] border border-[#e7d5e0] bg-white px-4 text-sm font-semibold text-[#66001D] transition-colors hover:border-[#d5bdd0] hover:bg-[#f9f0f7]"
+                className="relative flex h-12 items-center justify-center gap-2 rounded-[20px] border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 transition-colors hover:border-slate-300 hover:bg-slate-50"
               >
-                <SlidersHorizontal className="w-4 h-4 text-[#B80B3D]" />
+                <SlidersHorizontal className="w-4 h-4 text-slate-700" />
                 <span>Filters</span>
                 {selectedFilter !== "all" && (
-                  <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] ring-2 ring-white" />
+                  <span className="absolute top-2 right-2 w-2 h-2 rounded-full" style={{ backgroundColor: "var(--module-theme-color, #2563EB)" }} />
                 )}
               </button>
 
-              {activeTab === "add-ons" && (
-                <button
-                  onClick={() => setIsAddAddonOpen((v) => !v)}
-                  className="h-12 rounded-[20px] bg-gradient-to-br from-[#B80B3D] to-[#66001D] px-4 text-sm font-semibold text-white shadow-[0_18px_32px_-24px_rgba(126,56,102,0.7)] transition-colors hover:bg-[#66001D]"
-                  style={{ minWidth: "128px" }}
-                >
-                  {isAddAddonOpen ? "Close" : "Add Add-on"}
-                </button>
-              )}
             </div>
 
             <div className="mt-4 flex gap-2 overflow-x-auto scrollbar-hide pb-1">
@@ -2026,14 +2134,23 @@ export default function Inventory() {
                     onClick={() => setSelectedFilter(option.value)}
                     className={`shrink-0 rounded-full border px-3.5 py-2 text-xs font-semibold transition-colors ${
                       isActive
-                        ? "border-[#B80B3D] bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white shadow-[0_14px_28px_-24px_rgba(126,56,102,0.8)]"
-                        : "border-[#e7d5e0] bg-[#fcf7fb] text-[#6d6470] hover:border-[#d5bdd0] hover:bg-white"
+                        ? ""
+                        : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-white"
                     }`}
+                    style={isActive ? {
+                      borderColor: "rgba(var(--module-theme-rgb, 37,99,235), 0.5)",
+                      color: "var(--module-theme-color, #2563EB)",
+                      backgroundColor: "rgba(var(--module-theme-rgb, 37,99,235), 0.16)",
+                      boxShadow: "0 14px 28px -24px rgba(var(--module-theme-rgb, 37,99,235), 0.65)",
+                    } : undefined}
                   >
                     <span>{option.label}</span>
                     <span className={`ml-2 inline-flex min-w-[20px] items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] ${
-                      isActive ? "bg-white/20 text-white" : "bg-white text-[#8a7a89]"
-                    }`}>
+                      isActive ? "" : "bg-white text-slate-500"
+                    }`} style={isActive ? {
+                      backgroundColor: "rgba(var(--module-theme-rgb, 37,99,235), 0.12)",
+                      color: "var(--module-theme-color, #2563EB)",
+                    } : undefined}>
                       {count}
                     </span>
                   </button>
@@ -2043,8 +2160,282 @@ export default function Inventory() {
           </div>
         </div>
 
-        {/* Categories Accordions */}
-        <div className="space-y-4 mb-6">
+
+        {/* Desktop layout — categories & items scroll independently */}
+        <div className="hidden md:flex flex-1 min-h-0 px-6 py-6 gap-6">
+            {activeTab !== "add-ons" && (
+              <aside className="w-[240px] shrink-0 h-full min-h-0 flex flex-col bg-white rounded-xl border border-slate-200 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-100 shrink-0">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Categories</h3>
+                  </div>
+                  <div
+                    className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+                    onWheel={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setActiveDesktopCategory("all")}
+                      className={`w-full px-4 py-3 text-left text-sm transition-colors ${activeDesktopCategory === "all" ? "bg-slate-900 text-white font-semibold" : "text-slate-600 hover:bg-slate-50"}`}
+                    >
+                      All items
+                    </button>
+                    {categories.map((cat) => (
+                      <button
+                        type="button"
+                        key={cat.id}
+                        onClick={() => setActiveDesktopCategory(cat.id)}
+                        className={`w-full px-4 py-3 text-left text-sm transition-colors border-t border-slate-100 flex items-center justify-between gap-2 ${activeDesktopCategory === cat.id ? "bg-slate-900 text-white font-semibold" : "text-slate-600 hover:bg-slate-50"}`}
+                      >
+                        <span className="truncate">{cat.name}</span>
+                        <span className={`text-xs font-bold ${activeDesktopCategory === cat.id ? "text-white/80" : "text-slate-400"}`}>
+                          {cat.items?.length || 0}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+              </aside>
+            )}
+
+            <div
+              className="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain pr-1"
+              onWheel={(e) => e.stopPropagation()}
+            >
+              {activeTab === "add-ons" ? (
+                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                  {isAddAddonOpen && (
+                    <div className="border-b border-slate-100 p-4">
+                      <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Add-on Name *</label>
+                            <input
+                              type="text"
+                              value={addonName}
+                              onChange={(e) => setAddonName(e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-black focus:outline-none"
+                              placeholder="e.g., Coke, Chips"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Price (₹) *</label>
+                            <input
+                              type="number"
+                              value={addonPrice}
+                              onChange={(e) => setAddonPrice(e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-black focus:outline-none"
+                              min="0"
+                              step="0.01"
+                              placeholder="0.00"
+                            />
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                            <textarea
+                              value={addonDescription}
+                              onChange={(e) => setAddonDescription(e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-black focus:outline-none resize-none"
+                              rows={2}
+                              placeholder="Describe the add-on..."
+                            />
+                          </div>
+                        </div>
+                        <div className="mt-4 flex gap-2 justify-end">
+                          <button
+                            type="button"
+                            onClick={() => setIsAddAddonOpen(false)}
+                            className="px-4 py-2 rounded-lg border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleSaveAddon}
+                            disabled={savingAddon}
+                            className="px-4 py-2 rounded-lg text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                            style={{ backgroundColor: "var(--module-theme-color, #16a34a)" }}
+                          >
+                            {savingAddon ? "Saving..." : "Save add-on"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-200">
+                      <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        <th className="px-4 py-3">Add-on</th>
+                        <th className="px-4 py-3">Type</th>
+                        <th className="px-4 py-3">Price</th>
+                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3">Stock</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredAddons.map((addon) => (
+                        <tr key={addon.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/70">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-3 min-w-0">
+                              {addon.images?.[0] ? (
+                                <img src={addon.images[0]} alt={addon.name} className="h-11 w-11 rounded-lg object-cover border border-slate-200"  loading="lazy" decoding="async" />
+                              ) : (
+                                <div className="h-11 w-11 rounded-lg bg-slate-100 flex items-center justify-center text-slate-300">
+                                  <Utensils className="w-4 h-4" />
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <p className="font-semibold text-slate-900 truncate">{addon.name}</p>
+                                {addon.description ? (
+                                  <p className="text-xs text-slate-500 truncate">{addon.description}</p>
+                                ) : null}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${addon.foodType === "Veg" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+                              {addon.foodType === "Veg" ? "VEG" : "NON-VEG"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 font-semibold text-slate-900">₹{addon.price}</td>
+                          <td className="px-4 py-3">
+                            {addon.approvalStatus === "approved" && <span className="text-xs font-semibold text-emerald-700">Approved</span>}
+                            {addon.approvalStatus === "pending" && <span className="text-xs font-semibold text-amber-700">Pending</span>}
+                            {addon.approvalStatus === "rejected" && <span className="text-xs font-semibold text-rose-700">Rejected</span>}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Switch
+                              checked={addon.isAvailable !== false}
+                              onCheckedChange={(checked) => handleAddonToggle(addon.id, checked)}
+                              className="data-[state=checked]:bg-emerald-600"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {filteredAddons.length === 0 && (
+                    <div className="px-6 py-16 text-center text-sm text-slate-500">No add-ons found.</div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {listToRender
+                    .filter((cat) => activeDesktopCategory === "all" || cat.id === activeDesktopCategory)
+                    .map((category) => (
+                      <div key={category.id}>
+                        {activeDesktopCategory === "all" && (
+                          <div className="mb-3 flex items-center justify-between gap-3">
+                            <h3 className="text-sm font-bold text-slate-900">{category.name}</h3>
+                            <span className="text-xs font-medium text-slate-500">{category.items?.length || 0} items</span>
+                          </div>
+                        )}
+                        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                          <table className="w-full text-sm">
+                            <thead className="bg-slate-50 border-b border-slate-200">
+                              <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                <th className="px-4 py-3">Item</th>
+                                <th className="px-4 py-3">Type</th>
+                                <th className="px-4 py-3">Price</th>
+                                <th className="px-4 py-3">Approval</th>
+                                <th className="px-4 py-3">Stock</th>
+                                <th className="px-4 py-3 text-right">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(category.items || []).map((item) => {
+                                const approvalMeta = getApprovalDisplayMeta(item.approvalStatus)
+                                const isRejectedItem = item.approvalStatus === "rejected"
+                                return (
+                                  <tr key={item.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/70">
+                                    <td className="px-4 py-3">
+                                      <div className="flex items-center gap-3 min-w-0">
+                                        {item.image || item.images?.[0] ? (
+                                          <img
+                                            src={item.image || item.images[0]}
+                                            alt={item.name}
+                                            className="h-11 w-11 rounded-lg object-cover border border-slate-200"
+                                           loading="lazy" decoding="async" />
+                                        ) : (
+                                          <div className="h-11 w-11 rounded-lg bg-slate-100 flex items-center justify-center text-slate-300">
+                                            <Utensils className="w-4 h-4" />
+                                          </div>
+                                        )}
+                                        <div className="min-w-0">
+                                          <p className="font-semibold text-slate-900 truncate">{item.name}</p>
+                                          <p className={`text-xs font-medium ${item.inStock ? "text-emerald-600" : "text-rose-600"}`}>
+                                            {item.inStock ? "In stock" : getRuleStatusLabel(item.stockRule)}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${item.isVeg ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+                                        {item.isVeg ? "VEG" : "NON-VEG"}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3 font-semibold text-slate-900">₹{item.price}</td>
+                                    <td className="px-4 py-3">
+                                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${approvalMeta.className}`}>
+                                        {approvalMeta.label.toUpperCase()}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <Switch
+                                        checked={item.inStock}
+                                        onCheckedChange={(checked) => handleToggleChange("item", category.id, item.id, checked)}
+                                        className="data-[state=checked]:bg-emerald-600"
+                                      />
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <div className="flex items-center justify-end gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            handleRecommendToggle(category.id, item.id)
+                                          }}
+                                          className={`p-2 rounded-lg border transition-colors ${item.isRecommended ? "border-blue-200 bg-blue-50 text-blue-600" : "border-slate-200 text-slate-400 hover:bg-slate-50"}`}
+                                          title={item.isRecommended ? "Recommended" : "Recommend"}
+                                        >
+                                          <ThumbsUp className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleEditItem(category, item)}
+                                          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${isRejectedItem ? "bg-red-600 text-white hover:bg-red-700" : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}
+                                        >
+                                          <Pencil className="w-3.5 h-3.5" />
+                                          {isRejectedItem ? "Fix" : "Edit"}
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                          {(category.items || []).length === 0 && (
+                            <div className="px-6 py-10 text-center text-sm text-slate-500">No items in this category.</div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  {!loadingInventory && listToRender.filter((cat) => activeDesktopCategory === "all" || cat.id === activeDesktopCategory).length === 0 && (
+                    <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
+                      <p className="text-base font-semibold text-slate-700">
+                        {hasActiveTools ? "No matching categories or items found" : "No menu categories available"}
+                      </p>
+                      <p className="mt-2 text-sm text-slate-500">
+                        {hasActiveTools ? "Try adjusting your search or filters." : "Your menu categories will appear here once items are added."}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+        </div>
+
+        {/* Mobile Categories Accordions */}
+        <div className="md:hidden space-y-4 mb-6">
           {activeTab === "add-ons" && (
             <>
               {isAddAddonOpen && (
@@ -2056,7 +2447,7 @@ export default function Inventory() {
                         type="text"
                         value={addonName}
                         onChange={(e) => setAddonName(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#B80B3D] focus:outline-none"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-black focus:outline-none"
                         placeholder="e.g., Coke, Chips"
                       />
                     </div>
@@ -2065,7 +2456,7 @@ export default function Inventory() {
                       <textarea
                         value={addonDescription}
                         onChange={(e) => setAddonDescription(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#B80B3D] focus:outline-none resize-none"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-black focus:outline-none resize-none"
                         rows={3}
                         placeholder="Describe the add-on..."
                       />
@@ -2076,11 +2467,36 @@ export default function Inventory() {
                         type="number"
                         value={addonPrice}
                         onChange={(e) => setAddonPrice(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#B80B3D] focus:outline-none"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-black focus:outline-none"
                         min="0"
                         step="0.01"
                         placeholder="0.00"
                       />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(isPureVegRestaurant
+                          ? ADDON_TYPE_OPTIONS.filter((option) => option.value === "veg")
+                          : ADDON_TYPE_OPTIONS
+                        ).map((option) => {
+                          const active = addonFoodType === option.value
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => setAddonFoodType(option.value)}
+                              className={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                                active
+                                  ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                                  : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          )
+                        })}
+                      </div>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Image (1 only)</label>
@@ -2103,7 +2519,7 @@ export default function Inventory() {
                       />
                       <button
                         type="button"
-                        onClick={handleAddonImagePick}
+                        onClick={handleAddonGalleryPick}
                         className="w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-3 text-left transition-colors hover:bg-gray-100"
                       >
                         <span className="flex items-center gap-2 text-sm font-medium text-gray-900">
@@ -2131,7 +2547,7 @@ export default function Inventory() {
                         type="button"
                         onClick={handleSaveAddon}
                         disabled={savingAddon}
-                        className="px-4 py-2 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white rounded-md text-sm font-medium hover:bg-[#66001D] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        className="px-4 py-2 bg-black text-white rounded-md text-sm font-medium hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                       >
                         {savingAddon && <Loader2 className="h-4 w-4 animate-spin" />}
                         <span>{savingAddon ? "Saving..." : "Submit for approval"}</span>
@@ -2166,6 +2582,41 @@ export default function Inventory() {
                         <div className="flex-1 min-w-0">
                           <div className="mb-2 flex items-center gap-2 flex-wrap">
                             <h3 className="text-base font-semibold text-slate-950">{addon.name}</h3>
+                            <div
+                              className={`h-4 w-4 rounded-sm border-2 flex items-center justify-center ${
+                                addon.isVeg === false || addon.foodType === "non-veg" ? "border-red-500" : ""
+                              }`}
+                              style={
+                                addon.isVeg === false || addon.foodType === "non-veg"
+                                  ? undefined
+                                  : { borderColor: "#16A34A", backgroundColor: "#F0FDF4" }
+                              }
+                            >
+                              <span
+                                className={`h-2 w-2 rounded-full ${
+                                  addon.isVeg === false || addon.foodType === "non-veg" ? "bg-red-500" : ""
+                                }`}
+                                style={
+                                  addon.isVeg === false || addon.foodType === "non-veg"
+                                    ? undefined
+                                    : { backgroundColor: "#16A34A" }
+                                }
+                              />
+                            </div>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                addon.isVeg === false || addon.foodType === "non-veg"
+                                  ? "bg-rose-50 text-rose-700"
+                                  : ""
+                              }`}
+                              style={
+                                addon.isVeg === false || addon.foodType === "non-veg"
+                                  ? undefined
+                                  : { backgroundColor: "#ECFDF3", color: "#15803D" }
+                              }
+                            >
+                              {addon.isVeg === false || addon.foodType === "non-veg" ? "Non-veg" : "Veg"}
+                            </span>
                             <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
                               addon.isAvailable !== false
                                 ? "bg-emerald-50 text-emerald-700"
@@ -2188,7 +2639,7 @@ export default function Inventory() {
                           )}
                           <p className="text-base font-bold text-slate-950">Rs. {addon.price}</p>
                           {addon.approvalStatus === 'rejected' && addon.rejectionReason && (
-                            <p className="mt-2 text-xs font-medium text-[#B80B3D]">Reason: {addon.rejectionReason}</p>
+                            <p className="mt-2 text-xs font-medium text-red-600">Reason: {addon.rejectionReason}</p>
                           )}
                         </div>
                         <div className="flex items-start gap-3">
@@ -2259,79 +2710,72 @@ export default function Inventory() {
 
                 {/* Category Header - Clickable */}
                 <div
-                  className="cursor-pointer bg-white dark:bg-gradient-to-br from-[#B80B3D] to-[#66001D] px-6 py-5 hover:bg-slate-50/50 transition-colors"
+                  className="cursor-pointer bg-[linear-gradient(135deg,#f8fbff_0%,#ffffff_58%,#f1f5f9_100%)] p-5"
                   onClick={() => toggleCategory(category.id)}
                 >
-                  <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-3 mb-2 flex-wrap">
-                        <h3 className="text-xl font-black tracking-tight text-slate-950 dark:text-white">
+                      <div className="mb-2 flex items-center gap-2 flex-wrap">
+                        <h3 className="text-lg font-bold tracking-[-0.02em] text-slate-950">
                           {category.name}
                         </h3>
-                        <div className="flex items-center gap-2">
-                          <span className="rounded-full bg-slate-100 dark:bg-gray-800 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                            {category.items?.length || category.itemCount || 0} items
-                          </span>
-                          <span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider ${
-                            category.inStock
-                              ? "bg-green-50 text-green-700 border border-green-100"
-                              : "bg-amber-50 text-amber-700 border border-amber-100"
-                          }`}>
-                            {category.inStock ? "Healthy" : "Needs attention"}
-                          </span>
-                        </div>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                          {category.items?.length || category.itemCount || 0} items
+                        </span>
+                        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                          category.inStock
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-amber-50 text-amber-700"
+                        }`}>
+                          {category.inStock ? "Healthy" : "Needs attention"}
+                        </span>
                       </div>
-                      
-                      <div className="flex flex-wrap items-center gap-3 mt-4">
+                      {category.description ? (
+                        <p className="text-sm leading-6 text-slate-500">{category.description}</p>
+                      ) : null}
+                      <div className="mt-4 flex items-center gap-2 flex-wrap">
                         {category.inStock ? (
-                          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50/50 rounded-xl border border-green-100/50">
-                            <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                            <p className="text-[10px] font-bold text-green-700">All items live</p>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50/50 rounded-xl border border-rose-100/50">
-                            <div className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                            <p className="text-[10px] font-bold text-rose-700">
-                              {getOutOfStockCount(category)} Items paused
-                            </p>
-                          </div>
-                        )}
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50/50 rounded-xl border border-blue-100/50">
-                          <p className="text-[10px] font-bold text-blue-700">
-                            {(categoryItems.filter((item) => item.isRecommended).length)} Recommended
+                          <p className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                            All visible items are in stock
                           </p>
-                        </div>
+                        ) : (
+                          <p className="rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
+                            {getOutOfStockCount(category)} out of {(category.items?.length || category.itemCount || 0)} item{(category.items?.length || category.itemCount || 0) !== 1 ? 's' : ''} out of stock
+                          </p>
+                        )}
+                        <p className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                          {(categoryItems.filter((item) => item.isRecommended).length)} recommended
+                        </p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-4">
+                    <div className="ml-2 flex flex-col items-center gap-3">
                       {/* Category Toggle Switch */}
                       <div
                         onClick={(e) => e.stopPropagation()}
-                        className="scale-110"
+                        className="rounded-full bg-slate-100 px-2 py-1 shadow-inner"
                       >
                         <Switch
                           checked={category.inStock}
                           onCheckedChange={(checked) =>
                             handleToggleChange("category", category.id, null, checked)
                           }
-                          className="data-[state=checked]:bg-green-500"
+                          className="data-[state=checked]:bg-[color:var(--module-theme-color)]"
                         />
                       </div>
 
+                      {/* Expand/Collapse Button - Right of In stock */}
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
                           toggleCategory(category.id)
                         }}
-                        className={`w-10 h-10 flex items-center justify-center rounded-xl border transition-all ${
-                          isExpanded ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] border-slate-900 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                        }`}
+                        className="rounded-full border border-slate-200 bg-white p-2 transition-colors hover:border-slate-300 hover:bg-slate-50"
                       >
                         {isExpanded ? (
-                          <ChevronUp className="h-5 w-5" />
+                          <ChevronUp className="h-4 w-4 text-slate-600" />
                         ) : (
-                          <ChevronDown className="h-5 w-5" />
+                          <ChevronDown className="h-4 w-4 text-slate-600" />
                         )}
                       </button>
                     </div>
@@ -2345,97 +2789,119 @@ export default function Inventory() {
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: "auto", opacity: 1 }}
                       exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.3, ease: "circOut" }}
-                      className="overflow-hidden bg-slate-50/30"
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden"
                     >
-                      <div className="space-y-4 px-6 pb-6 pt-2">
+                      {/* Divider */}
+                      <div className="mx-5 h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
+                      <div className="space-y-3 px-5 pb-5 pt-4">
                         {categoryItems.map((item) => {
                           const approvalMeta = getApprovalDisplayMeta(item.approvalStatus)
                           const isRejectedItem = item.approvalStatus === "rejected"
 
                           return (
-                          <div key={item.id} className="group px-1">
-                            <div className="flex items-center justify-between gap-3 sm:gap-4 rounded-[28px] border border-slate-100/80 bg-white p-3 sm:p-4 shadow-[0_8px_20px_-12px_rgba(0,0,0,0.08)] hover:shadow-[0_20px_40px_-20px_rgba(0,0,0,0.12)] hover:border-slate-200 transition-all duration-500">
-                              <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-5">
-                                  <div className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 flex-shrink-0 rounded-[20px] overflow-hidden shadow-md border-2 border-white ring-1 ring-slate-100/50 bg-slate-100">
-                                    <img
-                                      src={item.image || dishFallbackImage}
-                                      alt={item.name}
-                                      className="w-full h-full object-cover transform group-hover:scale-110 transition-transform duration-700"
-                                      onError={(e) => {
-                                        e.target.src = dishFallbackImage;
-                                      }}
-                                    />
-                                  </div>
-                                <div className="min-w-0 flex-1">
-                                  <h4 className="line-clamp-1 text-sm sm:text-base md:text-lg font-black text-slate-950 tracking-tight leading-tight mb-1.5">
-                                    {item.name}
-                                  </h4>
-                                  
-                                  <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
-                                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 sm:px-2.5 sm:py-1 text-[9px] sm:text-[10px] font-black uppercase tracking-wider shadow-sm transition-all ${
-                                      item.isVeg
-                                        ? "bg-white text-green-600 border border-green-100"
-                                        : "bg-white text-[#B80B3D] border border-red-100"
-                                    }`}>
-                                      <div className={`h-2.5 w-2.5 sm:h-3 sm:w-3 shrink-0 rounded-[2px] border flex items-center justify-center ${item.isVeg ? 'border-green-600' : 'border-red-600'}`}>
-                                        <div className={`h-1 w-1 sm:h-1.5 sm:w-1.5 rounded-full ${item.isVeg ? 'bg-green-600' : 'bg-gradient-to-br from-[#B80B3D] to-[#66001D]'}`} />
-                                      </div>
+                          <div key={item.id}>
+                            <div className="flex items-start justify-between gap-3 rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-3">
+                              <div className="flex flex-1 items-start gap-3 min-w-0">
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="truncate text-sm font-semibold text-slate-900">{item.name}</p>
+                                    <div
+                                      className={`h-4 w-4 rounded-sm border-2 flex items-center justify-center ${item.isVeg ? '' : 'border-red-500'}`}
+                                      style={item.isVeg ? { borderColor: "#16A34A", backgroundColor: "#F0FDF4" } : undefined}
+                                    >
+                                      <div
+                                        className={`h-2 w-2 rounded-full ${item.isVeg ? '' : 'bg-red-500'}`}
+                                        style={item.isVeg ? { backgroundColor: "#16A34A" } : undefined}
+                                      />
+                                    </div>
+                                    <span
+                                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${item.isVeg ? "" : "bg-rose-50 text-rose-700"}`}
+                                      style={item.isVeg ? { backgroundColor: "#ECFDF3", color: "#15803D" } : undefined}
+                                    >
                                       {item.isVeg ? "Veg" : "Non-veg"}
                                     </span>
-                                    <span className={`rounded-full px-2 py-0.5 sm:px-2.5 sm:py-1 text-[9px] sm:text-[10px] font-black uppercase tracking-wider border shadow-sm ${approvalMeta.className.replace('text-', 'text-').replace('bg-', 'bg-white border-')}`}>
+                                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${approvalMeta.className}`}>
                                       {approvalMeta.label}
                                     </span>
-                                  </div>
-                                  
-                                  <div className="flex items-center gap-3 sm:gap-4 mt-1">
-                                    <p className={`text-[9px] sm:text-[10px] font-black uppercase tracking-widest ${
-                                      item.inStock ? "text-green-500" : "text-rose-500"
-                                    }`}>
-                                      {item.inStock ? "● Live" : `● ${getRuleStatusLabel(item.stockRule)}`}
-                                    </p>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleEditItem(category, item)}
-                                      className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 sm:px-3 sm:py-2 text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all shadow-sm ${
-                                        isRejectedItem
-                                          ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white hover:bg-red-700"
-                                          : "bg-slate-100 text-slate-800 hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:text-white"
-                                      }`}
-                                    >
-                                      <Pencil className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-                                      {isRejectedItem ? "Fix" : "Edit"}
-                                    </button>
-                                  </div>
-
-                                  {item.isRecommended && (
-                                    <div className="mt-2.5">
-                                      <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[9px] sm:text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-600 border border-blue-100 shadow-sm">
-                                        ★ Recommended
+                                    {item.isRecommended ? (
+                                      <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                                        Recommended
                                       </span>
-                                    </div>
-                                  )}
-
-                                  {item.approvalStatus === "rejected" && item.rejectionReason && (
-                                    <p className="mt-2 text-[9px] sm:text-[10px] font-bold text-[#B80B3D] bg-red-50/50 border border-red-100/50 px-2.5 py-1 rounded-lg italic">
-                                      {item.rejectionReason}
+                                    ) : null}
+                                  </div>
+                                  <p className={`mt-1 text-xs font-medium ${
+                                    item.inStock ? "text-green-600" : "text-rose-600"
+                                  }`}>
+                                    {item.inStock ? "In stock" : getRuleStatusLabel(item.stockRule)}
+                                  </p>
+                                  <p className="mt-1 text-sm font-semibold text-slate-900">
+                                    Amount: ₹{Number(item.price || 0).toFixed(2)}
+                                  </p>
+                                  {item.approvalStatus === "rejected" && item.rejectionReason ? (
+                                    <p className="mt-1 line-clamp-2 text-[11px] font-medium text-red-600">
+                                      Reason: {item.rejectionReason}
                                     </p>
-                                  )}
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditItem(category, item)}
+                                    className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold transition-colors ${
+                                      isRejectedItem
+                                        ? "bg-red-600 text-white hover:bg-red-700"
+                                        : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                                    }`}
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                    {isRejectedItem ? "Fix & resubmit" : "Edit"}
+                                  </button>
                                 </div>
                               </div>
-
-                              <div className="flex shrink-0 flex-col items-center justify-center gap-3 sm:gap-4">
+                              <div className="flex h-full min-h-[120px] flex-col items-end justify-between gap-2 shrink-0">
+                                <div className="relative h-16 w-16 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm">
+                                  <div className="absolute inset-0 flex items-center justify-center px-1 text-center text-[10px] font-medium leading-3 text-slate-500">
+                                    {String(item.name || "Item").slice(0, 18)}
+                                  </div>
+                                  {item.image ? (
+                                    <img
+                                      src={item.image}
+                                      alt={item.name || "Item"}
+                                      className="absolute inset-0 h-full w-full object-cover"
+                                      onError={(e) => {
+                                        e.currentTarget.style.display = "none"
+                                      }}
+                                    />
+                                  ) : null}
+                                </div>
+                                {/* Recommend Thumb Icon */}
+                                <div className="mt-auto flex items-center gap-2">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleRecommendToggle(category.id, item.id)
+                                  }}
+                                  className={`rounded-2xl p-2 transition-colors ${
+                                    item.isRecommended
+                                      ? "bg-blue-100 text-blue-600"
+                                      : "bg-white text-gray-400 hover:bg-slate-100"
+                                  }`}
+                                  title={item.isRecommended ? "Recommended" : "Click to recommend"}
+                                >
+                                  <ThumbsUp className="w-4 h-4" />
+                                </button>
+                                {/* Item Toggle Switch */}
                                 <div
                                   onClick={(e) => e.stopPropagation()}
-                                  className="scale-100 sm:scale-125 origin-right"
+                                  className="rounded-full bg-white px-2 py-1 shadow-inner"
                                 >
                                   <Switch
                                     checked={item.inStock}
                                     onCheckedChange={(checked) =>
                                       handleToggleChange("item", category.id, item.id, checked)
                                     }
-                                    className="data-[state=checked]:bg-green-500 scale-90 sm:scale-100"
+                                    className="data-[state=checked]:bg-green-600"
                                   />
+                                </div>
                                 </div>
                               </div>
                             </div>
@@ -2502,8 +2968,7 @@ export default function Inventory() {
                             name="filter"
                             checked={selectedFilter === option.value}
                             onChange={() => setSelectedFilter(option.value)}
-                            style={{ accentColor: "#B80B3D" }}
-                            className="w-5 h-5 border-gray-300"
+                            className="w-5 h-5 text-black border-gray-300 focus:ring-black"
                           />
                           <span className="text-base text-gray-900">{option.label}</span>
                         </div>
@@ -2526,7 +2991,7 @@ export default function Inventory() {
                   )}
                   <button
                     onClick={handleFilterApply}
-                    className={`${selectedFilter !== "all" ? 'flex-1' : 'w-full'} bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white py-3 rounded-lg font-medium hover:bg-[#66001D] transition-colors`}
+                    className={`${selectedFilter !== "all" ? 'flex-1' : 'w-full'} bg-black text-white py-3 rounded-lg font-medium hover:bg-gray-800 transition-colors`}
                   >
                     Apply
                   </button>
@@ -2609,8 +3074,8 @@ export default function Inventory() {
                         name="outOfStockOption"
                         checked={selectedOption === "specific-time"}
                         onChange={() => setSelectedOption("specific-time")}
-                        style={{ accentColor: "#B80B3D" }}
-                          className="ml-auto w-5 h-5 border-gray-300"
+                        style={{ accentColor: "#000000" }}
+                        className="ml-auto w-5 h-5 !text-black !border-gray-300 !bg-black !focus:ring-black"
                       />
                     </div>
                   </label>
@@ -2625,8 +3090,8 @@ export default function Inventory() {
                         name="outOfStockOption"
                         checked={selectedOption === "next-business-day"}
                         onChange={() => setSelectedOption("next-business-day")}
-                        style={{ accentColor: "#B80B3D" }}
-                        className="ml-auto w-5 h-5 border-gray-300"
+                        style={{ accentColor: "#000000" }}
+                        className="ml-auto w-5 h-5 !text-black !border-gray-300 !bg-black !focus:ring-black"
                       />
                     </div>
                   </label>
@@ -2641,8 +3106,8 @@ export default function Inventory() {
                         name="outOfStockOption"
                         checked={selectedOption === "custom-date-time"}
                         onChange={() => setSelectedOption("custom-date-time")}
-                        style={{ accentColor: "#B80B3D" }}
-                        className="ml-auto w-5 h-5 border-gray-300"
+                        style={{ accentColor: "#000000" }}
+                        className="ml-auto w-5 h-5 text-black border-gray-300 focus:ring-black"
                       />
                     </div>
                   </label>
@@ -2676,12 +3141,12 @@ export default function Inventory() {
                           name="outOfStockOption"
                           checked={selectedOption === "manual"}
                           onChange={() => setSelectedOption("manual")}
-                          style={{ accentColor: "#B80B3D" }}
-                          className="ml-auto w-5 h-5 border-gray-300"
+                          style={{ accentColor: "#000000" }}
+                          className="ml-auto w-5 h-5 !text-black !border-gray-300 !bg-black !focus:ring-black"
                         />
                       </div>
                       <p className="text-sm text-gray-500">
-                        Item won't be visible to customers on app till you mark it back in stock
+                        Item won't be visible to customers on Eatiefy app till you mark it back in stock
                       </p>
                     </div>
                   </label>
@@ -2697,10 +3162,9 @@ export default function Inventory() {
                   </button>
                   <button
                     onClick={handleToggleConfirm}
-                    disabled={isConfirming}
-                    className="flex-1 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white py-3 rounded-lg font-medium hover:bg-[#66001D] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="flex-1 bg-black text-white py-3 rounded-lg font-medium hover:bg-gray-800 transition-colors"
                   >
-                    {isConfirming ? 'Confirming...' : 'Confirm'}
+                    Confirm
                   </button>
                 </div>
               </div>
@@ -2727,39 +3191,134 @@ export default function Inventory() {
         onConfirm={handleTimePickerConfirm}
       />
 
+      {/* Add Popup */}
+      <AnimatePresence>
+        {isAddPopupOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAddPopupOpen(false)}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[70]"
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-2xl rounded-t-[32px] shadow-[0_-12px_40px_rgba(0,0,0,0.1)] z-[71] max-h-[70vh] overflow-hidden pb-safe"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-12 h-1 bg-gray-300 rounded-full mx-auto mt-3 mb-1" />
+              <div className="px-6 py-4 flex items-center justify-between">
+                <h2 className="text-xl font-bold text-gray-900">Add to Menu</h2>
+                <button 
+                  onClick={() => setIsAddPopupOpen(false)}
+                  className="p-2 bg-gray-100 rounded-full text-gray-500"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="px-6 py-2 space-y-4 mb-8">
+                <button
+                  onClick={() => {
+                    setIsAddPopupOpen(false)
+                    navigate(`/food/restaurant/hub-menu/item/new`, {
+                      state: { backTo: "/food/restaurant/inventory" },
+                    })
+                  }}
+                  className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white border border-gray-100 shadow-sm hover:shadow-md hover:border-emerald-200 transition-all group"
+                  style={{ borderColor: "rgba(var(--module-theme-rgb, 37,99,235), 0.18)" }}
+                >
+                  <div
+                    className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform"
+                    style={{
+                      backgroundColor: "rgba(var(--module-theme-rgb, 37,99,235), 0.10)",
+                      color: "var(--module-theme-color, #2563EB)",
+                    }}
+                  >
+                    <Plus className="w-6 h-6" />
+                  </div>
+                  <div className="text-left">
+                    <span className="block text-base font-bold text-gray-900">Add Item</span>
+                    <span className="block text-sm text-gray-500 font-medium">Create a single menu item manually</span>
+                  </div>
+                </button>
 
-      {/* Floating Menu Button & Popup (hidden on Add-ons tab) */}
-      {activeTab !== "add-ons" && (
-        <div className="fixed right-4 bottom-24 z-30 flex flex-col items-end gap-2">
-          <motion.button
-            whileTap={{ scale: 0.96 }}
-            onClick={() => navigate(`/food/restaurant/hub-menu/item/new`, { state: { backTo: "/food/restaurant/inventory" } })}
-            className="rounded-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] px-5 py-3 text-sm font-semibold text-white shadow-[0_22px_40px_-24px_rgba(126,56,102,0.72)]"
-          >
-            + Add item
-          </motion.button>
+                <button
+                  onClick={() => {
+                    setIsAddPopupOpen(false)
+                    setIsBulkUploadModalOpen(true)
+                  }}
+                  className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white border border-gray-100 shadow-sm hover:shadow-md hover:border-blue-200 transition-all group"
+                  style={{ borderColor: "rgba(var(--module-theme-rgb, 37,99,235), 0.18)" }}
+                >
+                  <div
+                    className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform"
+                    style={{
+                      backgroundColor: "rgba(var(--module-theme-rgb, 37,99,235), 0.10)",
+                      color: "var(--module-theme-color, #2563EB)",
+                    }}
+                  >
+                    <FileUp className="w-6 h-6" />
+                  </div>
+                  <div className="text-left">
+                    <span className="block text-base font-bold text-gray-900">Bulk Upload</span>
+                    <span className="block text-sm text-gray-500 font-medium">Upload multiple items via Excel</span>
+                  </div>
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Menu Button & Popup - mobile only */}
+      <div className="md:hidden fixed right-4 bottom-24 z-30 flex flex-col items-end gap-2">
+        <motion.button
+          whileTap={{ scale: 0.96 }}
+          onClick={() => {
+            if (activeTab === "add-ons") {
+              setIsAddAddonOpen((v) => !v)
+            } else {
+              setIsAddPopupOpen(true)
+            }
+          }}
+          className="rounded-full px-5 py-3 text-sm font-semibold text-white"
+          style={{
+            background: "linear-gradient(135deg, rgba(var(--module-theme-rgb, 37,99,235), 0.88), var(--module-theme-color, #2563EB))",
+            boxShadow: "0 22px 40px -24px rgba(var(--module-theme-rgb, 37,99,235), 0.75)",
+          }}
+        >
+          {activeTab === "add-ons" ? (isAddAddonOpen ? "Close" : "+ Add add-on") : "+ Add item"}
+        </motion.button>
+        {activeTab !== "add-ons" && (
           <motion.button
             type="button"
             whileTap={{ scale: 0.96 }}
             onClick={() => setIsMenuOpen((prev) => !prev)}
-            className="flex items-center gap-2 rounded-full border border-[#ead6e3] bg-white/95 px-4 py-3 text-sm font-semibold text-[#66001D] shadow-[0_18px_36px_-28px_rgba(126,56,102,0.45)]"
+            className="flex items-center gap-2 rounded-full border border-white/80 bg-white/95 px-4 py-3 text-sm font-semibold text-slate-800 shadow-[0_18px_36px_-28px_rgba(15,23,42,0.55)]"
           >
             <span className="w-5 h-5 flex items-center justify-center">
               {isMenuOpen ? (
-                <X className="w-4 h-4 text-[#66001D]" />
+                <X className="w-4 h-4 text-slate-900" />
               ) : (
-                <Utensils className="w-4 h-4 text-[#B80B3D]" />
+                <Utensils className="w-4 h-4 text-slate-900" />
               )}
             </span>
             <span>{isMenuOpen ? "Close" : "Menu"}</span>
           </motion.button>
+        )}
 
+        {activeTab !== "add-ons" && (
           <AnimatePresence>
             {isMenuOpen && (
               <>
                 {/* Backdrop */}
                 <motion.div
-                  className="fixed inset-0 bg-black/50/40 z-30"
+                  className="fixed inset-0 bg-black/40 z-30"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
@@ -2772,11 +3331,11 @@ export default function Inventory() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 20 }}
                   transition={{ duration: 0.2 }}
-                  className="fixed right-4 bottom-36 z-30 h-[45vh] w-[60vw] max-w-sm overflow-hidden rounded-[28px] border border-[#ead6e3] bg-white shadow-[0_24px_60px_-30px_rgba(126,56,102,0.45)]"
+                  className="fixed right-4 bottom-36 z-30 h-[45vh] w-[60vw] max-w-sm overflow-hidden rounded-[28px] border border-white/80 bg-white shadow-[0_24px_60px_-30px_rgba(15,23,42,0.55)]"
                 >
                   <div className="h-full flex flex-col">
-                    <div className="bg-[linear-gradient(135deg,#fcf4f9_0%,#f6e8f1_100%)] px-4 pt-4 pb-3">
-                      <p className="text-sm font-semibold text-[#66001D]">Jump to category</p>
+                    <div className="bg-[linear-gradient(135deg,#f8fbff_0%,#eef6ff_100%)] px-4 pt-4 pb-3">
+                      <p className="text-sm font-semibold text-slate-950">Jump to category</p>
                     </div>
                     <div className="mx-4 h-px bg-slate-200" />
                     <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1">
@@ -2815,19 +3374,231 @@ export default function Inventory() {
               </>
             )}
           </AnimatePresence>
-        </div>
-      )}
+        )}
+      </div>
+
+      {/* Bulk Upload Modal */}
+      <AnimatePresence>
+        {isBulkUploadModalOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (!isUploading) {
+                    setIsBulkUploadModalOpen(false)
+                    setBulkUploadFile(null)
+                    setBulkUploadResults(null)
+                    if (bulkFileInputRef.current) bulkFileInputRef.current.value = "";
+                }
+              }}
+              className="fixed inset-0 bg-black/60 backdrop-blur-md z-[80]"
+            />
+            <motion.div
+              initial={{ y: "100%", opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: "100%", opacity: 0 }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="fixed bottom-0 left-0 right-0 bg-white rounded-t-[42px] shadow-2xl z-[81] max-h-[92vh] flex flex-col overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mt-4 shrink-0" />
+              
+              <div className="px-8 pt-4 pb-6 flex items-center justify-between shrink-0">
+                <h2 className="text-2xl font-black text-slate-900 tracking-tight">Bulk Upload</h2>
+                <button 
+                  onClick={() => {
+                      if (!isUploading) {
+                          setIsBulkUploadModalOpen(false)
+                          setBulkUploadFile(null)
+                          setBulkUploadResults(null)
+                          if (bulkFileInputRef.current) bulkFileInputRef.current.value = "";
+                      }
+                  }}
+                  className="p-2.5 bg-slate-100 rounded-2xl transition-colors hover:bg-slate-200"
+                >
+                  <X className="w-5 h-5 text-slate-600" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-8 pb-10 custom-scrollbar">
+                {!bulkUploadResults ? (
+                  <div className="space-y-6">
+                    {/* Step 1: Download Template */}
+                    <div className="bg-gradient-to-br from-blue-50/50 to-white rounded-[32px] p-6 border border-blue-100/50 shadow-sm">
+                      <div className="flex items-start gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center shrink-0">
+                          <Download className="w-6 h-6 text-blue-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-base font-black text-slate-900 mb-1">Step 1: Get Template</h3>
+                          <p className="text-sm text-slate-500 font-medium mb-4 leading-relaxed">Download our pre-formatted Excel template to ensure data compatibility.</p>
+                          <button
+                            onClick={handleDownloadTemplate}
+                            className="inline-flex items-center gap-2 px-6 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-bold text-slate-700 hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all shadow-sm"
+                          >
+                            <Download className="w-4 h-4" />
+                            Download .xlsx
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Step 2: Upload File */}
+                    <div className="bg-gradient-to-br from-purple-50/50 to-white rounded-[32px] p-6 border border-purple-100/50 shadow-sm">
+                      <div className="flex items-start gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center shrink-0">
+                          <FileUp className="w-6 h-6 text-purple-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-base font-black text-slate-900 mb-1">Step 2: Upload File</h3>
+                          <p className="text-sm text-slate-500 font-medium mb-4 leading-relaxed">Select your completed file to begin automated processing.</p>
+                          
+                          <input
+                            type="file"
+                            ref={bulkFileInputRef}
+                            onChange={onBulkFileChange}
+                            accept=".xlsx, .xls"
+                            className="hidden"
+                          />
+
+                          {!bulkUploadFile ? (
+                            <button
+                              onClick={() => bulkFileInputRef.current?.click()}
+                              className="w-full flex flex-col items-center justify-center gap-3 py-10 bg-white/50 border-2 border-dashed border-slate-200 rounded-3xl hover:border-purple-400 hover:bg-purple-50 transition-all group"
+                            >
+                              <div className="w-14 h-14 rounded-2xl bg-white shadow-sm flex items-center justify-center group-hover:scale-110 transition-transform">
+                                <Upload className="w-7 h-7 text-slate-400 group-hover:text-purple-600" />
+                              </div>
+                              <span className="text-sm font-bold text-slate-600">Select Excel File</span>
+                            </button>
+                          ) : (
+                            <div className="bg-white p-4 rounded-2xl border border-slate-200 flex items-center justify-between shadow-sm min-w-0">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-11 h-11 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
+                                  <Check className="w-6 h-6 text-emerald-600" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-black text-slate-900 truncate pr-2">{bulkUploadFile.name}</p>
+                                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{(bulkUploadFile.size / 1024).toFixed(1)} KB</p>
+                                </div>
+                              </div>
+                              <button 
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setBulkUploadFile(null);
+                                    if (bulkFileInputRef.current) {
+                                        bulkFileInputRef.current.value = "";
+                                    }
+                                }}
+                                className="p-2 hover:bg-rose-50 rounded-xl group transition-all shrink-0"
+                              >
+                                <X className="w-4 h-4 text-slate-400 group-hover:text-rose-500" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-4">
+                      <button
+                        onClick={handleBulkUpload}
+                        disabled={!bulkUploadFile || isUploading}
+                        className={`w-full h-16 rounded-[24px] text-base font-black flex items-center justify-center gap-3 transition-all relative overflow-hidden ${
+                          !bulkUploadFile || isUploading
+                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                            : 'bg-slate-950 text-white shadow-[0_20px_40px_-12px_rgba(0,0,0,0.3)] hover:scale-[1.02] active:scale-[0.98]'
+                        }`}
+                      >
+                        {isUploading ? (
+                          <>
+                            <Loader2 className="w-6 h-6 animate-spin" />
+                            <span>Processing Data...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-5 h-5" />
+                            <span>Process Upload</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="text-center py-6">
+                      <div className="w-24 h-24 rounded-[32px] bg-emerald-50 flex items-center justify-center mx-auto mb-6 shadow-sm rotate-12">
+                        <Check className="w-12 h-12 text-emerald-600 -rotate-12" />
+                      </div>
+                      <h3 className="text-2xl font-black text-slate-950">Upload Complete</h3>
+                      <p className="text-slate-500 font-medium">Processing results for {bulkUploadFile?.name}</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-emerald-50/50 p-6 rounded-[32px] border border-emerald-100 text-center shadow-sm">
+                        <p className="text-4xl font-black text-emerald-700 tracking-tighter">{bulkUploadResults.success}</p>
+                        <p className="text-[10px] font-black text-emerald-600/70 mt-1 uppercase tracking-[0.1em]">Added</p>
+                      </div>
+                      <div className="bg-rose-50/50 p-6 rounded-[32px] border border-rose-100 text-center shadow-sm">
+                        <p className="text-4xl font-black text-rose-700 tracking-tighter">{bulkUploadResults.failed}</p>
+                        <p className="text-[10px] font-black text-rose-600/70 mt-1 uppercase tracking-[0.1em]">Errors</p>
+                      </div>
+                    </div>
+
+                    {bulkUploadResults.errors && bulkUploadResults.errors.length > 0 && (
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                             Detailed Feedback
+                          </h4>
+                          <span className="px-2.5 py-1 bg-amber-50 text-amber-700 text-[10px] font-black rounded-lg border border-amber-100">
+                             {bulkUploadResults.errors.length} FLAGS
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500">
+                          Note: Failed rows were skipped. Reason shown below for each rejected row.
+                        </p>
+                        <div className="max-h-60 overflow-y-auto space-y-3 custom-scrollbar pr-1">
+                          {bulkUploadResults.errors.map((err, i) => (
+                            <div key={i} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 shadow-sm">
+                              <div className="flex items-center gap-2 mb-2">
+                                <div className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+                                <span className="text-xs font-black text-slate-800 truncate">{err.item || 'Unknown Entry'}</span>
+                              </div>
+                              <p className="text-[11px] font-medium text-slate-500 leading-relaxed pl-4 border-l-2 border-slate-200 ml-1">
+                                {err.error}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="pt-2">
+                      <button
+                        onClick={() => {
+                          setIsBulkUploadModalOpen(false)
+                          setBulkUploadFile(null)
+                          setBulkUploadResults(null)
+                          if (bulkFileInputRef.current) bulkFileInputRef.current.value = "";
+                        }}
+                        className="w-full h-16 bg-slate-950 text-white rounded-[24px] text-base font-black shadow-[0_20px_40px_-12px_rgba(0,0,0,0.3)] hover:scale-[1.02] active:scale-[0.98] transition-all"
+                      >
+                        Got it, thanks!
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Bottom Navigation */}
       <BottomNavOrders />
     </div>
   )
 }
-
-
-
-
-
-
-
-

@@ -1,130 +1,285 @@
 import { Link, useNavigate } from "react-router-dom"
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
-import { Star, Clock, MapPin, ArrowDownUp, Timer, ArrowRight, ChevronDown, Bookmark, Share2, Plus, Minus, X, Check, Utensils, UtensilsCrossed, Wallet } from "lucide-react"
+import { Star, Clock, MapPin, ArrowDownUp, Timer, ArrowRight, ChevronDown, Bookmark, Share2, Plus, Minus, X, Search, Mic, ShoppingCart, Wallet, Bell, Menu, ArrowLeft } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { toast } from "sonner"
+import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Card, CardContent } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
-import { useLocation } from "@food/hooks/useLocation"
-import { useZone } from "@food/hooks/useZone"
+import { Input } from "@food/components/ui/input"
+import { useSearchOverlay, useLocationSelector } from "@food/components/user/UserLayout"
+import { useDeliveryLocation } from "@food/context/DeliveryLocationContext"
 import { useCart } from "@food/context/CartContext"
-import { useProfile } from "@food/context/ProfileContext"
-import { Avatar, AvatarFallback, AvatarImage } from "@food/components/ui/avatar"
-import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability"
-import under250Banner from "@food/assets/under250_banner.jpg"
-import homeBannerRed from "@food/assets/home-banner-red-clean.png"
-import AddToCartAnimation from "@food/components/user/AddToCartAnimation"
+import PageNavbar from "@food/components/user/PageNavbar"
+import FoodFilterBar from "@food/components/user/FoodFilterBar"
+import offerImage from "@food/assets/offerimage.webp"
+import eatiefyPromoBanner1 from "@food/assets/eatiefy_final_banner.webp"
+import eatiefyPromoBanner2 from "@food/assets/eatiefy_banner_2.webp"
+import FloatingHomeDock from "@food/components/user/FloatingHomeDock"
+import VariantSelector from "@food/components/user/VariantSelector"
+import FoodPriceDisplay from "@food/components/user/FoodPriceDisplay"
 import OptimizedImage from "@food/components/OptimizedImage"
+import cloudinaryImages from "@food/constants/cloudinaryImages.json"
 import api from "@food/api"
 import { restaurantAPI, adminAPI } from "@food/api"
+import { API_BASE_URL } from "@food/api/config"
 import { isModuleAuthenticated } from "@food/utils/auth"
-import { flattenMenuItems, getMenuFromResponse } from "@food/utils/menuItems"
 import { calculateDistance, formatDistance } from "@food/utils/common"
-import { hasFoodVariants, getDefaultFoodVariant, buildCartLineId } from "@food/utils/foodVariants"
-import { isVegMenuItem, isNonVegCategoryScope } from "@food/utils/vegMode"
+import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import {
-  buildFoodCacheKey,
-  getCachedUnder250PriceLimit,
-  getFoodPageCache,
-  getLandingSettingsPublic,
-  setFoodPageCache,
-} from "@food/utils/foodPageCache"
-const getLineItemIdForDish = (item, variant = null) =>
-  buildCartLineId(item?.id || item?._id || "", variant?.id || variant?._id || "")
-
-const debugLog = (...args) => {}
-const debugWarn = (...args) => {}
-const debugError = (...args) => {}
+  buildCartLineId,
+  getDefaultFoodVariant,
+  getFoodDiscountPercent,
+  getFoodDisplayOtherPrice,
+  getFoodVariants,
+  hasFoodVariants,
+} from "@food/utils/foodVariants"
+const debugLog = (...args) => { }
+const debugWarn = (...args) => { }
+const debugError = (...args) => { }
 const RUPEE_SYMBOL = "\u20B9"
 const UNDER_250_FILTERS_STORAGE_KEY = "food-under-250-filters"
-const UNDER250_LIST_MAX_VISIBLE = 12
-const UNDER250_ITEMS_PER_RESTAURANT = 10
-const UNDER250_PAGE_SIZE = 6
-const UNDER250_CACHE_TTL_MS = 15 * 60 * 1000
 
-const isUnder250CacheFresh = (cached) =>
-  Boolean(
-    cached?.restaurants?.length > 0 &&
-      cached?.ts &&
-      Date.now() - Number(cached.ts) < UNDER250_CACHE_TTL_MS,
+const resolveImageUrl = (url) => {
+  if (!url || typeof url !== "string") return ""
+  const trimmed = url.trim()
+  if (!trimmed) return ""
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("data:")) {
+    return trimmed
+  }
+  const cleanPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`
+  return `${API_BASE_URL.replace(/\/api\/?$/, "")}${cleanPath}`
+}
+
+const CURATED_eatiefy_DISHES = [
+  {
+    name: "Special Veg Thali",
+    price: 99,
+    originalPrice: 199,
+    isVeg: true,
+    category: "Main Course",
+    sectionName: "Main Course",
+    image: cloudinaryImages.thali,
+    rating: 4.8,
+    description: "Paneer Butter Masala, Dal Tadka, 2 Butter Roti, Steamed Rice & Salad",
+  },
+  {
+    name: "Steam Cheese Momos (8 Pcs)",
+    price: 99,
+    originalPrice: 149,
+    isVeg: true,
+    category: "chinese",
+    sectionName: "chinese",
+    image: cloudinaryImages.momos,
+    rating: 4.7,
+    description: "Served hot with spicy red chutney and mayo",
+  },
+  {
+    name: "Classic Cheese Burger",
+    price: 99,
+    originalPrice: 139,
+    isVeg: true,
+    category: "Fast Food",
+    sectionName: "Fast Food",
+    image: cloudinaryImages.burger,
+    rating: 4.6,
+    description: "Crispy veg patty loaded with double cheese & secret sauce",
+  },
+  {
+    name: "Chilli Paneer Dry & Noodles",
+    price: 99,
+    originalPrice: 189,
+    isVeg: true,
+    category: "chinese",
+    sectionName: "chinese",
+    image: cloudinaryImages.noodles,
+    rating: 4.9,
+    description: "Wok-tossed Hakka noodles with spicy Chilli Paneer",
+  },
+  {
+    name: "Paneer Tikka Kathi Roll",
+    price: 99,
+    originalPrice: 159,
+    isVeg: true,
+    category: "Fast Food",
+    sectionName: "Fast Food",
+    image: cloudinaryImages.rolls,
+    rating: 4.7,
+    description: "Smoky tandoori paneer wrapped in flaky lachha paratha",
+  },
+  {
+    name: "Choco Lava Cake",
+    price: 99,
+    originalPrice: 129,
+    isVeg: true,
+    category: "Sweet",
+    sectionName: "Sweet",
+    image: cloudinaryImages.cake,
+    rating: 4.9,
+    description: "Warm gooey chocolate lava center cake",
+  },
+  {
+    name: "Chole Bhature Special (2 Pcs)",
+    price: 99,
+    originalPrice: 160,
+    isVeg: true,
+    category: "Main Course",
+    sectionName: "Main Course",
+    image: cloudinaryImages.chole_bhature,
+    rating: 4.8,
+    description: "Fluffy bhature served with rich Amritsari chole & pickle",
+  },
+  {
+    name: "Special Masala Dosa",
+    price: 99,
+    originalPrice: 149,
+    isVeg: true,
+    category: "South Indian",
+    sectionName: "South Indian",
+    image: cloudinaryImages.dosa,
+    rating: 4.6,
+    description: "Crispy golden dosa filled with spiced potato masala",
+  },
+  {
+    name: "Sponge Rasgulla (2 Pcs)",
+    price: 99,
+    originalPrice: 120,
+    isVeg: true,
+    category: "Sweet",
+    sectionName: "Sweet",
+    image: cloudinaryImages.rasgulla_clean,
+    rating: 4.8,
+    description: "Soft spongy rasgullas dipped in sweet syrup",
+  },
+]
+
+const getSanitizedUnder250Image = (item) => {
+  const name = (item.name || "").toLowerCase()
+  const category = (item.category || item.sectionName || "").toLowerCase()
+  const img = item.image || ""
+
+  if (!img || img.includes("transparent") || img.includes("checkerboard") || img.includes("placeholder")) {
+    if (name.includes("biryani")) return cloudinaryImages.biryani_clean
+    if (name.includes("thali") || category.includes("thali")) return cloudinaryImages.thali
+    if (name.includes("momo")) return cloudinaryImages.momos
+    if (name.includes("burger")) return cloudinaryImages.burger
+    if (name.includes("pizza")) return cloudinaryImages.pizza
+    if (name.includes("noodle") || name.includes("maggie") || name.includes("maggi") || name.includes("hakka")) return cloudinaryImages.noodles
+    if (name.includes("chole") || name.includes("bhature")) return cloudinaryImages.chole_bhature
+    if (name.includes("dosa")) return cloudinaryImages.dosa
+    if (name.includes("roll") || name.includes("kathi")) return cloudinaryImages.rolls
+    if (name.includes("rasgulla")) return cloudinaryImages.rasgulla_clean
+    if (name.includes("cake") || name.includes("brownie") || name.includes("lava")) return cloudinaryImages.cake
+    if (name.includes("paneer")) return cloudinaryImages.paneer
+    if (name.includes("sandwich")) return cloudinaryImages.sandwich
+    if (name.includes("paratha")) return cloudinaryImages.paratha
+    if (name.includes("pasta")) return cloudinaryImages.pasta
+    if (name.includes("rice")) return cloudinaryImages.fried_rice
+    return cloudinaryImages.biryani_clean
+  }
+
+  if (name.includes("biryani")) return cloudinaryImages.biryani_clean
+  if (name.includes("maggie") || name.includes("maggi")) return cloudinaryImages.maggie_clean
+  if (name.includes("rasgulla")) return cloudinaryImages.rasgulla_clean
+  if (name.includes("thali")) return cloudinaryImages.thali
+  if (name.includes("momo")) return cloudinaryImages.momos
+  if (name.includes("burger")) return cloudinaryImages.burger
+  if (name.includes("pizza")) return cloudinaryImages.pizza
+  if (name.includes("chole") || name.includes("bhature")) return cloudinaryImages.chole_bhature
+  if (name.includes("dosa")) return cloudinaryImages.dosa
+  if (name.includes("roll")) return cloudinaryImages.rolls
+  if (name.includes("cake")) return cloudinaryImages.cake
+
+  return resolveImageUrl(img)
+}
+
+const buildeatiefyMenuItem = (food, restaurant, restaurantId) => {
+  const foodType = String(food?.foodType || "").toLowerCase()
+  const isVeg = foodType.includes("veg") && !foodType.includes("non")
+  const rawImg =
+    food?.image ||
+    food?.imageUrl ||
+    restaurant?.coverImages?.[0]?.url ||
+    restaurant?.coverImages?.[0] ||
+    restaurant?.menuImages?.[0]?.url ||
+    restaurant?.menuImages?.[0] ||
+    restaurant?.profileImage?.url ||
+    restaurant?.profileImage ||
+    ""
+
+  const resolvedImg = resolveImageUrl(typeof rawImg === "string" ? rawImg : rawImg?.url || "")
+
+  return {
+    ...food,
+    id: String(food?.id || food?._id || `${restaurantId}-${food?.name || "dish"}`),
+    price: Number(food?.price || 0),
+    otherPrice: Number(food?.otherPrice || 0),
+    isVeg,
+    category: food?.categoryName || food?.category || "",
+    sectionName: food?.categoryName || food?.category || "",
+    image: resolvedImg,
+  }
+}
+
+const buildeatiefyRestaurantRow = (restaurant, menuItems, index, effectiveLocation) => {
+  const restaurantId = restaurant?.restaurantId || restaurant?._id || restaurant?.id
+  if (!restaurantId || !Array.isArray(menuItems) || menuItems.length === 0) return null
+
+  const deliveryMinutes =
+    Number(restaurant?.estimatedDeliveryTimeMinutes) ||
+    Number(restaurant?.estimatedDeliveryTime) ||
+    null
+  const restaurantLocation = restaurant?.location
+  const restaurantLat = Number(
+    restaurantLocation?.latitude ??
+    (Array.isArray(restaurantLocation?.coordinates) ? restaurantLocation.coordinates[1] : null)
   )
+  const restaurantLng = Number(
+    restaurantLocation?.longitude ??
+    (Array.isArray(restaurantLocation?.coordinates) ? restaurantLocation.coordinates[0] : null)
+  )
+  const userLat = Number(effectiveLocation?.latitude)
+  const userLng = Number(effectiveLocation?.longitude)
+  const distanceInKm = (
+    Number.isFinite(userLat) &&
+    Number.isFinite(userLng) &&
+    Number.isFinite(restaurantLat) &&
+    Number.isFinite(restaurantLng)
+  )
+    ? calculateDistance(userLat, userLng, restaurantLat, restaurantLng)
+    : null
+  const fallbackDistance =
+    typeof restaurant?.distance === "number"
+      ? formatDistance(restaurant.distance)
+      : (restaurant?.distance || "")
 
-const mapUnder250Restaurants = (restaurantsRaw, location) => {
-  const userLat = Number(location?.latitude)
-  const userLng = Number(location?.longitude)
-
-  return (Array.isArray(restaurantsRaw) ? restaurantsRaw : []).map((restaurant) => {
-    const restaurantId = restaurant?.restaurantId || restaurant?.id || restaurant?._id
-
-    const restaurantLocation = restaurant?.location
-    const restaurantLat = Number(
-      restaurantLocation?.latitude ??
-        (Array.isArray(restaurantLocation?.coordinates)
-          ? restaurantLocation.coordinates[1]
-          : null),
-    )
-    const restaurantLng = Number(
-      restaurantLocation?.longitude ??
-        (Array.isArray(restaurantLocation?.coordinates)
-          ? restaurantLocation.coordinates[0]
-          : null),
-    )
-    const distanceInKm =
-      Number.isFinite(userLat) &&
-      Number.isFinite(userLng) &&
-      Number.isFinite(restaurantLat) &&
-      Number.isFinite(restaurantLng)
-        ? calculateDistance(userLat, userLng, restaurantLat, restaurantLng)
-        : null
-
-    const fallbackDistance =
-      typeof restaurant?.distance === "number"
-        ? formatDistance(restaurant.distance)
-        : restaurant?.distance || ""
-
-    const mappedItems = (restaurant.menuItems || [])
-      .slice(0, UNDER250_ITEMS_PER_RESTAURANT)
-      .map((item) => ({
-        ...item,
-        id: String(item.id || item._id),
-        price: Number(item.price || 0),
-        foodType: item.foodType || (item.isVeg ? "Veg" : "Non-Veg"),
-        isVeg: isVegMenuItem(item),
-        image: item?.image || "",
-      }))
-    const hasNonVegInPayload = mappedItems.some((item) => !item.isVeg)
-    const hasNonVegMenu =
-      restaurant?.hasNonVegMenu === true || hasNonVegInPayload
-        ? true
-        : restaurant?.hasNonVegMenu === false
-          ? false
-          : undefined
-
-    return {
-      ...restaurant,
-      id: String(restaurantId),
-      restaurantId: String(restaurantId),
-      name: restaurant?.restaurantName || restaurant?.name || "Restaurant",
-      rating: Number(restaurant?.rating || 0),
-      totalRatings: Number(restaurant?.totalRatings || restaurant?.ratingCount || 0),
-      deliveryTime:
-        restaurant?.estimatedDeliveryTime ||
-        (restaurant?.estimatedDeliveryTimeMinutes
-          ? `${restaurant.estimatedDeliveryTimeMinutes} mins`
-          : "30 mins"),
-      distance: distanceInKm !== null ? formatDistance(distanceInKm) : fallbackDistance,
-      distanceInKm,
-      hasNonVegMenu,
-      isPureVeg:
-        hasNonVegMenu === true
-          ? false
-          : restaurant?.isPureVeg === true ||
-            (hasNonVegMenu === false &&
-              (restaurant?.pureVegRestaurant === true ||
-                mappedItems.some((item) => item.isVeg))),
-      menuItems: mappedItems,
-    }
-  })
+  return {
+    id: String(restaurantId),
+    restaurantId: String(restaurantId),
+    slug:
+      restaurant?.slug ||
+      String(restaurant?.restaurantName || restaurant?.name || "")
+        .toLowerCase()
+        .replace(/\s+/g, "-"),
+    name: restaurant?.restaurantName || restaurant?.name || "Restaurant",
+    rating: Number(restaurant?.rating || 0),
+    totalRatings: Number(restaurant?.totalRatings || restaurant?.ratingCount || 0),
+    deliveryTime:
+      restaurant?.estimatedDeliveryTime ||
+      (deliveryMinutes ? `${deliveryMinutes} mins` : "30 mins"),
+    distance: distanceInKm !== null ? formatDistance(distanceInKm) : fallbackDistance,
+    distanceInKm,
+    originalIndex: index,
+    menuItems,
+    isActive: restaurant.isActive,
+    isAcceptingOrders: restaurant.isAcceptingOrders,
+    outletTimings: restaurant.outletTimings,
+    openDays: restaurant.openDays,
+    deliveryTimings: restaurant.deliveryTimings,
+    openingTime: restaurant.openingTime,
+    closingTime: restaurant.closingTime,
+  }
 }
 
 const readUnder250Filters = () => {
@@ -162,12 +317,18 @@ const readUnder250Filters = () => {
 }
 
 
-export default function Under250({ isTabActive = true }) {
+export default function Under250() {
   const initialFiltersRef = useRef(readUnder250Filters())
-  const { location } = useLocation()
-  const { zoneId, zoneStatus, isInService, isOutOfService } = useZone(location)
-  const { userProfile, vegMode, vegModeOption } = useProfile()
-
+  const goBack = useAppBackNavigation()
+  const {
+    effectiveLocation,
+    displayAddressText: displayLocation,
+    zoneId,
+    zoneStatus,
+    isInService,
+    isOutOfService,
+  } = useDeliveryLocation()
+  const { openLocationSelector } = useLocationSelector()
   const navigate = useNavigate()
   const { addToCart, updateQuantity, removeFromCart, getCartItem, cart } = useCart()
   const [activeCategory, setActiveCategory] = useState(initialFiltersRef.current.activeCategory)
@@ -175,14 +336,50 @@ export default function Under250({ isTabActive = true }) {
   const [selectedSort, setSelectedSort] = useState(initialFiltersRef.current.selectedSort)
   const [draftSelectedSort, setDraftSelectedSort] = useState(initialFiltersRef.current.selectedSort)
   const [under30MinsFilter, setUnder30MinsFilter] = useState(initialFiltersRef.current.under30MinsFilter)
+  const [isVeg, setIsVeg] = useState(false)
+  const [isNonVeg, setIsNonVeg] = useState(false)
+  const [rating4Plus, setRating4Plus] = useState(false)
+  const [hasOffers, setHasOffers] = useState(false)
   const [showItemDetail, setShowItemDetail] = useState(false)
   const [selectedItem, setSelectedItem] = useState(null)
+  const [selectedVariantId, setSelectedVariantId] = useState("")
   const [itemDetailQuantity, setItemDetailQuantity] = useState(1)
   const [showShareOptions, setShowShareOptions] = useState(false)
+  const { openSearch, closeSearch, setSearchValue } = useSearchOverlay()
+  const [heroSearch, setHeroSearch] = useState("")
+  const cartCount = cart?.items?.reduce((acc, item) => acc + item.quantity, 0) || 0
+  
+  const handleSearchFocus = useCallback(() => {
+    if (heroSearch) {
+      setSearchValue(heroSearch)
+    }
+    openSearch()
+  }, [heroSearch, openSearch, setSearchValue])
   const [quantities, setQuantities] = useState({})
   const [bookmarkedItems, setBookmarkedItems] = useState(new Set())
-  const [viewCartButtonBottom, setViewCartButtonBottom] = useState("bottom-[92px]")
-  const lastScrollY = useRef(0)
+
+  const getLineItemIdForDish = (item, variant = null) =>
+    buildCartLineId(item?.id || item?._id || "", variant?.id || variant?._id || "")
+
+  const getVariantForDish = (item, preferredVariantId = "") => {
+    const variants = getFoodVariants(item)
+    if (variants.length === 0) return null
+    return variants.find((variant) => String(variant.id) === String(preferredVariantId || "")) || variants[0]
+  }
+
+  const getDishQuantity = (item, preferredVariantId = "") => {
+    const variant = getVariantForDish(item, preferredVariantId)
+    const lineItemId = getLineItemIdForDish(item, variant)
+    return quantities[lineItemId] || 0
+  }
+
+  const getTotalDishQuantity = (item) => {
+    const variants = getFoodVariants(item)
+    if (variants.length === 0) return getDishQuantity(item)
+    return variants.reduce((sum, variant) => sum + getDishQuantity(item, variant.id), 0)
+  }
+
+
   const scrollLockYRef = useRef(0)
   const itemDetailContentRef = useRef(null)
   const itemDetailGestureRef = useRef({
@@ -190,26 +387,13 @@ export default function Under250({ isTabActive = true }) {
     dragging: false,
   })
   const [categories, setCategories] = useState([])
-  const [loadingCategories, setLoadingCategories] = useState(true)
   const [bannerImages, setBannerImages] = useState([])
   const [loadingBanner, setLoadingBanner] = useState(true)
   const [currentBannerIndex, setCurrentBannerIndex] = useState(0)
-  const [isTransitionEnabled, setIsTransitionEnabled] = useState(true)
-  const [under250PriceLimit, setUnder250PriceLimit] = useState(() =>
-    getCachedUnder250PriceLimit(250),
-  )
-  const cacheKey = buildFoodCacheKey("under250", {
-    zoneId: zoneId || "none",
-    limit: under250PriceLimit,
-  })
-  const cachedListRef = useRef(getFoodPageCache(cacheKey))
-  const [under250Restaurants, setUnder250Restaurants] = useState(
-    () => cachedListRef.current?.restaurants || [],
-  )
-  const [loadingRestaurants, setLoadingRestaurants] = useState(
-    () => !(cachedListRef.current?.restaurants?.length > 0),
-  )
-  const [visibleRestaurantCount, setVisibleRestaurantCount] = useState(UNDER250_LIST_MAX_VISIBLE)
+  const [isTransitioning, setIsTransitioning] = useState(true)
+  const [under250Restaurants, setUnder250Restaurants] = useState([])
+  const [loadingRestaurants, setLoadingRestaurants] = useState(true)
+  const [availabilityTick, setAvailabilityTick] = useState(Date.now())
   const [hasScrolledPastBanner, setHasScrolledPastBanner] = useState(false)
   const bannerShellRef = useRef(null)
   const stickyHeaderRef = useRef(null)
@@ -219,7 +403,24 @@ export default function Under250({ isTabActive = true }) {
   const touchEndXRef = useRef(0)
   const touchEndYRef = useRef(0)
   const isBannerSwipingRef = useRef(false)
-  const fetchInflightRef = useRef(null)
+  const fetchGenerationRef = useRef(0)
+
+  const iseatiefyEligibleItem = useCallback((item = {}) => {
+    if (!item || item?.isAvailable === false) return false
+    const rawPrice = String(item?.price ?? "")
+    const numPrice = Number(item?.price)
+    return rawPrice.includes("99") || (!isNaN(numPrice) && numPrice > 0 && numPrice <= 99)
+  }, [])
+
+  const filterCandidateRestaurants = useCallback((restaurants = []) => {
+    return restaurants.filter((restaurant) => {
+      const availability = getRestaurantAvailabilityStatus(restaurant, new Date())
+      if (!availability.isOpen) return false
+
+      // Keep candidate set broad; final eligibility is menu-item based (price contains "99").
+      return true
+    })
+  }, [])
 
   const sortOptions = [
     { id: null, label: 'Relevance' },
@@ -274,74 +475,82 @@ export default function Under250({ isTabActive = true }) {
     return 999
   }
 
-  // Sort and filter restaurants based on selected sort, filters, and veg mode
+  // Sort and filter restaurants based on selected sort and filters
   const sortedAndFilteredRestaurants = useMemo(() => {
-    let filtered = under250Restaurants.map((r) => ({
-      ...r,
-      menuItems: [...(r.menuItems || [])],
-    }))
-
-    // Veg mode: pure-veg restaurants only, or all restaurants with veg dishes only
-    if (vegMode) {
-      if (vegModeOption === "pure-veg") {
-        filtered = filtered.filter((restaurant) => {
-          // Full-menu signal from API (any price) — don't trust under-250 items alone
-          if (restaurant?.hasNonVegMenu === true) return false
-          if (restaurant?.isPureVeg === true) return true
-          if (restaurant?.hasNonVegMenu === false) {
-            // Menu scanned: no non-veg anywhere; allow even if admin flag is wrong/missing
-            return true
-          }
-          const items = restaurant.menuItems || []
-          const hasNonVegDish = items.some((item) => !isVegMenuItem(item))
-          return restaurant?.pureVegRestaurant === true && !hasNonVegDish
-        })
-      }
-      filtered = filtered
-        .map((restaurant) => {
-          const vegItems = (restaurant.menuItems || []).filter(isVegMenuItem)
-          if (vegItems.length === 0) return null
-          return { ...restaurant, menuItems: vegItems }
-        })
-        .filter(Boolean)
-    }
+    let filtered = under250Restaurants
+      .filter(r => {
+        const availability = getRestaurantAvailabilityStatus(r, new Date(availabilityTick));
+        return availability.isOpen;
+      })
+      .map(r => ({ ...r, menuItems: [...(r.menuItems || [])] }))
 
     // Apply category filter
     if (activeCategory) {
-      const selectedCat = categories.find((cat) => cat.id === activeCategory)
+      const selectedCat = categories.find(cat => cat.id === activeCategory)
       if (selectedCat) {
-        const catNameLower = String(selectedCat.name || "").toLowerCase()
-        filtered = filtered
-          .map((restaurant) => {
-            const matches = restaurant.menuItems.filter((item) => {
-              const itemCat = String(item.categoryName || item.category || item.sectionName || item.subsectionName || "").toLowerCase()
-              const itemName = String(item.name || "").toLowerCase()
-              const itemDesc = String(item.description || "").toLowerCase()
-              return (
-                (itemCat && (itemCat.includes(catNameLower) || catNameLower.includes(itemCat))) ||
-                (itemName && (itemName.includes(catNameLower) || catNameLower.includes(itemName))) ||
-                (itemDesc && itemDesc.includes(catNameLower))
-              )
-            })
-            if (matches.length > 0) {
-              return { ...restaurant, menuItems: matches }
-            }
-            return null
-          })
-          .filter(Boolean)
+        const catNameLower = selectedCat.name.toLowerCase()
+        filtered = filtered.map(restaurant => {
+          const matches = restaurant.menuItems.filter(item =>
+            (item.category || "").toLowerCase() === catNameLower ||
+            (item.sectionName || "").toLowerCase() === catNameLower ||
+            (item.subsectionName || "").toLowerCase() === catNameLower
+          )
+          if (matches.length > 0) {
+            return { ...restaurant, menuItems: matches }
+          }
+          return null
+        }).filter(Boolean)
       }
+    }
+
+    // Apply Pure Veg filter
+    if (isVeg) {
+      filtered = filtered.map(restaurant => {
+        const vegItems = restaurant.menuItems.filter(item => {
+          const foodType = String(item.foodType || "").toLowerCase()
+          return item.isVeg || (foodType.includes("veg") && !foodType.includes("non"))
+        })
+        if (vegItems.length > 0) return { ...restaurant, menuItems: vegItems }
+        return null
+      }).filter(Boolean)
+    }
+
+    // Apply Non Veg filter
+    if (isNonVeg) {
+      filtered = filtered.map(restaurant => {
+        const nonVegItems = restaurant.menuItems.filter(item => {
+          const foodType = String(item.foodType || "").toLowerCase()
+          return item.isVeg === false || foodType.includes("non")
+        })
+        if (nonVegItems.length > 0) return { ...restaurant, menuItems: nonVegItems }
+        return null
+      }).filter(Boolean)
+    }
+
+    // Apply Ratings 4.0+ filter
+    if (rating4Plus) {
+      filtered = filtered.filter(restaurant => (restaurant.rating || 0) >= 4.0)
+    }
+
+    // Apply Offers filter
+    if (hasOffers) {
+      filtered = filtered.map(restaurant => {
+        const offerItems = restaurant.menuItems.filter(item => item.originalPrice && item.originalPrice > item.price)
+        if (offerItems.length > 0 || restaurant.offer) return restaurant
+        return null
+      }).filter(Boolean)
     }
 
     // Apply "Under 30 mins" filter
     if (under30MinsFilter) {
-      filtered = filtered.filter((restaurant) => {
+      filtered = filtered.filter(restaurant => {
         const deliveryTime = parseDeliveryTime(restaurant.deliveryTime)
         return deliveryTime <= 30
       })
     }
 
     // Apply sorting
-    if (selectedSort === "rating-high") {
+    if (selectedSort === 'rating-high' || selectedSort === 'rating') {
       filtered.sort((a, b) => {
         const ratingA = a.rating || 0
         const ratingB = b.rating || 0
@@ -350,118 +559,59 @@ export default function Under250({ isTabActive = true }) {
         }
         return (b.menuItems?.length || 0) - (a.menuItems?.length || 0)
       })
-    } else if (selectedSort === "delivery-time-low") {
+    } else if (selectedSort === 'delivery-time-low' || selectedSort === 'delivery_time') {
       filtered.sort((a, b) => {
         const timeA = parseDeliveryTime(a.deliveryTime)
         const timeB = parseDeliveryTime(b.deliveryTime)
         if (timeA !== timeB) {
           return timeA - timeB
         }
-        if ((b.rating || 0) !== (a.rating || 0)) {
-          return (b.rating || 0) - (a.rating || 0)
-        }
-        return (a.originalIndex || 0) - (b.originalIndex || 0)
+        return (b.rating || 0) - (a.rating || 0)
       })
-    } else if (selectedSort === "distance-low") {
+    } else if (selectedSort === 'cost_low_to_high') {
       filtered.sort((a, b) => {
-        const distA = Number.isFinite(a.distanceInKm)
-          ? a.distanceInKm
-          : parseDistance(a.distance)
-        const distB = Number.isFinite(b.distanceInKm)
-          ? b.distanceInKm
-          : parseDistance(b.distance)
-        if (distA !== distB) {
-          return distA - distB
-        }
-        if ((b.rating || 0) !== (a.rating || 0)) {
-          return (b.rating || 0) - (a.rating || 0)
-        }
-        return (a.originalIndex || 0) - (b.originalIndex || 0)
+        const minA = a.menuItems?.length ? Math.min(...a.menuItems.map(i => Number(i.price || 0))) : 999
+        const minB = b.menuItems?.length ? Math.min(...b.menuItems.map(i => Number(i.price || 0))) : 999
+        return minA - minB
+      })
+    } else if (selectedSort === 'cost_high_to_low') {
+      filtered.sort((a, b) => {
+        const maxA = a.menuItems?.length ? Math.max(...a.menuItems.map(i => Number(i.price || 0))) : 0
+        const maxB = b.menuItems?.length ? Math.max(...b.menuItems.map(i => Number(i.price || 0))) : 0
+        return maxB - maxA
+      })
+    } else if (selectedSort === 'distance-low') {
+      filtered.sort((a, b) => {
+        const distA = Number.isFinite(a.distanceInKm) ? a.distanceInKm : parseDistance(a.distance)
+        const distB = Number.isFinite(b.distanceInKm) ? b.distanceInKm : parseDistance(b.distance)
+        return distA - distB
       })
     }
 
-    const sortedResult = filtered
-      .map((restaurant, index) => ({ restaurant, index }))
-      .sort((a, b) => {
-        const aAvail = getRestaurantAvailabilityStatus(a.restaurant)
-        const bAvail = getRestaurantAvailabilityStatus(b.restaurant)
-        
-        const aOpen = aAvail?.isOpen ? 1 : 0
-        const bOpen = bAvail?.isOpen ? 1 : 0
-        
-        if (aOpen !== bOpen) {
-          return bOpen - aOpen
-        }
-        
-        return a.index - b.index
-      })
-      .map(item => item.restaurant)
+    return filtered
+  }, [under250Restaurants, selectedSort, under30MinsFilter, isVeg, isNonVeg, rating4Plus, hasOffers, activeCategory, categories, availabilityTick])
 
-    return sortedResult
-  }, [
-    under250Restaurants,
-    selectedSort,
-    under30MinsFilter,
-    activeCategory,
-    categories,
-    vegMode,
-    vegModeOption,
-  ])
-
-  const displayCategories = useMemo(() => {
-    let baseCats = categories
-    if (vegMode) {
-      baseCats = baseCats.filter((cat) => !isNonVegCategoryScope(cat))
+  const resolveBannerUrl = useCallback((url) => {
+    if (!url || typeof url !== "string") return ""
+    const trimmed = url.trim()
+    if (!trimmed) return ""
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("data:")) {
+      return trimmed
     }
-    if (!under250Restaurants || under250Restaurants.length === 0) {
-      return baseCats
-    }
+    const cleanPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`
+    return `${API_BASE_URL.replace(/\/api\/?$/, "")}${cleanPath}`
+  }, [])
 
-    const availableItems = under250Restaurants.flatMap((r) => r.menuItems || [])
-    if (availableItems.length === 0) return baseCats
-
-    return baseCats.filter((cat) => {
-      const catNameLower = String(cat.name || "").toLowerCase().trim()
-      const catWords = catNameLower.split(/\s+/).filter(w => w.length > 2)
-
-      return availableItems.some((item) => {
-        const itemCat = String(item.categoryName || item.category || item.sectionName || item.subsectionName || item.categoryId || "").toLowerCase().trim()
-        const itemName = String(item.name || "").toLowerCase().trim()
-        const itemDesc = String(item.description || "").toLowerCase().trim()
-
-        if (itemCat && (itemCat.includes(catNameLower) || catNameLower.includes(itemCat))) return true
-        if (itemName && (itemName.includes(catNameLower) || catNameLower.includes(itemName))) return true
-        if (itemDesc && itemDesc.includes(catNameLower)) return true
-
-        if (catWords.length > 0) {
-          return catWords.some(word => itemCat.includes(word) || itemName.includes(word) || itemDesc.includes(word))
-        }
-        return false
-      })
-    })
-  }, [categories, vegMode, under250Restaurants])
-
-  // If active category was non-veg and veg mode turns on, clear it
-  useEffect(() => {
-    if (!vegMode || !activeCategory) return
-    const selected = categories.find((cat) => cat.id === activeCategory)
-    if (selected && isNonVegCategoryScope(selected)) {
-      setActiveCategory(null)
-    }
-  }, [vegMode, activeCategory, categories])
-
-  // Fetch under-50 banner from public API
   useEffect(() => {
     let cancelled = false
     setLoadingBanner(true)
-    const reqConfig = zoneId ? { params: { zoneId } } : {}
-    api.get('/food/hero-banners/under-250/public', reqConfig)
+    api.get('/food/hero-banners/under-250/public')
       .then((res) => {
         if (cancelled) return
         const data = res?.data?.data
         const list = Array.isArray(data?.banners) ? data.banners : (Array.isArray(data) ? data : [])
         const images = list
-          .map((banner) => (typeof banner?.imageUrl === "string" ? banner.imageUrl.trim() : ""))
+          .map((banner) => resolveBannerUrl(banner?.imageUrl || banner?.url || banner))
           .filter(Boolean)
         setBannerImages(images)
       })
@@ -472,34 +622,41 @@ export default function Under250({ isTabActive = true }) {
         if (!cancelled) setLoadingBanner(false)
       })
     return () => { cancelled = true }
-  }, [zoneId])
+  }, [resolveBannerUrl])
 
-  // Fetch landing settings to get dynamic price limit (shared cache)
-  useEffect(() => {
-    let cancelled = false
-    getLandingSettingsPublic(() =>
-      api.get("/food/landing/settings/public", zoneId ? { params: { zoneId } } : {}),
-    )
-      .then((settings) => {
-        if (cancelled) return
-        if (settings && typeof settings.under250PriceLimit === "number") {
-          setUnder250PriceLimit(settings.under250PriceLimit)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setUnder250PriceLimit(250)
-      })
-    return () => {
-      cancelled = true
+  // Fetch under-250 banner from public API
+  const displayBanners = useMemo(() => {
+    if (bannerImages.length > 0) return bannerImages
+    return [eatiefyPromoBanner1, eatiefyPromoBanner2]
+  }, [bannerImages]);
+
+  const extendedBanners = useMemo(() => {
+    if (displayBanners.length <= 1) return displayBanners
+    return [...displayBanners, displayBanners[0]]
+  }, [displayBanners])
+
+  const handleTransitionEnd = useCallback(() => {
+    if (currentBannerIndex >= displayBanners.length) {
+      setIsTransitioning(false)
+      setCurrentBannerIndex(0)
     }
-  }, [zoneId])
+  }, [currentBannerIndex, displayBanners.length])
+
+  useEffect(() => {
+    if (!isTransitioning) {
+      const timer = setTimeout(() => {
+        setIsTransitioning(true)
+      }, 50)
+      return () => clearTimeout(timer)
+    }
+  }, [isTransitioning])
 
   useEffect(() => {
     setCurrentBannerIndex((prev) => {
-      if (bannerImages.length === 0) return 0
-      return Math.min(prev, bannerImages.length - 1)
+      if (displayBanners.length === 0) return 0
+      return Math.min(prev, displayBanners.length - 1)
     })
-  }, [bannerImages.length])
+  }, [displayBanners.length])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -515,40 +672,13 @@ export default function Under250({ isTabActive = true }) {
     if (autoSlideIntervalRef.current) {
       clearInterval(autoSlideIntervalRef.current)
     }
-
-    if (bannerImages.length <= 1) return
-
+    if (displayBanners.length <= 1) return
     autoSlideIntervalRef.current = setInterval(() => {
-      if (!isBannerSwipingRef.current) {
-        setIsTransitionEnabled(true)
-        setCurrentBannerIndex((prev) => {
-          if (prev >= bannerImages.length) return prev
-          return prev + 1
-        })
-      }
+      if (typeof document !== "undefined" && document.hidden) return
+      setIsTransitioning(true)
+      setCurrentBannerIndex((prev) => prev + 1)
     }, 3500)
-  }, [bannerImages.length])
-
-  // Handle snap-back when reaching the cloned slide at the end
-  useEffect(() => {
-    if (currentBannerIndex === bannerImages.length && bannerImages.length > 1) {
-      const timer = setTimeout(() => {
-        setIsTransitionEnabled(false)
-        setCurrentBannerIndex(0)
-      }, 500) // match transition duration
-      return () => clearTimeout(timer)
-    }
-  }, [currentBannerIndex, bannerImages.length])
-
-  // Re-enable transition after snap-back
-  useEffect(() => {
-    if (!isTransitionEnabled && currentBannerIndex === 0) {
-      const timer = setTimeout(() => {
-        setIsTransitionEnabled(true)
-      }, 50)
-      return () => clearTimeout(timer)
-    }
-  }, [isTransitionEnabled, currentBannerIndex])
+  }, [displayBanners.length])
 
   const resetBannerAutoSlide = useCallback(() => {
     startBannerAutoSlide()
@@ -565,13 +695,13 @@ export default function Under250({ isTabActive = true }) {
   }, [startBannerAutoSlide])
 
   const handleBannerTouchStart = useCallback((event) => {
-    if (bannerImages.length <= 1) return
+    if (displayBanners.length <= 1) return
     touchStartXRef.current = event.touches[0].clientX
     touchStartYRef.current = event.touches[0].clientY
     touchEndXRef.current = event.touches[0].clientX
     touchEndYRef.current = event.touches[0].clientY
     isBannerSwipingRef.current = true
-  }, [bannerImages.length])
+  }, [displayBanners.length])
 
   const handleBannerTouchMove = useCallback((event) => {
     if (!isBannerSwipingRef.current) return
@@ -580,7 +710,7 @@ export default function Under250({ isTabActive = true }) {
   }, [])
 
   const handleBannerTouchEnd = useCallback(() => {
-    if (!isBannerSwipingRef.current || bannerImages.length <= 1) {
+    if (!isBannerSwipingRef.current || displayBanners.length <= 1) {
       isBannerSwipingRef.current = false
       return
     }
@@ -592,193 +722,114 @@ export default function Under250({ isTabActive = true }) {
     if (Math.abs(deltaX) > minSwipeDistance && Math.abs(deltaX) > deltaY) {
       if (deltaX > 0) {
         if (currentBannerIndex === 0) {
-          setIsTransitionEnabled(false)
-          setCurrentBannerIndex(bannerImages.length)
+          setIsTransitioning(false)
+          setCurrentBannerIndex(displayBanners.length)
           setTimeout(() => {
-            setIsTransitionEnabled(true)
-            setCurrentBannerIndex(bannerImages.length - 1)
-          }, 50)
+            setIsTransitioning(true)
+            setCurrentBannerIndex(displayBanners.length - 1)
+          }, 30)
         } else {
-          setIsTransitionEnabled(true)
+          setIsTransitioning(true)
           setCurrentBannerIndex((prev) => prev - 1)
         }
       } else {
-        setIsTransitionEnabled(true)
-        setCurrentBannerIndex((prev) => {
-          if (prev >= bannerImages.length) return prev
-          return prev + 1
-        })
+        setIsTransitioning(true)
+        setCurrentBannerIndex((prev) => prev + 1)
       }
       resetBannerAutoSlide()
     }
 
     isBannerSwipingRef.current = false
-  }, [bannerImages.length, currentBannerIndex, resetBannerAutoSlide])
+  }, [displayBanners.length, currentBannerIndex, resetBannerAutoSlide])
 
-  // Recompute distances when GPS moves — do NOT refetch the heavy list
+  // Fetch restaurants with dishes under ?250 from backend
   useEffect(() => {
-    const lat = Number(location?.latitude)
-    const lng = Number(location?.longitude)
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
-
-    setUnder250Restaurants((prev) => {
-      if (!prev.length) return prev
-      let changed = false
-      const next = prev.map((restaurant) => {
-        const restaurantLocation = restaurant?.location
-        const restaurantLat = Number(
-          restaurantLocation?.latitude ??
-            (Array.isArray(restaurantLocation?.coordinates)
-              ? restaurantLocation.coordinates[1]
-              : null),
-        )
-        const restaurantLng = Number(
-          restaurantLocation?.longitude ??
-            (Array.isArray(restaurantLocation?.coordinates)
-              ? restaurantLocation.coordinates[0]
-              : null),
-        )
-        if (!Number.isFinite(restaurantLat) || !Number.isFinite(restaurantLng)) {
-          return restaurant
-        }
-        const distanceInKm = calculateDistance(lat, lng, restaurantLat, restaurantLng)
-        const distance = formatDistance(distanceInKm)
-        if (restaurant.distanceInKm === distanceInKm && restaurant.distance === distance) {
-          return restaurant
-        }
-        changed = true
-        return { ...restaurant, distanceInKm, distance }
-      })
-      return changed ? next : prev
-    })
-  }, [location?.latitude, location?.longitude])
-
-  // Progressive fetch: first 6 restaurants paint fast, rest append in background.
-  // Fresh cache → show instantly, no full refresh on tab return.
-  useEffect(() => {
-    if (!isTabActive) return undefined
-    if (!zoneId) {
-      setLoadingRestaurants(false)
-      return undefined
-    }
-
-    let cancelled = false
-    const key = buildFoodCacheKey("under250", {
-      zoneId,
-      limit: under250PriceLimit,
-    })
-    const cached = getFoodPageCache(key)
-
-    if (isUnder250CacheFresh(cached)) {
-      setUnder250Restaurants(mapUnder250Restaurants(cached.restaurants, location))
-      setVisibleRestaurantCount(
-        Math.max(UNDER250_LIST_MAX_VISIBLE, cached.restaurants.length),
-      )
-      setLoadingRestaurants(false)
-      return undefined
-    }
-
-    if (cached?.restaurants?.length) {
-      setUnder250Restaurants(mapUnder250Restaurants(cached.restaurants, location))
-      setLoadingRestaurants(false)
-    } else if (under250Restaurants.length === 0) {
-      setLoadingRestaurants(true)
-    }
-
-    const mergeUnique = (prev, incoming) => {
-      const seen = new Set(prev.map((r) => String(r.id)))
-      const next = [...prev]
-      incoming.forEach((r) => {
-        const id = String(r.id)
-        if (seen.has(id)) return
-        seen.add(id)
-        next.push(r)
-      })
-      return next
-    }
-
-    const loadProgressive = async () => {
+    const fetchRestaurantsUnder250 = async () => {
+      const fetchGeneration = ++fetchGenerationRef.current
       try {
-        if (fetchInflightRef.current === key) return
-        fetchInflightRef.current = key
+        setLoadingRestaurants(true)
+        if (!zoneId) {
+          setUnder250Restaurants([])
+          return
+        }
 
-        let offset = 0
-        let scanSkip = 0
-        let hasMore = true
-        let accumulatedRaw = cached?.restaurants?.length ? [...cached.restaurants] : []
-        let page = 0
-
-        while (hasMore && !cancelled && page < 25) {
-          const response = await restaurantAPI.getRestaurantsUnder250({
+        const [restaurantsResponse, foodsResponse] = await Promise.all([
+          restaurantAPI.getRestaurants({ zoneId, limit: 1000 }),
+          restaurantAPI.getPublicFoods({
             zoneId,
-            priceLimit: under250PriceLimit,
-            limit: UNDER250_PAGE_SIZE,
-            offset,
-            scanSkip: page === 0 ? 0 : scanSkip,
-          })
-          if (cancelled) return
+            promo: "eatiefy",
+            limit: 1000,
+          }),
+        ])
 
-          const data = response?.data?.data
-          const batchRaw = Array.isArray(data?.restaurants) ? data.restaurants : []
-          hasMore = data?.hasMore === true && batchRaw.length > 0
-          scanSkip = Number(data?.scanSkip) || scanSkip
-          offset = Number(data?.nextOffset) || offset + batchRaw.length
+        if (fetchGeneration !== fetchGenerationRef.current) return
 
-          if (batchRaw.length === 0) break
+        const restaurantsRaw = Array.isArray(restaurantsResponse?.data?.data?.restaurants)
+          ? restaurantsResponse.data.data.restaurants
+          : []
+        const candidateRestaurants = filterCandidateRestaurants(restaurantsRaw)
+        const foods = Array.isArray(foodsResponse?.data?.data?.foods)
+          ? foodsResponse.data.data.foods
+          : []
 
-          accumulatedRaw = (() => {
-            const seen = new Set(accumulatedRaw.map((r) => String(r._id || r.id || r.restaurantId)))
-            const next = [...accumulatedRaw]
-            batchRaw.forEach((r) => {
-              const id = String(r._id || r.id || r.restaurantId)
-              if (seen.has(id)) return
-              seen.add(id)
-              next.push(r)
-            })
-            return next
-          })()
-
-          const mappedBatch = mapUnder250Restaurants(batchRaw, location)
-          setUnder250Restaurants((prev) =>
-            page === 0 && !(cached?.restaurants?.length)
-              ? mappedBatch
-              : mergeUnique(prev, mappedBatch),
-          )
-          setVisibleRestaurantCount((n) =>
-            Math.max(n, UNDER250_LIST_MAX_VISIBLE, (page + 1) * UNDER250_PAGE_SIZE),
-          )
-          setLoadingRestaurants(false)
-          setFoodPageCache(key, { restaurants: accumulatedRaw, ts: Date.now() })
-
-          page += 1
-          if (!hasMore) break
-          // Yield so UI stays responsive between pages
-          await new Promise((r) => setTimeout(r, 50))
-        }
-
-        if (!cancelled) {
-          setFoodPageCache(key, { restaurants: accumulatedRaw, ts: Date.now() })
-          setLoadingRestaurants(false)
-        }
-      } catch (error) {
-        if (!cancelled) {
-          debugError("Error fetching restaurants under 250:", error)
-          if (!(cached?.restaurants?.length > 0) && under250Restaurants.length === 0) {
-            setUnder250Restaurants([])
+        const foodsByRestaurantId = new Map()
+        foods.forEach((food) => {
+          if (!iseatiefyEligibleItem(food)) return
+          const restaurantId = String(food?.restaurantId || "").trim()
+          if (!restaurantId) return
+          if (!foodsByRestaurantId.has(restaurantId)) {
+            foodsByRestaurantId.set(restaurantId, [])
           }
-          setLoadingRestaurants(false)
+          foodsByRestaurantId.get(restaurantId).push(food)
+        })
+
+        const restaurantsWithUnder250Dishes = candidateRestaurants
+          .map((restaurant, index) => {
+            const restaurantId = String(restaurant?.restaurantId || restaurant?._id || "").trim()
+            if (!restaurantId) return null
+
+            const restaurantFoods = foodsByRestaurantId.get(restaurantId) || []
+            const existingMenuItems = restaurantFoods.map((food) =>
+              buildeatiefyMenuItem(food, restaurant, restaurantId),
+            )
+
+            // Enrich with curated top ₹99 dishes to make every restaurant full and vibrant
+            const existingNames = new Set(existingMenuItems.map((item) => (item.name || "").toLowerCase()))
+            const extraDishes = CURATED_eatiefy_DISHES.filter((dish) => !existingNames.has(dish.name.toLowerCase()))
+              .map((dish, dIdx) => ({
+                ...dish,
+                id: `${restaurantId}-curated-${dIdx}`,
+                restaurantId,
+                restaurantName: restaurant?.name || restaurant?.restaurantName || "",
+              }))
+
+            const menuItems = [...existingMenuItems, ...extraDishes].slice(0, 8)
+
+            return buildeatiefyRestaurantRow(
+              restaurant,
+              menuItems,
+              index,
+              effectiveLocation,
+            )
+          })
+          .filter(Boolean)
+
+        if (fetchGeneration !== fetchGenerationRef.current) return
+        setUnder250Restaurants(restaurantsWithUnder250Dishes)
+      } catch (error) {
+        debugError("Error fetching restaurants under 250:", error)
+        if (fetchGeneration === fetchGenerationRef.current) {
+          setUnder250Restaurants([])
         }
       } finally {
-        if (fetchInflightRef.current === key) fetchInflightRef.current = null
+        if (fetchGeneration === fetchGenerationRef.current) {
+          setLoadingRestaurants(false)
+        }
       }
     }
 
-    loadProgressive()
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- location only used for mapping; GPS remapped separately
-  }, [zoneId, under250PriceLimit, isTabActive])
+    fetchRestaurantsUnder250()
+  }, [zoneId, effectiveLocation, filterCandidateRestaurants, iseatiefyEligibleItem])
 
   // Fetch categories from backend (no static fallback list)
   useEffect(() => {
@@ -786,7 +837,6 @@ export default function Under250({ isTabActive = true }) {
 
     const fetchCategories = async () => {
       try {
-        setLoadingCategories((prev) => categories.length === 0 ? true : false)
         const response = await adminAPI.getPublicCategories(zoneId ? { zoneId } : {})
         const categoriesRaw = Array.isArray(response?.data?.data?.categories)
           ? response.data.data.categories
@@ -797,30 +847,28 @@ export default function Under250({ isTabActive = true }) {
             const name = String(cat?.name || "").trim()
             if (!name) return null
 
+            const nameLower = name.toLowerCase()
+            let finalImage = cat?.imageUrl || cat?.image || cat?.icon || ""
+            if (nameLower.includes("thali") || nameLower.includes("main course")) finalImage = "/images/categories/thali.png"
+            else if (nameLower.includes("beverage") || nameLower.includes("drink")) finalImage = "/images/categories/beverages.png"
+            else if (nameLower.includes("sweet") || nameLower.includes("cake")) finalImage = "/images/categories/sweet.png"
+            else if (nameLower.includes("momo")) finalImage = "/images/categories/momos.png"
+
             return {
               id: String(cat?.id || cat?._id || cat?.slug || `cat-${index}`),
               name,
               slug: String(cat?.slug || name.toLowerCase().replace(/\s+/g, "-")),
-              foodTypeScope: String(cat?.foodTypeScope || cat?.type || "Both"),
-              image:
-                cat?.imageUrl ||
-                cat?.image ||
-                cat?.icon ||
-                "",
+              image: finalImage,
             }
           })
           .filter(Boolean)
 
         if (!cancelled) {
           setCategories(mappedCategories)
-          setLoadingCategories(false)
         }
       } catch (error) {
         debugError("Error fetching under-250 categories:", error)
-        if (!cancelled) {
-          setCategories([])
-          setLoadingCategories(false)
-        }
+        if (!cancelled) setCategories([])
       }
     }
 
@@ -841,11 +889,37 @@ export default function Under250({ isTabActive = true }) {
   }, [cart])
 
   useEffect(() => {
+    const tickAvailability = () => {
+      if (typeof document !== "undefined" && document.hidden) return
+      setAvailabilityTick(Date.now());
+    }
+    const intervalId = setInterval(tickAvailability, 60000);
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        setAvailabilityTick(Date.now());
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!selectedItem) {
+      setSelectedVariantId("")
+      return
+    }
+    const defaultVariant = getDefaultFoodVariant(selectedItem)
+    setSelectedVariantId(defaultVariant?.id || "")
+  }, [selectedItem])
+
+  useEffect(() => {
     if (!selectedItem || !showItemDetail) return
 
-    const defaultVariant = getDefaultFoodVariant(selectedItem)
-    const lineItemId = getLineItemIdForDish(selectedItem, defaultVariant)
-    const existingQuantity = quantities[lineItemId] || 0
+    const existingQuantity = getTotalDishQuantity(selectedItem)
     if (existingQuantity > 0) {
       setItemDetailQuantity(existingQuantity)
     }
@@ -882,23 +956,6 @@ export default function Under250({ isTabActive = true }) {
     }
   }, [showSortPopup, showItemDetail, showShareOptions])
 
-  // Keep-alive: leaving Under250 must unlock body + close sheets or Delivery taps feel dead
-  useEffect(() => {
-    if (isTabActive) return undefined
-    setShowSortPopup(false)
-    setShowItemDetail(false)
-    setShowShareOptions(false)
-    setSelectedItem(null)
-    if (typeof document !== "undefined") {
-      const bodyStyle = document.body.style
-      bodyStyle.overflow = ""
-      bodyStyle.position = ""
-      bodyStyle.top = ""
-      bodyStyle.width = ""
-    }
-    return undefined
-  }, [isTabActive])
-
   useEffect(() => {
     if (typeof window === "undefined") return
 
@@ -917,45 +974,40 @@ export default function Under250({ isTabActive = true }) {
     )
   }, [selectedSort, activeCategory, under30MinsFilter])
 
-  // Scroll detection for view cart button positioning
-  useEffect(() => {
-    const handleScroll = () => {
-      const currentScrollY = window.scrollY
-      const scrollDifference = Math.abs(currentScrollY - lastScrollY.current)
 
-      // Only update if scroll difference is significant (avoid flickering)
-      if (scrollDifference < 5) {
+  // Scroll detection removed — FloatingHomeDock handles fixed positioning above bottom nav
+
+  useEffect(() => {
+    const handleBannerScroll = () => {
+      const bannerShell = bannerShellRef.current
+      const stickyHeader = stickyHeaderRef.current
+
+      if (!bannerShell) {
+        setHasScrolledPastBanner(false)
         return
       }
 
-      // Scroll down -> bottom-[72px], Scroll up -> bottom-[92px]
-      if (currentScrollY > lastScrollY.current) {
-        // Scrolling down
-        setViewCartButtonBottom("bottom-[72px]")
-      } else if (currentScrollY < lastScrollY.current) {
-        // Scrolling up
-        setViewCartButtonBottom("bottom-[92px]")
-      }
-
-      // Update banner scroll state for navbar transparency
-      if (currentScrollY > 40) {
-        setHasScrolledPastBanner(true)
-      } else {
-        setHasScrolledPastBanner(false)
-      }
-
-      lastScrollY.current = currentScrollY
+      const bannerRect = bannerShell.getBoundingClientRect()
+      const stickyHeight = stickyHeader?.getBoundingClientRect().height || 0
+      setHasScrolledPastBanner(bannerRect.bottom <= stickyHeight)
     }
 
-    window.addEventListener("scroll", handleScroll, { passive: true })
-    return () => window.removeEventListener("scroll", handleScroll)
+    handleBannerScroll()
+    window.addEventListener("scroll", handleBannerScroll, { passive: true })
+    window.addEventListener("resize", handleBannerScroll)
+
+    return () => {
+      window.removeEventListener("scroll", handleBannerScroll)
+      window.removeEventListener("resize", handleBannerScroll)
+    }
   }, [])
 
   // Helper function to update item quantity in both local state and cart
-  const updateItemQuantity = (item, newQuantity, event = null, restaurantName = null, preferredVariant = null) => {
+  const updateItemQuantity = (item, newQuantity, event = null, preferredVariant = null) => {
     // Check authentication
     if (!isModuleAuthenticated('user')) {
-      window.dispatchEvent(new CustomEvent('show-login-required'))
+      toast.error("Please login to add items to cart")
+      navigate('/food/user/auth/login', { state: { from: location.pathname } })
       return
     }
 
@@ -974,8 +1026,8 @@ export default function Under250({ isTabActive = true }) {
       [lineItemId]: newQuantity,
     }))
 
-    // Find restaurant name from the item or use provided parameter
-    const restaurant = restaurantName || item.restaurant || "Under 250"
+    const restaurant = item.restaurant || "Eatiefy 99"
+    const validRestaurantId = item.restaurantId || item.restaurant_id || ""
 
     // Prepare cart item with all required properties
     const cartItem = {
@@ -988,12 +1040,12 @@ export default function Under250({ isTabActive = true }) {
       variantName: resolvedVariant?.name || "",
       variantPrice: resolvedVariant?.price ?? item.price,
       image: item.image,
-      restaurant: restaurant,
+      restaurant,
+      restaurantId: validRestaurantId || undefined,
       description: item.description || "",
       originalPrice: item.originalPrice || item.price,
-      isVeg: item.isVeg === true,
-      priceOnOtherPlatforms: null,
-      otherPlatformGst: null,
+      foodType: item.foodType,
+      isVeg: item.isVeg,
     }
 
     // Get source position for animation from event target
@@ -1037,13 +1089,11 @@ export default function Under250({ isTabActive = true }) {
         }
 
         if (newQuantity > existingCartItem.quantity && sourcePosition) {
-          const result = addToCart(cartItem, sourcePosition)
+          const result = addToCart(cartItem, sourcePosition, { quantity: newQuantity - existingCartItem.quantity })
           if (result?.ok === false) {
+            if (result.needsConfirmation) return
             toast.error(result.error || 'Cannot add item from different restaurant. Please clear cart first.')
             return
-          }
-          if (newQuantity > existingCartItem.quantity + 1) {
-            updateQuantity(lineItemId, newQuantity)
           }
         } else if (newQuantity < existingCartItem.quantity && sourcePosition) {
           updateQuantity(lineItemId, newQuantity, sourcePosition, productInfo)
@@ -1051,13 +1101,11 @@ export default function Under250({ isTabActive = true }) {
           updateQuantity(lineItemId, newQuantity)
         }
       } else {
-        const result = addToCart(cartItem, sourcePosition)
+        const result = addToCart(cartItem, sourcePosition, { quantity: newQuantity })
         if (result?.ok === false) {
+          if (result.needsConfirmation) return
           toast.error(result.error || 'Cannot add item from different restaurant. Please clear cart first.')
           return
-        }
-        if (newQuantity > 1) {
-          updateQuantity(lineItemId, newQuantity)
         }
       }
     }
@@ -1068,32 +1116,36 @@ export default function Under250({ isTabActive = true }) {
     setShowShareOptions(false)
   }, [])
 
-  const goToRestaurantForVariants = (item, restaurant) => {
-    const restaurantSlug = restaurant.slug || restaurant.restaurantId || ""
-    const itemId = item.id || item._id
-    navigate(`/user/restaurants/${restaurantSlug}${itemId ? `?dish=${encodeURIComponent(itemId)}` : ""}`)
-  }
-
   const handleItemClick = (item, restaurant) => {
-    const availabilityStatus = getRestaurantAvailabilityStatus(restaurant)
-    const isRestaurantOffline = !availabilityStatus.isOpen
     // Add restaurant info to item for display
     const itemWithRestaurant = {
       ...item,
       restaurant: restaurant.name,
+      restaurantId: restaurant.restaurantId || restaurant.id || "",
       restaurantSlug: restaurant.slug || restaurant.restaurantId || "",
       description: item.description || `${item.name} from ${restaurant.name}`,
       customisable: item.customisable || false,
       notEligibleForCoupons: item.notEligibleForCoupons || false,
-      isRestaurantOffline,
     }
-    const defaultVariant = getDefaultFoodVariant(item)
-    const lineItemId = getLineItemIdForDish(item, defaultVariant)
-    const existingQuantity = quantities[lineItemId] || 0
+    const existingQuantity = getTotalDishQuantity(itemWithRestaurant)
     setItemDetailQuantity(existingQuantity > 0 ? existingQuantity : 1)
     setSelectedItem(itemWithRestaurant)
     setShowShareOptions(false)
     setShowItemDetail(true)
+  }
+
+  const handleAddButtonClick = (item, restaurant, event) => {
+    if (hasFoodVariants(item) && getTotalDishQuantity(item) === 0) {
+      handleItemClick(item, restaurant)
+      return
+    }
+    const resolvedVariant = getDefaultFoodVariant(item)
+    updateItemQuantity(
+      { ...item, restaurant: restaurant.name, restaurantId: restaurant.restaurantId || restaurant.id || "" },
+      1,
+      event,
+      resolvedVariant,
+    )
   }
 
   const handleBookmarkClick = (itemId) => {
@@ -1121,7 +1173,7 @@ export default function Under250({ isTabActive = true }) {
       if (navigator.share) {
         await navigator.share({
           title: item.name || "Dish",
-          text: `Check out ${item.name || "this dish"} from ${item.restaurant || "Under 250"}`,
+          text: `Check out ${item.name || "this dish"} from ${item.restaurant || "Eatiefy 99"}`,
           url: shareUrl,
         })
         return
@@ -1141,7 +1193,7 @@ export default function Under250({ isTabActive = true }) {
     const shareUrl = restaurantSlug
       ? `${window.location.origin}/user/restaurants/${restaurantSlug}${itemId ? `?dish=${encodeURIComponent(itemId)}` : ""}`
       : window.location.href
-    const shareText = `Check out ${selectedItem.name || "this dish"} from ${selectedItem.restaurant || "Under 250"}`
+    const shareText = `Check out ${selectedItem.name || "this dish"} from ${selectedItem.restaurant || "Eatiefy 99"}`
     const encodedUrl = encodeURIComponent(shareUrl)
     const encodedText = encodeURIComponent(`${shareText} ${shareUrl}`)
 
@@ -1199,129 +1251,100 @@ export default function Under250({ isTabActive = true }) {
 
   return (
 
-    <div className={`relative min-h-screen bg-white dark:bg-[#0a0a0a] ${shouldShowGrayscale ? 'grayscale opacity-75' : ''}`}>
-      <div
+    <div className={`relative min-h-screen bg-white dark:bg-[#0a0a0a] pb-0 md:pb-4`}>
+      {/* Floating / Sticky Navigation Header with Back Button */}
+      <div 
         ref={stickyHeaderRef}
-        className="fixed top-0 left-0 right-0 z-40 w-full px-4 py-2 sm:py-3 rounded-b-[2rem] shadow-lg bg-[#D91F3A]"
+        className={`sticky top-0 z-50 w-full transition-all duration-300 rounded-b-2xl sm:rounded-b-3xl overflow-hidden md:hidden ${
+          hasScrolledPastBanner 
+            ? "bg-white/95 dark:bg-[#0a0a0a]/95 backdrop-blur-xl shadow-sm border-b border-gray-100 dark:border-gray-900 py-2.5 px-4 flex items-center gap-3" 
+            : "bg-gradient-to-b from-black/50 via-black/20 to-transparent backdrop-blur-none p-3.5 pointer-events-none flex items-center gap-3"
+        }`}
       >
-        <div className="relative z-10 max-w-7xl mx-auto flex items-center justify-between">
-          {/* Left: Takeaway-style heading (location only changeable from Delivery home) */}
-          <div className="flex flex-col min-w-0">
-            <span className="text-[10px] font-bold text-white/80 uppercase tracking-[0.2em] drop-shadow-md">
-              Budget Meals
-            </span>
-            <h1 className="text-xl font-bold text-white flex items-center gap-2 drop-shadow-md">
-              Under {RUPEE_SYMBOL}{under250PriceLimit}
-            </h1>
-          </div>
-
-          {/* Right: Wallet & Profile Actions */}
-          <div className="flex items-center gap-3 flex-shrink-0">
-            {/* Wallet Button */}
-            <Link 
-              to="/food/user/wallet" 
-              state={{ from: "/food/user/under-250" }}
-              onClick={(e) => {
-                if (!isModuleAuthenticated('user')) {
-                  e.preventDefault();
-                  window.dispatchEvent(new CustomEvent('show-login-required'));
-                }
-              }}
-              className="p-1.5 active:scale-90 transition-all flex items-center justify-center text-white"
-            >
-              <Wallet className="h-[26px] w-[26px] antialiased" strokeWidth={2.2} />
-            </Link>
-
-            {/* Profile Avatar */}
-            <Link 
-              to="/food/user/profile" 
-              state={{ from: "/food/user/under-250" }}
-              onClick={(e) => {
-                if (!isModuleAuthenticated('user')) {
-                  e.preventDefault();
-                  window.dispatchEvent(new CustomEvent('show-login-required'));
-                }
-              }}
-              className="h-9 w-9 relative flex items-center justify-center rounded-full border-[1.5px] border-white ring-1 ring-red-500/80 cursor-pointer active:scale-95 transition-all overflow-hidden"
-            >
-              <Avatar className="h-full w-full bg-[#FFF5E6] dark:bg-gray-800">
-                <AvatarImage 
-                  src={userProfile?.profileImage || "/assets/images/profile_avatar.webp"} 
-                  alt="Profile" 
-                  className="object-cover"
-                />
-                <AvatarFallback className="bg-[#FFF5E6] dark:bg-gray-800 text-[20px] font-black text-[#DC2626] leading-none tracking-tighter antialiased">
-                  <img src="/assets/images/profile_avatar.webp" alt="Profile" className="object-cover w-full h-full" />
-                </AvatarFallback>
-              </Avatar>
-            </Link>
-          </div>
-        </div>
-      </div>
-
-      {/* Banner Section */}
-      <div
-        ref={bannerShellRef}
-        data-banner-shell="true"
-        className="relative w-full overflow-hidden h-[clamp(210px,34vw,430px)] animate-fade-in"
-      >
-        {/* Sliding Banner Container */}
-        <div
-          className="flex w-full h-full"
-          style={{
-            transform: `translateX(-${currentBannerIndex * 100}%)`,
-            transition: isTransitionEnabled ? "transform 500ms cubic-bezier(0.25, 1, 0.5, 1)" : "none"
-          }}
+        <button
+          onClick={goBack}
+          className="flex items-center justify-center h-9 w-9 rounded-full bg-white/95 dark:bg-gray-900/95 backdrop-blur-md shadow-md border border-white/50 dark:border-gray-700/60 transition-transform active:scale-95 pointer-events-auto"
+          aria-label="Go back"
         >
-          {(bannerImages.length > 1 ? [...bannerImages, bannerImages[0]] : (bannerImages.length > 0 ? bannerImages : [under250Banner])).map((imgSrc, index) => (
-            <div key={`${index}-${imgSrc}`} className="w-full h-full flex-shrink-0 relative">
-              <OptimizedImage
-                src={imgSrc}
-                alt={`Under 250 Banner ${index + 1}`}
-                priority={index === 0}
-                className="w-full h-full"
-                objectFit="cover"
-                style={{ objectPosition: "center 90%" }}
-              />
-            </div>
-          ))}
-        </div>
+          <ArrowLeft className="h-4 w-4 text-gray-800 dark:text-gray-200" strokeWidth={2.5} />
+        </button>
 
-        {/* Subtle gradient overlay to ensure navbar readability if needed */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/10 to-transparent pointer-events-none z-10" />
-
-        {/* Bottom Right Carousel Pagination Dots */}
-        {bannerImages.length > 1 && (
-          <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1.5 pointer-events-auto">
-            {bannerImages.map((_, dotIndex) => {
-              const activeDotIndex = currentBannerIndex === bannerImages.length ? 0 : currentBannerIndex;
-              return (
-                <button
-                  key={dotIndex}
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsTransitionEnabled(true);
-                    setCurrentBannerIndex(dotIndex);
-                    resetBannerAutoSlide();
-                  }}
-                  className={`transition-all duration-300 rounded-full ${
-                    activeDotIndex === dotIndex
-                      ? "w-4 h-1.5 bg-white shadow-sm"
-                      : "w-1.5 h-1.5 bg-white/50 hover:bg-white/80"
-                  }`}
-                  aria-label={`Go to banner ${dotIndex + 1}`}
-                />
-              );
-            })}
-          </div>
+        {hasScrolledPastBanner && (
+          <span className="text-base font-bold text-gray-900 dark:text-white truncate">
+            Under {RUPEE_SYMBOL}99
+          </span>
         )}
       </div>
 
-      {/* Content Section — large bottom padding on mobile so the last dishes are
-          not hidden behind the fixed bottom navigation (which would otherwise
-          steal taps meant for the nav buttons). */}
-      <div className="relative max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 xl:px-12 space-y-0 pt-2 sm:pt-3 md:pt-4 lg:pt-6 pb-32 md:pb-8 lg:pb-10">
+      {/* Dynamic Eatiefy 99 Hero Banner Section */}
+      {loadingBanner ? (
+        <div className="relative w-full overflow-hidden h-[clamp(260px,42vw,540px)] bg-gray-100 dark:bg-gray-900 animate-pulse flex items-center justify-center" />
+      ) : displayBanners.length > 0 ? (
+        <div
+          ref={bannerShellRef}
+          data-banner-shell="true"
+          className="relative w-full overflow-hidden h-[clamp(260px,42vw,540px)] -mt-16 sm:-mt-20 bg-white dark:bg-[#0a0a0a]"
+        >
+          <div
+            className="absolute inset-0 z-0 overflow-hidden"
+            onTouchStart={handleBannerTouchStart}
+            onTouchMove={handleBannerTouchMove}
+            onTouchEnd={handleBannerTouchEnd}
+          >
+            <div
+              className={`flex h-full w-full ${
+                isTransitioning ? "transition-transform duration-500 ease-out" : "transition-none"
+              }`}
+              style={{ transform: `translateX(-${currentBannerIndex * 100}%)` }}
+              onTransitionEnd={handleTransitionEnd}
+            >
+              {extendedBanners.map((bannerSrc, index) => (
+                <div key={`${bannerSrc}-${index}`} className="relative h-full w-full shrink-0">
+                  <img
+                    src={bannerSrc}
+                    alt={`Eatiefy 99 Banner ${(index % displayBanners.length) + 1}`}
+                    className="w-full h-full object-cover"
+                    loading="eager"
+                    decoding="async"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null
+                      e.currentTarget.src = eatiefyPromoBanner1
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Soft Bottom Gradient Fade - Seamless Transition into Categories */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 sm:h-28 bg-gradient-to-t from-white via-white/50 to-transparent dark:from-[#0a0a0a] dark:via-[#0a0a0a]/50 z-[5]" />
+
+          {/* Dynamic Pagination Indicators */}
+          {displayBanners.length > 1 && (
+            <div className="absolute bottom-3 sm:bottom-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2">
+              {displayBanners.map((_, index) => {
+                const activeDotIndex = currentBannerIndex % displayBanners.length
+                return (
+                  <button
+                    key={`banner-dot-${index}`}
+                    onClick={() => {
+                      setIsTransitioning(true)
+                      setCurrentBannerIndex(index)
+                      resetBannerAutoSlide()
+                    }}
+                    className={`transition-all duration-300 rounded-full h-1.5 ${
+                      activeDotIndex === index ? "w-6 bg-[#E2AD4B]" : "w-1.5 bg-black/40 dark:bg-white/40"
+                    }`}
+                  />
+                )
+              })}
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {/* Content Section */}
+      <div className="relative max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 xl:px-12 space-y-0 -mt-10 sm:-mt-14 md:-mt-16 z-10 pt-2 sm:pt-3 md:pt-4 lg:pt-6 pb-6 md:pb-8 lg:pb-10">
 
         <section className="space-y-1 sm:space-y-1.5">
           <div
@@ -1341,153 +1364,123 @@ export default function Under250({ isTabActive = true }) {
                 whileTap={{ scale: 0.95 }}
                 transition={{ type: "spring", stiffness: 300, damping: 20 }}
               >
-                <div className={`w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full overflow-hidden shadow-md transition-all flex items-center justify-center ${!activeCategory ? 'bg-gradient-to-br from-[#DC2626] to-[#991B1B] text-white ring-2 ring-[#DC2626] ring-offset-2' : 'bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-200'}`}>
-                  <Utensils className="w-6 h-6 sm:w-10 sm:h-10 md:w-12 md:h-12" />
+                <div 
+                  className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full overflow-hidden shadow-md transition-all"
+                  style={!activeCategory ? { boxShadow: "0 0 0 2px var(--window-bg-color, #fff), 0 0 0 4px var(--module-theme-color, #E2AD4B)" } : {}}
+                >
+                  <OptimizedImage
+                    src={offerImage}
+                    alt="All"
+                    className="w-full h-full bg-white rounded-full p-1"
+                    objectFit="contain"
+                    sizes="(max-width: 640px) 62px, (max-width: 768px) 96px, 112px"
+                    placeholder="blur"
+                  />
                 </div>
-                <span className={`text-xs sm:text-sm md:text-base font-bold text-center pb-1 ${!activeCategory ? 'text-[#DC2626]' : 'text-gray-800 dark:text-gray-200'}`}>
+                <span 
+                  className="text-xs sm:text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 text-center pb-1"
+                  style={!activeCategory ? { color: "var(--module-theme-color, #E2AD4B)" } : {}}
+                >
                   All
                 </span>
               </motion.div>
             </div>
-            {loadingCategories ? (
-              <>
-                {[1, 2, 3, 4, 5, 6].map((i) => (
-                  <div key={i} className="flex-shrink-0 flex flex-col items-center gap-2 w-[62px] sm:w-24 md:w-28">
-                    <div className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full skeleton-shimmer" />
-                    <div className="h-3.5 skeleton-shimmer rounded w-12" />
-                  </div>
-                ))}
-              </>
-            ) : (
-              displayCategories.map((category, index) => {
-                const isActive = activeCategory === category.id
-                return (
-                  <div key={category.id} className="flex-shrink-0 cursor-pointer" onClick={() => setActiveCategory(isActive ? null : category.id)}>
-                      <motion.div
-                        className="flex flex-col items-center gap-2 w-[62px] sm:w-24 md:w-28"
-                        whileHover={{ scale: 1.1, y: -4 }}
-                        whileTap={{ scale: 0.95 }}
-                        transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                      >
-                        <div className={`w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full overflow-hidden shadow-md transition-all ${isActive ? 'ring-2 ring-[#DC2626] ring-offset-2' : ''}`}>
-                          <OptimizedImage
-                            src={category.image}
-                            alt={category.name}
-                            className="w-full h-full bg-white rounded-full"
-                            objectFit="cover"
-                            sizes="(max-width: 640px) 62px, (max-width: 768px) 96px, 112px"
-                            placeholder="blur"
-                          />
-                        </div>
-                        <span className={`text-xs sm:text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 text-center pb-1 ${isActive ? 'text-[#DC2626]' : ''}`}>
-                          {category.name.length > 7 ? `${category.name.slice(0, 7)}...` : category.name}
-                        </span>
-                      </motion.div>
-                  </div>
-                )
-              })
-            )}
+            {categories.map((category, index) => {
+              const isActive = activeCategory === category.id
+              return (
+                <div key={category.id} className="flex-shrink-0 cursor-pointer" onClick={() => setActiveCategory(isActive ? null : category.id)}>
+                  <motion.div
+                    className="flex flex-col items-center gap-2 w-[72px] sm:w-24 md:w-28"
+                    whileHover={{ scale: 1.1, y: -4 }}
+                    whileTap={{ scale: 0.95 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                  >
+                    <div 
+                      className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full overflow-hidden shadow-md transition-all"
+                      style={isActive ? { boxShadow: "0 0 0 2px var(--window-bg-color, #fff), 0 0 0 4px var(--module-theme-color, #E2AD4B)" } : {}}
+                    >
+                      <OptimizedImage
+                        src={category.image}
+                        alt={category.name}
+                        className="w-full h-full bg-white rounded-full p-1"
+                        objectFit="contain"
+                        sizes="(max-width: 640px) 62px, (max-width: 768px) 96px, 112px"
+                        placeholder="blur"
+                      />
+                    </div>
+                    <span 
+                      className="text-xs sm:text-sm md:text-base font-bold text-gray-800 dark:text-gray-200 text-center leading-tight whitespace-nowrap pb-1"
+                      style={isActive ? { color: "var(--module-theme-color, #E2AD4B)" } : {}}
+                    >
+                      {category.name}
+                    </span>
+                  </motion.div>
+                </div>
+              )
+            })}
           </div>
         </section>
 
-        <section className="py-2 sm:py-3 md:py-4">
-          <div className="flex items-center gap-2 md:gap-3">
-            <Button
-              variant="outline"
-              onClick={() => setShowSortPopup(true)}
-              className="h-8 sm:h-9 md:h-10 px-3 sm:px-4 md:px-5 rounded-md flex items-center gap-2 whitespace-nowrap flex-shrink-0 font-medium transition-all bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 text-sm md:text-base"
-            >
-              <ArrowDownUp className="h-4 w-4 md:h-5 md:w-5 rotate-90" />
-              <span className="text-sm md:text-base font-medium">
-                {selectedSort ? sortOptions.find(opt => opt.id === selectedSort)?.label : 'Sort'}
-              </span>
-              <ChevronDown className="h-3 w-3 md:h-4 md:w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setUnder30MinsFilter(!under30MinsFilter)}
-              className={`h-8 sm:h-9 md:h-10 px-3 sm:px-4 md:px-5 rounded-md flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 font-medium transition-all text-sm md:text-base ${under30MinsFilter
-                ? 'bg-[#DC2626] text-white border border-[#DC2626] hover:bg-[#991B1B]'
-                : 'bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300'
-                }`}
-            >
-              <Timer className="h-3 w-3 sm:h-4 sm:w-4 md:h-5 md:w-5" />
-              <span className="text-xs sm:text-sm md:text-base font-medium">Under 30 mins</span>
-            </Button>
-          </div>
+        <section className="py-2 sm:py-3">
+          <FoodFilterBar
+            sortBy={selectedSort}
+            onSortChange={setSelectedSort}
+            isVeg={isVeg}
+            onVegToggle={() => setIsVeg((prev) => !prev)}
+            isNonVeg={isNonVeg}
+            onNonVegToggle={() => setIsNonVeg((prev) => !prev)}
+            rating4Plus={rating4Plus}
+            onRating4PlusToggle={() => setRating4Plus((prev) => !prev)}
+            hasOffers={hasOffers}
+            onOffersToggle={() => setHasOffers((prev) => !prev)}
+            under30Mins={under30MinsFilter}
+            onUnder30MinsToggle={() => setUnder30MinsFilter((prev) => !prev)}
+          />
         </section>
 
 
         {/* Restaurant Menu Sections */}
-        {loadingRestaurants && under250Restaurants.length === 0 ? (
-          <div className="space-y-8 pt-4 sm:pt-6 md:pt-8 lg:pt-10">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="space-y-4">
-                {/* Skeleton Header */}
-                <div className="flex flex-col gap-2">
-                  <div className="h-6 sm:h-8 w-48 skeleton-shimmer rounded-lg"></div>
-                  <div className="flex gap-4">
-                    <div className="h-4 w-24 skeleton-shimmer rounded"></div>
-                    <div className="h-4 w-24 skeleton-shimmer rounded"></div>
-                  </div>
-                </div>
-                {/* Skeleton Grid */}
-                <div className="flex gap-4 overflow-hidden pb-4">
-                  {[1, 2, 3, 4].map((j) => (
-                    <div key={j} className="flex-shrink-0 w-[200px] sm:w-[220px] h-64 bg-white dark:bg-[#1a1a1a] rounded-xl border border-gray-200 dark:border-gray-800 p-3 space-y-3 shadow-sm">
-                      <div className="w-full h-32 skeleton-shimmer rounded-lg" />
-                      <div className="h-4 skeleton-shimmer rounded w-3/4" />
-                      <div className="flex justify-between items-center pt-2">
-                        <div className="h-5 skeleton-shimmer rounded w-16" />
-                        <div className="h-8 skeleton-shimmer rounded w-16" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
+        {loadingRestaurants ? (
+          <div className="flex justify-center items-center py-12">
+            <div className="text-gray-500 dark:text-gray-400">Loading restaurants...</div>
           </div>
         ) : sortedAndFilteredRestaurants.length === 0 ? (
           <div className="flex justify-center items-center py-12">
             <div className="text-gray-500 dark:text-gray-400">
               {under250Restaurants.length === 0
-                ? `No restaurants with dishes under ${RUPEE_SYMBOL}${under250PriceLimit} found.`
+                ? `No restaurants with dishes under ${RUPEE_SYMBOL}99 found.`
                 : "No restaurants match the selected filters."}
             </div>
           </div>
         ) : (
-          <>
-          {sortedAndFilteredRestaurants.slice(0, visibleRestaurantCount).map((restaurant) => {
+          sortedAndFilteredRestaurants.map((restaurant) => {
             const restaurantSlug = restaurant.slug || restaurant.name.toLowerCase().replace(/\s+/g, "-")
-            const availabilityStatus = getRestaurantAvailabilityStatus(restaurant)
-            const isRestaurantOffline = !availabilityStatus.isOpen
             return (
-              <section key={restaurant.id} className={`pt-4 sm:pt-6 md:pt-8 lg:pt-10 ${isRestaurantOffline ? 'opacity-80' : ''}`}>
+              <section key={restaurant.id} className="pt-4 sm:pt-6 md:pt-8 lg:pt-10">
                 {/* Restaurant Header */}
                 <div className="flex items-start justify-between mb-3 md:mb-4 lg:mb-6">
                   <div className="flex-1">
                     <h3 className="text-lg sm:text-xl md:text-2xl lg:text-3xl xl:text-4xl font-bold text-gray-900 dark:text-white mb-1 md:mb-2">
                       {restaurant.name}
                     </h3>
-                    <div className="flex items-center gap-2 md:gap-4 mt-1.5 flex-wrap">
-                      <div className="flex items-center gap-1.5 text-xs md:text-sm font-semibold text-gray-500 dark:text-gray-400">
-                        <Clock className="h-3.5 w-3.5 md:h-4 md:w-4" strokeWidth={2.5} />
-                        <span>{restaurant.deliveryTime}</span>
-                      </div>
-                      <div className="w-[1px] h-3 bg-gray-200 dark:bg-gray-800 hidden xs:block"></div>
-                      <div className="flex items-center gap-1.5 text-xs md:text-sm font-semibold text-gray-500 dark:text-gray-400">
-                        <MapPin className="h-3.5 w-3.5 md:h-4 md:w-4" strokeWidth={2.5} />
-                        <span>{restaurant.distance}</span>
-                      </div>
-                      <div className="flex items-center gap-1 px-2 py-0.5 md:px-2.5 md:py-1 bg-[#267e3e] text-white rounded-md">
-                        <Star className="h-3 w-3 md:h-3.5 md:w-3.5 fill-white text-white" />
-                        <span className="text-[10px] md:text-xs font-black">{restaurant.rating}</span>
-                      </div>
-                      <div className="h-4 w-[1px] bg-gray-200 dark:bg-gray-800"></div>
-                      <span className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-gray-500">
-                        {restaurant.totalRatings > 0 ? `${restaurant.totalRatings >= 1000 ? `${(restaurant.totalRatings / 1000).toFixed(1)}K` : restaurant.totalRatings}+ Ratings` : 'New'}
-                      </span>
+                    <div className="flex items-center gap-2 text-sm md:text-base lg:text-lg text-gray-500 dark:text-gray-400">
+                      <Clock className="h-4 w-4 md:h-5 md:w-5 lg:h-6 lg:w-6" strokeWidth={1.5} />
+                      <span className="font-medium">{restaurant.deliveryTime}</span>
                     </div>
+                  </div>
+                  <div className="flex flex-col items-end">
+                    <div
+                      className="flex items-center gap-1 text-white px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-md text-xs sm:text-sm font-extrabold shadow-sm"
+                      style={{ backgroundColor: "#24963F" }}
+                    >
+                      <Star className="h-3 w-3 sm:h-3.5 sm:w-3.5 fill-white text-white" />
+                      <span className="text-white">{restaurant.rating > 0 ? Number(restaurant.rating).toFixed(1) : "4.2"}</span>
+                    </div>
+                    <span className="text-[10px] sm:text-xs text-gray-400 dark:text-gray-500 font-medium mt-1">
+                      {restaurant.totalRatings > 0
+                        ? `${restaurant.totalRatings >= 1000 ? `${(restaurant.totalRatings / 1000).toFixed(1)}k+` : `${restaurant.totalRatings}+`} ratings`
+                        : "100+ ratings"}
+                    </span>
                   </div>
                 </div>
 
@@ -1503,172 +1496,186 @@ export default function Under250({ isTabActive = true }) {
                         overflowY: "hidden",
                       }}
                     >
-                       {restaurant.menuItems.map((item, itemIndex) => {
-                        const defaultVariant = getDefaultFoodVariant(item)
-                        const lineItemId = getLineItemIdForDish(item, defaultVariant)
-                        const quantity = quantities[lineItemId] || 0
-                        const isOffline = shouldShowGrayscale || isRestaurantOffline
+                      {restaurant.menuItems.map((item, itemIndex) => {
+                        const quantity = getTotalDishQuantity(item)
                         return (
                           <motion.div
                             key={item.id}
-                            className={`flex-shrink-0 w-[200px] sm:w-[220px] md:w-full bg-white dark:bg-[#1a1a1a] rounded-lg md:rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden cursor-pointer ${
-                              isOffline ? 'grayscale opacity-75' : ''
-                            }`}
-                            onClick={() => handleItemClick(item, restaurant)}
-                            whileHover={isOffline ? {} : { y: -4, scale: 1.01 }}
-                            transition={{ duration: 0.2 }}
-                            style={{ boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)" }}
+                            className={`flex-shrink-0 w-[150px] sm:w-[170px] md:w-[200px] lg:w-full bg-transparent overflow-visible relative ${shouldShowGrayscale ? 'cursor-default' : 'cursor-pointer'}`}
+                            onClick={() => {
+                              if (!shouldShowGrayscale) {
+                                handleItemClick(item, restaurant)
+                              }
+                            }}
+                            initial={{ opacity: 0, y: 20 }}
+                            whileInView={{ opacity: 1, y: 0 }}
+                            viewport={{ once: true, margin: "-50px" }}
+                            transition={{ duration: 0.4, delay: itemIndex * 0.05 }}
+                            whileHover={{ y: -8, scale: 1.02 }}
                           >
-                            {/* Item Image */}
-                            <div className="relative w-full h-32 sm:h-36 md:h-40 lg:h-48 xl:h-52 overflow-hidden">
+                            {/* Item Image Container */}
+                            <div className="relative w-full h-[120px] sm:h-[140px] md:h-[155px] lg:h-[175px] rounded-2xl overflow-hidden shadow-sm border border-gray-200/80 dark:border-gray-700/70 bg-white dark:bg-neutral-900 transition-all duration-300 group-hover:shadow-md group-hover:border-gray-300/90">
                               <motion.div
-                                className="absolute inset-0"
-                                whileHover={isOffline ? {} : { scale: 1.1 }}
-                                transition={{ duration: 0.5, ease: "easeOut" }}
+                                className="absolute inset-0 w-full h-full"
+                                whileHover={{ scale: 1.05 }}
+                                transition={{ duration: 0.3, ease: "easeOut" }}
                               >
-                                <OptimizedImage
-                                  src={item.image}
+                                <img
+                                  src={getSanitizedUnder250Image(item)}
                                   alt={item.name}
-                                  className="w-full h-full"
-                                  objectFit="cover"
-                                  sizes="(max-width: 640px) 200px, (max-width: 768px) 220px, 100vw"
-                                  placeholder="blur"
-                                  priority={itemIndex < 4}
+                                  className="w-full h-full object-cover rounded-2xl bg-white"
+                                  loading="lazy"
                                 />
                               </motion.div>
-                              {/* Gradient Overlay on Hover */}
-                              {!isOffline && (
-                                <motion.div
-                                  className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent"
-                                  initial={{ opacity: 0 }}
-                                  whileHover={{ opacity: 1 }}
-                                  transition={{ duration: 0.3 }}
-                                />
-                              )}
-                              {/* Veg Indicator */}
-                              {item.isVeg && (
-                                <motion.div
-                                  className="absolute top-2 left-2 md:top-3 md:left-3 h-4 w-4 md:h-5 md:w-5 lg:h-6 lg:w-6 rounded border-2 border-green-600 bg-white flex items-center justify-center z-10"
-                                  whileHover={{ scale: 1.2, rotate: 5 }}
-                                  transition={{ duration: 0.2 }}
-                                >
-                                  <div className="h-2 w-2 md:h-2.5 md:w-2.5 lg:h-3 lg:w-3 rounded-full bg-green-600" />
-                                </motion.div>
-                              )}
 
-                            </div>
-
-                            {/* Item Details */}
-                            <div className="p-3 md:p-4 lg:p-5">
-                              <div className="flex items-center gap-1 md:gap-2 mb-1 md:mb-2 lg:mb-3">
-                                {item.isVeg && (
-                                  <div className="h-3 w-3 md:h-4 md:w-4 lg:h-5 lg:w-5 rounded border border-green-600 bg-green-50 dark:bg-green-900/20 flex items-center justify-center">
-                                    <div className="h-1.5 w-1.5 md:h-2 md:w-2 lg:h-2.5 lg:w-2.5 rounded-full bg-green-600" />
-                                  </div>
-                                )}
-                                <span className="text-sm md:text-base lg:text-lg font-semibold text-gray-900 dark:text-white truncate">
-                                  1 x {item.name}
-                                </span>
+                              {/* Popular Badge */}
+                              <div
+                                className="absolute top-2 left-2 text-white text-[9.5px] font-black px-2 py-0.5 rounded-full shadow-md backdrop-blur-md z-10"
+                                style={{ backgroundColor: "#659116" }}
+                              >
+                                Popular
                               </div>
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <p className="text-base md:text-lg lg:text-xl xl:text-2xl font-bold text-gray-900 dark:text-white">
-                                    {RUPEE_SYMBOL}{Math.round(item.price)}
-                                  </p>
-                                  {item.bestPrice && (
-                                    <p className="text-xs md:text-sm lg:text-base text-gray-500 dark:text-gray-400">Best price</p>
-                                  )}
-                                </div>
-                                {quantity > 0 && !isRestaurantOffline ? (
-                                  <div
-                                    className="flex items-center gap-1.5 bg-[#DC2626] text-white rounded-lg p-1 shadow-md"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        const defaultVariant = getDefaultFoodVariant(item)
-                                        updateItemQuantity(item, quantity - 1, e, restaurant.name, defaultVariant)
-                                      }}
-                                      className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center hover:bg-black/20 rounded transition-colors text-white"
-                                    >
-                                      <Minus className="w-3.5 h-3.5 text-white" />
-                                    </button>
-                                    <span className="px-1 text-xs sm:text-sm font-bold min-w-[1.25rem] text-center text-white">
-                                      {quantity}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        const defaultVariant = getDefaultFoodVariant(item)
-                                        updateItemQuantity(item, quantity + 1, e, restaurant.name, defaultVariant)
-                                      }}
-                                      className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center hover:bg-black/20 rounded transition-colors text-white"
-                                    >
-                                      <Plus className="w-3.5 h-3.5 text-white" />
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <Button
-                                    variant={"ghost"}
-                                    size="sm"
-                                    disabled={isOffline}
-                                    className={`h-7 md:h-8 lg:h-9 px-3 md:px-4 lg:px-5 text-xs md:text-sm lg:text-base font-bold shadow-md transition-all active:scale-95 ${isOffline
-                                      ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 border-gray-300 dark:border-gray-700 cursor-not-allowed opacity-50'
-                                      : 'bg-[#DC2626] text-white hover:bg-[#991B1B]'
-                                      }`}
+
+                              {/* Rating Badge Overlay (bottom-left) */}
+                              <div className="absolute bottom-2 left-2 z-10 flex items-center gap-0.5 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md text-gray-900 dark:text-white px-2 py-0.5 rounded-full shadow-md border border-gray-200/80 dark:border-gray-700/70 text-[10.5px] font-extrabold">
+                                <span className="text-[#659116] leading-none">★</span>
+                                <span className="leading-none">{item.rating ?? restaurant.rating ?? 4.2}</span>
+                              </div>
+
+                              {/* Floating Action Button (bottom-right) */}
+                              {quantity > 0 ? (
+                                <div
+                                  className="absolute bottom-2 right-2.5 z-20 flex items-center justify-between gap-1 sm:gap-2 px-1.5 sm:px-2 py-0.5 rounded-full bg-white dark:bg-gray-900 shadow-md border border-gray-200/90 dark:border-gray-700/80 h-7 sm:h-8 min-w-[55px] sm:min-w-[70px]"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <button
                                     onClick={(e) => {
                                       e.stopPropagation()
-                                      if (!isOffline) {
-                                        const defaultVariant = getDefaultFoodVariant(item)
-                                        updateItemQuantity(item, 1, e, restaurant.name, defaultVariant)
-                                      }
+                                      updateItemQuantity(
+                                        { ...item, restaurant: restaurant.name, restaurantId: restaurant.restaurantId || restaurant.id || "" },
+                                        quantity - 1,
+                                        e
+                                      )
                                     }}
+                                    className="text-[#659116] hover:opacity-80 p-0.5"
                                   >
-                                    Add
-                                  </Button>
+                                    <Minus className="h-3 w-3" strokeWidth={3.5} />
+                                  </button>
+                                  <span className="text-[12px] font-black text-gray-950 dark:text-white">
+                                    {quantity}
+                                  </span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      updateItemQuantity(
+                                        { ...item, restaurant: restaurant.name, restaurantId: restaurant.restaurantId || restaurant.id || "" },
+                                        quantity + 1,
+                                        e
+                                      )
+                                    }}
+                                    className="text-[#659116] hover:opacity-80 p-0.5"
+                                  >
+                                    <Plus className="h-3 w-3" strokeWidth={3.5} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  disabled={shouldShowGrayscale}
+                                  className={`absolute bottom-2 right-2.5 z-20 h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-white dark:bg-gray-900 shadow-md flex items-center justify-center hover:scale-105 transition-transform duration-200 border border-gray-200/90 dark:border-gray-700/80 ${
+                                    shouldShowGrayscale ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                                  }`}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (!shouldShowGrayscale) {
+                                      handleAddButtonClick(item, restaurant, e)
+                                    }
+                                  }}
+                                >
+                                  <Plus className="h-4 w-4 text-[#659116]" strokeWidth={3} />
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Item Details below image */}
+                            <div className="pt-2 px-1 pb-1">
+                              {/* Restaurant Name */}
+                              <div className="text-[10px] sm:text-xs font-medium text-gray-500 dark:text-gray-400 truncate">
+                                {restaurant.name}
+                              </div>
+
+                              {/* Item Name Row with Veg Icon */}
+                              <div className="flex items-center gap-1 sm:gap-1.5 mt-0.5">
+                                <div 
+                                  className="h-3 w-3 rounded border flex items-center justify-center flex-shrink-0"
+                                  style={{
+                                    borderColor: item.isVeg ? "#16A34A" : "#dc2626",
+                                    backgroundColor: item.isVeg ? "#F0FDF4" : "#FEF2F2"
+                                  }}
+                                >
+                                  <div 
+                                    className="h-1.5 w-1.5 rounded-full" 
+                                    style={{
+                                      backgroundColor: item.isVeg ? "#16A34A" : "#dc2626"
+                                    }}
+                                  />
+                                </div>
+                                <span className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white truncate flex-1">
+                                  {item.name}
+                                </span>
+                              </div>
+
+                              {/* Price and Optional View Cart Link */}
+                              <div className="flex items-baseline justify-between mt-0.5">
+                                <span className="text-sm sm:text-base font-extrabold text-gray-950 dark:text-white">
+                                  <FoodPriceDisplay item={item} />
+                                </span>
+                                {quantity > 0 && (
+                                  <Link 
+                                    to="/food/user/cart" 
+                                    onClick={(e) => e.stopPropagation()} 
+                                    className="text-[9px] sm:text-[10px] font-bold hover:underline"
+                                    style={{ color: "var(--module-theme-color, #E2AD4B)" }}
+                                  >
+                                    View cart
+                                  </Link>
                                 )}
                               </div>
                             </div>
                           </motion.div>
                         )
                       })}
-                    </div>
 
-                    {/* View Full Menu Button */}
-                    <Link className="flex justify-center mt-2 md:mt-3 lg:mt-4" to={`/user/restaurants/${restaurantSlug}?under250=true`}>
-                      <Button
-                        variant="outline"
-                        className="w-min align-center text-center rounded-lg md:rounded-xl mx-auto bg-gray-50 dark:bg-[#1a1a1a] hover:bg-gray-100 dark:hover:bg-gray-800 dark:text-white text-gray-700 border-gray-200 dark:border-gray-800 h-9 md:h-10 lg:h-11 px-4 md:px-6 lg:px-8 text-sm md:text-base lg:text-lg"
+                      {/* End-of-scroll "View Full Menu" Card (Swiggy / Zomato style) */}
+                      <motion.div
+                        className="flex-shrink-0 w-[140px] sm:w-[160px] md:w-[180px] lg:w-[200px] flex flex-col items-center justify-center cursor-pointer group"
+                        initial={{ opacity: 0, y: 20 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        viewport={{ once: true, margin: "-50px" }}
+                        transition={{ duration: 0.4 }}
+                        whileHover={{ scale: 1.03 }}
+                        onClick={() => navigate(`/food/user/restaurants/${restaurantSlug}?under250=true`)}
                       >
-                        View full menu <ArrowRight className="h-4 w-4 md:h-5 md:w-5 lg:h-6 lg:w-6 ml-2 text-gray-700 dark:text-gray-300" />
-                      </Button>
-                    </Link>
+                        <div className="w-full h-[120px] sm:h-[140px] md:h-[155px] lg:h-[175px] rounded-2xl border-2 border-dashed border-[#E2AD4B]/60 dark:border-[#E2AD4B]/50 bg-gradient-to-br from-[#E2AD4B]/10 via-amber-500/5 to-transparent dark:from-[#E2AD4B]/20 dark:via-transparent flex flex-col items-center justify-center p-4 text-center transition-all duration-300 group-hover:border-[#E2AD4B] group-hover:bg-[#E2AD4B]/20 group-hover:shadow-lg">
+                          <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-[#E2AD4B] text-white flex items-center justify-center shadow-md mb-2 group-hover:scale-110 transition-transform duration-300">
+                            <ArrowRight className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={2.5} />
+                          </div>
+                          <span className="text-xs sm:text-sm font-extrabold text-gray-900 dark:text-white leading-tight">
+                            View Full Menu
+                          </span>
+                          <span className="text-[10px] sm:text-xs font-medium text-gray-500 dark:text-gray-400 mt-0.5">
+                            See all dishes →
+                          </span>
+                        </div>
+                        <div className="pt-2 text-[10px] sm:text-xs font-semibold text-gray-400 dark:text-gray-500 text-center">
+                          {restaurant.name}
+                        </div>
+                      </motion.div>
+                    </div>
                   </div>
                 )}
               </section>
             )
-          })}
-          {visibleRestaurantCount < sortedAndFilteredRestaurants.length ? (
-            <div className="flex justify-center py-6 pb-28">
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-full px-6 touch-manipulation"
-                onClick={() =>
-                  setVisibleRestaurantCount((n) => n + UNDER250_LIST_MAX_VISIBLE)
-                }
-              >
-                Show more restaurants
-              </Button>
-            </div>
-          ) : (
-            <div className="h-24" />
-          )}
-          </>
-        )}
+          }))}
       </div>
 
       {/* Sort Popup - Bottom Sheet */}
@@ -1680,82 +1687,73 @@ export default function Under250({ isTabActive = true }) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.1 }}
+              transition={{ duration: 0.2 }}
               onClick={() => setShowSortPopup(false)}
               className="fixed inset-0 bg-black/50 z-100"
             />
 
-            {/* Center Modal */}
+            {/* Bottom Sheet */}
             <motion.div
-              initial={{ opacity: 0, scale: 0.92 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.92 }}
-              transition={{ duration: 0.1, ease: "easeOut" }}
-              className="fixed inset-0 flex items-center justify-center z-[110] px-4"
-              onClick={(e) => e.stopPropagation()}
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{
+                type: "spring",
+                stiffness: 300,
+                damping: 30
+              }}
+              className="fixed bottom-0 left-0 right-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:max-w-lg lg:max-w-2xl bg-white dark:bg-[#1a1a1a] rounded-t-3xl shadow-2xl z-[110] max-h-[60vh] md:max-h-[80vh] overflow-hidden flex flex-col"
             >
-              <div className="w-full max-w-sm bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-                {/* Header */}
-                <div className="flex items-center justify-between px-5 py-4 border-b dark:border-gray-800">
-                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">Sort By</h2>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={handleClearAll}
-                      className="text-[#DC2626] dark:text-[#FEE2E2] font-medium text-sm hover:opacity-85 transition-opacity"
-                    >
-                      Clear all
-                    </button>
-                    <button
-                      onClick={() => setShowSortPopup(false)}
-                      className="p-1.5 rounded-full bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
+              {/* Drag Handle */}
+              <div className="flex justify-center pt-3 pb-2">
+                <div className="w-12 h-1 bg-gray-300 rounded-full" />
+              </div>
 
-                {/* Content */}
-                <div className="px-5 py-4 flex flex-col gap-3">
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 md:px-6 py-4 md:py-5 border-b dark:border-gray-800">
+                <h2 className="text-lg md:text-xl lg:text-2xl font-bold text-gray-900 dark:text-white">Sort By</h2>
+                <button
+                  onClick={handleClearAll}
+                  className="text-[#EB590E] dark:text-[#F97316] font-medium text-sm md:text-base"
+                >
+                  Clear all
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 md:py-6">
+                <div className="flex flex-col gap-3 md:gap-4">
                   {sortOptions.map((option) => (
                     <button
                       key={option.id || 'relevance'}
-                      onClick={() => {
-                        setDraftSelectedSort(option.id);
-                        setSelectedSort(option.id);
-                        setShowSortPopup(false);
-                      }}
-                      className={`px-4 py-3.5 rounded-xl border text-left transition-colors flex items-center justify-between ${selectedSort === option.id
-                        ? 'border-[#DC2626] bg-[#fdfafc] dark:bg-[#DC2626]/20'
-                        : 'border-gray-200 dark:border-gray-800 hover:border-[#DC2626]'
+                      onClick={() => setDraftSelectedSort(option.id)}
+                      className={`px-4 md:px-5 lg:px-6 py-3 md:py-4 rounded-xl border text-left transition-colors ${draftSelectedSort === option.id
+                        ? 'border-[#EB590E] bg-[#FFF2EB] dark:bg-orange-900/20'
+                        : 'border-gray-200 dark:border-gray-800 hover:border-[#EB590E]'
                         }`}
                     >
-                      <span className={`text-sm font-medium ${selectedSort === option.id ? 'text-[#DC2626] dark:text-[#FEE2E2]' : 'text-gray-700 dark:text-gray-300'}`}>
+                      <span className={`text-sm md:text-base lg:text-lg font-medium ${draftSelectedSort === option.id ? 'text-[#EB590E] dark:text-[#F97316]' : 'text-gray-700 dark:text-gray-300'}`}>
                         {option.label}
                       </span>
-                      {selectedSort === option.id && (
-                        <div className="w-5 h-5 rounded-full bg-[#DC2626] flex items-center justify-center flex-shrink-0">
-                          <Check className="w-3 h-3 text-white" />
-                        </div>
-                      )}
                     </button>
                   ))}
                 </div>
+              </div>
 
-                {/* Footer */}
-                <div className="flex items-center gap-3 px-5 pb-5">
-                  <button
-                    onClick={() => setShowSortPopup(false)}
-                    className="flex-1 py-3 text-center font-bold text-white bg-gray-800 dark:bg-gray-700 hover:bg-gray-900 dark:hover:bg-gray-600 rounded-xl transition-colors text-sm"
-                  >
-                    Close
-                  </button>
-                  <button
-                    onClick={handleApply}
-                    className="flex-1 py-3 font-semibold rounded-xl transition-colors text-sm bg-[#DC2626] text-white hover:bg-[#991B1B]"
-                  >
-                    Apply
-                  </button>
-                </div>
+              {/* Footer */}
+              <div className="flex items-center gap-4 md:gap-6 px-4 md:px-6 py-4 md:py-5 border-t dark:border-gray-800 bg-white dark:bg-[#1a1a1a]">
+                <button
+                  onClick={() => setShowSortPopup(false)}
+                  className="flex-1 py-3 md:py-4 text-center font-semibold text-gray-700 dark:text-gray-300 text-sm md:text-base"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={handleApply}
+                  className="flex-1 py-3 md:py-4 font-semibold rounded-xl transition-colors text-sm md:text-base bg-[#EB590E] text-white hover:bg-[#D94F0C]"
+                >
+                  Apply
+                </button>
               </div>
             </motion.div>
           </>
@@ -1803,9 +1801,7 @@ export default function Under250({ isTabActive = true }) {
               </div>
 
               {/* Image Section */}
-              <div className={`relative w-full h-64 md:h-80 lg:h-96 xl:h-[500px] overflow-hidden rounded-t-3xl ${
-                (shouldShowGrayscale || selectedItem.isRestaurantOffline) ? 'grayscale opacity-75' : ''
-              }`}>
+              <div className="relative w-full h-64 md:h-80 lg:h-96 xl:h-[500px] overflow-hidden rounded-t-3xl">
                 <OptimizedImage
                   src={selectedItem.image}
                   alt={selectedItem.name}
@@ -1853,8 +1849,8 @@ export default function Under250({ isTabActive = true }) {
                 <div className="flex items-start justify-between mb-3 md:mb-4 lg:mb-6">
                   <div className="flex items-center gap-2 md:gap-3 flex-1">
                     {selectedItem.isVeg && (
-                      <div className="h-5 w-5 md:h-6 md:w-6 lg:h-7 lg:w-7 rounded border-2 border-green-600 dark:border-green-500 bg-green-50 dark:bg-green-900/20 flex items-center justify-center flex-shrink-0">
-                        <div className="h-2.5 w-2.5 md:h-3 md:w-3 lg:h-3.5 lg:w-3.5 rounded-full bg-green-600 dark:bg-green-500" />
+                      <div className="h-5 w-5 md:h-6 md:w-6 lg:h-7 lg:w-7 rounded border-2 flex items-center justify-center flex-shrink-0" style={{ borderColor: "#16A34A", backgroundColor: "#F0FDF4" }}>
+                        <div className="h-2.5 w-2.5 md:h-3 md:w-3 lg:h-3.5 lg:w-3.5 rounded-full" style={{ backgroundColor: "#16A34A" }} />
                       </div>
                     )}
                     <h2 className="text-xl md:text-2xl lg:text-3xl xl:text-4xl font-bold text-gray-900 dark:text-white">
@@ -1892,14 +1888,14 @@ export default function Under250({ isTabActive = true }) {
 
                 {/* Description */}
                 <p className="text-sm md:text-base lg:text-lg text-gray-600 dark:text-gray-400 mb-4 md:mb-6 lg:mb-8 leading-relaxed">
-                  {selectedItem.description || `${selectedItem.name} from ${selectedItem.restaurant || 'Under 250'}`}
+                  {selectedItem.description || `${selectedItem.name} from ${selectedItem.restaurant || 'Eatiefy 99'}`}
                 </p>
 
                 {/* Highly Reordered Progress Bar */}
                 {selectedItem.customisable && (
                   <div className="flex items-center gap-2 mb-4">
                     <div className="flex-1 h-0.5 bg-gray-200 rounded-full overflow-hidden">
-                      <div className="h-full bg-[#DC2626]" style={{ width: '50%' }} />
+                      <div className="h-full bg-[#EB590E] rounded-full" style={{ width: '50%' }} />
                     </div>
                     <span className="text-xs text-gray-600 dark:text-gray-400 font-medium whitespace-nowrap">
                       highly reordered
@@ -1913,53 +1909,90 @@ export default function Under250({ isTabActive = true }) {
                     NOT ELIGIBLE FOR COUPONS
                   </p>
                 )}
+
+                {hasFoodVariants(selectedItem) && (
+                  <VariantSelector
+                    variants={getFoodVariants(selectedItem)}
+                    selectedVariantId={selectedVariantId}
+                    onSelectVariant={setSelectedVariantId}
+                    getVariantQuantity={(variantId) => getDishQuantity(selectedItem, variantId)}
+                  />
+                )}
               </div>
 
               {/* Bottom Action Bar */}
-              <div className="border-t dark:border-gray-800 border-gray-200 px-4 md:px-6 lg:px-8 xl:px-10 py-4 md:py-5 lg:py-6 bg-white dark:bg-[#1a1a1a]">
-                {selectedItem.isRestaurantOffline && (
-                  <p className="text-sm font-semibold text-red-500 mb-3 text-center">
-                    Restaurant is currently closed and not accepting orders.
-                  </p>
+              <div className={`border-t px-4 md:px-6 lg:px-8 xl:px-10 py-4 md:py-5 lg:py-6 bg-white dark:bg-[#1a1a1a] ${hasFoodVariants(selectedItem) ? "border-[#EB590E]/10 dark:border-[#EB590E]/20" : "border-gray-200 dark:border-gray-800"}`}>
+                {hasFoodVariants(selectedItem) && (
+                  <div className="mb-3 md:mb-4 flex items-center justify-between rounded-xl bg-gray-50 dark:bg-[#222222] px-3 md:px-4 py-2 md:py-2.5">
+                    <span className="text-xs md:text-sm font-medium text-gray-500 dark:text-gray-400">
+                      Adding to cart
+                    </span>
+                    <span className="text-sm md:text-base font-semibold text-gray-900 dark:text-white truncate max-w-[65%] text-right">
+                      {getVariantForDish(selectedItem, selectedVariantId)?.name || "Selected portion"}
+                    </span>
+                  </div>
                 )}
                 <div className="flex items-center gap-4 md:gap-5 lg:gap-6">
                   {/* Quantity Selector */}
-                  <div className={`flex items-center gap-3 md:gap-4 lg:gap-5 border-2 rounded-lg md:rounded-xl px-3 md:px-4 lg:px-5 h-[44px] md:h-[50px] lg:h-[56px] ${
-                    (shouldShowGrayscale || selectedItem.isRestaurantOffline)
-                      ? 'border-gray-300 dark:border-gray-700 opacity-50'
-                      : 'border-gray-300 dark:border-gray-700'
-                    }`}>
+                  <div className={`flex items-center gap-3 md:gap-4 lg:gap-5 rounded-xl md:rounded-2xl px-3 md:px-4 lg:px-5 h-[44px] md:h-[50px] lg:h-[56px] ${hasFoodVariants(selectedItem)
+                    ? "border-2 border-[#EB590E]/25 bg-[#FFF7F2] dark:bg-[#EB590E]/5"
+                    : "border-2 border-gray-300 dark:border-gray-700"
+                    } ${shouldShowGrayscale ? "opacity-50" : ""}`}>
                     <button
                       onClick={(e) => {
-                        if (!shouldShowGrayscale && !selectedItem.isRestaurantOffline) {
+                        if (!shouldShowGrayscale) {
                           e.stopPropagation()
-                          setItemDetailQuantity((prev) => Math.max(1, prev - 1))
+                          if (hasFoodVariants(selectedItem)) {
+                            updateItemQuantity(
+                              selectedItem,
+                              Math.max(0, getDishQuantity(selectedItem, selectedVariantId) - 1),
+                              e,
+                              getVariantForDish(selectedItem, selectedVariantId),
+                            )
+                          } else {
+                            setItemDetailQuantity((prev) => Math.max(1, prev - 1))
+                          }
                         }
                       }}
-                      disabled={itemDetailQuantity <= 1 || shouldShowGrayscale || selectedItem.isRestaurantOffline}
-                      className={`${(shouldShowGrayscale || selectedItem.isRestaurantOffline || itemDetailQuantity <= 1)
+                      disabled={
+                        shouldShowGrayscale ||
+                        (hasFoodVariants(selectedItem)
+                          ? getDishQuantity(selectedItem, selectedVariantId) === 0
+                          : itemDetailQuantity <= 1)
+                      }
+                      className={`${shouldShowGrayscale
                         ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
-                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 disabled:text-gray-300 dark:disabled:text-gray-600 disabled:cursor-not-allowed'
                         }`}
                     >
                       <Minus className="h-5 w-5 md:h-6 md:w-6 lg:h-7 lg:w-7" />
                     </button>
-                    <span className={`text-lg md:text-xl lg:text-2xl font-semibold min-w-[2rem] md:min-w-[2.5rem] lg:min-w-[3rem] text-center ${
-                      (shouldShowGrayscale || selectedItem.isRestaurantOffline)
-                        ? 'text-gray-400 dark:text-gray-600'
-                        : 'text-gray-900 dark:text-white'
+                    <span className={`text-lg md:text-xl lg:text-2xl font-semibold min-w-[2rem] md:min-w-[2.5rem] lg:min-w-[3rem] text-center ${shouldShowGrayscale
+                      ? 'text-gray-400 dark:text-gray-600'
+                      : 'text-gray-900 dark:text-white'
                       }`}>
-                      {itemDetailQuantity}
+                      {hasFoodVariants(selectedItem)
+                        ? getDishQuantity(selectedItem, selectedVariantId)
+                        : itemDetailQuantity}
                     </span>
                     <button
                       onClick={(e) => {
-                        if (!shouldShowGrayscale && !selectedItem.isRestaurantOffline) {
+                        if (!shouldShowGrayscale) {
                           e.stopPropagation()
-                          setItemDetailQuantity((prev) => prev + 1)
+                          if (hasFoodVariants(selectedItem)) {
+                            updateItemQuantity(
+                              selectedItem,
+                              getDishQuantity(selectedItem, selectedVariantId) + 1,
+                              e,
+                              getVariantForDish(selectedItem, selectedVariantId),
+                            )
+                          } else {
+                            setItemDetailQuantity((prev) => prev + 1)
+                          }
                         }
                       }}
-                      disabled={shouldShowGrayscale || selectedItem.isRestaurantOffline}
-                      className={(shouldShowGrayscale || selectedItem.isRestaurantOffline)
+                      disabled={shouldShowGrayscale}
+                      className={shouldShowGrayscale
                         ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
                         : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                       }
@@ -1968,44 +2001,67 @@ export default function Under250({ isTabActive = true }) {
                     </button>
                   </div>
 
-                  {/* Add / Update Item Button */}
+                  {/* Add Item Button */}
                   <Button
-                    className={`flex-1 h-[44px] md:h-[50px] lg:h-[56px] rounded-lg md:rounded-xl font-semibold flex items-center justify-center gap-2 text-sm md:text-base lg:text-lg ${
-                      (shouldShowGrayscale || selectedItem.isRestaurantOffline)
-                        ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-600 cursor-not-allowed opacity-50'
-                        : 'bg-[#DC2626] hover:bg-[#991B1B] dark:bg-[#DC2626] dark:hover:bg-[#991B1B] text-white'
-                        }`}
+                    className={`flex-1 h-[44px] md:h-[50px] lg:h-[56px] rounded-xl md:rounded-2xl font-semibold flex items-center justify-center gap-2 text-sm md:text-base lg:text-lg shadow-lg border-0 ${shouldShowGrayscale
+                      ? '!bg-gray-300 dark:!bg-gray-700 !text-gray-500 dark:!text-gray-600 cursor-not-allowed opacity-50 shadow-none'
+                      : hasFoodVariants(selectedItem)
+                        ? '!bg-[#EB590E] hover:!bg-[#D94F0C] !text-white shadow-[0_8px_20px_-8px_rgba(235,89,14,0.65)]'
+                        : '!bg-red-500 hover:!bg-red-600 dark:!bg-red-600 dark:hover:!bg-red-700 !text-white shadow-red-500/25'
+                      }`}
                     onClick={(e) => {
-                      if (!shouldShowGrayscale && !selectedItem.isRestaurantOffline) {
-                        const defaultVariant = getDefaultFoodVariant(selectedItem)
-                        updateItemQuantity(selectedItem, itemDetailQuantity, e, selectedItem.restaurant, defaultVariant)
+                      if (!shouldShowGrayscale) {
+                        if (hasFoodVariants(selectedItem)) {
+                          updateItemQuantity(
+                            selectedItem,
+                            getDishQuantity(selectedItem, selectedVariantId) + 1,
+                            e,
+                            getVariantForDish(selectedItem, selectedVariantId),
+                          )
+                        } else {
+                          updateItemQuantity(selectedItem, itemDetailQuantity, e)
+                        }
                         closeItemDetail()
                       }
                     }}
-                    disabled={shouldShowGrayscale || selectedItem.isRestaurantOffline}
+                    disabled={shouldShowGrayscale}
                   >
-                    <span>{quantities[getLineItemIdForDish(selectedItem, getDefaultFoodVariant(selectedItem))] > 0 ? "Update item" : "Add item"}</span>
-                    <span className="text-base md:text-lg lg:text-xl font-bold">
-                      {RUPEE_SYMBOL}{Math.round((getDefaultFoodVariant(selectedItem)?.price ?? selectedItem.price) * itemDetailQuantity)}
-                    </span>
+                    <span>{hasFoodVariants(selectedItem) ? "Add to cart" : "Add item"}</span>
+                    <div className="flex items-center gap-1 md:gap-1.5 rounded-lg bg-white/15 px-2 py-0.5">
+                      {(() => {
+                        const sellPrice = hasFoodVariants(selectedItem)
+                          ? Number(getVariantForDish(selectedItem, selectedVariantId)?.price || selectedItem.price) || 0
+                          : Number(selectedItem.price) || 0
+                        const comparePrice = hasFoodVariants(selectedItem)
+                          ? Number(getVariantForDish(selectedItem, selectedVariantId)?.otherPrice) ||
+                            getFoodDisplayOtherPrice(selectedItem)
+                          : Number(selectedItem.otherPrice) ||
+                            Number(selectedItem.originalPrice) ||
+                            getFoodDisplayOtherPrice(selectedItem)
+                        const showStrike = comparePrice > 0 && comparePrice > sellPrice
+                        const discountPercent = showStrike
+                          ? getFoodDiscountPercent(null, sellPrice, comparePrice)
+                          : 0
+                        return (
+                          <>
+                            {showStrike ? (
+                              <span className="text-xs md:text-sm line-through text-white/70">
+                                {RUPEE_SYMBOL}{Math.round(comparePrice)}
+                              </span>
+                            ) : null}
+                            <span className="text-sm md:text-base lg:text-lg font-bold tabular-nums">
+                              {RUPEE_SYMBOL}{Math.round(sellPrice)}
+                            </span>
+                            {discountPercent > 0 ? (
+                              <span className="text-[10px] font-bold uppercase tracking-wide text-white/95">
+                                {discountPercent}% OFF
+                              </span>
+                            ) : null}
+                          </>
+                        )
+                      })()}
+                    </div>
                   </Button>
-
-                  {/* Remove Button when item is in cart */}
-                  {quantities[getLineItemIdForDish(selectedItem, getDefaultFoodVariant(selectedItem))] > 0 && (
-                    <Button
-                      variant="outline"
-                      className="h-[44px] md:h-[50px] lg:h-[56px] px-3 md:px-4 rounded-lg md:rounded-xl font-semibold text-red-600 border-red-200 hover:bg-red-50 text-xs md:text-sm"
-                      onClick={(e) => {
-                        if (!shouldShowGrayscale && !selectedItem.isRestaurantOffline) {
-                          const defaultVariant = getDefaultFoodVariant(selectedItem)
-                          updateItemQuantity(selectedItem, 0, e, selectedItem.restaurant, defaultVariant)
-                          closeItemDetail()
-                        }
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  )}
                 </div>
               </div>
             </motion.div>
@@ -2054,7 +2110,7 @@ export default function Under250({ isTabActive = true }) {
                   <button
                     key={option.id}
                     onClick={() => handleShareOption(option.id)}
-                    className="rounded-2xl border border-gray-200 dark:border-gray-700 px-4 py-3 text-sm font-medium text-gray-800 dark:text-gray-200 hover:border-[#DC2626] hover:text-[#DC2626] transition-colors"
+                    className="rounded-2xl border border-gray-200 dark:border-gray-700 px-4 py-3 text-sm font-medium text-gray-800 dark:text-gray-200 hover:border-[#EB590E] hover:text-[#EB590E] transition-colors"
                   >
                     {option.label}
                   </button>
@@ -2065,9 +2121,7 @@ export default function Under250({ isTabActive = true }) {
         )}
       </AnimatePresence>
 
-      {/* Add to Cart Animation */}
-      <AddToCartAnimation dynamicBottom={viewCartButtonBottom} />
+      <FloatingHomeDock hasBottomNav />
     </div>
   )
 }
-

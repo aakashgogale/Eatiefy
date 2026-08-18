@@ -60,10 +60,12 @@ export default function ShowIdCardV2() {
     return "bg-gray-500";
   };
 
+  // Get profile image URL
   const getProfileImageUrl = () => {
     if (profileData?.profileImage?.url) return profileData.profileImage.url;
     if (profileData?.documents?.photo) return profileData.documents.photo;
-    return "/assets/images/profile_avatar.webp";
+    const name = profileData?.name || "Delivery Partner";
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=ff8100&color=fff&size=128`;
   };
 
   // Get vehicle display text
@@ -110,81 +112,96 @@ export default function ShowIdCardV2() {
   };
 
   return (
-    <div className="min-h-screen bg-black relative">
-      <div className="max-w-md mx-auto min-h-screen bg-gray-100 relative shadow-2xl">
-        {/* Close Button - Top Right */}
+    <div className="min-h-screen bg-[#f8f9fa] relative font-poppins flex flex-col items-center justify-center p-5 pt-16 pb-16">
+      
+      {/* Top Floating Action Bar */}
+      <div className="fixed top-0 inset-x-0 h-20 bg-[#f8f9fa]/90 backdrop-blur-xl z-50 px-5 flex items-center justify-end pb-2 pt-6">
         <button
           onClick={goBack}
-          className="absolute top-4 right-4 p-2 hover:bg-gray-200 rounded-full transition-colors z-30 bg-white/50 backdrop-blur-md"
+          className="p-3 bg-white hover:bg-gray-50 border border-gray-100 shadow-sm rounded-[20px] transition-all active:scale-95"
         >
-          <X className="w-6 h-6 text-black" />
+          <X className="w-5 h-5 text-gray-700" />
         </button>
+      </div>
 
-        {/* Top Grey Background Section */}
-        <div className="bg-gray-300 h-40 relative">
-          <div className="absolute inset-0 bg-gradient-to-b from-black/5 to-transparent" />
-          {/* Profile Picture */}
-          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 z-10">
-            <div className="p-1.5 bg-white rounded-full shadow-2xl">
+      <div className="w-full max-w-sm relative mt-4">
+        {/* The Physical Card */}
+        <div className="bg-white rounded-[40px] shadow-[0_20px_60px_rgba(0,0,0,0.06)] border border-gray-100 overflow-hidden relative pb-10">
+          
+          {/* Card Header Pattern */}
+          <div className="h-32 bg-gray-900 relative overflow-hidden">
+             <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -mr-16 -mt-16 blur-2xl" />
+             <div className="absolute bottom-0 left-0 w-32 h-32 bg-emerald-500/10 rounded-full -ml-10 -mb-10 blur-xl" />
+             <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:20px_20px]" />
+          </div>
+
+          {/* Profile Picture (Overlapping) */}
+          <div className="absolute top-[48px] left-1/2 -translate-x-1/2 z-10">
+            <div className="p-2 bg-white rounded-[36px] shadow-xl">
               <img
                 src={idCardData.profileImage}
                 alt={idCardData.name}
-                className="w-36 h-36 rounded-full object-cover border-4 border-gray-100"
+                className="w-[104px] h-[104px] rounded-[28px] object-cover"
                 onError={(e) => {
-                  e.target.src = "/assets/images/profile_avatar.webp";
+                  const name = idCardData.name || "Delivery Partner";
+                  e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=111827&color=fff&size=128`;
                 }}
               />
             </div>
           </div>
-        </div>
 
-        {/* Main White Content Area */}
-        <div className="bg-white min-h-[calc(100vh-10rem)] relative pt-20 px-6 pb-12">
-          <div className="flex flex-col items-center text-center">
-            {/* Brand Name */}
-            <p className="text-xs font-black uppercase tracking-[0.3em] text-orange-500 mb-2">{companyName}</p>
+          {/* Main Content Area */}
+          <div className="pt-[88px] px-6 relative z-0">
+            <div className="flex flex-col items-center text-center">
+              {/* Brand Name */}
+              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-orange-500 mb-1">{companyName}</p>
 
-            {/* Delivery Partner Title */}
-            <h1 className="text-4xl font-black text-gray-900 mb-1 leading-tight">PARTNER</h1>
-            <h2 className="text-xl font-bold text-gray-400 uppercase tracking-widest mb-6">ID CARD</h2>
+              {/* Delivery Partner Title */}
+              <h1 className="text-3xl font-black text-gray-900 tracking-tight leading-none mb-1">PARTNER</h1>
+              <h2 className="text-sm font-black text-gray-300 uppercase tracking-[0.3em] mb-5">ID CARD</h2>
 
-            {/* Active Status Badge */}
-            <div className="mb-8">
-              <span className={`${idCardData.statusColor} text-white px-8 py-2.5 rounded-full text-xs font-black uppercase tracking-[0.2em] shadow-lg shadow-green-500/20`}>
-                {idCardData.status}
-              </span>
-            </div>
-
-            {/* Details Grid */}
-            <div className="w-full space-y-8 mt-4">
-              <div className="flex flex-col items-center">
-                 <h3 className="text-2xl font-black text-gray-950 uppercase tracking-tight">{idCardData.name}</h3>
-                 <p className="text-gray-400 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Full Name</p>
+              {/* Active Status Badge */}
+              <div className="mb-8">
+                <span className={`px-5 py-2.5 rounded-[16px] text-[10px] font-black uppercase tracking-widest border ${
+                  idCardData.status.toLowerCase() === 'active' || idCardData.status.toLowerCase() === 'approved' 
+                  ? 'bg-emerald-50 text-emerald-600 border-emerald-100 shadow-[0_4px_20px_rgba(16,185,129,0.1)]'
+                  : 'bg-orange-50 text-orange-600 border-orange-100'
+                }`}>
+                  {idCardData.status}
+                </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-8 w-full">
-                 <div className="flex flex-col items-center">
-                    <span className="text-sm font-black text-gray-950">{idCardData.id}</span>
-                    <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Partner ID</span>
-                 </div>
-                 <div className="flex flex-col items-center">
-                    <span className="text-sm font-black text-gray-950">{idCardData.phone}</span>
-                    <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Mobile</span>
-                 </div>
-              </div>
-
-              {idCardData.vehicle && (
-                <div className="flex flex-col items-center bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                   <span className="text-sm font-black text-gray-950 uppercase">{idCardData.vehicle}</span>
-                   <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Registered Vehicle</span>
+              {/* Details Grid */}
+              <div className="w-full space-y-3">
+                <div className="flex flex-col items-center bg-gray-50/50 p-4 rounded-[28px] border border-gray-100/50">
+                   <h3 className="text-xl font-black text-gray-900 tracking-tight mb-0.5">{idCardData.name}</h3>
+                   <p className="text-[9px] font-black uppercase text-gray-400 tracking-[0.2em]">Full Name</p>
                 </div>
-              )}
 
-              <div className="pt-4 border-t border-gray-100">
-                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-loose">
-                   This ID card is issued for essential delivery services only. <br/>
-                   Valid On: {idCardData.validTill}
-                 </p>
+                <div className="grid grid-cols-2 gap-3 w-full">
+                   <div className="flex flex-col items-center bg-gray-50/50 p-4 rounded-[28px] border border-gray-100/50">
+                      <span className="text-sm font-black text-gray-900 tracking-tight mb-0.5">{idCardData.id}</span>
+                      <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Partner ID</span>
+                   </div>
+                   <div className="flex flex-col items-center bg-gray-50/50 p-4 rounded-[28px] border border-gray-100/50">
+                      <span className="text-sm font-black text-gray-900 tracking-tight mb-0.5">{idCardData.phone}</span>
+                      <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Mobile</span>
+                   </div>
+                </div>
+
+                {idCardData.vehicle && (
+                  <div className="flex flex-col items-center bg-gray-50/50 p-4 rounded-[28px] border border-gray-100/50">
+                     <span className="text-sm font-black text-gray-900 tracking-tight uppercase mb-0.5">{idCardData.vehicle}</span>
+                     <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Registered Vehicle</span>
+                  </div>
+                )}
+
+                <div className="pt-6 mt-6 border-t border-dashed border-gray-200">
+                   <p className="text-[9px] font-black text-gray-400 uppercase tracking-[0.15em] leading-relaxed">
+                     This ID card is issued for essential delivery services only.<br/>
+                     <span className="text-gray-300">Valid Till: {idCardData.validTill}</span>
+                   </p>
+                </div>
               </div>
             </div>
           </div>

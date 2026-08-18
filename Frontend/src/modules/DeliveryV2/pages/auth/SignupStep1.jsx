@@ -1,11 +1,9 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { ArrowLeft } from "lucide-react"
-import useDeliveryOnboardingExitGuard from "../../hooks/useDeliveryOnboardingExitGuard"
-import OnboardingExitModal from "@/shared/components/OnboardingExitModal"
-import { hasDeliveryStep1Progress, getAllSignupDocumentsFromDB } from "../../utils/deliveryOnboardingStorage"
-import { EMAIL_REGEX } from "@/shared/utils/emailValidation"
-import { prefetchModuleFcmToken } from "@food/utils/firebaseMessaging"
+import { toast } from "sonner"
+import { deliveryAPI } from "@food/api"
+import useDeliveryBackNavigation from "../../hooks/useDeliveryBackNavigation"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -13,6 +11,7 @@ const debugError = (...args) => {}
 
 export default function SignupStep1() {
   const navigate = useNavigate()
+  const goBack = useDeliveryBackNavigation()
   const [formData, setFormData] = useState(() => {
     const saved = sessionStorage.getItem("deliverySignupDetails")
     const base = {
@@ -43,22 +42,6 @@ export default function SignupStep1() {
   const [errors, setErrors] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const hasUnsavedProgress = useCallback(
-    () => hasDeliveryStep1Progress(formData),
-    [formData],
-  )
-
-  const { showExitModal, handleBack, handleStay, handleExit } = useDeliveryOnboardingExitGuard(
-    "details",
-    hasUnsavedProgress,
-  )
-
-  useEffect(() => {
-    prefetchModuleFcmToken("delivery")
-    void import("./SignupStep2")
-    void getAllSignupDocumentsFromDB().catch(() => {})
-  }, [])
-
   const sanitizeLocationValue = (value) =>
     value.replace(/[^A-Za-z\s.-]/g, "").replace(/\s{2,}/g, " ")
 
@@ -71,9 +54,29 @@ export default function SignupStep1() {
   const isValidNameValue = (value) =>
     /^[A-Za-z][A-Za-z\s]*[A-Za-z]$/.test(value.trim())
 
+  const drivingLicenseRegex = /^[A-Z]{2}[0-9A-Z]{8,16}$/
+
   const isValidEmailValue = (value) => {
     const normalizedValue = value.trim()
-    return EMAIL_REGEX.test(normalizedValue)
+    const emailRegex = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9\-]+(?:\.[a-zA-Z0-9\-]+)*\.[a-zA-Z]{2,10}$/;
+    if (!emailRegex.test(normalizedValue) || normalizedValue.includes('..')) {
+      return false
+    }
+
+    const [, domain = ""] = normalizedValue.split("@")
+    const normalizedDomain = domain.toLowerCase()
+
+    if (normalizedDomain.startsWith("gmail.") && normalizedDomain !== "gmail.com") {
+      return false
+    }
+
+    // Check for repeated domain parts (e.g., .com.com)
+    const segments = normalizedDomain.split('.')
+    if (segments.length >= 2 && segments[segments.length - 1] === segments[segments.length - 2]) {
+      return false
+    }
+
+    return true
   }
 
   const sanitizeEmailValue = (value) =>
@@ -84,54 +87,53 @@ export default function SignupStep1() {
     sessionStorage.setItem("deliverySignupDetails", JSON.stringify(formData))
   }, [formData])
 
+  const handleBlur = (e) => {
+    const { name, value } = e.target;
+    let updatedValue = value;
+
+    if (name === "vehicleNumber" || name === "panNumber" || name === "drivingLicenseNumber") {
+      updatedValue = value.toUpperCase();
+    }
+    if (name === "name") {
+      updatedValue = sanitizeNameValue(value);
+    }
+    if (name === "drivingLicenseNumber") {
+      updatedValue = updatedValue.replace(/[^A-Z0-9]/g, "").slice(0, 16);
+    }
+    if (name === "aadharNumber") {
+      updatedValue = value.replace(/\D/g, "").slice(0, 12);
+    }
+    if (name === "city" || name === "state") {
+      updatedValue = sanitizeLocationValue(value);
+    }
+    if (name === "email") {
+      updatedValue = sanitizeEmailValue(value);
+    }
+
+    setFormData(prev => ({ ...prev, [name]: updatedValue }));
+  };
+
   const handleChange = (e) => {
     const { name, value } = e.target
     let updatedValue = value
 
-    // Auto-uppercase for Vehicle, DL and PAN numbers
-    if (name === "vehicleNumber" || name === "panNumber" || name === "drivingLicenseNumber") {
-      updatedValue = value.toUpperCase()
-    }
-
-    if (name === "name") {
-      updatedValue = sanitizeNameValue(value)
-    }
-
+    // Only apply length restrictions during typing to avoid Android keyboard panic
     if (name === "vehicleNumber") {
       updatedValue = updatedValue.slice(0, 10)
     }
-
     if (name === "drivingLicenseNumber") {
-      updatedValue = updatedValue.replace(/[^A-Z0-9]/g, "").slice(0, 15)
+      updatedValue = updatedValue.slice(0, 16)
     }
-
-    // Restrict Aadhaar to numeric only
     if (name === "aadharNumber") {
-      updatedValue = value.replace(/\D/g, "").slice(0, 12)
-    }
-
-    if (name === "city" || name === "state") {
-      updatedValue = sanitizeLocationValue(value)
-    }
-
-    if (name === "email") {
-      updatedValue = sanitizeEmailValue(value)
-      // Real-time validation for email
-      if (updatedValue && !isValidEmailValue(updatedValue)) {
-        setErrors(prev => ({ ...prev, email: "Please enter a valid email address (e.g., aaa@gmail.com)" }))
-      } else if (!updatedValue) {
-        setErrors(prev => ({ ...prev, email: "Email is required" }))
-      } else {
-        setErrors(prev => ({ ...prev, email: "" }))
-      }
+      updatedValue = updatedValue.slice(0, 12)
     }
 
     setFormData(prev => ({
       ...prev,
       [name]: updatedValue
     }))
-    // Clear error for this field (except email which we handled above)
-    if (name !== "email" && errors[name]) {
+    // Clear error for this field
+    if (errors[name]) {
       setErrors(prev => ({
         ...prev,
         [name]: ""
@@ -148,10 +150,8 @@ export default function SignupStep1() {
       newErrors.name = "Name can contain letters only"
     }
 
-    if (!formData.email.trim()) {
-      newErrors.email = "Email is required"
-    } else if (!isValidEmailValue(formData.email)) {
-      newErrors.email = "Please enter a valid email address (e.g., aaa@gmail.com)"
+    if (formData.email && !isValidEmailValue(formData.email)) {
+      newErrors.email = "Enter a valid email address. Gmail must be gmail.com"
     }
 
     if (!formData.address.trim()) {
@@ -178,8 +178,8 @@ export default function SignupStep1() {
 
     if (!formData.drivingLicenseNumber.trim()) {
       newErrors.drivingLicenseNumber = "Driving license number is required"
-    } else if (!/^[A-Z]{2}[0-9]{2}[0-9]{4}[0-9]{7}$/.test(formData.drivingLicenseNumber)) {
-      newErrors.drivingLicenseNumber = "Invalid DL format (e.g., MH1220110012345)"
+    } else if (!drivingLicenseRegex.test(formData.drivingLicenseNumber)) {
+      newErrors.drivingLicenseNumber = "Invalid DL format (e.g., DL0120110012345)"
     }
 
     if (!formData.panNumber.trim()) {
@@ -202,12 +202,22 @@ export default function SignupStep1() {
     e.preventDefault()
 
     if (!validate()) {
+      toast.error("Please fill all required fields correctly")
       return
     }
 
     setIsSubmitting(true)
 
     try {
+      // Check vehicle availability before proceeding
+      const vCheck = await deliveryAPI.checkVehicleAvailability(formData.vehicleNumber.trim())
+      if (vCheck?.data?.success && !vCheck.data.isAvailable) {
+        setErrors(prev => ({ ...prev, vehicleNumber: "This vehicle is already registered with another partner" }))
+        toast.error("Vehicle already registered")
+        setIsSubmitting(false)
+        return
+      }
+
       const details = {
         name: formData.name.trim(),
         phone: String(formData.phone || "").replace(/\D/g, "").slice(0, 15),
@@ -225,9 +235,11 @@ export default function SignupStep1() {
         aadharNumber: formData.aadharNumber.replace(/\s/g, "")
       }
       sessionStorage.setItem("deliverySignupDetails", JSON.stringify(details))
+      toast.success("Details saved")
       navigate("/food/delivery/signup/documents")
     } catch (error) {
       debugError("Error saving details:", error)
+      toast.error("Failed to save. Please try again.")
     } finally {
       setIsSubmitting(false)
     }
@@ -238,7 +250,7 @@ export default function SignupStep1() {
       {/* Header */}
       <div className="bg-white px-4 py-3 flex items-center gap-4 border-b border-gray-200">
         <button
-          onClick={handleBack}
+          onClick={goBack}
           className="p-2 hover:bg-gray-100 rounded-full transition-colors"
         >
           <ArrowLeft className="w-5 h-5" />
@@ -264,6 +276,7 @@ export default function SignupStep1() {
               name="name"
               value={formData.name}
               onChange={handleChange}
+              onBlur={handleBlur}
               inputMode="text"
               className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.name ? "border-red-500" : "border-gray-300"
                 }`}
@@ -275,13 +288,14 @@ export default function SignupStep1() {
           {/* Email */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Email <span className="text-red-500">*</span>
+              Email (Optional)
             </label>
             <input
               type="email"
               name="email"
               value={formData.email}
               onChange={handleChange}
+              onBlur={handleBlur}
               autoCapitalize="none"
               autoCorrect="off"
               autoComplete="email"
@@ -302,6 +316,7 @@ export default function SignupStep1() {
               name="address"
               value={formData.address}
               onChange={handleChange}
+              onBlur={handleBlur}
               rows={3}
               className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.address ? "border-red-500" : "border-gray-300"
                 }`}
@@ -321,6 +336,7 @@ export default function SignupStep1() {
                 name="city"
                 value={formData.city}
                 onChange={handleChange}
+                onBlur={handleBlur}
                 className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.city ? "border-red-500" : "border-gray-300"
                   }`}
                 placeholder="City"
@@ -336,6 +352,7 @@ export default function SignupStep1() {
                 name="state"
                 value={formData.state}
                 onChange={handleChange}
+                onBlur={handleBlur}
                 className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.state ? "border-red-500" : "border-gray-300"
                   }`}
                 placeholder="State"
@@ -372,6 +389,7 @@ export default function SignupStep1() {
               name="vehicleName"
               value={formData.vehicleName}
               onChange={handleChange}
+              onBlur={handleBlur}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
               placeholder="e.g., Honda Activa"
             />
@@ -387,6 +405,7 @@ export default function SignupStep1() {
               name="vehicleNumber"
               value={formData.vehicleNumber}
               onChange={handleChange}
+              onBlur={handleBlur}
               maxLength={10}
               className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.vehicleNumber ? "border-red-500" : "border-gray-300"
                 }`}
@@ -405,7 +424,8 @@ export default function SignupStep1() {
               name="drivingLicenseNumber"
               value={formData.drivingLicenseNumber}
               onChange={handleChange}
-              maxLength={15}
+              onBlur={handleBlur}
+              maxLength={16}
               className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 uppercase ${errors.drivingLicenseNumber ? "border-red-500" : "border-gray-300"
                 }`}
               placeholder="e.g., MH1220110012345"
@@ -423,6 +443,7 @@ export default function SignupStep1() {
               name="panNumber"
               value={formData.panNumber}
               onChange={handleChange}
+              onBlur={handleBlur}
               maxLength={10}
               className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 uppercase ${errors.panNumber ? "border-red-500" : "border-gray-300"
                 }`}
@@ -441,6 +462,7 @@ export default function SignupStep1() {
               name="aadharNumber"
               value={formData.aadharNumber}
               onChange={handleChange}
+              onBlur={handleBlur}
               maxLength={12}
               inputMode="numeric"
               className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.aadharNumber ? "border-red-500" : "border-gray-300"
@@ -453,23 +475,16 @@ export default function SignupStep1() {
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={isSubmitting || !formData.email || !isValidEmailValue(formData.email) || Object.values(errors).some(error => error !== "")}
-            className={`w-full py-4 rounded-lg font-bold text-white text-base transition-all mt-6 active:scale-[0.98] ${isSubmitting || !formData.email || !isValidEmailValue(formData.email) || Object.values(errors).some(error => error !== "")
-              ? "bg-gray-400 cursor-not-allowed shadow-none"
-              : "bg-gradient-to-r from-[#0E4B9C] to-[#021024] hover:from-[#1157b5] hover:to-[#041630] shadow-[0_8px_20px_rgba(14,75,156,0.3)]"
+            disabled={isSubmitting}
+            className={`w-full py-4 rounded-lg font-bold text-white text-base transition-colors mt-6 ${isSubmitting
+              ? "bg-gray-400 cursor-not-allowed"
+              : "bg-[#00B761] hover:bg-[#00A055]"
               }`}
           >
             {isSubmitting ? "Saving..." : "Continue"}
           </button>
         </form>
       </div>
-
-      <OnboardingExitModal
-        open={showExitModal}
-        onStay={handleStay}
-        onExit={handleExit}
-        theme="delivery"
-      />
     </div>
   )
 }

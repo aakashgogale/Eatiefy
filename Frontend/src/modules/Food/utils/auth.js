@@ -3,7 +3,11 @@
  * Decode and extract information from JWT tokens
  */
 
-import { clearCategoryBrowseStorage } from "./categoryCache.js";
+import axios from "axios";
+import { normalizeApiBaseUrl } from "../../../services/api/urlUtils.js";
+
+/** In-flight silent refresh promises keyed by module (dedupe parallel callers). */
+const refreshPromiseByModule = {};
 
 /**
  * Decode JWT token without verification (client-side only)
@@ -134,13 +138,89 @@ export function getCurrentUser(module) {
 }
 
 /**
- * Check if user is authenticated for a specific module
+ * True when the module still has a recoverable session.
+ * Access token may be expired — as long as refresh token is present and not expired,
+ * axios / ensureValidAccessToken can restore the session without forcing re-login.
  * @param {string} module - Module name (admin, restaurant, delivery, user)
- * @returns {boolean} - True if authenticated
+ * @returns {boolean}
  */
 export function isModuleAuthenticated(module) {
-  const token = getModuleToken(module);
-  return !!token && !isTokenExpired(token);
+  const accessToken = getModuleToken(module);
+  if (accessToken && !isTokenExpired(accessToken)) return true;
+
+  const refreshToken = getModuleRefreshToken(module);
+  if (refreshToken && !isTokenExpired(refreshToken)) return true;
+
+  return false;
+}
+function getRefreshApiUrl() {
+  const baseURL =
+    typeof import.meta !== "undefined"
+      ? normalizeApiBaseUrl(import.meta.env?.VITE_API_BASE_URL)
+      : "";
+  return baseURL
+    ? `${baseURL}/food/auth/refresh-token`
+    : "/api/v1/food/auth/refresh-token";
+}
+
+/**
+ * Ensure the module has a non-expired access token.
+ * If access is expired but refresh is still valid, silently refresh once.
+ * @param {string} module
+ * @returns {Promise<string|null>} Fresh access token, or null if session is dead
+ */
+export async function ensureValidAccessToken(module) {
+  if (!module) return null;
+
+  const accessToken = getModuleToken(module);
+  if (accessToken && !isTokenExpired(accessToken)) return accessToken;
+
+  const refreshToken = getModuleRefreshToken(module);
+  if (!refreshToken || isTokenExpired(refreshToken)) {
+    clearModuleAuth(module);
+    return null;
+  }
+
+  if (!refreshPromiseByModule[module]) {
+    refreshPromiseByModule[module] = (async () => {
+      try {
+        const { data } = await axios.post(
+          getRefreshApiUrl(),
+          { refreshToken },
+          { timeout: 10000 }
+        );
+        const newAccessToken = data?.data?.accessToken || data?.accessToken;
+        if (!newAccessToken) {
+          throw new Error("Refresh response missing accessToken");
+        }
+
+        localStorage.setItem(`${module}_accessToken`, newAccessToken);
+        localStorage.setItem(`${module}_authenticated`, "true");
+
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("authRefreshed", {
+              detail: { module, token: newAccessToken },
+            })
+          );
+        }
+
+        return newAccessToken;
+      } catch {
+        clearModuleAuth(module);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("authRefreshFailed", { detail: { module } })
+          );
+        }
+        return null;
+      } finally {
+        delete refreshPromiseByModule[module];
+      }
+    })();
+  }
+
+  return refreshPromiseByModule[module];
 }
 
 /**
@@ -154,76 +234,11 @@ export function clearModuleAuth(module) {
   localStorage.removeItem(`${module}_user`);
   // Clear cached FCM web token for this module
   localStorage.removeItem(`fcm_web_registered_token_${module}`);
-  try {
-    sessionStorage.removeItem(`fcm_backend_synced_${module}`);
-  } catch {
-    /* ignore */
-  }
-  localStorage.removeItem("app:isOnline");
-  
-  if (module === "user") {
-    clearUserSession();
-    sessionStorage.removeItem("userAuthData");
-  }
-  
   if (module === "restaurant") {
     clearRestaurantSessionCache();
-    sessionStorage.removeItem("restaurantAuthData");
-    sessionStorage.removeItem("restaurantLoginPhone");
   }
-
-  if (module === "delivery") {
-    sessionStorage.removeItem("deliveryAuthData");
-  }
-
-  if (module === "admin") {
-    // Reset admin-only UI state so a fresh login starts clean (e.g. the Top
-    // Restaurants selected-zone preference and any unsaved drafts).
-    try {
-      Object.keys(localStorage)
-        .filter((k) => k.startsWith("top_restaurants_"))
-        .forEach((k) => localStorage.removeItem(k));
-    } catch (e) {
-      /* ignore */
-    }
-  }
-
-  // Also clear any standard naming conventions
+  // Also clear any sessionStorage data
   sessionStorage.removeItem(`${module}AuthData`);
-}
-
-/**
- * Clear user-specific profile data to prevent data leakage across accounts.
- */
-export function clearUserSession() {
-  if (typeof localStorage === "undefined") return;
-  const keys = [
-    "userProfile", 
-    "user_user", 
-    "user_edit_profile_draft",
-    "user",
-    "cart",
-    "userVegMode",
-    "userVegModeOption",
-    "food-under-250-filters",
-    "food-category-page-filters-v1",
-    "app:isOnline"
-  ];
-  keys.forEach((k) => localStorage.removeItem(k));
-  // Next login should fetch current GPS like a fresh app open.
-  try {
-    sessionStorage.removeItem("ometto_location_session");
-    sessionStorage.removeItem("lastLoginLocationFetch");
-    localStorage.setItem("deliveryAddressMode", "current");
-  } catch {
-    /* ignore */
-  }
-  // Drop in-memory + session browse caches so next account starts clean
-  try {
-    clearCategoryBrowseStorage();
-  } catch {
-    /* ignore */
-  }
 }
 
 /**
@@ -242,8 +257,6 @@ export function clearRestaurantSessionCache() {
     "restaurant_name",
     "restaurantName",
     "restaurant_pendingPhone",
-    "restaurant_pendingStatus",
-    "restaurant_pendingMessage",
   ];
 
   keys.forEach((key) => localStorage.removeItem(key));
@@ -313,10 +326,8 @@ export function setAuthData(module, token, user, refreshToken = null) {
     const authKey = `${module}_authenticated`;
     const userKey = `${module}_user`;
 
-    // Prevent stale profile data from previous accounts after re-login.
-    if (module === "user") {
-      clearUserSession();
-    } else if (module === "restaurant") {
+    // Prevent stale restaurant profile data from previous account after re-login.
+    if (module === "restaurant") {
       clearRestaurantSessionCache();
     }
 

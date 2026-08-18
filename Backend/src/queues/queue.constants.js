@@ -7,11 +7,13 @@ export const NOTIFICATION_QUEUE = 'notification';
 export const ORDER_QUEUE = 'order';
 export const PAYMENT_QUEUE = 'payment';
 export const TRACKING_QUEUE = 'tracking';
+export const MAINTENANCE_QUEUE = 'maintenance';
 
 export const QUEUE_NAMES = Object.freeze([
     OTP_QUEUE,
     NOTIFICATION_QUEUE,
     ORDER_QUEUE,
     PAYMENT_QUEUE,
-    TRACKING_QUEUE
+    TRACKING_QUEUE,
+    MAINTENANCE_QUEUE
 ]);

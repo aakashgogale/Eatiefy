@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react"
 import { 
   Search, Plus, Edit, Trash2, ArrowUpDown, 
-  Loader2, X, Building2, AlertTriangle
+  DollarSign, Percent, Loader2, X, Building2, IndianRupee
 } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@food/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
@@ -12,9 +12,6 @@ const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
-/** Platform default = percentage. Fixed amount only when admin chooses it per restaurant. */
-const DEFAULT_COMMISSION_PERCENT = "18"
-const DEFAULT_COMMISSION_FIXED_AMOUNT = "50"
 
 export default function RestaurantCommission() {
   const [searchQuery, setSearchQuery] = useState("")
@@ -32,7 +29,7 @@ export default function RestaurantCommission() {
     restaurantId: "",
     defaultCommission: {
       type: "percentage",
-      value: DEFAULT_COMMISSION_PERCENT
+      value: "10"
     },
     notes: ""
   })
@@ -183,7 +180,7 @@ export default function RestaurantCommission() {
       restaurantId: "",
       defaultCommission: {
         type: "percentage",
-        value: DEFAULT_COMMISSION_PERCENT
+        value: "10"
       },
       notes: ""
     })
@@ -219,21 +216,26 @@ export default function RestaurantCommission() {
         setSelectedCommission(commissionData)
         setSelectedRestaurant(commissionData.restaurant)
         
-        // Handle restaurant ID - always use Mongo _id for API, display ID is separate
+        // Handle restaurant ID - it can be an object with _id or just an ID string
         let restaurantId = ""
         if (commissionData.restaurant) {
           if (typeof commissionData.restaurant === 'object' && commissionData.restaurant._id) {
             restaurantId = commissionData.restaurant._id
           } else if (typeof commissionData.restaurant === 'string') {
             restaurantId = commissionData.restaurant
+          } else {
+            restaurantId = commissionData.restaurantId || commissionData.restaurant?._id || ""
           }
+        } else {
+          // Fallback to restaurantId field if restaurant object is not populated
+          restaurantId = commissionData.restaurantId || commissionData.restaurant || ""
         }
         
         setFormData({
           restaurantId: restaurantId,
           defaultCommission: {
             type: commissionData.defaultCommission?.type || "percentage",
-            value: commissionData.defaultCommission?.value?.toString() || DEFAULT_COMMISSION_PERCENT
+            value: commissionData.defaultCommission?.value?.toString() || "10"
           },
           notes: commissionData.notes || ""
         })
@@ -345,12 +347,8 @@ export default function RestaurantCommission() {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold text-slate-900">Restaurant Commission</h1>
-              <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700 flex items-center justify-center min-w-[2.5rem] h-7">
-                {loading ? (
-                  <span className="w-5 h-3 rounded bg-slate-300/80 animate-pulse" />
-                ) : (
-                  filteredCommissions.length
-                )}
+              <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
+                {filteredCommissions.length}
               </span>
             </div>
 
@@ -366,10 +364,10 @@ export default function RestaurantCommission() {
           </div>
 
           <div className="mb-4 flex items-center gap-3">
-            <div className="relative w-full max-w-xl">
+            <div className="relative flex-1 sm:flex-initial min-w-[250px]">
               <input
                 type="text"
-                placeholder="Search by restaurant name or ID"
+                placeholder="Ex: Search by restaurant name or ID"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10 pr-4 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400"
@@ -444,9 +442,7 @@ export default function RestaurantCommission() {
                         )}
                         {visibleColumns.restaurantId && (
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <span className="text-sm text-slate-700">
-                              {commission.restaurantId || commission.restaurant?.restaurantId || '-'}
-                            </span>
+                            <span className="text-sm text-slate-700">{commission.restaurantId || '-'}</span>
                           </td>
                         )}
                         {visibleColumns.defaultCommission && (
@@ -455,7 +451,7 @@ export default function RestaurantCommission() {
                               {commission.defaultCommission?.type === 'percentage' ? (
                                 <>{commission.defaultCommission.value}%</>
                               ) : (
-                                <>₹{commission.defaultCommission.value}</>
+                                <>${commission.defaultCommission.value}</>
                               )}
                             </span>
                           </td>
@@ -465,7 +461,7 @@ export default function RestaurantCommission() {
                             <button
                               onClick={() => handleToggleStatus(commission)}
                               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                                commission.status ? "bg-green-600" : "bg-slate-300"
+                                commission.status ? "bg-blue-600" : "bg-slate-300"
                               }`}
                             >
                               <span
@@ -562,7 +558,7 @@ export default function RestaurantCommission() {
             {selectedRestaurant && (
               <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
                 <p className="font-semibold text-sm text-slate-900">{selectedRestaurant.name}</p>
-                <p className="text-xs text-slate-600 mt-0.5">{selectedRestaurant.restaurantId || '-'}</p>
+                <p className="text-xs text-slate-600 mt-0.5">{selectedRestaurant.restaurantId}</p>
               </div>
             )}
 
@@ -575,29 +571,19 @@ export default function RestaurantCommission() {
                 <div>
                   <select
                     value={formData.defaultCommission.type}
-                    onChange={(e) => {
-                      const nextType = e.target.value
-                      setFormData((prev) => ({
-                        ...prev,
-                        defaultCommission: {
-                          type: nextType,
-                          value:
-                            nextType === "percentage"
-                              ? DEFAULT_COMMISSION_PERCENT
-                              : DEFAULT_COMMISSION_FIXED_AMOUNT,
-                        },
-                      }))
-                    }}
+                    onChange={(e) => setFormData(prev => ({
+                      ...prev,
+                      defaultCommission: { ...prev.defaultCommission, type: e.target.value }
+                    }))}
                     className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="percentage">Percentage (%)</option>
-                    <option value="amount">Fixed Amount (₹)</option>
+                    <option value="amount">Fixed Amount (\u20B9)</option>
                   </select>
                 </div>
                 <div>
                   <input
                     type="number"
-                    min="0"
                     step={formData.defaultCommission.type === "percentage" ? "0.1" : "0.01"}
                     value={formData.defaultCommission.value}
                     onChange={(e) => setFormData(prev => ({
@@ -607,13 +593,8 @@ export default function RestaurantCommission() {
                     className={`w-full px-3 py-2 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                       formErrors.defaultCommission ? "border-red-500" : "border-slate-300"
                     }`}
-                    placeholder={formData.defaultCommission.type === "percentage" ? "e.g., 18" : "e.g., 50"}
+                    placeholder={formData.defaultCommission.type === "percentage" ? "e.g., 10" : "e.g., 5.00"}
                   />
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    {formData.defaultCommission.type === "percentage"
-                      ? "Platform default: 18%"
-                      : "Suggested default: ₹50 per order (change as needed)"}
-                  </p>
                   {formErrors.defaultCommission && (
                     <p className="text-xs text-red-500 mt-1">{formErrors.defaultCommission}</p>
                   )}
@@ -656,46 +637,31 @@ export default function RestaurantCommission() {
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
-        <DialogContent className="max-w-md bg-white p-0 overflow-hidden">
-          <div className="px-6 pt-6 pb-4 pr-14">
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 border border-red-100">
-                <AlertTriangle className="h-5 w-5 text-red-600" />
-              </div>
-              <div className="min-w-0 space-y-1.5">
-                <DialogTitle className="text-base font-semibold text-slate-900 leading-snug">
-                  Delete Restaurant Commission
-                </DialogTitle>
-                <p className="text-sm text-slate-600 leading-relaxed break-words">
-                  Remove commission settings for{" "}
-                  <span className="font-semibold text-slate-900">
-                    {selectedCommission?.restaurantName ||
-                      selectedCommission?.restaurant?.name ||
-                      "this restaurant"}
-                  </span>
-                  ? This cannot be undone.
-                </p>
-              </div>
-            </div>
+        <DialogContent className="max-w-md bg-white">
+          <DialogHeader>
+            <DialogTitle>Delete Restaurant Commission</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-slate-700">
+              Are you sure you want to delete commission for "{selectedCommission?.restaurantName || selectedCommission?.restaurant?.name}"? This action cannot be undone.
+            </p>
           </div>
-          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 px-6 py-4 bg-slate-50 border-t border-slate-200">
+          <DialogFooter>
             <button
-              type="button"
               onClick={() => setIsDeleteOpen(false)}
-              className="px-4 py-2.5 text-sm font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 transition-all"
+              className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-all"
             >
               Cancel
             </button>
             <button
-              type="button"
               onClick={confirmDelete}
               disabled={deleting}
-              className="px-4 py-2.5 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="px-4 py-2 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {deleting && <Loader2 className="w-4 h-4 animate-spin" />}
               Delete
             </button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -1,11 +1,16 @@
 import mongoose from 'mongoose';
-import { registerDeliveryPartner, updateDeliveryPartnerProfile, updateDeliveryPartnerBankDetails, listSupportTicketsByPartner, createSupportTicket, getSupportTicketByIdAndPartner, updateDeliveryPartnerDetails, updateDeliveryPartnerProfilePhotoBase64, updateDeliveryAvailability, getDeliveryPartnerWallet, getDeliveryPartnerEarnings, getDeliveryPartnerTripHistory, getDeliveryPocketDetails, getActiveEarningAddonsForPartner, getDeliveryPartnerReviews } from '../services/delivery.service.js';
-import { createDeliveryCashDepositOrder, getDeliveryPartnerWalletEnhanced, requestDeliveryWithdrawal, verifyDeliveryCashDepositPayment, submitCashDepositByHand } from '../services/deliveryFinance.service.js';
-import { getDeliveryCashLimitSettings, getDeliveryEmergencyHelp } from '../../admin/services/admin.service.js';
+import { registerDeliveryPartner, updateDeliveryPartnerProfile, updateDeliveryPartnerBankDetails, listSupportTicketsByPartner, createSupportTicket, getSupportTicketByIdAndPartner, updateDeliveryPartnerDetails, updateDeliveryPartnerProfilePhotoBase64, updateDeliveryAvailability, getDeliveryPartnerWallet, getDeliveryPartnerEarnings, getDeliveryPartnerTripHistory, getDeliveryPocketDetails, getActiveEarningAddonsForPartner, deleteDeliveryPartnerAccount } from '../services/delivery.service.js';
+import { createDeliveryCashDepositOrder, getDeliveryPartnerWalletEnhanced, requestDeliveryWithdrawal, verifyDeliveryCashDepositPayment } from '../services/deliveryFinance.service.js';
+import { getDeliveryCashLimitSettings, getDeliveryEmergencyHelp, getDeliveryPartnerMyBonusStatus } from '../../admin/services/admin.service.js';
 import { DeliveryBonusTransaction } from '../../admin/models/deliveryBonusTransaction.model.js';
 import { validateDeliveryRegisterDto, validateDeliveryProfileUpdateDto, validateDeliveryBankDetailsDto } from '../validators/delivery.validator.js';
 import { sendResponse } from '../../../../utils/response.js';
 import { getDeliveryReferralStats } from '../services/deliveryReferral.service.js';
+import {
+    createOrderEmergencyRequest,
+    getOrderEmergencyRequestByPartner,
+    listOrderEmergencyRequestsByPartner
+} from '../services/orderEmergencyRequest.service.js';
 
 export const registerDeliveryPartnerController = async (req, res, next) => {
     try {
@@ -103,6 +108,47 @@ export const getSupportTicketByIdController = async (req, res, next) => {
     }
 };
 
+export const listOrderEmergencyRequestsController = async (req, res, next) => {
+    try {
+        const deliveryPartnerId = req.user?.userId;
+        const requests = await listOrderEmergencyRequestsByPartner(deliveryPartnerId);
+        return sendResponse(res, 200, 'Order reassignment requests fetched', { requests });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const createOrderEmergencyRequestController = async (req, res, next) => {
+    try {
+        const deliveryPartnerId = req.user?.userId;
+        const request = await createOrderEmergencyRequest(deliveryPartnerId, req.body || {});
+        return sendResponse(res, 201, 'Emergency reassignment request created', { request });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const getOrderEmergencyRequestController = async (req, res, next) => {
+    try {
+        const deliveryPartnerId = req.user?.userId;
+        const request = await getOrderEmergencyRequestByPartner(
+            req.params.id,
+            deliveryPartnerId
+        );
+        if (!request) {
+            return res.status(404).json({
+                success: false,
+                message: 'Emergency reassignment request not found'
+            });
+        }
+        return sendResponse(res, 200, 'Emergency reassignment request fetched', {
+            request
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 export const updateAvailabilityController = async (req, res, next) => {
     try {
         const userId = req.user?.userId;
@@ -129,13 +175,7 @@ export const getWalletController = async (req, res, next) => {
             createdAt: tx?.createdAt || tx?.date
         });
 
-        if (
-            requestedTypeRaw === 'bonus' ||
-            requestedTypeRaw === 'deposit' ||
-            requestedTypeRaw === 'deduction' ||
-            requestedTypeRaw === 'withdrawal' ||
-            requestedTypeRaw === 'payment'
-        ) {
+        if (requestedTypeRaw === 'bonus' || requestedTypeRaw === 'deposit' || requestedTypeRaw === 'deduction') {
             if (!deliveryPartnerId || !mongoose.Types.ObjectId.isValid(deliveryPartnerId)) {
                 return sendResponse(res, 200, 'Wallet fetched successfully', { wallet: { transactions: [] } });
             }
@@ -159,12 +199,9 @@ export const getWalletController = async (req, res, next) => {
                     transactionId: b.transactionId
                 }));
             } else {
-                const allowedTypes =
-                    requestedTypeRaw === 'deposit'
-                        ? new Set(['deposit'])
-                        : requestedTypeRaw === 'deduction'
-                          ? new Set(['withdrawal', 'deposit'])
-                          : new Set([requestedTypeRaw]);
+                const allowedTypes = requestedTypeRaw === 'deposit'
+                    ? new Set(['deposit'])
+                    : new Set(['withdrawal', 'deposit']);
 
                 wallet.transactions = (wallet.transactions || [])
                     .filter((tx) => allowedTypes.has(String(tx?.type || '').trim().toLowerCase()))
@@ -238,17 +275,6 @@ export const verifyCashDepositPaymentController = async (req, res, next) => {
     }
 };
 
-export const submitCashDepositByHandController = async (req, res, next) => {
-    try {
-        const deliveryPartnerId = req.user?.userId;
-        const amount = req.body?.amount;
-        const data = await submitCashDepositByHand(deliveryPartnerId, amount);
-        return sendResponse(res, 201, 'Cash submitted successfully. Waiting for admin confirmation.', data);
-    } catch (error) {
-        next(error);
-    }
-};
-
 export const getTripHistoryController = async (req, res, next) => {
     try {
         const deliveryPartnerId = req.user?.userId;
@@ -264,16 +290,6 @@ export const getPocketDetailsController = async (req, res, next) => {
         const deliveryPartnerId = req.user?.userId;
         const data = await getDeliveryPocketDetails(deliveryPartnerId, req.query || {});
         return sendResponse(res, 200, 'Pocket details fetched successfully', data);
-    } catch (error) {
-        next(error);
-    }
-};
-
-export const getMyReviewsController = async (req, res, next) => {
-    try {
-        const deliveryPartnerId = req.user?.userId;
-        const data = await getDeliveryPartnerReviews(deliveryPartnerId, req.query || {});
-        return sendResponse(res, 200, 'Reviews fetched successfully', data);
     } catch (error) {
         next(error);
     }
@@ -302,6 +318,27 @@ export const getDeliveryReferralStatsController = async (req, res, next) => {
         const deliveryPartnerId = req.user?.userId;
         const stats = await getDeliveryReferralStats(deliveryPartnerId);
         return sendResponse(res, 200, 'Referral stats fetched successfully', { stats });
+    } catch (error) {
+        next(error);
+    }
+};
+
+
+export const deleteDeliveryPartnerAccountController = async (req, res, next) => {
+    try {
+        const partnerId = req.user?.userId;
+        const result = await deleteDeliveryPartnerAccount(partnerId);
+        return sendResponse(res, 200, 'Account deleted successfully', result);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const getMyBonusStatusController = async (req, res, next) => {
+    try {
+        const deliveryPartnerId = req.user?.userId;
+        const data = await getDeliveryPartnerMyBonusStatus(deliveryPartnerId);
+        return sendResponse(res, 200, 'Bonus status fetched successfully', { bonusStatus: data });
     } catch (error) {
         next(error);
     }

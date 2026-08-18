@@ -198,7 +198,7 @@ export default function WithdrawMethod() {
                           <button
                             onClick={() => handleToggleActive(index)}
                             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                              method.activeStatus ? "bg-green-600" : "bg-slate-300"
+                              method.activeStatus ? "bg-blue-600" : "bg-slate-300"
                             }`}
                           >
                             <span

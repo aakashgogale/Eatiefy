@@ -51,7 +51,6 @@ export const validateOptionalStatusDto = (body) => {
 };
 
 const deliveryRuleSchema = z.object({
-    zoneId: z.string().optional().or(z.literal('')),
     name: z.string().optional().or(z.literal('')),
     minDistance: z.number().min(0, 'Minimum distance must be 0 or greater'),
     maxDistance: z.number().nullable().optional(),
@@ -60,9 +59,8 @@ const deliveryRuleSchema = z.object({
     status: z.boolean().optional()
 });
 
-export const validateDeliveryCommissionRuleDto = (body, { requireZoneId = false } = {}) => {
+export const validateDeliveryCommissionRuleDto = (body) => {
     const normalized = {
-        zoneId: body?.zoneId != null ? String(body.zoneId).trim() : '',
         name: body?.name != null ? String(body.name) : '',
         minDistance: Number(body?.minDistance),
         maxDistance: body?.maxDistance === null || body?.maxDistance === undefined || body?.maxDistance === '' ? null : Number(body.maxDistance),
@@ -74,23 +72,12 @@ export const validateDeliveryCommissionRuleDto = (body, { requireZoneId = false 
     if (!result.success) {
         throw new ValidationError(result.error.errors[0].message);
     }
-    if (requireZoneId) {
-        if (!result.data.zoneId) {
-            throw new ValidationError('zoneId is required');
-        }
-        if (!mongoose.Types.ObjectId.isValid(result.data.zoneId)) {
-            throw new ValidationError('Invalid zoneId');
-        }
-    } else if (result.data.zoneId && !mongoose.Types.ObjectId.isValid(result.data.zoneId)) {
-        throw new ValidationError('Invalid zoneId');
-    }
     const min = result.data.minDistance;
     const base = result.data.basePayout;
     if (min !== 0 && base > 0) {
         throw new ValidationError('Only base slab can have base payout');
     }
     return {
-        zoneId: result.data.zoneId || undefined,
         name: result.data.name ? result.data.name.trim() : '',
         minDistance: result.data.minDistance,
         maxDistance: result.data.maxDistance ?? null,

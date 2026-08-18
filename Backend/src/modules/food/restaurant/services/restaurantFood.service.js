@@ -5,6 +5,7 @@ import { FoodCategory } from '../../admin/models/category.model.js';
 import { FoodRestaurant } from '../models/restaurant.model.js';
 import {
     extractRawFoodVariants,
+    getFoodDisplayOtherPrice,
     getFoodDisplayPrice,
     hasFoodVariants,
     normalizeFoodVariantsInput
@@ -14,7 +15,6 @@ import {
     categoryAllowsFoodType,
     GLOBAL_CATEGORY_FILTER
 } from '../../shared/categoryWorkflow.js';
-import { deleteReplacedAssets, deleteStoredAssets } from '../../../../services/storage.service.js';
 
 const toStr = (v) => (v != null ? String(v).trim() : '');
 const APPROVED_CATEGORY_FILTER = [
@@ -36,14 +36,17 @@ const getCreateFoodPricing = (body = {}) => {
     if (variants.length > 0) {
         return {
             price: getFoodDisplayPrice({ variants }),
+            otherPrice: getFoodDisplayOtherPrice({ variants }),
             variants
         };
     }
 
     const price = Number(body.price);
     if (!Number.isFinite(price) || price < 0) throw new ValidationError('Price is invalid');
+    const otherPrice = Number(body.otherPrice);
     return {
         price,
+        otherPrice: Number.isFinite(otherPrice) && otherPrice > 0 ? otherPrice : 0,
         variants: []
     };
 };
@@ -59,6 +62,7 @@ const getUpdatedFoodPricing = (existing = {}, body = {}) => {
 
         if (variants.length > 0) {
             update.price = getFoodDisplayPrice({ variants });
+            update.otherPrice = getFoodDisplayOtherPrice({ variants });
             return update;
         }
 
@@ -67,6 +71,12 @@ const getUpdatedFoodPricing = (existing = {}, body = {}) => {
             throw new ValidationError('Base price is required when variants are removed');
         }
         update.price = nextBasePrice;
+        if (body.otherPrice !== undefined) {
+            const otherPrice = Number(body.otherPrice);
+            update.otherPrice = Number.isFinite(otherPrice) && otherPrice > 0 ? otherPrice : 0;
+        } else {
+            update.otherPrice = 0;
+        }
         return update;
     }
 
@@ -79,7 +89,57 @@ const getUpdatedFoodPricing = (existing = {}, body = {}) => {
         update.price = price;
     }
 
+    if (body.otherPrice !== undefined) {
+        if (existingHasVariants) {
+            throw new ValidationError('Update variants instead of base other price for foods with variants');
+        }
+        const otherPrice = Number(body.otherPrice);
+        update.otherPrice = Number.isFinite(otherPrice) && otherPrice > 0 ? otherPrice : 0;
+    }
+
     return update;
+};
+
+const STOCK_OFF_MODES = new Set(['manual', 'specific-time', 'next-business-day', 'custom-date-time']);
+
+const parseStockResumeAt = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date;
+};
+
+const buildAvailabilityUpdate = (body = {}) => {
+    const update = {};
+    const unset = {};
+
+    if (body.isAvailable !== undefined) {
+        update.isAvailable = body.isAvailable !== false;
+        if (body.isAvailable !== false) {
+            unset.stockResumeAt = 1;
+            unset.stockOffMode = 1;
+        }
+    }
+
+    if (body.stockResumeAt !== undefined) {
+        const resumeAt = parseStockResumeAt(body.stockResumeAt);
+        if (resumeAt) {
+            update.stockResumeAt = resumeAt;
+        } else {
+            unset.stockResumeAt = 1;
+        }
+    }
+
+    if (body.stockOffMode !== undefined) {
+        const mode = String(body.stockOffMode || '').trim();
+        if (mode && STOCK_OFF_MODES.has(mode)) {
+            update.stockOffMode = mode;
+        } else {
+            unset.stockOffMode = 1;
+        }
+    }
+
+    return { update, unset };
 };
 
 const getRestaurantContext = async (restaurantId) => {
@@ -184,7 +244,7 @@ export async function createRestaurantFood(restaurantId, body = {}) {
     if (!name) throw new ValidationError('Item name is required');
     if (name.length > 200) throw new ValidationError('Item name is too long');
 
-    const { price, variants } = getCreateFoodPricing(body);
+    const { price, otherPrice, variants } = getCreateFoodPricing(body);
 
     const description = toStr(body.description);
     const image = toStr(body.image);
@@ -200,6 +260,7 @@ export async function createRestaurantFood(restaurantId, body = {}) {
         name,
         description,
         price,
+        otherPrice,
         variants,
         image,
         foodType,
@@ -207,20 +268,7 @@ export async function createRestaurantFood(restaurantId, body = {}) {
         isRecommended: body.isRecommended === true,
         preparationTime,
         approvalStatus: 'pending',
-        requestedAt: new Date(),
-        actionType: 'NEW',
-        oldData: null,
-        newData: {
-            name,
-            description,
-            price,
-            variants,
-            image,
-            foodType,
-            preparationTime,
-            categoryName: categoryName || '',
-            isRecommended: body.isRecommended === true
-        }
+        requestedAt: new Date()
     });
 
     try {
@@ -243,37 +291,13 @@ export async function createRestaurantFood(restaurantId, body = {}) {
 }
 
 export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
-    if (!restaurantId || !mongoose.Types.ObjectId.isValid(String(restaurantId))) {
-        throw new ValidationError('Invalid restaurant id');
-    }
+    const context = await getRestaurantContext(restaurantId);
     if (!foodId || !mongoose.Types.ObjectId.isValid(String(foodId))) {
         throw new ValidationError('Invalid food id');
     }
 
-    // ⚡ Fast path: isAvailable / isRecommended only — skip heavy context + findOne
-    const bodyKeys = Object.keys(body).filter(k => body[k] !== undefined);
-    const isSimpleToggle = bodyKeys.length > 0 && bodyKeys.every(k => k === 'isAvailable' || k === 'isRecommended');
-
-    if (isSimpleToggle) {
-        const fastUpdate = {};
-        if (body.isAvailable !== undefined) fastUpdate.isAvailable = body.isAvailable !== false;
-        if (body.isRecommended !== undefined) fastUpdate.isRecommended = body.isRecommended === true;
-
-        const updated = await FoodItem.findOneAndUpdate(
-            { _id: foodId, restaurantId },
-            { $set: fastUpdate },
-            { new: true }
-        ).lean();
-
-        return updated;
-    }
-
-    // Full path for content changes
-    const context = await getRestaurantContext(restaurantId);
-
     const existing = await FoodItem.findOne({ _id: foodId, restaurantId }).lean();
     if (!existing) return null;
-
 
     const update = {};
 
@@ -284,15 +308,12 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
         update.name = name;
     }
     if (body.description !== undefined) update.description = toStr(body.description);
-    if (body.image !== undefined) {
-        const image = toStr(body.image);
-        await deleteReplacedAssets(existing.image, image);
-        update.image = image;
-    }
+    if (body.image !== undefined) update.image = toStr(body.image);
     Object.assign(update, getUpdatedFoodPricing(existing, body));
-    if (body.isAvailable !== undefined) update.isAvailable = body.isAvailable !== false;
-    if (body.isRecommended !== undefined) update.isRecommended = body.isRecommended === true;
+    const availabilityUpdate = buildAvailabilityUpdate(body);
+    Object.assign(update, availabilityUpdate.update);
     if (body.preparationTime !== undefined) update.preparationTime = toStr(body.preparationTime);
+    if (body.isRecommended !== undefined) update.isRecommended = body.isRecommended === true;
 
     const targetFoodType = body.foodType !== undefined ? normalizeFoodType(body.foodType) : normalizeFoodType(existing.foodType);
     if (body.foodType !== undefined) update.foodType = targetFoodType;
@@ -311,12 +332,11 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
         update.categoryName = categoryName || '';
     }
 
-    // Content-only fields that require admin re-approval
-    const contentUpdate = { ...update };
-    delete contentUpdate.isAvailable;
-    delete contentUpdate.isRecommended;
-
-    const shouldResubmitForApproval = Object.keys(contentUpdate).length > 0;
+    const CRITICAL_APPROVAL_FIELDS = [
+        'name', 'description', 'image', 'price', 'variants',
+        'foodType', 'categoryId', 'categoryName', 'preparationTime'
+    ];
+    const shouldResubmitForApproval = Object.keys(update).some(key => CRITICAL_APPROVAL_FIELDS.includes(key));
 
     if (shouldResubmitForApproval) {
         update.approvalStatus = 'pending';
@@ -324,27 +344,14 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
         update.rejectionReason = '';
         update.approvedAt = null;
         update.rejectedAt = null;
-        update.actionType = 'UPDATED';
-        // Only store safe serializable fields (avoid Buffer/binary spread errors)
-        const safeExisting = {
-            name: existing.name,
-            description: existing.description,
-            image: existing.image,
-            price: existing.price,
-            variants: existing.variants,
-            foodType: existing.foodType,
-            categoryName: existing.categoryName,
-            isRecommended: existing.isRecommended,
-            preparationTime: existing.preparationTime,
-        };
-        update.oldData = safeExisting;
-        update.newData = { ...safeExisting, ...contentUpdate };
     }
-
 
     const updated = await FoodItem.findOneAndUpdate(
         { _id: foodId, restaurantId },
-        { $set: update },
+        {
+            ...(Object.keys(update).length ? { $set: update } : {}),
+            ...(Object.keys(availabilityUpdate.unset).length ? { $unset: availabilityUpdate.unset } : {})
+        },
         { new: true }
     ).lean();
 
@@ -366,16 +373,4 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
     }
 
     return updated;
-}
-
-export async function deleteRestaurantFood(restaurantId, foodId) {
-    if (!foodId || !mongoose.Types.ObjectId.isValid(String(foodId))) {
-        throw new ValidationError('Invalid food item id');
-    }
-    const food = await FoodItem.findOneAndDelete({
-        _id: foodId,
-        restaurantId: new mongoose.Types.ObjectId(String(restaurantId))
-    }).lean();
-    if (food) await deleteStoredAssets(food.image);
-    return food;
 }

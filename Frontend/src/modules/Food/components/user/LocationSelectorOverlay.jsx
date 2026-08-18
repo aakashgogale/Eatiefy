@@ -1,14 +1,17 @@
 import { useMemo, useState, useEffect, useRef } from "react"
-import { useNavigate } from "react-router-dom"
 import { ChevronLeft, ChevronRight, Plus, MapPin, MoreHorizontal, Navigation, Home, Building2, Briefcase, Phone, X, Crosshair } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
 import { Textarea } from "@food/components/ui/textarea"
-import { useLocation as useGeoLocation } from "@food/hooks/useLocation"
+import { useDeliveryLocation } from "@food/context/DeliveryLocationContext"
 import { useProfile } from "@food/context/ProfileContext"
 import { toast } from "sonner"
 import { locationAPI, userAPI } from "@food/api"
+import {
+  notifyUserLocationChanged,
+  setDeliveryAddressMode,
+} from "@food/utils/deliveryLocationUtils"
 import { Loader } from '@googlemaps/js-api-loader'
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -48,9 +51,8 @@ const getAddressIcon = (address) => {
 }
 
 export default function LocationSelectorOverlay({ isOpen, onClose }) {
-  const { location, loading, requestLocation } = useGeoLocation()
-  const navigate = useNavigate()
-  const { addresses = [], addAddress, updateAddress, setDefaultAddress, userProfile, isAuthenticated } = useProfile()
+  const { liveLocation: location, loading, requestLiveLocation } = useDeliveryLocation()
+  const { addresses = [], addAddress, updateAddress, setDefaultAddress, userProfile } = useProfile()
   const [showAddressForm, setShowAddressForm] = useState(false)
   const [mapPosition, setMapPosition] = useState([22.7196, 75.8577]) // Default Indore coordinates [lat, lng]
   const [addressFormData, setAddressFormData] = useState({
@@ -502,7 +504,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
           position: initialLocation,
           map: map,
           icon: {
-            url: "http://maps.google.com/mapfiles/ms/icons/green-dot.png",
+            url: "http://maps.google.com/mapfiles/ms/icons/green-dot.webp",
             scaledSize: new google.maps.Size(40, 40),
             anchor: new google.maps.Point(20, 40)
           },
@@ -745,12 +747,10 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
         return
       }
 
-      // Location Fetching is now handled by the global loader in UserLayout
-      /*
+      // Show loading toast
       toast.loading("Fetching your current location...", {
         id: "location-request",
       })
-      */
 
       // Request location - this will automatically prompt for permission if needed
       // Clear any cached location first to ensure fresh coordinates
@@ -758,74 +758,35 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
 
       // Increase timeout to 15 seconds to allow GPS to get accurate fix
       // The getLocation function already has a 15-second timeout, so we match it
-      const locationPromise = requestLocation()
+      const locationPromise = requestLiveLocation()
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Location request is taking longer than expected. Please check your GPS settings.")), 15000)
+        setTimeout(() => reject(new Error("Location request is taking longer than expected. Please check your GPS settings.")), 20000)
       )
 
       let locationData
       try {
         locationData = await Promise.race([locationPromise, timeoutPromise])
 
-        // Check if we got valid location data
         if (!locationData || (!locationData.latitude || !locationData.longitude)) {
           throw new Error("Invalid location data received")
         }
       } catch (raceError) {
         debugWarn("?? Location request failed or timed out:", raceError.message)
 
-        // If timeout or error, try to use cached location as fallback
-        const stored = localStorage.getItem("userLocation")
-        if (stored) {
-          try {
-            const cachedLocation = JSON.parse(stored)
-            if (cachedLocation?.latitude && cachedLocation?.longitude) {
-              debugLog("?? Using cached location as fallback:", cachedLocation)
-              locationData = cachedLocation
-
-              // Show info toast that we're using cached location
-              toast.info("Using your last known location", {
-                id: "location-request",
-                duration: 2000,
-              })
-            } else {
-              throw new Error("Invalid cached location")
-            }
-          } catch (cacheErr) {
-            debugError("? Failed to parse cached location:", cacheErr)
-            // Determine specific error message
-            let errorMessage = "Could not get location. Please try again."
-            if (raceError.message.includes("permission") || raceError.message.includes("denied")) {
-              errorMessage = "Location permission denied. Please enable location access in your browser settings."
-            } else if (raceError.message.includes("timeout") || raceError.message.includes("longer")) {
-              errorMessage = "Location request timed out. Please check your GPS settings and try again."
-            } else if (raceError.message.includes("unavailable")) {
-              errorMessage = "Location information is unavailable. Please check your device settings."
-            }
-
-            toast.error(errorMessage, {
-              id: "location-request",
-              duration: 5000,
-            })
-            return
-          }
-        } else {
-          // No cached location available
-          let errorMessage = "Could not get location. Please try again."
-          if (raceError.message.includes("permission") || raceError.message.includes("denied")) {
-            errorMessage = "Location permission denied. Please enable location access in your browser settings."
-          } else if (raceError.message.includes("timeout") || raceError.message.includes("longer")) {
-            errorMessage = "Location request timed out. Please check your GPS settings and try again."
-          } else if (raceError.message.includes("unavailable")) {
-            errorMessage = "Location information is unavailable. Please check your device settings."
-          }
-
-          toast.error(errorMessage, {
-            id: "location-request",
-            duration: 5000,
-          })
-          return
+        let errorMessage = "Could not get location. Please try again."
+        if (raceError.message.includes("permission") || raceError.message.includes("denied")) {
+          errorMessage = "Location permission denied. Please enable location access in your browser settings."
+        } else if (raceError.message.includes("timeout") || raceError.message.includes("longer")) {
+          errorMessage = "Location request timed out. Please check your GPS settings and try again."
+        } else if (raceError.message.includes("unavailable")) {
+          errorMessage = "Location information is unavailable. Please check your device settings."
         }
+
+        toast.error(errorMessage, {
+          id: "location-request",
+          duration: 5000,
+        })
+        return
       }
 
       // Validate location data
@@ -926,15 +887,17 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
               greenMarkerRef.current.setPosition({ lat: locationData.latitude, lng: locationData.longitude })
             }
 
-            // Fetch detailed address using Places API
-            setTimeout(async () => {
-              await handleMapMoveEnd(locationData.latitude, locationData.longitude)
-            }, 500)
+            // Only fetch from reverse geocode if address not already resolved
+            if (!locationData.formattedAddress || locationData.formattedAddress === "Select location") {
+              setTimeout(async () => {
+                await handleMapMoveEnd(locationData.latitude, locationData.longitude)
+              }, 500)
+            }
           } catch (mapError) {
             debugError("Error updating map:", mapError)
           }
-        } else {
-          // Map not initialized, fetch address directly
+        } else if (!locationData.formattedAddress || locationData.formattedAddress === "Select location") {
+          // Map not initialized, fetch address directly only if missing
           setTimeout(async () => {
             await handleMapMoveEnd(locationData.latitude, locationData.longitude)
           }, 300)
@@ -944,9 +907,6 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
       // Requirement: when user taps "Use current location" from delivery-location selector,
       // don't open the "Add address" form. Just close and return to homepage.
       // Store selection mode so Cart can prefer this current location for delivery address.
-      try {
-        localStorage.setItem("deliveryAddressMode", "current");
-      } catch {}
       setShowAddressForm(false)
       setAddressFormData((prev) => ({
         ...prev,
@@ -992,15 +952,6 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
   }
 
   const handleAddAddress = () => {
-    if (!isAuthenticated) {
-      toast.info("Please login to add an address", {
-        description: "You'll be redirected to the login page",
-        duration: 3000,
-      })
-      onClose()
-      navigate("/user/auth/login")
-      return
-    }
     setShowAddressForm(true)
     // Initialize form with current location data
     if (location?.latitude && location?.longitude) {
@@ -1683,16 +1634,9 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
             area = pointOfInterest || premise || street || ""
           }
 
-          if (formattedAddress) {
-            formattedAddress = formattedAddress.replace(/^[a-z0-9]{2,8}\+[a-z0-9]{0,3}[,\s]*/i, "").trim()
-            if (formattedAddress.endsWith(", India")) {
-              formattedAddress = formattedAddress.replace(", India", "").trim()
-            }
+          if (formattedAddress && formattedAddress.endsWith(", India")) {
+            formattedAddress = formattedAddress.replace(", India", "").trim()
           }
-          if (street) street = street.replace(/^[a-z0-9]{2,8}\+[a-z0-9]{0,3}[,\s]*/i, "").trim()
-          if (area) area = area.replace(/^[a-z0-9]{2,8}\+[a-z0-9]{0,3}[,\s]*/i, "").trim()
-          if (pointOfInterest) pointOfInterest = pointOfInterest.replace(/^[a-z0-9]{2,8}\+[a-z0-9]{0,3}[,\s]*/i, "").trim()
-          if (premise) premise = premise.replace(/^[a-z0-9]{2,8}\+[a-z0-9]{0,3}[,\s]*/i, "").trim()
 
           setCurrentAddress(formattedAddress || coordLabel)
 
@@ -1736,34 +1680,17 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
 
       // Use Promise.race to keep UI responsive, but don't fail too aggressively:
       // geolocation + reverse geocode can legitimately take a few seconds on slow networks/devices.
-      const locationPromise = requestLocation(true, true) // forceFresh = true, updateDB = true
+      const locationPromise = requestLiveLocation()
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Location timeout")), 10000)
+        setTimeout(() => reject(new Error("Location timeout")), 20000)
       )
 
       let locationData
       try {
         locationData = await Promise.race([locationPromise, timeoutPromise])
       } catch (raceError) {
-        // If timeout, try to use cached location immediately (and don't show an error if we can proceed).
-        const stored = localStorage.getItem("userLocation")
-        if (stored) {
-          try {
-            const cachedLocation = JSON.parse(stored)
-            if (cachedLocation?.latitude && cachedLocation?.longitude) {
-              debugLog("?? Using cached location (timeout):", cachedLocation)
-              locationData = cachedLocation
-            } else {
-              throw new Error("Invalid cached location")
-            }
-          } catch (cacheErr) {
-            toast.error("Could not get location. Please try again.", { id: "current-location" })
-            return
-          }
-        } else {
-          toast.error("Could not get location. Please try again.", { id: "current-location" })
-          return
-        }
+        toast.error("Could not get location. Please try again.", { id: "current-location" })
+        return
       }
 
       debugLog("?? Current location data received:", locationData)
@@ -1880,57 +1807,11 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
       }
     } catch (error) {
       debugError("? Error getting current location:", error)
-
-      // Check if it's a timeout error
-      if (error.message && (error.message.includes("timeout") || error.message.includes("Timeout"))) {
-        // Try to use cached location from localStorage
-        try {
-          const stored = localStorage.getItem("userLocation")
-          if (stored) {
-            const cachedLocation = JSON.parse(stored)
-            if (cachedLocation?.latitude && cachedLocation?.longitude) {
-              debugLog("?? Using cached location due to timeout:", cachedLocation)
-              setMapPosition([cachedLocation.latitude, cachedLocation.longitude])
-
-              // Update Google Maps with cached location
-              if (googleMapRef.current && window.google && window.google.maps) {
-                try {
-                  googleMapRef.current.panTo({ lat: cachedLocation.latitude, lng: cachedLocation.longitude });
-                  googleMapRef.current.setZoom(17);
-
-                  // Update markers
-                  if (greenMarkerRef.current) {
-                    greenMarkerRef.current.setPosition({ lat: cachedLocation.latitude, lng: cachedLocation.longitude });
-                  }
-                  if (blueDotCircleRef.current) {
-                    blueDotCircleRef.current.setCenter({ lat: cachedLocation.latitude, lng: cachedLocation.longitude });
-                  }
-
-                  setTimeout(async () => {
-                    await handleMapMoveEnd(cachedLocation.latitude, cachedLocation.longitude);
-                    toast.success("Using cached location", { id: "current-location" });
-                  }, 500);
-                } catch (mapErr) {
-                  debugError("Error updating map with cached location:", mapErr);
-                  toast.warning("Location request timed out. Please try again.", { id: "current-location" });
-                }
-              } else {
-                setTimeout(async () => {
-                  await handleMapMoveEnd(cachedLocation.latitude, cachedLocation.longitude)
-                  toast.success("Using cached location", { id: "current-location" })
-                }, 300)
-              }
-              return
-            }
-          }
-        } catch (cacheErr) {
-          debugWarn("Failed to use cached location:", cacheErr)
-        }
-
-        toast.warning("Location request timed out. Please try again or check your GPS settings.", { id: "current-location" })
-      } else {
-        toast.error("Failed to get current location: " + (error.message || "Unknown error"), { id: "current-location" })
-      }
+      const message =
+        error.message && (error.message.includes("timeout") || error.message.includes("Timeout"))
+          ? "Location request timed out. Please try again or check your GPS settings."
+          : `Failed to get current location: ${error.message || "Unknown error"}`
+      toast.error(message, { id: "current-location" })
     }
   }
 
@@ -2010,27 +1891,8 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
         setDefaultAddress(savedAddressId)
         // User saved an address; prefer saved delivery address in Cart.
         try {
-          localStorage.setItem("deliveryAddressMode", "saved")
+          setDeliveryAddressMode("saved")
         } catch {}
-      }
-
-      // Update active location in localStorage to this newly saved address
-      try {
-        const locationData = {
-          label: addressToSave.label || "Home",
-          city: addressToSave.city,
-          state: addressToSave.state,
-          address: `${addressToSave.street}, ${addressToSave.city}`,
-          area: addressToSave.additionalDetails || "",
-          zipCode: addressToSave.zipCode,
-          latitude: addressToSave.latitude,
-          longitude: addressToSave.longitude,
-          formattedAddress: `${addressToSave.street}, ${addressToSave.city}, ${addressToSave.state}`
-        }
-        localStorage.setItem("userLocation", JSON.stringify(locationData))
-        window.dispatchEvent(new CustomEvent("userLocationUpdated"))
-      } catch (locationErr) {
-        debugError("Failed to update userLocation after save:", locationErr)
       }
 
       // Reset form
@@ -2122,11 +1984,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
         formattedAddress: `${address.street}, ${address.city}, ${address.state}`
       }
       localStorage.setItem("userLocation", JSON.stringify(locationData))
-      try {
-        window.dispatchEvent(new CustomEvent("userLocationUpdated"))
-      } catch (evtErr) {
-        debugWarn("Failed to dispatch custom event:", evtErr)
-      }
+      notifyUserLocationChanged(locationData)
 
       // Update map position to show selected address
       setMapPosition([latitude, longitude])
@@ -2176,7 +2034,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
       }
       // User picked a saved address; Cart should prefer saved address over current location.
       try {
-        localStorage.setItem("deliveryAddressMode", "saved");
+      setDeliveryAddressMode("saved")
       } catch {}
       onClose()
     } catch (error) {
@@ -2568,7 +2426,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
                 <div className="text-left">
                   <p className="font-semibold text-green-700 dark:text-green-400">Use current location</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {loading ? "Getting location..." : (currentLocationText ? currentLocationText.replace(/^[a-z0-9]{2,8}\+[a-z0-9]{0,3}[,\s]*/i, '') : "")}
+                    {loading ? "Getting location..." : currentLocationText}
                   </p>
                 </div>
               </div>
@@ -2639,7 +2497,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
                                   address.city,
                                   address.state,
                                   address.zipCode
-                                ].filter(Boolean).join(", ").replace(/^[a-z0-9]{2,8}\+[a-z0-9]{0,3}[,\s]*/i, '')}
+                                ].filter(Boolean).join(", ")}
                               </p>
                               <p className="text-sm text-gray-500 dark:text-gray-400">
                                 Phone number: {address.phone || userProfile?.phone || "Not provided"}

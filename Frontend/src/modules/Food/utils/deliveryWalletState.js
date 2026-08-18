@@ -59,6 +59,13 @@ export const fetchDeliveryWallet = async () => {
       debugLog('?? Transactions:', walletData.transactions || walletData.recentTransactions || [])
       
       // Transform API response to match expected format (support both camelCase and snake_case)
+      const pendingWithdrawals = Number(walletData.pendingWithdrawals || walletData.pending_withdrawals) || 0
+      const lockedAmount = Number(walletData.lockedAmount ?? walletData.locked_amount) || 0
+      const availableWalletBalance = Math.max(
+        0,
+        (Number(walletData.balance) || 0) - Math.max(lockedAmount, pendingWithdrawals)
+      )
+
       const transformedData = {
         totalBalance: Number(walletData.totalBalance) || 0,
         cashInHand: Number(walletData.cashInHand ?? walletData.cash_in_hand) || 0,
@@ -67,9 +74,12 @@ export const fetchDeliveryWallet = async () => {
         totalCashLimit: Number(walletData.totalCashLimit) || 0,
         availableCashLimit: Number(walletData.availableCashLimit) || 0,
         deliveryWithdrawalLimit: Number(walletData.deliveryWithdrawalLimit ?? walletData.delivery_withdrawal_limit) || 100,
-        // Pocket balance = total balance (includes bonus)
-        pocketBalance: walletData.pocketBalance !== undefined ? Number(walletData.pocketBalance) : (Number(walletData.totalBalance) || 0),
-        pendingWithdrawals: walletData.pendingWithdrawals || 0,
+        lockedAmount,
+        pocketBalance:
+          walletData.pocketBalance !== undefined
+            ? Number(walletData.pocketBalance)
+            : availableWalletBalance,
+        pendingWithdrawals,
         joiningBonusClaimed: walletData.joiningBonusClaimed || false,
         joiningBonusAmount: walletData.joiningBonusAmount || 0,
         // Use 'transactions' field (all transactions) for weekly calculations, fallback to recentTransactions for backward compatibility
@@ -376,4 +386,3 @@ export const addDeliveryEarnings = (amount, orderId, description, paymentCollect
     paymentCollected
   })
 }
-

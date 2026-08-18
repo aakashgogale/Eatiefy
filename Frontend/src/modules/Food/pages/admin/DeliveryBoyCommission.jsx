@@ -12,9 +12,6 @@ const debugError = (...args) => {}
 export default function DeliveryBoyCommission() {
   const [searchQuery, setSearchQuery] = useState("")
   const [commissions, setCommissions] = useState([])
-  const [zones, setZones] = useState([])
-  const [selectedZoneId, setSelectedZoneId] = useState("")
-  const [zonesLoading, setZonesLoading] = useState(true)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -84,47 +81,15 @@ export default function DeliveryBoyCommission() {
     return calculateTotalCommission(commission, midDistance)
   }
 
+  // Fetch commission rules on component mount
   useEffect(() => {
-    const fetchZones = async () => {
-      try {
-        setZonesLoading(true)
-        const res = await adminAPI.getZones({ limit: 1000 })
-        const zoneData = res?.data?.data
-        const list = Array.isArray(zoneData?.zones)
-          ? zoneData.zones
-          : Array.isArray(zoneData)
-            ? zoneData
-            : []
-        setZones(list)
-        if (list.length > 0) {
-          setSelectedZoneId(String(list[0]._id || list[0].id))
-        }
-      } catch (error) {
-        debugError("Error fetching zones:", error)
-        toast.error("Failed to load zones")
-        setZones([])
-      } finally {
-        setZonesLoading(false)
-      }
-    }
-    fetchZones()
+    fetchCommissionRules()
   }, [])
 
-  // Fetch commission rules when zone changes
-  useEffect(() => {
-    if (!selectedZoneId) {
-      setCommissions([])
-      setLoading(false)
-      return
-    }
-    fetchCommissionRules()
-  }, [selectedZoneId])
-
   const fetchCommissionRules = async () => {
-    if (!selectedZoneId) return
     try {
       setLoading(true)
-      const response = await adminAPI.getCommissionRules({ zoneId: selectedZoneId })
+      const response = await adminAPI.getCommissionRules()
       
       // Handle different response structures
       let commissionsData = null
@@ -171,7 +136,7 @@ export default function DeliveryBoyCommission() {
         return
       }
       
-      const errorMessage = error.response?.data?.message || error.message || 'Failed to fetch payout rules'
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to fetch commission rules'
       toast.error(errorMessage)
       setCommissions([])
     } finally {
@@ -186,7 +151,7 @@ export default function DeliveryBoyCommission() {
       setCommissions(commissions.map(c =>
         c._id === commission._id ? { ...c, status: newStatus } : c
       ))
-      toast.success('Payout rule status updated successfully')
+      toast.success('Commission rule status updated successfully')
     } catch (error) {
       debugError('Error toggling status:', error)
       toast.error(error.response?.data?.message || 'Failed to update status')
@@ -194,10 +159,6 @@ export default function DeliveryBoyCommission() {
   }
 
   const handleAdd = () => {
-    if (!selectedZoneId) {
-      toast.error('Please select a zone first')
-      return
-    }
     setSelectedCommission(null)
     setFormData({ name: "", minDistance: "0", maxDistance: "", maxDistanceUnlimited: false, commissionPerKm: "", basePayout: "" })
     setFormErrors({})
@@ -233,10 +194,10 @@ export default function DeliveryBoyCommission() {
       setCommissions(commissions.filter(commission => commission._id !== selectedCommission._id))
       setIsDeleteOpen(false)
       setSelectedCommission(null)
-      toast.success('Payout rule deleted successfully')
+      toast.success('Commission rule deleted successfully')
     } catch (error) {
       debugError('Error deleting commission rule:', error)
-      toast.error(error.response?.data?.message || 'Failed to delete payout rule')
+      toast.error(error.response?.data?.message || 'Failed to delete commission rule')
     } finally {
       setDeleting(false)
     }
@@ -251,7 +212,7 @@ export default function DeliveryBoyCommission() {
       errors.maxDistance = "Max distance must be greater than or equal to min distance"
     }
     if (!formData.commissionPerKm.trim() || parseFloat(formData.commissionPerKm) < 0) {
-      errors.commissionPerKm = "Amount per km must be 0 or greater"
+      errors.commissionPerKm = "Commission per km must be 0 or greater"
     }
     if (!formData.basePayout.trim() || parseFloat(formData.basePayout) < 0) {
       errors.basePayout = "Base payout must be 0 or greater"
@@ -269,7 +230,6 @@ export default function DeliveryBoyCommission() {
       const minDistance = parseFloat(formData.minDistance)
       const maxDistance = formData.maxDistanceUnlimited || formData.maxDistance === "" ? null : parseFloat(formData.maxDistance)
       const commissionData = {
-        zoneId: selectedZoneId,
         name: formData.name.trim() || `Base (0-${minDistance} km)`,
         minDistance,
         maxDistance,
@@ -298,7 +258,7 @@ export default function DeliveryBoyCommission() {
           setCommissions(commissions.map(c =>
             c._id === selectedCommission._id ? updatedCommission : c
           ))
-          toast.success('Payout rule updated successfully')
+          toast.success('Commission rule updated successfully')
         }
       } else {
         const response = await adminAPI.createCommissionRule(commissionData)
@@ -317,7 +277,7 @@ export default function DeliveryBoyCommission() {
             sl: commissions.length + 1
           }
           setCommissions([...commissions, newCommission])
-          toast.success('Payout rule created successfully')
+          toast.success('Commission rule created successfully')
         }
       }
       
@@ -354,7 +314,7 @@ export default function DeliveryBoyCommission() {
       }
       
       // Handle other errors - extract message from different possible response structures
-      let errorMessage = 'Failed to save payout rule'
+      let errorMessage = 'Failed to save commission rule'
       if (error.response?.data) {
         if (error.response.data.message) {
           errorMessage = error.response.data.message
@@ -417,27 +377,16 @@ export default function DeliveryBoyCommission() {
     si: "Serial Number",
     name: "Name",
     distanceSlab: "Distance Slab (km)",
-    commissionPerKm: "Amount Per/Km",
+    commissionPerKm: "Commission/Km",
     basePayout: "Base Payout",
     status: "Status",
     actions: "Actions",
   }
 
-  // Dialog labels follow the rule currently being edited.
-  const formMinDistance = Number(
+  const configuredMinDistance = Number(
     formData.minDistance !== "" ? formData.minDistance : selectedCommission?.minDistance
   )
-  const dialogMinDistance = Number.isFinite(formMinDistance) ? formMinDistance : 0
-  const formMaxRaw =
-    formData.maxDistanceUnlimited || formData.maxDistance === ""
-      ? null
-      : Number(formData.maxDistance)
-  const dialogBaseCoverage =
-    dialogMinDistance === 0 && formMaxRaw != null && Number.isFinite(formMaxRaw)
-      ? `0-${formMaxRaw}`
-      : dialogMinDistance === 0
-        ? "0"
-        : String(dialogMinDistance)
+  const formulaMinDistance = Number.isFinite(configuredMinDistance) ? configuredMinDistance : 0
 
   return (
     <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
@@ -447,43 +396,16 @@ export default function DeliveryBoyCommission() {
             <div className="flex items-center gap-3">
               <IndianRupee className="w-5 h-5 text-slate-600" />
               <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-bold text-slate-900">Delivery Boy Payout</h1>
-                <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700 flex items-center justify-center min-w-[2.5rem] h-7">
-                  {loading ? (
-                    <span className="w-5 h-3 rounded bg-slate-300/80 animate-pulse" />
-                  ) : (
-                    filteredCommissions.length
-                  )}
+                <h1 className="text-2xl font-bold text-slate-900">Delivery Boy Commission</h1>
+                <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
+                  {filteredCommissions.length}
                 </span>
               </div>
             </div>
 
           <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2">
-                <label htmlFor="payout-zone-select" className="text-sm font-medium text-slate-700 whitespace-nowrap">
-                  Zone:
-                </label>
-                <select
-                  id="payout-zone-select"
-                  value={selectedZoneId}
-                  onChange={(e) => setSelectedZoneId(e.target.value)}
-                  className="px-3 py-2.5 bg-white border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm min-w-[10rem]"
-                  disabled={zonesLoading || zones.length === 0}
-                >
-                  {zones.length === 0 ? (
-                    <option value="">No zones</option>
-                  ) : (
-                    zones.map((zone) => (
-                      <option key={zone._id || zone.id} value={zone._id || zone.id}>
-                        {zone.name || zone.zoneName || "Unnamed Zone"}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
               <button
                 onClick={handleAdd}
-                disabled={!selectedZoneId}
                 className="px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Add Rule
@@ -502,15 +424,10 @@ export default function DeliveryBoyCommission() {
             <div className="flex items-start gap-3">
               <MapPin className="w-5 h-5 text-blue-600 mt-0.5" />
               <div className="text-sm text-slate-700">
-                <p className="font-semibold text-blue-900 mb-1">Fixed + Extra Distance Payout</p>
+                <p className="font-semibold text-blue-900 mb-1">Fixed + Extra Distance Commission</p>
                 <p className="text-slate-600">
-                  Payout is calculated as:{" "}
-                  <strong>
-                    Base payout (0-2 km slab) + (km in each slab × that slab&apos;s amount per km)
-                  </strong>
-                  .
-                  Example: base ₹25 for 0-2 km, then ₹5/km after 2 km → 6 km
-                  earns ₹25 + (4 × ₹5) = ₹45.
+                  Commission is calculated as: <strong>Base payout for 0-{formulaMinDistance} km + Extra per km after {formulaMinDistance} km</strong>.
+                  Example: if base is ₹25 and extra is ₹5/km, then 6 km earns ₹25 + (2 x ₹5) = ₹35.
                 </p>
                 <p className="text-slate-600 mt-1">
                   Only the slab with <strong>min distance = 0</strong> can have a base payout. All other slabs should keep base payout set to 0 and use only amount per km.
@@ -566,14 +483,14 @@ export default function DeliveryBoyCommission() {
                     <td colSpan={Object.values(visibleColumns).filter(v => v).length} className="px-6 py-8 text-center">
                       <div className="flex items-center justify-center gap-2 text-slate-500">
                         <Loader2 className="w-5 h-5 animate-spin" />
-                        <span>Loading payout rules...</span>
+                        <span>Loading commission rules...</span>
                       </div>
                     </td>
                   </tr>
                 ) : filteredCommissions.length === 0 ? (
                   <tr>
                     <td colSpan={Object.values(visibleColumns).filter(v => v).length} className="px-6 py-8 text-center text-slate-500">
-                      No payout rules found
+                      No commission rules found
                     </td>
                   </tr>
                 ) : (
@@ -612,7 +529,7 @@ export default function DeliveryBoyCommission() {
                           <button
                             onClick={() => handleToggleStatus(commission)}
                             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                              commission.status ? "bg-green-600" : "bg-slate-300"
+                              commission.status ? "bg-blue-600" : "bg-slate-300"
                             }`}
                           >
                             <span
@@ -657,7 +574,7 @@ export default function DeliveryBoyCommission() {
       <Dialog open={isAddEditOpen} onOpenChange={setIsAddEditOpen}>
         <DialogContent className="max-w-md bg-white p-0 opacity-0 data-[state=open]:opacity-100 data-[state=closed]:opacity-0 transition-opacity duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:scale-100 data-[state=closed]:scale-100">
           <DialogHeader className="px-6 pt-6 pb-4">
-            <DialogTitle>{selectedCommission ? "Edit Payout Rule" : "Add Payout Rule"}</DialogTitle>
+            <DialogTitle>{selectedCommission ? "Edit Commission Rule" : "Add Commission Rule"}</DialogTitle>
           </DialogHeader>
           <div className="px-6 pb-6 space-y-4">
             <div>
@@ -671,7 +588,7 @@ export default function DeliveryBoyCommission() {
                 className={`w-full px-4 py-2.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm ${
                   formErrors.name ? "border-red-500" : "border-slate-300"
                 }`}
-                placeholder={`e.g., Base (${dialogBaseCoverage} km)`}
+                placeholder={`e.g., Base (0-${formulaMinDistance} km)`}
               />
               {formErrors.name && <p className="text-xs text-red-500 mt-1">{formErrors.name}</p>}
             </div>
@@ -745,7 +662,7 @@ export default function DeliveryBoyCommission() {
             </div>
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">
-                Extra Per Kilometer (₹) <span className="text-red-500">*</span>
+                Extra Per Kilometer after {formulaMinDistance} km (₹) <span className="text-red-500">*</span>
               </label>
               <input
                 type="number"
@@ -762,8 +679,7 @@ export default function DeliveryBoyCommission() {
             </div>
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">
-                Fixed Base Payout{dialogMinDistance === 0 ? ` for ${dialogBaseCoverage} km` : ""} (₹){" "}
-                <span className="text-red-500">*</span>
+                Fixed Payout for 0-{formulaMinDistance} km (₹) <span className="text-red-500">*</span>
               </label>
               <input
                 type="number"
@@ -778,9 +694,7 @@ export default function DeliveryBoyCommission() {
               />
               {formErrors.basePayout && <p className="text-xs text-red-500 mt-1">{formErrors.basePayout}</p>}
               <p className="text-xs text-slate-500 mt-1">
-                {dialogMinDistance === 0
-                  ? "Base payout is flat for the 0-km slab. Amount per km applies only to km that fall inside each slab."
-                  : "Non-base slabs must keep base payout at 0. Only amount per km is used for km inside this slab."}
+                Formula: Base payout + (max(0, distance - {formulaMinDistance}) * extra per km)
               </p>
             </div>
           </div>
@@ -807,7 +721,7 @@ export default function DeliveryBoyCommission() {
       <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
         <DialogContent className="max-w-md bg-white p-0 opacity-0 data-[state=open]:opacity-100 data-[state=closed]:opacity-0 transition-opacity duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:scale-100 data-[state=closed]:scale-100">
           <DialogHeader className="px-6 pt-6 pb-4">
-            <DialogTitle>Delete Payout Rule</DialogTitle>
+            <DialogTitle>Delete Commission Rule</DialogTitle>
           </DialogHeader>
           <div className="px-6 pb-6">
             <p className="text-sm text-slate-700">

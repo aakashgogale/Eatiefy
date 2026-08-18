@@ -5,7 +5,7 @@ import OptimizedImage from "@food/components/OptimizedImage";
 
 const WEBVIEW_SESSION_CACHE_BUSTER = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-const RestaurantImageCarousel = React.memo(({ restaurant, priority = false, backendOrigin = "" }) => {
+const RestaurantImageCarousel = React.memo(({ restaurant, priority = false, backendOrigin = "", autoScroll = false }) => {
   const webviewSessionKeyRef = useRef(WEBVIEW_SESSION_CACHE_BUSTER);
   const imageElementRef = useRef(null);
 
@@ -47,87 +47,315 @@ const RestaurantImageCarousel = React.memo(({ restaurant, priority = false, back
       .map((img) => img.trim())
       .filter(Boolean);
 
-    return validImages.map((img) => withCacheBuster(img));
+    const resolved = validImages.map((img) => withCacheBuster(img));
+    return Array.from(new Set(resolved));
   }, [restaurant.images, restaurant.image, withCacheBuster]);
 
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [loadedBySrc, setLoadedBySrc] = useState({});
+  const [, setAttemptedSrcs] = useState({});
+  const [showShimmer, setShowShimmer] = useState(true);
   const [lastGoodSrc, setLastGoodSrc] = useState("");
+  
+  const sliderRef = useRef(null);
+  const containerRef = useRef(null);
   const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
   const isSwiping = useRef(false);
+  const isPausedRef = useRef(false);
+  const pauseTimeoutRef = useRef(null);
+  const gestureDirection = useRef('none');
+  const currentIdxRef = useRef(0);
+  const hasDragged = useRef(false);
+  const dragTimeoutRef = useRef(null);
 
   const safeIndex = images.length > 0 ? (currentIndex % images.length + images.length) % images.length : 0;
   const renderSrc = images[safeIndex] || lastGoodSrc;
 
+  // Sync currentIdxRef with safeIndex
+  useEffect(() => {
+    currentIdxRef.current = safeIndex;
+  }, [safeIndex]);
+
+  // Optional Auto-scroll effect (only runs if autoScroll prop is explicitly true)
+  useEffect(() => {
+    if (!autoScroll || images.length <= 1) return;
+
+    const intervalId = setInterval(() => {
+      if (!isSwiping.current && !isPausedRef.current) {
+        setCurrentIndex((prevIndex) => (prevIndex + 1) % images.length);
+      }
+    }, 3500);
+
+    return () => clearInterval(intervalId);
+  }, [autoScroll, images.length, setCurrentIndex]);
+
   useEffect(() => {
     setCurrentIndex(0);
+    setLoadedBySrc({});
+    setAttemptedSrcs({});
+    setShowShimmer(images.length > 0);
   }, [restaurant?.id, restaurant?.slug, restaurant?.updatedAt, images]);
 
   useEffect(() => {
     setLastGoodSrc("");
   }, [restaurant?.id, restaurant?.slug]);
 
-  const handleTouchStart = (e) => {
-    touchStartX.current = e.touches[0].clientX;
-    isSwiping.current = false;
-  };
+  useEffect(() => {
+    if (!renderSrc) return;
+    const imgEl = imageElementRef.current;
+    if (!imgEl) return;
 
-  const handleTouchMove = (e) => {
-    const currentX = e.touches[0].clientX;
-    const diff = touchStartX.current - currentX;
-    if (Math.abs(diff) > 10) {
-      isSwiping.current = true;
-    }
-  };
+    setShowShimmer(true);
+    const shimmerTimeout = setTimeout(() => {
+      setShowShimmer(false);
+    }, 2500);
 
-  const handleTouchEnd = (e) => {
-    if (!isSwiping.current) return;
-    const touchEndX = e.changedTouches[0].clientX;
-    const diff = touchStartX.current - touchEndX;
-    const minSwipeDistance = 50;
-    if (Math.abs(diff) > minSwipeDistance) {
-      if (diff > 0) {
-        setCurrentIndex((prev) => (prev + 1) % images.length);
+    if (imgEl.complete) {
+      if (imgEl.naturalWidth > 0) {
+        setLoadedBySrc((prev) => (prev[renderSrc] ? prev : { ...prev, [renderSrc]: true }));
+        setLastGoodSrc(renderSrc);
+        setShowShimmer(false);
       } else {
-        setCurrentIndex((prev) => (prev - 1 + images.length) % images.length);
+        setAttemptedSrcs((prev) => ({ ...prev, [renderSrc]: true }));
       }
     }
-  };
+    return () => clearTimeout(shimmerTimeout);
+  }, [renderSrc]);
+
+  // Enhanced Touch & Mouse drag Horizontal Carousel physics for nested card image slider
+  useEffect(() => {
+    const sliderNode = sliderRef.current;
+    const containerNode = containerRef.current;
+    if (!sliderNode || !containerNode || images.length <= 1) return;
+
+    const handleStart = (clientX, clientY) => {
+      touchStartX.current = clientX;
+      touchStartY.current = clientY;
+      isSwiping.current = true;
+      isPausedRef.current = true;
+      hasDragged.current = false;
+      gestureDirection.current = 'none';
+      containerNode.style.transition = 'none';
+
+      if (pauseTimeoutRef.current) clearTimeout(pauseTimeoutRef.current);
+    };
+
+    const handleMove = (clientX, clientY, e) => {
+      if (!isSwiping.current) return;
+      const deltaX = clientX - touchStartX.current;
+      const deltaY = clientY - touchStartY.current;
+
+      if (gestureDirection.current === 'none') {
+        const absX = Math.abs(deltaX);
+        const absY = Math.abs(deltaY);
+        if (absX >= 3 || absY >= 3) {
+          if (absX > absY) {
+            gestureDirection.current = 'horizontal';
+          } else {
+            gestureDirection.current = 'vertical';
+            isSwiping.current = false;
+            return;
+          }
+        } else {
+          return;
+        }
+      }
+
+      if (gestureDirection.current === 'horizontal') {
+        hasDragged.current = true;
+        if (e) {
+          e.stopPropagation(); // Stops horizontal scroll from reaching outer cards container
+          if (e.cancelable) e.preventDefault();
+        }
+
+        const baseTranslate = -currentIdxRef.current * 100;
+        const width = containerNode.clientWidth || sliderNode.clientWidth || 100;
+        const percentDelta = (deltaX / width) * 100;
+
+        let finalTranslate = baseTranslate + percentDelta;
+        if (currentIdxRef.current === 0 && deltaX > 0) {
+          finalTranslate = percentDelta * 0.3;
+        } else if (currentIdxRef.current === images.length - 1 && deltaX < 0) {
+          finalTranslate = baseTranslate + percentDelta * 0.3;
+        }
+
+        containerNode.style.transform = `translateX(${finalTranslate}%)`;
+      }
+    };
+
+    const handleEnd = (clientX) => {
+      if (!isSwiping.current) return;
+      isSwiping.current = false;
+
+      // Resume auto-scroll 4 seconds after user interaction ends
+      if (pauseTimeoutRef.current) clearTimeout(pauseTimeoutRef.current);
+      pauseTimeoutRef.current = setTimeout(() => {
+        isPausedRef.current = false;
+      }, 4000);
+
+      if (gestureDirection.current !== 'horizontal') return;
+
+      const endX = clientX !== undefined ? clientX : touchStartX.current;
+      const deltaX = endX - touchStartX.current;
+
+      containerNode.style.transition = 'transform 300ms cubic-bezier(0.16, 1, 0.3, 1)';
+      const width = containerNode.clientWidth || sliderNode.clientWidth || 100;
+      const threshold = width * 0.15;
+
+      let newIdx = currentIdxRef.current;
+      if (deltaX < -threshold) {
+        newIdx = Math.min(currentIdxRef.current + 1, images.length - 1);
+      } else if (deltaX > threshold) {
+        newIdx = Math.max(currentIdxRef.current - 1, 0);
+      }
+
+      containerNode.style.transform = `translateX(-${newIdx * 100}%)`;
+      
+      setTimeout(() => {
+        setCurrentIndex(newIdx);
+      }, 300);
+
+      if (dragTimeoutRef.current) clearTimeout(dragTimeoutRef.current);
+      dragTimeoutRef.current = setTimeout(() => {
+        hasDragged.current = false;
+      }, 300);
+    };
+
+    // Native Touch Listeners
+    const onTouchStart = (e) => {
+      if (e.touches.length > 1) return;
+      const touch = e.touches[0];
+      handleStart(touch.clientX, touch.clientY);
+    };
+
+    const onTouchMove = (e) => {
+      if (!isSwiping.current) return;
+      const touch = e.touches[0];
+      handleMove(touch.clientX, touch.clientY, e);
+    };
+
+    const onTouchEnd = (e) => {
+      const touch = e.changedTouches[0] || e.touches[0];
+      handleEnd(touch ? touch.clientX : touchStartX.current);
+    };
+
+    // Mouse drag Listeners for desktop touch-device emulation & mouse drag
+    const onMouseDown = (e) => {
+      handleStart(e.clientX, e.clientY);
+    };
+
+    const onMouseMove = (e) => {
+      handleMove(e.clientX, e.clientY, e);
+    };
+
+    const onMouseUp = (e) => {
+      handleEnd(e.clientX);
+    };
+
+    const onMouseEnter = () => {
+      isPausedRef.current = true;
+    };
+
+    const onMouseLeave = (e) => {
+      handleEnd(e.clientX);
+      isPausedRef.current = false;
+    };
+
+    sliderNode.addEventListener('touchstart', onTouchStart, { passive: true });
+    sliderNode.addEventListener('touchmove', onTouchMove, { passive: false });
+    sliderNode.addEventListener('touchend', onTouchEnd, { passive: true });
+
+    sliderNode.addEventListener('mousedown', onMouseDown);
+    sliderNode.addEventListener('mousemove', onMouseMove);
+    sliderNode.addEventListener('mouseup', onMouseUp);
+    sliderNode.addEventListener('mouseenter', onMouseEnter);
+    sliderNode.addEventListener('mouseleave', onMouseLeave);
+
+    return () => {
+      sliderNode.removeEventListener('touchstart', onTouchStart);
+      sliderNode.removeEventListener('touchmove', onTouchMove);
+      sliderNode.removeEventListener('touchend', onTouchEnd);
+
+      sliderNode.removeEventListener('mousedown', onMouseDown);
+      sliderNode.removeEventListener('mousemove', onMouseMove);
+      sliderNode.removeEventListener('mouseup', onMouseUp);
+      sliderNode.removeEventListener('mouseenter', onMouseEnter);
+      sliderNode.removeEventListener('mouseleave', onMouseLeave);
+    };
+  }, [images.length, setCurrentIndex]);
 
   return (
     <div 
-      className="relative w-full h-[180px] sm:h-[190px] overflow-hidden bg-gray-100 dark:bg-gray-800"
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
+      ref={sliderRef}
+      className="relative w-full h-[180px] sm:h-[190px] overflow-hidden bg-gray-100 dark:bg-gray-800 group select-none touch-pan-y"
+      onClick={(e) => {
+        if (hasDragged.current) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
     >
-      <OptimizedImage
-        ref={imageElementRef}
-        src={renderSrc}
-        alt={restaurant.name}
-        priority={priority}
-        className="w-full h-full object-cover transform scale-100 group-hover:scale-110 transition-transform duration-700"
-        onLoad={() => {
-          setLastGoodSrc(renderSrc);
-        }}
-      />
+      {showShimmer && !loadedBySrc[renderSrc] && (
+        <div className="absolute inset-0 z-[1] bg-gradient-to-r from-gray-100 via-gray-200 to-gray-100 dark:from-gray-800 dark:via-gray-700 dark:to-gray-800 animate-shimmer" />
+      )}
 
-      {/* Navigation Indicators */}
-      {images.length > 1 && (
-        <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1 px-2 pointer-events-none">
-          {images.map((_, idx) => (
-            <div
-              key={idx}
-              className={`h-1 rounded-full transition-all duration-300 ${
-                idx === safeIndex ? 'w-4 bg-white shadow-sm' : 'w-1 bg-white/60'
-              }`}
+      <div className="absolute inset-0 transition-transform duration-700 ease-out group-hover:scale-105 overflow-hidden">
+        <div
+          ref={containerRef}
+          className="flex w-full h-full transition-transform duration-500 ease-in-out touch-pan-y"
+          style={{ transform: `translateX(-${safeIndex * 100}%)`, willChange: 'transform' }}
+        >
+          {images.map((src, idx) => (
+            <img
+              key={src || idx}
+              ref={idx === safeIndex ? imageElementRef : null}
+              src={src}
+              alt={`${restaurant.name} - Image ${idx + 1}`}
+              className="w-full h-full flex-shrink-0 object-cover"
+              loading={priority && idx === 0 ? "eager" : "lazy"}
+              onLoad={() => {
+                setLoadedBySrc((prev) => ({ ...prev, [src]: true }));
+                if (idx === safeIndex) {
+                  setLastGoodSrc(src);
+                  setShowShimmer(false);
+                }
+              }}
+              onError={() => {
+                if (images.length > 1 && idx === safeIndex) {
+                  setCurrentIndex((prevIndex) => (prevIndex + 1) % images.length);
+                }
+              }}
             />
           ))}
+        </div>
+      </div>
+
+      {/* Navigation Indicators — compact glass capsule, bottom-right */}
+      {images.length > 1 && (
+        <div
+          className="absolute bottom-2 right-2 z-10 flex items-center gap-[3px] rounded-full border border-white/20 bg-black/55 px-[5px] py-[3px] shadow-[0_2px_8px_rgba(0,0,0,0.4)] pointer-events-none"
+          aria-hidden="true"
+        >
+          {images.map((_, idx) => {
+            const isActive = idx === safeIndex;
+            return (
+              <span
+                key={idx}
+                className={`block rounded-full transition-[width,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                  isActive
+                    ? "h-[5px] w-[13px] bg-white opacity-100"
+                    : "h-[5px] w-[5px] bg-white opacity-[0.35]"
+                }`}
+              />
+            );
+          })}
         </div>
       )}
       
       {/* Discount Badge if any */}
       {restaurant.discount && (
-        <div className="absolute top-2 left-0 px-2.5 py-1 bg-gradient-to-r from-[#991B1B] to-[#DC2626] text-white text-[10px] sm:text-xs font-black rounded-r-lg shadow-lg uppercase tracking-wider flex items-center gap-1">
+        <div className="absolute top-2 left-0 px-2.5 py-1 bg-gradient-to-r from-orange-500 to-red-500 text-white text-[10px] sm:text-xs font-black rounded-r-lg shadow-lg uppercase tracking-wider flex items-center gap-1">
           <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24"><path d="M12.864 2.227l8.909 8.91a2.182 2.182 0 010 3.085l-7.364 7.364a2.182 2.182 0 01-3.085 0l-8.91-8.91A2.182 2.182 0 012 11.137V4.41A2.182 2.182 0 014.182 2.23h6.727a2.182 2.182 0 011.955-.003z" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           {restaurant.discount}
         </div>
@@ -145,11 +373,14 @@ const RestaurantCard = ({
 }) => {
   return (
     <motion.div
-      onClick={onClick}
+      onClick={(e) => {
+        if (e.defaultPrevented) return;
+        onClick?.(e);
+      }}
       className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-[0_4px_12px_rgba(0,0,0,0.03)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] transition-all duration-300 group relative cursor-pointer transform hover:-translate-y-1 active:scale-95"
     >
       <div className="relative">
-        <RestaurantImageCarousel restaurant={restaurant} backendOrigin={backendOrigin} />
+        <RestaurantImageCarousel restaurant={restaurant} backendOrigin={backendOrigin} autoScroll={true} />
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -167,10 +398,10 @@ const RestaurantCard = ({
 
       <div className="p-3 sm:p-4">
         <div className="flex justify-between items-start gap-2 mb-1.5">
-          <h3 className="text-[15px] sm:text-[17px] font-bold text-gray-900 line-clamp-1 group-hover:text-[#DC2626] transition-colors duration-200 flex-1 tracking-tight">
+          <h3 className="text-[15px] sm:text-[17px] font-bold text-gray-900 line-clamp-1 group-hover:text-primary-orange transition-colors duration-200 flex-1 tracking-tight">
             {restaurant.name}
           </h3>
-          <div className="flex items-center gap-1 bg-[#8CC63F] text-white px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-bold shadow-sm flex-shrink-0">
+          <div className="flex items-center gap-1 bg-green-600 text-white px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-bold shadow-sm flex-shrink-0">
             <span>{restaurant.rating || "4.2"}</span>
             <Star className="w-2.5 h-2.5 fill-current" />
           </div>
@@ -182,11 +413,11 @@ const RestaurantCard = ({
 
         <div className="flex items-center justify-between pt-2.5 border-t border-gray-100/80">
           <div className="flex items-center gap-1.5 text-gray-600 bg-gray-50 px-2 py-1 rounded-md">
-            <Clock className="w-3.5 h-3.5 text-[#DC2626]" />
+            <Clock className="w-3.5 h-3.5 text-orange-500" />
             <span className="text-[10px] sm:text-xs font-semibold">{restaurant.deliveryTime || "25-30 min"}</span>
           </div>
           <div className="flex items-center gap-1 text-gray-600 bg-gray-50 px-2 py-1 rounded-md">
-            <IndianRupee className="w-3 h-3 text-[#DC2626]" />
+            <IndianRupee className="w-3 h-3 text-orange-500" />
             <span className="text-[10px] sm:text-xs font-semibold">{restaurant.avgPrice || "₹200 for one"}</span>
           </div>
         </div>

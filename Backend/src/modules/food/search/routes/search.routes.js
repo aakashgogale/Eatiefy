@@ -7,14 +7,14 @@ const router = express.Router();
 /**
  * Unified Search Endpoint
  * GET /api/v1/food/search/unified
- * Cached per query string (zone/category/lat/lng/q). Invalidated on menu/food/category changes.
  */
-router.get('/unified', cacheResponse(120, 'search'), searchController);
+router.get('/unified', cacheResponse(120, 'search_unified', { browserTtlSeconds: 30 }), searchController);
 
 /**
  * Admin Categories Only Endpoint (to avoid restaurant-created ones as requested)
  * GET /api/v1/food/search/categories/admin
  */
-router.get('/categories/admin', cacheResponse(300, 'categories'), listAdminCategoriesController);
+router.get('/categories/admin', cacheResponse(1800, 'search_categories_admin', { browserTtlSeconds: 300 }), listAdminCategoriesController);
+router.get('/categories/public', cacheResponse(1800, 'search_categories_admin', { browserTtlSeconds: 300 }), listAdminCategoriesController);
 
 export default router;

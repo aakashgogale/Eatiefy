@@ -5,7 +5,7 @@ import { adminAPI } from "@food/api"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
 import { Loader } from "@googlemaps/js-api-loader"
 import { subscribeAllDeliveryLocations } from "@food/realtimeTracking"
-import bikeLogo from "@food/assets/bikelogo.png"
+import bikeLogo from "@food/assets/deliveryboy-3d-transparent.png"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -362,6 +362,7 @@ export default function DeliveryBoyViewMap() {
           ctx.save()
           ctx.translate(size / 2, size / 2)
           ctx.rotate((roundedHeading * Math.PI) / 180) // Convert degrees to radians
+          
           ctx.drawImage(img, -size / 2, -size / 2, size, size)
           ctx.restore()
           

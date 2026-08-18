@@ -5,23 +5,23 @@ import { Card, CardContent } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
 import { RestaurantGridSkeleton } from "@food/components/ui/loading-skeletons"
-import StickyCartCard from "@food/components/user/StickyCartCard"
+import FloatingHomeDock from "@food/components/user/FloatingHomeDock"
 import { useProfile } from "@food/context/ProfileContext"
-import { useLocation } from "@food/hooks/useLocation"
-import { useZone } from "@food/hooks/useZone"
+import { useDeliveryLocation } from "@food/context/DeliveryLocationContext"
 import { restaurantAPI, adminAPI } from "@food/api"
 import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
+import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability"
 
-const debugLog = (...args) => {}
-const debugWarn = (...args) => {}
-const debugError = (...args) => {}
+const debugLog = (...args) => { }
+const debugWarn = (...args) => { }
+const debugError = (...args) => { }
 
 // Filter options
 const filterOptions = [
   { id: 'under-30-mins', label: 'Under 30 mins' },
   { id: 'price-match', label: 'Price Match', hasIcon: true },
   { id: 'flat-50-off', label: 'Flat 50% OFF', hasIcon: true },
-  { id: 'under-250', label: 'Under ₹250' },
+  { id: 'under-250', label: 'Eatiefy 99' },
   { id: 'rating-4-plus', label: 'Rating 4.0+' },
 ]
 const SEARCH_HISTORY_KEY = "user_recent_searches_v1"
@@ -32,8 +32,7 @@ export default function SearchResults() {
   const [searchParams, setSearchParams] = useSearchParams()
   const query = searchParams.get("q") || ""
   const navigate = useNavigate()
-  const { location } = useLocation()
-  const { zoneId, isOutOfService } = useZone(location)
+  const { effectiveLocation: location, zoneId, isOutOfService } = useDeliveryLocation()
   const [searchQuery, setSearchQuery] = useState(query)
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [activeFilters, setActiveFilters] = useState(new Set())
@@ -47,30 +46,28 @@ export default function SearchResults() {
   ])
   const [loadingCategories, setLoadingCategories] = useState(true)
   const [categoryKeywords, setCategoryKeywords] = useState({})
-
-  const activeCategory = useMemo(() => {
-    if (!selectedCategory || selectedCategory === 'all' || !categories) return null;
-    return categories.find(c =>
-      c.id === selectedCategory ||
-      c.name?.toLowerCase().replace(/\s+/g, '-') === selectedCategory
-    );
-  }, [selectedCategory, categories]);
-
-  const activeCategoryIds = useMemo(() => {
-    if (!activeCategory || !categories) return [];
-    const isObjectId = /^[0-9a-fA-F]{24}$/.test(String(activeCategory.id));
-    if (isObjectId) {
-      const targetName = activeCategory.name?.toLowerCase();
-      return categories
-        .filter(c => c.name?.toLowerCase() === targetName)
-        .map(c => c.id)
-        .filter(Boolean);
-    }
-    return [activeCategory.id];
-  }, [activeCategory, categories]);
-
   const showRestaurantSkeleton = useDelayedLoading(loadingRestaurants)
   const deferredQuery = useDeferredValue(query)
+  const [availabilityTick, setAvailabilityTick] = useState(Date.now())
+
+  useEffect(() => {
+    const tickAvailability = () => {
+      if (typeof document !== "undefined" && document.hidden) return
+      setAvailabilityTick(Date.now());
+    }
+    const intervalId = setInterval(tickAvailability, 60000);
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        setAvailabilityTick(Date.now());
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
+  }, []);
   const slugify = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")
   const uniqueRestaurants = (list) => {
     const seen = new Set()
@@ -96,7 +93,7 @@ export default function SearchResults() {
           const transformedCategories = [
             { id: 'all', name: "All", image: "" },
             ...categoriesArray.map((cat) => ({
-              id: String(cat._id || cat.id || ''),
+              id: cat.slug || cat.id,
               name: cat.name,
               image: cat.image || cat.imageUrl || "",
               type: cat.type,
@@ -108,7 +105,7 @@ export default function SearchResults() {
           // Generate category keywords dynamically from category names
           const keywordsMap = {}
           categoriesArray.forEach((cat) => {
-            const categoryId = String(cat._id || cat.id || '')
+            const categoryId = cat.slug || cat.id
             const categoryName = cat.name.toLowerCase()
 
             // Generate keywords from category name
@@ -136,34 +133,6 @@ export default function SearchResults() {
       return false
     }
 
-    // Check by category ID first (strict ObjectId matching)
-    const targetIds = activeCategoryIds
-    if (targetIds.length > 0) {
-      for (const section of menu.sections) {
-        if (section.items && Array.isArray(section.items)) {
-          for (const item of section.items) {
-            if (item.categoryId && targetIds.includes(String(item.categoryId))) {
-              return true
-            }
-          }
-        }
-        if (section.subsections && Array.isArray(section.subsections)) {
-          for (const subsection of section.subsections) {
-            const subItems = Array.isArray(subsection?.items) ? subsection.items : []
-            for (const item of subItems) {
-              if (item.categoryId && targetIds.includes(String(item.categoryId))) {
-                return true
-              }
-            }
-          }
-        }
-      }
-      const isObjectId = targetIds.some(id => /^[0-9a-fA-F]{24}$/.test(String(id)));
-      if (isObjectId) {
-        return false;
-      }
-    }
-
     // Get keywords for this category
     const keywords = categoryKeywords[categoryId] || []
     if (keywords.length === 0) {
@@ -187,22 +156,9 @@ export default function SearchResults() {
             return true
           }
           // Check item category
-          const itemCategoryLower = (item.categoryName || item.category || '').toLowerCase()
+          const itemCategoryLower = (item.category || '').toLowerCase()
           if (keywords.some(keyword => itemCategoryLower.includes(keyword))) {
             return true
-          }
-        }
-      }
-
-      if (section.subsections && Array.isArray(section.subsections)) {
-        for (const subsection of section.subsections) {
-          const subItems = Array.isArray(subsection?.items) ? subsection.items : []
-          for (const item of subItems) {
-            const itemNameLower = (item?.name || "").toLowerCase()
-            const itemCategoryLower = (item?.categoryName || item?.category || "").toLowerCase()
-            if (keywords.some(keyword => itemNameLower.includes(keyword) || itemCategoryLower.includes(keyword))) {
-              return true
-            }
           }
         }
       }
@@ -217,33 +173,6 @@ export default function SearchResults() {
       return null
     }
 
-    const targetIds = activeCategoryIds
-    if (targetIds.length > 0) {
-      for (const section of menu.sections) {
-        if (section.items && Array.isArray(section.items)) {
-          for (const item of section.items) {
-            if (item.categoryId && targetIds.includes(String(item.categoryId))) {
-              return item.name
-            }
-          }
-        }
-        if (section.subsections && Array.isArray(section.subsections)) {
-          for (const subsection of section.subsections) {
-            const subItems = Array.isArray(subsection?.items) ? subsection.items : []
-            for (const item of subItems) {
-              if (item.categoryId && targetIds.includes(String(item.categoryId))) {
-                return item.name
-              }
-            }
-          }
-        }
-      }
-      const isObjectId = targetIds.some(id => /^[0-9a-fA-F]{24}$/.test(String(id)));
-      if (isObjectId) {
-        return null;
-      }
-    }
-
     const keywords = categoryKeywords[categoryId] || []
     if (keywords.length === 0) {
       return null
@@ -254,24 +183,12 @@ export default function SearchResults() {
       if (section.items && Array.isArray(section.items)) {
         for (const item of section.items) {
           const itemNameLower = (item.name || '').toLowerCase()
-          const itemCategoryLower = (item.categoryName || item.category || '').toLowerCase()
+          const itemCategoryLower = (item.category || '').toLowerCase()
 
           if (keywords.some(keyword =>
             itemNameLower.includes(keyword) || itemCategoryLower.includes(keyword)
           )) {
             return item.name
-          }
-        }
-      }
-      if (section.subsections && Array.isArray(section.subsections)) {
-        for (const subsection of section.subsections) {
-          const subItems = Array.isArray(subsection?.items) ? subsection.items : []
-          for (const item of subItems) {
-            const itemNameLower = (item?.name || "").toLowerCase()
-            const itemCategoryLower = (item?.categoryName || item?.category || "").toLowerCase()
-            if (keywords.some(keyword => itemNameLower.includes(keyword) || itemCategoryLower.includes(keyword))) {
-              return item.name
-            }
           }
         }
       }
@@ -743,8 +660,16 @@ export default function SearchResults() {
       filtered = filtered.filter(r => r.offer && r.offer.includes('50%'))
     }
 
+    // Eatiefy 99 filter - exclude closed restaurants
+    if (activeFilters.has('under-250')) {
+      filtered = filtered.filter(r => {
+        const availability = getRestaurantAvailabilityStatus(r, new Date(availabilityTick));
+        return r.featuredPrice && r.featuredPrice <= 99 && availability.isOpen;
+      })
+    }
+
     return uniqueRestaurants(filtered)
-  }, [deferredQuery, selectedCategory, activeFilters, restaurantsData, categoryKeywords, loadingCategories])
+  }, [deferredQuery, selectedCategory, activeFilters, restaurantsData, categoryKeywords, loadingCategories, availabilityTick])
 
   const filteredAllRestaurants = useMemo(() => {
     // Use ONLY backend data - no hardcoded fallback
@@ -844,15 +769,19 @@ export default function SearchResults() {
     if (activeFilters.has('rating-4-plus')) {
       filtered = filtered.filter(r => r.rating && r.rating >= 4.0)
     }
+    // Eatiefy 99 filter - exclude closed restaurants (already handled above but ensuring consistency if logic differs)
     if (activeFilters.has('under-250')) {
-      filtered = filtered.filter(r => r.featuredPrice && r.featuredPrice <= 250)
+      filtered = filtered.filter(r => {
+        const availability = getRestaurantAvailabilityStatus(r, new Date(availabilityTick));
+        return r.featuredPrice && r.featuredPrice <= 99 && availability.isOpen;
+      })
     }
     if (activeFilters.has('flat-50-off')) {
       filtered = filtered.filter(r => r.offer && r.offer.includes('50%'))
     }
 
     return uniqueRestaurants(filtered)
-  }, [deferredQuery, selectedCategory, activeFilters, restaurantsData, categoryKeywords, loadingCategories])
+  }, [deferredQuery, selectedCategory, activeFilters, restaurantsData, categoryKeywords, loadingCategories, availabilityTick])
 
   const recommendedIds = useMemo(
     () => new Set(filteredRecommended.slice(0, 6).map((restaurant) => restaurant.id)),
@@ -867,7 +796,7 @@ export default function SearchResults() {
   const shouldShowGrayscale = isOutOfService
 
   return (
-    <div className={`min-h-screen bg-white dark:bg-[#0a0a0a] ${shouldShowGrayscale ? 'grayscale opacity-75' : ''}`}>
+    <div className={`min-h-screen bg-white dark:bg-[#0a0a0a] pb-[140px] md:pb-6 ${shouldShowGrayscale ? 'grayscale opacity-75' : ''}`}>
       {/* Sticky Header */}
       <div className="sticky top-0 z-20 bg-white dark:bg-[#1a1a1a] shadow-sm">
         <div className="max-w-7xl mx-auto">
@@ -910,29 +839,29 @@ export default function SearchResults() {
                 <button
                   key={cat.id}
                   onClick={() => handleCategorySelect(cat.id)}
-                  className={`flex flex-col items-center gap-1.5 flex-shrink-0 pb-2 transition-all ${isSelected ? 'border-b-2 border-[#DC2626]' : ''
+                  className={`flex flex-col items-center gap-1.5 flex-shrink-0 pb-2 transition-all ${isSelected ? 'border-b-2 border-[#EB590E]' : ''
                     }`}
                 >
                   {isAllCategory ? (
-                    <div className={`w-16 h-16 rounded-full border-2 transition-all flex items-center justify-center ${isSelected ? 'border-[#DC2626] dark:border-[#DC2626] shadow-lg bg-[#F9F9FB] dark:bg-[#DC2626]/20' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-[#222222]'}`}>
-                      <Grid2x2 className={`h-6 w-6 ${isSelected ? 'text-[#DC2626]' : 'text-gray-500 dark:text-gray-400'}`} />
+                    <div className={`w-16 h-16 rounded-full border-2 transition-all flex items-center justify-center ${isSelected ? 'border-[#EB590E] dark:border-[#EB590E] shadow-lg bg-[#FFF2EB] dark:bg-[#EB590E]/20' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-[#222222]'}`}>
+                      <Grid2x2 className={`h-6 w-6 ${isSelected ? 'text-[#EB590E]' : 'text-gray-500 dark:text-gray-400'}`} />
                     </div>
                   ) : cat.image ? (
-                    <div className={`w-16 h-16 rounded-full overflow-hidden border-2 transition-all ${isSelected ? 'border-[#DC2626] dark:border-[#DC2626] shadow-lg' : 'border-transparent'
+                    <div className={`w-16 h-16 rounded-full overflow-hidden border-2 transition-all ${isSelected ? 'border-[#EB590E] dark:border-[#EB590E] shadow-lg' : 'border-transparent'
                       }`}>
                       <img
                         src={cat.image}
                         alt={cat.name}
                         className="w-full h-full object-cover"
-                      />
+                       loading="lazy" decoding="async" />
                     </div>
                   ) : (
-                    <div className={`w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center border-2 transition-all ${isSelected ? 'border-[#DC2626] dark:border-[#DC2626] shadow-lg bg-[#F9F9FB] dark:bg-[#DC2626]/20' : 'border-transparent'
+                    <div className={`w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center border-2 transition-all ${isSelected ? 'border-[#EB590E] dark:border-[#EB590E] shadow-lg bg-[#FFF2EB] dark:bg-[#EB590E]/20' : 'border-transparent'
                       }`}>
                       <span className="text-xl">???</span>
                     </div>
                   )}
-                  <span className={`text-xs font-medium whitespace-nowrap ${isSelected ? 'text-[#DC2626] dark:text-[#DC2626]' : 'text-gray-600 dark:text-gray-400'
+                  <span className={`text-xs font-medium whitespace-nowrap ${isSelected ? 'text-[#EB590E] dark:text-[#EB590E]' : 'text-gray-600 dark:text-gray-400'
                     }`}>
                     {cat.name}
                   </span>
@@ -968,15 +897,15 @@ export default function SearchResults() {
                   variant="outline"
                   onClick={() => toggleFilter(filter.id)}
                   className={`h-9 px-3 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 transition-all font-medium ${isActive
-                    ? 'bg-[#DC2626] text-white border-[#DC2626] hover:bg-[#991B1B] dark:bg-[#DC2626] dark:hover:bg-[#991B1B]'
+                    ? 'bg-[#EB590E] text-white border-[#EB590E] hover:bg-[#D94F0C] dark:bg-[#EB590E] dark:hover:bg-[#D94F0C]'
                     : 'bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300'
                     }`}
                 >
                   {filter.hasIcon && filter.id === 'price-match' && (
-                    <span className={`text-xs ${isActive ? 'text-white' : 'text-[#DC2626] dark:text-[#DC2626]'}`}>?</span>
+                    <span className={`text-xs ${isActive ? 'text-white' : 'text-[#EB590E] dark:text-[#EB590E]'}`}>?</span>
                   )}
                   {filter.hasIcon && filter.id === 'flat-50-off' && (
-                    <span className={`text-xs ${isActive ? 'text-white' : 'text-[#DC2626] dark:text-[#DC2626]'}`}>?</span>
+                    <span className={`text-xs ${isActive ? 'text-white' : 'text-[#EB590E] dark:text-[#EB590E]'}`}>?</span>
                   )}
                   <span className={`text-sm font-bold ${isActive ? 'text-white' : 'text-black dark:text-white'}`}>{filter.label}</span>
                 </Button>
@@ -1026,7 +955,7 @@ export default function SearchResults() {
                         )}
                         {/* Offer Badge - Only show if offer exists */}
                         {restaurant.offer && (
-                          <div className="absolute top-1.5 left-1.5 bg-gradient-to-r from-[#DC2626] to-[#991B1B] text-white text-[10px] font-semibold px-1.5 py-0.5 rounded">
+                          <div className="absolute top-1.5 left-1.5 bg-gradient-to-r from-[#EB590E] to-[#D94F0C] text-white text-[10px] font-semibold px-1.5 py-0.5 rounded">
                             {restaurant.offer}
                           </div>
                         )}
@@ -1179,7 +1108,7 @@ export default function SearchResults() {
                       {/* Offer Badge */}
                       {restaurant.offer && (
                         <div className="flex items-center gap-2 text-sm lg:text-base mt-auto">
-                          <BadgePercent className="h-4 w-4 lg:h-5 lg:w-5 text-[#DC2626] dark:text-[#DC2626]" strokeWidth={2} />
+                          <BadgePercent className="h-4 w-4 lg:h-5 lg:w-5 text-[#EB590E] dark:text-[#EB590E]" strokeWidth={2} />
                           <span className="text-gray-700 dark:text-gray-300 font-medium">{restaurant.offer}</span>
                         </div>
                       )}
@@ -1214,8 +1143,7 @@ export default function SearchResults() {
           </div>
         </section>
       </div>
-      <StickyCartCard />
+      <FloatingHomeDock hasBottomNav={false} />
     </div>
   )
 }
-

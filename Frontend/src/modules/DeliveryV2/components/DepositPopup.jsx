@@ -3,7 +3,6 @@ import { IndianRupee, Loader2 } from "lucide-react"
 import { deliveryAPI } from "@food/api"
 import { initRazorpayPayment } from "@food/utils/razorpay"
 import { toast } from "sonner"
-import { showUserFacingApiError } from "@/shared/utils/apiError"
 import { getCompanyNameAsync } from "@food/utils/businessSettings"
 
 export default function DepositPopup({ onSuccess, cashInHand = 0 }) {
@@ -79,19 +78,16 @@ export default function DepositPopup({ onSuccess, cashInHand = 0 }) {
               window.dispatchEvent(new CustomEvent("deliveryWalletStateUpdated"))
               if (onSuccess) onSuccess()
             } else {
-              showUserFacingApiError(
-                { response: { data: { message: verifyRes?.data?.message } } },
-                "Verification failed",
-              )
+              toast.error(verifyRes?.data?.message || "Verification failed")
             }
           } catch (err) {
-            showUserFacingApiError(err, "Verification failed. Contact support.")
+            toast.error(err?.response?.data?.message || "Verification failed. Contact support.")
           } finally {
             setProcessing(false)
           }
         },
         onError: (e) => {
-          showUserFacingApiError(e, e?.description || "Payment failed")
+          toast.error(e?.description || "Payment failed")
           setProcessing(false)
         },
         onClose: () => setProcessing(false)
@@ -99,7 +95,7 @@ export default function DepositPopup({ onSuccess, cashInHand = 0 }) {
     } catch (err) {
       setLoading(false)
       setProcessing(false)
-      showUserFacingApiError(err, "Failed to create payment")
+      toast.error(err?.response?.data?.message || "Failed to create payment")
     }
   }
 

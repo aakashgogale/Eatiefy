@@ -1,6 +1,21 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import { config } from '../../config/env.js';
+import { ADMIN_ACTIONS, ADMIN_PERMISSION_SECTIONS } from '../../constants/permissions.js';
+
+const adminPermissionsSchema = new mongoose.Schema(
+    Object.fromEntries(
+        ADMIN_PERMISSION_SECTIONS.map((section) => [
+            section,
+            {
+                type: [String],
+                enum: ADMIN_ACTIONS,
+                default: []
+            }
+        ])
+    ),
+    { _id: false, strict: true }
+);
 
 const adminSchema = new mongoose.Schema(
     {
@@ -28,17 +43,34 @@ const adminSchema = new mongoose.Schema(
         },
         role: {
             type: String,
-            enum: ['ADMIN', 'SUB_ADMIN'],
             default: 'ADMIN'
+        },
+        adminType: {
+            type: String,
+            enum: ['super_admin', 'sub_admin'],
+            default: 'super_admin'
+        },
+        permissions: {
+            type: adminPermissionsSchema,
+            default: () => ({})
         },
         isActive: {
             type: Boolean,
             default: true
         },
-        /** Module-level permissions for SUB_ADMIN: { [moduleKey]: { view, create, edit, delete } } */
-        permissions: {
-            type: mongoose.Schema.Types.Mixed,
-            default: {}
+        isDeleted: {
+            type: Boolean,
+            default: false
+        },
+        createdBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'FoodAdmin',
+            default: null
+        },
+        updatedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'FoodAdmin',
+            default: null
         },
         servicesAccess: {
             type: [String],
@@ -53,6 +85,7 @@ const adminSchema = new mongoose.Schema(
 );
 
 adminSchema.index({ servicesAccess: 1 });
+adminSchema.index({ adminType: 1, isDeleted: 1, isActive: 1 });
 
 adminSchema.pre('save', async function (next) {
     if (!this.isModified('password')) {

@@ -10,6 +10,7 @@ const profilePlaceholder = "https://images.unsplash.com/photo-1555396273-367ea4e
 const coverPlaceholder = "https://images.unsplash.com/photo-1559339352-11d035aa65de?w=1200&h=400&fit=crop"
 
 export default function NewAdvertisement() {
+  const todayStr = new Date().toISOString().split("T")[0]
   const [activeLanguage, setActiveLanguage] = useState("default")
   const [formData, setFormData] = useState({
     title: "",
@@ -36,7 +37,7 @@ export default function NewAdvertisement() {
     { key: "en", label: "English(EN)" },
     { key: "bn", label: "Bengali - বাংলা(BN)" },
     { key: "ar", label: "Arabic - العربية (AR)" },
-    { key: "es", label: "Spanish - espa�ol(ES)" },
+    { key: "es", label: "Spanish - espa�ol(ES)" },
   ]
 
   const handleInputChange = (field, value) => {
@@ -263,7 +264,7 @@ export default function NewAdvertisement() {
                         }`}
                       >
                         <option value="">Select Restaurant</option>
-                        <option value="cafe-monarch">Caf� Monarch</option>
+                        <option value="cafe-monarch">Caf� Monarch</option>
                         <option value="hungry-puppets">Hungry Puppets</option>
                       </select>
                       {formErrors.restaurant && (
@@ -311,6 +312,7 @@ export default function NewAdvertisement() {
                         type="date"
                         value={formData.validity}
                         onChange={(e) => handleInputChange("validity", e.target.value)}
+                        min={todayStr}
                         className={`w-full px-4 py-2.5 pr-10 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm ${
                           formErrors.validity ? "border-red-500" : "border-slate-300"
                         }`}
@@ -375,7 +377,7 @@ export default function NewAdvertisement() {
                               src={profilePreview}
                               alt="Profile preview"
                               className="w-full h-48 object-cover"
-                            />
+                             loading="lazy" decoding="async" />
                             <button
                               type="button"
                               onClick={() => handleRemoveImage("profileImage")}
@@ -422,7 +424,7 @@ export default function NewAdvertisement() {
                               src={coverPreview}
                               alt="Cover preview"
                               className="w-full h-48 object-cover"
-                            />
+                             loading="lazy" decoding="async" />
                             <button
                               type="button"
                               onClick={() => handleRemoveImage("coverImage")}
@@ -498,7 +500,7 @@ export default function NewAdvertisement() {
                         src={coverPreview}
                         alt="Cover"
                         className="w-full h-full object-cover"
-                      />
+                       loading="lazy" decoding="async" />
                     ) : (
                       <img
                         src={coverPlaceholder}
@@ -520,7 +522,7 @@ export default function NewAdvertisement() {
                             src={profilePreview}
                             alt="Profile"
                             className="w-full h-full object-cover"
-                          />
+                           loading="lazy" decoding="async" />
                         ) : (
                           <img
                             src={profilePlaceholder}

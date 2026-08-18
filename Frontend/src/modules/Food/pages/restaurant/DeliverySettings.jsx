@@ -12,8 +12,12 @@ const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
 
+import {
+  broadcastRestaurantOperationalStatus,
+  getRestaurantOperationalStatus,
+} from "@food/utils/restaurantOperationalStatus"
+
 const DELIVERY_STATUS_KEY = "restaurant_delivery_status"
-const RESTAURANT_ONLINE_STATUS_KEY = "restaurant_online_status"
 
 export default function DeliverySettings() {
   const navigate = useNavigate()
@@ -46,35 +50,45 @@ export default function DeliverySettings() {
     }
   }, [])
 
-  const syncStatusLocally = (status) => {
-    const value = Boolean(status)
+  const syncStatusLocally = (operational) => {
+    const value = Boolean(operational?.isEffectivelyOnline)
     try {
       localStorage.setItem(DELIVERY_STATUS_KEY, JSON.stringify(value))
-      localStorage.setItem(RESTAURANT_ONLINE_STATUS_KEY, JSON.stringify(value))
     } catch (error) {
       debugError("Error saving delivery status locally:", error)
     }
-
-    window.dispatchEvent(new CustomEvent("restaurantStatusChanged", {
-      detail: { isOnline: value }
-    }))
+    broadcastRestaurantOperationalStatus(operational)
   }
 
-  // Load delivery status from backend on mount
+  // Delivery Settings shows effective online state (toggle + outlet timings).
+  // The actual Online/Offline override switch lives on Restaurant status.
   useEffect(() => {
     let cancelled = false
 
     const loadDeliveryStatus = async () => {
       try {
-        const response = await restaurantAPI.getCurrentRestaurant()
+        const [restaurantRes, timingsRes] = await Promise.all([
+          restaurantAPI.getCurrentRestaurant(),
+          restaurantAPI.getOutletTimings().catch(() => null),
+        ])
         const restaurant =
-          response?.data?.data?.restaurant ||
-          response?.data?.restaurant ||
+          restaurantRes?.data?.data?.restaurant ||
+          restaurantRes?.data?.restaurant ||
           null
-        const nextStatus = restaurant?.isAcceptingOrders === true
+        const outletTimings =
+          timingsRes?.data?.data?.outletTimings ||
+          timingsRes?.data?.outletTimings ||
+          restaurant?.outletTimings ||
+          null
+        const operational =
+          restaurant?.operationalStatus ||
+          getRestaurantOperationalStatus(
+            { ...restaurant, outletTimings, outsideHoursOverride: false },
+            new Date(),
+          )
         if (!cancelled) {
-          setDeliveryStatus(nextStatus)
-          syncStatusLocally(nextStatus)
+          setDeliveryStatus(operational.isEffectivelyOnline === true)
+          syncStatusLocally(operational)
         }
       } catch (error) {
         try {
@@ -147,23 +161,7 @@ export default function DeliverySettings() {
 
   const handleDeliveryStatusChange = (checked) => {
     if (savingStatus) return
-
-    // If turning ON and outside outlet timings, show warning
-    if (checked && !canEnableDelivery) {
-      setPendingStatus(checked)
-      setShowConfirmDialog(true)
-      return
-    }
-
-    // If turning OFF, show confirmation
-    if (!checked && deliveryStatus) {
-      setPendingStatus(checked)
-      setShowConfirmDialog(true)
-      return
-    }
-
-    // Otherwise, update directly
-    void saveDeliveryStatusToBackend(checked)
+    navigate("/restaurant/status")
   }
 
   const saveDeliveryStatusToBackend = async (status) => {
@@ -270,7 +268,7 @@ export default function DeliverySettings() {
                         initial={{ opacity: 0, y: -5 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -5 }}
-                        className="text-xs text-[#B80B3D] mt-2 animate-pulse flex items-center gap-1"
+                        className="text-xs text-red-600 mt-2 animate-pulse flex items-center gap-1"
                       >
                         <AlertCircle className="w-3 h-3" />
                         Warning: Delivery enabled outside outlet timings!
@@ -335,7 +333,7 @@ export default function DeliverySettings() {
                     pendingStatus ? "bg-orange-100" : "bg-red-100"
                   }`}>
                     <AlertCircle className={`w-10 h-10 ${
-                      pendingStatus ? "text-orange-600" : "text-[#B80B3D]"
+                      pendingStatus ? "text-orange-600" : "text-red-600"
                     }`} />
                   </div>
                 </div>
@@ -368,7 +366,7 @@ export default function DeliverySettings() {
                     className={`flex-1 px-4 py-3 font-semibold rounded-lg transition-colors ${
                       pendingStatus 
                         ? "bg-green-600 hover:bg-green-700 text-white"
-                        : "bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-red-700 text-white"
+                        : "bg-red-600 hover:bg-red-700 text-white"
                     }`}
                   >
                     {pendingStatus ? "Enable" : "Disable"}
@@ -390,7 +388,7 @@ export default function DeliverySettings() {
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
             className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] px-4 w-full max-w-md"
           >
-            <div className="bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white px-4 py-3 rounded-lg shadow-2xl flex items-center gap-3">
+            <div className="bg-gray-900 text-white px-4 py-3 rounded-lg shadow-2xl flex items-center gap-3">
               <CheckCircle className="w-5 h-5 text-green-400 shrink-0" />
               <p className="text-sm font-medium flex-1">{toastMessage}</p>
             </div>
@@ -400,11 +398,4 @@ export default function DeliverySettings() {
     </div>
   )
 }
-
-
-
-
-
-
-
 

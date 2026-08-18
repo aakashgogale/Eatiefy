@@ -5,7 +5,6 @@ import { getModuleToken } from "@food/utils/auth"
 import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
 import { Button } from "@food/components/ui/button"
-import { prepareUploadFile } from "@/shared/utils/imageCompressor"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -103,7 +102,7 @@ export default function DiningManagement() {
             let imageUrl = editingCategoryImageUrl
 
             if (categoryFile) {
-                const uploadResponse = await uploadAPI.uploadMedia(categoryFile, { folder: "appzeto/dining/categories" })
+                const uploadResponse = await uploadAPI.uploadMedia(categoryFile, { folder: "eatiefy/dining/categories" })
                 imageUrl = uploadResponse?.data?.data?.url || ""
             }
 
@@ -163,7 +162,7 @@ export default function DiningManagement() {
         try {
             setBannersUploading(true)
             const formData = new FormData()
-            formData.append('files', await prepareUploadFile(bannerFile))
+            formData.append('files', bannerFile)
             if (bannerTagline.trim()) formData.append('title', bannerTagline.trim())
             if (bannerPercentageOff.trim()) formData.append('ctaText', bannerPercentageOff.trim())
 
@@ -267,7 +266,7 @@ export default function DiningManagement() {
                                         <Input type="file" ref={categoryFileInputRef} onChange={e => setCategoryFile(e.target.files[0])} accept="image/*" className="mt-1" />
                                         {editingCategoryId && editingCategoryImageUrl && !categoryFile && (
                                             <div className="mt-3">
-                                                <img src={editingCategoryImageUrl} alt={categoryName || "Current category"} className="w-24 h-24 rounded-lg object-cover border border-slate-200" />
+                                                <img src={editingCategoryImageUrl} alt={categoryName || "Current category"} className="w-24 h-24 rounded-lg object-cover border border-slate-200"  loading="lazy" decoding="async" />
                                                 <p className="text-xs text-slate-500 mt-2">Current image will be kept unless you select a new one.</p>
                                             </div>
                                         )}
@@ -285,7 +284,7 @@ export default function DiningManagement() {
                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                                         {categories.map(cat => (
                                             <div key={cat._id} className="border rounded-lg overflow-hidden group relative">
-                                                <img src={cat.imageUrl} alt={cat.name} className="w-full h-32 object-cover" />
+                                                <img src={cat.imageUrl} alt={cat.name} className="w-full h-32 object-cover"  loading="lazy" decoding="async" />
                                                 <div className="p-3 bg-white">
                                                     <p className="font-medium text-slate-900">{cat.name}</p>
                                                 </div>
@@ -350,7 +349,7 @@ export default function DiningManagement() {
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         {banners.map(banner => (
                                             <div key={banner._id} className="border rounded-lg overflow-hidden group relative">
-                                                <img src={banner.imageUrl} alt={banner.title || "Dining banner"} className="w-full h-32 object-cover" />
+                                                <img src={banner.imageUrl} alt={banner.title || "Dining banner"} className="w-full h-32 object-cover"  loading="lazy" decoding="async" />
                                                 <div className="p-3 bg-white">
                                                     {banner.ctaText && <p className="font-bold text-slate-900">{banner.ctaText}</p>}
                                                     {banner.title && <p className="text-sm text-slate-600">{banner.title}</p>}

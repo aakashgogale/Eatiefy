@@ -4,6 +4,7 @@ import { ValidationError } from '../../../../core/auth/errors.js';
 const addonPayloadSchema = z.object({
     name: z.string().min(1, 'Add-on name is required').max(200),
     description: z.string().max(2000).optional().default(''),
+    foodType: z.enum(['veg', 'non-veg']).optional().default('veg'),
     price: z.coerce.number().min(0, 'Price must be >= 0'),
     image: z.string().max(2000).optional().default(''),
     images: z.array(z.string().max(2000)).max(10).optional().default([])
@@ -55,4 +56,3 @@ export const validateAddonUpdateDto = (body) => {
     }
     return { ...d, ...(draft ? { draft } : {}) };
 };
-

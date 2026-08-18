@@ -11,8 +11,8 @@ export const showNotificationToast = ({ title, message } = {}) => {
       <div className="flex-shrink-0">
         <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-[#DC2626] to-[#991B1B] flex items-center justify-center shadow-lg">
           <img
-            src="/assets/images/ometto-toast-logo.png"
-            alt="Ometto"
+            src="/assets/images/eatify-toast-logo.png"
+            alt="Eatify"
             className="w-7 h-7 object-contain brightness-0 invert"
             onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
           />
@@ -33,15 +33,15 @@ export const showNotificationToast = ({ title, message } = {}) => {
   });
 };
 
-export const showOmettoBrandedToast = ({ title, message, id = "ometto-branded-toast", duration = 4000 } = {}) => {
+export const showEatifyBrandedToast = ({ title, message, id = "eatify-branded-toast", duration = 4000 } = {}) => {
   toast.custom(
     () => (
       <div className="w-[calc(100vw-32px)] sm:w-[380px] bg-white shadow-[0_8px_30px_rgb(0,0,0,0.12)] rounded-3xl pointer-events-auto flex items-center gap-4 p-3.5 border border-gray-50 animate-in fade-in slide-in-from-top-4 z-[11000]">
         <div className="flex-shrink-0">
           <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-[#DC2626] to-[#991B1B] flex items-center justify-center p-1.5 shadow-lg">
             <img
-              src="/assets/images/ometto-toast-logo.png"
-              alt="Ometto"
+              src="/assets/images/eatify-toast-logo.png"
+              alt="Eatify"
               className="w-full h-full object-contain brightness-0 invert"
             />
           </div>
@@ -63,7 +63,7 @@ export const showOmettoBrandedToast = ({ title, message, id = "ometto-branded-to
 };
 
 export const showAddressRemovedToast = () => {
-  showOmettoBrandedToast({
+  showEatifyBrandedToast({
     title: "Address Removed Successfully",
     id: "address-removed-toast",
   });

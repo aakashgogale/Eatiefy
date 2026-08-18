@@ -4,6 +4,7 @@ import { Toaster } from 'sonner'
 import App from './app/App.jsx'
 import { isModuleAuthenticated } from './modules/Food/utils/auth.js'
 import './shared/styles/global.css'
+import { setupSmoothScroll } from './shared/utils/smoothScroll.js'
 
 const NATIVE_LAST_ROUTE_KEY = 'native_last_route'
 
@@ -22,31 +23,20 @@ if (savedTheme === 'dark') {
   document.documentElement.classList.remove('dark')
 }
 
-// Track user interaction for navigator.vibrate / audio autoplay
-if (typeof window !== 'undefined') {
-  window.__userHasInteracted = false
-  const handleInteraction = () => {
-    window.__userHasInteracted = true
-    window.removeEventListener('pointerdown', handleInteraction)
-    window.removeEventListener('keydown', handleInteraction)
-    window.removeEventListener('touchstart', handleInteraction)
-    window.removeEventListener('click', handleInteraction)
-  }
-  window.addEventListener('pointerdown', handleInteraction, { passive: true })
-  window.addEventListener('keydown', handleInteraction, { passive: true })
-  window.addEventListener('touchstart', handleInteraction, { passive: true })
-  window.addEventListener('click', handleInteraction, { passive: true })
-}
-
 function isNativeLikeShell() {
   if (typeof window === 'undefined') return false
 
   const protocol = String(window.location?.protocol || '').toLowerCase()
   const userAgent = String(window.navigator?.userAgent || '').toLowerCase()
+  const referrer = String(document.referrer || '').toLowerCase()
 
   return (
     Boolean(window.flutter_inappwebview) ||
     Boolean(window.ReactNativeWebView) ||
+    userAgent.includes('flutter') ||
+    userAgent.includes('inappwebview') ||
+    userAgent.includes('crosswalk') ||
+    referrer.startsWith('android-app://') ||
     protocol === 'file:' ||
     userAgent.includes(' wv') ||
     userAgent.includes('; wv')
@@ -89,42 +79,12 @@ function bootstrapNativeHashRoute() {
 }
 
 bootstrapNativeHashRoute()
-
-// Standard web browser redirect for raw paths to prevent React Router unmounting crashes
-if (typeof window !== 'undefined') {
-  const rawPath = window.location.pathname
-  const isRestaurant = rawPath === '/restaurant' || rawPath.startsWith('/restaurant/')
-  const isDelivery = rawPath === '/delivery' || rawPath.startsWith('/delivery/')
-
-  if ((isRestaurant || isDelivery) && !isNativeLikeShell()) {
-    window.location.replace(`/food${rawPath}${window.location.search}`)
-  }
+const isEmbeddedShell = isNativeLikeShell()
+if (isEmbeddedShell) {
+  document.documentElement.setAttribute('data-embedded-shell', 'true')
 }
-
-// ─── DOM Node Safe Patch (Google Translate / Extension DOM Mutation Fix) ──────
-if (typeof window !== 'undefined' && typeof Node !== 'undefined') {
-  const originalRemoveChild = Node.prototype.removeChild
-  Node.prototype.removeChild = function (child) {
-    if (child && child.parentNode !== this) {
-      if (child.parentNode) {
-        return originalRemoveChild.call(child.parentNode, child)
-      }
-      return child
-    }
-    return originalRemoveChild.call(this, child)
-  }
-
-  const originalInsertBefore = Node.prototype.insertBefore
-  Node.prototype.insertBefore = function (newNode, referenceNode) {
-    if (referenceNode && referenceNode.parentNode !== this) {
-      if (referenceNode.parentNode) {
-        return originalInsertBefore.call(referenceNode.parentNode, newNode, referenceNode)
-      }
-      return this.appendChild(newNode)
-    }
-    return originalInsertBefore.call(this, newNode, referenceNode)
-  }
-}
+const cleanupSmoothScroll = setupSmoothScroll({ disabled: isEmbeddedShell })
+window.addEventListener('beforeunload', cleanupSmoothScroll)
 
 // ─── Suppress known non-critical errors ──────────────────────────────────────
 
@@ -144,10 +104,7 @@ console.error = (...args) => {
     errorStr.includes('GeolocationPositionError') ||
     errorStr.includes('Geolocation error') ||
     errorStr.includes('User denied Geolocation') ||
-    errorStr.includes('permission denied') ||
-    errorStr.includes("Failed to execute 'removeChild'") ||
-    errorStr.includes("Failed to execute 'insertBefore'") ||
-    errorStr.includes('The node to be removed is not a child of this node')
+    errorStr.includes('permission denied')
   ) return
 
   const hasNetworkError = args.some(arg =>
@@ -172,43 +129,30 @@ console.error = (...args) => {
   originalError.apply(console, args)
 }
 
-if (typeof window !== 'undefined') {
-  window.addEventListener('error', (event) => {
-    const errorMsg = event?.error?.message || event?.message || ''
-    if (
-      errorMsg.includes("Failed to execute 'removeChild'") ||
-      errorMsg.includes("Failed to execute 'insertBefore'") ||
-      errorMsg.includes('The node to be removed is not a child of this node')
-    ) {
-      event.preventDefault()
-      if (event.stopImmediatePropagation) event.stopImmediatePropagation()
-    }
-  }, true)
-
-  window.addEventListener('unhandledrejection', (event) => {
-    const error = event.reason || event
-    const errorMsg = error?.message || String(error) || ''
-    const errorName = error?.name || ''
-    if (
-      errorMsg.includes('Timeout expired') ||
-      errorMsg.includes('User denied Geolocation') ||
-      errorMsg.includes('permission denied') ||
-      errorMsg.includes("Failed to execute 'removeChild'") ||
-      errorMsg.includes("Failed to execute 'insertBefore'") ||
-      errorMsg.includes('The node to be removed is not a child of this node') ||
-      errorName === 'GeolocationPositionError'
-    ) {
-      event.preventDefault()
-    }
-  })
-}
+window.addEventListener('unhandledrejection', (event) => {
+  const error = event.reason || event
+  const errorMsg = error?.message || String(error) || ''
+  const errorName = error?.name || ''
+  const errorCode = error?.code || ''
+  if (
+    errorMsg.includes('Timeout expired') ||
+    errorMsg.includes('User denied Geolocation') ||
+    errorMsg.includes('permission denied') ||
+    errorName === 'GeolocationPositionError' ||
+    errorName === 'AxiosError' ||
+    errorCode === 'ECONNABORTED' ||
+    errorCode === 'ERR_NETWORK' ||
+    errorMsg.includes('timeout') ||
+    errorMsg.includes('Network Error')
+  ) {
+    event.preventDefault()
+    return
+  }
+})
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { AppProviders } from './app/providers.jsx'
-import { installNativeApiErrorBridge } from './shared/utils/apiError.js'
-
-installNativeApiErrorBridge()
 
 const rootElement = document.getElementById('root')
 if (!rootElement) throw new Error('Root element not found')

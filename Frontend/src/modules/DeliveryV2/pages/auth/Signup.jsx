@@ -14,8 +14,7 @@ import {
 } from "@food/components/ui/select"
 import { deliveryAPI } from "@food/api"
 import { clearModuleAuth } from "@food/utils/auth"
-import { clearOnboardingFcmLocal } from "@food/utils/firebaseMessaging"
-import loginBg from "@food/assets/deliveryloginbanner.png"
+import loginBg from "@food/assets/deliveryloginbanner.webp"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -162,8 +161,6 @@ export default function DeliverySignup() {
         ref: String(searchParams.get("ref") || "").trim() || undefined,
       }
       sessionStorage.setItem("deliverySignupDetails", JSON.stringify(signupDetails))
-      sessionStorage.setItem("deliveryNeedsRegistration", "true")
-      clearOnboardingFcmLocal("delivery")
       clearModuleAuth("delivery")
 
       navigate("/food/delivery/signup/details")

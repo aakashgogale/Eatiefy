@@ -1,7 +1,15 @@
-# dependencies
-node_modules/
-/dist
-/dist-ssr
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
 *.local
 
 # Editor directories and files
@@ -15,18 +23,12 @@ node_modules/
 *.sln
 *.sw?
 
-# environment variables
+# Environment variables
 .env
-.env.*
-!.env.example
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
 
-# logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-lerna-debug.log*
-.pnpm-debug.log*
-
-# system files
-.DS_Store
-Thumbs.db
+# Vite
+*.timestamp-*

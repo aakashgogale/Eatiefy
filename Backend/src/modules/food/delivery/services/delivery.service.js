@@ -4,99 +4,25 @@ import { DeliverySupportTicket } from '../models/supportTicket.model.js';
 import { DeliveryBonusTransaction } from '../../admin/models/deliveryBonusTransaction.model.js';
 import { FoodEarningAddon } from '../../admin/models/earningAddon.model.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
-import { uploadImageBuffer, deleteReplacedAssets } from '../../../../services/storage.service.js';
+import { uploadImageBuffer } from '../../../../services/cloudinary.service.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import { getDeliveryCashLimitSettings } from '../../admin/services/admin.service.js';
+import { upsertFirebaseDeviceToken } from '../../../../core/notifications/firebase.service.js';
 import { logger } from '../../../../utils/logger.js';
-import {
-  toStartOfDayInTimeZone,
-  toEndOfDayInTimeZone,
-  getWeekRangeInTimeZone,
-  getMonthRangeInTimeZone,
-  APP_TIMEZONE,
-} from '../../../../utils/timezone.js';
 
-export const normalizeDeliveryPhone = (phone) => {
-    const digits = String(phone || '').replace(/\D/g, '');
-    return digits.slice(-10) || null;
-};
-
-const escapeDeliveryPhoneRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-export const findDeliveryPartnerByPhone = async (phone) => {
-    const normalized = normalizeDeliveryPhone(phone);
-    if (!normalized) return null;
-
-    const candidates = Array.from(
-        new Set([normalized, `91${normalized}`, `+91${normalized}`, `0${normalized}`])
-    );
-    const suffixPattern = new RegExp(`${escapeDeliveryPhoneRegex(normalized)}$`);
-
-    const matchingPartners = await FoodDeliveryPartner.find({
-        $or: [
-            { phone: { $in: candidates } },
-            { phone: { $regex: suffixPattern } },
-        ],
-    });
-
-    const statusPriority = { approved: 1, pending: 2, rejected: 3, deleted: 4 };
-    return (
-        matchingPartners.sort((a, b) => {
-            const pA = statusPriority[a.status] || 99;
-            const pB = statusPriority[b.status] || 99;
-            return pA - pB;
-        })[0] || null
-    );
-};
-
-const formatDeliveryDuplicateKeyError = (err) => {
-    if (!err || err.code !== 11000) return null;
-
-    const keyPattern = err.keyPattern || {};
-    const keyValue = err.keyValue || {};
-
-    if (keyPattern.phone || keyValue.phone !== undefined) {
-        return 'Delivery partner with this phone number already exists';
-    }
-    if (keyPattern.vehicleNumber || keyValue.vehicleNumber !== undefined) {
-        return 'This vehicle number is already registered. Please use a different vehicle number.';
-    }
-    if (keyPattern.panNumber || keyValue.panNumber !== undefined) {
-        return 'This PAN number is already registered.';
-    }
-    if (keyPattern.aadharNumber || keyValue.aadharNumber !== undefined) {
-        return 'This Aadhar number is already registered.';
-    }
-    if (keyPattern.drivingLicenseNumber || keyValue.drivingLicenseNumber !== undefined) {
-        return 'This driving license number is already registered.';
-    }
-
-    return 'This account detail is already registered. Please check your information.';
-};
-
-const clearPartnerForReRegistration = async (existing) => {
-    if (!existing) return;
-
-    if (existing.status === 'rejected') {
-        await FoodDeliveryPartner.deleteOne({ _id: existing._id });
-        return;
-    }
-
-    if (existing.status === 'deleted') {
-        existing.phone = `${existing.phone}_deleted_${Date.now()}`;
-        await existing.save();
+const savePartnerFcmToken = async (partnerId, fcmToken, platform) => {
+    if (!fcmToken || !partnerId) return;
+    try {
+        await upsertFirebaseDeviceToken({
+            ownerType: 'DELIVERY_PARTNER',
+            ownerId: String(partnerId),
+            token: fcmToken,
+            platform,
+        });
+    } catch (err) {
+        logger.warn({ err, partnerId: String(partnerId) }, 'Failed to save delivery partner FCM token');
     }
 };
-
-/** Keep FCM arrays on the in-memory doc in sync before partner.save() (avoids wiping tokens). */
-function appendPartnerFcmToken(partner, fcmToken, platform = 'web') {
-    const token = String(fcmToken || '').trim();
-    if (!token || !partner) return;
-    const field = platform === 'mobile' ? 'fcmTokenMobile' : 'fcmTokens';
-    const existing = Array.isArray(partner[field]) ? partner[field] : [];
-    if (existing.includes(token)) return;
-    partner[field] = [...existing, token].slice(-10);
-}
 
 export const registerDeliveryPartner = async (payload, files) => {
     const { 
@@ -105,133 +31,123 @@ export const registerDeliveryPartner = async (payload, files) => {
         fcmToken, platform 
     } = payload;
     const refRaw = typeof payload?.ref === 'string' ? String(payload.ref).trim() : '';
-    const normalizedPhone = normalizeDeliveryPhone(phone);
 
-    if (!normalizedPhone) {
-        throw new ValidationError('Valid phone number is required');
-    }
-
-    const existing = await findDeliveryPartnerByPhone(normalizedPhone);
+    const existing = await FoodDeliveryPartner.findOne({ phone });
     if (existing) {
-        if (existing.status === 'pending') {
-            throw new ValidationError(
-                'Registration with this phone is already submitted and pending admin approval. Please check Join Requests in admin panel.'
-            );
+        if (existing.status !== 'rejected') {
+            throw new ValidationError('Delivery partner with this phone already exists');
         }
-        if (existing.status === 'approved') {
-            throw new ValidationError('Delivery partner with this phone number already exists. Please login instead.');
-        }
-        await clearPartnerForReRegistration(existing);
+        // If rejected, delete the old record so they can start fresh with same phone
+        await FoodDeliveryPartner.deleteMany({ phone });
     }
 
-    const normalizedVehicleNumber = vehicleNumber
-        ? String(vehicleNumber).trim().toUpperCase()
-        : undefined;
-
-    if (normalizedVehicleNumber) {
-        const existingVehicle = await FoodDeliveryPartner.findOne({
-            vehicleNumber: normalizedVehicleNumber,
-        }).select('_id phone status').lean();
-
-        if (existingVehicle) {
-            throw new ValidationError(
-                'This vehicle number is already registered. Please use a different vehicle number.'
-            );
+    if (vehicleNumber && String(vehicleNumber).trim()) {
+        const vNum = String(vehicleNumber).trim().toUpperCase();
+        
+        // 1. Check for active/pending partners with this vehicle
+        const activeVehicle = await FoodDeliveryPartner.findOne({ 
+            vehicleNumber: vNum, 
+            status: { $ne: 'rejected' } 
+        });
+        if (activeVehicle) {
+            throw new ValidationError('Vehicle number already registered with another partner');
         }
+        
+        // 2. Clean up any rejected records with this vehicle (to satisfy unique index)
+        await FoodDeliveryPartner.deleteMany({ 
+            vehicleNumber: vNum, 
+            status: 'rejected' 
+        });
     }
 
-    const images = {};
+    const uploadTasks = [];
 
     if (files?.profilePhoto?.[0]) {
-        images.profilePhoto = await uploadImageBuffer(files.profilePhoto[0].buffer, 'food/delivery/profile');
+        uploadTasks.push(
+            uploadImageBuffer(files.profilePhoto[0].buffer, 'food/delivery/profile').then((url) => [
+                'profilePhoto',
+                url
+            ])
+        );
     }
     if (files?.aadharPhoto?.[0]) {
-        images.aadharPhoto = await uploadImageBuffer(files.aadharPhoto[0].buffer, 'food/delivery/aadhar');
+        uploadTasks.push(
+            uploadImageBuffer(files.aadharPhoto[0].buffer, 'food/delivery/aadhar').then((url) => [
+                'aadharPhoto',
+                url
+            ])
+        );
     }
     if (files?.panPhoto?.[0]) {
-        images.panPhoto = await uploadImageBuffer(files.panPhoto[0].buffer, 'food/delivery/pan');
+        uploadTasks.push(
+            uploadImageBuffer(files.panPhoto[0].buffer, 'food/delivery/pan').then((url) => [
+                'panPhoto',
+                url
+            ])
+        );
     }
     if (files?.drivingLicensePhoto?.[0]) {
-        images.drivingLicensePhoto = await uploadImageBuffer(
-            files.drivingLicensePhoto[0].buffer,
-            'food/delivery/license'
+        uploadTasks.push(
+            uploadImageBuffer(
+                files.drivingLicensePhoto[0].buffer,
+                'food/delivery/license'
+            ).then((url) => ['drivingLicensePhoto', url])
         );
     }
 
-    const normalizedEmail =
-        email && String(email).trim() ? String(email).trim().toLowerCase() : undefined;
+    const images = Object.fromEntries(await Promise.all(uploadTasks));
 
-    let partner;
-
-    try {
-        partner = await FoodDeliveryPartner.create({
-            name,
-            phone: normalizedPhone,
-            email: normalizedEmail,
-            countryCode,
-            address,
-            city,
-            state,
-            vehicleType,
-            vehicleName,
-            vehicleNumber: normalizedVehicleNumber,
-            drivingLicenseNumber,
-            panNumber,
-            aadharNumber,
-            status: 'pending',
-            ...(fcmToken
-                ? (platform === 'mobile'
-                    ? { fcmTokenMobile: [String(fcmToken).trim()] }
-                    : { fcmTokens: [String(fcmToken).trim()] })
-                : {}),
-            ...images
-        });
-    } catch (err) {
-        const duplicateMessage = formatDeliveryDuplicateKeyError(err);
-        if (duplicateMessage) {
-            throw new ValidationError(duplicateMessage);
+    let normalizedEmail = undefined;
+    if (email && String(email).trim()) {
+        normalizedEmail = String(email).trim().toLowerCase();
+        const emailRegex = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9\-]+(?:\.[a-zA-Z0-9\-]+)*\.[a-zA-Z]{2,10}$/;
+        if (!emailRegex.test(normalizedEmail) || normalizedEmail.includes('..')) {
+            throw new ValidationError('Invalid email format');
         }
-        throw err;
+        const domain = normalizedEmail.split('@')[1];
+        const segments = domain ? domain.split('.') : [];
+        if (segments.length >= 2 && segments[segments.length - 1] === segments[segments.length - 2]) {
+            throw new ValidationError('Invalid email domain (repeated segments)');
+        }
     }
 
-    const postCreateSet = {};
+    const partner = await FoodDeliveryPartner.create({
+        name,
+        phone,
+        email: normalizedEmail,
+        countryCode,
+        address,
+        city,
+        state,
+        vehicleType,
+        vehicleName,
+        vehicleNumber,
+        drivingLicenseNumber,
+        panNumber,
+        aadharNumber,
+        status: 'pending',
+        ...images
+    });
+
+    // Ensure referralCode exists for sharing.
     if (!partner.referralCode) {
-        postCreateSet.referralCode = String(partner._id);
+        partner.referralCode = String(partner._id);
     }
 
     // Store referredBy (no credit here; credit happens on admin approval).
     if (refRaw && mongoose.Types.ObjectId.isValid(refRaw) && String(refRaw) !== String(partner._id)) {
         const referrer = await FoodDeliveryPartner.findById(refRaw).select('_id').lean();
         if (referrer) {
-            postCreateSet.referredBy = referrer._id;
+            partner.referredBy = referrer._id;
         }
     }
 
-    if (Object.keys(postCreateSet).length) {
-        await FoodDeliveryPartner.updateOne({ _id: partner._id }, { $set: postCreateSet });
-        Object.assign(partner, postCreateSet);
-    }
+    await partner.save();
 
+    // Save FCM via shared upsert so this token can't live on another account/bucket.
     if (fcmToken) {
-        try {
-            const { upsertFirebaseDeviceToken } = await import('../../../../core/notifications/firebase.service.js');
-            await upsertFirebaseDeviceToken({
-                ownerType: 'DELIVERY_PARTNER',
-                ownerId: String(partner._id),
-                token: String(fcmToken).trim(),
-                platform: platform === 'mobile' ? 'mobile' : 'web',
-            });
-        } catch (err) {
-            logger.warn(`[FCM-Register] Delivery ${partner._id} upsert backup failed: ${err?.message || err}`);
-        }
+        await savePartnerFcmToken(partner._id, fcmToken, platform);
     }
-
-    const tokenSnapshot = await FoodDeliveryPartner.findById(partner._id)
-        .select('fcmTokens fcmTokenMobile')
-        .lean();
-    logger.info(
-        `[FCM-Register] Delivery ${partner._id} saved tokens web=${tokenSnapshot?.fcmTokens?.length || 0} mobile=${tokenSnapshot?.fcmTokenMobile?.length || 0}`
-    );
 
     try {
         const { notifyAdminsSafely } = await import('../../../../core/notifications/firebase.service.js');
@@ -259,38 +175,52 @@ export const updateDeliveryPartnerProfile = async (userId, payload, files) => {
     }
 
     const {
-        name, email, countryCode, address, city, state,
+        name, countryCode, address, city, state,
         vehicleType, vehicleName, vehicleNumber, drivingLicenseNumber, panNumber, aadharNumber,
         fcmToken, platform
     } = payload;
 
     if (name) partner.name = name;
-    if (email !== undefined) {
-        const normalizedEmail = String(email || '').trim().toLowerCase();
-        if (normalizedEmail) partner.email = normalizedEmail;
-    }
     if (countryCode !== undefined) partner.countryCode = countryCode;
     if (address !== undefined) partner.address = address;
     if (city !== undefined) partner.city = city;
     if (state !== undefined) partner.state = state;
     if (vehicleType !== undefined) partner.vehicleType = vehicleType;
     if (vehicleName !== undefined) partner.vehicleName = vehicleName;
-    if (vehicleNumber !== undefined) partner.vehicleNumber = vehicleNumber;
-    if (drivingLicenseNumber !== undefined) partner.drivingLicenseNumber = drivingLicenseNumber;
-
-    if (fcmToken) {
-        appendPartnerFcmToken(partner, fcmToken, platform);
+    if (vehicleNumber !== undefined && String(vehicleNumber).trim().toUpperCase() !== String(partner.vehicleNumber || '').trim().toUpperCase()) {
+        const vNum = String(vehicleNumber).trim().toUpperCase();
+        if (vNum) {
+            const activeVehicle = await FoodDeliveryPartner.findOne({ 
+                vehicleNumber: vNum,
+                _id: { $ne: userId },
+                status: { $ne: 'rejected' }
+            });
+            if (activeVehicle) {
+                throw new ValidationError('Vehicle number already registered with another partner');
+            }
+            
+            // Clean up rejected records with this vehicle if we are taking it
+            await FoodDeliveryPartner.deleteMany({ 
+                vehicleNumber: vNum, 
+                status: 'rejected' 
+            });
+        }
+        partner.vehicleNumber = vNum;
     }
+    if (drivingLicenseNumber !== undefined) partner.drivingLicenseNumber = drivingLicenseNumber;
 
     let updatedDocsRequiringReapproval = false;
 
     if (files?.profilePhoto?.[0]) {
-        partner.profilePhoto = await uploadImageBuffer(files.profilePhoto[0].buffer, 'food/delivery/profile', {
-            replaceUrl: partner.profilePhoto
-        });
+        partner.profilePhoto = await uploadImageBuffer(files.profilePhoto[0].buffer, 'food/delivery/profile');
     }
 
     await partner.save();
+
+    if (fcmToken) {
+        await savePartnerFcmToken(partner._id, fcmToken, platform);
+    }
+
     return {
         partner: partner.toObject(),
         requiresReapproval: false
@@ -305,16 +235,33 @@ export const updateDeliveryPartnerDetails = async (userId, payload) => {
 
     const vehicle = payload?.vehicle;
     if (vehicle && typeof vehicle === 'object') {
-        if (vehicle.number !== undefined) partner.vehicleNumber = String(vehicle.number || '').trim();
+        if (vehicle.number !== undefined && String(vehicle.number || '').trim().toUpperCase() !== String(partner.vehicleNumber || '').trim().toUpperCase()) {
+            const vNum = String(vehicle.number || '').trim().toUpperCase();
+            if (vNum) {
+                const activeVehicle = await FoodDeliveryPartner.findOne({ 
+                    vehicleNumber: vNum,
+                    _id: { $ne: userId },
+                    status: { $ne: 'rejected' }
+                });
+                if (activeVehicle) {
+                    throw new ValidationError('Vehicle number already registered with another partner');
+                }
+                
+                // Clean up rejected records with this vehicle
+                await FoodDeliveryPartner.deleteMany({ 
+                    vehicleNumber: vNum, 
+                    status: 'rejected' 
+                });
+            }
+            partner.vehicleNumber = vNum;
+        }
         if (vehicle.type !== undefined) partner.vehicleType = String(vehicle.type || '').trim();
         if (vehicle.brand !== undefined) partner.vehicleName = String(vehicle.brand || '').trim();
         if (vehicle.model !== undefined) partner.vehicleName = String(vehicle.model || '').trim();
     }
 
     if (payload?.profilePhoto !== undefined) {
-        const nextPhoto = payload.profilePhoto ? String(payload.profilePhoto).trim() : '';
-        await deleteReplacedAssets(partner.profilePhoto, nextPhoto);
-        partner.profilePhoto = nextPhoto;
+        partner.profilePhoto = payload.profilePhoto ? String(payload.profilePhoto).trim() : '';
     }
 
     await partner.save();
@@ -339,9 +286,7 @@ export const updateDeliveryPartnerProfilePhotoBase64 = async (userId, payload) =
         throw new ValidationError('Image too large (max 8MB)');
     }
     // uploadImageBuffer expects raw bytes; mimeType is ignored by current implementation, but buffer is valid.
-    partner.profilePhoto = await uploadImageBuffer(buffer, 'food/delivery/profile', {
-        replaceUrl: partner.profilePhoto
-    });
+    partner.profilePhoto = await uploadImageBuffer(buffer, 'food/delivery/profile');
     await partner.save();
     return partner.toObject();
 };
@@ -385,9 +330,7 @@ export const updateDeliveryPartnerBankDetails = async (userId, payload, files) =
     }
 
     if (files?.upiQrCode?.[0]) {
-        partner.upiQrCode = await uploadImageBuffer(files.upiQrCode[0].buffer, 'food/delivery/upi', {
-            replaceUrl: partner.upiQrCode
-        });
+        partner.upiQrCode = await uploadImageBuffer(files.upiQrCode[0].buffer, 'food/delivery/upi');
     }
 
     await partner.save();
@@ -624,35 +567,10 @@ export const getDeliveryPartnerEarnings = async (deliveryPartnerId, query = {}) 
         orderStatus: 'delivered',
     };
     if (range) {
-        // Prefer deliveredAt, but don't drop delivered orders that only have createdAt/updatedAt
-        match.$or = [
-            { 'deliveryState.deliveredAt': { $gte: range.start, $lte: range.end } },
-            {
-                $and: [
-                    {
-                        $or: [
-                            { 'deliveryState.deliveredAt': { $exists: false } },
-                            { 'deliveryState.deliveredAt': null },
-                        ],
-                    },
-                    { updatedAt: { $gte: range.start, $lte: range.end } },
-                ],
-            },
-            {
-                $and: [
-                    {
-                        $or: [
-                            { 'deliveryState.deliveredAt': { $exists: false } },
-                            { 'deliveryState.deliveredAt': null },
-                        ],
-                    },
-                    { createdAt: { $gte: range.start, $lte: range.end } },
-                ],
-            },
-        ];
+        match['deliveryState.deliveredAt'] = { $gte: range.start, $lte: range.end };
     }
 
-    const [totalOrders, agg, bonusAgg] = await Promise.all([
+    const [totalOrders, agg] = await Promise.all([
         FoodOrder.countDocuments(match),
         FoodOrder.aggregate([
             { $match: match },
@@ -662,36 +580,20 @@ export const getDeliveryPartnerEarnings = async (deliveryPartnerId, query = {}) 
                     totalEarnings: { $sum: { $ifNull: ['$riderEarning', 0] } }
                 }
             }
-        ]),
-        range
-            ? DeliveryBonusTransaction.aggregate([
-                {
-                    $match: {
-                        deliveryPartnerId: partnerId,
-                        createdAt: { $gte: range.start, $lte: range.end },
-                    },
-                },
-                { $group: { _id: null, total: { $sum: { $ifNull: ['$amount', 0] } } } },
-            ])
-            : DeliveryBonusTransaction.aggregate([
-                { $match: { deliveryPartnerId: partnerId } },
-                { $group: { _id: null, total: { $sum: { $ifNull: ['$amount', 0] } } } },
-            ]),
+        ])
     ]);
 
     const totalEarnings = Number(agg?.[0]?.totalEarnings) || 0;
-    const totalBonus = Number(bonusAgg?.[0]?.total) || 0;
 
-    // Weekly "Earnings" card = order earnings only.
-    // Admin/referral/addon bonuses stay in pocket balance (not mixed into this card).
+    // Frontend only strongly relies on totalEarnings + totalOrders.
     const summary = {
         totalEarnings,
         totalOrders,
         totalHours: 0,
         totalMinutes: 0,
         orderEarning: totalEarnings,
-        incentive: totalBonus,
-        otherEarnings: totalBonus,
+        incentive: 0,
+        otherEarnings: 0
     };
 
     return {
@@ -710,93 +612,95 @@ const normalizeStatusFilter = (status) => {
     return s;
 };
 
-const toStartOfDay = (d) => toStartOfDayInTimeZone(d);
-const toEndOfDay = (d) => toEndOfDayInTimeZone(d);
-const getWeekRange = (anchorDate) => getWeekRangeInTimeZone(anchorDate);
-const getMonthRange = (anchorDate) => getMonthRangeInTimeZone(anchorDate);
+const toStartOfDay = (d) => {
+    const x = new Date(d);
+    x.setHours(0, 0, 0, 0);
+    return x;
+};
 
-const formatTripTimeIST = (value) => {
-  if (!value) return '';
-  const d = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
-  // Always Asia/Kolkata — never depend on server OS timezone
-  return d.toLocaleTimeString('en-IN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-    timeZone: APP_TIMEZONE,
-  });
+const toEndOfDay = (d) => {
+    const x = new Date(d);
+    x.setHours(23, 59, 59, 999);
+    return x;
+};
+
+const getWeekRange = (anchorDate) => {
+    const d = new Date(anchorDate);
+    const start = toStartOfDay(d);
+    start.setDate(start.getDate() - start.getDay()); // Sunday
+    const end = toEndOfDay(start);
+    end.setDate(start.getDate() + 6);
+    return { start, end };
+};
+
+const getMonthRange = (anchorDate) => {
+    const d = new Date(anchorDate);
+    const start = new Date(d.getFullYear(), d.getMonth(), 1);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
 };
 
 const computeRange = (period, date) => {
-  const p = String(period || 'daily').toLowerCase();
-  const anchor = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
-  if (p === 'weekly' || p === 'week') return getWeekRange(anchor);
-  if (p === 'monthly' || p === 'month') return getMonthRange(anchor);
-  // daily
-  return { start: toStartOfDay(anchor), end: toEndOfDay(anchor) };
+    const p = String(period || 'daily').toLowerCase();
+    const anchor = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
+    if (p === 'weekly' || p === 'week') return getWeekRange(anchor);
+    if (p === 'monthly' || p === 'month') return getMonthRange(anchor);
+    // daily
+    return { start: toStartOfDay(anchor), end: toEndOfDay(anchor) };
 };
 
 const toTripDto = (order) => {
-  const createdAt = order?.createdAt || null;
-  const deliveredAt = order?.deliveryState?.deliveredAt || order?.deliveredAt || order?.completedAt || null;
-  // Match admin "ORDER DATE" semantics for the Time column: order placed time.
-  // (Delivered time is still exposed separately as deliveredAt for clients that need it.)
-  const dateForUi = createdAt || deliveredAt || order?.updatedAt || null;
+    const createdAt = order?.createdAt || null;
+    const deliveredAt = order?.deliveryState?.deliveredAt || order?.deliveredAt || order?.completedAt || null;
+    const dateForUi = deliveredAt || createdAt || order?.updatedAt || null;
 
-  const time = formatTripTimeIST(dateForUi);
+    const time = dateForUi
+        ? new Date(dateForUi).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+        : '';
 
-  const orderStatus = String(order?.orderStatus || order?.status || '').toLowerCase();
-  const isDelivered = orderStatus === 'delivered' || String(order?.deliveryState?.currentPhase || '').toLowerCase() === 'delivered';
-  const isCancelled = orderStatus.startsWith('cancelled') || String(order?.deliveryState?.status || '').toLowerCase().includes('cancel');
+    const orderStatus = String(order?.orderStatus || order?.status || '').toLowerCase();
+    const isDelivered = orderStatus === 'delivered' || String(order?.deliveryState?.currentPhase || '').toLowerCase() === 'delivered';
+    const isCancelled = orderStatus.startsWith('cancelled') || String(order?.deliveryState?.status || '').toLowerCase().includes('cancel');
 
-  const status = isDelivered ? 'Completed' : isCancelled ? 'Cancelled' : 'Pending';
+    const status = isDelivered ? 'Completed' : isCancelled ? 'Cancelled' : 'Pending';
 
-  const restaurantName =
-    order?.restaurantId?.restaurantName ||
-    order?.restaurantName ||
-    order?.restaurant?.restaurantName ||
-    '';
+    const restaurantName =
+        order?.restaurantId?.restaurantName ||
+        order?.restaurantName ||
+        order?.restaurant?.restaurantName ||
+        '';
 
-  const paymentMethod = String(order?.payment?.method || order?.paymentMethod || '').toLowerCase();
-  const pricingTotal = Number(order?.pricing?.total) || Number(order?.totalAmount) || 0;
+    const paymentMethod = order?.payment?.method || order?.paymentMethod || '';
+    const pricingTotal = Number(order?.pricing?.total) || Number(order?.totalAmount) || 0;
 
-  const earningAmount = Number(order?.riderEarning ?? order?.deliveryEarning ?? 0) || 0;
-  const isCashCod =
-    paymentMethod === 'cash' ||
-    paymentMethod === 'cod' ||
-    paymentMethod === 'cash on delivery';
-  const amountDue = Number(order?.payment?.amountDue);
-  const codAmount = isCashCod
-    ? (Number.isFinite(amountDue) && amountDue > 0 ? amountDue : pricingTotal)
-    : 0;
-  const paymentStatus = String(order?.payment?.status || '').toLowerCase();
-  const codCollectedAmount =
-    isCashCod && (paymentStatus === 'paid' || isDelivered) ? codAmount : 0;
-  return {
-    id: order?._id,
-    _id: order?._id,
-    orderId: order?.orderId || order?._id,
-    status,
-    restaurantName,
-    restaurant: restaurantName,
-    items: order?.items || order?.orderItems || [],
-    orderItems: order?.orderItems || order?.items || [],
-    paymentMethod,
-    totalAmount: pricingTotal,
-    orderTotal: pricingTotal,
-    codAmount: codAmount,
-    codCollectedAmount,
-    deliveryEarning: earningAmount,
-    earningAmount: earningAmount,
-    amount: earningAmount, // legacy fallback
-    createdAt: order?.createdAt,
-    deliveredAt: deliveredAt,
-    completedAt: deliveredAt,
-    date: dateForUi,
-    time,
-    timeZone: APP_TIMEZONE,
-  };
+    const earningAmount = Number(order?.riderEarning ?? order?.deliveryEarning ?? 0) || 0;
+    const codAmount = paymentMethod === 'cash' ? Number(order?.payment?.amountDue) || 0 : 0;
+    const codCollectedAmount = paymentMethod === 'cash' && order?.payment?.status === 'paid' ? codAmount : 0;
+    return {
+        id: order?._id,
+        _id: order?._id,
+        orderId: order?.orderId || order?._id,
+        status,
+        restaurantName,
+        restaurant: restaurantName,
+        items: order?.items || order?.orderItems || [],
+        orderItems: order?.orderItems || order?.items || [],
+        paymentMethod,
+        totalAmount: pricingTotal,
+        orderTotal: pricingTotal,
+        codAmount: codAmount,
+        codCollectedAmount,
+        deliveryEarning: earningAmount,
+        earningAmount: earningAmount,
+        amount: earningAmount, // legacy fallback
+        createdAt: order?.createdAt,
+        deliveredAt: deliveredAt,
+        completedAt: deliveredAt,
+        date: dateForUi,
+        time
+    };
 };
 
 export const getDeliveryPartnerTripHistory = async (deliveryPartnerId, query = {}) => {
@@ -812,95 +716,45 @@ export const getDeliveryPartnerTripHistory = async (deliveryPartnerId, query = {
 
     const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
     const match = { 'dispatch.deliveryPartnerId': partnerId };
+    const rangeOrDates = [
+        { 'deliveryState.deliveredAt': { $gte: start, $lte: end } },
+        { deliveredAt: { $gte: start, $lte: end } },
+        { completedAt: { $gte: start, $lte: end } },
+        { updatedAt: { $gte: start, $lte: end } },
+        { createdAt: { $gte: start, $lte: end } }
+    ];
 
     const sf = String(statusFilter || '').toLowerCase();
     if (sf === 'completed') {
-        // Same day axis as ALL TRIPS (order placed / createdAt) so Completed ⊆ ALL
-        // for that day. Using deliveredAt here dropped orders placed yesterday but
-        // delivered next day (or missing deliveredAt), which made COD/earnings smaller.
         match.orderStatus = 'delivered';
-        match.createdAt = { $gte: start, $lte: end };
+        match.$or = rangeOrDates;
     } else if (sf === 'cancelled') {
         match.orderStatus = { $regex: '^cancelled', $options: 'i' };
-        match.createdAt = { $gte: start, $lte: end };
+        match.$or = rangeOrDates;
     } else if (sf === 'pending') {
-        match.createdAt = { $gte: start, $lte: end };
+        match.$or = rangeOrDates;
         // Pending = not delivered and not cancelled
         match.$and = [
             { orderStatus: { $ne: 'delivered' } },
             { orderStatus: { $not: { $regex: '^cancelled', $options: 'i' } } },
         ];
     } else {
-        // ALL TRIPS: show anything created in range
-        match.createdAt = { $gte: start, $lte: end };
+        // ALL TRIPS: include trips by delivery/completion timeline, not only createdAt.
+        match.$or = rangeOrDates;
     }
 
     const orders = await FoodOrder.find(match)
         .populate({ path: 'restaurantId', select: 'restaurantName' })
-        .sort({ createdAt: -1 })
+        .sort({ 'deliveryState.deliveredAt': -1, deliveredAt: -1, completedAt: -1, updatedAt: -1, createdAt: -1 })
         .limit(limit)
         .lean();
-
-    // Sort by each trip's effective time (delivered time for completed, else placed
-    // time) descending — latest order on top regardless of status (pending/completed).
-    const trips = (orders || [])
-        .map(toTripDto)
-        .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
 
     return {
         period,
         date: (date || new Date()).toISOString(),
         range: { start: start.toISOString(), end: end.toISOString() },
-        trips
+        trips: (orders || []).map(toTripDto)
     };
-};
-
-// Reviews given by customers to the logged-in delivery partner.
-export const getDeliveryPartnerReviews = async (deliveryPartnerId, query = {}) => {
-    if (!deliveryPartnerId || !mongoose.Types.ObjectId.isValid(deliveryPartnerId)) {
-        throw new ValidationError('Delivery partner not found');
-    }
-    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 500);
-    const page = Math.max(parseInt(query.page, 10) || 1, 1);
-    const skip = (page - 1) * limit;
-
-    const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
-    const filter = {
-        'dispatch.deliveryPartnerId': partnerId,
-        'ratings.deliveryPartner.rating': { $exists: true, $ne: null },
-    };
-
-    const [docs, total, agg] = await Promise.all([
-        FoodOrder.find(filter)
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limit)
-            .populate('userId', 'name')
-            .select('orderId userId ratings.deliveryPartner createdAt deliveryState.deliveredAt')
-            .lean(),
-        FoodOrder.countDocuments(filter),
-        // Compute the average from the actual delivery ratings on orders so the number
-        // always matches the reviews shown here (the partner.rating aggregate field can
-        // drift from real data, e.g. due to old/test ratings).
-        FoodOrder.aggregate([
-            { $match: filter },
-            { $group: { _id: null, avg: { $avg: '$ratings.deliveryPartner.rating' }, count: { $sum: 1 } } },
-        ]),
-    ]);
-
-    const reviews = docs.map((doc) => ({
-        orderId: doc.orderId,
-        customer: doc.userId?.name || 'Customer',
-        review: doc.ratings?.deliveryPartner?.comment || '',
-        rating: doc.ratings?.deliveryPartner?.rating || 0,
-        submittedAt: doc.createdAt,
-        deliveredAt: doc.deliveryState?.deliveredAt || null,
-    }));
-
-    const averageRating = agg?.[0]?.avg ? Math.round(agg[0].avg * 10) / 10 : 0;
-    const totalRatings = agg?.[0]?.count || total;
-
-    return { reviews, total, page, limit, averageRating, totalRatings };
 };
 
 export const getDeliveryPocketDetails = async (deliveryPartnerId, query = {}) => {
@@ -1050,3 +904,24 @@ export const getActiveEarningAddonsForPartner = async (deliveryPartnerId) => {
     };
 };
 
+
+/**
+ * Delete a delivery partner and all associated data (wallet, tickets) permanently.
+ */
+export const deleteDeliveryPartnerAccount = async (partnerId) => {
+    // Dynamic imports
+    const { DeliverySupportTicket } = await import('../models/supportTicket.model.js');
+    const { FoodDeliveryWallet } = await import('../models/deliveryWallet.model.js');
+
+    const partner = await FoodDeliveryPartner.findById(partnerId);
+    if (!partner) throw new ValidationError('Delivery partner not found');
+
+    // Remove associated documents
+    await FoodDeliveryWallet.findOneAndDelete({ deliveryPartnerId: partnerId });
+    await DeliverySupportTicket.deleteMany({ deliveryPartnerId: partnerId });
+
+    // Remove Partner
+    await FoodDeliveryPartner.findByIdAndDelete(partnerId);
+
+    return { success: true };
+};

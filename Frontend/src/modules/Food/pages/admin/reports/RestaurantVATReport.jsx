@@ -9,7 +9,9 @@ export default function RestaurantVATReport() {
   const [searchQuery, setSearchQuery] = useState("")
   const [reports, setReports] = useState(emptyRestaurantVATReports)
   const [filters, setFilters] = useState({
-    dateRange: "",
+    time: "All Time",
+    fromDate: "",
+    toDate: "",
     restaurant: "All Restaurants",
   })
 
@@ -60,12 +62,14 @@ export default function RestaurantVATReport() {
 
   const handleResetFilters = () => {
     setFilters({
-      dateRange: "",
+      time: "All Time",
+      fromDate: "",
+      toDate: "",
       restaurant: "All Restaurants",
     })
   }
 
-  const activeFiltersCount = (filters.dateRange ? 1 : 0) + (filters.restaurant !== "All Restaurants" ? 1 : 0)
+  const activeFiltersCount = (filters.time !== "All Time" ? 1 : 0) + (filters.restaurant !== "All Restaurants" ? 1 : 0)
 
   return (
     <div className="p-4 lg:p-6 bg-slate-50 min-h-screen overflow-x-hidden">
@@ -81,18 +85,25 @@ export default function RestaurantVATReport() {
             <div className="flex flex-wrap gap-4 flex-1">
               <div className="relative flex-1 min-w-[200px]">
                 <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  Date Range
+                  Date Range Type
                 </label>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                  <input
-                    type="text"
-                    value={filters.dateRange}
-                    onChange={(e) => setFilters(prev => ({ ...prev, dateRange: e.target.value }))}
-                    placeholder="11/27/2025 - 12/03/2025"
-                    className="w-full pl-10 pr-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
+                <select
+                  value={filters.time}
+                  onChange={(e) => setFilters(prev => ({
+                    ...prev,
+                    time: e.target.value,
+                    ...(e.target.value !== "Custom Range" ? { fromDate: "", toDate: "" } : {}),
+                  }))}
+                  className="w-full px-4 py-2.5 pr-8 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="All Time">All Time</option>
+                  <option value="Today">Today</option>
+                  <option value="This Week">This Week</option>
+                  <option value="This Month">This Month</option>
+                  <option value="This Year">This Year</option>
+                  <option value="Custom Range">Custom Range</option>
+                </select>
+                <ChevronDown className="absolute right-2 bottom-2.5 w-4 h-4 text-slate-500 pointer-events-none" />
               </div>
 
               <div className="relative flex-1 min-w-[200px]">
@@ -105,7 +116,7 @@ export default function RestaurantVATReport() {
                   className="w-full px-4 py-2.5 pr-8 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="All Restaurants">All Restaurants</option>
-                  <option value="Café Monarch">Café Monarch</option>
+                  <option value="Cafï¿½ Monarch">Cafï¿½ Monarch</option>
                   <option value="Hungry Puppets">Hungry Puppets</option>
                   <option value="Cheesy Restaurant">Cheesy Restaurant</option>
                   <option value="Cheese Burger">Cheese Burger</option>
@@ -114,6 +125,39 @@ export default function RestaurantVATReport() {
                 <ChevronDown className="absolute right-2 bottom-2.5 w-4 h-4 text-slate-500 pointer-events-none" />
               </div>
             </div>
+
+            {filters.time === "Custom Range" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+                <div className="relative">
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    From Date
+                  </label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                    <input
+                      type="date"
+                      value={filters.fromDate}
+                      onChange={(e) => setFilters(prev => ({ ...prev, fromDate: e.target.value }))}
+                      className="w-full pl-10 pr-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+                <div className="relative">
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    To Date
+                  </label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                    <input
+                      type="date"
+                      value={filters.toDate}
+                      onChange={(e) => setFilters(prev => ({ ...prev, toDate: e.target.value }))}
+                      className="w-full pl-10 pr-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="flex items-end gap-2">
               <button 
@@ -287,7 +331,7 @@ export default function RestaurantVATReport() {
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-3">
                           {report.icon && (
-                            <img src={report.icon} alt={report.restaurantName} className="w-8 h-8 rounded" />
+                            <img src={report.icon} alt={report.restaurantName} className="w-8 h-8 rounded"  loading="lazy" decoding="async" />
                           )}
                           <span className="text-sm text-slate-700">{report.restaurantName}</span>
                         </div>

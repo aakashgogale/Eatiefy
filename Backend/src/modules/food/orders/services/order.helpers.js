@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
+import { FoodOrder } from '../models/order.model.js';
 import { logger } from '../../../../utils/logger.js';
-import { ValidationError } from '../../../../core/auth/errors.js';
+import { haversineKm as geoHaversineKm, parseGeoPoint } from '../../shared/geo.utils.js';
 import {
   sendNotificationToOwner,
   sendNotificationToOwners,
@@ -19,50 +20,7 @@ export function enqueueOrderEvent(action, payload = {}) {
 }
 
 export function haversineKm(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-const MAX_DELIVERY_DISTANCE_KM = 50;
-
-export function assertRestaurantDeliversToZone(
-  restaurant,
-  { zoneId, orderType, deliveryAddress } = {},
-) {
-  const type = String(orderType || "delivery").toLowerCase();
-  if (type !== "delivery") return;
-
-  const restaurantZoneId = restaurant?.zoneId ? String(restaurant.zoneId) : "";
-  const deliveryZoneId = zoneId ? String(zoneId) : "";
-
-  // Same-zone only: never allow Indore user → Punjab restaurant (or missing zone).
-  if (restaurantZoneId) {
-    if (!deliveryZoneId) {
-      throw new ValidationError("Delivery location is outside this restaurant's service zone");
-    }
-    if (restaurantZoneId !== deliveryZoneId) {
-      throw new ValidationError("This restaurant does not deliver to your selected location");
-    }
-  }
-
-  if (
-    restaurant?.location?.coordinates?.length === 2 &&
-    deliveryAddress?.location?.coordinates?.length === 2
-  ) {
-    const [rLng, rLat] = restaurant.location.coordinates;
-    const [dLng, dLat] = deliveryAddress.location.coordinates;
-    const distanceKm = haversineKm(rLat, rLng, dLat, dLng);
-    if (Number.isFinite(distanceKm) && distanceKm > MAX_DELIVERY_DISTANCE_KM) {
-      throw new ValidationError("Delivery address is too far from this restaurant");
-    }
-  }
+  return geoHaversineKm(lat1, lon1, lat2, lon2);
 }
 
 export function generateFourDigitDeliveryOtp() {
@@ -89,133 +47,15 @@ export function sanitizeOrderForExternal(orderDoc) {
   return o;
 }
 
-function deriveBaseFromAppliedPricingRule(price, item = {}) {
-  const type = String(item?.appliedPricingType || '').toUpperCase();
-  const value = Number(item?.appliedPricingValue);
-  const selling = Number(price) || 0;
-  if (!Number.isFinite(value) || value <= 0 || selling <= 0) return null;
-  if (type === 'PERCENTAGE') {
-    return Math.max(0, Math.round((selling / (1 + value / 100)) * 100) / 100);
-  }
-  if (type === 'FIXED') {
-    return Math.max(0, Math.round((selling - value) * 100) / 100);
-  }
-  return null;
-}
-
-/** Unit price the restaurant owns (before admin markup). */
-export function resolveRestaurantItemUnitPrice(item = {}) {
-  const price = Number(item?.price) || 0;
-  const markup = Number(item?.markupAmount) || 0;
-  const other = Number(item?.otherPrice) || 0;
-  const base = Number(item?.basePrice);
-  const hasAdminScope =
-    item?.pricingScope && String(item.pricingScope).toUpperCase() !== 'LEGACY';
-
-  if (Number.isFinite(base) && base >= 0) {
-    if (markup > 0 || (hasAdminScope && other > base + 0.01) || base < price - 0.01) {
-      return base;
-    }
-    if (Math.abs(base - price) < 0.01) {
-      const derived = deriveBaseFromAppliedPricingRule(price, item);
-      if (derived != null && derived < price - 0.01) return derived;
-    }
-    return base;
-  }
-
-  if (markup > 0) return Math.max(0, Math.round((price - markup) * 100) / 100);
-
-  const derived = deriveBaseFromAppliedPricingRule(price, item);
-  if (derived != null) return derived;
-
-  return price;
-}
-
-/**
- * Restaurant-facing order view: show restaurant base as price, but keep
- * admin markup metadata so the accept popup can show "149 + 51 = 200".
- */
-export function toRestaurantFacingOrder(orderDoc) {
-  const order = sanitizeOrderForExternal(orderDoc);
-  const pricing = order.pricing || {};
-  const items = Array.isArray(order.items)
-    ? order.items.map((item) => {
-        const customerUnit = Number(item?.price) || 0;
-        const restaurantUnit = resolveRestaurantItemUnitPrice(item);
-        const qty = Number(item?.quantity) || 1;
-        let markupUnit = Number(item?.markupAmount);
-        if (!Number.isFinite(markupUnit) || markupUnit < 0) {
-          markupUnit = Math.max(0, Math.round((customerUnit - restaurantUnit) * 100) / 100);
-        }
-        return {
-          ...item,
-          customerPrice: customerUnit,
-          price: restaurantUnit,
-          variantPrice: restaurantUnit,
-          basePrice: restaurantUnit,
-          markupAmount: markupUnit,
-          otherPrice: Number(item?.otherPrice) || customerUnit,
-          appliedPricingType: item?.appliedPricingType || null,
-          appliedPricingValue: item?.appliedPricingValue ?? null,
-          pricingScope: item?.pricingScope || item?.pricingRule?.scope || null,
-          pricingRule: item?.pricingRule || null,
-          lineMarkupTotal: Math.round(markupUnit * qty * 100) / 100,
-        };
-      })
-    : [];
-
-  const computedBaseSubtotal = items.reduce((sum, item) => {
-    const unit = Number(item.price) || 0;
-    const qty = Number(item.quantity) || 1;
-    return sum + unit * qty;
-  }, 0);
-
-  const computedMarkupTotal = items.reduce((sum, item) => {
-    return sum + (Number(item.lineMarkupTotal) || 0);
-  }, 0);
-
-  const storedBase = Number(pricing.baseSubtotal);
-  const storedMarkup = Number(pricing.markupTotal);
-  const storedSubtotal = Number(pricing.subtotal);
-  let restaurantSubtotal = computedBaseSubtotal;
-  if (Number.isFinite(storedBase) && storedBase >= 0) {
-    restaurantSubtotal = storedBase;
-  } else if (
-    Number.isFinite(storedSubtotal) &&
-    Number.isFinite(storedMarkup) &&
-    storedMarkup > 0
-  ) {
-    restaurantSubtotal = Math.max(0, storedSubtotal - storedMarkup);
-  }
-
-  const markupTotal =
-    Number.isFinite(storedMarkup) && storedMarkup >= 0
-      ? storedMarkup
-      : computedMarkupTotal;
-
-  const packagingFee = Number(pricing.packagingFee) || 0;
-  const restaurantTotal = Math.max(
-    0,
-    Math.round((restaurantSubtotal + packagingFee) * 100) / 100,
-  );
-
+export function sanitizeOrderForDeliveryPartner(orderDoc) {
+  const o = sanitizeOrderForExternal(orderDoc);
+  const cookingNote = String(o.note || "").trim();
+  const deliveryInstructions = String(o.deliveryInstructions || "").trim();
   return {
-    ...order,
-    items,
-    pricing: {
-      ...pricing,
-      customerSubtotal: Number.isFinite(storedSubtotal) ? storedSubtotal : undefined,
-      customerTotal: Number(pricing.total) || undefined,
-      markupTotal: Math.round(markupTotal * 100) / 100,
-      subtotal: Math.round(restaurantSubtotal * 100) / 100,
-      baseSubtotal: Math.round(restaurantSubtotal * 100) / 100,
-      // Restaurant bill excludes delivery / platform fee from their earning total.
-      deliveryFee: 0,
-      platformFee: 0,
-      total: restaurantTotal,
-    },
-    total: restaurantTotal,
-    amount: restaurantTotal,
+    ...o,
+    cookingNote,
+    deliveryInstructions,
+    note: deliveryInstructions,
   };
 }
 
@@ -223,18 +63,12 @@ export function emitDeliveryDropOtpToUser(order, plainOtp) {
   try {
     const io = getIO();
     if (!io || !plainOtp || !order?.userId) return;
-
-    const isTakeaway = order?.orderType === "takeaway";
-    const message = isTakeaway
-      ? "Share this OTP with the restaurant to pick up your order."
-      : "Share this OTP with your delivery partner to hand over the order.";
-
     io.to(rooms.user(order.userId)).emit("delivery_drop_otp", {
       orderMongoId: order._id?.toString?.(),
       orderId: order.order_id || order._id?.toString?.(),
       otp: plainOtp,
-      orderType: order?.orderType || "delivery",
-      message,
+      message:
+        "Share this OTP with your delivery partner to hand over the order.",
     });
   } catch (e) {
     logger.warn(`emitDeliveryDropOtpToUser failed: ${e?.message || e}`);
@@ -257,29 +91,54 @@ export async function notifyOwnerSafely(target, payload) {
   }
 }
 
-/** Path segments that must never be treated as an order id (legacy Flutter polls). */
-export const RESERVED_DELIVERY_ORDER_PATHS = new Set([
-  "assigned",
-  "active",
-  "pending",
-  "current",
-  "available",
-]);
+export const TERMINAL_ORDER_STATUSES = [
+  'delivered',
+  'cancelled_by_user',
+  'cancelled_by_restaurant',
+  'cancelled_by_admin',
+];
+
+export async function partnerHasActiveDelivery(deliveryPartnerId) {
+  if (!deliveryPartnerId) return false;
+
+  const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
+  const recentThreshold = new Date(Date.now() - 6 * 60 * 60 * 1000);
+  const active = await FoodOrder.exists({
+    'dispatch.deliveryPartnerId': partnerId,
+    'dispatch.status': 'accepted',
+    orderStatus: { $nin: TERMINAL_ORDER_STATUSES },
+    updatedAt: { $gte: recentThreshold },
+  });
+
+  return Boolean(active);
+}
+
+export async function getBusyDeliveryPartnerIds() {
+  const recentThreshold = new Date(Date.now() - 6 * 60 * 60 * 1000);
+  const rows = await FoodOrder.find({
+    'dispatch.status': 'accepted',
+    'dispatch.deliveryPartnerId': { $exists: true, $ne: null },
+    orderStatus: { $nin: TERMINAL_ORDER_STATUSES },
+    updatedAt: { $gte: recentThreshold },
+  })
+    .select('dispatch.deliveryPartnerId')
+    .lean();
+
+  return new Set(rows.map((row) => String(row.dispatch.deliveryPartnerId)));
+}
 
 export function buildOrderIdentityFilter(orderIdOrMongoId) {
   const raw = String(orderIdOrMongoId || "").trim();
   if (!raw) return null;
-  // Prevent GET /orders/assigned|active|pending from becoming orderId lookups → 404 spam
-  if (RESERVED_DELIVERY_ORDER_PATHS.has(raw.toLowerCase())) return null;
   if (mongoose.isValidObjectId(raw))
     return { _id: new mongoose.Types.ObjectId(raw) };
-
+  
   // Search BOTH underscore and camelCase variants for robust lookup
-  return {
+  return { 
     $or: [
-      { order_id: raw },
-      { orderId: raw },
-    ],
+        { order_id: raw },
+        { orderId: raw }
+    ]
   };
 }
 
@@ -306,32 +165,56 @@ export function normalizeOrderForClient(orderDoc) {
   const order = orderDoc?.toObject ? orderDoc.toObject() : orderDoc || {};
   const mongoId = (order._id || orderDoc?._id || "").toString();
   const displayId = order.order_id || mongoId;
-  const statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
-  const lastHistory = statusHistory.length > 0 ? statusHistory[statusHistory.length - 1] : null;
+  const statusHistory = Array.isArray(order?.statusHistory)
+    ? order.statusHistory
+    : [];
+  const cancellationEntry = [...statusHistory]
+    .reverse()
+    .find((entry) => String(entry?.to || "").toLowerCase().includes("cancel"));
+  const cancellationReason =
+    String(order?.cancellationReason || "").trim() ||
+    String(cancellationEntry?.note || "").trim();
+  const cancellationStatus = String(cancellationEntry?.to || "").toLowerCase();
+  let cancelledBy = "";
+  if (cancellationStatus === "cancelled_by_user") cancelledBy = "customer";
+  else if (cancellationStatus === "cancelled_by_restaurant")
+    cancelledBy = "restaurant";
+  else if (cancellationStatus === "cancelled_by_admin") cancelledBy = "admin";
+  else if (String(cancellationEntry?.byRole || "").toUpperCase() === "USER")
+    cancelledBy = "customer";
+  else if (
+    String(cancellationEntry?.byRole || "").toUpperCase() === "RESTAURANT"
+  )
+    cancelledBy = "restaurant";
+  else if (String(cancellationEntry?.byRole || "").toUpperCase() === "ADMIN")
+    cancelledBy = "admin";
 
   return {
     ...order,
     orderMongoId: mongoId,
     orderId: displayId,
     status: order?.orderStatus || order?.status || "",
-    deliveredAt:
-      order?.deliveryState?.deliveredAt || order?.deliveredAt || null,
+    cancellationReason,
+    cancelledBy,
+    cancelledAt: cancellationEntry?.at || null,
+    deliveryPartner: order?.dispatch?.deliveryPartnerId ? {
+      name: order.dispatch.deliveryPartnerId.name || order.dispatch.deliveryPartnerId.fullName || 'Delivery Partner',
+      phone: order.dispatch.deliveryPartnerId.phone || order.dispatch.deliveryPartnerId.phoneNumber || '',
+      avatar: order.dispatch.deliveryPartnerId.avatar || order.dispatch.deliveryPartnerId.profileImage || null,
+      location: order.dispatch.deliveryPartnerId.location || null
+    } : (order?.deliveryPartner || null),
     deliveryPartnerId:
-      order?.dispatch?.deliveryPartnerId || order?.deliveryPartnerId || null,
+      order?.dispatch?.deliveryPartnerId?._id || order?.dispatch?.deliveryPartnerId || order?.deliveryPartnerId || null,
     rating: order?.ratings?.restaurant?.rating ?? order?.rating ?? null,
-    restaurantNote: order?.restaurantNote || "",
-    cancellationReason: (order?.orderStatus?.includes('cancel') || order?.status?.includes('cancel')) 
-      ? (statusHistory.findLast(h => h.to?.includes('cancel'))?.note || "")
-      : null,
-    adminStatusNote: (lastHistory && lastHistory.byRole === 'ADMIN' && lastHistory.note?.includes('Admin override'))
-      ? `${lastHistory.note} from ${lastHistory.from} to ${lastHistory.to}`
-      : null,
     deliveryState: {
       ...(order?.deliveryState || {}),
       currentLocation: order?.lastRiderLocation?.coordinates?.length >= 2 ? {
         lat: order.lastRiderLocation.coordinates[1],
         lng: order.lastRiderLocation.coordinates[0]
-      } : (order?.deliveryState?.currentLocation || null)
+      } : (order?.dispatch?.deliveryPartnerId?.location?.coordinates?.length >= 2 ? {
+        lat: order.dispatch.deliveryPartnerId.location.coordinates[1],
+        lng: order.dispatch.deliveryPartnerId.location.coordinates[0]
+      } : (order?.deliveryState?.currentLocation || null))
     }
   };
 }
@@ -368,6 +251,65 @@ export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
     .map((v) => String(v || '').trim())
     .filter(Boolean);
 
+  // Prefer robust geo parse (GeoJSON [lng,lat], lat/lng, nested location)
+  const restaurantPoint =
+    parseGeoPoint(restaurant) ||
+    parseGeoPoint(restaurantLocation) ||
+    parseGeoPoint({
+      lat: restaurantLocation?.latitude ?? restaurantLocation?.lat,
+      lng: restaurantLocation?.longitude ?? restaurantLocation?.lng,
+    });
+  const customerPoint =
+    parseGeoPoint(deliveryAddress) ||
+    parseGeoPoint(order?.customerLocation) ||
+    parseGeoPoint({
+      lat: deliveryAddress?.latitude ?? deliveryAddress?.lat,
+      lng: deliveryAddress?.longitude ?? deliveryAddress?.lng,
+    });
+
+  const restaurantLat = restaurantPoint?.lat;
+  const restaurantLng = restaurantPoint?.lng;
+  const customerLat = customerPoint?.lat;
+  const customerLng = customerPoint?.lng;
+
+  // Prefer road distance when already computed; fall back to pricing Haversine.
+  // Never use pickupDistanceKm (rider → restaurant) here — this is restaurant ↔ customer.
+  const tripDistanceKmRaw =
+    order?.tripDistanceKm ??
+    order?.pricing?.roadDistanceKm ??
+    order?.pricing?.distanceKm;
+  let tripDistanceKm = Number.isFinite(Number(tripDistanceKmRaw))
+    ? Number(Number(tripDistanceKmRaw).toFixed(2))
+    : null;
+
+  // If still missing, compute Haversine restaurant → customer so UI never shows blank/wrong.
+  if (
+    tripDistanceKm == null &&
+    Number.isFinite(restaurantLat) &&
+    Number.isFinite(restaurantLng) &&
+    Number.isFinite(customerLat) &&
+    Number.isFinite(customerLng)
+  ) {
+    const hv = haversineKm(restaurantLat, restaurantLng, customerLat, customerLng);
+    if (Number.isFinite(hv)) {
+      tripDistanceKm = Number(Number(hv).toFixed(2));
+    }
+  }
+
+  const tripDurationMinsRaw =
+    order?.tripDurationMins ?? order?.pricing?.roadDurationMins;
+  let tripDurationMins = Number.isFinite(Number(tripDurationMinsRaw))
+    ? Math.ceil(Number(tripDurationMinsRaw))
+    : null;
+  if (tripDurationMins == null && tripDistanceKm != null) {
+    // ~25 km/h urban delivery average → minutes
+    tripDurationMins = Math.max(1, Math.ceil((tripDistanceKm * 60) / 25));
+  }
+
+  console.log(`[DEBUG] buildDeliverySocketPayload - Order: ${order?.orderId || order?._id}`);
+  console.log(`[DEBUG] buildDeliverySocketPayload - riderEarning in doc: ${order?.riderEarning}`);
+  console.log(`[DEBUG] buildDeliverySocketPayload - deliveryFee in doc: ${order?.pricing?.deliveryFee}`);
+
   return {
     orderMongoId:
       orderDoc?._id?.toString?.() || order?._id?.toString?.() || order?._id,
@@ -384,55 +326,54 @@ export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
       order?.restaurantId,
     restaurantName: restaurant?.restaurantName || order?.restaurantName,
     restaurantAddress:
-      [
-        restaurant?.addressLine1,
-        restaurant?.addressLine2,
-        restaurant?.area,
-        restaurant?.city,
-        restaurant?.state,
-        restaurant?.pincode,
-      ]
-        .filter(Boolean)
-        .join(', ') ||
       restaurantLocation?.address ||
       restaurantLocation?.formattedAddress ||
+      restaurant?.addressLine1 ||
       "",
-    restaurantPhone:
-      restaurant?.primaryContactNumber ||
-      restaurant?.ownerPhone ||
-      restaurant?.phone ||
-      "",
+    restaurantPhone: restaurant?.phone || "",
     restaurantLocation: {
-      latitude: restaurantLocation?.latitude,
-      longitude: restaurantLocation?.longitude,
+      latitude: Number.isFinite(restaurantLat) ? restaurantLat : undefined,
+      longitude: Number.isFinite(restaurantLng) ? restaurantLng : undefined,
+      lat: Number.isFinite(restaurantLat) ? restaurantLat : undefined,
+      lng: Number.isFinite(restaurantLng) ? restaurantLng : undefined,
+      coordinates:
+        Number.isFinite(restaurantLat) && Number.isFinite(restaurantLng)
+          ? [restaurantLng, restaurantLat]
+          : undefined,
       address:
-        [
-          restaurant?.addressLine1,
-          restaurant?.addressLine2,
-          restaurant?.area,
-          restaurant?.city,
-          restaurant?.state,
-          restaurant?.pincode,
-        ]
-          .filter(Boolean)
-          .join(', ') ||
         restaurantLocation?.address ||
         restaurantLocation?.formattedAddress ||
+        restaurant?.addressLine1 ||
         "",
       area: restaurantLocation?.area || restaurant?.area || "",
       city: restaurantLocation?.city || restaurant?.city || "",
       state: restaurantLocation?.state || restaurant?.state || "",
     },
     deliveryAddress: order?.deliveryAddress,
+    customerLocation: {
+      latitude: Number.isFinite(customerLat) ? customerLat : undefined,
+      longitude: Number.isFinite(customerLng) ? customerLng : undefined,
+      lat: Number.isFinite(customerLat) ? customerLat : undefined,
+      lng: Number.isFinite(customerLng) ? customerLng : undefined,
+      coordinates:
+        Number.isFinite(customerLat) && Number.isFinite(customerLng)
+          ? [customerLng, customerLat]
+          : undefined,
+    },
+    // Restaurant ↔ customer trip distance (NOT rider pickup distance)
+    tripDistanceKm,
+    tripDurationMins,
+    distanceKm: tripDistanceKm,
     customerAddress: customerAddressParts.length ? customerAddressParts.join(', ') : "",
     customerName: order?.customerName || order?.deliveryAddress?.fullName || order?.deliveryAddress?.name || order?.userId?.name || "",
     customerPhone: order?.customerPhone || order?.deliveryAddress?.phone || order?.userId?.phone || "",
     userName: order?.customerName || order?.deliveryAddress?.fullName || order?.deliveryAddress?.name || order?.userId?.name || "",
     userPhone: order?.customerPhone || order?.deliveryAddress?.phone || order?.userId?.phone || "",
-    note: order?.note || "",
+    note: order?.deliveryInstructions || "",
+    cookingNote: order?.note || "",
+    deliveryInstructions: order?.deliveryInstructions || "",
     riderEarning: order?.riderEarning || 0,
-    // Never fall back to customer deliveryFee — that is not rider payout
-    earnings: Number(order?.riderEarning || 0) || 0,
+    earnings: order?.riderEarning || order?.pricing?.deliveryFee || 0,
     deliveryFee: order?.pricing?.deliveryFee || 0,
     deliveryFleet: order?.deliveryFleet,
     dispatch: order?.dispatch,
@@ -442,6 +383,7 @@ export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
 }
 
 export function canExposeOrderToRestaurant(orderLike) {
+  if (String(orderLike?.orderStatus || "").toLowerCase() === "pending_payment") return false;
   const method = String(orderLike?.payment?.method || "").toLowerCase();
   const status = String(orderLike?.payment?.status || "").toLowerCase();
   if (["cash", "wallet"].includes(method)) return true;
@@ -454,7 +396,11 @@ export async function notifyRestaurantNewOrder(orderDoc) {
 
     const io = getIO();
     if (io) {
-      const payload = toRestaurantFacingOrder(orderDoc);
+      const payload = {
+        ...orderDoc.toObject(),
+        orderMongoId: orderDoc._id?.toString?.() || undefined,
+        orderId: orderDoc.order_id || orderDoc._id?.toString?.(),
+      };
       logger.info(
         `[RestaurantOrders] Emitting new_order to ${rooms.restaurant(orderDoc.restaurantId)} for order ${orderDoc._id?.toString?.() || ''}`,
       );
@@ -464,11 +410,8 @@ export async function notifyRestaurantNewOrder(orderDoc) {
     await notifyOwnersSafely(
       [{ ownerType: "RESTAURANT", ownerId: orderDoc.restaurantId }],
       {
-        title: "🔔 New order received",
+        title: "New order received",
         body: `Order #${orderDoc.order_id || orderDoc._id} is waiting for review.`,
-        sound: "default",
-        channelId: "restaurant_orders",
-        sendToAllDevices: true,
         data: {
           type: "new_order",
           orderId: orderDoc._id.toString(),
@@ -481,6 +424,44 @@ export async function notifyRestaurantNewOrder(orderDoc) {
     // Do not block order/payment flow if notification fails.
   }
 }
+
+export const CANCELLED_ORDER_STATUSES = [
+  "cancelled_by_user",
+  "cancelled_by_restaurant",
+  "cancelled_by_admin",
+];
+
+export const normalizeOrderStatusValue = (value) => {
+  const status = String(value || "").trim().toLowerCase();
+  if (!status) return "";
+  return status.replace(/^canceled/, "cancelled");
+};
+
+export const isCancelledOrderStatus = (value) => {
+  const status = normalizeOrderStatusValue(value);
+  if (!status) return false;
+  if (CANCELLED_ORDER_STATUSES.includes(status)) return true;
+  if (status === "cancelled" || status === "canceled") return true;
+  return status.startsWith("cancelled_by_") || status.startsWith("canceled_by_");
+};
+
+export const isCancelledOrder = (order) => {
+  if (
+    isCancelledOrderStatus(order?.orderStatus) ||
+    isCancelledOrderStatus(order?.status)
+  ) {
+    return true;
+  }
+
+  const history = Array.isArray(order?.statusHistory) ? order.statusHistory : [];
+  const cancellationEntry = [...history]
+    .reverse()
+    .find((entry) => String(entry?.to || "").toLowerCase().includes("cancel"));
+
+  return Boolean(
+    cancellationEntry && isCancelledOrderStatus(cancellationEntry.to),
+  );
+};
 
 export const STATUS_PRIORITY = {
   created: 10,
@@ -517,22 +498,4 @@ export function isStatusAdvance(current, next) {
   if (nextPrio === 100 && currentPrio < 80) return true;
 
   return nextPrio > currentPrio;
-}
-
-export function normalizeOtpValue(value) {
-  return String(value ?? '').replace(/\D/g, '').trim();
-}
-
-export function isOtpMatch(expectedOtp, enteredOtp) {
-  const expected = normalizeOtpValue(expectedOtp);
-  const entered = normalizeOtpValue(enteredOtp);
-  if (!expected || !entered) return false;
-  if (entered === expected) return true;
-
-  // Accept last 4 digits if client sends prefixed/padded OTP.
-  if (expected.length === 4 && entered.length > 4) {
-    return entered.slice(-4) === expected;
-  }
-
-  return false;
 }

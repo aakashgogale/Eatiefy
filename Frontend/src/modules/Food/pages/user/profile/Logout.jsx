@@ -4,13 +4,10 @@ import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Button } from "@food/components/ui/button"
 import { Card, CardContent } from "@food/components/ui/card"
 import { useState } from "react"
-import { authAPI } from "@food/api"
-import { firebaseAuth, ensureFirebaseInitialized } from "@food/firebase"
 import { clearModuleAuth } from "@food/utils/auth"
-const debugLog = (...args) => {}
-const debugWarn = (...args) => {}
-const debugError = (...args) => {}
-const USER_SESSION_PREFERENCE_KEYS = ["userVegMode", "userVegModeOption", "food-under-250-filters"]
+import { logoutUserSession } from "@food/utils/moduleLogout"
+
+const USER_SESSION_PREFERENCE_KEYS = ["userVegMode", "food_user_veg_mode_option", "food-under-250-filters"]
 
 
 export default function Logout() {
@@ -23,85 +20,24 @@ export default function Logout() {
     setError("")
 
     try {
-      // Call backend logout API to invalidate refresh token
-      try {
-        let fcmToken = null;
-        let platform = "web";
-        try {
-          if (typeof window !== "undefined") {
-            if (window.flutter_inappwebview) {
-              platform = "mobile";
-              const handlerNames = ["getFcmToken", "getFCMToken", "getPushToken", "getFirebaseToken"];
-              for (const handlerName of handlerNames) {
-                try {
-                  const t = await window.flutter_inappwebview.callHandler(handlerName, { module: "user" });
-                  if (t && typeof t === "string" && t.length > 20) {
-                    fcmToken = t.trim();
-                    break;
-                  }
-                } catch (e) {}
-              }
-            } else {
-              fcmToken = localStorage.getItem("fcm_web_registered_token_user") || null;
-            }
-          }
-        } catch (e) {
-          console.warn("Failed to get FCM token during logout", e);
-        }
-        await authAPI.logout(null, fcmToken, platform)
-      } catch (apiError) {
-        // Continue with logout even if API call fails (network issues, etc.)
-        debugWarn("Logout API call failed, continuing with local cleanup:", apiError)
-      }
-
-      // Sign out from Firebase if user logged in via Google
-      try {
-        const { signOut } = await import("firebase/auth")
-        // Firebase Auth is lazy-initialized now; ensure it before accessing firebaseAuth.currentUser
-        ensureFirebaseInitialized({ enableAuth: true, enableRealtimeDb: false })
-        const currentUser = firebaseAuth.currentUser
-        if (currentUser) {
-          await signOut(firebaseAuth)
-        }
-      } catch (firebaseError) {
-        // Continue even if Firebase logout fails
-        debugWarn("Firebase logout failed, continuing with local cleanup:", firebaseError)
-      }
-
-      // Clear all authentication data from localStorage
-      clearModuleAuth("user")
-      localStorage.removeItem("cart")
-      USER_SESSION_PREFERENCE_KEYS.forEach((key) => localStorage.removeItem(key))
-
-      // Clear sessionStorage
-      sessionStorage.removeItem("userAuthData")
-      sessionStorage.removeItem("user_auth_session_data")
-
-      // Dispatch auth change event to notify other components
-      window.dispatchEvent(new Event("userAuthChanged"))
-
-      // Small delay for UX, then navigate to sign in
-      setTimeout(() => {
-        navigate("/user/auth/login", { replace: true })
-      }, 500)
+      await logoutUserSession({ navigate })
     } catch (err) {
-      // Even if there's an error, we should still clear local data and logout
-      debugError("Error during logout:", err)
-      
-      // Clear local data anyway
       clearModuleAuth("user")
+      localStorage.removeItem("accessToken")
+      localStorage.removeItem("user_authenticated")
+      localStorage.removeItem("user_user")
       localStorage.removeItem("cart")
       USER_SESSION_PREFERENCE_KEYS.forEach((key) => localStorage.removeItem(key))
       sessionStorage.removeItem("userAuthData")
-      sessionStorage.removeItem("user_auth_session_data")
       window.dispatchEvent(new Event("userAuthChanged"))
 
       setError("An error occurred during logout, but you have been signed out locally.")
-      
-      // Still navigate after showing error
+
       setTimeout(() => {
-        navigate("/user/auth/login", { replace: true })
+        navigate("/food/user/auth/login", { replace: true })
       }, 2000)
+    } finally {
+      setIsLoggingOut(false)
     }
   }
 

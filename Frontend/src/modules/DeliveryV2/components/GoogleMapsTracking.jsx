@@ -1,9 +1,10 @@
 import { useCallback, useRef, useEffect, useState } from 'react'
-import { GoogleMap, useJsApiLoader, Marker, Polyline } from '@react-google-maps/api'
+import { GoogleMap, useJsApiLoader, Marker, Polyline, OverlayView } from '@react-google-maps/api'
 import { motion } from 'framer-motion'
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
+import bikeLogo from '../../Food/assets/delivery-partner-logo.webp'
 
 
 /**
@@ -37,16 +38,19 @@ const debugError = (...args) => {}
 
 // Use direct public path which is more reliable in this setup
 const getDeliveryIconUrl = () => {
-  try {
-    // Try to use delivery icon from public assets
-    return '/assets/deliveryboy/deliveryIcon.png'
-  } catch {
-    // Fallback to bikelogo if delivery icon not found
-    return '/src/assets/bikelogo.png'
-  }
+  const svgIcon = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 60 60">
+      <circle cx="30" cy="30" r="28" fill="white" stroke="#ff8100" stroke-width="4" />
+      <image href="/deliveryboy-3d.jpeg" x="10" y="10" width="40" height="40" preserveAspectRatio="xMidYMid slice" clip-path="url(#circleClip)" />
+      <defs>
+        <clipPath id="circleClip">
+          <circle cx="30" cy="30" r="25" />
+        </clipPath>
+      </defs>
+    </svg>
+  `;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgIcon)}`;
 }
-
-const MAP_LIBRARIES = ['geometry']
 
 const mapContainerStyle = {
   width: '100%',
@@ -83,13 +87,21 @@ export default function GoogleMapsTracking({
   useEffect(() => {
     if (!lastUpdate) return;
     const checkGPS = () => {
+      if (typeof document !== "undefined" && document.hidden) return;
       const now = new Date().getTime();
       const lastTime = new Date(lastUpdate).getTime();
       setIsGPSWeak(now - lastTime > 45000); // 45 seconds threshold
     };
     const interval = setInterval(checkGPS, 10000); // Check every 10 seconds
     checkGPS(); // Initial check
-    return () => clearInterval(interval);
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && !document.hidden) checkGPS();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [lastUpdate]);
 
   // Sync routeInfo with parent
@@ -103,7 +115,7 @@ export default function GoogleMapsTracking({
     id: 'google-map-script',
     googleMapsApiKey: apiKey || '',
     // Do not load `places` — it pulls Geocoding-related code paths; Directions is in core Maps JS.
-    libraries: MAP_LIBRARIES,
+    libraries: [],
   })
 
   // Combine storeLocation with sellerLocations
@@ -651,15 +663,17 @@ export default function GoogleMapsTracking({
 
         {/* Delivery Partner Marker (Animated) */}
         {animatedDeliveryLocation && (
-          <Marker
+          <OverlayView
             position={animatedDeliveryLocation}
-            icon={{
-              url: getDeliveryIconUrl(),
-              scaledSize: window.google?.maps?.Size ? new window.google.maps.Size(60, 60) : undefined,
-              anchor: window.google?.maps?.Point ? new window.google.maps.Point(30, 30) : undefined
-            }}
-            title="Delivery Partner"
-          />
+            mapPaneName={OverlayView.MARKER_LAYER}
+          >
+            <div 
+              style={{ transform: 'translate(-50%, -50%)', transition: 'transform 0.5s linear' }}
+              className="relative w-16 h-16 flex items-center justify-center"
+            >
+              <img src="/deliveryboy-3d-transparent.png" alt="Delivery Partner" className="w-[150%] h-[150%] max-w-none object-contain" />
+            </div>
+          </OverlayView>
         )}
 
         {/* Polyline removed - no longer showing route line */}
@@ -667,5 +681,4 @@ export default function GoogleMapsTracking({
     </div>
   )
 }
-
 

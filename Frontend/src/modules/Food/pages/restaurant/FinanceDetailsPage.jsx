@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import { motion, AnimatePresence } from "framer-motion"
@@ -74,15 +74,20 @@ export default function FinanceDetailsPage() {
 
   // Settlement data with real values from financeData
   const settlementData = useMemo(() => {
-    const cycle = financeData?.currentCycle || {};
+    const wallet = financeData?.wallet ?? financeData?.currentCycle ?? {};
     const summary = financeData?.invoiceSummary || {};
+    const walletOrders = Array.isArray(wallet.orders) ? wallet.orders : [];
+    const restaurantDiscount = walletOrders.reduce(
+      (sum, order) => sum + Number(order?.restaurantDiscountShare || 0),
+      0,
+    );
     
     return {
-      totalOrders: cycle.totalOrders || 0,
+      totalOrders: wallet.totalOrders || 0,
       netOrderValue: {
         itemSubtotal: summary.subtotal || 0,
         totalGSTCollected: summary.taxes || 0,
-        restaurantDiscountPromos: 0,
+        restaurantDiscountPromos: restaurantDiscount,
         restaurantDiscountOthers: 0,
         total: summary.subtotal || 0
       },
@@ -104,15 +109,13 @@ export default function FinanceDetailsPage() {
         onlineOrderingAds: 0,
         total: 0
       },
-      estimatedPayout: cycle.estimatedPayout || 0,
-      start: cycle.start?.day || "15",
-      end: cycle.end?.day || "21",
-      month: cycle.start?.month || "Dec",
-      year: cycle.start?.year || "25"
+      totalEarnings: wallet.totalEarnings ?? wallet.estimatedPayout ?? 0,
+      availableBalance: wallet.withdrawableBalance ?? 0,
+      totalWithdrawn: wallet.totalWithdrawn ?? 0,
     }
   }, [financeData])
 
-  const estimatedPayout = settlementData.estimatedPayout;
+  const totalEarnings = settlementData.totalEarnings;
 
   const toggleSection = (section) => {
     setExpandedSections(prev => ({
@@ -187,7 +190,7 @@ export default function FinanceDetailsPage() {
                 {isActive && (
                   <motion.div
                     layoutId="financeTopTabActive"
-                    className="absolute inset-0 bg-gradient-to-br from-[#B80B3D] to-[#66001D] rounded-full -z-10"
+                    className="absolute inset-0 bg-black rounded-full -z-10"
                     initial={false}
                     transition={{
                       type: "spring",
@@ -219,16 +222,23 @@ export default function FinanceDetailsPage() {
                 <div className="bg-white rounded-lg p-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <p className="text-xs text-gray-600 mb-1">Active Earnings</p>
+                      <p className="text-xs text-gray-600 mb-1">Available balance</p>
                       <p className="text-2xl font-bold text-gray-900 mb-1">
-                        ₹{estimatedPayout.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        ₹{settlementData.availableBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </p>
-                      <p className="text-xs text-gray-600">from {settlementData.start} - {settlementData.end} {settlementData.month}'{settlementData.year}</p>
-                      <p className="text-xs text-gray-600 mt-1">Payout date: -</p>
+                      <p className="text-xs text-gray-600">from {settlementData.totalOrders} completed orders</p>
+                      <p className="text-xs text-gray-600 mt-1">
+                        ₹{totalEarnings.toLocaleString('en-IN', { minimumFractionDigits: 2 })} earned
+                        {settlementData.totalWithdrawn > 0
+                          ? ` · ₹${settlementData.totalWithdrawn.toLocaleString('en-IN', { minimumFractionDigits: 2 })} withdrawn`
+                          : ''}
+                      </p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-600 mb-1">Payout for</p>
-                      <p className="text-sm font-semibold text-gray-900">{settlementData.start} - {settlementData.end} {settlementData.month}'{settlementData.year}</p>
+                      <p className="text-xs text-gray-600 mb-1">Total earnings</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        ₹{totalEarnings.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -517,12 +527,12 @@ export default function FinanceDetailsPage() {
                       </AnimatePresence>
                     </div>
 
-                    {/* Est. payout */}
+                    {/* Total earnings */}
                     <div className="px-4 py-3 border-t-2 border-gray-900 bg-gray-50">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-bold text-gray-900">Est. payout (A + B - C - D - E)</span>
+                        <span className="text-sm font-bold text-gray-900">Total earnings (A + B - C - D - E)</span>
                         <span className="text-sm font-bold text-gray-900">
-                          ₹{estimatedPayout.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          ₹{totalEarnings.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                         </span>
                       </div>
                     </div>
@@ -582,7 +592,7 @@ export default function FinanceDetailsPage() {
               </p>
               <button
                 onClick={() => setShowDownloadPopup(false)}
-                className="w-full py-3 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white rounded-lg font-medium hover:bg-gray-800 transition-colors"
+                className="w-full py-3 bg-black text-white rounded-lg font-medium hover:bg-gray-800 transition-colors"
               >
                 Close
               </button>
@@ -623,7 +633,7 @@ export default function FinanceDetailsPage() {
               </p>
               <button
                 onClick={() => setShowEmailPopup(false)}
-                className="w-full py-3 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white rounded-lg font-medium hover:bg-gray-800 transition-colors"
+                className="w-full py-3 bg-black text-white rounded-lg font-medium hover:bg-gray-800 transition-colors"
               >
                 Close
               </button>
@@ -634,10 +644,3 @@ export default function FinanceDetailsPage() {
     </div>
   )
 }
-
-
-
-
-
-
-

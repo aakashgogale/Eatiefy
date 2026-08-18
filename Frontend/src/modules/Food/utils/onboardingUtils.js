@@ -4,7 +4,7 @@ const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
 
-export const getOnboardingStorageKey = () => {
+const getOnboardingStorageKey = () => {
     try {
       const userStr = localStorage.getItem("restaurant_user")
       if (userStr) {
@@ -160,16 +160,8 @@ const buildOnboardingLikeDataFromRestaurant = (restaurant) => {
 export const isRestaurantOnboardingComplete = (restaurant) => {
   if (!restaurant) return false
 
-  // Approved or Pending restaurants should never be forced into onboarding again.
-  // 'pending' means they have completed the registration but are waiting for admin approval.
-  if (restaurant?.status === "approved" || restaurant?.status === "pending") {
-    return true
-  }
-
-  // If they have a restaurant ID, they are definitely past the initial onboarding steps.
-  if (restaurant?.restaurantId || restaurant?._id) {
-    // If they have a restaurantId, they must have completed step 1 (Basic Details) 
-    // and likely the rest. We use this as a defensive check to prevent loops.
+  // Approved restaurants should never be forced into onboarding again.
+  if (restaurant?.status === "approved") {
     return true
   }
 
@@ -231,9 +223,11 @@ export const determineStepToShow = (data) => {
     return 3
   }
 
-  // All steps complete
+  // All steps complete - onboarding step 4 (payment) is handled on backend
+  // User should be redirected to explore/dashboard after step 3 submission
   return null
 }
+
 
 // Check onboarding status from API and return the step to navigate to
 export const checkOnboardingStatus = async () => {
@@ -259,66 +253,18 @@ export const checkOnboardingStatus = async () => {
     // No onboarding data, start from step 1
     return 1
   } catch (err) {
-    debugError("❌ checkOnboardingStatus error:", err)
-    // If API call fails, check localStorage as a fallback
+    // If API call fails, check localStorage
     try {
       const localData = localStorage.getItem(getOnboardingStorageKey())
       if (localData) {
         const parsed = JSON.parse(localData)
         return parsed.currentStep || 1
       }
-    } catch (e) {
-      debugError("❌ checkOnboardingStatus localStorage error:", e)
+    } catch (localErr) {
+      debugError("Failed to check localStorage:", localErr)
     }
-    
-    // Default to null on failure to prevent accidental redirection loops
-    // when the network is unstable or API is down.
-    return null
+    // Default to step 1 if everything fails
+    return 1
   }
 }
 
-
-
-export const clearOnboardingFromLocalStorage = () => {
-  const key = getOnboardingStorageKey()
-  localStorage.removeItem(key)
-  localStorage.removeItem("restaurant_pendingPhone")
-}
-
-export const hasRestaurantStep1Progress = (step1 = {}) => {
-  const location = step1.location || {}
-  const scalarFields = [
-    step1.restaurantName,
-    step1.ownerName,
-    step1.ownerEmail,
-    step1.primaryContactNumber,
-    step1.zoneId,
-    location.formattedAddress,
-    location.addressLine1,
-    location.addressLine2,
-    location.area,
-    location.city,
-    location.state,
-    location.pincode,
-    location.landmark,
-    location.latitude,
-    location.longitude,
-  ]
-
-  if (scalarFields.some((value) => String(value || "").trim())) {
-    return true
-  }
-
-  return typeof step1.pureVegRestaurant === "boolean"
-}
-
-export const clearAllFilesFromDB = async () => {
-  try {
-    if (typeof indexedDB === "undefined") return
-    const ONBOARDING_FILES_DB = "RestaurantOnboardingFiles"
-    const request = indexedDB.deleteDatabase(ONBOARDING_FILES_DB)
-    request.onerror = (e) => console.error("Database deletion error", e)
-  } catch (err) {
-    console.error("Failed to delete IndexedDB database", err)
-  }
-}

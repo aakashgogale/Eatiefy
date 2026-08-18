@@ -1,28 +1,35 @@
-import { useState, useEffect } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Search, Download, ChevronDown, Star, ArrowUpDown, Settings, FileText, FileSpreadsheet, Code, Check, Columns, Loader2, Eye, Utensils } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@food/components/ui/dialog"
 import { exportReviewsToCSV, exportReviewsToExcel, exportReviewsToPDF, exportReviewsToJSON } from "@food/components/admin/deliveryman/deliverymanExportUtils"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
-import AdminListPagination from "@food/components/admin/AdminListPagination"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
+const formatDateTime = (dateString) => {
+  if (!dateString) return "N/A"
+  try {
+    const date = new Date(dateString)
+    if (isNaN(date.getTime())) return "Invalid Date"
+    return new Intl.DateTimeFormat('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    }).format(date)
+  } catch (e) {
+    return "N/A"
+  }
+}
+
 export default function RestaurantReviews() {
   const [searchQuery, setSearchQuery] = useState("")
-  const [debouncedSearch, setDebouncedSearch] = useState("")
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(() => {
-    try {
-      return Number(localStorage.getItem("admin_restaurant_reviews_pageSize")) || 20
-    } catch {
-      return 20
-    }
-  })
-  const [totalItems, setTotalItems] = useState(0)
   const [reviews, setReviews] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -38,61 +45,34 @@ export default function RestaurantReviews() {
     date: true,
   })
 
-  const filteredReviews = reviews
-
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300)
-    return () => clearTimeout(t)
-  }, [searchQuery])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [debouncedSearch])
-
-  useEffect(() => {
-    const fetchReviews = async () => {
-      try {
-        setIsLoading(true)
-        const response = await adminAPI.getRestaurantReviews({
-          search: debouncedSearch || undefined,
-          page: currentPage,
-          limit: pageSize,
-        })
-        if (response?.data?.success && response?.data?.data?.reviews) {
-          setReviews(response.data.data.reviews)
-          setTotalItems(
-            response?.data?.data?.total ??
-            response?.data?.total ??
-            response.data.data.reviews.length,
-          )
-        } else {
-          setReviews([])
-          setTotalItems(0)
-        }
-      } catch (error) {
-        debugError('Error fetching restaurant reviews:', error)
-        setReviews([])
-        setTotalItems(0)
-        toast.error('Failed to load restaurant reviews')
-      } finally {
-        setIsLoading(false)
-      }
+  const filteredReviews = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return reviews
     }
-
-    fetchReviews()
-  }, [debouncedSearch, currentPage, pageSize])
+    
+    const query = searchQuery.toLowerCase().trim()
+    return reviews.filter(review =>
+      review.restaurant.toLowerCase().includes(query) ||
+      review.customer.toLowerCase().includes(query) ||
+      review.review.toLowerCase().includes(query) ||
+      (review.orderId && review.orderId.toLowerCase().includes(query))
+    )
+  }, [reviews, searchQuery])
 
   const handleExport = (format) => {
     if (filteredReviews.length === 0) {
       alert("No data to export")
       return
     }
-    // Reuse deliveryman export utils or create new ones if needed
+    const exportRows = filteredReviews.map((review) => ({
+      ...review,
+      restaurant: review.restaurant || "N/A",
+    }))
     switch (format) {
-      case "csv": exportReviewsToCSV(filteredReviews); break
-      case "excel": exportReviewsToExcel(filteredReviews); break
-      case "pdf": exportReviewsToPDF(filteredReviews); break
-      case "json": exportReviewsToJSON(filteredReviews); break
+      case "csv": exportReviewsToCSV(exportRows, "restaurant_reviews", { subjectLabel: "Restaurant", subjectKey: "restaurant" }); break
+      case "excel": exportReviewsToExcel(exportRows, "restaurant_reviews", { subjectLabel: "Restaurant", subjectKey: "restaurant" }); break
+      case "pdf": exportReviewsToPDF(exportRows, "restaurant_reviews", { reportTitle: "Restaurant Reviews Report", subjectLabel: "Restaurant", subjectKey: "restaurant" }); break
+      case "json": exportReviewsToJSON(exportRows, "restaurant_reviews"); break
     }
   }
 
@@ -147,19 +127,27 @@ export default function RestaurantReviews() {
     return stars
   }
 
-  const formatDateTime = (dateString) => {
-    if (!dateString) return 'N/A'
-    try {
-      const date = new Date(dateString)
-      const day = date.getDate().toString().padStart(2, '0')
-      const month = date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()
-      const year = date.getFullYear()
-      const time = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
-      return `${day} ${month} ${year}, ${time}`
-    } catch (e) {
-      return 'Invalid Date'
+  useEffect(() => {
+    const fetchReviews = async () => {
+      try {
+        setIsLoading(true)
+        const response = await adminAPI.getRestaurantReviews({ limit: 1000 })
+        if (response?.data?.success && response?.data?.data?.reviews) {
+          setReviews(response.data.data.reviews)
+        } else {
+          setReviews([])
+        }
+      } catch (error) {
+        debugError('Error fetching restaurant reviews:', error)
+        setReviews([])
+        toast.error('Failed to load restaurant reviews')
+      } finally {
+        setIsLoading(false)
+      }
     }
-  }
+
+    fetchReviews()
+  }, [])
 
   return (
     <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
@@ -170,12 +158,8 @@ export default function RestaurantReviews() {
               <Utensils className="w-5 h-5 text-emerald-500" />
               <div className="flex items-center gap-2">
                 <h1 className="text-2xl font-bold text-slate-900">Restaurant Reviews</h1>
-                <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700 flex items-center justify-center min-w-[2.5rem] h-7">
-                  {isLoading ? (
-                    <span className="w-5 h-3 rounded bg-slate-300/80 animate-pulse" />
-                  ) : (
-                    totalItems
-                  )}
+                <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
+                  {filteredReviews.length}
                 </span>
               </div>
             </div>
@@ -294,21 +278,6 @@ export default function RestaurantReviews() {
               </table>
             )}
           </div>
-
-          <AdminListPagination
-            currentPage={currentPage}
-            pageSize={pageSize}
-            totalItems={totalItems}
-            onPageChange={setCurrentPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size)
-              try {
-                localStorage.setItem("admin_restaurant_reviews_pageSize", String(size))
-              } catch {}
-              setCurrentPage(1)
-            }}
-            itemLabel="reviews"
-          />
         </div>
       </div>
 
@@ -342,48 +311,6 @@ export default function RestaurantReviews() {
             </div>
           )}
           <DialogFooter className="px-6 pb-6 pt-4 border-t border-slate-200"><button onClick={() => setIsReviewModalOpen(false)} className="px-4 py-2 text-sm font-medium rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all">Close</button></DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-        <DialogContent className="max-w-lg bg-white p-0 overflow-hidden">
-          <DialogHeader className="border-b border-slate-200 px-6 py-4">
-            <DialogTitle className="flex items-center gap-2 text-xl text-slate-900">
-              <Columns className="w-5 h-5 text-slate-600" />
-              Review Table Settings
-            </DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-3 px-6 py-5 sm:grid-cols-2">
-            {Object.entries(columnsConfig).map(([columnKey, label]) => (
-              <button
-                key={columnKey}
-                type="button"
-                onClick={() => toggleColumn(columnKey)}
-                className="w-full flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3 text-left hover:bg-slate-50 transition-colors"
-              >
-                <span className="text-sm font-medium text-slate-700">{label}</span>
-                <span className={`inline-flex h-5 w-5 items-center justify-center rounded border ${visibleColumns[columnKey] ? "border-emerald-500 bg-emerald-500 text-white" : "border-slate-300 bg-white text-transparent"}`}>
-                  <Check className="w-3.5 h-3.5" />
-                </span>
-              </button>
-            ))}
-          </div>
-          <DialogFooter className="border-t border-slate-200 px-6 py-4 gap-2">
-            <button
-              type="button"
-              onClick={resetColumns}
-              className="px-4 py-2 text-sm font-medium rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all"
-            >
-              Reset
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsSettingsOpen(false)}
-              className="px-4 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition-all"
-            >
-              Done
-            </button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

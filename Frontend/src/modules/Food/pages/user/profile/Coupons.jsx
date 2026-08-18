@@ -99,16 +99,6 @@ export default function Coupons() {
                               {title}
                             </span>
                           )}
-                          {offer.couponType === "delivery" && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-medium">
-                              Delivery Only
-                            </span>
-                          )}
-                          {offer.couponType === "takeaway" && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-100 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 font-medium">
-                              Takeaway Only
-                            </span>
-                          )}
                         </div>
                         <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 truncate">
                           {restaurantName}

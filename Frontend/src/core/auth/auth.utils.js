@@ -104,24 +104,29 @@ export function getCurrentUserRole(module = null) {
   // If module is specified, check that module's token
   if (module) {
     const token = getModuleToken(module);
-    if (!token) return null;
-    
-    if (isTokenExpired(token)) {
-      // Token expired, clear it
-      clearModuleAuth(module);
-      return null;
+    if (token && !isTokenExpired(token)) {
+      return getRoleFromToken(token);
     }
-    
-    return getRoleFromToken(token);
+
+    // Access expired — still treat as that module if refresh can recover the session.
+    const refreshToken = getModuleRefreshToken(module);
+    if (refreshToken && !isTokenExpired(refreshToken)) {
+      return module;
+    }
+
+    return null;
   }
   
   // Legacy: check all modules and return the first valid role found
   // This is for backward compatibility but should be avoided
   const modules = ['user', 'restaurant', 'delivery', 'admin'];
   for (const mod of modules) {
-    const token = getModuleToken(mod);
-    if (token && !isTokenExpired(token)) {
-      return getRoleFromToken(token);
+    if (isModuleAuthenticated(mod)) {
+      const token = getModuleToken(mod);
+      if (token && !isTokenExpired(token)) {
+        return getRoleFromToken(token);
+      }
+      return mod;
     }
   }
   
@@ -130,19 +135,19 @@ export function getCurrentUserRole(module = null) {
 
 /**
  * Check if user is authenticated for a specific module
+ * Access may be expired; a valid refresh token still counts as authenticated
+ * so the client can silently renew the session.
  * @param {string} module - Module name (admin, restaurant, delivery, user)
  * @returns {boolean} - True if authenticated
  */
 export function isModuleAuthenticated(module) {
-  const token = getModuleToken(module);
-  if (!token) return false;
-  
-  if (isTokenExpired(token)) {
-    clearModuleAuth(module);
-    return false;
-  }
-  
-  return true;
+  const accessToken = getModuleToken(module);
+  if (accessToken && !isTokenExpired(accessToken)) return true;
+
+  const refreshToken = getModuleRefreshToken(module);
+  if (refreshToken && !isTokenExpired(refreshToken)) return true;
+
+  return false;
 }
 
 /**

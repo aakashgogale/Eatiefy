@@ -1,22 +1,13 @@
 import { useState, useEffect, useRef } from "react"
-import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
-import { MapPin, Search, Save, Loader2, ArrowLeft } from "lucide-react"
+import { MapPin, Search, Save, Loader2, ArrowLeft, CheckCircle2, AlertTriangle, Navigation } from "lucide-react"
 import RestaurantNavbar from "@food/components/restaurant/RestaurantNavbar"
-import { restaurantAPI } from "@food/api"
-import { reverseGeocodeWithGoogle } from "@food/utils/googleGeocoding"
-import {
-  buildRestaurantLocationUpdatePayload,
-  dispatchRestaurantLocationUpdated,
-  formatRestaurantDisplayAddress,
-  normalizeRestaurantLocationFields,
-} from "@food/utils/restaurantLocation"
+import { restaurantAPI, zoneAPI } from "@food/api"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
 import { Loader } from "@googlemaps/js-api-loader"
-import { toast } from "sonner"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
-const debugError = (...args) => console.error("[ZoneSetup]", ...args)
+const debugError = (...args) => {}
 
 const parseCoordinate = (value) => {
   const parsed = Number(value)
@@ -59,153 +50,488 @@ const getSavedLocationCoords = (location) => {
 }
 
 export default function ZoneSetup() {
-  const navigate = useNavigate()
   const goBack = useRestaurantBackNavigation()
   const mapRef = useRef(null)
   const mapInstanceRef = useRef(null)
   const markerRef = useRef(null)
-  const sessionTokenRef = useRef(null)
-  const debounceRef = useRef(null)
-  const geocodeDebounceRef = useRef(null)
-  const locationRef = useRef(null)
-
+  const autocompleteInputRef = useRef(null)
+  const autocompleteRef = useRef(null)
+  const autocompleteServiceRef = useRef(null)
+  const placesServiceRef = useRef(null)
+  const geocoderRef = useRef(null)
+  const suggestionsDebounceRef = useRef(null)
+  const zonePolygonsRef = useRef([])
+  const serviceZonesRef = useRef([])
+  const lastValidLocationRef = useRef(null)
+  // Prevent re-applying published location after the user picks a pin / saves (pending updates leave `location` unchanged).
+  const hasHydratedMapFromRestaurantRef = useRef(false)
+  const userHasSelectedLocationRef = useRef(false)
+  
   const [googleMapsApiKey, setGoogleMapsApiKey] = useState("")
   const [mapLoading, setMapLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [geocoding, setGeocoding] = useState(false)
   const [restaurantData, setRestaurantData] = useState(null)
-  const [selectedLocation, setSelectedLocation] = useState(null)
+  const [serviceZones, setServiceZones] = useState([])
+  const [zoneValidationMessage, setZoneValidationMessage] = useState("")
   const [locationSearch, setLocationSearch] = useState("")
-  const [suggestions, setSuggestions] = useState([])
+  const [selectedLocation, setSelectedLocation] = useState(null)
+  const [selectedAddress, setSelectedAddress] = useState("")
+  const [searchSuggestions, setSearchSuggestions] = useState([])
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [mapError, setMapError] = useState("")
+  const [zonesDrawnCount, setZonesDrawnCount] = useState(0)
+  const [isSelectedInZone, setIsSelectedInZone] = useState(false)
 
-  const applyResolvedLocation = (fields) => {
-    const next = normalizeRestaurantLocationFields(fields)
-    if (!next) return
-    locationRef.current = next
-    setSelectedLocation(next)
-    if (next.latitude != null) updateMarker(next.latitude, next.longitude, formatRestaurantDisplayAddress(next))
-  }
-
-  const updateLocationFromCoords = async (nextLat, nextLng) => {
-    if (geocodeDebounceRef.current) clearTimeout(geocodeDebounceRef.current)
-
-    geocodeDebounceRef.current = setTimeout(async () => {
-      try {
-        setGeocoding(true)
-        const parsed = await reverseGeocodeWithGoogle(nextLat, nextLng)
-        applyResolvedLocation(parsed.locationFields || {
-          ...(locationRef.current || {}),
-          latitude: nextLat,
-          longitude: nextLng,
-          formattedAddress: `${nextLat.toFixed(6)}, ${nextLng.toFixed(6)}`,
-        })
-      } catch (error) {
-        debugError("Reverse geocode failed:", error)
-        applyResolvedLocation({
-          ...(locationRef.current || {}),
-          latitude: nextLat,
-          longitude: nextLng,
-          formattedAddress: `${nextLat.toFixed(6)}, ${nextLng.toFixed(6)}`,
-        })
-      } finally {
-        setGeocoding(false)
-      }
-    }, 450)
-  }
+  const OUTSIDE_ZONE_MESSAGE =
+    "Selected location is outside the service zone. Please pin inside a blue zone boundary."
 
   useEffect(() => {
     fetchRestaurantData()
+    fetchServiceZones()
     loadGoogleMaps()
   }, [])
 
-  // Fetch place suggestions from the new Places API (AutocompleteSuggestion).
-  // We keep our own styled input + dropdown; the legacy Autocomplete widget is
-  // blocked by Google for projects created after March 1st 2025.
-  const fetchSuggestions = async (input) => {
-    if (!input || input.trim().length < 2) {
-      setSuggestions([])
-      setShowSuggestions(false)
+  const fetchServiceZones = async () => {
+    try {
+      const response = await zoneAPI.getPublicZones()
+      const zones =
+        (response?.data?.success && Array.isArray(response?.data?.data?.zones)
+          ? response.data.data.zones
+          : null) ||
+        response?.data?.data?.zones ||
+        response?.data?.zones ||
+        []
+      const list = Array.isArray(zones) ? zones.filter((zone) => zone?.isActive !== false) : []
+      serviceZonesRef.current = list
+      setServiceZones(list)
+    } catch (error) {
+      debugWarn("Failed to load service zones:", error)
+      serviceZonesRef.current = []
+      setServiceZones([])
+    }
+  }
+
+  const getZonePaths = (zone) => {
+    const coordinates = Array.isArray(zone?.coordinates) ? zone.coordinates : []
+    return coordinates
+      .map((coord) => {
+        if (Array.isArray(coord) && coord.length >= 2) {
+          const lng = Number(coord[0])
+          const lat = Number(coord[1])
+          if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng }
+          return null
+        }
+        const lat = Number(coord?.latitude ?? coord?.lat)
+        const lng = Number(coord?.longitude ?? coord?.lng)
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+        return { lat, lng }
+      })
+      .filter(Boolean)
+  }
+
+  const isPointInZonePolygon = (lat, lng, polygon = []) => {
+    if (!Array.isArray(polygon) || polygon.length < 3) return false
+    let inside = false
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const xi = Number(polygon[i]?.longitude ?? polygon[i]?.lng)
+      const yi = Number(polygon[i]?.latitude ?? polygon[i]?.lat)
+      const xj = Number(polygon[j]?.longitude ?? polygon[j]?.lng)
+      const yj = Number(polygon[j]?.latitude ?? polygon[j]?.lat)
+      if (![xi, yi, xj, yj].every(Number.isFinite)) continue
+      const intersect =
+        yi > lat !== yj > lat &&
+        lng < ((xj - xi) * (lat - yi)) / (yj - yi + 0.0) + xi
+      if (intersect) inside = !inside
+    }
+    return inside
+  }
+
+  const findLocalZoneAt = (lat, lng) => {
+    const zones = serviceZonesRef.current
+    if (!Array.isArray(zones) || zones.length === 0) return null
+    return (
+      zones.find((zone) => isPointInZonePolygon(lat, lng, zone?.coordinates)) || null
+    )
+  }
+
+  const drawServiceZonesOnMap = (map, zones = serviceZonesRef.current, focusPoints = []) => {
+    if (!map || !window.google?.maps) return 0
+
+    zonePolygonsRef.current.forEach((polygon) => {
+      if (polygon) polygon.setMap(null)
+    })
+    zonePolygonsRef.current = []
+
+    const bounds = new window.google.maps.LatLngBounds()
+    let drawnCount = 0
+
+    ;(Array.isArray(zones) ? zones : []).forEach((zone) => {
+      const path = getZonePaths(zone)
+      if (path.length < 3) return
+
+      path.forEach((point) => bounds.extend(point))
+
+      const polygon = new window.google.maps.Polygon({
+        paths: path,
+        strokeColor: "#2563eb",
+        strokeOpacity: 0.9,
+        strokeWeight: 2,
+        fillColor: "#3b82f6",
+        fillOpacity: 0.18,
+        clickable: false,
+        zIndex: 1,
+      })
+      polygon.setMap(map)
+      zonePolygonsRef.current.push(polygon)
+      drawnCount += 1
+    })
+
+    ;(Array.isArray(focusPoints) ? focusPoints : []).forEach((point) => {
+      if (Number.isFinite(point?.lat) && Number.isFinite(point?.lng)) {
+        bounds.extend(point)
+      }
+    })
+
+    if (!bounds.isEmpty()) {
+      if (drawnCount > 0 || focusPoints.length > 0) {
+        map.fitBounds(bounds, 56)
+      }
+    }
+
+    return drawnCount
+  }
+
+  const validateZoneAt = async (lat, lng) => {
+    const localZone = findLocalZoneAt(lat, lng)
+    if (serviceZonesRef.current.length > 0) {
+      if (!localZone) {
+        setZoneValidationMessage(OUTSIDE_ZONE_MESSAGE)
+        setIsSelectedInZone(false)
+        return { ok: false, message: OUTSIDE_ZONE_MESSAGE }
+      }
+      const zoneName = localZone.name || localZone.zoneName || "Service zone"
+      setZoneValidationMessage("")
+      setIsSelectedInZone(true)
+      return { ok: true, zoneId: String(localZone._id), zoneName }
+    }
+
+    try {
+      const response = await zoneAPI.detectZone(lat, lng)
+      const payload = response?.data?.data
+      const isInService = payload?.status === "IN_SERVICE" && !!payload?.zoneId
+      if (isInService) {
+        const zoneName =
+          payload?.zone?.name ||
+          payload?.zone?.zoneName ||
+          payload?.zoneName ||
+          "Service zone"
+        setZoneValidationMessage("")
+        setIsSelectedInZone(true)
+        return { ok: true, zoneId: String(payload.zoneId), zoneName }
+      }
+      setZoneValidationMessage(OUTSIDE_ZONE_MESSAGE)
+      setIsSelectedInZone(false)
+      return { ok: false, message: OUTSIDE_ZONE_MESSAGE }
+    } catch (error) {
+      debugError("Zone validation failed:", error)
+      const message = "Could not verify zone for this location. Please try again."
+      setZoneValidationMessage(message)
+      setIsSelectedInZone(false)
+      return { ok: false, message }
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (suggestionsDebounceRef.current) {
+        clearTimeout(suggestionsDebounceRef.current)
+        suggestionsDebounceRef.current = null
+      }
+    }
+  }, [])
+
+  const isCoordinateAddress = (value) => {
+    const text = String(value || "").trim()
+    if (!text) return true
+    return /^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test(text)
+  }
+
+  const normalizeAddressLabel = (value) => {
+    const text = String(value || "").trim()
+    if (!text || isCoordinateAddress(text)) return ""
+    return text
+  }
+
+  const ensurePlacesLibrary = async () => {
+    if (!window.google?.maps) return false
+    try {
+      if (!window.google.maps.places && typeof window.google.maps.importLibrary === "function") {
+        await window.google.maps.importLibrary("places")
+      }
+      return Boolean(window.google.maps.places)
+    } catch (error) {
+      debugError("Failed to load Google Places library:", error)
+      return false
+    }
+  }
+
+  const reverseGeocodeCoordinates = async (lat, lng) => {
+    if (!window.google?.maps) return ""
+
+    try {
+      if (!geocoderRef.current) {
+        geocoderRef.current = new window.google.maps.Geocoder()
+      }
+
+      const result = await geocoderRef.current.geocode({
+        location: { lat, lng }
+      })
+
+      const formatted = result?.results?.[0]?.formatted_address || ""
+      return normalizeAddressLabel(formatted)
+    } catch (error) {
+      debugWarn("Reverse geocode failed:", error)
+      return ""
+    }
+  }
+
+  const applySelectedLocation = async (
+    lat,
+    lng,
+    rawAddress = "",
+    { showAlert = true, fromHydration = false } = {}
+  ) => {
+    const zoneCheck = await validateZoneAt(lat, lng)
+    if (!zoneCheck.ok) {
+      if (showAlert) alert(zoneCheck.message || OUTSIDE_ZONE_MESSAGE)
+      return false
+    }
+
+    const address = normalizeAddressLabel(rawAddress) || "Pinned location on map"
+    setLocationSearch(address)
+    setSelectedAddress(address)
+    const nextLocation = { lat, lng, address, zoneId: zoneCheck.zoneId, zoneName: zoneCheck.zoneName }
+    setSelectedLocation(nextLocation)
+    lastValidLocationRef.current = { lat, lng, address }
+    if (!fromHydration) {
+      userHasSelectedLocationRef.current = true
+    }
+    setIsSelectedInZone(true)
+    setShowSuggestions(false)
+    setSearchSuggestions([])
+    if (mapInstanceRef.current && window.google?.maps) {
+      updateMarker(lat, lng, address)
+    }
+    return true
+  }
+
+  const handleSuggestionSelect = async (suggestion) => {
+    if (!suggestion) return
+
+    // Fallback suggestions (e.g. Nominatim) can directly provide coordinates.
+    const fallbackLat = Number(suggestion.lat)
+    const fallbackLng = Number(suggestion.lng)
+    if (Number.isFinite(fallbackLat) && Number.isFinite(fallbackLng)) {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.setCenter({ lat: fallbackLat, lng: fallbackLng })
+        mapInstanceRef.current.setZoom(17)
+      }
+      await applySelectedLocation(fallbackLat, fallbackLng, suggestion.description || suggestion.main_text || "")
       return
     }
-    if (!window.google?.maps?.importLibrary) return
 
-    try {
-      const { AutocompleteSuggestion, AutocompleteSessionToken } =
-        await window.google.maps.importLibrary("places")
+    if (!suggestion?.place_id || !placesServiceRef.current) return
 
-      if (!sessionTokenRef.current) {
-        sessionTokenRef.current = new AutocompleteSessionToken()
-      }
-
-      const { suggestions: results } =
-        await AutocompleteSuggestion.fetchAutocompleteSuggestions({
-          input,
-          sessionToken: sessionTokenRef.current,
-          includedRegionCodes: ["in"], // Restrict to India
-        })
-
-      const mapped = (results || [])
-        .map((s) => s.placePrediction)
-        .filter(Boolean)
-      setSuggestions(mapped)
-      setShowSuggestions(mapped.length > 0)
-    } catch (err) {
-      debugError("Error fetching suggestions:", err)
-      setSuggestions([])
-      setShowSuggestions(false)
-    }
-  }
-
-  const handleSearchChange = (value) => {
-    setLocationSearch(value)
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => fetchSuggestions(value), 300)
-  }
-
-  const handleSelectSuggestion = async (prediction) => {
-    try {
-      const place = prediction.toPlace()
-      await place.fetchFields({ fields: ["location", "formattedAddress", "displayName"] })
-      if (!mapInstanceRef.current) return
-
-      const loc = place.location
-      const lat = typeof loc.lat === "function" ? loc.lat() : loc.lat
-      const lng = typeof loc.lng === "function" ? loc.lng() : loc.lng
-
-      mapInstanceRef.current.setCenter({ lat, lng })
-      mapInstanceRef.current.setZoom(17)
-
-      setLocationSearch(place.formattedAddress || place.displayName || "")
-      setSuggestions([])
-      setShowSuggestions(false)
-      sessionTokenRef.current = null
-      await updateLocationFromCoords(lat, lng)
-    } catch (err) {
-      debugError("Error resolving selected place:", err)
-    }
-  }
-
-  // Load existing restaurant location when data is fetched
-  useEffect(() => {
-    if (restaurantData?.location && mapInstanceRef.current && !mapLoading && window.google) {
-      const location = restaurantData.location
-      const savedCoords = getSavedLocationCoords(location)
-
-      if (savedCoords) {
-        const { lat, lng } = savedCoords
-        const locationObj = new window.google.maps.LatLng(lat, lng)
-        mapInstanceRef.current.setCenter(locationObj)
-        mapInstanceRef.current.setZoom(17)
-
-        const normalized = normalizeRestaurantLocationFields(location)
-        if (normalized) {
-          applyResolvedLocation(normalized)
-        } else {
-          updateLocationFromCoords(lat, lng)
+    placesServiceRef.current.getDetails(
+      {
+        placeId: suggestion.place_id,
+        fields: ["geometry", "formatted_address", "name"]
+      },
+      async (place, status) => {
+        if (
+          status === window.google?.maps?.places?.PlacesServiceStatus?.OK &&
+          place?.geometry?.location &&
+          mapInstanceRef.current
+        ) {
+          const lat = place.geometry.location.lat()
+          const lng = place.geometry.location.lng()
+          const address = place.formatted_address || place.name || ""
+          mapInstanceRef.current.setCenter({ lat, lng })
+          mapInstanceRef.current.setZoom(17)
+          await applySelectedLocation(lat, lng, address)
         }
       }
+    )
+  }
+
+  const fetchSearchSuggestions = async (query) => {
+    const q = String(query || "").trim()
+    if (!q) {
+      setSearchSuggestions([])
+      return
     }
+
+    if (autocompleteServiceRef.current) {
+      autocompleteServiceRef.current.getPlacePredictions(
+        {
+          input: q,
+          componentRestrictions: { country: "in" },
+          types: ["geocode"]
+        },
+        (predictions = [], status) => {
+          const ok = status === window.google?.maps?.places?.PlacesServiceStatus?.OK
+          setSearchSuggestions(ok ? predictions.slice(0, 6) : [])
+        }
+      )
+      return
+    }
+
+    // Fallback: lightweight suggestions from Nominatim when Google Places is unavailable.
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&q=${encodeURIComponent(q)}`,
+        { headers: { Accept: "application/json" } }
+      )
+      if (!response.ok) throw new Error(`Nominatim ${response.status}`)
+      const rows = await response.json()
+      const normalized = Array.isArray(rows)
+        ? rows.map((item, idx) => ({
+            place_id: `nominatim-${item.place_id || idx}`,
+            description: item.display_name || "",
+            main_text: String(item.display_name || "").split(",")[0] || "Location",
+            lat: Number(item.lat),
+            lng: Number(item.lon)
+          }))
+        : []
+      setSearchSuggestions(normalized)
+    } catch (error) {
+      debugWarn("Fallback suggestions failed:", error)
+      setSearchSuggestions([])
+    }
+  }
+
+  const handleSearchChange = (event) => {
+    const value = event.target.value
+    setLocationSearch(value)
+    setShowSuggestions(true)
+
+    if (suggestionsDebounceRef.current) {
+      clearTimeout(suggestionsDebounceRef.current)
+      suggestionsDebounceRef.current = null
+    }
+
+    suggestionsDebounceRef.current = setTimeout(() => {
+      fetchSearchSuggestions(value).catch(() => {})
+    }, 180)
+  }
+
+  // Initialize Places Autocomplete when map is loaded
+  useEffect(() => {
+    let isMounted = true
+
+    const setupPlaces = async () => {
+      if (mapLoading || !autocompleteInputRef.current || autocompleteRef.current) {
+        return
+      }
+
+      const placesReady = await ensurePlacesLibrary()
+      if (!isMounted || !placesReady) return
+
+      if (window.google?.maps?.places?.AutocompleteService) {
+        autocompleteServiceRef.current = new window.google.maps.places.AutocompleteService()
+      }
+      if (window.google?.maps?.places?.PlacesService) {
+        const host = mapInstanceRef.current || document.createElement("div")
+        placesServiceRef.current = new window.google.maps.places.PlacesService(host)
+      }
+
+      if (window.google?.maps?.places?.Autocomplete) {
+        const autocomplete = new window.google.maps.places.Autocomplete(autocompleteInputRef.current, {
+          componentRestrictions: { country: "in" }
+        })
+
+        autocomplete.addListener("place_changed", async () => {
+          const place = autocomplete.getPlace()
+          if (place.geometry && place.geometry.location) {
+            const location = place.geometry.location
+            const lat = location.lat()
+            const lng = location.lng()
+            const address = place.formatted_address || place.name || ""
+            if (mapInstanceRef.current) {
+              mapInstanceRef.current.setCenter(location)
+              mapInstanceRef.current.setZoom(17)
+            }
+            await applySelectedLocation(lat, lng, address)
+          }
+        })
+
+        autocompleteRef.current = autocomplete
+      }
+    }
+
+    setupPlaces()
+    return () => {
+      isMounted = false
+    }
+  }, [mapLoading])
+
+  useEffect(() => {
+    if (!mapInstanceRef.current || mapLoading || !window.google?.maps) return
+
+    const focusPoints = []
+    // Prefer the pin the user is editing (including pending save), not only published location.
+    if (lastValidLocationRef.current) {
+      focusPoints.push({
+        lat: lastValidLocationRef.current.lat,
+        lng: lastValidLocationRef.current.lng,
+      })
+    } else {
+      const isPending =
+        String(restaurantData?.locationUpdateStatus || "").toLowerCase() === "pending"
+      const locationForFocus =
+        isPending && restaurantData?.pendingLocation
+          ? restaurantData.pendingLocation
+          : restaurantData?.location
+      const savedCoords = getSavedLocationCoords(locationForFocus)
+      if (savedCoords) focusPoints.push(savedCoords)
+    }
+
+    const drawn = drawServiceZonesOnMap(mapInstanceRef.current, serviceZones, focusPoints)
+    setZonesDrawnCount(drawn)
+  }, [serviceZones, mapLoading, restaurantData])
+
+  // Load existing restaurant location once when map + profile are ready.
+  // Do NOT re-apply published `location` after save — updates go to `pendingLocation`
+  // and rehydrating from published coords makes it look like the old/live pin was saved.
+  useEffect(() => {
+    if (hasHydratedMapFromRestaurantRef.current) return
+    if (userHasSelectedLocationRef.current) {
+      hasHydratedMapFromRestaurantRef.current = true
+      return
+    }
+    if (!restaurantData || mapLoading || !mapInstanceRef.current || !window.google) return
+
+    const isPending =
+      String(restaurantData.locationUpdateStatus || "").toLowerCase() === "pending"
+    const locationToShow =
+      isPending && restaurantData.pendingLocation
+        ? restaurantData.pendingLocation
+        : restaurantData.location
+    const savedCoords = getSavedLocationCoords(locationToShow)
+    if (!savedCoords) return
+
+    const { lat, lng } = savedCoords
+    const address = normalizeAddressLabel(
+      locationToShow.formattedAddress ||
+        locationToShow.address ||
+        formatAddress(locationToShow) ||
+        ""
+    )
+    setLocationSearch(address)
+    setSelectedAddress(address)
+    updateMarker(lat, lng, address)
+    hasHydratedMapFromRestaurantRef.current = true
+    void applySelectedLocation(lat, lng, address, { showAlert: false, fromHydration: true })
   }, [restaurantData, mapLoading])
 
   const fetchRestaurantData = async () => {
@@ -233,13 +559,13 @@ export default function ZoneSetup() {
         if (!apiKey || apiKey.trim() === "") {
           debugError("? API key is empty or not found in database")
           setMapLoading(false)
-          alert("Google Maps API key not found in database. Please contact administrator to add the API key in admin panel.")
+          setMapError("Map unavailable: Google Maps API key missing. Search suggestions still work.")
           return
         }
       } catch (apiKeyError) {
         debugError("? Error fetching API key from database:", apiKeyError)
         setMapLoading(false)
-        alert("Failed to fetch Google Maps API key from database. Please check your connection or contact administrator.")
+        setMapError("Map unavailable right now. Search suggestions still work.")
         return
       }
       
@@ -266,33 +592,20 @@ export default function ZoneSetup() {
       if (!mapRef.current) {
         debugError("? mapRef.current is still null after waiting")
         setMapLoading(false)
-        alert("Failed to initialize map container. Please refresh the page.")
+        setMapError("Map failed to initialize. Search suggestions still work.")
         return
       }
 
-      // If Google Maps is already loaded WITH the Places library, use it directly.
-      // The Places library is required for the search/autocomplete to work.
-      if (window.google?.maps?.places?.Autocomplete) {
-        debugLog("? Google Maps (with Places) already loaded, initializing map...")
+      // If Google Maps is already loaded, use it directly
+      if (window.google && window.google.maps) {
+        debugLog("? Google Maps already loaded from main.jsx, initializing map...")
         initializeMap(window.google)
         return
       }
 
-      // If Maps was loaded by another page WITHOUT the Places library, that stale
-      // script must be removed so we can reload it with libraries=places. Otherwise
-      // the search bar autocomplete silently fails (window.google.maps.places is undefined).
-      const mapsScript = Array.from(document.getElementsByTagName("script"))
-        .find(s => s.src?.includes("maps.googleapis.com/maps/api/js"))
-      if (mapsScript && !mapsScript.src.includes("libraries=places")) {
-        debugWarn("Found Google Maps script without Places library, reloading with Places...")
-        mapsScript.remove()
-        // Best-effort clear so the Loader re-injects a fresh script
-        try { delete window.google } catch (e) { window.google = undefined }
-      }
-
-      // Load (or reload) Google Maps with the Places library via Loader.
+      // If Google Maps is not loaded yet and we have an API key, use Loader as fallback
       if (apiKey) {
-        debugLog("?? Loading Google Maps with Places library via Loader...")
+        debugLog("?? Google Maps not loaded from main.jsx, loading with Loader...")
         const loader = new Loader({
           apiKey: apiKey,
           version: "weekly",
@@ -305,12 +618,12 @@ export default function ZoneSetup() {
       } else {
         debugError("? No API key available")
         setMapLoading(false)
-        alert("Google Maps API key not found. Please contact administrator.")
+        setMapError("Map unavailable right now. Search suggestions still work.")
       }
     } catch (error) {
       debugError("? Error loading Google Maps:", error)
       setMapLoading(false)
-      alert(`Failed to load Google Maps: ${error.message}. Please refresh the page or contact administrator.`)
+      setMapError("Failed to load map. Search suggestions still work.")
     }
   }
 
@@ -345,14 +658,17 @@ export default function ZoneSetup() {
       })
 
       mapInstanceRef.current = map
+      setMapError("")
+      const drawn = drawServiceZonesOnMap(map, serviceZonesRef.current)
+      setZonesDrawnCount(drawn)
       debugLog("? Map initialized successfully")
 
       // Add click listener to place marker
-      map.addListener('click', (event) => {
+      map.addListener('click', async (event) => {
         const lat = event.latLng.lat()
         const lng = event.latLng.lng()
-        updateMarker(lat, lng, "Resolving address...")
-        updateLocationFromCoords(lat, lng)
+        const address = await reverseGeocodeCoordinates(lat, lng)
+        await applySelectedLocation(lat, lng, address)
       })
 
       setMapLoading(false)
@@ -360,7 +676,7 @@ export default function ZoneSetup() {
     } catch (error) {
       debugError("? Error in initializeMap:", error)
       setMapLoading(false)
-      alert("Failed to initialize map. Please refresh the page.")
+      setMapError("Map failed to initialize. Search suggestions still work.")
     }
   }
 
@@ -396,178 +712,400 @@ export default function ZoneSetup() {
     })
 
     // Update location when marker is dragged
-    marker.addListener('dragend', (event) => {
+    marker.addListener('dragend', async (event) => {
       const newLat = event.latLng.lat()
       const newLng = event.latLng.lng()
-      updateLocationFromCoords(newLat, newLng)
+      const newAddress = await reverseGeocodeCoordinates(newLat, newLng)
+      const ok = await applySelectedLocation(newLat, newLng, newAddress)
+      if (!ok && lastValidLocationRef.current && markerRef.current) {
+        const { lat, lng } = lastValidLocationRef.current
+        markerRef.current.setPosition({ lat, lng })
+      }
     })
 
     markerRef.current = marker
   }
 
+  const formatAddress = (location) => {
+    if (!location) return ""
+    
+    if (location.formattedAddress && location.formattedAddress.trim() !== "") {
+      return location.formattedAddress.trim()
+    }
+    
+    if (location.address && location.address.trim() !== "") {
+      return location.address.trim()
+    }
+    
+    const parts = []
+    if (location.addressLine1) parts.push(location.addressLine1.trim())
+    if (location.addressLine2) parts.push(location.addressLine2.trim())
+    if (location.area) parts.push(location.area.trim())
+    if (location.city) parts.push(location.city.trim())
+    if (location.state) parts.push(location.state.trim())
+    if (location.zipCode || location.pincode) parts.push((location.zipCode || location.pincode).trim())
+    
+    return parts.length > 0 ? parts.join(", ") : ""
+  }
+
+  const getCurrentPinCoordinates = () => {
+    if (markerRef.current?.getPosition) {
+      const position = markerRef.current.getPosition()
+      if (position) {
+        return { lat: position.lat(), lng: position.lng() }
+      }
+    }
+    if (selectedLocation?.lat != null && selectedLocation?.lng != null) {
+      return { lat: selectedLocation.lat, lng: selectedLocation.lng }
+    }
+    return null
+  }
+
   const handleSaveLocation = async () => {
-    if (!selectedLocation?.latitude || !selectedLocation?.longitude) {
-      toast.error("Please select a location on the map first")
+    const coords = getCurrentPinCoordinates()
+    if (!coords) {
+      alert("Please select a location on the map first")
+      return
+    }
+
+    const zoneCheck = await validateZoneAt(coords.lat, coords.lng)
+    if (!zoneCheck.ok) {
+      alert(zoneCheck.message || OUTSIDE_ZONE_MESSAGE)
+      if (lastValidLocationRef.current && markerRef.current) {
+        const { lat, lng } = lastValidLocationRef.current
+        markerRef.current.setPosition({ lat, lng })
+      }
       return
     }
 
     try {
       setSaving(true)
 
+      const { lat, lng } = coords
+      const address =
+        normalizeAddressLabel(selectedLocation?.address || selectedAddress) ||
+        "Pinned location on map"
+      const hasPublishedLocation = Boolean(getSavedLocationCoords(restaurantData?.location))
+
+      // Persist exact pin coordinates — do not spread stale published location fields
+      // that can leave address/coords inconsistent after a map move.
       const response = await restaurantAPI.updateProfile({
-        location: buildRestaurantLocationUpdatePayload(selectedLocation),
+        location: {
+          latitude: lat,
+          longitude: lng,
+          coordinates: [lng, lat],
+          formattedAddress: address,
+          address,
+        },
+        zoneId: zoneCheck.zoneId,
       })
 
       if (response?.data?.data?.restaurant) {
+        // Keep the pin the user just saved; profile update must not snap back to published location.
+        userHasSelectedLocationRef.current = true
+        hasHydratedMapFromRestaurantRef.current = true
+        lastValidLocationRef.current = { lat, lng, address }
+        setSelectedLocation((prev) => ({
+          ...(prev || {}),
+          lat,
+          lng,
+          address,
+          zoneId: zoneCheck.zoneId,
+          zoneName: zoneCheck.zoneName || prev?.zoneName,
+        }))
+        setSelectedAddress(address)
+        setLocationSearch(address)
+        if (markerRef.current?.setPosition) {
+          markerRef.current.setPosition({ lat, lng })
+        } else {
+          updateMarker(lat, lng, address)
+        }
         setRestaurantData(response.data.data.restaurant)
-        toast.success("Location saved successfully. Awaiting admin approval.", { duration: 4000 })
-        dispatchRestaurantLocationUpdated()
+        if (hasPublishedLocation) {
+          alert("Location update submitted for admin approval. Customers will continue to see your current address until it is approved.")
+        } else {
+          alert("Location saved successfully!")
+        }
+        window.dispatchEvent(new CustomEvent("addressUpdated"))
       } else {
         throw new Error("Failed to save location")
       }
     } catch (error) {
       debugError("Error saving location:", error)
-      toast.error(error.response?.data?.message || "Failed to save location. Please try again.")
+      alert(error.response?.data?.message || "Failed to save location. Please try again.")
     } finally {
       setSaving(false)
     }
   }
 
-  const selectedAddress = formatRestaurantDisplayAddress(selectedLocation, restaurantData)
+  useEffect(() => {
+    const coords = getCurrentPinCoordinates()
+    if (!coords || serviceZones.length === 0) return
+    void validateZoneAt(coords.lat, coords.lng)
+  }, [serviceZones])
+
+  const locationUpdateStatus = String(restaurantData?.locationUpdateStatus || "none").toLowerCase()
+  const hasPendingLocationUpdate = locationUpdateStatus === "pending"
+  const pendingLocationLabel =
+    restaurantData?.pendingLocation?.formattedAddress ||
+    restaurantData?.pendingLocation?.address ||
+    formatAddress(restaurantData?.pendingLocation) ||
+    ""
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <RestaurantNavbar hideSearch />
-      <div className="p-4 md:p-6 max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
-          <div className="flex items-center gap-3 mb-4 md:mb-0">
-            {/* Back Button */}
+    <div className="min-h-screen bg-[#eef1f5] md:min-h-full md:h-full md:overflow-hidden flex flex-col">
+      <RestaurantNavbar />
+
+      {/* Header */}
+      <div className="sticky top-0 z-40 border-b border-[#d5dbe3] bg-[#f7f8fa]/95 backdrop-blur shrink-0">
+        <div className="flex items-center justify-between gap-4 px-4 py-3 md:px-8 md:py-5">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={goBack}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              className="p-2 hover:bg-white rounded-xl transition-colors md:hidden"
               aria-label="Go back"
             >
-              <ArrowLeft className="w-5 h-5 text-gray-700" />
+              <ArrowLeft className="w-5 h-5 text-[#141820]" />
             </button>
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#B80B3D] to-[#66001D] flex items-center justify-center">
-              <MapPin className="w-5 h-5 text-white" />
+            <div className="w-10 h-10 rounded-2xl bg-[#141820] text-[#e8b86d] flex items-center justify-center shrink-0 shadow-sm">
+              <MapPin className="w-5 h-5" />
             </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Zone Setup</h1>
-              <p className="text-sm text-gray-600">Set your restaurant location on the map</p>
+            <div className="min-w-0">
+              <p className="hidden md:block text-[11px] font-bold uppercase tracking-[0.2em] text-[#5c6775]">
+                Outlet coverage
+              </p>
+              <h1 className="text-xl font-black tracking-tight text-[#141820] md:text-2xl">Zone setup</h1>
+              <p className="text-sm text-[#5c6775] truncate md:mt-0.5">
+                Pin your restaurant inside an active service area
+              </p>
             </div>
           </div>
+          <button
+            onClick={handleSaveLocation}
+            disabled={!selectedLocation || !isSelectedInZone || saving}
+            className="hidden md:inline-flex items-center justify-center gap-2 rounded-2xl bg-[#141820] px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-[#1e2633] disabled:bg-[#c8d0da] disabled:cursor-not-allowed"
+          >
+            {saving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                Save location
+              </>
+            )}
+          </button>
         </div>
+      </div>
 
-        {/* Search Bar */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 mb-6 overflow-visible">
-          <div className="flex flex-col gap-3">
-            <div className="relative w-full min-w-0">
-              <Search className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 z-10 pointer-events-none" />
-              <input
-                type="text"
-                value={locationSearch}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-                placeholder="Search for your restaurant location..."
-                className="w-full min-w-0 pl-10 sm:pl-12 pr-4 py-3.5 text-sm sm:text-base border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#B80B3D] focus:border-transparent"
-              />
-              {showSuggestions && suggestions.length > 0 && (
-                <ul className="absolute z-[200] left-0 right-0 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-72 overflow-y-auto">
-                  {suggestions.map((prediction, idx) => {
-                    const main = prediction.mainText?.text || prediction.text?.text || ""
-                    const secondary = prediction.secondaryText?.text || ""
-                    return (
-                      <li
-                        key={prediction.placeId || idx}
-                        onMouseDown={(e) => {
-                          e.preventDefault()
-                          handleSelectSuggestion(prediction)
-                        }}
-                        className="flex items-start gap-2.5 px-3 sm:px-4 py-3 cursor-pointer hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
-                      >
-                        <MapPin className="w-4 h-4 text-[#B80B3D] mt-0.5 shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm text-gray-900 font-medium leading-snug break-words">{main}</p>
-                          {secondary && (
-                            <p className="text-xs text-gray-500 mt-0.5 leading-snug break-words">{secondary}</p>
-                          )}
-                        </div>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-            </div>
-            <button
-              onClick={handleSaveLocation}
-              disabled={!selectedLocation || saving}
-              className="w-full sm:w-auto sm:self-end flex items-center justify-center gap-2 px-6 py-3.5 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white text-sm sm:text-base font-semibold rounded-lg hover:opacity-95 transition-opacity disabled:bg-gray-400 disabled:cursor-not-allowed shrink-0"
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Saving...</span>
-                </>
-              ) : (
-                <>
-                  <Save className="w-5 h-5" />
-                  <span>Save Location</span>
-                </>
-              )}
-            </button>
-          </div>
-          {selectedLocation && (
-            <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-sm text-gray-700">
-                <strong>Selected Location:</strong> {selectedAddress || "Resolving address..."}
+      <div className="flex-1 min-h-0 overflow-y-auto md:overflow-hidden">
+        <div className="p-4 pb-8 md:h-full md:p-6 md:pb-6 md:grid md:grid-cols-[minmax(300px,380px)_minmax(0,1fr)] md:gap-6 md:items-stretch">
+          {/* Control rail */}
+          <aside className="flex flex-col gap-4 mb-4 md:mb-0 md:overflow-y-auto md:pr-1">
+            {hasPendingLocationUpdate ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-semibold">Update pending approval</p>
+                    <p className="mt-1 text-amber-800/90 text-xs leading-relaxed">
+                      {pendingLocationLabel
+                        ? `Requested: ${pendingLocationLabel}. `
+                        : ""}
+                      Customers still see your current approved address.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {zoneValidationMessage ? (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {zoneValidationMessage}
+              </div>
+            ) : null}
+
+            {mapError ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                {mapError}
+              </div>
+            ) : null}
+
+            {/* Zone status card */}
+            <div className="rounded-[24px] border border-[#d6dce4] bg-[#141820] text-white p-5 shadow-[0_24px_50px_-34px_rgba(20,24,32,0.55)]">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#9aa7b6]">
+                  Service zones
+                </p>
+                <Navigation className="w-4 h-4 text-[#e8b86d]" />
+              </div>
+              <p className="mt-3 text-3xl font-black tracking-tight tabular-nums">
+                {serviceZones.length}
               </p>
-              <p className="text-xs text-gray-500 mt-1">
-                Coordinates: {Number(selectedLocation.latitude).toFixed(6)}, {Number(selectedLocation.longitude).toFixed(6)}
+              <p className="mt-1 text-sm text-[#9aa7b6]">
+                {zonesDrawnCount > 0
+                  ? `${zonesDrawnCount} zone${zonesDrawnCount === 1 ? "" : "s"} drawn on the map`
+                  : serviceZones.length > 0
+                    ? "Zones loaded — pan or zoom if not visible"
+                    : "No active zones loaded yet"}
               </p>
-              {geocoding && (
-                <p className="text-xs text-[#B80B3D] mt-1">Updating address details...</p>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Instructions */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-          <h3 className="text-sm font-semibold text-blue-900 mb-2">How to set your location:</h3>
-          <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
-            <li>Search for your location using the search bar above, or</li>
-            <li>Click anywhere on the map to place a pin at that location</li>
-            <li>You can drag the pin to adjust the exact position</li>
-            <li>Click "Save Location" to save your restaurant location</li>
-          </ul>
-        </div>
-
-        {/* Map Container */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden relative">
-          {/* Always render the map div, show loading overlay on top */}
-          <div ref={mapRef} className="w-full h-[600px]" style={{ minHeight: '600px' }} />
-          {mapLoading && (
-            <div className="absolute inset-0 bg-white flex items-center justify-center z-10">
-              <div className="text-center">
-                <Loader2 className="w-8 h-8 animate-spin text-[#B80B3D] mx-auto mb-2" />
-                <p className="text-gray-600">Loading map...</p>
-                <p className="text-xs text-gray-400 mt-2">If this takes too long, please refresh the page</p>
+              <div className="mt-4 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-xs text-[#c8d0da] leading-relaxed">
+                Blue shaded areas are admin service zones. Your pin must land inside a zone to save.
               </div>
             </div>
-          )}
+
+            {/* Search — below how-to on mobile, above how-to on desktop */}
+            <div className="order-3 md:order-2 rounded-2xl border border-[#d6dce4] bg-white p-4 shadow-sm">
+              <label className="block text-xs font-bold uppercase tracking-wider text-[#5c6775] mb-2">
+                Find location
+              </label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8b98a8]" />
+                <input
+                  ref={autocompleteInputRef}
+                  type="text"
+                  value={locationSearch}
+                  onChange={handleSearchChange}
+                  onFocus={() => {
+                    if (searchSuggestions.length > 0) setShowSuggestions(true)
+                  }}
+                  placeholder="Search restaurant address..."
+                  className="w-full pl-10 pr-3 py-3 text-sm border border-[#d6dce4] rounded-xl bg-[#f7f8fa] text-[#141820] focus:outline-none focus:ring-2 focus:ring-[#141820]/15 focus:border-[#141820]"
+                />
+                {showSuggestions && searchSuggestions.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-[#d6dce4] rounded-xl shadow-xl z-30 max-h-64 overflow-y-auto">
+                    {searchSuggestions.map((suggestion) => (
+                      <button
+                        key={suggestion.place_id}
+                        type="button"
+                        className="w-full text-left px-3 py-2.5 hover:bg-[#f5f7fa] border-b last:border-b-0 border-[#eef1f5]"
+                        onClick={() => handleSuggestionSelect(suggestion)}
+                      >
+                        <p className="text-sm text-[#141820] truncate font-medium">
+                          {suggestion.structured_formatting?.main_text || suggestion.main_text || suggestion.description}
+                        </p>
+                        {(suggestion.structured_formatting?.secondary_text || suggestion.description) && (
+                          <p className="text-xs text-[#5c6775] truncate mt-0.5">
+                            {suggestion.structured_formatting?.secondary_text || suggestion.description}
+                          </p>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {selectedLocation ? (
+                <div
+                  className={`mt-3 rounded-xl border px-3 py-3 ${
+                    isSelectedInZone
+                      ? "bg-[#f3faf5] border-emerald-200"
+                      : "bg-rose-50 border-rose-200"
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    {isSelectedInZone ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-rose-600 mt-0.5 shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-[#141820]">
+                        {isSelectedInZone ? "Inside service zone" : "Outside service zone"}
+                      </p>
+                      <p className="text-xs text-[#5c6775] mt-1 leading-relaxed break-words">
+                        {normalizeAddressLabel(selectedAddress) || "Pinned location on map"}
+                      </p>
+                      <p className="text-[11px] text-[#8b98a8] mt-1 tabular-nums">
+                        {selectedLocation.lat.toFixed(6)}, {selectedLocation.lng.toFixed(6)}
+                      </p>
+                      {selectedLocation.zoneName && isSelectedInZone ? (
+                        <p className="mt-2 inline-flex rounded-full bg-[#141820] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-[#e8b86d]">
+                          {selectedLocation.zoneName}
+                        </p>
+                      ) : null}
+                      {!isSelectedInZone ? (
+                        <p className="text-xs text-rose-700 mt-2 font-medium">
+                          Move the pin inside a blue zone to save.
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-3 text-xs text-[#5c6775] leading-relaxed">
+                  Search above or tap the map to drop a pin.
+                </p>
+              )}
+
+              <button
+                onClick={handleSaveLocation}
+                disabled={!selectedLocation || !isSelectedInZone || saving}
+                className="mt-4 w-full md:hidden flex items-center justify-center gap-2 rounded-xl bg-[#141820] px-4 py-3 text-sm font-bold text-white transition-colors disabled:bg-[#c8d0da] disabled:cursor-not-allowed"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    Save location
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* How-to — above find location on mobile only */}
+            <div className="order-2 md:order-3 rounded-2xl border border-[#d6dce4] bg-white p-4 shadow-sm">
+              <h3 className="text-sm font-bold text-[#141820] mb-3">How to pin</h3>
+              <ol className="space-y-2.5">
+                {[
+                  "Search your outlet address, or tap the map",
+                  "Drag the pin for a precise spot",
+                  "Confirm it sits inside a blue zone",
+                  "Save — updates may need admin approval",
+                ].map((step, index) => (
+                  <li key={step} className="flex items-start gap-3 text-sm text-[#5c6775]">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#141820] text-[10px] font-bold text-[#e8b86d]">
+                      {index + 1}
+                    </span>
+                    <span className="leading-snug">{step}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </aside>
+
+          {/* Map stage */}
+          <section className="relative rounded-[28px] border border-[#d6dce4] bg-white overflow-hidden shadow-[0_24px_50px_-36px_rgba(20,24,32,0.45)] md:min-h-0 md:h-full">
+            <div className="absolute top-4 left-4 z-20 hidden md:flex items-center gap-2 rounded-full bg-white/95 backdrop-blur border border-[#d6dce4] px-3 py-1.5 shadow-sm">
+              <span className="h-2 w-2 rounded-full bg-[#3b82f6]" />
+              <span className="text-[11px] font-semibold text-[#5c6775]">Service coverage</span>
+            </div>
+            <div
+              ref={mapRef}
+              className="w-full h-[420px] md:h-full md:min-h-[560px]"
+              style={{ minHeight: "420px" }}
+            />
+            {mapLoading && (
+              <div className="absolute inset-0 bg-white/95 flex items-center justify-center z-10">
+                <div className="text-center px-6">
+                  <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#141820]">
+                    <Loader2 className="w-6 h-6 animate-spin text-[#e8b86d]" />
+                  </div>
+                  <p className="font-semibold text-[#141820]">Loading map...</p>
+                  <p className="text-xs text-[#5c6775] mt-1">If this takes too long, refresh the page</p>
+                </div>
+              </div>
+            )}
+          </section>
         </div>
       </div>
     </div>
   )
 }
-
-
-
-
-
-
-
 

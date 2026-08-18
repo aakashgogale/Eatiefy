@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { Link, useNavigate, useNavigationType, useLocation } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -23,26 +23,11 @@ import {
   ShoppingCart,
   MapPin,
   Share2,
-  Utensils,
   Trash2,
-  Pencil,
-  Loader2,
-  Camera,
-  Upload,
-  LifeBuoy
 } from "lucide-react";
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@food/components/ui/dropdown-menu";
-
-import { getAvatarColor } from "@food/utils/avatarUtils";
-import { normalizeImageUrl } from "@food/utils/common";
-
 import AnimatedPage from "@food/components/user/AnimatedPage";
+import { resolveMediaUrl } from "@food/utils/common";
 import { Card, CardContent } from "@food/components/ui/card";
 import { Button } from "@food/components/ui/button";
 import { useProfile } from "@food/context/ProfileContext";
@@ -61,25 +46,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@food/components/ui/dialog";
-import { authAPI, userAPI } from "@food/api";
-import { firebaseAuth } from "@food/firebase";
+import { userAPI } from "@food/api";
 import { clearModuleAuth } from "@food/utils/auth";
+import { logoutUserSession } from "@food/utils/moduleLogout";
 import { toast } from "sonner";
-import { showAccountDeletedToast } from "@/shared/utils/customToasts";
-import { resolveProfileBackPath } from "@food/utils/mainTabRoutes";
-
 const debugLog = (...args) => { };
-const debugWarn = (...args) => { };
 const debugError = (...args) => { };
-const USER_SESSION_PREFERENCE_KEYS = ["userVegMode", "userVegModeOption", "food-under-250-filters"];
+const USER_SESSION_PREFERENCE_KEYS = ["userVegMode", "food_user_veg_mode_option", "food-under-250-filters"];
 
+import { registerWebPushForCurrentModule } from "@food/utils/firebaseMessaging";
+import DeleteAccountModal from "@food/components/DeleteAccountModal";
 
 export default function Profile() {
-  const { userProfile, vegMode, setVegMode, vegModeOption, setVegModeOption, getDefaultAddress, addresses, updateUserProfile } =
+  const { userProfile, vegMode, setVegMode, vegModeOption, getDefaultAddress, addresses } =
     useProfile();
+  const [isExiting, setIsExiting] = useState(false);
   const { openLocationSelector } = useLocationSelector();
   const navigate = useNavigate();
-  const location = useLocation();
   const companyName = useCompanyName();
   const defaultAddress = getDefaultAddress?.();
   const savedAddressSummary = defaultAddress
@@ -100,63 +83,17 @@ export default function Profile() {
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [referralReward, setReferralReward] = useState(0);
-  const [walletBalance, setWalletBalance] = useState(null);
-  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
-  const [deleteCaptcha, setDeleteCaptcha] = useState("");
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [showBalanceWarning, setShowBalanceWarning] = useState(false);
-  const [balanceData, setBalanceData] = useState({ balance: 0, type: "Wallet" });
-  const [isCheckingBalance, setIsCheckingBalance] = useState(false);
+  const [walletBalance, setWalletBalance] = useState(0);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
-
-
-  const navType = useNavigationType();
-
-  // Scroll Restoration
+  // Trigger web push registration when profile mounts to ensure FCM token is saved
   useEffect(() => {
-    if (navType === "POP") {
-      const savedScroll = sessionStorage.getItem("profileScrollPos");
-      if (savedScroll) {
-        setTimeout(() => window.scrollTo(0, parseInt(savedScroll, 10)), 50);
-      }
-    } else {
-      window.scrollTo(0, 0);
-    }
-
-    const handleScroll = () => {
-      sessionStorage.setItem("profileScrollPos", window.scrollY.toString());
-    };
-    window.addEventListener("scroll", handleScroll, { passive: true });
-
-    return () => {
-      window.removeEventListener("scroll", handleScroll);
-    };
-  }, [navType]);
-
-  // Lock scroll when any popup is open
-  useEffect(() => {
-    const isPopupOpen = logoutConfirmOpen || deleteAccountOpen || showBalanceWarning || vegModeOpen || appearanceOpen;
-    if (isPopupOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-    return () => {
-      document.body.style.overflow = 'unset';
-    };
-  }, [logoutConfirmOpen, deleteAccountOpen, showBalanceWarning, vegModeOpen, appearanceOpen]);
+    registerWebPushForCurrentModule().catch(console.error);
+  }, []);
 
   const handleVegModeUpdate = (nextValue) => {
     setVegMode(nextValue);
     localStorage.setItem("userVegMode", String(nextValue));
-  };
-
-  const handleVegModeOptionUpdate = (nextOption) => {
-    setVegModeOption(nextOption);
-    if (!vegMode) {
-      setVegMode(true);
-      localStorage.setItem("userVegMode", "true");
-    }
   };
 
   // Settings states
@@ -339,7 +276,7 @@ export default function Profile() {
   const refId =
     userProfile?._id || userProfile?.id || userProfile?.referralCode || "";
   const referralLink = refId
-    ? `${window.location.origin}/food/user/auth/login?ref=${encodeURIComponent(String(refId))}`
+    ? `${window.location.origin}/food/food/user/auth/login?ref=${encodeURIComponent(String(refId))}`
     : "";
 
   const handleShareReferral = async () => {
@@ -369,91 +306,10 @@ export default function Profile() {
     setIsLoggingOut(true);
 
     try {
-      // Call backend logout API to invalidate refresh token
-      try {
-        let fcmToken = null;
-        let platform = "web";
-        try {
-          if (typeof window !== "undefined") {
-            if (window.flutter_inappwebview) {
-              platform = "mobile";
-              const handlerNames = [
-                "getFcmToken",
-                "getFCMToken",
-                "getPushToken",
-                "getFirebaseToken",
-              ];
-              for (const handlerName of handlerNames) {
-                try {
-                  const t = await window.flutter_inappwebview.callHandler(
-                    handlerName,
-                    { module: "user" },
-                  );
-                  if (t && typeof t === "string" && t.length > 20) {
-                    fcmToken = t.trim();
-                    break;
-                  }
-                } catch (e) { }
-              }
-            } else {
-              fcmToken =
-                localStorage.getItem("fcm_web_registered_token_user") || null;
-            }
-          }
-        } catch (e) {
-          console.warn("Failed to get FCM token during logout", e);
-        }
-        await authAPI.logout(null, fcmToken, platform);
-      } catch (apiError) {
-        // Continue with logout even if API call fails (network issues, etc.)
-        debugWarn(
-          "Logout API call failed, continuing with local cleanup:",
-          apiError,
-        );
-      }
-
-      // Sign out from Firebase if user logged in via Google
-      try {
-        const { signOut } = await import("firebase/auth");
-        // Firebase Auth is lazy-initialized now; only attempt sign out if it was actually used
-        if (firebaseAuth) {
-          const currentUser = firebaseAuth.currentUser;
-          if (currentUser) {
-            await signOut(firebaseAuth);
-          }
-        }
-      } catch (firebaseError) {
-        // Continue even if Firebase logout fails
-        debugWarn(
-          "Firebase logout failed, continuing with local cleanup:",
-          firebaseError,
-        );
-      }
-
-      // Clear user module authentication data using utility function
-      clearModuleAuth("user");
-
-      // Clear legacy token data for backward compatibility
-      localStorage.removeItem("accessToken");
-      localStorage.removeItem("user_authenticated");
-      localStorage.removeItem("user_user");
-      localStorage.removeItem("user");
-      localStorage.removeItem("cart");
-      USER_SESSION_PREFERENCE_KEYS.forEach((key) => localStorage.removeItem(key));
-
-      // Dispatch auth change event to notify other components
-      window.dispatchEvent(new Event("userAuthChanged"));
-
-      // Navigate to sign in page
-      navigate("/user/auth/login", { replace: true });
+      await logoutUserSession({ navigate });
     } catch (err) {
-      // Even if there's an error, we should still clear local data and logout
       debugError("Error during logout:", err);
-
-      // Clear local data anyway using utility function
       clearModuleAuth("user");
-
-      // Clear legacy token data for backward compatibility
       localStorage.removeItem("accessToken");
       localStorage.removeItem("user_authenticated");
       localStorage.removeItem("user_user");
@@ -461,11 +317,30 @@ export default function Profile() {
       localStorage.removeItem("cart");
       USER_SESSION_PREFERENCE_KEYS.forEach((key) => localStorage.removeItem(key));
       window.dispatchEvent(new Event("userAuthChanged"));
-
-      // Still navigate to login page
-      navigate("/user/auth/login", { replace: true });
+      navigate("/food/user/auth/login", { replace: true });
     } finally {
       setIsLoggingOut(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    try {
+      await userAPI.deleteCurrentUserAccount();
+      toast.success("Account deleted successfully");
+      
+      clearModuleAuth("user");
+      localStorage.removeItem("accessToken");
+      localStorage.removeItem("user_authenticated");
+      localStorage.removeItem("user_user");
+      localStorage.removeItem("user");
+      localStorage.removeItem("cart");
+      USER_SESSION_PREFERENCE_KEYS.forEach((key) => localStorage.removeItem(key));
+      
+      window.dispatchEvent(new Event("userAuthChanged"));
+      navigate("/food/user/auth/login", { replace: true });
+    } catch (error) {
+      console.error("Failed to delete account:", error);
+      toast.error(error?.response?.data?.message || "Failed to delete account. Please try again.");
     }
   };
 
@@ -474,91 +349,76 @@ export default function Profile() {
     setLogoutConfirmOpen(true);
   };
 
-  const handleDeleteAccount = async () => {
-    if (isDeleting || deleteCaptcha !== "DELETE") return;
-    setIsDeleting(true);
-    try {
-      await authAPI.deleteAccount("user");
-
-      showAccountDeletedToast();
-
-      // Clear user module authentication data
-      clearModuleAuth("user");
-
-      // Dispatch auth change event to notify other components
-      window.dispatchEvent(new Event("userAuthChanged"));
-
-      // Navigate to sign in page
-      navigate("/user/auth/login", { replace: true });
-    } catch (error) {
-      debugError("Error deleting account:", error);
-      toast.error(error?.response?.data?.message || "Failed to delete account. Please try again.");
-    } finally {
-      setIsDeleting(false);
-      setDeleteAccountOpen(false);
-    }
-  };
-
   return (
-    <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a]">
-      <div className="max-w-md md:max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 py-4 sm:py-6 md:py-8 lg:py-10 pb-20 sm:pb-24">
-        {/* Header: Back Arrow */}
-        <div className="flex items-center mb-5">
-          <button
-            onClick={() => navigate(resolveProfileBackPath(location.state?.from))}
-            className="h-11 w-11 flex items-center justify-center bg-white/70 dark:bg-[#1a1a1a]/70 backdrop-blur-md rounded-full shadow-[0_2px_12px_rgba(0,0,0,0.08)] hover:bg-white/90 dark:hover:bg-[#222]/90 active:scale-95 transition-all outline-none border border-black/10 dark:border-white/10"
-          >
-            <ArrowLeft className="h-6 w-6 text-black dark:text-white" />
-          </button>
-        </div>
+    <div className="overflow-x-hidden min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a]">
+      <motion.div
+        initial={{ x: "100%", opacity: 0 }}
+        animate={{ x: isExiting ? "100%" : "0%", opacity: isExiting ? 0 : 1 }}
+        transition={{ ease: [0.16, 1, 0.3, 1], duration: 0.35 }}
+        className="w-full min-h-screen"
+      >
+        <div className="max-w-md md:max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 py-4 sm:py-6 md:py-8 lg:py-10 pb-20 sm:pb-24">
+          {/* Header: Back Arrow */}
+          <div className="flex items-center mb-4">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 p-0"
+              onClick={(e) => {
+                e.preventDefault();
+                setIsExiting(true);
+                setTimeout(() => {
+                  navigate("/food/user");
+                }, 300);
+              }}
+            >
+              <ArrowLeft className="h-5 w-5 text-black dark:text-white" />
+            </Button>
+          </div>
 
         {/* Profile Info Card */}
-        <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-[20px] shadow-[0_4px_16px_rgba(0,0,0,0.02)] mb-0 border-0 dark:border-gray-800 overflow-hidden">
-          <CardContent className="p-4 py-2.3">
-            <div className="flex items-center gap-4">
-              <div className="relative">
-                <Avatar className="h-16 w-16 border border-gray-100 dark:border-gray-800 shadow-sm bg-transparent">
-                  {(userProfile?.localImagePreview || (userProfile?.profileImage && typeof userProfile.profileImage === "string" && userProfile.profileImage.trim() !== "" && userProfile.profileImage !== "null" && userProfile.profileImage !== "undefined")) ? (
-                    <img
-                      src={userProfile?.localImagePreview || normalizeImageUrl(userProfile.profileImage)}
+        <Card className="bg-white dark:bg-[#1a1a1a] rounded-2xl py-0 pt-1 shadow-sm mb-0 border-0 dark:border-gray-800 overflow-hidden">
+          <CardContent className="p-4 py-0 pt-2">
+            <div className="flex items-start gap-4 mb-4">
+              <motion.div
+                whileHover={{ scale: 1.1, rotate: 5 }}
+                transition={{ duration: 0.3, type: "spring", stiffness: 300 }}>
+                <Avatar className="h-16 w-16 bg-blue-300 border-0">
+                  {userProfile?.profileImage && (
+                    <AvatarImage
+                      src={resolveMediaUrl(userProfile.profileImage) || undefined}
                       alt={displayName}
-                      className="w-full h-full object-cover rounded-full"
-                    />
-                  ) : (
-                    <img
-                      src="/assets/images/profile_avatar.webp"
-                      alt={displayName}
-                      className="w-full h-full object-cover rounded-full"
                     />
                   )}
+                  <AvatarFallback className="bg-blue-300 text-white text-2xl font-semibold">
+                    {avatarInitial}
+                  </AvatarFallback>
                 </Avatar>
-              </div>
-              <div className="flex-1">
-                <h2 className="text-[19px] font-bold text-gray-900 dark:text-white leading-tight capitalize">
+              </motion.div>
+              <div className="flex-1 pt-1">
+                <h2 className="text-xl font-bold text-black dark:text-white mb-1">
                   {displayName}
                 </h2>
                 {hasValidEmail && (
-                  <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-0.5">
+                  <p className="text-sm text-black dark:text-gray-300 mb-1">
                     {userProfile.email}
                   </p>
                 )}
                 {userProfile?.phone && (
-                  <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-0.5">
+                  <p
+                    className={`text-sm ${hasValidEmail ? "text-gray-600 dark:text-gray-400" : "text-black dark:text-white"} mb-3`}>
                     {userProfile.phone}
                   </p>
                 )}
                 {!hasValidEmail && !userProfile?.phone && (
-                  <p className="text-[13px] text-gray-400 mt-0.5">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
                     Not available
                   </p>
                 )}
-                <Link
-                  to="/user/profile/edit"
-                  className="inline-flex items-center text-[13px] font-medium text-gray-700 dark:text-gray-300 hover:text-black dark:hover:text-white mt-1 transition-colors"
-                >
-                  <span>Edit profile</span>
-                  <span className="text-[9px] ml-1 leading-none text-gray-500 dark:text-gray-400">▶</span>
-                </Link>
+                {/* <Link to="/user/profile/activity" className="flex items-center gap-1 text-green-600 text-sm font-medium">
+                  View activity
+                  <ChevronRight className="h-4 w-4" />
+                </Link> */}
               </div>
             </div>
           </CardContent>
@@ -566,7 +426,7 @@ export default function Profile() {
 
         {/* Account Options */}
         <div className="space-y-2 mb-3 mt-3">
-          <Link to="/food/user/wallet" state={{ from: "/food/user/profile" }} className="block">
+          <Link to="/user/wallet" className="block">
             <motion.div
               whileHover={{ x: 4, scale: 1.01 }}
               transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
@@ -584,13 +444,9 @@ export default function Profile() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    {walletBalance === null ? (
-                      <span className="inline-block w-12 h-4 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" />
-                    ) : (
-                      <span className="text-base font-semibold text-green-600 dark:text-green-400">
-                        {"\u20B9"}{Number(walletBalance).toFixed(0)}
-                      </span>
-                    )}
+                    <span className="text-base font-semibold text-green-600 dark:text-green-400">
+                      {"\u20B9"}{Number(walletBalance || 0).toFixed(0)}
+                    </span>
                     <motion.div
                       whileHover={{ x: 4 }}
                       transition={{ duration: 0.2 }}>
@@ -656,6 +512,52 @@ export default function Profile() {
             </motion.div>
           </Link>
 
+          <Link to="/user/profile/refer-earn" className="block">
+            <motion.div
+              whileHover={{ x: 4, scale: 1.01 }}
+              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+            <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <motion.div
+                      className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
+                      whileHover={{ rotate: 15, scale: 1.1 }}
+                      transition={{ duration: 0.3 }}>
+                      <Tag className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                    </motion.div>
+                    <span className="text-base font-medium text-gray-900 dark:text-white">
+                      Refer & Earn
+                    </span>
+                  </div>
+                  {referralReward > 0 && (
+                    <span className="text-xs font-semibold px-2 py-1 rounded bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-300">
+                      Earn {"\u20B9"}{referralReward}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Invite a friend. Reward is added to your wallet when they
+                    sign up.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleShareReferral();
+                    }}
+                    className="inline-flex items-center gap-1 text-xs text-[#EB590E] font-medium ml-2 px-2 py-1 rounded-md"
+                    disabled={!referralLink}>
+                    <Share2 className="h-3.5 w-3.5" />
+                    Refer
+                  </button>
+                </div>
+              </CardContent>
+            </Card>
+            </motion.div>
+          </Link>
 
           <motion.div
             whileHover={{ x: 4, scale: 1.01 }}
@@ -694,6 +596,43 @@ export default function Profile() {
             </Card>
           </motion.div>
 
+          <Link to="/user/profile/edit" className="block">
+            <motion.div
+              whileHover={{ x: 4, scale: 1.01 }}
+              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+              <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
+                <CardContent className="p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <motion.div
+                      className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
+                      whileHover={{ rotate: 15, scale: 1.1 }}
+                      transition={{ duration: 0.3 }}>
+                      <User className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                    </motion.div>
+                    <span className="text-base font-medium text-gray-900 dark:text-white">
+                      Your profile
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <motion.span
+                      className={`text-xs font-medium px-2 py-1 rounded ${isComplete
+                          ? "bg-green-100 text-green-700 border border-green-300"
+                          : "bg-orange-100 text-orange-800"
+                        }`}
+                      whileHover={{ scale: 1.1 }}
+                      transition={{ duration: 0.2 }}>
+                      {profileCompletion}% completed
+                    </motion.span>
+                    <motion.div
+                      whileHover={{ x: 4 }}
+                      transition={{ duration: 0.2 }}>
+                      <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
+                    </motion.div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          </Link>
 
           <motion.div
             whileHover={{ x: 4, scale: 1.01 }}
@@ -718,11 +657,7 @@ export default function Profile() {
                     className="text-base font-medium text-gray-900 dark:text-white"
                     whileHover={{ scale: 1.1 }}
                     transition={{ duration: 0.2 }}>
-                    {vegMode
-                      ? vegModeOption === "pure-veg"
-                        ? "Pure Veg"
-                        : "All restaurants"
-                      : "OFF"}
+                    {vegMode ? "ON" : "OFF"}
                   </motion.span>
                   <motion.div
                     whileHover={{ x: 4 }}
@@ -773,7 +708,7 @@ export default function Profile() {
         {/* Collections Section */}
         <div className="mb-3">
           <div className="flex items-center gap-2 mb-2 px-1">
-            <div className="w-1 h-4 bg-[#DC2626] rounded"></div>
+            <div className="w-1 h-4 bg-[#EB590E] rounded"></div>
             <h3 className="text-base font-semibold text-gray-900 dark:text-white">
               Collections
             </h3>
@@ -806,55 +741,16 @@ export default function Profile() {
           </Link>
         </div>
 
-        {/* Dining Section */}
-        <div className="mb-3">
-          <div className="flex items-center gap-2 mb-2 px-1">
-            <div className="w-1 h-4 bg-[#DC2626] rounded"></div>
-            <h3 className="text-base font-semibold text-gray-900 dark:text-white">
-              Dining Bookings
-            </h3>
-          </div>
-          <Link to="/user/profile/dining-bookings">
-            <motion.div
-              whileHover={{ x: 4, scale: 1.01 }}
-              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
-              <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
-                <CardContent className="p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <motion.div
-                      className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
-                      whileHover={{ rotate: 15, scale: 1.1 }}
-                      transition={{ duration: 0.3 }}>
-                      <Utensils className="h-5 w-5 text-gray-700 dark:text-gray-300" />
-                    </motion.div>
-                    <div className="flex flex-col">
-                      <span className="text-base font-medium text-gray-900 dark:text-white">
-                        Your reservations
-                      </span>
-                      <span className="text-[10px] text-gray-500">View table booking status</span>
-                    </div>
-                  </div>
-                  <motion.div
-                    whileHover={{ x: 4 }}
-                    transition={{ duration: 0.2 }}>
-                    <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
-                  </motion.div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          </Link>
-        </div>
-
         {/* Food Orders Section */}
         <div className="mb-3">
           <div className="flex items-center gap-2 mb-2 px-1">
-            <div className="w-1 h-4 bg-[#DC2626] rounded"></div>
+            <div className="w-1 h-4 bg-[#EB590E] rounded"></div>
             <h3 className="text-base font-semibold text-gray-900 dark:text-white">
               Food Orders
             </h3>
           </div>
           <div className="space-y-2">
-            <Link to="/user/orders" state={{ from: "profile", backTo: "/food/user/profile" }} className="block">
+            <Link to="/user/orders" className="block">
               <motion.div
                 whileHover={{ x: 4, scale: 1.01 }}
                 transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
@@ -886,7 +782,7 @@ export default function Profile() {
         {/* More Section */}
         <div className="mb-8 pb-8">
           <div className="flex items-center gap-2 mb-2 px-1">
-            <div className="w-1 h-4 bg-[#DC2626] rounded"></div>
+            <div className="w-1 h-4 bg-[#EB590E] rounded"></div>
             <h3 className="text-base font-semibold text-gray-900 dark:text-white">
               More
             </h3>
@@ -903,7 +799,7 @@ export default function Profile() {
                         className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                         whileHover={{ rotate: 15, scale: 1.1 }}
                         transition={{ duration: 0.3 }}>
-                        <LifeBuoy className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                        <SettingsIcon className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                       </motion.div>
                       <span className="text-base font-medium text-gray-900 dark:text-white">
                         Help & Support
@@ -973,33 +869,6 @@ export default function Profile() {
               </motion.div>
             </Link>
 
-            <Link to="/user/profile/settings" className="block">
-              <motion.div
-                whileHover={{ x: 4, scale: 1.01 }}
-                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
-                <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <motion.div
-                        className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
-                        whileHover={{ rotate: 15, scale: 1.1 }}
-                        transition={{ duration: 0.3 }}>
-                        <SettingsIcon className="h-5 w-5 text-gray-700 dark:text-gray-300" />
-                      </motion.div>
-                      <span className="text-base font-medium text-gray-900 dark:text-white">
-                        Settings
-                      </span>
-                    </div>
-                    <motion.div
-                      whileHover={{ x: 4 }}
-                      transition={{ duration: 0.2 }}>
-                      <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
-                    </motion.div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            </Link>
-
             <motion.div
               whileHover={{ x: 4, scale: 1.01 }}
               transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
@@ -1013,10 +882,10 @@ export default function Profile() {
                       whileHover={{ rotate: 15, scale: 1.1 }}
                       transition={{ duration: 0.3 }}>
                       <Power
-                        className={`h-5 w-5 text-gray-900 dark:text-white ${isLoggingOut ? "animate-pulse" : ""}`}
+                        className={`h-5 w-5 text-gray-700 dark:text-gray-300 ${isLoggingOut ? "animate-pulse" : ""}`}
                       />
                     </motion.div>
-                    <span className="text-base font-bold text-gray-900 dark:text-white">
+                    <span className="text-base font-medium text-gray-900 dark:text-white">
                       {isLoggingOut ? "Logging out..." : "Log out"}
                     </span>
                   </div>
@@ -1024,6 +893,33 @@ export default function Profile() {
                     whileHover={{ x: 4 }}
                     transition={{ duration: 0.2 }}>
                     <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
+                  </motion.div>
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            <motion.div
+              whileHover={{ x: 4, scale: 1.01 }}
+              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+              <Card
+                className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer"
+                onClick={() => setDeleteModalOpen(true)}>
+                <CardContent className="p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <motion.div
+                      className="bg-red-50 dark:bg-red-900/10 rounded-full p-2"
+                      whileHover={{ rotate: 15, scale: 1.1 }}
+                      transition={{ duration: 0.3 }}>
+                      <Trash2 className="h-5 w-5 text-red-500" />
+                    </motion.div>
+                    <span className="text-base font-medium text-red-600">
+                      Delete Account
+                    </span>
+                  </div>
+                  <motion.div
+                    whileHover={{ x: 4 }}
+                    transition={{ duration: 0.2 }}>
+                    <ChevronRight className="h-5 w-5 text-red-300 dark:text-red-900/30" />
                   </motion.div>
                 </CardContent>
               </Card>
@@ -1046,62 +942,32 @@ export default function Profile() {
           <div className="space-y-2 px-5 pb-5">
             <button
               onClick={() => {
-                handleVegModeOptionUpdate("all");
+                handleVegModeUpdate(true);
                 setVegModeOpen(false);
               }}
-              className={`w-full p-3 rounded-xl border-2 transition-all flex items-center justify-between ${vegMode && vegModeOption === "all"
-                ? "border-green-600 bg-green-50"
-                : "border-gray-200 bg-white hover:border-gray-300"
+              className={`w-full p-3 rounded-xl border-2 transition-all flex items-center justify-between ${vegMode
+                  ? "border-green-600 bg-green-50"
+                  : "border-gray-200 bg-white hover:border-gray-300"
                 }`}>
               <div className="flex items-center gap-3">
                 <div
-                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${vegMode && vegModeOption === "all"
-                    ? "border-green-600 bg-green-600"
-                    : "border-gray-300"
+                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${vegMode
+                      ? "border-green-600 bg-green-600"
+                      : "border-gray-300"
                     }`}>
-                  {vegMode && vegModeOption === "all" && <Check className="h-3 w-3 text-white" />}
+                  {vegMode && <Check className="h-3 w-3 text-white" />}
                 </div>
                 <div className="text-left">
                   <p className="font-medium text-gray-900 text-sm">
-                    All restaurants
+                    Veg Mode ON
                   </p>
                   <p className="text-xs text-gray-500">
-                    Veg dishes from every restaurant
+                    Show only vegetarian options
                   </p>
                 </div>
               </div>
               <Leaf
-                className={`h-5 w-5 ${vegMode && vegModeOption === "all" ? "text-green-600" : "text-gray-400"}`}
-              />
-            </button>
-            <button
-              onClick={() => {
-                handleVegModeOptionUpdate("pure-veg");
-                setVegModeOpen(false);
-              }}
-              className={`w-full p-3 rounded-xl border-2 transition-all flex items-center justify-between ${vegMode && vegModeOption === "pure-veg"
-                ? "border-green-600 bg-green-50"
-                : "border-gray-200 bg-white hover:border-gray-300"
-                }`}>
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${vegMode && vegModeOption === "pure-veg"
-                    ? "border-green-600 bg-green-600"
-                    : "border-gray-300"
-                    }`}>
-                  {vegMode && vegModeOption === "pure-veg" && <Check className="h-3 w-3 text-white" />}
-                </div>
-                <div className="text-left">
-                  <p className="font-medium text-gray-900 text-sm">
-                    Pure Veg restaurants only
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    Hide restaurants that serve non-veg
-                  </p>
-                </div>
-              </div>
-              <Leaf
-                className={`h-5 w-5 ${vegMode && vegModeOption === "pure-veg" ? "text-green-600" : "text-gray-400"}`}
+                className={`h-5 w-5 ${vegMode ? "text-green-600" : "text-gray-400"}`}
               />
             </button>
             <button
@@ -1110,12 +976,12 @@ export default function Profile() {
                 setVegModeOpen(false);
               }}
               className={`w-full p-3 rounded-xl border-2 transition-all flex items-center justify-between ${!vegMode
-                ? "border-[#991B1B] bg-[#fdfafc] dark:bg-[#7F1D1D]/10"
-                : "border-gray-200 dark:border-gray-800 bg-white hover:border-gray-300"
+                  ? "border-red-600 bg-red-50"
+                  : "border-gray-200 bg-white hover:border-gray-300"
                 }`}>
               <div className="flex items-center gap-3">
                 <div
-                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${!vegMode ? "border-[#991B1B] bg-[#991B1B]" : "border-gray-300"
+                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${!vegMode ? "border-red-600 bg-red-600" : "border-gray-300"
                     }`}>
                   {!vegMode && <Check className="h-3 w-3 text-white" />}
                 </div>
@@ -1133,48 +999,36 @@ export default function Profile() {
 
       {/* Logout Confirmation Popup */}
       {logoutConfirmOpen && (
-        <div className="fixed inset-0 z-[1000] overflow-y-auto bg-black/60 backdrop-blur-sm">
-          <div className="flex min-h-screen items-center justify-center p-4">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="w-full max-w-sm rounded-2xl bg-white/75 dark:bg-[#1a1a1a]/75 backdrop-blur-md shadow-2xl border border-white/20 dark:border-white/10 overflow-hidden p-6 text-center">
-
-              <div className="flex flex-col items-center mb-4">
-                <div className="w-14 h-14 rounded-full bg-red-50 dark:bg-red-950/30 flex items-center justify-center mb-3">
-                  <Power className="h-7 w-7 text-[#FF3131]" />
-                </div>
-                <h3 className="text-xl font-bold text-gray-900 dark:text-white">
-                  Log out?
-                </h3>
-              </div>
-
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 leading-relaxed">
-                Are you sure you want to log out?
-              </p>
-
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setLogoutConfirmOpen(false)}
-                  disabled={isLoggingOut}
-                  className="flex-1 h-12 rounded-xl text-md font-bold border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#262626] text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#333] transition-colors outline-none"
-                >
-                  No
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLogoutConfirmOpen(false);
-                    handleLogout();
-                  }}
-                  disabled={isLoggingOut}
-                  className="flex-1 h-12 rounded-xl bg-[#FF3131] hover:bg-[#E02626] text-white text-md font-bold shadow-lg shadow-red-500/20 active:scale-95 transition-all outline-none"
-                >
-                  Yes
-                </button>
-              </div>
-            </motion.div>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#1a1a1a] p-5 shadow-2xl border border-gray-200 dark:border-gray-800">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+              Log out?
+            </h3>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Are you sure you want to log out?
+            </p>
+            <div className="mt-5 flex items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 rounded-xl"
+                onClick={() => setLogoutConfirmOpen(false)}
+                disabled={isLoggingOut}
+              >
+                No
+              </Button>
+              <Button
+                type="button"
+                className="flex-1 rounded-xl bg-[#E2AD4B] hover:bg-[#C59132] text-white"
+                onClick={() => {
+                  setLogoutConfirmOpen(false);
+                  handleLogout();
+                }}
+                disabled={isLoggingOut}
+              >
+                Yes
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -1193,17 +1047,17 @@ export default function Profile() {
           <div className="space-y-2 px-5 pb-5">
             <button
               onClick={() => {
+                setAppearance("light");
                 setAppearanceOpen(false);
-                setTimeout(() => setAppearance("light"), 250);
               }}
               className={`w-full p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${appearance === "light"
-                ? "border-[#DC2626] bg-[#fdfafc] dark:border-[#DC2626] dark:bg-[#7F1D1D]/20"
-                : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600"
+                  ? "border-blue-600 bg-blue-50 dark:border-blue-500 dark:bg-blue-900/20"
+                  : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600"
                 }`}>
               <div
                 className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${appearance === "light"
-                  ? "border-[#DC2626] bg-[#DC2626]"
-                  : "border-gray-300 dark:border-gray-600"
+                    ? "border-blue-600 bg-blue-600 dark:border-blue-500 dark:bg-blue-500"
+                    : "border-gray-300 dark:border-gray-600"
                   }`}>
                 {appearance === "light" && (
                   <Check className="h-3 w-3 text-white" />
@@ -1221,17 +1075,17 @@ export default function Profile() {
             </button>
             <button
               onClick={() => {
+                setAppearance("dark");
                 setAppearanceOpen(false);
-                setTimeout(() => setAppearance("dark"), 250);
               }}
               className={`w-full p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${appearance === "dark"
-                ? "border-[#DC2626] dark:border-[#DC2626] bg-[#fdfafc] dark:bg-[#7F1D1D]/20"
-                : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600"
+                  ? "border-blue-600 dark:border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                  : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600"
                 }`}>
               <div
                 className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${appearance === "dark"
-                  ? "border-[#DC2626] bg-[#DC2626]"
-                  : "border-gray-300 dark:border-gray-600"
+                    ? "border-blue-600 bg-blue-600 dark:border-blue-500 dark:bg-blue-500"
+                    : "border-gray-300 dark:border-gray-600"
                   }`}>
                 {appearance === "dark" && (
                   <Check className="h-3 w-3 text-white" />
@@ -1250,122 +1104,15 @@ export default function Profile() {
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* Balance Warning Popup */}
-      {showBalanceWarning && (
-        <div className="fixed inset-0 bg-black/80 z-[1000] flex items-center justify-center px-4 backdrop-blur-sm overflow-y-auto py-10">
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-white dark:bg-[#1a1a1a] w-full max-w-sm rounded-2xl shadow-2xl p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex flex-col items-center text-center mb-4">
-              <div className="w-16 h-16 rounded-full bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center mb-3">
-                <AlertTriangle className="w-8 h-8 text-orange-600 dark:text-orange-400" />
-              </div>
-              <h3 className="text-xl font-black text-gray-900 dark:text-white">Wait! Balance Found</h3>
-            </div>
-
-            <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 mb-5 text-center">
-              <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">{balanceData.type}</p>
-              <p className="text-3xl font-black text-black dark:text-white">₹{balanceData.balance.toLocaleString('en-IN')}</p>
-            </div>
-
-            <p className="text-sm text-gray-600 dark:text-gray-300 mb-6 text-center leading-relaxed">
-              You still have money in your wallet. Do you want to continue deleting your account or go back and withdraw?
-            </p>
-
-            <div className="flex flex-col gap-3">
-              <button
-                onClick={() => {
-                  setShowBalanceWarning(false);
-                  setDeleteCaptcha("");
-                  setDeleteAccountOpen(true);
-                }}
-                className="w-full h-12 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-              >
-                Continue Anyway
-              </button>
-              <button
-                onClick={() => setShowBalanceWarning(false)}
-                className="w-full h-12 rounded-xl bg-black dark:bg-white text-white dark:text-black font-bold hover:bg-gray-900 dark:hover:bg-gray-100 transition-colors"
-              >
-                Cancel & Withdraw
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      {/* Delete Account Confirmation */}
-      {deleteAccountOpen && (
-        <div className="fixed inset-0 z-[1000] overflow-y-auto bg-black/60 backdrop-blur-sm">
-          <div className="flex min-h-screen items-center justify-center p-4 py-10">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#1a1a1a] shadow-2xl border border-red-100 dark:border-red-900/30 overflow-hidden p-6">
-
-              {/* Icon + Title centered */}
-              <div className="flex flex-col items-center text-center mb-4">
-                <div className="w-14 h-14 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mb-3">
-                  <Trash2 className="h-7 w-7 text-red-600 dark:text-red-400" />
-                </div>
-                <h3 className="text-xl font-black text-gray-900 dark:text-white">
-                  Delete Your Account?
-                </h3>
-              </div>
-
-              <p className="text-sm text-gray-600 dark:text-gray-300 mb-4 leading-relaxed text-center">
-                Are you sure you want to delete your account?
-              </p>
-
-              <div className="mb-4 bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 rounded-r-xl p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 flex-shrink-0" />
-                  <span className="text-sm font-bold text-red-700 dark:text-red-400">Warning</span>
-                </div>
-                <p className="text-xs text-red-700 dark:text-red-300 leading-relaxed">
-                  Your account will be Deleted. Admin will keep your historical records for revenue reporting.
-                </p>
-              </div>
-
-              <div className="mb-6">
-                <input
-                  type="text"
-                  placeholder="Type DELETE to confirm"
-                  value={deleteCaptcha}
-                  onChange={(e) => setDeleteCaptcha(e.target.value.toUpperCase())}
-                  className="w-full h-12 px-4 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-transparent dark:text-white focus:border-red-500 focus:ring-4 focus:ring-red-50 dark:focus:ring-red-900/20 outline-none transition-all font-bold text-center tracking-widest placeholder:tracking-normal placeholder:font-medium placeholder:text-gray-400 dark:placeholder:text-gray-500"
-                />
-              </div>
-
-              <div className="flex items-center gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="flex-1 h-12 rounded-xl text-md font-bold ring-2 ring-gray-300 dark:ring-gray-600"
-                  onClick={() => setDeleteAccountOpen(false)}
-                  disabled={isDeleting}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  className="flex-1 h-12 rounded-xl bg-red-600 hover:bg-red-700 text-white text-md font-bold disabled:opacity-60 disabled:cursor-not-allowed shadow-lg shadow-red-600/20"
-                  onClick={handleDeleteAccount}
-                  disabled={isDeleting || deleteCaptcha !== "DELETE"}
-                >
-                  {isDeleting ? "Deleting..." : "Delete Account"}
-                </Button>
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      )}
-
-
-    </AnimatedPage>
+ 
+      <DeleteAccountModal 
+        isOpen={deleteModalOpen} 
+        onClose={() => setDeleteModalOpen(false)} 
+        onConfirm={handleConfirmDelete} 
+        walletAmount={walletBalance} 
+        moduleName="user" 
+      />
+      </motion.div>
+    </div>
   );
 }

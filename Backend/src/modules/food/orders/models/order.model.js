@@ -8,16 +8,8 @@ const orderItemSchema = new mongoose.Schema(
         variantName: { type: String, trim: true, default: '' },
         variantPrice: { type: Number, min: 0, default: 0 },
         price: { type: Number, required: true, min: 0 },
-        /** Restaurant base at order time. */
-        basePrice: { type: Number, default: null, min: 0 },
-        /** @deprecated Prefer markupAmount; kept for older order docs. */
-        otherPrice: { type: Number, default: 0, min: 0 },
-        /** Admin markup per unit (platform share). */
-        markupAmount: { type: Number, default: 0, min: 0 },
-        appliedPricingType: { type: String, default: null },
-        appliedPricingValue: { type: Number, default: null },
-        pricingScope: { type: String, default: null },
-        pricingRule: { type: mongoose.Schema.Types.Mixed, default: null },
+        /** Compare-at / other-platform unit price snapshot at order time. */
+        otherPrice: { type: Number, min: 0, default: 0 },
         quantity: { type: Number, required: true, min: 1 },
         isVeg: { type: Boolean, default: true },
         image: { type: String, default: '' },
@@ -48,19 +40,24 @@ const deliveryAddressSchema = new mongoose.Schema(
 const pricingSchema = new mongoose.Schema(
     {
         subtotal: { type: Number, required: true, min: 0 },
-        /** Restaurant-owned item total (before admin markup). */
-        baseSubtotal: { type: Number, default: 0, min: 0 },
-        /** Admin markup total (goes to platform). */
-        markupTotal: { type: Number, default: 0, min: 0 },
         tax: { type: Number, default: 0, min: 0 },
         packagingFee: { type: Number, default: 0, min: 0 },
         deliveryFee: { type: Number, default: 0, min: 0 },
+        deliveryFeeGst: { type: Number, default: 0, min: 0 },
         platformFee: { type: Number, default: 0, min: 0 },
+        /** Extra surcharge when user selects Quick Mode (also included in platformFee). */
+        quickDeliveryFee: { type: Number, default: 0, min: 0 },
+        deliveryMode: { type: String, enum: ['basic', 'quick'], default: 'basic' },
         restaurantCommission: { type: Number, default: 0, min: 0 },
         discount: { type: Number, default: 0, min: 0 },
+        couponCode: { type: String, default: null, trim: true, uppercase: true },
         total: { type: Number, required: true, min: 0 },
         currency: { type: String, default: 'INR' },
-        couponCode: { type: String, default: null, trim: true, uppercase: true }
+        /** Straight-line restaurant ↔ customer km (fee calculation) */
+        distanceKm: { type: Number, default: null, min: 0 },
+        /** Driving / road restaurant ↔ customer km (Directions API) */
+        roadDistanceKm: { type: Number, default: null, min: 0 },
+        roadDurationMins: { type: Number, default: null, min: 0 },
     },
     { _id: false }
 );
@@ -106,11 +103,6 @@ const paymentSchema = new mongoose.Schema(
                 enum: ['none', 'pending', 'processed', 'failed'], 
                 default: 'none' 
             },
-            destination: {
-                type: String,
-                enum: ['source', 'wallet'],
-                default: 'source'
-            },
             amount: { type: Number, default: 0 },
             refundId: { type: String, default: '' },
             processedAt: { type: Date }
@@ -134,9 +126,7 @@ const dispatchSchema = new mongoose.Schema(
         offeredTo: [{
             partnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliveryPartner' },
             at: { type: Date, default: Date.now },
-            action: { type: String, enum: ['offered', 'rejected', 'timeout'], default: 'offered' },
-            allowOverLimit: { type: Boolean, default: false },
-            requiredCashForOrder: { type: Number, default: 0 }
+            action: { type: String, enum: ['offered', 'rejected', 'timeout', 'deassigned'], default: 'offered' }
         }],
         dispatchingAt: { type: Date }
     },
@@ -220,12 +210,6 @@ const orderSchema = new mongoose.Schema(
             sparse: true,
             index: true
         },
-        orderType: {
-            type: String,
-            enum: ['delivery', 'dining', 'takeaway'],
-            default: 'delivery',
-            index: true
-        },
         userId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'FoodUser',
@@ -253,7 +237,7 @@ const orderSchema = new mongoose.Schema(
         },
         deliveryAddress: {
             type: deliveryAddressSchema,
-            required: false
+            required: true
         },
         customerName: { type: String, default: '', trim: true },
         customerPhone: { type: String, default: '', trim: true },
@@ -272,6 +256,7 @@ const orderSchema = new mongoose.Schema(
         orderStatus: {
             type: String,
             enum: [
+                'pending_payment',
                 'created',
                 'confirmed',
                 'preparing',
@@ -302,15 +287,19 @@ const orderSchema = new mongoose.Schema(
             type: orderRatingsSchema,
             default: () => ({})
         },
-        restaurantNote: { type: String, default: '', trim: true },
         note: { type: String, default: '', trim: true },
+        deliveryInstructions: { type: String, default: '', trim: true },
+        acceptanceWindowSeconds: { type: Number, default: 240, min: 1 },
+        acceptanceDeadlineAt: { type: Date, default: null },
         sendCutlery: { type: Boolean, default: true },
-        preparationTime: { type: Number, default: 0 },
-        acceptedAt: { type: Date },
         deliveryFleet: { type: String, default: 'standard', trim: true },
         scheduledAt: { type: Date, default: null },
         riderEarning: { type: Number, default: 0, min: 0 },
-        platformProfit: { type: Number, default: 0, min: 0 },
+        // Can be negative when discounts/rider pay exceed platform income; keep the real value visible.
+        platformProfit: { type: Number, default: 0 },
+        /** Restaurant ↔ customer driving distance (km) for delivery-partner offer UI */
+        tripDistanceKm: { type: Number, default: null, min: 0 },
+        tripDurationMins: { type: Number, default: null, min: 0 },
         /** Plain 4-digit OTP for handover; cleared after successful verify (never expose to partner in API responses). */
         deliveryOtp: { type: String, default: '', select: false },
         deliveryVerification: {
@@ -321,7 +310,18 @@ const orderSchema = new mongoose.Schema(
         lastRiderLocation: {
             type: { type: String, enum: ['Point'] },
             coordinates: { type: [Number] }
-        }
+        },
+        /** Tracked inventory reserved atomically at create; released on abandon/fail/timeout */
+        inventoryReserved: { type: Boolean, default: false },
+        inventoryReservation: {
+            type: [
+                {
+                    itemId: { type: String, required: true },
+                    quantity: { type: Number, required: true, min: 1 },
+                },
+            ],
+            default: [],
+        },
     },
     {
         collection: 'food_orders',
@@ -329,11 +329,11 @@ const orderSchema = new mongoose.Schema(
     }
 );
 
+orderSchema.index({ createdAt: -1 });
+orderSchema.index({ orderStatus: 1, createdAt: -1 });
 orderSchema.index({ 'deliveryAddress.location': '2dsphere' });
 orderSchema.index({ lastRiderLocation: '2dsphere' });
 orderSchema.index({ userId: 1, createdAt: -1 });
-orderSchema.index({ orderStatus: 1, createdAt: -1 });
-orderSchema.index({ createdAt: -1 });
 orderSchema.index({ restaurantId: 1, orderStatus: 1, createdAt: -1 });
 orderSchema.index({ 'dispatch.deliveryPartnerId': 1, orderStatus: 1 });
 orderSchema.index({ 'dispatch.status': 1, orderStatus: 1 });
@@ -341,30 +341,38 @@ orderSchema.index({ 'dispatch.status': 1, orderStatus: 1, updatedAt: -1 });
 orderSchema.index({ 'dispatch.deliveryPartnerId': 1, 'dispatch.status': 1, updatedAt: -1 });
 orderSchema.index({ 'payment.status': 1, createdAt: -1 });
 orderSchema.index({ 'payment.method': 1, createdAt: -1 });
+orderSchema.index({ 'payment.razorpay.orderId': 1 }, { sparse: true });
+orderSchema.index({ 'payment.razorpay.paymentId': 1 }, { sparse: true });
+orderSchema.index({ orderStatus: 1, 'payment.status': 1, createdAt: -1 }); // pending_payment expiry / recovery
 
 orderSchema.pre('save', async function (next) {
-    if (!this.order_id) {
-        const timestamp = Date.now().toString().slice(-4);
-        const random = Math.floor(100 + Math.random() * 900);
-        this.order_id = `FOD-${timestamp}${random}`;
-    }
-    // Synchronize camelCase alias to satisfy unique index 'orderId_1'
-    if (this.order_id) {
-        this.orderId = this.order_id;
-    }
-    // Auto-generate takeaway OTP for active states if missing
-    if (this.orderType === 'takeaway' && ['preparing', 'ready_for_pickup'].includes(this.orderStatus)) {
-        if (!this.deliveryOtp) {
-            this.deliveryOtp = String(Math.floor(1000 + Math.random() * 9000));
+    try {
+        if (!this.order_id) {
+            // 6 timestamp digits + 4 random digits, verified against the collection.
+            // The old 4+3 format collided after a few thousand orders (birthday paradox),
+            // which made display-id lookups match the wrong order.
+            for (let attempt = 0; attempt < 5 && !this.order_id; attempt += 1) {
+                const timestamp = Date.now().toString().slice(-6);
+                const random = Math.floor(1000 + Math.random() * 9000);
+                const candidate = `FOD-${timestamp}${random}`;
+                const exists = await this.constructor.exists({
+                    $or: [{ order_id: candidate }, { orderId: candidate }],
+                });
+                if (!exists) this.order_id = candidate;
+            }
+            if (!this.order_id) {
+                // Guaranteed unique: derived from this document's own ObjectId.
+                this.order_id = `FOD-${this._id.toString().slice(-10).toUpperCase()}`;
+            }
         }
-        if (!this.deliveryVerification || !this.deliveryVerification.dropOtp || !this.deliveryVerification.dropOtp.required) {
-            this.deliveryVerification = {
-                ...(this.deliveryVerification?.toObject?.() || this.deliveryVerification || {}),
-                dropOtp: { required: true, verified: false }
-            };
+        // Synchronize camelCase alias to satisfy unique index 'orderId_1'
+        if (this.order_id) {
+            this.orderId = this.order_id;
         }
+        next();
+    } catch (err) {
+        next(err);
     }
-    next();
 });
 
 export const FoodOrder = mongoose.model('FoodOrder', orderSchema);

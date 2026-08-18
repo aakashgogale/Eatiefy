@@ -23,8 +23,7 @@ const normalizeLegalForResponse = (legal) => {
     const content = decodeHtmlEntities(legal.content ?? '');
     const email = legal.email ?? '';
     const mobile = legal.mobile ?? '';
-    const faq = decodeHtmlEntities(legal.faq ?? '');
-    return { ...legal, title, content, email, mobile, faq };
+    return { ...legal, title, content, email, mobile };
 };
 
 const normalizeAboutForResponse = (about) => {
@@ -38,39 +37,43 @@ const normalizeAboutForResponse = (about) => {
     };
 };
 
-export const getPublicPageByKey = async (key) => {
+export const getPublicPageByKey = async (key, module = 'ALL') => {
     const k = normalizeKey(key);
-    const doc = await FoodPageContent.findOne({ key: k }).lean();
-    if (!doc) return { key: k, data: null };
-    if (k === 'about') return { key: k, data: normalizeAboutForResponse(doc.about || null) };
-    return { key: k, data: normalizeLegalForResponse(doc.legal || null) };
+    const m = String(module || 'ALL').toUpperCase();
+    
+    // Try to find the module-specific document first
+    let doc = await FoodPageContent.findOne({ key: k, module: m }).lean();
+    
+    // Fallback to 'ALL' if specific module is not found and we're not already looking for 'ALL'
+    if (!doc && m !== 'ALL') {
+        doc = await FoodPageContent.findOne({ key: k, module: 'ALL' }).lean();
+    }
+    
+    if (!doc) return { key: k, module: m, data: null };
+    if (k === 'about') return { key: k, module: m, data: normalizeAboutForResponse(doc.about || null) };
+    return { key: k, module: m, data: normalizeLegalForResponse(doc.legal || null) };
 };
 
-export const getAdminPageByKey = async (key) => getPublicPageByKey(key);
+export const getAdminPageByKey = async (key, module = 'ALL') => getPublicPageByKey(key, module);
 
-export const upsertLegalPage = async (key, payload, updatedBy) => {
+export const upsertLegalPage = async (key, payload, updatedBy, module = 'ALL') => {
     const k = normalizeKey(key);
-    const allowedKeys = [
-        'terms', 'terms_user', 'terms_restaurant', 'terms_delivery',
-        'privacy', 'privacy_user', 'privacy_restaurant', 'privacy_delivery',
-        'refund', 'shipping', 'cancellation',
-        'support_user', 'support_restaurant', 'support_delivery'
-    ];
-    if (!allowedKeys.includes(k)) {
+    const m = String(module || 'ALL').toUpperCase();
+    if (!['terms', 'privacy', 'refund', 'shipping', 'cancellation', 'support'].includes(k)) {
         throw new ValidationError('Invalid page key');
     }
     const title = String(payload?.title || '').trim();
     const content = decodeHtmlEntities(String(payload?.content || '')).trim();
     const email = String(payload?.email || '').trim();
     const mobile = String(payload?.mobile || '').trim();
-    const faq = decodeHtmlEntities(String(payload?.faq || '')).trim();
 
     const doc = await FoodPageContent.findOneAndUpdate(
-        { key: k },
+        { key: k, module: m },
         {
             $set: {
                 key: k,
-                legal: { title, content, email, mobile, faq },
+                module: m,
+                legal: { title, content, email, mobile },
                 about: undefined,
                 updatedBy: updatedBy || null,
                 updatedByRole: 'ADMIN'
@@ -79,11 +82,12 @@ export const upsertLegalPage = async (key, payload, updatedBy) => {
         { upsert: true, new: true }
     ).lean();
 
-    return { key: k, data: normalizeLegalForResponse(doc?.legal || null) };
+    return { key: k, module: m, data: normalizeLegalForResponse(doc?.legal || null) };
 };
 
-export const upsertAboutPage = async (payload, updatedBy) => {
-    const appName = decodeHtmlEntities(String(payload?.appName || '')).trim() || 'Appzeto Food';
+export const upsertAboutPage = async (payload, updatedBy, module = 'ALL') => {
+    const m = String(module || 'ALL').toUpperCase();
+    const appName = decodeHtmlEntities(String(payload?.appName || '')).trim() || 'Eatiefy';
     const version = decodeHtmlEntities(String(payload?.version || '')).trim() || '1.0.0';
     const description = decodeHtmlEntities(String(payload?.description || '')).trim();
     const logo = decodeHtmlEntities(String(payload?.logo || '')).trim();
@@ -100,10 +104,11 @@ export const upsertAboutPage = async (payload, updatedBy) => {
     }));
 
     const doc = await FoodPageContent.findOneAndUpdate(
-        { key: 'about' },
+        { key: 'about', module: m },
         {
             $set: {
                 key: 'about',
+                module: m,
                 about: { appName, version, description, logo, features: normalizedFeatures, stats },
                 legal: undefined,
                 updatedBy: updatedBy || null,
@@ -113,6 +118,6 @@ export const upsertAboutPage = async (payload, updatedBy) => {
         { upsert: true, new: true }
     ).lean();
 
-    return { key: 'about', data: normalizeAboutForResponse(doc?.about || null) };
+    return { key: 'about', module: m, data: normalizeAboutForResponse(doc?.about || null) };
 };
 

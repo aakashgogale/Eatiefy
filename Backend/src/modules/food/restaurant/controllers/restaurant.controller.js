@@ -6,27 +6,47 @@ import {
     updateRestaurantProfile,
     updateRestaurantAcceptingOrders,
     updateCurrentRestaurantDiningSettings,
-    updateCurrentRestaurantTakeawaySettings,
     uploadRestaurantProfileImage,
     uploadRestaurantMenuImage,
     uploadRestaurantCoverImages,
     uploadRestaurantMenuImages,
+    uploadRestaurantAttachment,
     listPublicOffers,
     getRestaurantComplaints,
-    listRestaurantsUnderPriceLimit
+    deleteCurrentRestaurantAccount,
+    createRestaurantOnboardingFeeOrder,
 } from '../services/restaurant.service.js';
-import {
-    createDiningRequest,
-    getPendingDiningRequest
-} from '../../dining/services/dining.service.js';
+import { getRestaurantSubscriptionHistory } from '../services/subscriptionHistory.service.js';
 import { validateRestaurantRegisterDto } from '../validators/restaurant.validator.js';
-import { sendResponse } from '../../../../utils/response.js';
+import { sendResponse, sendError } from '../../../../utils/response.js';
+import { FoodUnregisteredRestaurant } from '../models/unregisteredRestaurant.model.js';
+
+
+export const uploadRestaurantAttachmentController = async (req, res, next) => {
+    try {
+        const { folder } = req.body;
+        const result = await uploadRestaurantAttachment(req.file, folder);
+        return sendResponse(res, 200, 'Image uploaded successfully', result);
+    } catch (error) {
+        next(error);
+    }
+};
 
 export const registerRestaurantController = async (req, res, next) => {
     try {
         const validated = validateRestaurantRegisterDto(req.body);
         const restaurant = await registerRestaurant(validated, req.files);
         return sendResponse(res, 201, 'Restaurant registered successfully', restaurant);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const createOnboardingFeeOrderController = async (req, res, next) => {
+    try {
+        const ownerPhone = String(req.body?.ownerPhone || '').trim();
+        const data = await createRestaurantOnboardingFeeOrder({ ownerPhone });
+        return sendResponse(res, 200, 'Onboarding fee order created', data);
     } catch (error) {
         next(error);
     }
@@ -43,10 +63,7 @@ export const listApprovedRestaurantsController = async (req, res, next) => {
 
 export const getApprovedRestaurantController = async (req, res, next) => {
     try {
-        const userId = req.user?.userId;
-        const lat = req.query?.lat;
-        const lng = req.query?.lng;
-        const restaurant = await getApprovedRestaurantByIdOrSlug(req.params.id, userId, { lat, lng });
+        const restaurant = await getApprovedRestaurantByIdOrSlug(req.params.id);
         if (!restaurant) {
             return res.status(404).json({ success: false, message: 'Restaurant not found' });
         }
@@ -96,16 +113,6 @@ export const updateCurrentRestaurantDiningSettingsController = async (req, res, 
     }
 };
 
-export const updateCurrentRestaurantTakeawaySettingsController = async (req, res, next) => {
-    try {
-        const restaurantId = req.user?.userId;
-        const restaurant = await updateCurrentRestaurantTakeawaySettings(restaurantId, req.body || {});
-        return sendResponse(res, 200, 'Takeaway settings updated successfully', { restaurant });
-    } catch (error) {
-        next(error);
-    }
-};
-
 export const uploadRestaurantProfileImageController = async (req, res, next) => {
     try {
         const restaurantId = req.user?.userId;
@@ -147,7 +154,7 @@ export const uploadRestaurantMenuImagesController = async (req, res, next) => {
 
 export const listPublicOffersController = async (req, res, next) => {
     try {
-        const data = await listPublicOffers(req.query || {});
+        const data = await listPublicOffers({ ...req.query, userId: req.user?.userId });
         return sendResponse(res, 200, 'Offers fetched successfully', data);
     } catch (error) {
         next(error);
@@ -164,31 +171,40 @@ export const getRestaurantComplaintsController = async (req, res, next) => {
     }
 };
 
-export const listRestaurantsUnder250Controller = async (req, res, next) => {
+export const deleteCurrentRestaurantAccountController = async (req, res, next) => {
     try {
-        const priceLimit = Number(req.query?.priceLimit) > 0 ? Number(req.query.priceLimit) : 250;
-        const data = await listRestaurantsUnderPriceLimit(req.query || {}, priceLimit);
-        return sendResponse(res, 200, 'Under 250 restaurants fetched successfully', data);
+        const restaurantId = req.user?.userId;
+        const result = await deleteCurrentRestaurantAccount(restaurantId);
+        return sendResponse(res, 200, 'Restaurant account deleted successfully', result);
     } catch (error) {
         next(error);
     }
 };
 
-export const createDiningRequestController = async (req, res, next) => {
+export const getRestaurantSubscriptionHistoryController = async (req, res, next) => {
     try {
         const restaurantId = req.user?.userId;
-        const request = await createDiningRequest(restaurantId, req.body || {});
-        return sendResponse(res, 201, 'Dining update request submitted successfully', request);
+        const data = await getRestaurantSubscriptionHistory(restaurantId, req.query || {});
+        return sendResponse(res, 200, 'Subscription history fetched successfully', data);
     } catch (error) {
         next(error);
     }
 };
 
-export const getPendingDiningRequestController = async (req, res, next) => {
+export const registerUnregisteredRestaurantController = async (req, res, next) => {
     try {
-        const restaurantId = req.user?.userId;
-        const request = await getPendingDiningRequest(restaurantId);
-        return sendResponse(res, 200, 'Pending request fetched successfully', request);
+        const { ownerName, restaurantName, mobileNumber, emailId, location } = req.body;
+        if (!ownerName || !restaurantName || !mobileNumber || !emailId || !location) {
+            return sendError(res, 400, 'All fields are required');
+        }
+        const newUnregistered = await FoodUnregisteredRestaurant.create({
+            ownerName,
+            restaurantName,
+            mobileNumber,
+            emailId,
+            location
+        });
+        return sendResponse(res, 201, 'Restaurant details submitted successfully', newUnregistered);
     } catch (error) {
         next(error);
     }

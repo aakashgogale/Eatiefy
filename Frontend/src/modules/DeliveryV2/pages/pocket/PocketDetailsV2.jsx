@@ -7,36 +7,23 @@ import {
   Gift,
   Search,
   ChevronRight,
-  TrendingUp,
-  Receipt
+  TrendingUp
 } from "lucide-react";
 import { formatCurrency } from "@food/utils/currency";
 import WeekSelector from "@delivery/components/WeekSelector";
 import { deliveryAPI } from "@food/api";
 import { motion, AnimatePresence } from "framer-motion";
 import useDeliveryBackNavigation from "../../hooks/useDeliveryBackNavigation";
-import { Skeleton } from "@food/components/ui/skeleton";
-
-const toLocalDateKey = (date) => {
-  const d = date instanceof Date ? date : new Date(date);
-  if (Number.isNaN(d.getTime())) return null;
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
 
 export const PocketDetailsV2 = () => {
   const goBack = useDeliveryBackNavigation();
 
-  // Monday → Sunday (matches backend getWeekRange / Pocket earnings card)
+  // Current week range (Sunday–Saturday)
   const getInitialWeekRange = () => {
     const now = new Date();
-    const day = now.getDay(); // Sun=0 ... Sat=6
-    const mondayOffset = (day + 6) % 7;
     const start = new Date(now);
+    start.setDate(now.getDate() - now.getDay());
     start.setHours(0, 0, 0, 0);
-    start.setDate(now.getDate() - mondayOffset);
     const end = new Date(start);
     end.setDate(start.getDate() + 6);
     end.setHours(23, 59, 59, 999);
@@ -50,13 +37,22 @@ export const PocketDetailsV2 = () => {
   const [summaryData, setSummaryData] = useState({ totalEarning: 0, totalBonus: 0, grandTotal: 0 });
   const [loading, setLoading] = useState(true);
 
+  const isWithinSelectedRange = (value) => {
+    if (!value) return false;
+    const dt = new Date(value);
+    if (Number.isNaN(dt.getTime())) return false;
+    return dt >= weekRange.start && dt <= weekRange.end;
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const dateKey = toLocalDateKey(weekRange.start);
+        const anchorDate = new Date(weekRange.start);
+        // Send noon time to avoid timezone rollover shifting the selected week on backend.
+        anchorDate.setHours(12, 0, 0, 0);
         const response = await deliveryAPI.getPocketDetails({
-          date: dateKey,
+          date: anchorDate.toISOString(),
           limit: 2000
         });
 
@@ -66,13 +62,26 @@ export const PocketDetailsV2 = () => {
         const bonuses = payload?.transactions?.bonus || [];
         const summary = payload?.summary || {};
 
-        setOrders(Array.isArray(trips) ? trips : []);
-        setPaymentTransactions(Array.isArray(payments) ? payments : []);
-        setBonusTransactions(Array.isArray(bonuses) ? bonuses : []);
+        const safeTrips = (Array.isArray(trips) ? trips : []).filter((trip) =>
+          isWithinSelectedRange(trip?.deliveredAt || trip?.date || trip?.createdAt || trip?.completedAt)
+        );
+        const safePayments = (Array.isArray(payments) ? payments : []).filter((tx) =>
+          isWithinSelectedRange(tx?.date || tx?.createdAt)
+        );
+        const safeBonuses = (Array.isArray(bonuses) ? bonuses : []).filter((tx) =>
+          isWithinSelectedRange(tx?.date || tx?.createdAt)
+        );
+
+        const calculatedTotalEarning = safePayments.reduce((sum, p) => sum + (Number(p?.amount) || 0), 0);
+        const calculatedTotalBonus = safeBonuses.reduce((sum, b) => sum + (Number(b?.amount) || 0), 0);
+
+        setOrders(safeTrips);
+        setPaymentTransactions(safePayments);
+        setBonusTransactions(safeBonuses);
         setSummaryData({
-          totalEarning: Number(summary.totalEarning) || 0,
-          totalBonus: Number(summary.totalBonus) || 0,
-          grandTotal: Number(summary.grandTotal) || 0,
+          totalEarning: Number(summary.totalEarning) || calculatedTotalEarning,
+          totalBonus: Number(summary.totalBonus) || calculatedTotalBonus,
+          grandTotal: Number(summary.grandTotal) || (calculatedTotalEarning + calculatedTotalBonus),
         });
       } catch (error) {
         setOrders([]);
@@ -111,63 +120,60 @@ export const PocketDetailsV2 = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-12 font-poppins">
+    <div className="min-h-screen bg-[#f8f9fa] font-poppins pb-32">
       {/* ─── HEADER ─── */}
-      <div className="bg-white border-b border-gray-100 px-6 py-5 flex items-center justify-between sticky top-0 z-[100]">
-        <div className="flex items-center gap-4">
-          <button onClick={goBack} className="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center text-gray-900 border border-gray-100 active:scale-90 transition-all">
-            <ArrowLeft className="w-5 h-5" />
+      <div className="fixed top-0 inset-x-0 h-20 bg-[#f8f9fa]/90 backdrop-blur-xl z-50 px-5 flex items-center justify-between pb-2 pt-6">
+        <div className="flex items-center gap-3">
+          <button onClick={goBack} className="p-3 bg-white hover:bg-gray-50 border border-gray-100 shadow-sm rounded-[20px] transition-all active:scale-95">
+            <ArrowLeft className="w-5 h-5 text-gray-700" />
           </button>
           <div>
-            <h1 className="text-xl font-black text-gray-950 uppercase tracking-tighter">Pocket Details</h1>
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">Trips & Earnings History</p>
+            <h1 className="text-xl font-black text-gray-900 tracking-tight leading-none mb-0.5">Pocket Details</h1>
+            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest leading-none">Trips & Earnings</p>
           </div>
         </div>
-        <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 border border-blue-100">
-          <Receipt className="w-5 h-5" />
+        <div
+          className="w-10 h-10 rounded-[16px] flex items-center justify-center border shadow-sm"
+          style={{
+            backgroundColor: "rgba(var(--module-theme-rgb, 0,183,97), 0.10)",
+            borderColor: "rgba(var(--module-theme-rgb, 0,183,97), 0.25)",
+            color: "var(--module-theme-color, #00B761)",
+          }}
+        >
+          <IndianRupee className="w-5 h-5" />
         </div>
       </div>
 
-      <div className="px-5 py-6 space-y-6">
-        {/* ─── WEEK SELECTOR (Matching V2 Aesthetics) ─── */}
-        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+      <div className="pt-24 px-5 pb-6 space-y-6 max-w-lg mx-auto">
+        {/* ─── WEEK SELECTOR ─── */}
+        <div className="bg-white p-5 rounded-[32px] shadow-[0_4px_20px_rgba(0,0,0,0.02)] border border-gray-100">
            <WeekSelector 
              onChange={setWeekRange}
-             weekStartsOn={1}
+             weekStartsOn={0}
            />
         </div>
 
         {/* ─── SUMMARY CARD ─── */}
-        <div className="bg-white dark:bg-black border border-gray-100 dark:border-transparent rounded-3xl p-6 shadow-sm dark:shadow-2xl relative overflow-hidden group">
-           <div className="absolute top-0 right-0 w-32 h-32 bg-gray-100/60 dark:bg-white/5 rounded-full -mr-16 -mt-16 blur-2xl group-hover:bg-gray-200/60 dark:group-hover:bg-white/10 transition-colors" />
+        <div className="bg-gray-950 rounded-[32px] p-7 shadow-[0_20px_40px_rgba(0,0,0,0.15)] relative overflow-hidden group">
+           <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -mr-16 -mt-16 blur-2xl group-hover:bg-white/10 transition-colors" />
            <div className="relative z-10">
               <div className="flex justify-between items-center mb-6">
                  <div>
-                    <p className="text-[10px] font-bold text-gray-400 dark:text-gray-400 uppercase tracking-[0.2em] mb-1">Total Payout</p>
-                    <h2 className="text-4xl font-black text-gray-950 dark:text-white tracking-tighter min-h-[2.5rem] flex items-center">
-                      {loading ? (
-                        <Skeleton className="h-9 w-36" />
-                      ) : (
-                        formatCurrency(summary.grandTotal)
-                      )}
-                    </h2>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mb-1">Total Payout</p>
+                    <h2 className="text-4xl font-black text-white tracking-tight">{formatCurrency(summary.grandTotal)}</h2>
                  </div>
-                 <div className="w-12 h-12 bg-gray-100 dark:bg-white/10 rounded-2xl flex items-center justify-center border border-gray-200 dark:border-white/5 backdrop-blur-md">
-                    <TrendingUp className="w-6 h-6 text-[#ff8100]" />
+                 <div className="w-12 h-12 bg-white/10 rounded-[20px] flex items-center justify-center border border-white/5 backdrop-blur-md">
+                    <TrendingUp className="w-6 h-6" style={{ color: "var(--module-theme-color, #00B761)" }} />
                  </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                 <div className="bg-gray-50 dark:bg-white/5 p-4 rounded-2xl border border-gray-100 dark:border-white/5">
+                 <div className="bg-white/5 p-4 rounded-[20px] border border-white/5">
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-1">Trip Earnings</p>
-                    <div className="text-lg font-black text-gray-950 dark:text-white min-h-[1.5rem]">
-                      {loading ? <Skeleton className="h-5 w-20" /> : formatCurrency(summary.totalEarning)}
-                    </div>
+                    <p className="text-lg font-black text-white tracking-tight">{formatCurrency(summary.totalEarning)}</p>
                  </div>
-                 <div className="bg-gray-50 dark:bg-white/5 p-4 rounded-2xl border border-gray-100 dark:border-white/5">
+                 <div className="bg-white/5 p-4 rounded-[20px] border border-white/5">
                     <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-1">Weekly Bonus</p>
-                    <div className="text-lg font-black text-green-500 min-h-[1.5rem]">
-                      {loading ? <Skeleton className="h-5 w-20" /> : `+${formatCurrency(summary.totalBonus)}`}
-                    </div>
+                    <p className="text-lg font-black tracking-tight" style={{ color: "var(--module-theme-color, #00B761)" }}>+{formatCurrency(summary.totalBonus)}</p>
                  </div>
               </div>
            </div>
@@ -176,17 +182,17 @@ export const PocketDetailsV2 = () => {
         {/* ─── ORDERS LIST ─── */}
         <div className="space-y-4">
           <div className="flex items-center justify-between px-1">
-             <h3 className="text-xs font-black text-gray-950 uppercase tracking-widest">Trips History</h3>
-             <span className="bg-gray-200 text-gray-600 px-3 py-1 rounded-full text-[10px] font-bold">{orders.length} Orders</span>
+             <h3 className="text-[11px] font-black text-gray-900 uppercase tracking-widest">Trips History</h3>
+             <span className="bg-gray-200 text-gray-600 px-3 py-1 rounded-[12px] text-[9px] font-black uppercase tracking-widest">{orders.length} Orders</span>
           </div>
 
           {loading ? (
             <div className="py-20 flex flex-col items-center">
-              <Loader2 className="w-10 h-10 animate-spin text-[#ff8100]" />
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-4">Syncing History...</p>
+              <Loader2 className="w-10 h-10 animate-spin text-gray-400" />
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-4">Syncing History...</p>
             </div>
           ) : orders.length > 0 ? (
-            <div className="grid gap-3">
+            <div className="grid gap-4">
               {orders.map((order, idx) => {
                 const oid = order.orderId || order._id || order.id;
                 const earning = getOrderEarning(oid);
@@ -197,27 +203,27 @@ export const PocketDetailsV2 = () => {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: idx * 0.05 }}
                     key={oid}
-                    className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 flex items-center justify-between active:scale-[0.98] transition-all"
+                    className="bg-white p-5 rounded-[28px] shadow-[0_4px_20px_rgba(0,0,0,0.02)] border border-gray-100 flex items-center justify-between active:scale-[0.98] transition-all"
                   >
                     <div className="flex items-center gap-4">
-                       <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-900 border border-gray-100">
-                          <Package className="w-6 h-6" />
+                       <div className="w-12 h-12 bg-[#f8f9fa] rounded-[20px] flex items-center justify-center text-gray-900 border border-gray-100 shadow-sm">
+                          <Package className="w-5 h-5" />
                        </div>
                        <div>
-                          <div className="flex items-center gap-2 mb-0.5">
-                             <h4 className="text-sm font-black text-gray-950 uppercase tracking-tight">#{oid.toString().slice(-6)}</h4>
+                          <div className="flex items-center gap-2 mb-1">
+                             <h4 className="text-sm font-black text-gray-900 tracking-tight">#{oid.toString().slice(-6)}</h4>
                              <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">• {new Date(order.deliveredAt || order.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
                           </div>
-                          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-tight truncate max-w-[140px]">
+                          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest truncate max-w-[140px]">
                             {order.restaurantName || order.restaurantId?.name || "Premium Restaurant"}
                           </p>
                        </div>
                     </div>
                     <div className="text-right">
-                       <p className="text-base font-black text-gray-950 leading-none mb-1">{formatCurrency(earning + bonus)}</p>
+                       <p className="text-xl font-black text-gray-900 tracking-tight mb-1.5">{formatCurrency(earning + bonus)}</p>
                        <div className="flex items-center justify-end gap-1.5">
-                          {bonus > 0 && <span className="text-[9px] font-bold text-green-500 uppercase">+{formatCurrency(bonus)} BP</span>}
-                          <div className={`px-2 py-0.5 rounded-md ${order.paymentMethod?.toLowerCase() === 'cod' ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-green-50 text-green-600 border border-green-100'} text-[8px] font-black uppercase`}>
+                          {bonus > 0 && <span className="text-[8px] font-black uppercase tracking-widest" style={{ color: "var(--module-theme-color, #00B761)" }}>+{formatCurrency(bonus)} BP</span>}
+                          <div className={`px-2 py-0.5 rounded-[8px] ${order.paymentMethod?.toLowerCase() === 'cod' ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'} text-[8px] font-black uppercase tracking-widest`}>
                              {order.paymentMethod || 'Online'}
                           </div>
                        </div>
@@ -227,12 +233,12 @@ export const PocketDetailsV2 = () => {
               })}
             </div>
           ) : (
-            <div className="py-20 text-center bg-white rounded-[2rem] border-2 border-dashed border-gray-100">
-               <div className="w-16 h-16 bg-gray-50 rounded-3xl flex items-center justify-center mx-auto mb-4 text-gray-200">
-                  <Package className="w-8 h-8" />
+            <div className="py-20 text-center bg-white rounded-[32px] shadow-[0_4px_20px_rgba(0,0,0,0.02)] border border-gray-100">
+               <div className="w-16 h-16 bg-[#f8f9fa] rounded-[24px] shadow-sm border border-gray-100 flex items-center justify-center mx-auto mb-4 text-gray-300">
+                  <Package className="w-6 h-6" />
                </div>
-               <h3 className="text-lg font-black text-gray-950 uppercase tracking-tight">No Trips Found</h3>
-               <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">Check another week Range</p>
+               <h3 className="text-lg font-black text-gray-900 tracking-tight mb-1">No Trips Found</h3>
+               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Check another week range</p>
             </div>
           )}
         </div>

@@ -10,8 +10,7 @@ import { ValidationError } from '../../../../core/auth/errors.js';
 
 export const listUnder250BannersController = async (req, res, next) => {
     try {
-        const { zoneId } = req.query;
-        const data = await listUnder250Banners(zoneId);
+        const data = await listUnder250Banners();
         return sendResponse(res, 200, 'Under 250 banners fetched successfully', { banners: data });
     } catch (error) {
         next(error);
@@ -32,9 +31,7 @@ export const uploadUnder250BannersController = async (req, res, next) => {
         };
 
         const results = await createUnder250BannersFromFiles(req.files, meta);
-        const banners = results.filter((r) => r.success).map((r) => r.banner);
-        const errors = results.filter((r) => !r.success).map((r) => r.error);
-        return sendResponse(res, 201, 'Under 250 banners uploaded', { banners, errors, results });
+        return sendResponse(res, 201, 'Under 250 banners uploaded', { banners: results });
     } catch (error) {
         next(error);
     }

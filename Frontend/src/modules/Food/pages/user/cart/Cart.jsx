@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useMemo, Fragment } from "react"
+import { useState, useEffect, useRef, useMemo, useCallback, Fragment } from "react"
 import { createPortal } from "react-dom"
-import { Link, useNavigate, useLocation } from "react-router-dom"
-import { Plus, Minus, ArrowLeft, ChevronRight, Clock, MapPin, Phone, FileText, Utensils, Tag, Percent, Share2, Share, ChevronUp, ChevronDown, X, Check, Settings, CreditCard, Wallet, Building2, Sparkles, Banknote, Zap, CheckCircle2, MessageCircle, Send, Mail, Copy, ShoppingBag, AlertTriangle } from "lucide-react"
+import { Link, useNavigate } from "react-router-dom"
+import { Plus, Minus, ArrowLeft, ChevronRight, Clock, MapPin, Phone, FileText, Utensils, Tag, Percent, Share2, ChevronUp, ChevronDown, X, Check, Settings, CreditCard, Wallet, Building2, Sparkles, Banknote, Zap, CheckCircle2, MessageCircle, Send, Mail, Copy, Home, Briefcase, Pencil, Square, Receipt, ShoppingCart, DoorOpen, PhoneOff, BellOff } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import confetti from "canvas-confetti"
 
@@ -12,19 +12,38 @@ import { useProfile } from "@food/context/ProfileContext"
 import { useOrders } from "@food/context/OrdersContext"
 import { useLocation as useUserLocation } from "@food/hooks/useLocation"
 import { useZone } from "@food/hooks/useZone"
-import { useLocationSelector } from "@food/components/user/UserLayout"
-import { authAPI, orderAPI, restaurantAPI, adminAPI, userAPI, API_ENDPOINTS } from "@food/api"
+import { orderAPI, restaurantAPI, adminAPI, userAPI, API_ENDPOINTS } from "@food/api"
 import { API_BASE_URL } from "@food/api/config"
-import { initRazorpayPayment, preloadRazorpayScript } from "@food/utils/razorpay"
+import { initRazorpayPayment } from "@food/utils/razorpay"
 import { toast } from "sonner"
+import { isModuleAuthenticated } from "@food/utils/auth"
 import { getCompanyNameAsync } from "@food/utils/businessSettings"
-import { calculateDistance, removePlusCode } from "@food/utils/common"
+import { getCachedFeeSettings, loadCorePublicAppConfig } from "@food/services/publicAppConfig"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
-import { filterPublicOffers, mapPublicOfferToCartCoupon } from "@food/utils/offerUtils"
-import dishFallbackImage from "@food/assets/dish_fallback.webp"
-const zoopSound = "/assets/media/zomato_sms.mp3"
+import {
+  calculateDistanceKm,
+  normalizeLocationForPricing,
+  normalizeRestaurantLocation,
+} from "@food/utils/geo"
+import {
+  fetchDrivingDistanceKm,
+  fetchDrivingDistancesMatrix,
+  formatDistanceLabel,
+} from "@food/utils/roadDistance"
+import { computeDeliveryFeeGst, formatDeliveryFeeBreakdownSubtext, getDeliveryFeeTotal, resolveDeliveryFeeGst } from "@food/utils/deliveryFeeDisplay"
+import { getCartCompareItemTotal } from "@food/utils/foodVariants"
+import { DualMoney } from "@food/components/user/FoodPriceDisplay"
+import {
+  AUTO_COUPON_STATE_EVENT,
+  getCartSignature,
+  isManualCouponOptOut,
+  markManualCouponOptOut,
+  markUserSelectedCoupon,
+} from "@food/utils/autoCoupon"
+import CartAutoCouponBanner from "@food/components/user/CartAutoCouponBanner"
+import zoopSound from "@food/assets/audio/zomato_sms.mp3"
 const debugLog = (...args) => { }
 const debugWarn = (...args) => { }
 const debugError = (...args) => { }
@@ -54,7 +73,7 @@ const formatFullAddress = (address) => {
     // If formattedAddress is still raw coordinates, don't show it as-is.
     // Fall back to composing from city/state/area instead.
     if (!looksLikeLatLng(address.formattedAddress)) {
-      return removePlusCode(address.formattedAddress)
+      return address.formattedAddress
     }
   }
 
@@ -67,12 +86,12 @@ const formatFullAddress = (address) => {
   if (address.zipCode) addressParts.push(address.zipCode)
 
   if (addressParts.length > 0) {
-    return removePlusCode(addressParts.join(', '))
+    return addressParts.join(', ')
   }
 
   // Priority 3: Use address field if available
   if (address.address && address.address !== "Select location") {
-    return removePlusCode(address.address)
+    return address.address
   }
 
   return ""
@@ -81,15 +100,226 @@ const formatFullAddress = (address) => {
 const RUPEE_SYMBOL = "\u20B9"
 const CART_RECIPIENT_DETAILS_STORAGE_KEY = "food-cart-recipient-details-v1"
 const CART_ORDER_NOTE_STORAGE_KEY = "food-cart-order-note-v1"
+const CART_DELIVERY_PREFS_STORAGE_KEY = "food-cart-delivery-prefs-v1"
+const RECIPIENT_NAME_REGEX = /^[A-Za-z ]+$/
+const INDIAN_MOBILE_REGEX = /^[6-9]\d{9}$/
+
+const PREDEFINED_DELIVERY_INSTRUCTIONS = [
+  { id: "leave_at_door", label: "Leave at the door", Icon: DoorOpen },
+  { id: "avoid_calling", label: "Avoid calling", Icon: PhoneOff },
+  { id: "avoid_bell", label: "Avoid ringing bell", Icon: BellOff },
+]
+
+const getConfiguredQuickDeliveryFee = (feeSettings = {}) => {
+  const configured = Number(feeSettings?.quickDeliveryFee)
+  return Number.isFinite(configured) && configured >= 0 ? configured : 0
+}
+
+const buildDeliveryInstructionsText = ({
+  deliveryInstructionMode = "preset",
+  selectedDeliveryInstruction = null,
+  customDeliveryInstruction = "",
+}) => {
+  if (deliveryInstructionMode === "custom") {
+    return String(customDeliveryInstruction || "").trim()
+  }
+  if (!selectedDeliveryInstruction) return ""
+  const preset = PREDEFINED_DELIVERY_INSTRUCTIONS.find((item) => item.id === selectedDeliveryInstruction)
+  return preset?.label || ""
+}
+
+const clearCartInstructionStorage = () => {
+  try {
+    if (typeof window === "undefined") return
+    window.localStorage.removeItem(CART_ORDER_NOTE_STORAGE_KEY)
+    window.localStorage.removeItem(CART_DELIVERY_PREFS_STORAGE_KEY)
+  } catch {
+    // ignore storage errors
+  }
+}
+
+const resolveFallbackDeliveryFee = ({
+  feeSettings = {},
+  restaurantData = null,
+  defaultAddress = null,
+  distanceKmOverride = null,
+}) => {
+  const ranges = Array.isArray(feeSettings.deliveryFeeRanges)
+    ? [...feeSettings.deliveryFeeRanges]
+    : []
+  const rangeFees = ranges
+    .map((range) => Number(range?.fee))
+    .filter((fee) => Number.isFinite(fee) && fee >= 0)
+
+  const flat = Number(feeSettings.deliveryFee)
+  const hasPositiveFlat = Number.isFinite(flat) && flat > 0
+
+  const distanceKm = Number.isFinite(Number(distanceKmOverride))
+    ? Number(distanceKmOverride)
+    : calculateDistanceKm(restaurantData, defaultAddress)
+  if (Number.isFinite(distanceKm) && ranges.length > 0) {
+      const sortedRanges = ranges.sort((a, b) => Number(a.min) - Number(b.min))
+      for (let i = 0; i < sortedRanges.length; i += 1) {
+        const range = sortedRanges[i]
+        const min = Number(range.min)
+        const max = Number(range.max)
+        const fee = Number(range.fee)
+        const isLastRange = i === sortedRanges.length - 1
+        const inRange = isLastRange
+          ? distanceKm >= min && distanceKm <= max
+          : distanceKm >= min && distanceKm < max
+
+        if (inRange && Number.isFinite(fee)) return fee
+      }
+  }
+
+  if (rangeFees.length > 0) {
+    return hasPositiveFlat ? flat : Math.min(...rangeFees)
+  }
+
+  return Number.isFinite(flat) && flat >= 0 ? flat : 0
+}
+
+const getApiErrorMessage = (error) => {
+  const data = error?.response?.data
+  if (!data) return String(error?.message || "")
+  if (typeof data.error === "string" && data.error.trim()) return data.error
+  if (typeof data.message === "string" && data.message.trim()) return data.message
+  if (typeof data.error?.message === "string") return data.error.message
+  return String(error?.message || "")
+}
+
+/** Prefer Mongo `_id` for order/calculate APIs (backend uses findById + FoodItem.restaurantId). */
+const resolveOrderRestaurantId = (...candidates) => {
+  const normalized = candidates
+    .flatMap((value) => {
+      if (value == null) return []
+      if (typeof value === "object") {
+        return [value._id, value.id, value.restaurantId]
+      }
+      return [value]
+    })
+    .map((value) => (value == null ? "" : String(value).trim()))
+    .filter(Boolean)
+
+  const objectId = normalized.find((value) => /^[0-9a-fA-F]{24}$/.test(value))
+  return objectId || normalized[0] || null
+}
+
+const normalizeRestaurantForPricing = (restaurant) => {
+  if (!restaurant || typeof restaurant !== "object") return restaurant
+  const mongoId = resolveOrderRestaurantId(restaurant._id, restaurant.id, restaurant.restaurantId)
+  return {
+    ...restaurant,
+    name: restaurant.name || restaurant.restaurantName || "",
+    restaurantName: restaurant.restaurantName || restaurant.name || "",
+    _id: mongoId || restaurant._id,
+    restaurantId: mongoId || restaurant.restaurantId || restaurant._id,
+    location: restaurant.location
+      ? normalizeRestaurantLocation(restaurant.location)
+      : restaurant.location,
+  }
+}
+
+const buildEffectiveCartPricing = ({
+  cart = [],
+  pricing = null,
+  feeSettings = {},
+  defaultAddress = null,
+  restaurantData = null,
+  appliedCoupon = null,
+  deliveryMode = "basic",
+  roadDistanceKm = null,
+}) => {
+  const subtotal =
+    pricing?.subtotal ||
+    cart.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 1), 0)
+
+  const fallbackDeliveryFee = resolveFallbackDeliveryFee({
+    feeSettings,
+    restaurantData,
+    defaultAddress,
+    distanceKmOverride: roadDistanceKm,
+  })
+
+  // When backend pricing is available, trust it so cart total matches payment amount.
+  const hasServerPricing =
+    pricing != null && Number.isFinite(Number(pricing.total)) && Number(pricing.total) >= 0
+
+  if (hasServerPricing) {
+    const serverDeliveryFee = Number(pricing.deliveryFee)
+    const serverDeliveryFeeGst = Number(pricing.deliveryFeeGst)
+    const serverPlatformFee = Number(pricing.platformFee)
+    const serverTax = Number(pricing.tax)
+    const serverDiscount = Number(pricing.discount)
+    const serverTotal = Number(pricing.total)
+    const quickDeliveryFee =
+      deliveryMode === "quick"
+        ? Number(pricing.quickDeliveryFee) || getConfiguredQuickDeliveryFee(feeSettings)
+        : 0
+
+    return {
+      subtotal: Number.isFinite(Number(pricing.subtotal)) ? Number(pricing.subtotal) : subtotal,
+      tax: Number.isFinite(serverTax) ? serverTax : 0,
+      packagingFee: Number(pricing.packagingFee) || 0,
+      deliveryFee: Number.isFinite(serverDeliveryFee) ? serverDeliveryFee : 0,
+      deliveryFeeGst: Number.isFinite(serverDeliveryFeeGst)
+        ? serverDeliveryFeeGst
+        : computeDeliveryFeeGst(Number.isFinite(serverDeliveryFee) ? serverDeliveryFee : 0),
+      platformFee: Number.isFinite(serverPlatformFee) ? serverPlatformFee : 0,
+      quickDeliveryFee,
+      discount: Number.isFinite(serverDiscount) ? serverDiscount : 0,
+      total: serverTotal,
+      savings: Number.isFinite(Number(pricing.savings))
+        ? Number(pricing.savings)
+        : Math.max(0, subtotal + (Number.isFinite(serverDeliveryFee) ? serverDeliveryFee : 0) + (Number.isFinite(serverDeliveryFeeGst) ? serverDeliveryFeeGst : 0) + (Number.isFinite(serverPlatformFee) ? serverPlatformFee : 0) + (Number.isFinite(serverTax) ? serverTax : 0) - serverTotal),
+      couponCode: pricing?.couponCode || pricing?.appliedCoupon?.code || appliedCoupon?.code || "",
+      deliveryFeeBreakdown: pricing?.deliveryFeeBreakdown || null,
+      appliedCoupon: pricing?.appliedCoupon || appliedCoupon || null,
+      deliveryMode: deliveryMode === "quick" ? "quick" : "basic",
+    }
+  }
+
+  // Mirror of backend order-pricing: discount clamped to subtotal, GST on post-discount base.
+  const deliveryFee = fallbackDeliveryFee
+  const deliveryFeeGst = computeDeliveryFeeGst(deliveryFee)
+  const basePlatformFee = Number(feeSettings.platformFee || 0)
+  const quickDeliveryFee = deliveryMode === "quick" ? getConfiguredQuickDeliveryFee(feeSettings) : 0
+  const platformFee = basePlatformFee + quickDeliveryFee
+  const discount = appliedCoupon
+    ? Math.max(0, Math.min(Math.floor(Number(appliedCoupon.discount) || 0), subtotal))
+    : 0
+  const gstCharges = Math.round(Math.max(0, subtotal - discount) * (Number(feeSettings.gstRate || 0) / 100))
+  const totalBeforeDiscount = subtotal + deliveryFee + deliveryFeeGst + platformFee + gstCharges
+  const total = Math.max(0, subtotal + deliveryFee + deliveryFeeGst + platformFee + gstCharges - discount)
+  const savings = Math.max(0, totalBeforeDiscount - total)
+
+  return {
+    subtotal,
+    tax: gstCharges,
+    packagingFee: 0,
+    deliveryFee,
+    deliveryFeeGst,
+    platformFee,
+    quickDeliveryFee,
+    discount,
+    total,
+    savings,
+    couponCode: appliedCoupon?.code || "",
+    deliveryFeeBreakdown: null,
+    appliedCoupon: appliedCoupon || null,
+    deliveryMode: deliveryMode === "quick" ? "quick" : "basic",
+  }
+}
 
 export default function Cart() {
   const companyName = useCompanyName()
   const navigate = useNavigate()
-  const location = useLocation()
   const goBack = useAppBackNavigation()
   const orderSuccessAudioRef = useRef(null)
   const hasRestoredRecipientRef = useRef(false)
-  const hasRestoredNoteRef = useRef(false)
+  const appliedCouponRef = useRef(null)
+  const idempotencyKeyRef = useRef(crypto.randomUUID())
 
   // Defensive check: Ensure CartProvider is available
   let cartContext;
@@ -106,7 +336,7 @@ export default function Cart() {
             Cart functionality is not available. Please refresh the page.
           </p>
           <button
-            onClick={() => navigate('/food/user')}
+            onClick={() => navigate('/')}
             className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
           >
             Go to Home
@@ -116,79 +346,28 @@ export default function Cart() {
     );
   }
 
-  const { cart, updateQuantity, addToCart, getCartCount, clearCart, cleanCartForRestaurant } = cartContext;
-  const { getDefaultAddress, getDefaultPaymentMethod, setDefaultAddress, addresses, paymentMethods, userProfile, orderType, setOrderType } = useProfile()
+  const { cart, updateQuantity, addToCart, getCartCount, clearCart, cleanCartForRestaurant, replaceCart } = cartContext;
+  const { getDefaultAddress, getDefaultPaymentMethod, setDefaultAddress, addresses, paymentMethods, userProfile, vegMode } = useProfile()
   const { createOrder } = useOrders()
-  const { openLocationSelector } = useLocationSelector()
   const { location: currentLocation, loading: currentLocationLoading } = useUserLocation() // Get live location address
 
-  const [showCouponSheet, setShowCouponSheet] = useState(false)
   const [appliedCoupon, setAppliedCoupon] = useState(null)
-  const [couponCode, setCouponCode] = useState(() => {
-    try {
-      if (typeof window === "undefined") return ""
-      return localStorage.getItem("appliedCouponCode") || ""
-    } catch {
-      return ""
-    }
-  })
-  const [manualCouponCode, setManualCouponCode] = useState(() => {
-    try {
-      if (typeof window === "undefined") return ""
-      return localStorage.getItem("appliedCouponCode") || ""
-    } catch {
-      return ""
-    }
-  })
-
-  // Persist coupon code to localStorage
-  useEffect(() => {
-    try {
-      if (typeof window !== "undefined") {
-        if (couponCode) {
-          localStorage.setItem("appliedCouponCode", couponCode)
-        } else {
-          localStorage.removeItem("appliedCouponCode")
-        }
-      }
-    } catch {}
-  }, [couponCode])
-
-  // Clear coupon code if cart is empty
-  useEffect(() => {
-    if (cart.length === 0) {
-      setAppliedCoupon(null)
-      setCouponCode("")
-      setManualCouponCode("")
-    }
-  }, [cart.length])
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("cash")
+  const [couponCode, setCouponCode] = useState("")
+  const [manualCouponCode, setManualCouponCode] = useState("")
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("razorpay")
   const [showPaymentSheet, setShowPaymentSheet] = useState(false)
+  const [showAddressSheet, setShowAddressSheet] = useState(false)
+  const [showCookingSheet, setShowCookingSheet] = useState(false)
+  const [showOffersView, setShowOffersView] = useState(false)
+  const [deliverySectionTab, setDeliverySectionTab] = useState("modes")
+  const [deliveryMode, setDeliveryMode] = useState("basic")
+  const [selectedDeliveryInstruction, setSelectedDeliveryInstruction] = useState(null)
+  const [deliveryInstructionMode, setDeliveryInstructionMode] = useState("preset")
+  const [customDeliveryInstruction, setCustomDeliveryInstruction] = useState("")
   const [walletBalance, setWalletBalance] = useState(0)
   const [isLoadingWallet, setIsLoadingWallet] = useState(false)
-  const [restaurantNote, setRestaurantNote] = useState(() => {
-    try {
-      if (typeof window === "undefined") return ""
-      const raw = window.localStorage.getItem(CART_ORDER_NOTE_STORAGE_KEY)
-      if (!raw) return ""
-      const stored = JSON.parse(raw)
-      return String(stored?.restaurantNote || "")
-    } catch {
-      return ""
-    }
-  })
-  const [showRestaurantNoteInput, setShowRestaurantNoteInput] = useState(() => {
-    try {
-      if (typeof window === "undefined") return false
-      const raw = window.localStorage.getItem(CART_ORDER_NOTE_STORAGE_KEY)
-      if (!raw) return false
-      const stored = JSON.parse(raw)
-      const storedRestaurantNote = String(stored?.restaurantNote || "")
-      return Boolean(stored?.showRestaurantNoteInput) || storedRestaurantNote.trim().length > 0
-    } catch {
-      return false
-    }
-  })
+  const [note, setNote] = useState("")
+  const [showNoteInput, setShowNoteInput] = useState(false)
   const [showShareModal, setShowShareModal] = useState(false)
   const [sharePayload, setSharePayload] = useState(null)
   const [isEditingRecipient, setIsEditingRecipient] = useState(false)
@@ -199,20 +378,14 @@ export default function Cart() {
 
   const [sendCutlery, setSendCutlery] = useState(true)
   const [isPlacingOrder, setIsPlacingOrder] = useState(false)
-  const [showBillDetails, setShowBillDetails] = useState(false)
+  const [showBillDetails, setShowBillDetails] = useState(true)
   const [showPlacingOrder, setShowPlacingOrder] = useState(false)
   const [isScheduled, setIsScheduled] = useState(false)
   const [scheduledDate, setScheduledDate] = useState("")
   const [scheduledTime, setScheduledTime] = useState("")
   const [orderProgress, setOrderProgress] = useState(0)
-  const [showSavingsCongrats, setShowSavingsCongrats] = useState(false)
-  const [congratsSavingsAmount, setCongratssSavingsAmount] = useState(0)
-  const [congratsSavingsPercentage, setCongratssSavingsPercentage] = useState(0)
-  const [congratsSavingsItems, setCongratssSavingsItems] = useState([])
   const [showOrderSuccess, setShowOrderSuccess] = useState(false)
-  const [orderSuccessSavingsAmount, setOrderSuccessSavingsAmount] = useState(0)
   const [placedOrderId, setPlacedOrderId] = useState(null)
-  const [placedOrderObj, setPlacedOrderObj] = useState(null)
   const [selectedAddressId, setSelectedAddressId] = useState(null)
   const [deliveryAddressMode, setDeliveryAddressMode] = useState(() => {
     try {
@@ -223,105 +396,27 @@ export default function Cart() {
     }
   })
 
-
-  const [customizationSettings, setCustomizationSettings] = useState({
-    cod_enabled: true,
-    takeaway_cod_enabled: true,
-    delivery_cod_enabled: true,
-    dining_cod_enabled: true,
-    wallet_payment_enabled: true,
-    online_payment_enabled: true,
-  })
-
   useEffect(() => {
-    userAPI.getCustomizationSettings()
-      .then(res => {
-        if (res?.data?.data) {
-          setCustomizationSettings(prev => ({
-            ...prev,
-            ...res.data.data
-          }))
-        }
-      })
-      .catch(() => {
-        debugError("Failed to fetch customization settings")
-      })
-  }, [])
+    const audio = new Audio(zoopSound)
+    audio.preload = "auto"
+    audio.volume = 0.8
+    orderSuccessAudioRef.current = audio
 
-  // Payment availability logic
-  const isPaymentMethodEnabled = (methodId) => {
-    if (methodId === "razorpay") return customizationSettings.online_payment_enabled !== false
-    if (methodId === "wallet") return customizationSettings.wallet_payment_enabled !== false
-    if (methodId === "cash") {
-      if (customizationSettings.cod_blocking_feature_enabled !== false && userProfile?.isCodBlocked) return false
-      
-      // General COD toggle (Excludes Takeaway)
-      if (orderType !== "takeaway") {
-        if (customizationSettings.cod_enabled === false) return false
-      }
-
-      if (orderType === "takeaway") return customizationSettings.takeaway_cod_enabled !== false
-      if (orderType === "delivery") return customizationSettings.delivery_cod_enabled !== false
-      if (orderType === "dining") return customizationSettings.dining_cod_enabled !== false
-      return true
-    }
-    return true
-  }
-
-  // Auto-switch payment method if current one becomes disabled
-  useEffect(() => {
-    if (!isPaymentMethodEnabled(selectedPaymentMethod)) {
-      if (isPaymentMethodEnabled("cash")) {
-        setSelectedPaymentMethod("cash")
-      } else if (isPaymentMethodEnabled("razorpay")) {
-        setSelectedPaymentMethod("razorpay")
-      } else if (isPaymentMethodEnabled("wallet")) {
-        setSelectedPaymentMethod("wallet")
+    return () => {
+      if (orderSuccessAudioRef.current) {
+        orderSuccessAudioRef.current.pause()
+        orderSuccessAudioRef.current = null
       }
     }
-  }, [orderType, customizationSettings, selectedPaymentMethod, userProfile])
-
-  // Fetch latest user profile to ensure COD block status is up to date when entering Cart
-  useEffect(() => {
-    const checkLatestProfile = async () => {
-      try {
-        const res = await authAPI.getCurrentUser();
-        const user = res?.data?.data?.user || res?.data?.user || res?.data;
-        if (user && userProfile && user.isCodBlocked !== userProfile.isCodBlocked) {
-           window.dispatchEvent(new Event("userAuthChanged"));
-        }
-      } catch (e) {
-        console.error("Error checking latest profile", e);
-      }
-    };
-    if (userProfile) checkLatestProfile();
-  }, []);
-
-  useEffect(() => {
-    orderSuccessAudioRef.current = null;
   }, [])
 
   useEffect(() => {
-    // No sound on order success
-  }, [showOrderSuccess])
+    if (!showOrderSuccess || !orderSuccessAudioRef.current) return
 
-  // Auto-transition from savings congratulations to order success after 3 seconds
-  useEffect(() => {
-    if (!showSavingsCongrats) return
-    const timer = setTimeout(() => {
-      setShowSavingsCongrats(false)
-      setShowOrderSuccess(true)
-    }, 3000)
-    return () => clearTimeout(timer)
-  }, [showSavingsCongrats])
-
-  // Cleanup savings data when showing order success
-  useEffect(() => {
-    if (showOrderSuccess) {
-      setCongratssSavingsAmount(0)
-      setCongratssSavingsPercentage(0)
-      setCongratssSavingsItems([])
-    }
+    orderSuccessAudioRef.current.currentTime = 0
+    orderSuccessAudioRef.current.play().catch((error) => {
+      debugWarn("Order success sound blocked by browser:", error?.message || error)
+    })
   }, [showOrderSuccess])
 
   // Restaurant and pricing state
@@ -329,22 +424,9 @@ export default function Cart() {
   const [loadingRestaurant, setLoadingRestaurant] = useState(false)
   const [pricing, setPricing] = useState(null)
   const [loadingPricing, setLoadingPricing] = useState(false)
-
-  // Use backend pricing if available, otherwise fallback to item sums
-  const subtotal = pricing?.subtotal || cart.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0)
-
-  // Auto coupon popup state
-  const hasShownPromoPopupRef = useRef({ delivery: false, takeaway: false, dining: false })
-  const [showAutoCouponPopup, setShowAutoCouponPopup] = useState(false)
-  const [bestCoupon, setBestCoupon] = useState(null)
-  const bestCouponDiscount = useMemo(() => {
-    if (!bestCoupon) return 0
-    if (bestCoupon.discountType === "percentage") {
-      const raw = subtotal * (Number(bestCoupon.discountPercentage || 0) / 100)
-      return Math.round(Number(bestCoupon.maxDiscount) > 0 ? Math.min(raw, Number(bestCoupon.maxDiscount)) : raw)
-    }
-    return Math.round(Number(bestCoupon.originalPrice || 0))
-  }, [bestCoupon, subtotal])
+  // Same Google road Rest→User distance as Home / delivery (overrides Haversine 6.9).
+  const [roadDistanceKm, setRoadDistanceKm] = useState(null)
+  const [addressRoadKmById, setAddressRoadKmById] = useState({})
 
   // Addons state
   const [addons, setAddons] = useState([])
@@ -354,188 +436,120 @@ export default function Cart() {
   const [availableCoupons, setAvailableCoupons] = useState([])
   const [loadingCoupons, setLoadingCoupons] = useState(false)
   const [userOrderCount, setUserOrderCount] = useState(0)
+  const [availabilityTick, setAvailabilityTick] = useState(() => Date.now())
 
-  const filteredCoupons = useMemo(() => {
-    const subtotal = pricing?.subtotal || cart.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0)
-    const filtered = availableCoupons.filter((coupon) => {
-      // Filter by order type constraints
-      if (coupon.couponType && coupon.couponType !== "all" && coupon.couponType !== orderType) {
-        return false
+  useEffect(() => {
+    appliedCouponRef.current = appliedCoupon
+  }, [appliedCoupon])
+
+  useEffect(() => {
+    const onAutoCouponState = (event) => {
+      const detail = event?.detail || {}
+      const resolvedRestaurantId = resolveOrderRestaurantId(
+        restaurantData,
+        cart[0]?.restaurantId,
+      )
+      const cartSignature = getCartSignature(cart)
+
+      if (!resolvedRestaurantId || !cart.length) return
+      if (isManualCouponOptOut(resolvedRestaurantId, cartSignature)) return
+
+      if (detail.action === "clear") {
+        if (appliedCouponRef.current?.autoApplied) {
+          setAppliedCoupon(null)
+          setCouponCode("")
+          setManualCouponCode("")
+        }
+        if (detail.pricing) setPricing(detail.pricing)
+        return
       }
-      // Filter out first-time coupons if the user is not a first-time user
-      const isFirstTimeOnly = coupon.customerGroup === "new" || coupon.customerGroup === "first-time"
-      if (isFirstTimeOnly && userOrderCount > 0) {
-        return false
+
+      if (detail.action !== "apply" || !detail.coupon || !detail.code) return
+
+      const nextCode = String(detail.code).toUpperCase()
+      if (appliedCouponRef.current?.code === nextCode) {
+        if (detail.pricing) setPricing(detail.pricing)
+        return
       }
-      return true
+
+      setAppliedCoupon({
+        ...detail.coupon,
+        discount: Number(detail.savings ?? detail.coupon.discount) || 0,
+        autoApplied: true,
+      })
+      setCouponCode(nextCode)
+      setManualCouponCode(nextCode)
+      if (detail.pricing) setPricing(detail.pricing)
+    }
+
+    window.addEventListener(AUTO_COUPON_STATE_EVENT, onAutoCouponState)
+    return () => window.removeEventListener(AUTO_COUPON_STATE_EVENT, onAutoCouponState)
+  }, [cart, restaurantData])
+
+  const suggestedAddons = useMemo(() => {
+    if (!Array.isArray(addons) || addons.length === 0) return []
+    // Veg mode ON => only veg suggestions.
+    // Veg mode OFF => show all suggestions.
+    if (vegMode !== true) return addons
+    return addons.filter((addon) => {
+      if (addon?.isVeg === true) return true
+      const ft = String(addon?.foodType || "").trim().toLowerCase()
+      return ft === "veg" || ft === "vegetarian"
     })
-
-    // Sort: Applicable coupons first, then by discount value descending based on current subtotal
-    return filtered.sort((a, b) => {
-      const isApplicableA = subtotal >= (Number(a.minOrder) || 0)
-      const isApplicableB = subtotal >= (Number(b.minOrder) || 0)
-
-      if (isApplicableA && !isApplicableB) return -1
-      if (!isApplicableA && isApplicableB) return 1
-
-      const discountA = a.discountType === "percentage"
-        ? Math.min(subtotal * (Number(a.discountPercentage || 0) / 100), Number(a.maxDiscount) || Infinity)
-        : Number(a.originalPrice || 0)
-      const discountB = b.discountType === "percentage"
-        ? Math.min(subtotal * (Number(b.discountPercentage || 0) / 100), Number(b.maxDiscount) || Infinity)
-        : Number(b.originalPrice || 0)
-      return discountB - discountA
-    })
-  }, [availableCoupons, orderType, cart, pricing, userOrderCount])
-
-  // Lock body scroll when auto coupon popup or coupon sheet is open
-  // Preload Razorpay SDK as soon as cart opens so the modal appears instantly
-  useEffect(() => {
-    preloadRazorpayScript()
-  }, [])
-
-  // Handle Razorpay redirect callback
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const searchParams = new URLSearchParams(window.location.search);
-    const razorpay_payment_id = searchParams.get('razorpay_payment_id');
-    const razorpay_order_id = searchParams.get('razorpay_order_id');
-    const razorpay_signature = searchParams.get('razorpay_signature');
-    const error_code = searchParams.get('error[code]');
-
-    if (error_code) {
-        toast.error("Payment failed: " + (searchParams.get('error[description]') || "Unknown error"));
-        window.history.replaceState({}, '', window.location.pathname);
-    } else if (razorpay_payment_id && razorpay_order_id && razorpay_signature) {
-        const processRedirectPayment = async () => {
-            const savedPayloadRaw = window.localStorage.getItem('pendingOrderPayload');
-            if (savedPayloadRaw) {
-                try {
-                    setIsPlacingOrder(true);
-                    const orderPayload = JSON.parse(savedPayloadRaw);
-                    
-                    const createOrderPayload = {
-                      ...orderPayload,
-                      razorpayOrderId: razorpay_order_id,
-                      razorpayPaymentId: razorpay_payment_id,
-                      razorpaySignature: razorpay_signature,
-                    };
-
-                    const createResponse = await orderAPI.createOrder(createOrderPayload);
-                    if (createResponse.data?.success) {
-                      const { order } = createResponse.data.data;
-                      setPlacedOrderId(order._id || order.orderId);
-                      setPlacedOrderObj(order);
-                      setShowOrderSuccess(true);
-                      window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }));
-                      clearCart();
-                      setRestaurantNote("");
-                      setShowRestaurantNoteInput(false);
-                      try { window.localStorage.removeItem(CART_ORDER_NOTE_STORAGE_KEY) } catch {}
-                      window.localStorage.removeItem('pendingOrderPayload');
-                      window.localStorage.removeItem('pendingOrderSavings');
-                    }
-                } catch (error) {
-                    debugError("Order creation after redirect payment error:", error);
-                    const errorMessage =
-                      error?.response?.data?.message ||
-                      error?.message ||
-                      "Payment verified but order creation failed. Please contact support.";
-                    alert(errorMessage);
-                } finally {
-                    setIsPlacingOrder(false);
-                    window.history.replaceState({}, '', window.location.pathname);
-                }
-            }
-        };
-        processRedirectPayment();
-    }
-  }, []);
-
-  useEffect(() => {
-    if (showAutoCouponPopup || showCouponSheet) {
-      document.body.style.overflow = "hidden"
-    } else {
-      document.body.style.overflow = ""
-    }
-    return () => {
-      document.body.style.overflow = ""
-    }
-  }, [showAutoCouponPopup, showCouponSheet])
-
-  const renderCartCouponCard = (coupon, { compact = false, blocked = false } = {}) => {
-    const meetsMinOrder = subtotal >= (Number(coupon.minOrder) || 0)
-    const isApplicable = !blocked && meetsMinOrder
-
-    return (
-      <div
-        key={coupon.code}
-        className={`bg-[#DC2626]/5 dark:bg-[#DC2626]/10 border border-[#DC2626]/10 dark:border-[#DC2626]/20 rounded-xl flex items-center justify-between gap-3 ${
-          compact ? "p-3 shadow-[0_2px_8px_rgba(220,38,38,0.02)] hover:shadow-[0_4px_12px_rgba(220,38,38,0.05)] transition-all" : "p-3.5"
-        } ${blocked ? "opacity-60 grayscale" : ""}`}
-      >
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-[#DC2626]/20 flex items-center justify-center flex-shrink-0">
-            <Percent className="w-4 h-4 text-[#DC2626]" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="inline-block text-[10px] font-bold text-[#DC2626] uppercase tracking-wider bg-white dark:bg-gray-900 border border-dashed border-[#DC2626]/30 px-2 py-0.5 rounded shadow-sm">
-                {coupon.code}
-              </span>
-              <span className="text-xs font-black text-gray-900 dark:text-gray-100">
-                {coupon.discountDisplay || `Save ${RUPEE_SYMBOL}${coupon.discount}`}
-              </span>
-            </div>
-            <p className={`text-[11px] font-medium text-gray-500 dark:text-gray-400 mt-1 ${compact ? "line-clamp-1" : "line-clamp-2"}`}>
-              {coupon.description || "Save flat amount on your order"}
-            </p>
-            {blocked ? (
-              <p className="text-[9px] font-semibold text-gray-400 dark:text-gray-500 mt-0.5">
-                Not available for this delivery location
-              </p>
-            ) : !meetsMinOrder ? (
-              <p className="text-[9px] font-semibold text-gray-400 dark:text-gray-500 mt-0.5">
-                Add items worth {RUPEE_SYMBOL}{Math.max(0, (Number(coupon.minOrder) || 0) - subtotal).toFixed(0)} more to apply
-              </p>
-            ) : null}
-          </div>
-        </div>
-        <button
-          disabled={!isApplicable}
-          onClick={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            handleApplyCoupon(coupon)
-          }}
-          className={`text-xs font-black px-4 py-1.5 rounded-lg shadow-sm active:scale-95 transition-all flex-shrink-0 uppercase tracking-wider ${
-            isApplicable
-              ? "text-[#DC2626] bg-white dark:bg-gray-900 border border-[#DC2626]/20 hover:bg-[#DC2626]/5"
-              : "text-gray-400 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-800 cursor-not-allowed"
-          }`}
-        >
-          Apply
-        </button>
-      </div>
-    )
-  }
-
-  const handleApplyAutoCoupon = () => {
-    if (bestCoupon) {
-      handleApplyCoupon(bestCoupon)
-      setShowAutoCouponPopup(false)
-    }
-  }
+  }, [addons, vegMode])
 
   // Fee settings from database (used for platform fee and GST fallback only)
   const [feeSettings, setFeeSettings] = useState({
-    deliveryFee: 25,
+    deliveryFee: 0,
     deliveryFeeRanges: [],
-    freeDeliveryUpTo: 0,
-    platformFee: 5,
-    packagingFee: 0,
-    gstRate: 5,
+    platformFee: 0,
+    quickDeliveryFee: 0,
+    gstRate: 0,
   })
+
+  const configuredQuickDeliveryFee = getConfiguredQuickDeliveryFee(feeSettings)
+
+  const resetCartPreferences = useCallback(() => {
+    setNote("")
+    setShowNoteInput(false)
+    setDeliveryMode("basic")
+    setDeliverySectionTab("modes")
+    setSelectedDeliveryInstruction(null)
+    setDeliveryInstructionMode("preset")
+    setCustomDeliveryInstruction("")
+    clearCartInstructionStorage()
+  }, [])
+
+  const deliveryInstructionText = useMemo(
+    () =>
+      buildDeliveryInstructionsText({
+        deliveryInstructionMode,
+        selectedDeliveryInstruction,
+        customDeliveryInstruction,
+      }),
+    [deliveryInstructionMode, selectedDeliveryInstruction, customDeliveryInstruction],
+  )
+
+  // COD is enabled; no coercion needed.
+
+  useEffect(() => {
+    const timer = setInterval(() => setAvailabilityTick(Date.now()), 60000)
+    return () => clearInterval(timer)
+  }, [])
+
+  const scheduledOrderAt = useMemo(() => {
+    if (!isScheduled || !scheduledDate || !scheduledTime) return null
+    const scheduleDate = new Date(`${scheduledDate}T${scheduledTime}:00`)
+    return Number.isNaN(scheduleDate.getTime()) ? null : scheduleDate
+  }, [isScheduled, scheduledDate, scheduledTime])
+
+  const cartRestaurantAvailability = useMemo(() => {
+    if (!restaurantData) return { isOpen: false, reason: "loading" }
+    const targetDate = scheduledOrderAt || new Date(availabilityTick)
+    return getRestaurantAvailabilityStatus(restaurantData, targetDate)
+  }, [restaurantData, availabilityTick, scheduledOrderAt])
+
+  const canPlaceOrder = Boolean(restaurantData) && cartRestaurantAvailability.isOpen === true
 
 
   const availableTimeSlots = useMemo(() => {
@@ -619,7 +633,13 @@ export default function Cart() {
     if (normalized === "other") return "Other"
     return label || "Saved address"
   }
-  const sanitizeRecipientPhone = (value) => String(value || "").replace(/[^\d+]/g, "").slice(0, 14)
+  const sanitizeRecipientName = (value) => String(value || "").replace(/[^A-Za-z ]/g, "").replace(/\s+/g, " ")
+  const sanitizeRecipientPhone = (value) => String(value || "").replace(/\D/g, "").slice(0, 10)
+  const isValidRecipientName = (value) => {
+    const normalized = String(value || "").replace(/\s+/g, " ").trim()
+    return normalized.length >= 2 && RECIPIENT_NAME_REGEX.test(normalized)
+  }
+  const isValidIndianMobile = (value) => INDIAN_MOBILE_REGEX.test(String(value || ""))
   const savedAddress = getDefaultAddress()
   const selectedAddress = addresses.find((addr) => getAddressId(addr) && getAddressId(addr) === selectedAddressId)
 
@@ -678,6 +698,11 @@ export default function Cart() {
       : selectedAddress || savedAddress || currentLocationAddress || null
   }, [deliveryAddressMode, currentLocationAddress, selectedAddress, savedAddress])
 
+  const pricingAddress = useMemo(
+    () => normalizeLocationForPricing(defaultAddress),
+    [defaultAddress],
+  )
+
   const hasSavedAddress = Boolean(defaultAddress && formatFullAddress(defaultAddress))
   const recipientName = String(recipientDetails.name || "").trim() || userProfile?.name || "Your Name"
   const recipientPhone = sanitizeRecipientPhone(recipientDetails.phone || "") || userProfile?.phone || ""
@@ -688,17 +713,8 @@ export default function Cart() {
       longitude: selectedAddressCoordinates[0]
     }
     : currentLocation
-  const { zoneId, zoneStatus } = useZone(zoneLocation) // Prefer selected/saved address zone
+  const { zoneId } = useZone(zoneLocation) // Prefer selected/saved address zone
   const defaultPayment = getDefaultPaymentMethod()
-
-  const isCartZoneMismatch = useMemo(() => {
-    if (orderType !== "delivery" || !cart.length || !zoneId || zoneStatus === "loading") {
-      return false
-    }
-    const restaurantZoneId = cart[0]?.restaurantZoneId || restaurantData?.zoneId
-    if (!restaurantZoneId) return false
-    return String(restaurantZoneId).trim() !== String(zoneId).trim()
-  }, [orderType, cart, zoneId, zoneStatus, restaurantData?.zoneId])
 
   useEffect(() => {
     // Sync delivery mode from overlay/localStorage changes.
@@ -761,26 +777,31 @@ export default function Cart() {
     }
   }, [recipientDetails, isEditingRecipient])
 
-  useEffect(() => {
-    hasRestoredNoteRef.current = true
-  }, [])
-
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    if (!hasRestoredNoteRef.current) return
-
-    try {
-      window.localStorage.setItem(
-        CART_ORDER_NOTE_STORAGE_KEY,
-        JSON.stringify({
-          restaurantNote,
-          showRestaurantNoteInput,
-        })
-      )
-    } catch {
-      // Ignore storage errors and keep note flow working.
+  const handleRecipientEditToggle = () => {
+    if (!isEditingRecipient) {
+      setIsEditingRecipient(true)
+      return
     }
-  }, [restaurantNote, showRestaurantNoteInput])
+
+    const normalizedName = String(recipientDetails.name || "").replace(/\s+/g, " ").trim()
+    const normalizedPhone = sanitizeRecipientPhone(recipientDetails.phone || "")
+
+    if (!isValidRecipientName(normalizedName)) {
+      toast.error("Name should contain only letters and spaces")
+      return
+    }
+    if (!isValidIndianMobile(normalizedPhone)) {
+      toast.error("Enter a valid 10-digit Indian mobile number")
+      return
+    }
+
+    setRecipientDetails((prev) => ({
+      ...prev,
+      name: normalizedName,
+      phone: normalizedPhone,
+    }))
+    setIsEditingRecipient(false)
+  }
 
   useEffect(() => {
     if (deliveryAddressMode === "current") {
@@ -817,7 +838,7 @@ export default function Cart() {
 
   // Lock body scroll and scroll to top when any full-screen modal opens
   useEffect(() => {
-    if (showPlacingOrder || showOrderSuccess || showSavingsCongrats) {
+    if (showPlacingOrder || showOrderSuccess) {
       // Lock body scroll
       document.body.style.overflow = 'hidden'
       document.body.style.position = 'fixed'
@@ -845,156 +866,144 @@ export default function Cart() {
       document.body.style.width = ''
       document.body.style.top = ''
     }
-  }, [showPlacingOrder, showOrderSuccess, showSavingsCongrats])
+  }, [showPlacingOrder, showOrderSuccess])
 
   // Fetch restaurant data when cart has items
   useEffect(() => {
+    let cancelled = false
+
     const fetchRestaurantData = async () => {
       if (cart.length === 0) {
-        if (!showOrderSuccess && !showPlacingOrder && !showSavingsCongrats) {
-          setRestaurantData(null)
-        }
+        setRestaurantData(null)
+        setLoadingRestaurant(false)
         return
       }
 
-      // If we already have restaurantData, don't fetch again
-      if (restaurantData) {
-        return
-      }
+      const cartRestaurantId = cart[0]?.restaurantId
+      const cartRestaurantName = cart[0]?.restaurant
 
       setLoadingRestaurant(true)
 
-      // Strategy 1: Try using restaurantId from cart if available
-      if (cart[0]?.restaurantId) {
-        try {
-          const cartRestaurantId = cart[0].restaurantId;
-          const cartRestaurantName = cart[0].restaurant;
+      try {
+        // Strategy 1: fetch by cart restaurantId
+        if (cartRestaurantId) {
+          try {
+            debugLog("Fetching restaurant data by restaurantId from cart:", cartRestaurantId)
+            const response = await restaurantAPI.getRestaurantById(cartRestaurantId)
+            if (cancelled) return
 
-          debugLog("?? Fetching restaurant data by restaurantId from cart:", cartRestaurantId)
-          const response = await restaurantAPI.getRestaurantById(cartRestaurantId)
-          const data = response?.data?.data?.restaurant || response?.data?.restaurant
+            const data = response?.data?.data?.restaurant || response?.data?.restaurant
+            if (data) {
+              const normalized = normalizeRestaurantForPricing(data)
+              const fetchedRestaurantId = resolveOrderRestaurantId(normalized)
+              const fetchedRestaurantName = normalized.name || normalized.restaurantName || ""
 
-          if (data) {
-            // CRITICAL: Validate that fetched restaurant matches cart items
-            const fetchedRestaurantId = data.restaurantId || data._id?.toString();
-            const fetchedRestaurantName = data.name;
+              const restaurantIdMatches =
+                !cartRestaurantId ||
+                fetchedRestaurantId === String(cartRestaurantId) ||
+                String(data._id || "") === String(cartRestaurantId) ||
+                String(data.restaurantId || "") === String(cartRestaurantId)
 
-            // Check if restaurantId matches
-            const restaurantIdMatches =
-              fetchedRestaurantId === cartRestaurantId ||
-              data._id?.toString() === cartRestaurantId ||
-              data.restaurantId === cartRestaurantId;
+              if (!restaurantIdMatches) {
+                debugError("Fetched restaurant ID does not match cart restaurantId", {
+                  cartRestaurantId,
+                  fetchedRestaurantId,
+                  cartRestaurantName,
+                  fetchedRestaurantName,
+                })
+              } else {
+                const cartName = String(cartRestaurantName || "").toLowerCase().trim()
+                const fetchedName = String(fetchedRestaurantName || "").toLowerCase().trim()
+                if (cartName && fetchedName && cartName !== fetchedName) {
+                  debugWarn("Restaurant name mismatch:", { cartRestaurantName, fetchedRestaurantName })
+                }
 
-            // Check if restaurant name matches (if available in cart)
-            const restaurantNameMatches =
-              !cartRestaurantName ||
-              fetchedRestaurantName?.toLowerCase().trim() === cartRestaurantName.toLowerCase().trim();
-
-            if (!restaurantIdMatches) {
-              debugError('? CRITICAL: Fetched restaurant ID does not match cart restaurantId!', {
-                cartRestaurantId: cartRestaurantId,
-                fetchedRestaurantId: fetchedRestaurantId,
-                fetched_id: data._id?.toString(),
-                fetched_restaurantId: data.restaurantId,
-                cartRestaurantName: cartRestaurantName,
-                fetchedRestaurantName: fetchedRestaurantName
-              });
-              // Don't set restaurantData if IDs don't match - this prevents wrong restaurant assignment
-              setLoadingRestaurant(false);
-              return;
+                setRestaurantData(normalized)
+                return
+              }
             }
-
-            if (!restaurantNameMatches) {
-              debugWarn('?? WARNING: Restaurant name mismatch:', {
-                cartRestaurantName: cartRestaurantName,
-                fetchedRestaurantName: fetchedRestaurantName
-              });
-              // Still proceed but log warning
+          } catch (error) {
+            if (!cancelled) {
+              debugWarn("Failed to fetch by cart restaurantId, trying fallback...", error)
             }
-
-            debugLog("? Restaurant data loaded from cart restaurantId:", {
-              _id: data._id,
-              restaurantId: data.restaurantId,
-              name: data.name,
-              cartRestaurantId: cartRestaurantId,
-              cartRestaurantName: cartRestaurantName
-            })
-            setRestaurantData(data)
-            setLoadingRestaurant(false)
-            return
           }
-        } catch (error) {
-          debugWarn("?? Failed to fetch by cart restaurantId, trying fallback...", error)
         }
-      }
 
-      // Strategy 2: If no restaurantId in cart, search by restaurant name
-      if (cart[0]?.restaurant && !restaurantData) {
-        try {
-          debugLog("?? Searching restaurant by name:", cart[0].restaurant)
-          const searchResponse = await restaurantAPI.getRestaurants({ limit: 100 })
-          const restaurants = searchResponse?.data?.data?.restaurants || searchResponse?.data?.data || []
-          debugLog("?? Fetched", restaurants.length, "restaurants for name search")
+        // Strategy 2: search by restaurant name
+        if (cartRestaurantName) {
+          try {
+            debugLog("Searching restaurant by name:", cartRestaurantName)
+            const searchResponse = await restaurantAPI.getRestaurants({ limit: 100 })
+            if (cancelled) return
 
-          // Try exact match first
-          let matchingRestaurant = restaurants.find(r =>
-            r.name?.toLowerCase().trim() === cart[0].restaurant?.toLowerCase().trim()
-          )
+            const restaurants = searchResponse?.data?.data?.restaurants || searchResponse?.data?.data || []
+            const targetName = String(cartRestaurantName).toLowerCase().trim()
 
-          // If no exact match, try partial match
-          if (!matchingRestaurant) {
-            debugLog("?? No exact match, trying partial match...")
-            matchingRestaurant = restaurants.find(r =>
-              r.name?.toLowerCase().includes(cart[0].restaurant?.toLowerCase().trim()) ||
-              cart[0].restaurant?.toLowerCase().trim().includes(r.name?.toLowerCase())
-            )
-          }
-
-          if (matchingRestaurant) {
-            // CRITICAL: Validate that the found restaurant matches cart items
-            const cartRestaurantName = cart[0]?.restaurant?.toLowerCase().trim();
-            const foundRestaurantName = matchingRestaurant.name?.toLowerCase().trim();
-
-            if (cartRestaurantName && foundRestaurantName && cartRestaurantName !== foundRestaurantName) {
-              debugError("? CRITICAL: Restaurant name mismatch!", {
-                cartRestaurantName: cart[0]?.restaurant,
-                foundRestaurantName: matchingRestaurant.name,
-                cartRestaurantId: cart[0]?.restaurantId,
-                foundRestaurantId: matchingRestaurant.restaurantId || matchingRestaurant._id
-              });
-              // Don't set restaurantData if names don't match - this prevents wrong restaurant assignment
-              setLoadingRestaurant(false);
-              return;
-            }
-
-            debugLog("? Found restaurant by name:", {
-              name: matchingRestaurant.name,
-              _id: matchingRestaurant._id,
-              restaurantId: matchingRestaurant.restaurantId,
-              slug: matchingRestaurant.slug,
-              cartRestaurantName: cart[0]?.restaurant
+            let matchingRestaurant = restaurants.find((r) => {
+              const name = String(r.name || r.restaurantName || "").toLowerCase().trim()
+              return name === targetName
             })
-            setRestaurantData(matchingRestaurant)
-            setLoadingRestaurant(false)
-            return
-          } else {
-            debugWarn("?? Restaurant not found even by name search. Searched in", restaurants.length, "restaurants")
-            if (restaurants.length > 0) {
-              debugLog("?? Available restaurant names:", restaurants.map(r => r.name).slice(0, 10))
+
+            if (!matchingRestaurant) {
+              matchingRestaurant = restaurants.find((r) => {
+                const name = String(r.name || r.restaurantName || "").toLowerCase().trim()
+                return name.includes(targetName) || targetName.includes(name)
+              })
+            }
+
+            if (matchingRestaurant) {
+              setRestaurantData(normalizeRestaurantForPricing(matchingRestaurant))
+              return
+            }
+
+            debugWarn("Restaurant not found by name search", {
+              cartRestaurantName,
+              searched: restaurants.length,
+            })
+          } catch (searchError) {
+            if (!cancelled) {
+              debugWarn("Error searching restaurants by name:", searchError)
             }
           }
-        } catch (searchError) {
-          debugWarn("?? Error searching restaurants by name:", searchError)
         }
-      }
 
-      // If all strategies fail, set to null
-      setRestaurantData(null)
-      setLoadingRestaurant(false)
+        if (!cancelled) setRestaurantData(null)
+      } finally {
+        if (!cancelled) setLoadingRestaurant(false)
+      }
     }
 
     fetchRestaurantData()
-  }, [cart.length, cart[0]?.restaurantId, cart[0]?.restaurant, showOrderSuccess, showPlacingOrder, showSavingsCongrats])
+    return () => {
+      cancelled = true
+    }
+  }, [cart.length, cart[0]?.restaurantId, cart[0]?.restaurant])
+
+  // Keep restaurant online/offline status fresh while user stays on cart
+  useEffect(() => {
+    const cartRestaurantId = cart[0]?.restaurantId
+    if (!cartRestaurantId || cart.length === 0) return
+
+    const refreshRestaurantStatus = async () => {
+      try {
+        const response = await restaurantAPI.getRestaurantById(cartRestaurantId)
+        const data = response?.data?.data?.restaurant || response?.data?.restaurant
+        if (data) setRestaurantData(normalizeRestaurantForPricing(data))
+      } catch (error) {
+        debugWarn("Failed to refresh restaurant status:", error)
+      }
+    }
+
+    refreshRestaurantStatus()
+    const intervalId = setInterval(refreshRestaurantStatus, 60000)
+    const handleFocus = () => refreshRestaurantStatus()
+    window.addEventListener("focus", handleFocus)
+
+    return () => {
+      clearInterval(intervalId)
+      window.removeEventListener("focus", handleFocus)
+    }
+  }, [cart.length, cart[0]?.restaurantId])
 
   // Fetch approved addons for the restaurant
   useEffect(() => {
@@ -1045,7 +1054,11 @@ export default function Cart() {
           debugLog("? Successfully fetched", data.length, "addons:", data.map(a => a.name))
         }
 
-        setAddons(data)
+        setAddons(data.map(addon => ({
+          ...addon,
+          isVeg: addon.isVeg ?? (restaurantData?.pureVegRestaurant === true),
+          foodType: addon.foodType || (restaurantData?.pureVegRestaurant ? "Veg" : "Non-Veg")
+        })))
       } catch (error) {
         // Log error for debugging
         debugError("? Addons fetch error:", {
@@ -1102,124 +1115,204 @@ export default function Cart() {
     fetchAddons()
   }, [restaurantData, cart.length, loadingRestaurant])
 
-  // Fetch restaurant-level coupons once (same source as restaurant details page)
+  // Fetch coupons for items in cart
   useEffect(() => {
-    const fetchCouponsForCart = async () => {
-      if (cart.length === 0) {
+    const fetchCouponsForCartItems = async () => {
+      if (cart.length === 0 || !restaurantId) {
         setAvailableCoupons([])
         return
       }
 
-      const resolvedRestaurantId =
-        restaurantData?._id ||
-        restaurantData?.restaurantId ||
-        cart[0]?.restaurantId ||
-        null
-
+      debugLog(`[CART-COUPONS] Fetching coupons for ${cart.length} items in cart`)
       setLoadingCoupons(true)
 
-      try {
-        const response = await restaurantAPI.getPublicOffers()
-        const list = response?.data?.data?.allOffers || response?.data?.allOffers || []
-        const filteredOffers = filterPublicOffers(list, {
-          restaurantId: resolvedRestaurantId,
-          restaurantSlug: restaurantData?.slug || restaurantData?.restaurantNameNormalized,
-          restaurant: restaurantData,
-          orderType,
-          requireShowInCart: true,
-        })
+      const allCoupons = []
+      const uniqueCouponCodes = new Set()
 
-        const coupons = filteredOffers.map((offer) => mapPublicOfferToCartCoupon(offer, RUPEE_SYMBOL))
-        debugLog(`[CART-COUPONS] Loaded ${coupons.length} coupons for restaurant`, {
-          resolvedRestaurantId,
-          orderType,
-        })
-        setAvailableCoupons(coupons)
-      } catch (error) {
-        debugError("[CART-COUPONS] Error fetching coupons:", error)
-        setAvailableCoupons([])
-      } finally {
-        setLoadingCoupons(false)
+      // Fetch coupons for each item in cart
+      for (const cartItem of cart) {
+        const couponItemId = cartItem.itemId || cartItem.id
+        if (!couponItemId) {
+          debugLog(`[CART-COUPONS] Skipping item without id:`, cartItem)
+          continue
+        }
+
+        try {
+          debugLog(`[CART-COUPONS] Fetching coupons for itemId: ${couponItemId}, name: ${cartItem.name}`)
+          const response = await restaurantAPI.getCouponsByItemIdPublic(restaurantId, couponItemId, subtotal)
+
+          if (response?.data?.success && response?.data?.data?.coupons) {
+            const coupons = response.data.data.coupons
+            debugLog(`[CART-COUPONS] Found ${coupons.length} coupons for item ${couponItemId}`)
+
+            // Add coupons, avoiding duplicates
+            coupons.forEach(coupon => {
+              if (!uniqueCouponCodes.has(coupon.couponCode)) {
+                uniqueCouponCodes.add(coupon.couponCode)
+                // Convert backend coupon format to frontend format
+                allCoupons.push({
+                  code: coupon.couponCode,
+                  discount: coupon.originalPrice - coupon.discountedPrice,
+                  discountPercentage: coupon.discountPercentage,
+                  discountDisplay: coupon.discountType === "percentage"
+                    ? `${coupon.discountPercentage}% OFF`
+                    : `${RUPEE_SYMBOL}${Math.max(0, (coupon.originalPrice || 0) - (coupon.discountedPrice || 0))} OFF`,
+                  minOrder: coupon.minOrderValue || 0,
+                  description: coupon.discountType === "percentage"
+                    ? `${coupon.discountPercentage}% OFF with '${coupon.couponCode}'`
+                    : `Save ${RUPEE_SYMBOL}${Math.max(0, (coupon.originalPrice || 0) - (coupon.discountedPrice || 0))} with '${coupon.couponCode}'`,
+                  originalPrice: coupon.originalPrice,
+                  discountedPrice: coupon.discountedPrice,
+                  customerGroup: coupon.customerGroup || "all",
+                  isGlobalCoupon: Boolean(coupon.isGlobalCoupon),
+                  itemId: couponItemId,
+                  itemName: cartItem.name,
+                })
+              }
+            })
+          }
+        } catch (error) {
+          debugError(`[CART-COUPONS] Error fetching coupons for item ${cartItem.id}:`, error)
+        }
       }
+
+      debugLog(`[CART-COUPONS] Total unique coupons found: ${allCoupons.length}`, allCoupons)
+      setAvailableCoupons(allCoupons)
+      setLoadingCoupons(false)
     }
 
-    fetchCouponsForCart()
-  }, [cart, restaurantData, orderType])
+    fetchCouponsForCartItems()
+  }, [cart, restaurantId])
 
   // Calculate pricing from backend whenever cart, address, or coupon changes
   useEffect(() => {
+    let cancelled = false
+
     const calculatePricing = async () => {
-      const resolvedRestaurantId = restaurantData?.restaurantId || restaurantData?._id || cart[0]?.restaurantId || undefined
-      
-      // For takeaway, we don't need a delivery address to calculate pricing, but we MUST have a restaurantId
-      const canCalculate = cart.length > 0 && resolvedRestaurantId && (orderType === "takeaway" || hasSavedAddress)
-      
-      if (!canCalculate) {
+      if (cart.length === 0 || !hasSavedAddress) {
         setPricing(null)
+        setLoadingPricing(false)
+        return
+      }
+
+      // Wait for restaurant status before pricing — avoids racing calculate while offline/unknown.
+      // Important: do not leave loadingPricing=true when a prior in-flight run was cancelled.
+      if (loadingRestaurant) {
+        return
+      }
+
+      if (!restaurantData) {
+        setPricing(null)
+        setLoadingPricing(false)
+        return
+      }
+
+      if (cartRestaurantAvailability.isOpen !== true) {
+        setPricing(null)
+        setLoadingPricing(false)
+        return
+      }
+
+      const resolvedRestaurantId = resolveOrderRestaurantId(
+        restaurantData,
+        restaurantId,
+        cart[0]?.restaurantId,
+      )
+      if (!resolvedRestaurantId) {
+        setPricing(null)
+        setLoadingPricing(false)
         return
       }
 
       try {
         setLoadingPricing(true)
         const items = cart.map(item => ({
-          itemId: item.itemId || item.id,
-          name: item.name,
-          price: item.price, // Price should already be in INR
+          itemId: String(item.itemId || item.id || ""),
+          name: String(item.name || "Item"),
+          price: Number(item.price) || 0,
           variantId: item.variantId || undefined,
           variantName: item.variantName || undefined,
-          variantPrice: item.variantPrice || item.price,
-          quantity: item.quantity || 1,
-          image: item.image,
-          description: item.description,
+          variantPrice: Number(item.variantPrice ?? item.price) || 0,
+          quantity: Math.max(1, Number(item.quantity) || 1),
+          image: typeof item.image === "string" ? item.image : "",
           isVeg: item.isVeg !== false
         }))
 
-        const resolvedRestaurantId = restaurantData?.restaurantId || restaurantData?._id || cart[0]?.restaurantId || undefined
         const resolvedCouponCode = appliedCoupon?.code || couponCode || undefined
 
-        const requestBody = {
-          useCart: true,
-          items: [],
+        const calculatePayload = {
+          items,
           restaurantId: resolvedRestaurantId,
-          deliveryAddress: orderType === "takeaway" ? undefined : (defaultAddress || undefined),
+          deliveryAddress: pricingAddress,
           couponCode: resolvedCouponCode,
-          orderType: orderType,
-          zoneId: zoneId || undefined,
+          deliveryMode,
         }
-        
-        debugLog("Recalculating pricing with body:", requestBody)
 
-        const response = await orderAPI.calculateOrder(requestBody)
+        if (scheduledOrderAt) {
+          calculatePayload.scheduledAt = scheduledOrderAt.toISOString()
+        }
+
+        const response = await orderAPI.calculateOrder(calculatePayload)
+        if (cancelled) return
 
         if (response?.data?.success && response?.data?.data?.pricing) {
           setPricing(response.data.data.pricing)
 
-          const backendApplied = response.data.data.pricing.appliedCoupon
-          if (backendApplied) {
-            if (!appliedCoupon || appliedCoupon.code !== backendApplied.code) {
-              const coupon = availableCoupons.find(c => c.code === backendApplied.code)
-              if (coupon) {
-                setAppliedCoupon(coupon)
-              } else {
-                setAppliedCoupon({
-                  code: backendApplied.code,
-                  discount: backendApplied.discount || 0,
-                  minOrder: 0,
-                  customerGroup: "all",
-                  couponType: "all",
-                })
+          const resolvedItems = Array.isArray(response.data.data.items)
+            ? response.data.data.items
+            : []
+          if (resolvedItems.length > 0) {
+            const priceById = new Map(
+              resolvedItems.map((item) => [String(item.itemId), item]),
+            )
+            const nextCart = cart.map((cartItem) => {
+              const itemId = String(cartItem.itemId || cartItem.id || "")
+              const resolved = priceById.get(itemId)
+              if (!resolved) return cartItem
+
+              const nextPrice = Number(resolved.price)
+              if (!Number.isFinite(nextPrice) || nextPrice === Number(cartItem.price)) {
+                return cartItem
+              }
+
+              return {
+                ...cartItem,
+                name: resolved.name || cartItem.name,
+                price: nextPrice,
+                variantPrice: Number(resolved.variantPrice ?? nextPrice),
+                variantName: resolved.variantName || cartItem.variantName,
+              }
+            })
+
+            const pricesChanged = nextCart.some(
+              (item, index) => Number(item.price) !== Number(cart[index]?.price),
+            )
+            if (pricesChanged) {
+              replaceCart(nextCart)
+              const priceChanges = response.data.data.priceChanges || []
+              if (priceChanges.length > 0) {
+                toast.info("Cart prices were updated to match the latest menu")
               }
             }
-          } else {
-            if (appliedCoupon) {
-              setAppliedCoupon(null)
-              setCouponCode("")
-              setManualCouponCode("")
-              toast.error("Applied coupon is not valid for this order type")
+          }
+
+          // Update applied coupon if backend returns one
+          if (response.data.data.pricing.appliedCoupon && !appliedCoupon) {
+            const coupon = availableCoupons.find(c => c.code === response.data.data.pricing.appliedCoupon.code)
+            if (coupon) {
+              setAppliedCoupon(coupon)
             }
           }
         }
       } catch (error) {
+        if (cancelled) return
+        const apiMessage = getApiErrorMessage(error).toLowerCase()
+
+        if (apiMessage.includes("offline") || apiMessage.includes("closed")) {
+          setPricing(null)
+          return
+        }
+
         // Network errors or 404 errors - silently handle, fallback to frontend calculation
         if (error.code !== 'ERR_NETWORK' && error.response?.status !== 404) {
           debugError("Error calculating pricing:", error)
@@ -1227,13 +1320,110 @@ export default function Cart() {
         // Fallback to frontend calculation if backend fails
         setPricing(null)
       } finally {
-        setLoadingPricing(false)
+        if (!cancelled) setLoadingPricing(false)
       }
     }
 
     calculatePricing()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart, defaultAddress, restaurantId, orderType, zoneId])
+    return () => {
+      cancelled = true
+    }
+  }, [cart, pricingAddress, appliedCoupon, couponCode, restaurantId, restaurantData, scheduledOrderAt, replaceCart, deliveryMode, loadingRestaurant, cartRestaurantAvailability.isOpen, hasSavedAddress])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (!Array.isArray(cart) || cart.length === 0) {
+      sessionStorage.removeItem("food_cart_pricing_snapshot")
+      return
+    }
+
+    try {
+      const snapshot = buildEffectiveCartPricing({
+        cart,
+        pricing,
+        feeSettings,
+        defaultAddress: pricingAddress,
+        restaurantData,
+        appliedCoupon,
+        deliveryMode,
+        roadDistanceKm:
+          Number.isFinite(Number(pricing?.distanceKm))
+            ? Number(pricing.distanceKm)
+            : Number.isFinite(Number(pricing?.roadDistanceKm))
+              ? Number(pricing.roadDistanceKm)
+              : roadDistanceKm,
+      })
+      sessionStorage.setItem("food_cart_pricing_snapshot", JSON.stringify(snapshot))
+      window.dispatchEvent(new CustomEvent("food_cart_pricing_updated"))
+    } catch {
+      // ignore storage errors
+    }
+  }, [cart, pricing, feeSettings, pricingAddress, restaurantData, appliedCoupon, deliveryMode, roadDistanceKm])
+
+  // Selected address Rest→User road distance (same source as Home / delivery).
+  useEffect(() => {
+    let cancelled = false
+    if (!restaurantData || !pricingAddress) {
+      setRoadDistanceKm(null)
+      return undefined
+    }
+
+    // Prefer backend pricing distance once available.
+    if (Number.isFinite(Number(pricing?.distanceKm)) || Number.isFinite(Number(pricing?.roadDistanceKm))) {
+      const fromPricing = Number(pricing?.distanceKm ?? pricing?.roadDistanceKm)
+      setRoadDistanceKm(fromPricing)
+      return undefined
+    }
+
+    const run = async () => {
+      try {
+        const km = await fetchDrivingDistanceKm(restaurantData, pricingAddress)
+        if (!cancelled && Number.isFinite(Number(km))) {
+          setRoadDistanceKm(Number(km))
+        }
+      } catch {
+        // Maps failures must never surface as unhandled rejections on cart.
+      }
+    }
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    restaurantData,
+    pricingAddress,
+    pricing?.distanceKm,
+    pricing?.roadDistanceKm,
+  ])
+
+  // Address sheet labels: batch road distances for saved addresses.
+  useEffect(() => {
+    let cancelled = false
+    if (!restaurantData || !Array.isArray(addresses) || addresses.length === 0) {
+      setAddressRoadKmById({})
+      return undefined
+    }
+
+    const run = async () => {
+      try {
+        const kms = await fetchDrivingDistancesMatrix(restaurantData, addresses)
+        if (cancelled || !Array.isArray(kms)) return
+        const next = {}
+        addresses.forEach((address, index) => {
+          const id = getAddressId(address)
+          if (!id || !Number.isFinite(Number(kms[index]))) return
+          next[String(id)] = Number(kms[index])
+        })
+        setAddressRoadKmById(next)
+      } catch {
+        // ignore distance matrix failures
+      }
+    }
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantData, addresses])
 
   // Fetch wallet balance
   useEffect(() => {
@@ -1258,7 +1448,7 @@ export default function Cart() {
   useEffect(() => {
     const fetchOrderCount = async () => {
       try {
-        const response = await userAPI.getOrders({ page: 1, limit: 1 })
+        const response = await orderAPI.getOrders({ page: 1, limit: 1 })
         if (response?.data?.success) {
           const totalOrders = response?.data?.data?.pagination?.total || 0
           setUserOrderCount(totalOrders)
@@ -1272,168 +1462,129 @@ export default function Cart() {
     fetchOrderCount()
   }, [])
 
-  // Fetch fee settings on mount
+  // Fee settings from centralized public config (cached; refresh on admin update only)
   useEffect(() => {
-    const fetchFeeSettings = async () => {
-      try {
-        const response = await adminAPI.getPublicFeeSettings()
-        if (response.data.success && response.data.data.feeSettings) {
-          setFeeSettings({
-            deliveryFee: response.data.data.feeSettings.deliveryFee ?? 25,
-            deliveryFeeRanges: response.data.data.feeSettings.deliveryFeeRanges ?? [],
-            freeDeliveryUpTo: response.data.data.feeSettings.freeDeliveryUpTo ?? 0,
-            platformFee: response.data.data.feeSettings.platformFee ?? 5,
-            packagingFee: response.data.data.feeSettings.packagingFee ?? 0,
-            gstRate: response.data.data.feeSettings.gstRate ?? 5,
-          })
-        }
-      } catch (error) {
-        debugError('Error fetching fee settings:', error)
-        // Keep default values on error
-      }
+    const applyFeeSettings = (raw) => {
+      if (!raw) return
+      setFeeSettings({
+        deliveryFee: raw.deliveryFee ?? 0,
+        deliveryFeeRanges: raw.deliveryFeeRanges || [],
+        platformFee: raw.platformFee ?? 0,
+        quickDeliveryFee: raw.quickDeliveryFee ?? 0,
+        gstRate: raw.gstRate ?? 0,
+      })
     }
 
-    const handleFocus = () => {
-      fetchFeeSettings()
+    applyFeeSettings(getCachedFeeSettings())
+
+    void loadCorePublicAppConfig()
+      .then((snapshot) => {
+        applyFeeSettings(snapshot.feeSettings)
+      })
+      .catch(() => {
+        // Keep cart usable if public config endpoints fail.
+      })
+
+    const handleSettingsUpdate = () => {
+      void loadCorePublicAppConfig({ force: true })
+        .then((snapshot) => {
+          applyFeeSettings(snapshot.feeSettings)
+        })
+        .catch(() => {})
     }
 
-    fetchFeeSettings()
-    window.addEventListener("focus", handleFocus)
-    const intervalId = setInterval(fetchFeeSettings, 30000)
-
-    return () => {
-      window.removeEventListener("focus", handleFocus)
-      clearInterval(intervalId)
-    }
+    window.addEventListener("businessSettingsUpdated", handleSettingsUpdate)
+    return () => window.removeEventListener("businessSettingsUpdated", handleSettingsUpdate)
   }, [])
 
-  // Use backend pricing if available, otherwise fallback to database fee settings
-  // subtotal is declared at the top of the component
-  const fallbackDeliveryFee = (() => {
-    if (appliedCoupon?.freeDelivery) {
-      return 0
-    }
-
-    const freeUpTo = Number(feeSettings.freeDeliveryUpTo || 0)
-    if (Number.isFinite(freeUpTo) && freeUpTo > 0 && subtotal >= freeUpTo) {
-      return 0
-    }
-
-    const distanceKm = (() => {
-      const rCoords = restaurantData?.location?.coordinates
-      const dCoords = defaultAddress?.location?.coordinates
-      if (!Array.isArray(rCoords) || !Array.isArray(dCoords)) return null
-      if (rCoords.length !== 2 || dCoords.length !== 2) return null
-      const [rLng, rLat] = rCoords
-      const [dLng, dLat] = dCoords
-      return calculateDistance(rLat, rLng, dLat, dLng)
-    })()
-
-    const ranges = Array.isArray(feeSettings.deliveryFeeRanges) ? [...feeSettings.deliveryFeeRanges] : []
-    if (ranges.length > 0 && Number.isFinite(distanceKm)) {
-      const sortedRanges = ranges.sort((a, b) => Number(a.min) - Number(b.min))
-      for (let i = 0; i < sortedRanges.length; i += 1) {
-        const range = sortedRanges[i]
-        const min = Number(range.min)
-        const max = Number(range.max)
-        const fee = Number(range.fee)
-        const isLastRange = i === sortedRanges.length - 1
-        const inRange = isLastRange
-          ? distanceKm >= min && distanceKm <= max
-          : distanceKm >= min && distanceKm < max
-
-        if (inRange) return fee
-      }
-
-      return Number(feeSettings.deliveryFee || 0)
-    }
-
-    return Number(feeSettings.deliveryFee || 0)
-  })()
-  const deliveryFee = pricing != null ? (pricing.deliveryFee ?? 0) : fallbackDeliveryFee
-  const deliveryFeeBreakdown = pricing?.deliveryFeeBreakdown || null
+  const effectivePricing = useMemo(
+    () =>
+      buildEffectiveCartPricing({
+        cart,
+        pricing,
+        feeSettings,
+        defaultAddress: pricingAddress,
+        restaurantData,
+        appliedCoupon,
+        deliveryMode,
+        roadDistanceKm:
+          Number.isFinite(Number(pricing?.distanceKm))
+            ? Number(pricing.distanceKm)
+            : Number.isFinite(Number(pricing?.roadDistanceKm))
+              ? Number(pricing.roadDistanceKm)
+              : roadDistanceKm,
+      }),
+    [cart, pricing, feeSettings, pricingAddress, restaurantData, appliedCoupon, deliveryMode, roadDistanceKm],
+  )
+  const subtotal = effectivePricing.subtotal
+  const deliveryFee = effectivePricing.deliveryFee
+  const deliveryFeeGst = effectivePricing.deliveryFeeGst != null
+    ? resolveDeliveryFeeGst(deliveryFee, effectivePricing.deliveryFeeGst)
+    : computeDeliveryFeeGst(deliveryFee)
+  const quickDeliveryFee = effectivePricing.quickDeliveryFee || 0
+  const deliveryFeeBreakdown = effectivePricing.deliveryFeeBreakdown
+  const displayDistanceKm = Number.isFinite(Number(deliveryFeeBreakdown?.distanceKm))
+    ? Number(deliveryFeeBreakdown.distanceKm)
+    : Number.isFinite(Number(pricing?.distanceKm))
+      ? Number(pricing.distanceKm)
+      : Number.isFinite(Number(pricing?.roadDistanceKm))
+        ? Number(pricing.roadDistanceKm)
+        : Number.isFinite(Number(roadDistanceKm))
+          ? Number(roadDistanceKm)
+          : null
   const hasDistanceDeliveryBreakdown =
-    deliveryFeeBreakdown?.source === "distance" &&
-    Number.isFinite(Number(deliveryFeeBreakdown?.distanceKm))
+    Number.isFinite(displayDistanceKm)
   const deliveryFeeBreakdownText = hasDistanceDeliveryBreakdown
-    ? `Distance ${Number(deliveryFeeBreakdown.distanceKm).toFixed(1)} km`
+    ? deliveryFeeBreakdown?.message || `Distance: ${displayDistanceKm.toFixed(1)} km`
     : null
-  const platformFee = pricing != null ? (pricing.platformFee ?? 0) : (feeSettings.platformFee ?? 0)
-  const packagingFee = pricing != null ? (pricing.packagingFee ?? 0) : (feeSettings.packagingFee ?? 0)
-  const gstCharges = pricing != null ? (pricing.tax ?? 0) : Math.round(subtotal * ((feeSettings.gstRate ?? 0) / 100))
-  const discount = pricing?.discount || (appliedCoupon ? Math.min(appliedCoupon.discount, subtotal * 0.5) : 0)
-  const totalBeforeDiscount = subtotal + deliveryFee + platformFee + packagingFee + gstCharges
-  const total = pricing?.total || (totalBeforeDiscount - discount)
-  const savings = pricing?.savings ?? Math.max(0, totalBeforeDiscount - total)
-  
-  // Platform compare-at savings removed — admin markup is charged via price/markupAmount.
-  const platformPricingSavings = useMemo(() => {
-    return {
-      hasPlatformPricing: false,
-      totalPlatformPrice: 0,
-      totalPlatformGst: 0,
-      totalPlatformPriceWithGst: 0,
-      totalFoodelloPrice: 0,
-      totalSavings: 0,
-      savingsPercentage: 0,
-      comparison: [],
-      items: [],
-    }
-  }, [])
+  const platformFee = effectivePricing.platformFee
+  const gstCharges = effectivePricing.tax
+  const discount = effectivePricing.discount
+  const totalBeforeDiscount = subtotal + deliveryFee + deliveryFeeGst + platformFee + gstCharges
+  const total = effectivePricing.total
+  const savings = effectivePricing.savings
+  const itemDiscountAmount = appliedCoupon && discount > 0 ? discount : 0
+  const otherSavings = Math.max(0, savings - itemDiscountAmount)
+  const compareItemTotal = getCartCompareItemTotal(cart)
   const selectedPaymentLabel =
-    selectedPaymentMethod === "wallet"
-      ? "Wallet"
-      : selectedPaymentMethod === "razorpay"
-        ? "Online Payment"
-        : "Cash on Delivery"
+    selectedPaymentMethod === "wallet" ? "Wallet" : selectedPaymentMethod === "cash" ? "Cash on Delivery" : "Online Payment"
+
+  const headerDeliveryTime = deliveryMode === "quick" ? "20-25 mins" : (restaurantData?.estimatedDeliveryTime || "35-40 mins")
+  const basicDeliveryTime = restaurantData?.estimatedDeliveryTime || "35-40 mins"
+  const quickDeliveryTime = "20-25 mins"
+  const headerAddressLabel = defaultAddress ? getDisplayAddressLabel(defaultAddress.label) : "Select address"
+  const headerAddressText = defaultAddress
+    ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || "Add delivery address")
+    : "Add delivery address"
+
+  const formatAddressDistanceLabel = (address) => {
+    const addressId = getAddressId(address)
+    const cached = addressId ? addressRoadKmById[String(addressId)] : null
+    const km = Number.isFinite(Number(cached))
+      ? Number(cached)
+      : calculateDistanceKm(restaurantData, address)
+    if (!Number.isFinite(km)) return null
+    return formatDistanceLabel(km)
+  }
+
+  const getAddressIcon = (address) => {
+    const label = normalizeAddressLabel(address?.label)
+    if (label === "office") return Briefcase
+    return Home
+  }
+
+  const handleOpenAddAddress = () => {
+    setShowAddressSheet(false)
+    navigate("/food/user/cart/address-selector", { state: { backTo: "/food/user/cart" } })
+  }
+
+  const handleSelectAddressFromSheet = async (address) => {
+    await handleSelectSavedAddress(address)
+    setShowAddressSheet(false)
+  }
 
   // Restaurant name from data or cart
-  const restaurantName = restaurantData?.name || cart[0]?.restaurant || "Restaurant"
-
-  const availability = useMemo(() => {
-    if (!restaurantData) return { isOpen: true }
-    return getRestaurantAvailabilityStatus(restaurantData)
-  }, [restaurantData])
-
-  const isRestaurantClosed = !availability.isOpen
-  const isCartUnavailable = isRestaurantClosed || isCartZoneMismatch
-
-  // Trigger auto-coupon popup only when cart is orderable for this location
-  useEffect(() => {
-    if (cart.length === 0) {
-      hasShownPromoPopupRef.current = { delivery: false, takeaway: false, dining: false }
-      return
-    }
-
-    if (isCartUnavailable) {
-      setShowAutoCouponPopup(false)
-      setShowCouponSheet(false)
-      return
-    }
-
-    const currentOrderType = orderType || "delivery"
-
-    if (
-      cart.length > 0 &&
-      filteredCoupons.length > 0 &&
-      !appliedCoupon &&
-      !couponCode &&
-      !hasShownPromoPopupRef.current[currentOrderType] &&
-      !loadingCoupons
-    ) {
-      const topCoupon = filteredCoupons[0]
-      const discountAmount = topCoupon.discountType === "percentage"
-        ? Math.min(subtotal * (Number(topCoupon.discountPercentage || 0) / 100), Number(topCoupon.maxDiscount) || Infinity)
-        : Number(topCoupon.originalPrice || 0)
-      const isApplicable = subtotal >= (Number(topCoupon.minOrder) || 0) && discountAmount > 0
-
-      if (isApplicable) {
-        setBestCoupon(topCoupon)
-        setShowAutoCouponPopup(true)
-        hasShownPromoPopupRef.current[currentOrderType] = true
-      }
-    }
-  }, [filteredCoupons, appliedCoupon, loadingCoupons, subtotal, cart.length, orderType, isCartUnavailable, couponCode])
+  const restaurantName = restaurantData?.name || restaurantData?.restaurantName || cart[0]?.restaurant || "Restaurant"
 
   const handleShare = async () => {
     const restaurantNameStr = restaurantName || companyName || "this restaurant"
@@ -1531,9 +1682,7 @@ export default function Cart() {
       } catch (err) {
         toast.error("Failed to copy link")
       }
-      if (document.body.contains(textArea)) {
-        document.body.removeChild(textArea)
-      }
+      document.body.removeChild(textArea)
     }
   }
 
@@ -1547,7 +1696,30 @@ export default function Cart() {
   }
 
   const handleBack = () => {
-    goBack()
+    const canGoBackInHistory = typeof window !== "undefined" && 
+      (typeof window.history.state?.idx === "number" ? window.history.state.idx > 0 : window.history.length > 1)
+
+    if (canGoBackInHistory) {
+      navigate(-1)
+      return
+    }
+
+    // Fallback if no history back is possible
+    const idOrSlug = restaurantData?.slug || restaurantId
+    if (idOrSlug) {
+      navigate(`/food/user/restaurants/${idOrSlug}`, { replace: true })
+    } else {
+      navigate('/food/user', { replace: true })
+    }
+  }
+
+  const handleAddItems = () => {
+    const idOrSlug = restaurantData?.slug || restaurantId
+    if (idOrSlug) {
+      navigate(`/food/user/restaurants/${idOrSlug}`)
+    } else {
+      navigate('/food/user')
+    }
   }
 
   // Handler to select address by label (Home, Office, Other)
@@ -1614,11 +1786,6 @@ export default function Cart() {
           : `${address.street}, ${address.city}, ${address.state}${address.zipCode ? ` ${address.zipCode}` : ''}`
       }
       localStorage.setItem("userLocation", JSON.stringify(locationData))
-      try {
-        window.dispatchEvent(new CustomEvent("userLocationUpdated"))
-      } catch (evtErr) {
-        debugWarn("Failed to dispatch custom event:", evtErr)
-      }
       // User selected a saved address from Cart; prefer saved mode.
       try {
         localStorage.setItem("deliveryAddressMode", "saved")
@@ -1633,17 +1800,7 @@ export default function Cart() {
   }
 
   const handleApplyCoupon = async (coupon) => {
-    if (isCartZoneMismatch) {
-      toast.error("This restaurant does not deliver to your selected location")
-      return
-    }
-    if (isRestaurantClosed) {
-      toast.error("Restaurant is closed. Coupons cannot be applied right now.")
-      return
-    }
-
-    const isFirstTimeOnly = coupon?.customerGroup === "new" || coupon?.customerGroup === "first-time"
-    if (isFirstTimeOnly && userOrderCount > 0) {
+    if (coupon?.customerGroup === "new" && userOrderCount > 0) {
       toast.error("This coupon is only for first-time users")
       return
     }
@@ -1653,31 +1810,15 @@ export default function Cart() {
       return
     }
 
-    if (coupon?.couponType && coupon.couponType !== "all" && coupon.couponType !== orderType) {
-      toast.error(`This coupon is only valid for ${coupon.couponType} orders`)
-      return
-    }
-
-    // Save previous state for rollback
-    const prevAppliedCoupon = appliedCoupon
-    const prevCouponCode = couponCode
-    const prevManualCouponCode = manualCouponCode
-
-    // Optimistically update states & close sheet instantly
-    setAppliedCoupon(coupon)
-    setCouponCode(coupon.code)
-    setManualCouponCode(coupon.code)
-    setShowCouponSheet(false)
-
     // Validate with backend first; only set applied if backend accepts
-    if (cart.length > 0 && (orderType === "takeaway" || hasSavedAddress)) {
+    if (cart.length > 0 && hasSavedAddress) {
       try {
         const items = cart.map(item => ({
           itemId: item.itemId || item.id,
           name: item.name,
           price: item.price,
-          variantId: item.variantId || item.variant?._id || item.variant?.id || undefined,
-          variantName: item.variantName || (typeof item.variant === 'string' ? item.variant : item.variant?.name) || (typeof item.selectedVariant === 'string' ? item.selectedVariant : item.selectedVariant?.name) || undefined,
+          variantId: item.variantId || undefined,
+          variantName: item.variantName || undefined,
           variantPrice: item.variantPrice || item.price,
           quantity: item.quantity || 1,
           image: item.image,
@@ -1686,29 +1827,32 @@ export default function Cart() {
         }))
 
         const response = await orderAPI.calculateOrder({
-          useCart: true,
-          items: [],
-          restaurantId: restaurantData?.restaurantId || restaurantData?._id || restaurantId || null,
-          deliveryAddress: orderType === "takeaway" ? undefined : defaultAddress,
+          items,
+          restaurantId: resolveOrderRestaurantId(restaurantData, restaurantId, cart[0]?.restaurantId),
+          deliveryAddress: pricingAddress,
           couponCode: coupon.code,
-          orderType: orderType,
-          zoneId: zoneId || undefined
+          deliveryMode,
         })
 
         const pricingData = response?.data?.data?.pricing
         if (!pricingData || !pricingData.appliedCoupon) {
-          throw new Error("Coupon not applicable")
+          toast.error("Coupon not applicable")
+          return
         }
 
         setPricing(pricingData)
-        toast.success("Coupon applied")
+        setAppliedCoupon({ ...coupon, autoApplied: false })
+        setCouponCode(coupon.code)
+        setManualCouponCode(coupon.code)
+        markUserSelectedCoupon(
+          resolveOrderRestaurantId(restaurantData, restaurantId, cart[0]?.restaurantId),
+          getCartSignature(cart),
+          coupon.code,
+        )
+        setShowOffersView(false)
       } catch (error) {
         debugError("Error recalculating pricing:", error)
-        // Rollback states
-        setAppliedCoupon(prevAppliedCoupon)
-        setCouponCode(prevCouponCode)
-        setManualCouponCode(prevManualCouponCode)
-        toast.error(error?.response?.data?.error || error?.message || "Failed to apply coupon")
+        toast.error("Failed to apply coupon")
       }
     }
   }
@@ -1720,17 +1864,8 @@ export default function Cart() {
       return
     }
 
-    if (isCartZoneMismatch) {
-      toast.error("This restaurant does not deliver to your selected location")
-      return
-    }
-    if (isRestaurantClosed) {
-      toast.error("Restaurant is closed. Coupons cannot be applied right now.")
-      return
-    }
-
-    if (cart.length === 0 || (orderType !== "takeaway" && !hasSavedAddress)) {
-      toast.error(orderType === "takeaway" ? "Add items first" : "Add items and delivery address first")
+    if (cart.length === 0 || !hasSavedAddress) {
+      toast.error("Add items and delivery address first")
       return
     }
 
@@ -1739,35 +1874,10 @@ export default function Cart() {
     )
 
     // If we know this is first-time only and user already ordered, block early.
-    const isFirstTimeOnly = matchedCoupon?.customerGroup === "new" || matchedCoupon?.customerGroup === "first-time"
-    if (isFirstTimeOnly && userOrderCount > 0) {
+    if (matchedCoupon?.customerGroup === "new" && userOrderCount > 0) {
       toast.error("This coupon is only for first-time users")
       return
     }
-
-    if (matchedCoupon && matchedCoupon.couponType && matchedCoupon.couponType !== "all" && matchedCoupon.couponType !== orderType) {
-      toast.error(`This coupon is only valid for ${matchedCoupon.couponType} orders`)
-      return
-    }
-
-    // Save previous state for rollback
-    const prevAppliedCoupon = appliedCoupon
-    const prevCouponCode = couponCode
-    const prevManualCouponCode = manualCouponCode
-
-    // Optimistically update states & close sheet instantly
-    setCouponCode(inputCode)
-    setManualCouponCode(inputCode)
-    setAppliedCoupon(
-      matchedCoupon || {
-        code: inputCode,
-        discount: 0,
-        minOrder: 0,
-        customerGroup: "all",
-        couponType: "all",
-      },
-    )
-    setShowCouponSheet(false)
 
     try {
       const items = cart.map(item => ({
@@ -1784,47 +1894,60 @@ export default function Cart() {
       }))
 
       const response = await orderAPI.calculateOrder({
-        useCart: true,
-        items: [],
-        restaurantId: restaurantData?.restaurantId || restaurantData?._id || restaurantId || null,
-        deliveryAddress: orderType === "takeaway" ? undefined : defaultAddress,
+        items,
+        restaurantId: resolveOrderRestaurantId(restaurantData, restaurantId, cart[0]?.restaurantId),
+        deliveryAddress: pricingAddress,
         couponCode: inputCode,
-        orderType: orderType,
-        zoneId: zoneId || undefined
+        deliveryMode,
       })
 
       const pricingData = response?.data?.data?.pricing
       if (!pricingData) {
-        throw new Error("Unable to validate coupon")
+        toast.error("Unable to validate coupon")
+        return
       }
 
       if (!pricingData.appliedCoupon) {
-        throw new Error("Invalid or unavailable coupon code")
+        toast.error("Invalid or unavailable coupon code")
+        setCouponCode("")
+        return
       }
 
       setPricing(pricingData)
+      setCouponCode(inputCode)
       setAppliedCoupon(
-        matchedCoupon || {
-          code: inputCode,
-          discount: pricingData.appliedCoupon.discount || 0,
-          minOrder: 0,
-          customerGroup: "all",
-          couponType: "all",
+        {
+          ...(matchedCoupon || {
+            code: inputCode,
+            discount: pricingData.appliedCoupon.discount || 0,
+            minOrder: 0,
+            customerGroup: "all",
+          }),
+          autoApplied: false,
         },
       )
+      setManualCouponCode(inputCode)
+      markUserSelectedCoupon(
+        resolveOrderRestaurantId(restaurantData, restaurantId, cart[0]?.restaurantId),
+        getCartSignature(cart),
+        inputCode,
+      )
+      setShowOffersView(false)
       toast.success("Coupon applied")
     } catch (error) {
       debugError("Error applying coupon code:", error)
-      // Rollback states
-      setAppliedCoupon(prevAppliedCoupon)
-      setCouponCode(prevCouponCode)
-      setManualCouponCode(prevManualCouponCode)
-      toast.error(error?.response?.data?.error || error?.message || "Failed to apply coupon")
+      toast.error("Failed to apply coupon")
     }
   }
 
 
   const handleRemoveCoupon = async () => {
+    const resolvedRestaurantId =
+      resolveOrderRestaurantId(restaurantData, restaurantId, cart[0]?.restaurantId)
+    if (resolvedRestaurantId) {
+      markManualCouponOptOut(resolvedRestaurantId, getCartSignature(cart))
+    }
+
     setAppliedCoupon(null)
     setCouponCode("")
     setManualCouponCode("")
@@ -1842,17 +1965,15 @@ export default function Cart() {
           quantity: item.quantity || 1,
           image: item.image,
           description: item.description,
-          isVeg: item.isVeg === true || item.foodType === 'Veg'
+          isVeg: item.isVeg !== false
         }))
 
         const response = await orderAPI.calculateOrder({
-          useCart: true,
-          items: [],
-          restaurantId: restaurantData?.restaurantId || restaurantData?._id || restaurantId || null,
-          deliveryAddress: orderType === "takeaway" ? undefined : defaultAddress,
-          couponCode: undefined,
-          orderType: orderType,
-          zoneId: zoneId || undefined
+          items,
+          restaurantId: resolveOrderRestaurantId(restaurantData, restaurantId, cart[0]?.restaurantId),
+          deliveryAddress: pricingAddress,
+          couponCode: null,
+          deliveryMode,
         })
 
         if (response?.data?.success && response?.data?.data?.pricing) {
@@ -1866,14 +1987,15 @@ export default function Cart() {
 
 
   const handlePlaceOrder = async () => {
-    if (!hasSavedAddress) {
-      toast.error("Please choose a delivery location to continue")
-      openLocationSelector()
+    if (!isModuleAuthenticated('user')) {
+      toast.error("Please login to place order")
+      navigate('/food/user/auth/login', { state: { from: '/food/user/cart' } })
       return
     }
 
-    if (isCartZoneMismatch) {
-      toast.error("This restaurant does not deliver to your selected location")
+    if (!hasSavedAddress) {
+      toast.error("Please choose a delivery location to continue")
+      setShowAddressSheet(true)
       return
     }
 
@@ -1895,6 +2017,11 @@ export default function Cart() {
       return
     }
 
+    if (!canPlaceOrder) {
+      toast.error("Restaurant is currently offline. Please try again later.")
+      return
+    }
+
     setIsPlacingOrder(true)
 
     // Use API_BASE_URL from config (supports both dev and production)
@@ -1905,44 +2032,23 @@ export default function Cart() {
       debugLog("?? Applied coupon:", appliedCoupon?.code || "None")
       debugLog("?? Delivery address:", defaultAddress?.label || defaultAddress?.city)
 
-      // Ensure couponCode is included in pricing
-      const orderPricing = pricing || {
-        subtotal,
-        deliveryFee,
-        tax: gstCharges,
-        platformFee,
-        discount,
-        total,
-        couponCode: appliedCoupon?.code || null
-      };
-
-      // Add couponCode if not present but coupon is applied
-      if (!orderPricing.couponCode && appliedCoupon?.code) {
-        orderPricing.couponCode = appliedCoupon.code;
-      }
-
       // Include all cart items (main items + addons)
       // Note: Addons are added as separate cart items when user clicks the + button
-      const orderItems = cart.map(item => {
-        const vName = item.variantName || (typeof item.variant === 'string' ? item.variant : item.variant?.name) || (typeof item.selectedVariant === 'string' ? item.selectedVariant : item.selectedVariant?.name) || item.variant_name || item.size || undefined;
-        const vId = item.variantId || item.variant?._id || item.variant?.id || item.selectedVariant?._id || item.selectedVariant?.id || undefined;
-        return {
-          itemId: item.itemId || item.id,
-          name: item.name,
-          price: item.price,
-          variantId: vId,
-          variantName: vName,
-          variantPrice: item.variantPrice || item.price,
-          quantity: item.quantity || 1,
-          image: item.image || "",
-          description: item.description || "",
-          isVeg: item.isVeg === true || item.foodType === 'Veg',
-          preparationTime: item.preparationTime
-        };
-      })
+      const orderItems = cart.map(item => ({
+        itemId: item.itemId || item.id,
+        name: item.name,
+        price: item.price,
+        variantId: item.variantId || undefined,
+        variantName: item.variantName || undefined,
+        variantPrice: item.variantPrice || item.price,
+        quantity: item.quantity || 1,
+        image: item.image || "",
+        description: item.description || "",
+        isVeg: item.isVeg !== false,
+        preparationTime: item.preparationTime
+      }))
 
       debugLog("?? Order items to send:", orderItems)
-      debugLog("?? Order pricing:", orderPricing)
 
       // Check API base URL before making request (for debugging)
       const fullUrl = `${API_BASE_URL}${API_ENDPOINTS.ORDER.CREATE}`;
@@ -1951,7 +2057,11 @@ export default function Cart() {
 
       // CRITICAL: Validate restaurant ID before placing order
       // Ensure we're using the correct restaurant from restaurantData (most reliable)
-      const finalRestaurantId = restaurantData?.restaurantId || restaurantData?._id || null;
+      const finalRestaurantId = resolveOrderRestaurantId(
+        restaurantData,
+        restaurantId,
+        cart[0]?.restaurantId,
+      );
       const finalRestaurantName = restaurantData?.name || null;
 
       if (!finalRestaurantId) {
@@ -2107,12 +2217,55 @@ export default function Cart() {
         return;
       }
 
+      const resolvedCouponCode = appliedCoupon?.code || couponCode || pricing?.couponCode || undefined
+      const calculatePayload = {
+        items: orderItems,
+        restaurantId: finalRestaurantId,
+        deliveryAddress: pricingAddress,
+        couponCode: resolvedCouponCode,
+        deliveryMode,
+      }
+      if (isScheduled) {
+        calculatePayload.scheduledAt = new Date(`${scheduledDate}T${scheduledTime}:00`).toISOString()
+      }
+
+      let serverPricing = null
+      try {
+        const pricingResponse = await orderAPI.calculateOrder(calculatePayload)
+        serverPricing = pricingResponse?.data?.data?.pricing || null
+      } catch (pricingError) {
+        debugError("Failed to refresh order pricing before checkout:", pricingError)
+        toast.error("Unable to calculate order total. Please try again.")
+        setIsPlacingOrder(false)
+        return
+      }
+
+      if (!serverPricing || !Number.isFinite(Number(serverPricing.total)) || Number(serverPricing.total) <= 0) {
+        toast.error("Unable to calculate order total. Please try again.")
+        setIsPlacingOrder(false)
+        return
+      }
+
+      setPricing(serverPricing)
+
+      const orderPricing = {
+        subtotal: Number(serverPricing.subtotal) || subtotal,
+        deliveryFee: Number(serverPricing.deliveryFee) || 0,
+        tax: Number(serverPricing.tax) || 0,
+        platformFee: Number(serverPricing.platformFee) || 0,
+        discount: Number(serverPricing.discount) || 0,
+        total: Number(serverPricing.total),
+        couponCode: serverPricing.couponCode || serverPricing.appliedCoupon?.code || resolvedCouponCode || null,
+      }
+
+      const checkoutTotal = orderPricing.total
+
+      debugLog("?? Order pricing (server):", orderPricing)
+
       const orderPayload = {
-        useCart: true,
-        // Server loads items from DB food cart; do not trust client cart lines/prices.
-        items: [],
+        items: orderItems,
         address: {
-          ...defaultAddress,
+          ...pricingAddress,
           phone: recipientPhone || defaultAddress?.phone || "",
           name: recipientName,
           fullName: recipientName,
@@ -2121,15 +2274,15 @@ export default function Cart() {
         customerPhone: recipientPhone || defaultAddress?.phone || "",
         restaurantId: finalRestaurantId,
         restaurantName: finalRestaurantName || undefined,
-        couponCode: appliedCoupon?.code || couponCode || undefined,
-        note: "",
-        restaurantNote: restaurantNote || "",
+        pricing: orderPricing,
+        note: String(note || "").trim(),
+        deliveryInstructions: deliveryInstructionText,
+        deliveryMode,
         sendCutlery: sendCutlery !== false,
         paymentMethod: selectedPaymentMethod,
         // `useZone()` can return `null`. Zod expects string/undefined, not null.
         zoneId: zoneId || undefined,
         scheduledAt: isScheduled ? new Date(`${scheduledDate}T${scheduledTime}:00`).toISOString() : undefined,
-        orderType: orderType || "delivery",
       };
       // Log final order details (including paymentMethod for COD debugging)
       debugLog('?? FINAL: Sending order to backend with:', {
@@ -2141,54 +2294,38 @@ export default function Cart() {
       });
 
       // Check wallet balance if wallet payment selected
-      if (selectedPaymentMethod === "wallet" && walletBalance < total) {
-        toast.error(`Insufficient wallet balance. Required: ${RUPEE_SYMBOL}${total.toFixed(0)}, Available: ${RUPEE_SYMBOL}${walletBalance.toFixed(0)}`)
+      if (selectedPaymentMethod === "wallet" && walletBalance < checkoutTotal) {
+        toast.error(`Insufficient wallet balance. Required: ${RUPEE_SYMBOL}${checkoutTotal.toFixed(0)}, Available: ${RUPEE_SYMBOL}${walletBalance.toFixed(0)}`)
         setIsPlacingOrder(false)
         return
       }
 
-      // Cash flow: order placed without online payment
-      if (selectedPaymentMethod === "cash") {
-        const orderResponse = await orderAPI.createOrder(orderPayload)
-        debugLog("? Cash order created successfully:", orderResponse.data)
-        const { order } = orderResponse.data.data
+      // Create order in backend
+      const orderResponse = await orderAPI.createOrder(orderPayload, idempotencyKeyRef.current)
 
-        toast.success("Order placed with Cash on Delivery")
-        setPlacedOrderId(order?._id || order?.orderId || order?.id || null)
-        setPlacedOrderObj(order)
-        setShowOrderSuccess(true)
-        window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
-        clearCart()
-        setRestaurantNote("")
-        setShowRestaurantNoteInput(false)
+      debugLog("? Order created successfully:", orderResponse.data)
+
+      const { order, razorpay } = orderResponse.data.data
+      const pendingOnlineOrderId = order?._id || order?.id || order?.orderMongoId || null
+
+      const cleanupAbandonedOnlinePayment = async () => {
+        if (!pendingOnlineOrderId) return
         try {
-          window.localStorage.removeItem(CART_ORDER_NOTE_STORAGE_KEY)
-        } catch {
-          // ignore
+          await orderAPI.abandonOnlinePayment(pendingOnlineOrderId)
+          debugLog("Cleaned up abandoned online payment order:", pendingOnlineOrderId)
+        } catch (cleanupError) {
+          debugError("Failed to cleanup abandoned online payment order:", cleanupError)
         }
-        setIsPlacingOrder(false)
-        return
       }
 
-      // Wallet flow: order placed with wallet payment
+      // Wallet flow: order placed with wallet payment (already processed in backend)
       if (selectedPaymentMethod === "wallet") {
-        const orderResponse = await orderAPI.createOrder(orderPayload)
-        debugLog("? Wallet order created successfully:", orderResponse.data)
-        const { order } = orderResponse.data.data
-
         toast.success("Order placed with Wallet payment")
         setPlacedOrderId(order?._id || order?.orderId || order?.id || null)
-        setPlacedOrderObj(order)
         setShowOrderSuccess(true)
         window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
         clearCart()
-        setRestaurantNote("")
-        setShowRestaurantNoteInput(false)
-        try {
-          window.localStorage.removeItem(CART_ORDER_NOTE_STORAGE_KEY)
-        } catch {
-          // ignore
-        }
+        resetCartPreferences()
         setIsPlacingOrder(false)
         // Refresh wallet balance
         try {
@@ -2202,18 +2339,30 @@ export default function Cart() {
         return
       }
 
-      // Online payment (Razorpay) flow: Initiate payment order FIRST (no DB order created yet)
-      const initiateResponse = await orderAPI.initiateOnlinePayment(orderPayload)
-      debugLog("? Online payment initiated successfully:", initiateResponse.data)
+      // Cash on Delivery (COD) flow: order placed successfully without gateway initialization
+      const isCodPayment =
+        selectedPaymentMethod === "cod" ||
+        selectedPaymentMethod === "cash" ||
+        selectedPaymentMethod === "cash_on_delivery" ||
+        selectedPaymentMethod === "pay_on_delivery"
 
-      const razorpay = initiateResponse.data.data
-
-      if (!razorpay || !razorpay.orderId || !razorpay.key) {
-        debugError("? Razorpay initialization failed:", { razorpay })
-        throw new Error("Failed to initialize payment gateway. Please contact support.")
+      if (isCodPayment) {
+        toast.success("Order placed successfully with Cash on Delivery")
+        setPlacedOrderId(order?._id || order?.orderId || order?.id || null)
+        setShowOrderSuccess(true)
+        window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
+        clearCart()
+        resetCartPreferences()
+        setIsPlacingOrder(false)
+        return
       }
 
-      debugLog("?? Razorpay gateway order created:", {
+      if (!razorpay || !razorpay.orderId || !razorpay.key) {
+        debugError("? Razorpay initialization failed:", { razorpay, order })
+        throw new Error(razorpay ? "Razorpay payment gateway is not configured. Please contact support." : "Failed to initialize payment")
+      }
+
+      debugLog("?? Razorpay order created:", {
         orderId: razorpay.orderId,
         amount: razorpay.amount,
         currency: razorpay.currency,
@@ -2229,82 +2378,74 @@ export default function Cart() {
       // Format phone number (remove non-digits, take last 10 digits)
       const formattedPhone = userPhone.replace(/\D/g, "").slice(-10)
 
+      debugLog("?? User info for payment:", {
+        name: userName,
+        email: userEmail,
+        phone: formattedPhone
+      })
+
       // Get company name for Razorpay
       const companyName = await getCompanyNameAsync()
 
-      // Flag to prevent duplicate execution (onError + onClose)
-      let paymentHandled = false
-
-      // Store payload in localStorage for redirect-based checkout (PhonePe intent fix)
-      try {
-        window.localStorage.setItem('pendingOrderPayload', JSON.stringify(orderPayload))
-        window.localStorage.removeItem('pendingOrderSavings')
-      } catch (err) {
-        debugError("Failed to save pending order payload to localStorage", err)
-      }
-
-      // API_BASE_URL usually ends with /api/v1 or similar. We strip the /v1 part to form the webhook URL.
-      const baseUrlStr = String(API_BASE_URL).replace(/\/v1\/?$/, '');
-      const callbackUrl = `${baseUrlStr}/v1/payments/webhook/razorpay-redirect?frontendUrl=${encodeURIComponent(window.location.origin + window.location.pathname)}`
-
-      // Initialize Razorpay payment modal
+      // Initialize Razorpay payment
       await initRazorpayPayment({
         key: razorpay.key,
         amount: razorpay.amount, // Already in paise from backend
         currency: razorpay.currency || 'INR',
         order_id: razorpay.orderId,
         name: companyName,
-        description: `Order Payment - ${RUPEE_SYMBOL}${(razorpay.amount / 100).toFixed(2)}`,
-        callback_url: callbackUrl,
-        redirect: true,
+        description: `Order ${order._id || order.orderId} - ${RUPEE_SYMBOL}${(razorpay.amount / 100).toFixed(2)}`,
         prefill: {
           name: userName,
           email: userEmail,
           contact: formattedPhone
         },
         notes: {
+          orderId: order._id || order.orderId,
           userId: userInfo.id || "",
-          restaurantId: finalRestaurantId || "unknown"
+          restaurantId: restaurantId || "unknown"
         },
         handler: async (response) => {
-          paymentHandled = true
           try {
-            debugLog("? Payment successful, creating order in DB...", {
+            debugLog("? Payment successful, verifying...", {
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id
             })
 
-            // Now create the order in DB with payment signature verification
-            const createOrderPayload = {
-              ...orderPayload,
-              razorpayOrderId: response.razorpay_order_id,
-              razorpayPaymentId: response.razorpay_payment_id,
-              razorpaySignature: response.razorpay_signature,
+            // Verify payment with backend
+            const verifyOrderId = order?._id || order?.id || order?.orderMongoId
+            if (!verifyOrderId) {
+              throw new Error("Unable to verify payment: missing order id from create-order response")
             }
+            const verifyResponse = await orderAPI.verifyPayment(
+              {
+                orderId: verifyOrderId,
+                razorpayOrderId: response.razorpay_order_id,
+                razorpayPaymentId: response.razorpay_payment_id,
+                razorpaySignature: response.razorpay_signature,
+              },
+              `verify:${response.razorpay_payment_id}`,
+            )
 
-            const createResponse = await orderAPI.createOrder(createOrderPayload)
-            debugLog("? Order created after payment:", createResponse.data)
+            debugLog("? Payment verification response:", verifyResponse.data)
 
-            if (createResponse.data?.success) {
-              const { order } = createResponse.data.data
+            if (verifyResponse.data.success) {
+              // Payment successful
+              debugLog("?? Order placed successfully:", {
+                orderId: order._id || order.orderId,
+                paymentId: verifyResponse.data.data?.payment?.paymentId
+              })
               setPlacedOrderId(order._id || order.orderId)
-              setPlacedOrderObj(order)
               setShowOrderSuccess(true)
               window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
               clearCart()
-              setRestaurantNote("")
-              setShowRestaurantNoteInput(false)
-              try {
-                window.localStorage.removeItem(CART_ORDER_NOTE_STORAGE_KEY)
-              } catch {
-                // ignore
-              }
+              resetCartPreferences()
               setIsPlacingOrder(false)
             } else {
-              throw new Error(createResponse.data?.message || "Payment verified but order creation failed")
+              throw new Error(verifyResponse.data.message || "Payment verification failed")
             }
           } catch (error) {
-            debugError("? Order creation after payment error:", error)
+            debugError("? Payment verification error:", error)
             const errorMessage =
               error?.response?.data?.message ||
               error?.response?.data?.error?.message ||
@@ -2316,22 +2457,19 @@ export default function Cart() {
           }
         },
         onError: async (error) => {
-          if (paymentHandled) return
-          paymentHandled = true
           debugError("? Razorpay payment error:", error)
+          // Don't show alert for user cancellation
           if (error?.code !== 'PAYMENT_CANCELLED' && error?.message !== 'PAYMENT_CANCELLED') {
             const errorMessage = error?.description || error?.message || "Payment failed. Please try again."
             alert(errorMessage)
           } else {
-            toast.info("Payment was cancelled. No order has been placed.")
+            await cleanupAbandonedOnlinePayment()
           }
           setIsPlacingOrder(false)
         },
         onClose: async () => {
-          if (paymentHandled) return
-          paymentHandled = true
-          debugLog("?? Payment modal closed by user - no DB order was created")
-          toast.info("Payment was not completed. No order has been placed.")
+          debugLog("?? Payment modal closed by user")
+          await cleanupAbandonedOnlinePayment()
           setIsPlacingOrder(false)
         }
       })
@@ -2350,7 +2488,7 @@ export default function Cart() {
           `2. Backend is accessible at ${backendUrl}\n` +
           `3. Check browser console (F12) for more details\n\n` +
           `If backend is not running, start it with:\n` +
-          `cd appzetofood/backend && npm start`
+          `cd eatiefy/backend && npm start`
 
         debugError("?? Network Error Details:", {
           code: error.code,
@@ -2387,21 +2525,12 @@ export default function Cart() {
   }
 
   const handleGoToOrders = () => {
-    setShowSavingsCongrats(false)
-    setCongratssSavingsAmount(0)
-    setCongratssSavingsPercentage(0)
-    setCongratssSavingsItems([])
-    setOrderSuccessSavingsAmount(0)
     setShowOrderSuccess(false)
-    setShowPlacingOrder(false)
-    navigate(`/user/orders/${placedOrderId}?confirmed=true`, {
-      replace: true,
-      state: { order: placedOrderObj, fromOrderPlaced: true, from: 'cart' }
-    })
+    navigate(`/user/orders/${placedOrderId}?confirmed=true`)
   }
 
   // Empty cart state - but don't show if order success or placing order modal is active
-  if (cart.length === 0 && !showOrderSuccess && !showPlacingOrder && !showSavingsCongrats) {
+  if (cart.length === 0 && !showOrderSuccess && !showPlacingOrder) {
     return (
       <AnimatedPage className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a]">
         <div className="bg-white dark:bg-[#1a1a1a] border-b dark:border-gray-800 sticky top-0 z-10">
@@ -2424,7 +2553,15 @@ export default function Cart() {
           <h2 className="text-lg font-semibold text-gray-800 dark:text-white mb-1">Your cart is empty</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 text-center">Add items from a restaurant to start a new order</p>
           <Link to="/user">
-            <Button className="bg-[#DC2626] hover:bg-[#991B1B] text-white">Browse Restaurants</Button>
+            <Button
+              className="text-white border-0"
+              style={{
+                background: "linear-gradient(135deg, rgba(var(--module-theme-rgb,226,173,75),0.9), var(--module-theme-color,#E2AD4B))",
+                boxShadow: "0 8px 18px rgba(var(--module-theme-rgb,226,173,75),0.25)",
+              }}
+            >
+              Browse Restaurants
+            </Button>
           </Link>
         </div>
       </AnimatedPage>
@@ -2433,257 +2570,264 @@ export default function Cart() {
 
   return (
     <div className="relative min-h-screen bg-slate-50 dark:bg-[#0a0a0a]">
-      {/* Header - Sticky at top */}
-      <div className="bg-white dark:bg-[#1a1a1a] border-b border-gray-100/80 dark:border-gray-800/80 sticky top-0 z-20 flex-shrink-0">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between px-4 md:px-6 py-2.5">
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <button 
-                className="w-8 h-8 md:w-9 md:h-9 rounded-full bg-white/90 dark:bg-gray-800/90 border border-gray-100/50 dark:border-gray-700/50 shadow-sm flex items-center justify-center flex-shrink-0 text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all duration-200 active:scale-95"
+      {/* Header */}
+      <div className="sticky top-0 z-20 flex-shrink-0 text-white">
+        <div style={{ backgroundColor: "var(--module-theme-color, #E2AD4B)" }}>
+          <div className="max-w-7xl mx-auto px-3 md:px-6 pt-4 pb-4 md:pt-5 md:pb-5">
+            <div className="flex items-center gap-2.5">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 shrink-0 text-white hover:bg-white/15"
                 onClick={handleBack}
               >
-                <ArrowLeft className="h-[18px] w-[18px] md:h-5 md:w-5 stroke-[2.5]" />
-              </button>
-              <div className="min-w-0 flex-1 ml-2 md:ml-3">
-                <h1 className="text-base md:text-lg font-bold text-[#1C2534] dark:text-white tracking-tight truncate antialiased transform-gpu">
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              <button
+                type="button"
+                onClick={() => setShowAddressSheet(true)}
+                className="flex-1 min-w-0 text-left"
+              >
+                <p className="text-[15px] md:text-base font-semibold leading-snug truncate">
                   {restaurantName}
-                </h1>
-                {isRestaurantClosed && (
-                  <p className="text-xs font-semibold text-red-600 dark:text-red-400 mt-0.5">
-                    Restaurant is closed. Please order when they are online.
-                  </p>
-                )}
-              </div>
+                </p>
+                <div className="mt-1.5 flex items-center gap-1.5 text-[12px] md:text-[13px] text-white/90">
+                  <MapPin className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">
+                    {headerDeliveryTime} to <span className="font-semibold">{headerAddressLabel}</span>
+                    {headerAddressText ? ` | ${headerAddressText}` : ""}
+                  </span>
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-90" />
+                </div>
+              </button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 shrink-0 text-white hover:bg-white/15"
+                onClick={handleShare}
+              >
+                <Share2 className="h-4 w-4" />
+              </Button>
             </div>
-            <button
-              className="w-8 h-8 md:w-9 md:h-9 rounded-full bg-white/90 dark:bg-gray-800/90 border border-gray-100/50 dark:border-gray-700/50 shadow-sm flex items-center justify-center flex-shrink-0 text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-750 transition-all duration-200 active:scale-95"
-              onClick={handleShare}
-            >
-              <Share className="h-[18px] w-[18px] md:h-5 md:w-5 stroke-[2.5]" />
-            </button>
           </div>
+        </div>
+
+        {/* Transition curve: Downward green corners effect */}
+        <div 
+          className="h-5 md:h-6 w-full relative"
+          style={{ backgroundColor: "var(--module-theme-color, #E2AD4B)" }}
+        >
+          <div 
+            className="absolute top-0 left-0 w-full bg-slate-50 dark:bg-[#0a0a0a] rounded-t-[1.75rem] md:rounded-t-[2rem]" 
+            style={{ height: 'calc(100% + 2px)' }}
+          />
         </div>
       </div>
 
-      {/* Scrollable Content Area */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden pb-44 md:pb-52">
-        {/* Zone mismatch warning */}
-        {isCartZoneMismatch && (
-          <div className="px-4 md:px-6 pt-4 pb-1 flex-shrink-0">
-            <div className="max-w-7xl mx-auto">
-              <div className="relative overflow-hidden rounded-2xl border border-amber-200/80 dark:border-amber-800/50 bg-gradient-to-br from-amber-50 via-orange-50/80 to-white dark:from-amber-950/40 dark:via-[#1a1a1a] dark:to-[#1a1a1a] shadow-[0_8px_24px_rgba(245,158,11,0.08)]">
-                <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-amber-400 to-orange-500" />
-                <div className="p-4 pl-5 flex items-start gap-3.5">
-                  <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/40 border border-amber-200/70 dark:border-amber-800/60 flex items-center justify-center flex-shrink-0 shadow-sm">
-                    <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-bold text-amber-950 dark:text-amber-100 tracking-tight">
-                      Delivery not available here
-                    </p>
-                    <p className="text-xs text-amber-800/80 dark:text-amber-200/70 mt-1 leading-relaxed">
-                      {restaurantName} doesn’t deliver to your selected location. Switch address to continue, or clear this cart.
-                    </p>
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={openLocationSelector}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold tracking-wide transition-colors active:scale-[0.98] shadow-sm"
-                      >
-                        <MapPin className="w-3.5 h-3.5" />
-                        Change location
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          clearCart()
-                          toast.success("Cart cleared")
-                        }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-800/70 text-amber-800 dark:text-amber-200 text-[11px] font-bold tracking-wide hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors active:scale-[0.98]"
-                      >
-                        Clear cart
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+      {!loadingRestaurant && restaurantData && !canPlaceOrder && cart.length > 0 && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 px-4 md:px-6 py-2.5">
+          <div className="max-w-7xl mx-auto">
+            <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+              {restaurantName} is currently offline. You can keep items in your cart, but checkout will open once the restaurant is back online.
+            </p>
           </div>
-        )}
+        </div>
+      )}
+
+      {/* Scrollable Content Area */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden pb-24 relative z-10 bg-slate-50 dark:bg-[#0a0a0a]">
+        <CartAutoCouponBanner
+          appliedCoupon={appliedCoupon?.autoApplied ? appliedCoupon : null}
+          savings={itemDiscountAmount}
+        />
 
         {/* Savings Banner */}
-        {savings > 0 && (
-          <div className="bg-green-50 dark:bg-green-950/20 px-4 md:px-6 py-2.5 flex-shrink-0 border-b border-green-100/30 dark:border-green-900/10">
-            <div className="max-w-7xl mx-auto flex items-center gap-2">
-              <span className="text-sm md:text-base">🎉</span>
-              <p className="text-sm md:text-base font-semibold text-green-700 dark:text-green-400">
-                {appliedCoupon?.code 
-                  ? `You saved ${RUPEE_SYMBOL}${savings} with '${appliedCoupon.code}' on this order!`
-                  : `You saved ${RUPEE_SYMBOL}${savings} on this order!`}
+        {otherSavings > 0 && (
+          <div className="bg-blue-100 dark:bg-blue-900/20 px-4 md:px-6 py-2 md:py-3 flex-shrink-0">
+            <div className="max-w-7xl mx-auto">
+              <p className="text-sm md:text-base font-medium text-blue-800 dark:text-blue-200">
+                Saved {RUPEE_SYMBOL}{otherSavings.toFixed(0)} on this order
               </p>
             </div>
           </div>
         )}
 
-        <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
+        <div className="max-w-7xl mx-auto px-4 md:px-6 pt-3 md:pt-4 pb-4 md:pb-6">
           <div className="max-w-3xl mx-auto">
             {/* Main Cart Content */}
             <div className="space-y-2 md:space-y-4">
               {/* Cart Items */}
               <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-4 md:py-5 rounded-2xl md:rounded-3xl shadow-sm border border-slate-100 dark:border-gray-800">
                 <div className="space-y-3 md:space-y-4">
-                  <div className="space-y-6">
-                    {cart.map((item, index) => (
-                      <div key={item.id} className={isCartUnavailable ? "opacity-60 grayscale transition-all duration-300" : ""}>
-                        <div className="flex items-center gap-4">
-                          {/* Veg/Non-veg indicator */}
-                          <div className={`w-4 h-4 border-2 ${item.isVeg === true || item.foodType === 'Veg' ? 'border-green-600' : 'border-red-600'} flex items-center justify-center flex-shrink-0 rounded-[2px]`}>
-                            <div className={`w-2 h-2 rounded-full ${item.isVeg === true || item.foodType === 'Veg' ? 'bg-green-600' : 'bg-red-600'}`} />
-                          </div>
-
-                          <div className="flex-1 min-w-0 flex items-center gap-4">
-                              <div className="w-16 h-16 md:w-20 md:h-20 flex-shrink-0 rounded-2xl overflow-hidden shadow-sm border border-gray-100 dark:border-gray-800">
-                                <img
-                                  src={item.image || dishFallbackImage}
-                                  alt={item.name}
-                                  className="w-full h-full object-cover transform hover:scale-110 transition-transform duration-700"
-                                  onError={(e) => {
-                                    e.target.src = dishFallbackImage;
-                                  }}
-                                />
-                              </div>
-                            <div className="min-w-0 flex-1">
-                              <h3 className="text-sm md:text-base font-bold text-gray-900 dark:text-gray-100 leading-tight">{item.name}</h3>
-                              {item.variantName ? (
-                                <p className="text-[10px] md:text-xs text-red-600 dark:text-red-300 mt-1 font-semibold bg-red-50 dark:bg-red-950/20 border border-red-100/50 dark:border-red-900/30 w-fit px-2.5 py-0.5 rounded-full whitespace-nowrap">
-                                  {item.variantName}
-                                </p>
-                              ) : null}
-                              {isRestaurantClosed && (
-                                <p className="text-[11px] text-red-500 dark:text-red-400 font-semibold mt-1">
-                                  Remove this dish to order available dishes
-                                </p>
-                              )}
-                              {isCartZoneMismatch && !isRestaurantClosed && (
-                                <p className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold mt-1">
-                                  Not deliverable to your selected location
-                                </p>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="flex flex-col items-end gap-2.5 flex-shrink-0">
-                            <div className="flex items-center border border-[#DC2626]/30 dark:border-[#DC2626]/40 rounded-lg overflow-hidden bg-white dark:bg-gray-900 shadow-sm">
-                              <button
-                                onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                                className="px-2.5 py-1.5 hover:bg-[#DC2626]/5 text-[#DC2626] transition-colors"
-                              >
-                                <Minus className="w-3.5 h-3.5" />
-                              </button>
-                              <span className="px-2 text-sm md:text-base font-black text-[#DC2626] min-w-[28px] text-center">
-                                {item.quantity}
-                              </span>
-                              <button
-                                onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                                className="px-2.5 py-1.5 hover:bg-[#DC2626]/5 text-[#DC2626] transition-colors"
-                              >
-                                <Plus className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                            <p className="text-sm md:text-base font-black text-gray-900 dark:text-gray-100">
-                              {RUPEE_SYMBOL}{((item.price || 0) * (item.quantity || 1)).toFixed(0)}
-                            </p>
+                  {cart.map((item) => (
+                    <div key={item.id} className="flex items-center gap-3.5 md:gap-4 py-3.5 border-b border-slate-100 dark:border-gray-800 last:border-b-0 last:pb-0 first:pt-0">
+                      {/* Left: Food Image with Veg/Non-Veg Badge */}
+                      <div className="w-20 h-20 rounded-xl overflow-hidden bg-slate-100 dark:bg-gray-800 shrink-0 relative shadow-sm border border-slate-100 dark:border-gray-700">
+                        <img
+                          src={item.image || "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=200&h=200&fit=crop"}
+                          alt={item.name}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            e.target.onerror = null;
+                            e.target.src = "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=200&h=200&fit=crop";
+                          }}
+                        />
+                        {/* Veg/Non-veg indicator absolute on top-left */}
+                        <div className="absolute top-1 left-1">
+                          <div
+                            className="w-3.5 h-3.5 bg-white border flex items-center justify-center rounded-sm shadow-sm"
+                            style={{ borderColor: item.foodType === 'Veg' || item.isVeg === true ? "#16a34a" : "#dc2626" }}
+                          >
+                            <div
+                              className="w-1.5 h-1.5 rounded-full"
+                              style={{ backgroundColor: item.foodType === 'Veg' || item.isVeg === true ? "#16a34a" : "#dc2626" }}
+                            />
                           </div>
                         </div>
-                        {index < cart.length - 1 && (
-                          <div className="mt-6 border-b border-gray-100 dark:border-gray-800/40 border-dashed" />
-                        )}
                       </div>
-                    ))}
-                  </div>
+
+                      {/* Right: Item Details (Name on top, Price & Quantity controls at bottom) */}
+                      <div className="flex-1 min-w-0 flex flex-col justify-between h-20 py-0.5">
+                        <div>
+                          <p className="text-sm sm:text-base font-semibold text-gray-900 dark:text-white leading-tight truncate capitalize">
+                            {item.name}
+                          </p>
+                          {item.variantName ? (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate">{item.variantName}</p>
+                          ) : null}
+                        </div>
+
+                        <div className="flex items-center justify-between mt-1">
+                          {/* Price */}
+                          <div className="text-left">
+                            {Number(item.otherPrice) > 0 &&
+                            Number(item.otherPrice) > Number(item.price || 0) ? (
+                              <div className="flex flex-col items-start leading-none">
+                                <span className="text-[10px] text-gray-400 line-through tabular-nums">
+                                  {RUPEE_SYMBOL}
+                                  {Math.round(
+                                    Number(item.otherPrice) * (item.quantity || 1),
+                                  )}
+                                </span>
+                                <span className="text-sm font-bold text-gray-905 dark:text-white tabular-nums mt-0.5">
+                                  {RUPEE_SYMBOL}
+                                  {((item.price || 0) * (item.quantity || 1)).toFixed(0)}
+                                </span>
+                              </div>
+                            ) : (
+                              <p className="text-sm font-bold text-gray-905 dark:text-white tabular-nums leading-none">
+                                {RUPEE_SYMBOL}
+                                {((item.price || 0) * (item.quantity || 1)).toFixed(0)}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Quantity controls */}
+                          <div className="flex items-center gap-2 rounded-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#141414] px-2.5 py-1 shadow-sm">
+                            <button
+                              type="button"
+                              className="h-4 w-4 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+                              onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                            >
+                              <Minus className="h-3 w-3" />
+                            </button>
+                            <span className="text-xs font-semibold text-gray-905 dark:text-white min-w-[14px] text-center tabular-nums">
+                              {item.quantity}
+                            </span>
+                            <button
+                              type="button"
+                              className="h-4 w-4 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+                              onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
-                {/* Add more items */}
-                <button
-                  onClick={handleBack}
-                  className="flex items-center gap-2 mt-4 md:mt-6 text-[#DC2626] dark:text-[#DC2626]"
-                >
-                  <Plus className="h-4 w-4 md:h-5 md:w-5" />
-                  <span className="text-sm md:text-base font-medium">Add more items</span>
-                </button>
-              </div>
-
-              {/* Note for restaurant */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-4 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
-                <button
-                  onClick={() => setShowRestaurantNoteInput(!showRestaurantNoteInput)}
-                  className="w-full flex items-center gap-2 px-3 md:px-4 py-2 md:py-3 border border-gray-200 dark:border-gray-700 rounded-lg md:rounded-xl text-sm md:text-base text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                >
-                  <Utensils className="h-4 w-4 md:h-5 md:w-5" />
-                  <span className="truncate">{restaurantNote || "Add note for restaurant"}</span>
-                </button>
-              </div>
-
-              {/* Restaurant Note Input */}
-              {showRestaurantNoteInput && (
-                <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-3 md:py-4 rounded-lg md:rounded-xl border border-slate-100 dark:border-gray-800">
-                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
-                    Restaurant instructions
+                <div className="mt-4 flex items-center gap-2 overflow-x-auto scrollbar-hide pb-0.5">
+                  <button
+                    type="button"
+                    onClick={handleAddItems}
+                    className="flex items-center gap-1.5 shrink-0 rounded-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#141414] px-3 py-2 text-[12px] font-semibold text-gray-700 dark:text-gray-300"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add Items
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowCookingSheet(true)}
+                    className={`flex items-center gap-1.5 shrink-0 rounded-full border px-3 py-2 text-[12px] font-semibold ${
+                      note.trim()
+                        ? "border-[#EB590E]/40 bg-[#FFF1E8] text-[#EB590E]"
+                        : "border-gray-200 dark:border-gray-700 bg-white dark:bg-[#141414] text-gray-700 dark:text-gray-300"
+                    }`}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    {note.trim() ? "Edit cooking requests" : "Cooking requests"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSendCutlery(!sendCutlery)}
+                    className={`flex items-center gap-1.5 shrink-0 rounded-full border px-3 py-2 text-[12px] font-semibold ${
+                      sendCutlery
+                        ? "border-gray-200 dark:border-gray-700 bg-white dark:bg-[#141414] text-gray-700 dark:text-gray-300"
+                        : "border-[#EB590E]/40 bg-[#FFF1E8] text-[#EB590E]"
+                    }`}
+                  >
+                    <Square className={`h-3.5 w-3.5 ${sendCutlery ? "" : "fill-current"}`} />
+                    {sendCutlery ? "Send cutlery" : "No cutlery"}
+                  </button>
+                </div>
+                {note.trim() ? (
+                  <p className="mt-3 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                    <span className="font-semibold text-gray-700 dark:text-gray-300">Cooking note:</span> {note.trim()}
                   </p>
-                  <textarea
-                    value={restaurantNote}
-                    onChange={(e) => setRestaurantNote(e.target.value)}
-                    placeholder="Eg. Don't add onions, make it extra spicy, etc."
-                     className="w-full border border-gray-200 dark:border-gray-700 rounded-lg md:rounded-xl p-3 md:p-4 text-sm md:text-base resize-none h-20 md:h-24 focus:outline-none focus:border-[#DC2626] dark:focus:border-[#DC2626] bg-white dark:bg-[#0a0a0a] text-gray-900 dark:text-gray-100"
-                    maxLength={240}
-                  />
-                  <div className="mt-2 flex items-center justify-between gap-3">
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                      Note for restaurant.
-                    </p>
-                    <span className="text-[11px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
-                      {restaurantNote.length}/240
-                    </span>
-                  </div>
-                </div>
-              )}
+                ) : null}
+              </div>
 
               {/* Complete your meal section - Approved Addons */}
-              {addons.length > 0 && (
-                <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
-                  <div className="flex items-center gap-2 md:gap-3 mb-3 md:mb-4">
-                    <div className="w-6 h-6 md:w-8 md:h-8 bg-gray-100 dark:bg-gray-800 rounded flex items-center justify-center">
-                       <Sparkles className="h-4 w-4 md:h-5 md:w-5 text-[#DC2626]" />
-                    </div>
-                    <span className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200">Complete your meal with</span>
-                  </div>
+              {suggestedAddons.length > 0 && (
+                <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-4 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-gray-400 mb-3">
+                    Complete your meal
+                  </p>
                   {loadingAddons ? (
                     <div className="flex gap-3 md:gap-4 overflow-x-auto pb-2 -mx-4 md:-mx-6 px-4 md:px-6 scrollbar-hide">
                       {[1, 2, 3].map((i) => (
-                        <div key={i} className="flex-shrink-0 w-28 md:w-36 animate-pulse">
-                          <div className="w-full h-28 md:h-36 bg-gray-200 dark:bg-gray-700 rounded-lg md:rounded-xl" />
+                        <div key={i} className="flex-shrink-0 w-[84px] md:w-[92px] animate-pulse">
+                          <div className="w-full aspect-square bg-gray-200 dark:bg-gray-700 rounded-lg" />
                           <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded mt-2" />
                           <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded mt-1 w-2/3" />
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <div className="flex gap-3 md:gap-4 overflow-x-auto pb-2 -mx-4 md:-mx-6 px-4 md:px-6 scrollbar-hide">
-                      {addons.map((addon) => (
-                        <div key={addon.id} className="flex-shrink-0 w-28 md:w-36">
-                          <div className="relative bg-gray-100 dark:bg-gray-800 rounded-lg md:rounded-xl overflow-hidden">
+                    <div className="flex gap-2.5 md:gap-3 overflow-x-auto pb-2 -mx-4 md:-mx-6 px-4 md:px-6 scrollbar-hide">
+                      {suggestedAddons.map((addon) => (
+                        <div key={addon.id} className="flex-shrink-0 w-[84px] md:w-[92px]">
+                          <div className="relative bg-gray-100 dark:bg-gray-800 rounded-lg overflow-hidden aspect-square">
                             <img
                               src={addon.image || (addon.images && addon.images[0]) || "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=200&h=200&fit=crop"}
                               alt={addon.name}
-                              className="w-full h-28 md:h-36 object-cover rounded-lg md:rounded-xl"
+                              className="w-full h-full object-cover"
                               onError={(e) => {
                                 e.target.onerror = null
                                 e.target.src = "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=200&h=200&fit=crop"
                               }}
                             />
                             <div className="absolute top-1 md:top-2 left-1 md:left-2">
-                              <div className="w-3.5 h-3.5 md:w-4 md:h-4 bg-white border border-green-600 flex items-center justify-center rounded">
-                                <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-green-600" />
+                              <div
+                                className="w-3.5 h-3.5 md:w-4 md:h-4 bg-white border flex items-center justify-center rounded"
+                                style={{ borderColor: addon.foodType === 'Veg' || addon.isVeg === true ? "#16a34a" : "#dc2626" }}
+                              >
+                                <div
+                                  className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full"
+                                  style={{ backgroundColor: addon.foodType === 'Veg' || addon.isVeg === true ? "#16a34a" : "#dc2626" }}
+                                />
                               </div>
                             </div>
                             <button
@@ -2704,27 +2848,34 @@ export default function Cart() {
                                   return;
                                 }
 
+                                if (!isModuleAuthenticated('user')) {
+                                  toast.error("Please login to add items to cart")
+                                  navigate('/food/user/auth/login', { state: { from: '/food/user/cart' } })
+                                  return
+                                }
+
                                 addToCart({
                                   id: addon.id,
                                   name: addon.name,
                                   price: addon.price,
                                   image: addon.image || (addon.images && addon.images[0]) || "",
                                   description: addon.description || "",
-                                  isVeg: true,
+                                  isVeg: addon.isVeg,
+                                  foodType: addon.foodType,
                                   restaurant: cartRestaurantName,
                                   restaurantId: cartRestaurantId
                                 });
                               }}
-                               className="absolute bottom-1 md:bottom-2 right-1 md:right-2 w-6 h-6 md:w-7 md:h-7 bg-white border border-[#DC2626] rounded flex items-center justify-center shadow-sm hover:bg-[#DC262605] dark:hover:bg-[#DC262610] transition-colors"
+                              className="absolute top-1 right-1 h-6 w-6 rounded-full bg-white border border-[#EB590E] flex items-center justify-center shadow-sm hover:bg-orange-50 transition-colors"
                             >
-                               <Plus className="h-3.5 w-3.5 md:h-4 md:w-4 text-[#DC2626]" />
+                              <Plus className="h-3 w-3 text-[#EB590E]" />
                             </button>
                           </div>
-                          <p className="text-xs md:text-sm font-medium text-gray-800 dark:text-gray-200 mt-1.5 md:mt-2 line-clamp-2 leading-tight">{addon.name}</p>
+                          <p className="text-[11px] md:text-xs font-medium text-gray-800 dark:text-gray-200 mt-1 line-clamp-2 leading-tight">{addon.name}</p>
                           {addon.description && (
-                            <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">{addon.description}</p>
+                            <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">{addon.description}</p>
                           )}
-                          <p className="text-xs md:text-sm text-gray-800 dark:text-gray-200 font-semibold mt-0.5">{RUPEE_SYMBOL}{addon.price}</p>
+                          <p className="text-[11px] md:text-xs text-gray-800 dark:text-gray-200 font-semibold mt-0.5">{RUPEE_SYMBOL}{addon.price}</p>
                         </div>
                       ))}
                     </div>
@@ -2732,363 +2883,242 @@ export default function Cart() {
                 </div>
               )}
 
-              {/* Simplified Coupon Section */}
-              <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl overflow-hidden border border-slate-100 dark:border-gray-800 shadow-sm">
-                <div className="w-full px-4 py-4 md:px-6 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Tag className="h-5 w-5 text-gray-400" />
-                    <span className="text-sm md:text-base font-bold text-gray-800 dark:text-gray-200">Offers & Coupons</span>
-                  </div>
+              {/* Offers row */}
+              <button
+                type="button"
+                onClick={() => setShowOffersView(true)}
+                className={`w-full bg-white dark:bg-[#1a1a1a] rounded-2xl border shadow-sm px-4 py-3.5 flex items-center gap-3 text-left ${
+                  appliedCoupon
+                    ? "border-[#E2AD4B]/30 dark:border-[#E2AD4B]/40"
+                    : "border-slate-100 dark:border-gray-800"
+                }`}
+              >
+                <div className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ${
+                  appliedCoupon
+                    ? "bg-pink-50 dark:bg-pink-950/40"
+                    : "bg-emerald-50 dark:bg-emerald-950/40"
+                }`}>
+                  <Tag className={`h-4 w-4 ${appliedCoupon ? "text-[#E2AD4B]" : "text-emerald-600"}`} />
                 </div>
-
-                {/* Cart coupon preview */}
-                {!appliedCoupon && !couponCode && (
-                  <div className="px-4 pb-4 md:px-6 md:pb-5 pt-1 animate-in fade-in duration-300">
-                    {filteredCoupons.length > 0 ? (
-                      <div className="space-y-2.5">
-                        <div className="flex flex-col gap-2.5">
-                          {filteredCoupons.slice(0, 2).map((coupon) =>
-                            renderCartCouponCard(coupon, { compact: true, blocked: isCartUnavailable }),
-                          )}
-                        </div>
-                        <button
-                          onClick={() => {
-                            if (isCartUnavailable) {
-                              toast.error(
-                                isCartZoneMismatch
-                                  ? "This restaurant does not deliver to your selected location"
-                                  : "Restaurant is closed. Coupons cannot be applied right now.",
-                              )
-                              return
-                            }
-                            setShowCouponSheet(true)
-                          }}
-                          className={`w-full py-2.5 px-4 bg-gray-50/50 hover:bg-gray-50 dark:bg-gray-900/30 dark:hover:bg-gray-900/50 border border-dashed border-gray-200 dark:border-gray-800 rounded-xl text-xs font-bold text-[#DC2626] flex items-center justify-between transition-all active:scale-[0.98] mt-2.5 ${
-                            isCartUnavailable ? "opacity-60 grayscale pointer-events-auto" : ""
-                          }`}
-                        >
-                          <span>
-                            {filteredCoupons.length > 2
-                              ? `+ ${filteredCoupons.length - 2} more offer${filteredCoupons.length - 2 > 1 ? "s" : ""}`
-                              : "More offers available"}
-                          </span>
-                          <span className="flex items-center gap-1 font-black uppercase tracking-wider text-[10px]">
-                            VIEW ALL
-                            <ChevronRight className="h-3.5 w-3.5" />
-                          </span>
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          if (isCartUnavailable) {
-                            toast.error(
-                              isCartZoneMismatch
-                                ? "This restaurant does not deliver to your selected location"
-                                : "Restaurant is closed. Coupons cannot be applied right now.",
-                            )
-                            return
-                          }
-                          setShowCouponSheet(true)
-                        }}
-                        className={`w-full py-2.5 px-4 bg-gray-50/50 hover:bg-gray-50 dark:bg-gray-900/30 dark:hover:bg-gray-900/50 border border-dashed border-gray-200 dark:border-gray-800 rounded-xl text-xs font-bold text-[#DC2626] flex items-center justify-between transition-all active:scale-[0.98] ${
-                          isCartUnavailable ? "opacity-60 grayscale" : ""
-                        }`}
-                      >
-                        <span>Have a coupon code?</span>
-                        <span className="flex items-center gap-1 font-black uppercase tracking-wider text-[10px]">
-                          APPLY
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        </span>
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {couponCode && !appliedCoupon && (
-                  <div className="px-4 py-4 md:px-6 flex items-center justify-between bg-slate-50/50 dark:bg-zinc-900/30 border-t border-dashed border-slate-100 dark:border-zinc-800/60 animate-pulse">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-zinc-800" />
-                      <div>
-                        <div className="h-3 w-16 bg-slate-200 dark:bg-zinc-800 rounded animate-pulse" />
-                        <div className="h-4 w-28 bg-slate-200 dark:bg-zinc-800 rounded mt-1.5 animate-pulse" />
-                      </div>
-                    </div>
-                    <div className="h-8 w-16 bg-slate-200 dark:bg-zinc-800 rounded-lg animate-pulse" />
-                  </div>
-                )}
-
-                {appliedCoupon && (
-                  <div className="px-4 py-3.5 md:px-6 bg-emerald-50/50 dark:bg-emerald-950/10 border-t border-emerald-100/60 dark:border-emerald-900/30 flex items-center justify-between">
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm shadow-emerald-500/10">
-                        <Check className="h-4 w-4 text-white stroke-[3px]" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Applied:</span>
-                          <span className="text-[10px] font-extrabold text-emerald-700 dark:text-emerald-300 bg-emerald-100/60 dark:bg-emerald-900/40 px-2 py-0.5 rounded-md border border-dashed border-emerald-500/30 uppercase tracking-wider">{appliedCoupon.code}</span>
-                        </div>
-                        <p className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">
-                          You saved {RUPEE_SYMBOL}{Math.round(discount)}
-                        </p>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={handleRemoveCoupon} 
-                      className="text-xs font-black text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 px-3 py-1.5 bg-red-50 hover:bg-red-100/70 dark:bg-red-950/20 dark:hover:bg-red-950/40 border border-red-100 dark:border-red-900/30 rounded-lg active:scale-95 transition-all duration-200 flex-shrink-0"
-                    >
-                      REMOVE
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Delivery Time - Hidden in Takeaway */}
-              {orderType !== "takeaway" && (
-                <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
-                  <div className="flex items-start gap-3 md:gap-4">
-                    <div className="mt-0.5">
-                      <Zap className="h-5 w-5 text-green-600 fill-green-600/20" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-base text-gray-800 dark:text-gray-200">
-                        Delivery in <span className="text-green-600 font-bold">{restaurantData?.estimatedDeliveryTime || "15-20 mins"}</span>
-                      </p>
-                      {/* Commented out Scheduled Delivery option
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 flex items-center gap-1">
-                        Want this later?
-                        <button onClick={() => {
-                          const next = !isScheduled
-                          setIsScheduled(next)
-                          if (next && !scheduledDate) {
-                            // Auto-set today's date so time slots populate immediately
-                            const now = new Date()
-                            const todayStr = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().split('T')[0]
-                            setScheduledDate(todayStr)
-                          }
-                        }} className="border-b border-dashed border-gray-500 font-medium outline-none">
-                          {isScheduled ? "Cancel schedule" : "Schedule it"}
-                        </button>
-                      </p>
-                      */}
-                    </div>
-                  </div>
-
-                  {/* Commented out Scheduled inputs container
-                  {isScheduled && (
-                    <div className="mt-5 flex flex-col sm:flex-row gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
-                      <div className="flex-1">
-                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Date (Up to Tomorrow)</label>
-                        <input
-                          type="date"
-                          min={new Date().toLocaleDateString('en-CA')}
-                          max={new Date(Date.now() + 86400000).toLocaleDateString('en-CA')}
-                          value={scheduledDate}
-                          onChange={(e) => setScheduledDate(e.target.value)}
-                          className="w-full text-sm p-2 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-[#0a0a0a] text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[#DC2626]"
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Time</label>
-                        {availableTimeSlots.length > 0 ? (
-                          <div className="relative">
-                            <select
-                              value={scheduledTime}
-                              onChange={(e) => setScheduledTime(e.target.value)}
-                               className="w-full text-sm p-2 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-[#0a0a0a] text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[#DC2626] appearance-none pr-8"
-                            >
-                              {availableTimeSlots.map(slot => (
-                                <option key={slot.value} value={slot.value}>{slot.label}</option>
-                              ))}
-                            </select>
-                            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
-                          </div>
-                        ) : (
-                          <div className="w-full text-sm p-2 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded-md text-center border border-gray-200 dark:border-gray-700">
-                            {scheduledDate ? "No slots available" : "Select date first"}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  */}
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-semibold ${appliedCoupon ? "text-[#E2AD4B]" : "text-gray-900 dark:text-white"}`}>
+                    {appliedCoupon
+                      ? `'${appliedCoupon.code}' applied`
+                      : "Payment offers & more"}
+                  </p>
+                  <p className={`text-xs mt-0.5 truncate ${appliedCoupon ? "text-[#E2AD4B]/80 font-medium" : "text-gray-500 dark:text-gray-400"}`}>
+                    {appliedCoupon
+                      ? `You saved ${RUPEE_SYMBOL}${discount.toFixed(0)} on this order`
+                      : loadingCoupons
+                        ? "Loading offers..."
+                        : availableCoupons.length > 0
+                          ? `${availableCoupons.length} offer${availableCoupons.length > 1 ? "s" : ""} available`
+                          : "Explore bank offers and coupons"}
+                  </p>
                 </div>
-              )}
+                <ChevronRight className="h-4 w-4 text-gray-400 shrink-0" />
+              </button>
 
-              {/* Delivery Address or Pickup Info */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
-                {orderType === "takeaway" ? (
-                  <div className="flex items-start gap-4">
-                    <div className="bg-[#DC262605] dark:bg-[#DC262610] p-3.5 rounded-2xl border border-[#DC262615] dark:border-[#DC262630]">
-                      <ShoppingBag className="h-6 w-6 text-[#DC2626]" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest leading-none">PICKUP FROM</h3>
-                      <p className="text-lg font-black text-gray-900 dark:text-white mt-1.5 leading-tight">
-                        {restaurantData?.name || cart[0]?.restaurant || "Restaurant"}
-                      </p>
-                      <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 font-medium">
-                        {restaurantData?.address || restaurantData?.location?.address || "Restaurant Address"}
-                      </p>
-                      <div className="mt-4 flex items-center gap-2">
-                        <div className="flex items-center gap-2 text-green-600 dark:text-green-400 text-[11px] font-black bg-green-50 dark:bg-green-900/10 px-3 py-1.5 rounded-lg border border-green-100 dark:border-green-900/20">
-                          <CheckCircle2 className="h-4 w-4" />
-                          <span className="uppercase tracking-tight">READY FOR PICKUP IN {restaurantData?.preparationTime || "25-30"} MINS</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-start justify-between w-full text-left">
-                    <div className="flex items-start gap-4 flex-1">
-                       <div className="bg-[#DC262605] dark:bg-[#DC262610] p-2 rounded-xl mt-0.5">
-                         <MapPin className="h-5 w-5 text-[#DC2626]" />
-                       </div>
-                      <div className="flex-1">
-                          <div className="flex flex-col">
-                            <p className="text-sm md:text-base text-gray-800 dark:text-gray-200">
-                              Delivery at{" "}
-                              <span className="font-semibold">
-                                {deliveryAddressMode === "current" ? "Current location" : "Location"}
-                              </span>
-                            </p>
-                            {deliveryAddressMode === "current" ? (
-                              <div className="mt-1">
-                                {currentLocationLoading || !currentLocationAddress ? (
-                                  <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 animate-pulse">
-                                    Finding your current address...
-                                  </p>
-                                ) : (
-                                  <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
-                                    {formatFullAddress(currentLocationAddress) ||
-                                      currentLocationAddress?.formattedAddress ||
-                                      currentLocationAddress?.address ||
-                                      "Add delivery address"}
-                                  </p>
-                                )}
-                                <div className="mt-1 flex items-center gap-2">
-                                   <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] md:text-[11px] font-semibold bg-[#DC262605] text-[#DC2626] dark:bg-[#DC262610] dark:text-[#DC2626] border border-[#DC2626]/30">
-                                     GPS enabled
-                                   </span>
-                                </div>
-                              </div>
-                            ) : (
-                              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 pr-4">
-                                {defaultAddress ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || "Add delivery address") : "Add delivery address"}
-                              </p>
-                            )}
-                          </div>
-                          {!hasSavedAddress && (
-                             <p className="text-sm text-[#DC2626] mt-2 font-medium">
-                               Select a delivery location to continue
-                             </p>
-                          )}
-                          {/* Address Selection Buttons */}
-                          <div className="flex flex-wrap gap-2 mt-3">
-                            {["Home", "Work", "Other"].map((label) => {
-                              const normalizedLabel = normalizeAddressLabel(label)
-                              const addressExists = addresses.some(addr => normalizeAddressLabel(addr.label) === normalizedLabel)
-                              return (
-                                <button
-                                  key={label}
-                                  onClick={(e) => {
-                                    e.preventDefault()
-                                    e.stopPropagation()
-                                    handleSelectAddressByLabel(label)
-                                  }}
-                                  disabled={!addressExists}
-                                  className={`text-xs px-4 py-1.5 rounded-full font-semibold transition-all ${addressExists
-                                    ? 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-gray-800 dark:text-gray-300'
-                                    : 'bg-gray-50 text-gray-400 border border-gray-100 cursor-not-allowed dark:bg-gray-900'
-                                    }`}
-                                >
-                                  {label}
-                                </button>
-                              )
-                            })}
-                          </div>
-                          {addresses.length > 0 && (
-                            <div className="mt-4 space-y-3">
-                              {addresses.map((address) => {
-                                const addressId = getAddressId(address)
-                                const isSelected = addressId && addressId === selectedAddressId
-                                return (
-                                  <button
-                                    key={addressId || `${address.label}-${address.street}-${address.city}`}
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.preventDefault()
-                                      e.stopPropagation()
-                                      handleSelectSavedAddress(address)
-                                    }}
-                                     className={`w-full text-left rounded-xl border-2 p-3 transition-colors ${isSelected
-                                       ? "border-[#DC2626] bg-[#DC262605] dark:bg-[#DC2626]/5"
-                                       : "border-slate-100 dark:border-gray-800 hover:border-slate-200"
-                                       }`}
-                                  >
-                                    <div className="flex items-start justify-between gap-3">
-                                      <div className="min-w-0">
-                                        <p className="text-sm font-bold text-gray-900 dark:text-gray-100">
-                                          {getDisplayAddressLabel(address.label)}
-                                        </p>
-                                        <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mt-1">
-                                          {formatFullAddress(address) || address.address || "Address details"}
-                                        </p>
-                                      </div>
-                                      {isSelected && (
-                                         <span className="text-[10px] bg-[#DC2626] text-white px-2 py-0.5 rounded uppercase font-bold tracking-wider whitespace-nowrap">
-                                           Selected
-                                         </span>
-                                      )}
-                                    </div>
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          )}
-                      </div>
-                    </div>
+              {/* Delivery modes & instructions */}
+              <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800 overflow-hidden">
+                <div className="p-3">
+                  <div className="flex items-center rounded-full bg-gray-100 dark:bg-[#222222] p-1">
                     <button
                       type="button"
-                       onClick={openLocationSelector}
-                       className="p-2 text-[#DC2626] bg-[#DC262605] rounded-full hover:bg-[#DC262610] transition-colors dark:bg-[#DC262615] dark:hover:bg-[#DC262620]"
-                       aria-label="Open location selector"
-                     >
-                       <ChevronRight className="h-5 w-5" />
-                     </button>
+                      onClick={() => setDeliverySectionTab("modes")}
+                      className={`flex-1 flex items-center justify-center gap-1 rounded-full px-2 sm:px-3 py-2 text-[11px] sm:text-[12px] font-semibold whitespace-nowrap transition-colors ${
+                        deliverySectionTab === "modes"
+                          ? "bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-white shadow-sm"
+                          : "text-gray-500 dark:text-gray-400"
+                      }`}
+                    >
+                      <span className="whitespace-nowrap">Delivery Modes</span>
+                      <span
+                        className="text-[8px] sm:text-[9px] font-bold uppercase tracking-wide px-1 sm:px-1.5 py-0.5 rounded-full text-white shrink-0"
+                        style={{ backgroundColor: "var(--module-theme-color, #E2AD4B)" }}
+                      >
+                        New
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeliverySectionTab("instructions")}
+                      className={`flex-1 rounded-full px-2 sm:px-3 py-2 text-[11px] sm:text-[12px] font-semibold whitespace-nowrap transition-colors ${
+                        deliverySectionTab === "instructions"
+                          ? "bg-white dark:bg-[#1a1a1a] text-[#E2AD4B] shadow-sm"
+                          : "text-gray-500 dark:text-gray-400"
+                      }`}
+                    >
+                      Instructions
+                    </button>
+                  </div>
+                </div>
+
+                {deliverySectionTab === "modes" ? (
+                  <div className="px-4 pb-4">
+                    <button
+                      type="button"
+                      onClick={() => setDeliveryMode("quick")}
+                      className="w-full flex items-start gap-3 text-left pb-3 border-b border-gray-100 dark:border-gray-800"
+                    >
+                      <div className={`mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                        deliveryMode === "quick" ? "border-[#E2AD4B]" : "border-gray-300 dark:border-gray-600"
+                      }`}>
+                        {deliveryMode === "quick" ? <div className="h-2.5 w-2.5 rounded-full bg-[#E2AD4B]" /> : null}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                            Quick <Zap className="inline h-3.5 w-3.5 text-[#E2AD4B] mb-0.5" /> {quickDeliveryTime}
+                          </p>
+                          <p className={`text-xs font-semibold shrink-0 ${deliveryMode === "quick" ? "text-[#E2AD4B]" : "text-gray-500"}`}>
+                            +{RUPEE_SYMBOL}{configuredQuickDeliveryFee}
+                          </p>
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          In a hurry? Get food up to 15 mins faster
+                        </p>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setDeliveryMode("basic")}
+                      className="w-full flex items-start gap-3 text-left pt-3"
+                    >
+                      <div className={`mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                        deliveryMode === "basic" ? "border-[#E2AD4B]" : "border-gray-300 dark:border-gray-600"
+                      }`}>
+                        {deliveryMode === "basic" ? <div className="h-2.5 w-2.5 rounded-full bg-[#E2AD4B]" /> : null}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                          Basic | {basicDeliveryTime}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          Your everyday delivery
+                        </p>
+                      </div>
+                    </button>
+
+                    {!hasSavedAddress && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAddressSheet(true)}
+                        className="w-full text-left text-sm font-medium text-[#EB590E] pt-1"
+                      >
+                        Select a delivery location to continue
+                      </button>
+                    )}
+
+                    {deliveryInstructionText ? (
+                      <p className="mt-3 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                        <span className="font-semibold text-gray-700 dark:text-gray-300">Delivery note:</span> {deliveryInstructionText}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="px-4 pb-4">
+                    <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
+                      {PREDEFINED_DELIVERY_INSTRUCTIONS.map(({ id, label, Icon }) => {
+                        const isSelected =
+                          deliveryInstructionMode === "preset" && selectedDeliveryInstruction === id
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={() => {
+                              setDeliveryInstructionMode("preset")
+                              setSelectedDeliveryInstruction(isSelected ? null : id)
+                              setCustomDeliveryInstruction("")
+                            }}
+                            className={`shrink-0 w-[92px] rounded-xl border p-3 text-center transition-colors ${
+                              isSelected
+                                ? "border-emerald-600 bg-emerald-50 dark:bg-emerald-950/20"
+                                : "border-gray-200 dark:border-gray-700 bg-white dark:bg-[#141414]"
+                            }`}
+                          >
+                            <Icon className={`h-5 w-5 mx-auto mb-2 ${isSelected ? "text-emerald-600" : "text-gray-600 dark:text-gray-300"}`} />
+                            <p className={`text-[10px] font-semibold leading-tight ${isSelected ? "text-emerald-700 dark:text-emerald-300" : "text-gray-700 dark:text-gray-300"}`}>
+                              {label}
+                            </p>
+                          </button>
+                        )
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDeliveryInstructionMode("custom")
+                          setSelectedDeliveryInstruction(null)
+                        }}
+                        className={`shrink-0 w-[92px] rounded-xl border p-3 text-center transition-colors ${
+                          deliveryInstructionMode === "custom"
+                            ? "border-emerald-600 bg-emerald-50 dark:bg-emerald-950/20"
+                            : "border-gray-200 dark:border-gray-700 bg-white dark:bg-[#141414]"
+                        }`}
+                      >
+                        <Pencil className={`h-5 w-5 mx-auto mb-2 ${deliveryInstructionMode === "custom" ? "text-emerald-600" : "text-gray-600 dark:text-gray-300"}`} />
+                        <p className={`text-[10px] font-semibold leading-tight ${deliveryInstructionMode === "custom" ? "text-emerald-700 dark:text-emerald-300" : "text-gray-700 dark:text-gray-300"}`}>
+                          Add custom
+                        </p>
+                      </button>
+                    </div>
+
+                    {deliveryInstructionMode === "custom" ? (
+                      <textarea
+                        value={customDeliveryInstruction}
+                        onChange={(e) => setCustomDeliveryInstruction(e.target.value)}
+                        rows={3}
+                        placeholder="Type delivery instructions for your partner..."
+                        className="mt-3 w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#111111] px-3 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-emerald-600 resize-none"
+                      />
+                    ) : null}
+
+                    {(deliveryInstructionMode === "preset" && selectedDeliveryInstruction) ||
+                    (deliveryInstructionMode === "custom" && customDeliveryInstruction.trim()) ? (
+                      <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                        <span className="font-semibold text-gray-700 dark:text-gray-300">Delivery note:</span>{" "}
+                        {deliveryInstructionText}
+                      </p>
+                    ) : null}
                   </div>
                 )}
               </div>
 
               {/* Contact */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-4 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3 md:gap-4 flex-1 min-w-0">
-                    <Phone className="h-4 w-4 md:h-5 md:w-5 text-gray-500 dark:text-gray-400 mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm md:text-base text-gray-800 dark:text-gray-200 font-medium">
-                        {recipientName}, <span className="font-semibold">{recipientPhone || "+91-XXXXXXXXXX"}</span>
-                      </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        Order recipient details
-                      </p>
+              <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800 overflow-hidden">
+                <div className="px-4 py-3.5 flex items-center justify-between gap-3 border-b border-gray-100 dark:border-gray-800">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="h-9 w-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0">
+                      <Phone className="h-4 w-4 text-gray-600 dark:text-gray-300" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white">Order recipient</p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400">Delivery contact details</p>
                     </div>
                   </div>
                   <button
                     type="button"
-                    onClick={() => setIsEditingRecipient((prev) => !prev)}
-                     className="text-[#DC2626] text-xs md:text-sm font-semibold whitespace-nowrap"
+                    onClick={handleRecipientEditToggle}
+                    className="text-xs font-bold uppercase tracking-wide shrink-0"
+                    style={{ color: "var(--module-theme-color, #E2AD4B)" }}
                   >
-                    {isEditingRecipient ? "Done" : "Change"}
+                    {isEditingRecipient ? "Save" : "Change"}
                   </button>
                 </div>
 
-                {isEditingRecipient && (
-                  <div className="mt-4 pt-4 border-t border-dashed border-gray-200 dark:border-gray-800 space-y-3">
+                {!isEditingRecipient ? (
+                  <div className="px-4 py-3.5">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{recipientName}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mt-0.5 tabular-nums">
+                      {recipientPhone ? `+91 ${recipientPhone}` : "+91 XXXXXXXXXX"}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="px-4 py-3.5 space-y-3 bg-gray-50/60 dark:bg-[#141414]/60">
                     <div>
-                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                        Name
+                      <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">
+                        Recipient name
                       </label>
                       <input
                         type="text"
@@ -3096,225 +3126,189 @@ export default function Cart() {
                         onChange={(e) =>
                           setRecipientDetails((prev) => ({
                             ...prev,
-                            name: e.target.value,
+                            name: sanitizeRecipientName(e.target.value),
                           }))
                         }
                         placeholder="Enter recipient name"
-                         className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#111111] px-3 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#DC2626]"
+                        className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#111111] px-3 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#E2AD4B]"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                        Phone Number
+                      <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">
+                        Phone number
                       </label>
-                      <input
-                        type="tel"
-                        value={recipientDetails.phone}
-                        onChange={(e) =>
-                          setRecipientDetails((prev) => ({
-                            ...prev,
-                            phone: sanitizeRecipientPhone(e.target.value),
-                          }))
-                        }
-                        placeholder="Enter recipient phone"
-                         className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#111111] px-3 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#DC2626]"
-                      />
+                      <div className="flex items-center rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#111111] overflow-hidden focus-within:border-[#E2AD4B]">
+                        <span className="px-3 text-sm text-gray-500 border-r border-gray-200 dark:border-gray-700">+91</span>
+                        <input
+                          type="tel"
+                          value={recipientDetails.phone}
+                          onChange={(e) =>
+                            setRecipientDetails((prev) => ({
+                              ...prev,
+                              phone: sanitizeRecipientPhone(e.target.value),
+                            }))
+                          }
+                          maxLength={10}
+                          placeholder="10-digit mobile"
+                          className="flex-1 px-3 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none tabular-nums"
+                        />
+                      </div>
                     </div>
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                      Agar aap kisi aur ke liye order kar rahe ho, to yahan uska naam aur phone save kar do.
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                      Ordering for someone else? Save their name and phone here.
                     </p>
                   </div>
                 )}
               </div>
 {/* Bill Details */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
+              <div className="bg-white dark:bg-[#1a1a1a] px-4 py-4 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
                 <button
+                  type="button"
                   onClick={() => setShowBillDetails(!showBillDetails)}
-                  className="flex items-center justify-between w-full group focus:outline-none"
+                  className="flex items-center justify-between w-full"
                 >
                   <div className="flex items-center gap-3">
-                    <FileText className="h-5 w-5 text-gray-700 dark:text-gray-300 group-hover:text-[#DC2626] transition-colors" />
-                    <span className="text-base text-gray-900 dark:text-gray-100 font-black tracking-tight group-hover:text-[#DC2626] transition-colors">Bill Details</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="text-right">
-                      <p className="text-sm font-black text-gray-900 dark:text-white">
-                        {loadingPricing ? (
-                          <span className="inline-block h-5 w-16 rounded bg-gray-200 dark:bg-gray-700 animate-pulse align-middle" />
-                        ) : (
-                          `${RUPEE_SYMBOL}${total.toFixed(2)}`
-                        )}
+                    <Receipt className="h-5 w-5 text-emerald-600 shrink-0" />
+                    <div className="text-left">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                        To Pay {RUPEE_SYMBOL}{total.toFixed(0)}
                       </p>
-                    </div>
-                    <div className="w-7 h-7 rounded-full bg-slate-50 dark:bg-gray-800 group-hover:bg-[#DC2626]/5 flex items-center justify-center transition-all border border-slate-100 dark:border-gray-700 group-hover:border-[#DC2626]/20">
-                      <ChevronRight className={`h-4 w-4 text-gray-500 group-hover:text-[#DC2626] transition-transform duration-300 ${showBillDetails ? 'rotate-90' : 'rotate-0'}`} />
+                      <p className="text-xs text-emerald-600 mt-0.5">Incl. all taxes & charges</p>
                     </div>
                   </div>
+                  <ChevronUp className={`h-4 w-4 text-gray-400 transition-transform ${showBillDetails ? "" : "rotate-180"}`} />
                 </button>
 
                 {showBillDetails && (
                   <div className="mt-4 pt-4 border-t border-dashed border-gray-200 dark:border-gray-800 space-y-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600 dark:text-gray-400">Item Total</span>
-                      <span className="text-gray-800 dark:text-gray-200 font-medium">
-                        {loadingPricing ? (
-                          <span className="inline-block h-4 w-12 rounded bg-gray-200 dark:bg-gray-700 animate-pulse align-middle" />
-                        ) : (
-                          `${RUPEE_SYMBOL}${subtotal.toFixed(2)}`
+                    <div className="flex justify-between text-sm items-start gap-3">
+                      <span className="text-gray-600 dark:text-gray-400 border-b border-dotted border-gray-300 shrink-0">Item Total</span>
+                      <DualMoney
+                        amount={subtotal}
+                        compareAmount={compareItemTotal}
+                        decimals={2}
+                        showDiscountTag={false}
+                        plainClassName="text-gray-800 dark:text-gray-200 font-medium tabular-nums"
+                        saleClassName="inline-flex items-center rounded-full border border-[#E2AD4B] bg-[#E2AD4B]/10 px-2 py-0.5 text-sm font-bold text-[#E2AD4B] tabular-nums"
+                      />
+                    </div>
+                    {itemDiscountAmount > 0 && (
+                      <div className="flex justify-between text-sm font-medium">
+                        <span className="text-[#E2AD4B] border-b border-dotted border-pink-300">Coupon Discount</span>
+                        <span className="text-[#E2AD4B]">-{RUPEE_SYMBOL}{itemDiscountAmount.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="flex items-start justify-between gap-3 text-sm">
+                      <div className="min-w-0 flex-1">
+                        <span className="text-gray-600 dark:text-gray-400 border-b border-dotted border-gray-300">
+                          Delivery Fee
+                          {deliveryFeeBreakdownText
+                            ? ` | ${deliveryFeeBreakdownText.replace(/^Distance:\s*/i, "")}`
+                            : ""}
+                        </span>
+                        {deliveryFee > 0 && (
+                          <p className="mt-0.5 text-[11px] leading-snug text-gray-400 dark:text-gray-500">
+                            {formatDeliveryFeeBreakdownSubtext(deliveryFee, deliveryFeeGst, RUPEE_SYMBOL)}
+                          </p>
                         )}
+                      </div>
+                      <span
+                        className={`shrink-0 whitespace-nowrap text-right font-medium ${
+                          deliveryFee === 0
+                            ? "text-emerald-600 font-semibold"
+                            : "text-gray-800 dark:text-gray-200"
+                        }`}
+                      >
+                        {deliveryFee === 0
+                          ? "FREE"
+                          : `${RUPEE_SYMBOL}${getDeliveryFeeTotal(deliveryFee, deliveryFeeGst).toFixed(2)}`}
                       </span>
                     </div>
-
-                    {orderType !== "takeaway" && (
-                      <>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-600 dark:text-gray-400">Delivery Fee</span>
-                           <span className={deliveryFee === 0 ? "text-[#DC2626] font-medium" : "text-gray-800 dark:text-gray-200 font-medium"}>
-                             {loadingPricing ? (
-                               <span className="inline-block h-4 w-12 rounded bg-gray-200 dark:bg-gray-700 animate-pulse align-middle" />
-                             ) : (
-                               deliveryFee === 0 ? "FREE" : `${RUPEE_SYMBOL}${deliveryFee.toFixed(2)}`
-                             )}
-                           </span>
-                        </div>
-                        {deliveryFeeBreakdownText && (
-                          <div className="text-[11px] text-gray-500 dark:text-gray-400 -mt-1.5 ml-1 border-l-2 border-gray-100 pl-2">
-                            {deliveryFeeBreakdownText}
-                          </div>
-                        )}
-                        {Number((pricing?.freeDeliveryUpTo ?? feeSettings.freeDeliveryUpTo) || 0) > 0 && (
-                          <div className="-mt-1.5">
-                            <div className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-[#DC2626]/10 via-[#DC2626]/20 to-[#DC2626]/10 text-[#DC2626] border border-[#DC2626]/25 px-2.5 py-1 text-[11px] font-semibold shadow-sm">
-                              <Sparkles className="h-3 w-3" />
-                              <span>Free delivery at</span>
-                              <span className="text-[#991B1B]">
-                                {RUPEE_SYMBOL}{Number((pricing?.freeDeliveryUpTo ?? feeSettings.freeDeliveryUpTo) || 0).toFixed(0)}+
-                              </span>
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    )}
-
-                    {/* Removed TAKEAWAY ORDER badge from here */}
-                    {platformFee > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600 dark:text-gray-400 font-medium">Platform Fee</span>
-                        <span className="text-gray-800 dark:text-gray-200 font-bold">
-                          {loadingPricing ? (
-                            <span className="inline-block h-4 w-12 rounded bg-gray-200 dark:bg-gray-700 animate-pulse align-middle" />
-                          ) : (
-                            `${RUPEE_SYMBOL}${platformFee.toFixed(2)}`
-                          )}
-                        </span>
+                    {quickDeliveryFee > 0 && (
+                      <div className="flex justify-between text-sm font-semibold">
+                        <span className="text-[#E2AD4B] border-b border-dotted border-pink-300">Quick Mode</span>
+                        <span className="text-[#E2AD4B]">{RUPEE_SYMBOL}{quickDeliveryFee.toFixed(2)}</span>
                       </div>
                     )}
-                    {(packagingFee > 0 || gstCharges > 0) && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600 dark:text-gray-400 font-medium">GST and Restaurant Charges</span>
-                        <span className="text-gray-800 dark:text-gray-200 font-bold">
-                          {loadingPricing ? (
-                            <span className="inline-block h-4 w-12 rounded bg-gray-200 dark:bg-gray-700 animate-pulse align-middle" />
-                          ) : (
-                            `${RUPEE_SYMBOL}${(packagingFee + gstCharges).toFixed(2)}`
-                          )}
-                        </span>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600 dark:text-gray-400 border-b border-dotted border-gray-300">Platform Fee</span>
+                      <span className="text-gray-800 dark:text-gray-200 font-medium">{RUPEE_SYMBOL}{Math.max(0, platformFee - quickDeliveryFee).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600 dark:text-gray-400 border-b border-dotted border-gray-300">Government Taxes</span>
+                      <span className="text-gray-800 dark:text-gray-200 font-medium">{RUPEE_SYMBOL}{gstCharges.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-base font-bold pt-3 mt-1 border-t border-gray-100 dark:border-gray-800 text-gray-900 dark:text-white">
+                      <span>To Pay</span>
+                      <span>{RUPEE_SYMBOL}{total.toFixed(2)}</span>
+                    </div>
+                    {otherSavings > 0 && (
+                      <div className="rounded-xl bg-pink-50 dark:bg-pink-950/20 px-3 py-2.5 text-xs font-medium text-pink-700 dark:text-pink-300">
+                        You saved {RUPEE_SYMBOL}{otherSavings.toFixed(0)} on fees and discounts
                       </div>
                     )}
-                    {discount > 0 && (
-                       <div className="flex justify-between text-sm text-[#DC2626] font-medium">
-                         <span>Coupon Discount</span>
-                         <span>
-                           {loadingPricing ? (
-                             <span className="inline-block h-4 w-12 rounded bg-[#DC2626]/20 animate-pulse align-middle" />
-                           ) : (
-                             `-${RUPEE_SYMBOL}${discount.toFixed(2)}`
-                           )}
-                         </span>
-                       </div>
-                    )}
-
                   </div>
                 )}
               </div>
+
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed px-1">
+                Cancellation policy: Please double-check your order and address details. Orders are non-refundable once placed.
+              </p>
 
             </div>
           </div>
         </div>
       </div>
 
-      {/* Bottom Sticky - Place Order */}
+      {/* Bottom Sticky - Pay bar */}
       <div
-        className="bg-white dark:bg-[#1a1a1a] border-t dark:border-gray-800 shadow-lg z-30 flex-shrink-0 fixed bottom-0 left-0 right-0"
+        className="bg-white dark:bg-[#1a1a1a] border-t dark:border-gray-800 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] z-30 flex-shrink-0 fixed bottom-0 left-0 right-0"
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
       >
-        <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 md:py-4">
-          <div className="w-full max-w-lg mx-auto space-y-3">
-            {/* Pay Using - Slim Pro UI */}
-            <div
-              className="flex items-center justify-between p-2 bg-gray-50 dark:bg-[#222222] rounded-xl border border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-[#282828] active:scale-[0.98] transition-all duration-200 shadow-sm"
-              onClick={() => setShowPaymentSheet(true)}
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-[#DC262610] dark:bg-[#DC262620] flex items-center justify-center flex-shrink-0">
-                   {selectedPaymentMethod === "wallet" ? (
-                    <Wallet className="h-5 w-5 text-[#DC2626]" />
-                  ) : selectedPaymentMethod === "razorpay" ? (
-                    <Zap className="h-5 w-5 text-[#DC2626]" />
-                  ) : (
-                    <Banknote className="h-5 w-5 text-[#DC2626]" />
-                  )}
-                </div>
-                <div className="leading-tight">
-                  <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-bold opacity-80">
-                    PAYING WITH
-                  </p>
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-sm font-bold text-gray-800 dark:text-gray-100">
-                      {selectedPaymentLabel}
-                    </p>
-                    {selectedPaymentMethod === "wallet" && (
-                      <p className="text-[10px] text-green-600 dark:text-green-400 font-bold bg-green-50 dark:bg-green-900/20 px-1 rounded">
-                        {RUPEE_SYMBOL}{walletBalance.toFixed(0)}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-               <div className="flex items-center gap-0.5 text-[#DC2626] font-bold text-[11px] uppercase tracking-widest bg-[#DC262605] dark:bg-[#DC262610] px-2.5 py-1 rounded-lg">
-                CHANGE <ChevronRight className="h-3.5 w-3.5" />
-              </div>
-            </div>
-
-            {/* Place Order Button */}
+        <div className="max-w-7xl mx-auto px-4 py-3">
+          <div className="max-w-lg mx-auto flex items-stretch gap-3">
             <button
-              onClick={handlePlaceOrder}
-              disabled={isPlacingOrder || loadingPricing || isCartZoneMismatch || (selectedPaymentMethod === "wallet" && walletBalance < total) || isRestaurantClosed}
-              className="w-full bg-gradient-to-r from-[#DC2626] to-[#991B1B] hover:from-[#991B1B] hover:to-[#7F1D1D] text-white px-6 h-12 md:h-14 rounded-2xl font-black shadow-lg shadow-[#DC2626]/30 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between transition-all active:scale-[0.98] border-b-4 border-red-900/30"
+              type="button"
+              onClick={() => setShowPaymentSheet(true)}
+              className="flex-1 min-w-0 text-left px-1 py-1"
             >
-              {(selectedPaymentMethod === "razorpay" || selectedPaymentMethod === "wallet" || selectedPaymentMethod === "cash") && (
-                <div className="text-left flex flex-col justify-center border-r-[1.5px] border-white/20 pr-4">
-                  <span className="text-xs md:text-sm font-semibold text-white/90">{RUPEE_SYMBOL}{total.toFixed(2)}</span>
-                  <span className="text-[9px] md:text-[10px] uppercase font-bold tracking-wider text-white/80 mt-[-2px]">Total</span>
-                </div>
-              )}
-              <div className="flex items-center gap-1 mx-auto text-sm md:text-lg tracking-wide">
-                {isRestaurantClosed
-                  ? "Restaurant Closed"
-                  : isCartZoneMismatch
-                    ? "Not Deliverable Here"
-                  : isPlacingOrder
-                    ? "Processing..."
-                  : loadingPricing
-                    ? "Calculating..."
-                    : (orderType !== "takeaway" && !hasSavedAddress)
-                      ? "Select Address"
-                      : "Place Order"}
-                <div className="flex align-center h-full">
-                  <ChevronRight className="h-4 w-4 md:h-5 md:w-5" />
-                </div>
-              </div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 flex items-center gap-1">
+                Pay using <ChevronUp className="h-3 w-3" />
+              </p>
+              <p className="text-sm font-bold text-gray-900 dark:text-white truncate">
+                {selectedPaymentLabel}
+              </p>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
+                {selectedPaymentMethod === "wallet"
+                  ? `Balance ${RUPEE_SYMBOL}${walletBalance.toFixed(0)}`
+                  : "UPI, Cards, Netbanking"}
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={handlePlaceOrder}
+              disabled={
+                isPlacingOrder ||
+                loadingRestaurant ||
+                loadingPricing ||
+                !canPlaceOrder ||
+                (selectedPaymentMethod === "wallet" && walletBalance < total)
+              }
+              className="shrink-0 min-w-[132px] px-5 rounded-full text-white font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+              style={{
+                backgroundColor: "var(--module-theme-color, #E2AD4B)",
+                boxShadow: "0 8px 20px rgba(var(--module-theme-rgb, 226,173,75), 0.28)",
+              }}
+            >
+              {isPlacingOrder
+                ? "Processing..."
+                : loadingRestaurant || loadingPricing
+                  ? "Loading..."
+                  : !canPlaceOrder
+                    ? "Offline"
+                    : !hasSavedAddress
+                      ? "Add Address"
+                      : `Pay ${RUPEE_SYMBOL}${total.toFixed(0)}`}
             </button>
           </div>
         </div>
@@ -3333,9 +3327,7 @@ export default function Cart() {
               >
                 <div className="px-6 py-8">
                   {/* Title */}
-                  <h2 className="text-2xl font-bold text-gray-900 mb-6">
-                    {orderType === "takeaway" ? "Placing takeaway order" : "Placing your order"}
-                  </h2>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-6">Placing your order</h2>
 
                   {/* Payment Info */}
                   <div className="flex items-center gap-4 mb-5">
@@ -3362,18 +3354,12 @@ export default function Cart() {
                       </svg>
                     </div>
                     <div>
-                      <p className="text-lg font-semibold text-gray-900">
-                        {orderType === "takeaway" ? "Picking up from Restaurant" : "Delivering to Location"}
-                      </p>
+                      <p className="text-lg font-semibold text-gray-900">Delivering to Location</p>
                       <p className="text-sm text-gray-600 mt-1">
-                        {orderType === "takeaway" 
-                          ? (restaurantData?.name || cart[0]?.restaurant || "Restaurant")
-                          : (defaultAddress ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || "Address") : "Add address")}
+                        {defaultAddress ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || "Address") : "Add address"}
                       </p>
                       <p className="text-sm text-gray-500">
-                        {orderType === "takeaway"
-                          ? (restaurantData?.address || restaurantData?.location?.address || "Restaurant Address")
-                          : (defaultAddress ? (formatFullAddress(defaultAddress) || "Address") : "Address")}
+                        {defaultAddress ? (formatFullAddress(defaultAddress) || "Address") : "Address"}
                       </p>
                     </div>
                   </div>
@@ -3382,11 +3368,11 @@ export default function Cart() {
                   <div className="relative mb-6">
                     <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
                       <div
-                         className="h-full bg-gradient-to-r from-[#DC2626] to-[#991B1B] rounded-full transition-all duration-100 ease-linear"
+                        className="h-full bg-gradient-to-r from-[#EB590E] to-[#D94F0C] rounded-full transition-all duration-100 ease-linear"
                         style={{
-                           width: `${orderProgress}%`,
-                           boxShadow: '0 0 10px rgba(126, 56, 102, 0.5)'
-                         }}
+                          width: `${orderProgress}%`,
+                          boxShadow: '0 0 10px rgba(235, 89, 14, 0.5)'
+                        }}
                       />
                     </div>
                     {/* Animated shimmer effect */}
@@ -3401,14 +3387,14 @@ export default function Cart() {
                   </div>
 
                   {/* Cancel Button */}
-                   <button
+                  <button
                     onClick={() => {
                       setShowPlacingOrder(false)
                       setIsPlacingOrder(false)
                     }}
                     className="w-full text-right"
                   >
-                    <span className="text-[#DC2626] font-semibold text-base hover:text-[#991B1B] transition-colors">
+                    <span className="text-[#EB590E] font-semibold text-base hover:text-[#D94F0C] transition-colors">
                       CANCEL
                     </span>
                   </button>
@@ -3416,8 +3402,6 @@ export default function Cart() {
               </div>
             </div>
           )}
-
-          {/* Savings Congratulations Page removed (other-platform compare-at discontinued) */}
 
           {/* Order Success Celebration Page */}
           {showOrderSuccess && (
@@ -3435,7 +3419,7 @@ export default function Cart() {
                     style={{
                       left: `${Math.random() * 100}%`,
                       top: `-10%`,
-                      backgroundColor: ['#DC2626', '#3b82f6', '#f59e0b', '#ef4444', '#991B1B', '#ec4899'][Math.floor(Math.random() * 6)],
+                      backgroundColor: ['#EB590E', '#3b82f6', '#f59e0b', '#ef4444', '#D94F0C', '#ec4899'][Math.floor(Math.random() * 6)],
                       animation: `confettiFall ${2 + Math.random() * 2}s linear ${Math.random() * 2}s infinite`,
                       transform: `rotate(${Math.random() * 360}deg)`,
                     }}
@@ -3452,14 +3436,18 @@ export default function Cart() {
                 >
                   {/* Outer ring animation */}
                   <div
-                    className="absolute inset-0 w-32 h-32 rounded-full border-4 border-green-500 dark:border-green-400"
+                    className="absolute inset-0 w-32 h-32 rounded-full border-4"
                     style={{
+                      borderColor: '#22c55e',
                       animation: 'ringPulse 1.5s ease-out infinite',
                       opacity: 0.3
                     }}
                   />
                   {/* Main circle */}
-                  <div className="w-32 h-32 bg-gradient-to-br from-green-500 to-green-600 dark:from-green-500 dark:to-emerald-500 rounded-full flex items-center justify-center shadow-2xl shadow-green-200/60 dark:shadow-green-900/40">
+                  <div
+                    className="w-32 h-32 rounded-full flex items-center justify-center shadow-2xl shadow-green-200/60 dark:shadow-green-900/40"
+                    style={{ backgroundColor: '#22c55e' }}
+                  >
                     <svg
                       className="w-16 h-16 text-white"
                       viewBox="0 0 24 24"
@@ -3470,7 +3458,7 @@ export default function Cart() {
                       strokeLinejoin="round"
                       style={{ animation: 'checkDraw 0.5s ease-out 0.5s both' }}
                     >
-                      <path d="M5 12l5 5L19 7" className="check-path" />
+                      <path d="M5 12l5 5L19 7" className="check-path" stroke="#ffffff" />
                     </svg>
                   </div>
                   {/* Sparkles */}
@@ -3495,49 +3483,32 @@ export default function Cart() {
                 >
                   <div className="flex items-center justify-center gap-2 mb-2">
                     <div className="w-5 h-5 text-red-500 dark:text-red-400">
-                      {orderType === "takeaway" ? (
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-                          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                          <polyline points="9 22 9 12 15 12 15 22" />
-                        </svg>
-                      ) : (
-                        <svg viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-                        </svg>
-                      )}
+                      <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+                      </svg>
                     </div>
                     <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-                      {orderType === "takeaway"
-                        ? (restaurantData?.name || "Restaurant")
-                        : (defaultAddress?.city || "Your Location")}
+                      {defaultAddress?.city || "Your Location"}
                     </h2>
                   </div>
-                  <p className="text-gray-500 dark:text-gray-400 text-base max-w-sm mx-auto">
-                    {orderType === "takeaway"
-                      ? (restaurantData?.location
-                          ? (restaurantData.location.addressLine1 || restaurantData.location.formattedAddress || restaurantData.location.address || `${restaurantData.location.city || ''}${restaurantData.location.area ? ', ' + restaurantData.location.area : ''}`)
-                          : (restaurantData?.address || restaurantData?.formattedAddress || "Self-Pickup from Restaurant"))
-                      : (defaultAddress ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || "Delivery Address") : "Delivery Address")}
+                  <p className="text-gray-500 dark:text-gray-400 text-base">
+                    {defaultAddress ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || "Delivery Address") : "Delivery Address"}
                   </p>
                 </div>
 
                 {/* Order Placed Message */}
-                 <div
+                <div
                   className="mt-12 text-center"
                   style={{ animation: 'slideUp 0.5s ease-out 0.8s both' }}
                 >
-                  <h3 className="text-3xl font-bold text-[#DC2626] dark:text-[#a65d8a] mb-2">Order Placed!</h3>
-                  <p className="text-gray-600 dark:text-gray-300">
-                    {orderType === "takeaway"
-                      ? "Your delicious food is being prepared for pickup"
-                      : "Your delicious food is on its way"}
-                  </p>
+                  <h3 className="text-3xl font-bold text-[#EB590E] dark:text-orange-400 mb-2">Order Placed!</h3>
+                  <p className="text-gray-600 dark:text-gray-300">Your delicious food is on its way</p>
                 </div>
 
                 {/* Action Button */}
-                 <button
+                <button
                   onClick={handleGoToOrders}
-                  className="mt-10 bg-[#DC2626] hover:bg-[#991B1B] text-white font-semibold py-4 px-12 rounded-xl shadow-lg shadow-[#DC2626]/20 dark:shadow-[#DC2626]/40 transition-all hover:shadow-xl hover:scale-105"
+                  className="mt-10 bg-[#EB590E] hover:bg-[#D94F0C] text-white font-semibold py-4 px-12 rounded-xl shadow-lg shadow-orange-200/70 dark:shadow-orange-950/40 transition-all hover:shadow-xl hover:scale-105"
                   style={{ animation: 'slideUp 0.5s ease-out 1s both' }}
                 >
                   Track Your Order
@@ -3545,6 +3516,339 @@ export default function Cart() {
               </div>
             </div>
           )}
+
+          {/* Address Selection Bottom Sheet */}
+          <AnimatePresence>
+            {showAddressSheet && (
+              <>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => setShowAddressSheet(false)}
+                  className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]"
+                />
+                <motion.div
+                  initial={{ y: "100%" }}
+                  animate={{ y: 0 }}
+                  exit={{ y: "100%" }}
+                  transition={{ type: "spring", damping: 30, stiffness: 350 }}
+                  className="fixed bottom-0 left-0 right-0 bg-white dark:bg-[#1a1a1a] rounded-t-[1.75rem] z-[101] shadow-2xl overflow-hidden max-h-[78vh] flex flex-col"
+                  style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+                >
+                  <div className="p-5 flex flex-col min-h-0">
+                    <div className="w-10 h-1 bg-gray-200 dark:bg-gray-800 rounded-full mx-auto mb-4" />
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-lg font-bold text-gray-900 dark:text-white">Choose a delivery address</h2>
+                      <button
+                        type="button"
+                        onClick={() => setShowAddressSheet(false)}
+                        className="w-8 h-8 flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-full"
+                      >
+                        <X className="w-4 h-4 text-gray-500" />
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleOpenAddAddress}
+                      className="flex items-center gap-3 w-full py-3 mb-3 text-left"
+                    >
+                      <div className="h-10 w-10 rounded-lg border-2 border-dashed border-emerald-500 flex items-center justify-center shrink-0">
+                        <Plus className="h-4 w-4 text-emerald-600" />
+                      </div>
+                      <span className="text-sm font-semibold text-emerald-600">Add new Address</span>
+                    </button>
+
+                    <div className="space-y-2 overflow-y-auto pr-1 pb-2">
+                      {addresses.length === 0 ? (
+                        <div className="rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 px-4 py-8 text-center">
+                          <MapPin className="h-8 w-8 text-gray-300 mx-auto mb-2" />
+                          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">No saved addresses yet</p>
+                          <p className="text-xs text-gray-500 mt-1">Add an address to place your order</p>
+                        </div>
+                      ) : (
+                        addresses.map((address) => {
+                          const AddressIcon = getAddressIcon(address)
+                          const addressId = getAddressId(address)
+                          const isSelected = addressId && addressId === getAddressId(defaultAddress)
+                          const distanceLabel = formatAddressDistanceLabel(address)
+
+                          return (
+                            <button
+                              key={addressId || `${address.label}-${address.street}`}
+                              type="button"
+                              onClick={() => handleSelectAddressFromSheet(address)}
+                              className={`w-full flex items-start gap-3 p-3.5 rounded-2xl border text-left transition-colors ${
+                                isSelected
+                                  ? "border-[#EB590E]/40 bg-[#FFF7F2] dark:bg-[#EB590E]/10"
+                                  : "border-gray-100 dark:border-gray-800 bg-white dark:bg-[#222222] hover:border-gray-200"
+                              }`}
+                            >
+                              <div className="h-10 w-10 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0">
+                                <AddressIcon className="h-4 w-4 text-gray-600 dark:text-gray-300" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                                    {getDisplayAddressLabel(address.label)}
+                                  </p>
+                                  {isSelected && (
+                                    <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                                      Selected
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
+                                  {formatFullAddress(address) || address?.formattedAddress || address?.address || "Address"}
+                                </p>
+                              </div>
+                              {distanceLabel && (
+                                <span className="text-[11px] font-semibold text-gray-400 shrink-0 mt-1">
+                                  {distanceLabel}
+                                </span>
+                              )}
+                            </button>
+                          )
+                        })
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+
+          {/* Cooking Instructions Bottom Sheet */}
+          <AnimatePresence>
+            {showCookingSheet && (
+              <>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => setShowCookingSheet(false)}
+                  className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]"
+                />
+                <motion.div
+                  initial={{ y: "100%" }}
+                  animate={{ y: 0 }}
+                  exit={{ y: "100%" }}
+                  transition={{ type: "spring", damping: 30, stiffness: 350 }}
+                  className="fixed bottom-0 left-0 right-0 bg-white dark:bg-[#1a1a1a] rounded-t-[1.75rem] z-[101] shadow-2xl overflow-hidden"
+                  style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+                >
+                  <div className="p-5">
+                    <div className="w-10 h-1 bg-gray-200 dark:bg-gray-800 rounded-full mx-auto mb-4" />
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-lg font-bold text-gray-900 dark:text-white">Cooking requests</h2>
+                      <button
+                        type="button"
+                        onClick={() => setShowCookingSheet(false)}
+                        className="w-8 h-8 flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-full"
+                      >
+                        <X className="w-4 h-4 text-gray-500" />
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                      These notes are shared with the restaurant partner while preparing your order
+                    </p>
+                    <textarea
+                      value={note}
+                      onChange={(e) => {
+                        setNote(e.target.value)
+                        setShowNoteInput(true)
+                      }}
+                      rows={4}
+                      placeholder="E.g. less spicy, no onions, extra sauce..."
+                      className="w-full rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#111111] px-4 py-3 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#EB590E] resize-none"
+                    />
+                    <div className="mt-4 flex gap-2">
+                      {note.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNote("")
+                            setShowNoteInput(false)
+                          }}
+                          className="flex-1 h-11 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-semibold text-gray-600 dark:text-gray-300"
+                        >
+                          Clear
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowCookingSheet(false)}
+                        className="flex-1 h-11 rounded-xl text-white text-sm font-bold"
+                        style={{ backgroundColor: "var(--module-theme-color, #E2AD4B)" }}
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+
+          {/* Offers Full Page */}
+          <AnimatePresence>
+            {showOffersView && (
+              <motion.div
+                initial={{ x: "100%" }}
+                animate={{ x: 0 }}
+                exit={{ x: "100%" }}
+                transition={{ type: "spring", damping: 32, stiffness: 320 }}
+                className="fixed inset-0 z-[95] bg-slate-50 dark:bg-[#0a0a0a] flex flex-col"
+              >
+                <div
+                  className="sticky top-0 z-10 text-white shadow-sm"
+                  style={{ backgroundColor: "var(--module-theme-color, #E2AD4B)" }}
+                >
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-white hover:bg-white/15"
+                      onClick={() => setShowOffersView(false)}
+                    >
+                      <ArrowLeft className="h-5 w-5" />
+                    </Button>
+                    <div>
+                      <p className="text-base font-semibold">Payment offers & more</p>
+                      <p className="text-xs text-white/80">Coupons and bank offers for this order</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 pb-8">
+                  {appliedCoupon ? (
+                    <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl border border-slate-100 dark:border-gray-800 p-4 flex items-center justify-between gap-3">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className="h-10 w-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center shrink-0">
+                          <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-gray-900 dark:text-white">'{appliedCoupon.code}' applied</p>
+                          <p className="text-xs text-emerald-600 mt-0.5">
+                            You saved {RUPEE_SYMBOL}{discount.toFixed(0)} on this order
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleRemoveCoupon}
+                        className="text-xs font-bold text-[#EB590E] uppercase tracking-wide shrink-0"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : null}
+
+                  <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl border border-slate-100 dark:border-gray-800 p-4">
+                    <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Have a coupon code?</p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={manualCouponCode}
+                        onChange={(e) => setManualCouponCode(e.target.value.toUpperCase())}
+                        placeholder="Enter coupon code"
+                        className="flex-1 h-11 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#111111] px-3 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#EB590E]"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleApplyCouponCode}
+                        className="h-11 px-4 rounded-xl text-white text-sm font-bold shrink-0"
+                        style={{ backgroundColor: "var(--module-theme-color, #E2AD4B)" }}
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </div>
+
+                  {loadingCoupons ? (
+                    <div className="space-y-3">
+                      {[1, 2, 3].map((i) => (
+                        <div key={i} className="h-24 rounded-2xl bg-white dark:bg-[#1a1a1a] animate-pulse border border-slate-100 dark:border-gray-800" />
+                      ))}
+                    </div>
+                  ) : availableCoupons.length > 0 ? (
+                    <div className="space-y-3">
+                      <p className="text-xs font-bold uppercase tracking-wider text-gray-400 px-1">
+                        Available offers ({availableCoupons.length})
+                      </p>
+                      {availableCoupons.map((coupon) => {
+                        const isLocked = subtotal < (Number(coupon.minOrder) || 0)
+                        const isFirstTimeOnly = coupon.customerGroup === "new" && userOrderCount > 0
+                        const isApplied = appliedCoupon?.code === coupon.code
+                        const isDisabled = isLocked || isFirstTimeOnly || isApplied
+
+                        return (
+                          <div
+                            key={coupon.code}
+                            className="bg-white dark:bg-[#1a1a1a] rounded-2xl border border-slate-100 dark:border-gray-800 p-4"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex items-start gap-3 min-w-0">
+                                <div className="h-10 w-10 rounded-xl bg-orange-50 dark:bg-orange-950/30 flex items-center justify-center shrink-0">
+                                  <Percent className="h-5 w-5 text-[#EB590E]" />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-bold text-gray-900 dark:text-white">
+                                    {coupon.discountDisplay || `Save ${RUPEE_SYMBOL}${coupon.discount}`}
+                                  </p>
+                                  <p className="text-xs text-gray-500 mt-0.5">Use code '{coupon.code}'</p>
+                                  {coupon.customerGroup === "new" ? (
+                                    <p className="text-[11px] text-[#EB590E] mt-1">First-time users only</p>
+                                  ) : isLocked ? (
+                                    <p className="text-[11px] text-blue-600 mt-1">
+                                      Add items worth {RUPEE_SYMBOL}{(Number(coupon.minOrder) - subtotal).toFixed(0)} more
+                                    </p>
+                                  ) : coupon.description ? (
+                                    <p className="text-[11px] text-gray-500 mt-1 line-clamp-2">{coupon.description}</p>
+                                  ) : null}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleApplyCoupon(coupon)}
+                                disabled={isDisabled}
+                                className="shrink-0 border border-[#EB590E] text-[#EB590E] rounded-full px-4 py-1.5 text-xs font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                {isApplied ? "Applied" : "Apply"}
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 p-8 text-center">
+                      <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-gradient-to-br from-pink-100 to-orange-100 dark:from-pink-950/40 dark:to-orange-950/30 flex items-center justify-center">
+                        <Sparkles className="h-7 w-7 text-[#EB590E]" />
+                      </div>
+                      <h3 className="text-base font-bold text-gray-900 dark:text-white">No offers right now</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 max-w-xs mx-auto">
+                        We couldn't find active coupons for this cart. You can still enter a code above if you have one.
+                      </p>
+                      <div className="mt-5 grid grid-cols-2 gap-2 text-left">
+                        <div className="rounded-xl bg-slate-50 dark:bg-[#141414] p-3">
+                          <Tag className="h-4 w-4 text-emerald-600 mb-2" />
+                          <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">Bank offers</p>
+                          <p className="text-[11px] text-gray-500 mt-1">Check at payment step</p>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 dark:bg-[#141414] p-3">
+                          <Percent className="h-4 w-4 text-[#EB590E] mb-2" />
+                          <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">Restaurant deals</p>
+                          <p className="text-[11px] text-gray-500 mt-1">Add more items to unlock</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Payment Selection Bottom Sheet */}
           <AnimatePresence>
@@ -3591,45 +3895,40 @@ export default function Cart() {
                           icon: <Zap className="w-5 h-5" />,
                           color: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400',
                           selectedColor: 'bg-emerald-500 text-white',
-                          badge: 'SECURE',
-                          disabled: !isPaymentMethodEnabled("razorpay"),
-                          disabledText: 'Online Pay Disabled'
+                          badge: 'SECURE'
                         },
                         {
                           id: 'wallet',
-                          name: 'Quick Wallet',
+                          name: 'Eatiefy Wallet',
                           description: 'Pay from your wallet',
                           icon: <Wallet className="w-5 h-5" />,
                           color: 'bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400',
                           selectedColor: 'bg-blue-500 text-white',
                           subInfo: `Bal: ${RUPEE_SYMBOL}${walletBalance.toFixed(0)}`,
-                          disabled: walletBalance < total || !isPaymentMethodEnabled("wallet"),
-                          disabledText: !isPaymentMethodEnabled("wallet") ? 'Wallet Disabled' : 'Low Balance'
+                          disabled: walletBalance < total,
+                          disabledText: 'Low Balance'
                         },
                         {
                           id: 'cash',
                           name: 'Cash on Delivery',
                           description: 'Pay when order arrives',
                           icon: <Banknote className="w-5 h-5" />,
-                          color: 'bg-orange-50 text-#991B1B dark:bg-orange-900/40 dark:text-orange-400',
-                          selectedColor: 'bg-[#DC2626] text-white',
-                          disabled: !isPaymentMethodEnabled("cash"),
-                          disabledText: 'COD Disabled',
-                          hideWhenDisabled: true
-                        }
-                      ].filter(option => !option.hideWhenDisabled || !option.disabled).map((option) => (
+                          color: 'bg-amber-50 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400',
+                          selectedColor: 'bg-amber-500 text-white',
+                          badge: 'COD'
+                        },
+                      ].map((option) => (
                         <button
                           key={option.id}
                           onClick={() => {
                             if (!option.disabled) {
                               setSelectedPaymentMethod(option.id)
-                              setShowPaymentSheet(false)
                             }
                           }}
-                           className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all duration-300 group ${selectedPaymentMethod === option.id
-                               ? 'border-[#DC2626] bg-[#DC2626] shadow-lg shadow-[#DC2626]/30'
-                               : 'border-gray-100 dark:border-gray-800/80 bg-white dark:bg-[#222222] hover:border-[#DC2626]/30 dark:hover:border-[#DC2626]/30 shadow-sm'
-                             } ${option.disabled ? 'opacity-40 grayscale-[0.8] cursor-not-allowed' : 'cursor-pointer active:scale-[0.98]'}`}
+                          className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all duration-300 group ${selectedPaymentMethod === option.id
+                              ? 'border-[#EB590E] bg-[#EB590E] shadow-lg shadow-orange-500/30'
+                              : 'border-gray-100 dark:border-gray-800/80 bg-white dark:bg-[#222222] hover:border-orange-200 dark:hover:border-orange-900/30 shadow-sm'
+                            } ${option.disabled ? 'opacity-40 grayscale-[0.8] cursor-not-allowed' : 'cursor-pointer active:scale-[0.98]'}`}
                         >
                           <div className="flex items-center gap-4">
                             <div className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-300 ${selectedPaymentMethod === option.id
@@ -3681,8 +3980,8 @@ export default function Cart() {
                               ? 'bg-white border-white'
                               : 'border-gray-200 dark:border-gray-700'
                             }`}>
-                             {selectedPaymentMethod === option.id && <Check className="w-3.5 h-3.5 text-[#DC2626]" strokeWidth={4} />}
-                           </div>
+                            {selectedPaymentMethod === option.id && <Check className="w-3.5 h-3.5 text-[#EB590E]" strokeWidth={4} />}
+                          </div>
                         </button>
                       ))}
                     </div>
@@ -3692,12 +3991,12 @@ export default function Cart() {
                       style={{ paddingBottom: "max(0.25rem, env(safe-area-inset-bottom, 0px))" }}
                     >
                       <div className="flex-shrink-0">
-                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Total Pay</p>
-                         <p className="text-xl font-black text-[#DC2626] tabular-nums">{RUPEE_SYMBOL}{total.toFixed(0)}</p>
-                       </div>
-                       <Button
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Total Pay</p>
+                        <p className="text-xl font-black text-[#EB590E] tabular-nums">{RUPEE_SYMBOL}{total.toFixed(0)}</p>
+                      </div>
+                      <Button
                         onClick={() => setShowPaymentSheet(false)}
-                        className="flex-1 bg-[#DC2626] hover:bg-[#991B1B] text-white h-11 rounded-xl text-sm font-bold shadow-lg shadow-[#DC2626]/20 transition-all active:scale-[0.98]"
+                        className="flex-1 bg-[#EB590E] hover:bg-[#D94F0C] text-white h-11 rounded-xl text-sm font-bold shadow-lg shadow-orange-500/20 transition-all active:scale-[0.98]"
                       >
                         Confirm Order
                       </Button>
@@ -3791,86 +4090,6 @@ export default function Cart() {
         }
       `}</style>
 
-      {/* All Coupons Bottom Sheet */}
-      {typeof window !== "undefined" &&
-        createPortal(
-          <AnimatePresence>
-            {showCouponSheet && !appliedCoupon && !isCartUnavailable && (
-              <>
-                <motion.div
-                  className="fixed inset-0 bg-black/60 z-[10020]"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  onClick={() => setShowCouponSheet(false)}
-                />
-                <div className="fixed inset-0 flex items-end justify-center z-[10021] pointer-events-none p-0">
-                  <motion.div
-                    className="relative w-full max-w-lg pointer-events-auto bg-white dark:bg-[#1a1a1a] rounded-t-3xl shadow-2xl border border-gray-100 dark:border-gray-800 flex flex-col max-h-[85vh]"
-                    initial={{ y: "100%" }}
-                    animate={{ y: 0 }}
-                    exit={{ y: "100%" }}
-                    transition={{ type: "spring", damping: 30, stiffness: 300 }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="px-5 pt-5 pb-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between gap-3">
-                      <div>
-                        <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">All Offers & Coupons</h2>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                          {filteredCoupons.length} offer{filteredCoupons.length === 1 ? "" : "s"} available
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => setShowCouponSheet(false)}
-                        className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                        aria-label="Close coupons"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </div>
-
-                    <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-900/30">
-                      <div className="flex items-center gap-3">
-                        <div className="flex-1 bg-white dark:bg-gray-950 rounded-xl px-4 h-11 border border-gray-200 dark:border-gray-800 flex items-center focus-within:border-[#DC2626] focus-within:ring-1 focus-within:ring-[#DC2626]/20 transition-all">
-                          <input
-                            type="text"
-                            value={manualCouponCode}
-                            onChange={(e) => setManualCouponCode(e.target.value.toUpperCase())}
-                            placeholder="Enter coupon code"
-                            className="w-full bg-transparent text-sm font-semibold text-gray-800 dark:text-gray-100 outline-none placeholder:text-gray-400/85"
-                          />
-                        </div>
-                        <button
-                          onClick={handleApplyCouponCode}
-                          disabled={isCartUnavailable}
-                          className="h-11 px-5 border border-[#DC2626] text-[#DC2626] rounded-xl text-xs font-black uppercase tracking-widest hover:bg-[#DC262605] active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Apply
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
-                      {loadingCoupons ? (
-                        <div className="py-10 text-center text-sm text-gray-500">Loading offers...</div>
-                      ) : filteredCoupons.length > 0 ? (
-                        filteredCoupons.map((coupon) =>
-                          renderCartCouponCard(coupon, { blocked: isCartUnavailable }),
-                        )
-                      ) : (
-                        <div className="py-10 text-center text-sm text-gray-500">
-                          No offers available right now. You can still enter a coupon code above.
-                        </div>
-                      )}
-                    </div>
-                  </motion.div>
-                </div>
-              </>
-            )}
-          </AnimatePresence>,
-          document.body,
-        )}
-
       {/* Share Modal */}
       {typeof window !== "undefined" &&
         createPortal(
@@ -3944,149 +4163,6 @@ export default function Cart() {
                   </div>
                 </motion.div>
               </>
-            )}
-          </AnimatePresence>,
-          document.body
-        )}
-
-        {/* Auto Apply Coupon Popup Sheet */}
-        {createPortal(
-          <AnimatePresence>
-            {showAutoCouponPopup && bestCoupon && !isCartUnavailable && (
-              <>
-                {/* Backdrop Overlay */}
-                <motion.div
-                  className="fixed inset-0 bg-black/60 backdrop-blur-[2px] z-[10020] cursor-pointer"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  onClick={() => setShowAutoCouponPopup(false)}
-                />
-                
-                {/* Modal Layout Wrapper */}
-                <div className="fixed inset-0 flex items-end sm:items-center justify-center z-[10021] pointer-events-none sm:p-4">
-                  {/* Modal Card */}
-                  <motion.div
-                    className="w-full sm:max-w-md bg-white dark:bg-[#1a1a1a] rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 flex flex-col items-center justify-between pb-8 sm:pb-6 relative pointer-events-auto"
-                    initial={{ y: "100%", opacity: 0.5 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    exit={{ y: "100%", opacity: 0.5 }}
-                    transition={{ type: "spring", damping: 28, stiffness: 240 }}
-                  >
-                    {/* Background overlay with overflow-hidden to clip sunburst rays */}
-                    <div className="absolute inset-0 rounded-t-3xl sm:rounded-3xl overflow-hidden pointer-events-none z-0">
-                      {/* Soft radial blue glow */}
-                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.08)_0%,transparent_75%)]" />
-                      
-                      {/* Spinning SVG Sunburst rays */}
-                      <svg className="absolute left-1/2 -translate-x-1/2 -top-16 w-80 h-80 animate-[spin_80s_linear_infinite] opacity-30 text-blue-500/10" viewBox="0 0 100 100" fill="currentColor">
-                        <g opacity="0.12">
-                          <path d="M50 50 L45 0 L55 0 Z" />
-                          <path d="M50 50 L95 15 L100 25 Z" />
-                          <path d="M50 50 L100 45 L100 55 Z" />
-                          <path d="M50 50 L95 85 L85 95 Z" />
-                          <path d="M50 50 L55 100 L45 100 Z" />
-                          <path d="M50 50 L5 85 L0 75 Z" />
-                          <path d="M50 50 L0 55 L0 45 Z" />
-                          <path d="M50 50 L5 15 L15 5 Z" />
-                          <path d="M50 50 L75 5 L85 15 Z" />
-                          <path d="M50 50 L100 75 L95 85 Z" />
-                          <path d="M50 50 L25 95 L15 85 Z" />
-                          <path d="M50 50 L0 25 L5 15 Z" />
-                        </g>
-                      </svg>
-                    </div>
-
-                    {/* Absolute close button */}
-                    <motion.button
-                      onClick={() => setShowAutoCouponPopup(false)}
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.9 }}
-                      transition={{ duration: 0.15 }}
-                      className="absolute bottom-[calc(100%+16px)] left-1/2 -translate-x-1/2 sm:bottom-auto sm:top-4 sm:right-4 sm:left-auto sm:translate-x-0 w-12 h-12 sm:w-8 sm:h-8 rounded-full bg-neutral-800/80 backdrop-blur-sm border border-white/15 sm:border-0 sm:bg-gray-100 sm:dark:bg-gray-800 flex items-center justify-center text-white sm:text-gray-500 sm:dark:text-gray-400 hover:bg-neutral-700/80 sm:hover:bg-gray-200 sm:dark:hover:bg-gray-700 transition-colors z-50 cursor-pointer shadow-lg"
-                    >
-                      <X className="h-5 w-5 sm:h-4 sm:w-4" />
-                    </motion.button>
-
-
-
-                    {/* Coupon Icon with Sunburst Effect */}
-                    <div className="w-full flex flex-col items-center justify-center pt-6 pb-2 relative z-10 flex-shrink-0">
-                      <div className="relative z-10 w-24 h-24 flex-shrink-0 flex items-center justify-center">
-                        {/* Outer glow */}
-                        <div className="absolute inset-0 rounded-full bg-blue-500/20 blur-xl animate-pulse" />
-                        
-                        {/* Scalloped Badge SVG */}
-                        <svg className="w-20 h-20 flex-shrink-0 text-[#3B82F6] dark:text-blue-500 drop-shadow-xl" viewBox="0 0 100 100" fill="currentColor">
-                          <path d="M 86.29 42.78 Q 95.00 50.00 86.29 57.22 Q 91.57 67.22 80.76 70.56 Q 81.82 81.82 70.56 80.76 Q 67.22 91.57 57.22 86.29 Q 50.00 95.00 42.78 86.29 Q 32.78 91.57 29.44 80.76 Q 18.18 81.82 19.24 70.56 Q 8.43 67.22 13.71 57.22 Q 5.00 50.00 13.71 42.78 Q 8.43 32.78 19.24 29.44 Q 18.18 18.18 29.44 19.24 Q 32.78 8.43 42.78 13.71 Q 50.00 5.00 57.22 13.71 Q 67.22 8.43 70.56 19.24 Q 81.82 18.18 80.76 29.44 Q 91.57 32.78 86.29 42.78 Z" />
-                        </svg>
-                        
-                        <Percent className="absolute w-9 h-9 text-white font-bold drop-shadow-md" />
-                      </div>
-                    </div>
-
-                    {/* Exclusive Tag */}
-                    <span className="text-[11px] font-bold text-gray-800 dark:text-gray-200 tracking-[0.2em] uppercase mt-4 flex items-center gap-1.5 justify-center relative z-10">
-                      ✦ EXCLUSIVELY FOR YOU ✦
-                    </span>
-
-                    {/* Savings text */}
-                    <h3 className="text-2xl font-black text-gray-900 dark:text-gray-100 mt-3 text-center leading-tight relative z-10">
-                      Save <span className="text-[#3B82F6] dark:text-blue-400 font-extrabold">{RUPEE_SYMBOL}{bestCouponDiscount}</span> on this order
-                    </h3>
-
-                    {/* Coupon code name */}
-                    <p className="text-sm font-semibold text-gray-500 dark:text-gray-400 mt-1.5 text-center relative z-10">
-                      with coupon '<span className="text-gray-900 dark:text-gray-200 font-extrabold uppercase">{bestCoupon.code}</span>'
-                    </p>
-
-                    {/* Tip */}
-                    <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-500 mt-5 text-center relative z-10">
-                      Tap on 'APPLY' to avail this
-                    </p>
-
-                    {/* Apply Button */}
-                    <button
-                      onClick={handleApplyAutoCoupon}
-                      className="w-full mt-6 h-12 bg-[#DC2626] hover:bg-[#B91C1C] text-white rounded-xl text-sm font-bold uppercase tracking-widest active:scale-95 transition-all shadow-md shadow-[#DC2626]/20 relative z-10 cursor-pointer"
-                    >
-                      APPLY
-                    </button>
-                  </motion.div>
-                </div>
-              </>
-            )}
-          </AnimatePresence>,
-          document.body
-        )}
-
-        {/* Placing Order Loading Overlay */}
-        {createPortal(
-          <AnimatePresence>
-            {isPlacingOrder && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 z-[100000] bg-white/90 dark:bg-black/90 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto"
-              >
-                <div className="flex flex-col items-center gap-4 text-center px-6">
-                  <div className="relative">
-                    <div className="w-16 h-16 rounded-full border-4 border-gray-200 dark:border-gray-800" />
-                    <div className="absolute inset-0 w-16 h-16 rounded-full border-4 border-t-[#DC2626] dark:border-t-red-500 animate-spin" />
-                  </div>
-                  <h3 className="text-xl font-bold text-gray-900 dark:text-white mt-4">
-                    Placing Your Order...
-                  </h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 max-w-xs">
-                    {selectedPaymentMethod === "razorpay" 
-                      ? "Please wait while we verify your payment. Do not close or refresh the page."
-                      : "We are creating your order. Please wait."}
-                  </p>
-                </div>
-              </motion.div>
             )}
           </AnimatePresence>,
           document.body

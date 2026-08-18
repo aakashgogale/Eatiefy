@@ -12,7 +12,8 @@ import {
 import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
 import { Mail, User, Lock, Eye, EyeOff, ArrowLeft, Shield } from "lucide-react"
-import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png"
+import quickSpicyLogo from "@food/assets/user-app-logo.webp"
+import DynamicLogo from "@food/components/DynamicLogo"
 import { authAPI, adminAPI } from "@food/api"
 import { setAuthData } from "@food/utils/auth"
 import { loadBusinessSettings } from "@food/utils/businessSettings"
@@ -79,6 +80,17 @@ export default function AdminSignup() {
     if (!formData.email.trim()) {
       setError("Email is required")
       return
+    }
+
+    const emailRegex = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9\-]+(?:\.[a-zA-Z0-9\-]+)*\.[a-zA-Z]{2,10}$/;
+    if (!emailRegex.test(formData.email.trim()) || formData.email.includes('..')) {
+      setError("Please enter a valid email address");
+      return;
+    }
+    const emailParts = formData.email.trim().toLowerCase().split('@')[1]?.split('.') || [];
+    if (emailParts.length >= 2 && emailParts[emailParts.length - 1] === emailParts[emailParts.length - 2]) {
+      setError("Invalid email domain format (repeated segments)");
+      return;
     }
 
     if (!formData.password) {
@@ -246,17 +258,11 @@ export default function AdminSignup() {
           <CardHeader className="pb-4">
             <div className="flex w-full items-center gap-4 sm:gap-5">
               <div className="flex h-14 w-28 shrink-0 items-center justify-center rounded-xl bg-gray-900/5 ring-1 ring-neutral-200">
-                <img
-                  src={logoUrl || quickSpicyLogo}
+                <DynamicLogo
+                  module="user"
+                  fallback={quickSpicyLogo}
                   alt="Logo"
                   className="h-10 w-24 object-contain"
-                  loading="lazy"
-                  onError={(e) => {
-                    // Fallback to default logo if business logo fails to load
-                    if (e.target.src !== quickSpicyLogo) {
-                      e.target.src = quickSpicyLogo
-                    }
-                  }}
                 />
               </div>
               <div className="flex flex-col gap-1">

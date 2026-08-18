@@ -10,49 +10,69 @@ import {
   Calendar,
   Copy,
   ChevronRight,
-  HelpCircle,
   X,
 } from "lucide-react"
 import { DateRangeCalendar } from "@food/components/ui/date-range-calendar"
 import { restaurantAPI } from "@food/api"
 import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications"
+import { getRestaurantCookingNote } from "@food/utils/orderCookingNote"
+import OrderDetailPage from "@food/pages/restaurant/OrderDetailPage"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
-const formatMoney = (value) => `₹${Number(value || 0).toFixed(2)}`
+const ORDERS_PAGE_LIMIT = 10
 
-// Date Range Helpers
-const getToday = () => {
-  const today = new Date()
-  return { start: today, end: today }
+const ORDER_STATUS_API_MAP = {
+  preparing: "preparing,confirmed",
+  ready: "ready_for_pickup",
+  "out-for-delivery": "picked_up,reached_pickup,reached_drop",
+  delivered: "delivered",
+  rejected: "cancelled_by_restaurant",
+  cancelled: "cancelled_by_user,cancelled_by_restaurant,cancelled_by_admin",
 }
 
-const getLast7Days = () => {
+const formatMoney = (value) => `₹${Number(value || 0).toFixed(2)}`
+
+// Initialize with current week if needed
+const getCurrentWeek = () => {
   const today = new Date()
-  const start = new Date(today)
-  start.setDate(today.getDate() - 6) // includes today (7 days)
-  return { start, end: today }
+  const startOfWeek = new Date(today)
+  startOfWeek.setDate(today.getDate() - today.getDay() + 1) // Monday
+  const endOfWeek = new Date(startOfWeek)
+  endOfWeek.setDate(startOfWeek.getDate() + 6) // Sunday
+  return { start: startOfWeek, end: endOfWeek }
+}
+
+const getLastWeek = () => {
+  const today = new Date()
+  const startOfLastWeek = new Date(today)
+  startOfLastWeek.setDate(today.getDate() - today.getDay() - 6) // Monday of last week
+  const endOfLastWeek = new Date(startOfLastWeek)
+  endOfLastWeek.setDate(startOfLastWeek.getDate() + 6) // Sunday of last week
+  return { start: startOfLastWeek, end: endOfLastWeek }
+}
+
+const getLast2Days = () => {
+  const today = new Date()
+  const twoDaysAgo = new Date(today)
+  twoDaysAgo.setDate(today.getDate() - 2)
+  return { start: twoDaysAgo, end: today }
 }
 
 const getLast30Days = () => {
   const today = new Date()
-  const start = new Date(today)
-  start.setDate(today.getDate() - 29)
-  return { start, end: today }
-}
-
-const getThisMonth = () => {
-  const today = new Date()
-  const start = new Date(today.getFullYear(), today.getMonth(), 1)
-  return { start, end: today }
+  const thirtyDaysAgo = new Date(today)
+  thirtyDaysAgo.setDate(today.getDate() - 30)
+  return { start: thirtyDaysAgo, end: today }
 }
 
 const dateRangeOptions = [
-  { label: "today", getDates: getToday },
-  { label: "last 7 days", getDates: getLast7Days },
+  { label: "all orders", lifetime: true },
+  { label: "last 2 days", getDates: getLast2Days },
+  { label: "this week", getDates: getCurrentWeek },
+  { label: "last week", getDates: getLastWeek },
   { label: "last 30 days", getDates: getLast30Days },
-  { label: "this month", getDates: getThisMonth },
   { label: "custom date range", custom: true }
 ]
 
@@ -60,9 +80,7 @@ const dateRangeOptions = [
 const filterCategories = [
   { id: "Order status", label: "Order status" },
   { id: "Ratings", label: "Ratings" },
-  { id: "KPT delay", label: "KPT delay" },
-  { id: "Complaints", label: "Complaints" },
-  { id: "Order type", label: "Order type" }
+  { id: "Complaints", label: "Complaints" }
 ]
 
 const filterOptions = {
@@ -81,12 +99,6 @@ const filterOptions = {
     { id: "2-star", label: "2★ or less", key: "ratings", value: 2 },
     { id: "1-star", label: "1★", key: "ratings", value: 1 }
   ],
-  "KPT delay": [
-    { id: "0-10", label: "0-10 mins", key: "kptDelay" },
-    { id: "10-20", label: "10-20 mins", key: "kptDelay" },
-    { id: "20-30", label: "20-30 mins", key: "kptDelay" },
-    { id: "30-plus", label: "30+ mins", key: "kptDelay" }
-  ],
   "Complaints": [
     { id: "order-delayed", label: "Order delayed", key: "complaints" },
     { id: "wrong-items", label: "Wrong item(s) delivered", key: "complaints" },
@@ -95,18 +107,6 @@ const filterOptions = {
     { id: "poor-packaging", label: "Poor packaging or spillage", key: "complaints" },
     { id: "out-of-stock", label: "Item(s) out of stock", key: "complaints" },
     { id: "not-delivered", label: "Order not delivered", key: "complaints" }
-  ],
-  "Order type": [
-    { id: "takeaway", label: "Takeaway", key: "orderType" },
-    { id: "dining", label: "Dining", key: "orderType" },
-    { id: "home-delivery", label: "Home delivery", key: "orderType" },
-    { id: "self-delivery", label: "Self delivery", key: "orderType" },
-    { id: "food-rescue", label: "Food rescue", key: "orderType" },
-    { id: "large-order", label: "Large order", key: "orderType" },
-    { id: "veg-only", label: "Veg only", key: "orderType" },
-    { id: "irctc", label: "IRCTC", key: "orderType" },
-    { id: "replacement", label: "Replacement", key: "orderType" },
-    { id: "hospital", label: "Hospital", key: "orderType" }
   ]
 }
 
@@ -114,11 +114,12 @@ export default function AllOrdersPage() {
   const navigate = useNavigate()
   const goBack = useRestaurantBackNavigation()
   const [searchQuery, setSearchQuery] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
   const [showCalendar, setShowCalendar] = useState(false)
   const [showDateRangePopup, setShowDateRangePopup] = useState(false)
-  const [selectedDateRange, setSelectedDateRange] = useState(dateRangeOptions[1]) // Default to "last 7 days"
-  const [startDate, setStartDate] = useState(() => dateRangeOptions[1].getDates().start)
-  const [endDate, setEndDate] = useState(() => dateRangeOptions[1].getDates().end)
+  const [selectedDateRange, setSelectedDateRange] = useState(dateRangeOptions[0])
+  const [startDate, setStartDate] = useState(null)
+  const [endDate, setEndDate] = useState(null)
   const calendarRef = useRef(null)
   
   // Filter states
@@ -133,16 +134,43 @@ export default function AllOrdersPage() {
     complaints: [],
     orderType: []
   })
+  const [appliedFilters, setAppliedFilters] = useState({
+    orderStatus: [],
+    ratings: [],
+    kptDelay: [],
+    complaints: [],
+    orderType: []
+  })
   
   // Toast state
   const [showToast, setShowToast] = useState(false)
+  const [selectedOrderId, setSelectedOrderId] = useState(null)
   
   // Real data states
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [restaurantData, setRestaurantData] = useState(null)
+  const [ordersPage, setOrdersPage] = useState(1)
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: ORDERS_PAGE_LIMIT,
+    total: 0,
+    totalPages: 1,
+    pages: 1,
+  })
   const { newOrder } = useRestaurantNotifications()
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim())
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [searchQuery])
+
+  useEffect(() => {
+    setOrdersPage(1)
+  }, [debouncedSearch])
 
   // Fetch restaurant data
   useEffect(() => {
@@ -171,12 +199,11 @@ export default function AllOrdersPage() {
     
     // Format address (backend: deliveryAddress)
     const addr = order.deliveryAddress || order.address || null
-    const address = order.orderType === "takeaway"
-      ? "Self-Pickup Order"
-      : (addr?.formattedAddress ||
-         addr?.address ||
-         (addr?.street ? `${addr.street}, ${addr.city || ""}`.trim() : "") ||
-         "Address not available")
+    const address =
+      addr?.formattedAddress ||
+      addr?.address ||
+      (addr?.street ? `${addr.street}, ${addr.city || ""}`.trim() : "") ||
+      "Address not available"
     
     // Get restaurant name
     const restaurantName = restaurantData?.name || order.restaurantId?.name || 'Restaurant'
@@ -214,18 +241,21 @@ export default function AllOrdersPage() {
     
     // Determine tags based on order properties
     const tags = []
-    if (order.scheduledAt) tags.push('SCHEDULED')
-    if (order.orderType === 'takeaway') {
-      tags.push('TAKEAWAY')
-    } else if (order.orderType === 'dining') {
-      tags.push('DINING')
-    } else {
-      tags.push('HOME DELIVERY')
-    }
+    if (order.sendCutlery) tags.push('CUTLERY')
+    tags.push('HOME DELIVERY')
     // Check if all items are veg
     const allVeg = items.every(item => item.isVeg !== false)
     if (allVeg && items.length > 0) tags.push('VEG ONLY')
     
+    const pricing = order.pricing || {}
+    const subtotal = Number(pricing.subtotal) || 0
+    const packagingFee = Number(pricing.packagingFee) || 0
+    const commission = Number(pricing.restaurantCommission) || 0
+    const fallbackNetPayout = Math.max(
+      0,
+      Math.round((subtotal + packagingFee - commission) * 100) / 100,
+    )
+
     return {
       id: order.orderId || order._id?.toString() || '',
       status,
@@ -235,14 +265,24 @@ export default function AllOrdersPage() {
       address,
       customer: customerName,
       items,
-      totalPrice: order.pricing?.total || 0,
+      netPayout: Number(order.finance?.netPayout ?? fallbackNetPayout),
+      totalPrice: Number(pricing.total) || 0,
       reason,
+      note: getRestaurantCookingNote(order),
       tags: tags.length > 0 ? tags : undefined,
       createdAt: order.createdAt,
-      mongoId: order._id?.toString(),
-      orderType: order.orderType || 'delivery'
+      mongoId: order._id?.toString()
     }
   }, [restaurantData])
+
+  const buildOrderStatusParam = useCallback(() => {
+    if (!appliedFilters.orderStatus.length) return undefined
+    const statuses = appliedFilters.orderStatus
+      .flatMap((statusId) => (ORDER_STATUS_API_MAP[statusId] || "").split(","))
+      .map((value) => value.trim())
+      .filter(Boolean)
+    return statuses.length > 0 ? [...new Set(statuses)].join(",") : undefined
+  }, [appliedFilters.orderStatus])
 
   // Fetch orders from backend
   useEffect(() => {
@@ -250,37 +290,52 @@ export default function AllOrdersPage() {
       try {
         setLoading(true)
         setError(null)
-        
-        // Build query params
+
         const params = {
-          page: 1,
-          limit: 1000 // Get all orders, we'll filter by date on frontend
+          page: ordersPage,
+          limit: ORDERS_PAGE_LIMIT,
         }
-        
-        // Fetch all orders (we'll filter by date range on frontend)
+
+        if (!selectedDateRange?.lifetime && startDate && endDate) {
+          params.startDate = startDate.toISOString()
+          params.endDate = endDate.toISOString()
+        }
+
+        const orderStatusParam = buildOrderStatusParam()
+        if (orderStatusParam) {
+          params.orderStatus = orderStatusParam
+        }
+
+        const trimmedSearch = debouncedSearch
+        if (trimmedSearch) {
+          params.search = trimmedSearch
+        }
+
         const response = await restaurantAPI.getOrders(params)
-        
-        if (response.data?.success && response.data.data?.orders) {
-          // Transform orders
-          const transformedOrders = response.data.data.orders.map(transformOrder)
-          
-          // Filter by date range
-          const filteredByDate = transformedOrders.filter(order => {
-            if (!order.createdAt) return false
-            const orderDate = new Date(order.createdAt)
-            const start = new Date(startDate)
-            start.setHours(0, 0, 0, 0)
-            const end = new Date(endDate)
-            end.setHours(23, 59, 59, 999)
-            return orderDate >= start && orderDate <= end
+        const payload = response.data?.data
+        const ordersList = payload?.orders || payload?.data || []
+        const paginationMeta = payload?.pagination || payload?.meta || {}
+
+        if (response.data?.success && Array.isArray(ordersList)) {
+          setOrders(ordersList.map(transformOrder))
+          setPagination({
+            page: paginationMeta.page || ordersPage,
+            limit: paginationMeta.limit || ORDERS_PAGE_LIMIT,
+            total: paginationMeta.total || ordersList.length,
+            totalPages: paginationMeta.totalPages || paginationMeta.pages || 1,
+            pages: paginationMeta.pages || paginationMeta.totalPages || 1,
           })
-          
-          setOrders(filteredByDate)
         } else {
           setOrders([])
+          setPagination({
+            page: 1,
+            limit: ORDERS_PAGE_LIMIT,
+            total: 0,
+            totalPages: 1,
+            pages: 1,
+          })
         }
       } catch (err) {
-        // Suppress 401 errors as they're handled by axios interceptor
         if (err.response?.status !== 401) {
           debugError('Error fetching orders:', err)
           setError(err.message || 'Failed to fetch orders')
@@ -290,14 +345,18 @@ export default function AllOrdersPage() {
         setLoading(false)
       }
     }
-    
-    fetchOrders()
-  }, [startDate, endDate, transformOrder])
 
-  // Realtime: instantly prepend new orders (no refresh)
+    fetchOrders()
+  }, [ordersPage, selectedDateRange, startDate, endDate, debouncedSearch, buildOrderStatusParam, transformOrder])
+
+  // Realtime: prepend new orders on the first page when no restrictive filters are active
   useEffect(() => {
     if (!newOrder) return
-    // Transform & prepend if not already present.
+    const hasDateFilter = !selectedDateRange?.lifetime
+    const hasStatusFilter = appliedFilters.orderStatus.length > 0
+    const hasSearch = Boolean(debouncedSearch)
+    if (ordersPage !== 1 || hasDateFilter || hasStatusFilter || hasSearch) return
+
     setOrders((prev) => {
       const id = String(newOrder?.orderId || newOrder?._id || "")
       if (!id) return prev
@@ -307,7 +366,7 @@ export default function AllOrdersPage() {
       const transformed = transformOrder(newOrder)
       return [transformed, ...prev]
     })
-  }, [newOrder, transformOrder])
+  }, [newOrder, transformOrder, ordersPage, selectedDateRange, appliedFilters.orderStatus, debouncedSearch])
 
   // Close calendar when clicking outside
   useEffect(() => {
@@ -338,27 +397,33 @@ export default function AllOrdersPage() {
   const handleDateRangeChange = (start, end) => {
     setStartDate(start)
     setEndDate(end)
-    
-    if (start && end) {
-      setSelectedDateRange({ label: "custom date range", start, end, custom: true })
-      setShowCalendar(false)
-    }
+    setSelectedDateRange({ label: "custom date range", start, end, custom: true })
+    setOrdersPage(1)
+    setShowCalendar(false)
   }
 
   const handleDateRangeSelect = (option) => {
     if (option.custom) {
       setShowDateRangePopup(false)
       setShowCalendar(true)
+    } else if (option.lifetime) {
+      setSelectedDateRange(option)
+      setStartDate(null)
+      setEndDate(null)
+      setOrdersPage(1)
+      setShowDateRangePopup(false)
     } else {
       const dates = option.getDates()
       setSelectedDateRange(option)
       setStartDate(dates.start)
       setEndDate(dates.end)
+      setOrdersPage(1)
       setShowDateRangePopup(false)
     }
   }
 
   const formatDateRange = () => {
+    if (selectedDateRange?.lifetime) return "All time"
     if (!startDate || !endDate) return "Select date range"
     const startDay = startDate.getDate()
     const endDay = endDate.getDate()
@@ -396,20 +461,24 @@ export default function AllOrdersPage() {
   }
 
   const handleClearFilters = () => {
-    setFilters({
+    const cleared = {
       orderStatus: [],
       ratings: [],
       kptDelay: [],
       complaints: [],
       orderType: []
-    })
+    }
+    setFilters(cleared)
+    setAppliedFilters(cleared)
+    setOrdersPage(1)
     setFilterSearch("")
   }
 
   const handleApplyFilters = async () => {
     setIsApplyingFilters(true)
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 800))
+    setAppliedFilters(filters)
+    setOrdersPage(1)
+    await new Promise(resolve => setTimeout(resolve, 300))
     setIsApplyingFilters(false)
     setShowFilterPopup(false)
   }
@@ -419,60 +488,39 @@ export default function AllOrdersPage() {
   }
 
   const hasActiveFilters = () => {
-    return Object.values(filters).some(arr => arr.length > 0)
+    return Object.values(appliedFilters).some(arr => arr.length > 0)
   }
 
   const getStatusColor = (status) => {
     switch (status) {
       case "REJECTED":
       case "CANCELLED":
-        return "bg-red-700 text-white"
+        return { backgroundColor: "#B91C1C", color: "#FFFFFF" }
       case "DELIVERED":
-        return "bg-green-600 text-white"
+        return { backgroundColor: "#16A34A", color: "#FFFFFF" }
       case "PREPARING":
-        return "bg-yellow-600 text-white"
+        return { backgroundColor: "#CA8A04", color: "#FFFFFF" }
       case "READY":
-        return "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white"
+        return { backgroundColor: "#2563EB", color: "#FFFFFF" }
       case "OUT FOR DELIVERY":
-        return "bg-purple-600 text-white"
+        return { backgroundColor: "#7C3AED", color: "#FFFFFF" }
       default:
-        return "bg-gray-600 text-white"
+        return { backgroundColor: "#4B5563", color: "#FFFFFF" }
     }
   }
 
+  const getTagStyle = (tag) => {
+    if (tag === "VEG ONLY") return { backgroundColor: "#16A34A", color: "#FFFFFF" }
+    if (tag === "HOME DELIVERY") return { backgroundColor: "#2563EB", color: "#FFFFFF" }
+    if (tag === "CUTLERY") return { backgroundColor: "#7C3AED", color: "#FFFFFF" }
+    return { backgroundColor: "#374151", color: "#FFFFFF" }
+  }
+
   const filteredOrders = orders.filter(order => {
-    // Search filter - search in order ID (both full ID and numeric part)
-    if (searchQuery) {
-      const searchLower = searchQuery.toLowerCase().trim()
-      const orderIdLower = order.id.toLowerCase()
-      // Extract numeric part from order ID (e.g., "ORD-1768751659979-588" -> "1768751659979588")
-      const numericPart = order.id.replace(/\D/g, '')
-      if (!orderIdLower.includes(searchLower) && !numericPart.includes(searchLower)) {
-        return false
-      }
-    }
-
-    // Order status filter
-    if (filters.orderStatus.length > 0) {
-      const statusMap = {
-        'preparing': 'PREPARING',
-        'ready': 'READY',
-        'out-for-delivery': 'OUT FOR DELIVERY',
-        'delivered': 'DELIVERED',
-        'rejected': 'REJECTED',
-        'cancelled': 'CANCELLED'
-      }
-      const matchesStatus = filters.orderStatus.some(
-        statusId => statusMap[statusId] === order.status
-      )
-      if (!matchesStatus) return false
-    }
-
-    // Order type filter
-    if (filters.orderType.length > 0) {
+    if (appliedFilters.orderType.length > 0) {
       const hasMatchingTag = order.tags?.some(tag => {
         const tagLower = tag.toLowerCase().replace(/\s+/g, '-')
-        return filters.orderType.includes(tagLower)
+        return appliedFilters.orderType.includes(tagLower)
       })
       if (!hasMatchingTag) return false
     }
@@ -481,32 +529,28 @@ export default function AllOrdersPage() {
   })
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="flex h-full flex-col bg-slate-50 p-0 md:p-6">
+      <div className="mx-auto flex h-full w-full max-w-7xl flex-row overflow-hidden md:rounded-2xl bg-white md:shadow-sm md:ring-1 md:ring-slate-200">
+        {/* Left Main Content */}
+        <div className={`flex-1 min-w-0 overflow-y-auto flex flex-col ${selectedOrderId ? "hidden md:flex" : "flex"}`}>
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-50">
         <div className="flex items-center gap-3">
           <button
             onClick={goBack}
-            className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors md:hidden"
             aria-label="Go back"
           >
             <ArrowLeft className="w-6 h-6 text-gray-900" />
           </button>
           <div className="flex-1">
-            <h1 className="text-lg font-bold text-gray-900">
-              Order History
-            </h1>
-            <p className="text-xs text-gray-500">
-              {filteredOrders.length} {filteredOrders.length === 1 ? 'order' : 'orders'} found
-            </p>
+            <p className="text-sm text-gray-600">Showing order history for</p>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base md:text-xl font-bold text-gray-900">
+                {restaurantData?.name || 'Restaurant'}
+              </h1>
+            </div>
           </div>
-          <button
-            onClick={() => navigate('/food/restaurant/support')}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            aria-label="Help"
-          >
-            <HelpCircle className="w-5 h-5 text-gray-900" />
-          </button>
         </div>
       </div>
 
@@ -533,10 +577,10 @@ export default function AllOrdersPage() {
             }`}
             aria-label="Filter"
           >
-            <Filter className={`w-5 h-5 ${hasActiveFilters() ? 'text-[#B80B3D]' : 'text-gray-900'}`} />
+            <Filter className={`w-5 h-5 ${hasActiveFilters() ? 'text-blue-600' : 'text-gray-900'}`} />
             {hasActiveFilters() && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-br from-[#B80B3D] to-[#66001D] rounded-full text-white text-xs flex items-center justify-center font-bold">
-                {Object.values(filters).flat().length}
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-blue-600 rounded-full text-white text-xs flex items-center justify-center font-bold">
+                {Object.values(appliedFilters).flat().length}
               </span>
             )}
           </button>
@@ -567,14 +611,14 @@ export default function AllOrdersPage() {
             className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-between"
           >
             <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-[#B80B3D]" />
+              <Filter className="w-4 h-4 text-blue-600" />
               <span className="text-sm text-blue-900">
-                <span className="font-semibold">{Object.values(filters).flat().length}</span> filter{Object.values(filters).flat().length !== 1 ? 's' : ''} applied
+                <span className="font-semibold">{Object.values(appliedFilters).flat().length}</span> filter{Object.values(appliedFilters).flat().length !== 1 ? 's' : ''} applied
               </span>
             </div>
             <button
               onClick={handleClearFilters}
-              className="text-xs text-[#B80B3D] hover:text-blue-800 font-medium hover:underline"
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium hover:underline"
             >
               Clear all
             </button>
@@ -583,11 +627,11 @@ export default function AllOrdersPage() {
       )}
 
       {/* Orders List */}
-      <div className="px-4 pb-24 space-y-3">
+      <div className="px-4 pb-24 md:pb-6 space-y-3">
         {loading && (
           <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
             <div className="flex flex-col items-center gap-3">
-              <div className="w-8 h-8 border-4 border-[#B80B3D] border-t-transparent rounded-full animate-spin"></div>
+              <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
               <p className="text-gray-600 text-sm">Loading orders...</p>
             </div>
           </div>
@@ -596,7 +640,7 @@ export default function AllOrdersPage() {
         {!loading && error && (
           <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
             <div className="flex flex-col items-center gap-3">
-              <p className="text-[#B80B3D] font-medium text-sm">Error loading orders</p>
+              <p className="text-red-600 font-medium text-sm">Error loading orders</p>
               <p className="text-gray-500 text-xs">{error}</p>
             </div>
           </div>
@@ -625,31 +669,34 @@ export default function AllOrdersPage() {
                 delay: Math.min(index * 0.05, 0.3),
                 layout: { duration: 0.3 }
               }}
-              onClick={() => navigate(`/food/restaurant/orders/${order.id}`, { state: { mongoId: order.mongoId } })}
-              className="bg-white border border-gray-200 rounded-lg p-4 cursor-pointer hover:shadow-md transition-shadow"
+              onClick={() => {
+                if (typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches) {
+                  setSelectedOrderId(order.mongoId || order.id)
+                } else {
+                  navigate(`/food/restaurant/orders/${order.mongoId || order.id}`)
+                }
+              }}
+              className={`bg-white border rounded-lg p-4 cursor-pointer hover:shadow-md transition-shadow ${
+                selectedOrderId && (selectedOrderId === order.mongoId || selectedOrderId === order.id)
+                  ? "border-blue-400 ring-2 ring-blue-100"
+                  : "border-gray-200"
+              }`}
             >
             {/* Status and Order ID Row */}
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className={`px-2.5 py-1 rounded text-xs font-bold ${getStatusColor(order.status)}`}>
+                <span className="px-2.5 py-1 rounded text-xs font-bold" style={getStatusColor(order.status)}>
                   {order.status}
                 </span>
-                {order.tags && order.tags.map((tag, idx) => {
-                  let badgeColor = "bg-green-600 text-white";
-                  if (tag === "TAKEAWAY") badgeColor = "bg-orange-600 text-white";
-                  else if (tag === "DINING") badgeColor = "bg-blue-600 text-white";
-                  else if (tag === "HOME DELIVERY") badgeColor = "bg-slate-600 text-white";
-
-                  return (
-                    <span key={idx} className={`px-2.5 py-1 rounded text-xs font-bold ${badgeColor}`}>
-                      {tag}
-                    </span>
-                  );
-                })}
+                {order.tags && order.tags.map((tag, idx) => (
+                  <span key={idx} className="px-2.5 py-1 rounded text-xs font-bold" style={getTagStyle(tag)}>
+                    {tag}
+                  </span>
+                ))}
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">{order.date}, {order.time}</span>
-                <ChevronRight className="w-4 h-4 text-gray-400" />
+                <span className="text-xs text-gray-600">{order.date}, {order.time}</span>
+                <ChevronRight className="w-4 h-4 text-gray-700" />
               </div>
             </div>
 
@@ -658,10 +705,10 @@ export default function AllOrdersPage() {
               <span className="text-base font-bold text-gray-900">ID: {order.id}</span>
               <button
                 onClick={(e) => handleCopyOrderId(order.id, e)}
-                className="p-1 hover:bg-gray-100 rounded transition-colors"
+                className="p-1.5 rounded-md transition-colors bg-slate-100 hover:bg-slate-200"
                 aria-label="Copy order ID"
               >
-                <Copy className="w-4 h-4 text-gray-500" />
+                <Copy className="w-4 h-4" style={{ color: "var(--module-theme-color, #2563EB)" }} />
               </button>
             </div>
 
@@ -675,39 +722,74 @@ export default function AllOrdersPage() {
               Ordered by {order.customer}
             </p>
 
+            {order.note?.trim() ? (
+              <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-blue-500 mb-0.5">
+                  Cooking Requests
+                </p>
+                <p className="text-xs text-blue-900 italic line-clamp-2">"{order.note.trim()}"</p>
+              </div>
+            ) : null}
+
             {/* Divider */}
             <div className="border-t border-dashed border-gray-300 my-3"></div>
 
             {/* Order Items */}
             <div className="space-y-2">
-              {order.items.slice(0, 2).map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between">
+              {order.items.slice(0, 1).map((item, idx) => (
+                <div key={idx} className="flex items-center justify-between gap-3">
                   <span className="text-sm text-gray-900">
                     {item.quantity} x {item.name}
                   </span>
-                  <span className="text-sm text-gray-500">{formatMoney(item.price)}</span>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-medium text-gray-900">{formatMoney(order.netPayout)}</p>
+                    <p className="text-xs text-gray-500">Your earnings</p>
+                  </div>
                 </div>
               ))}
-              {order.items.length > 2 && (
-                <p className="text-xs text-[#B80B3D] font-medium">+{order.items.length - 2} more items</p>
+              {order.items.length > 1 && (
+                <p className="text-sm text-gray-500">+{order.items.length - 1} more items</p>
               )}
-            </div>
-
-            {/* Price Footer */}
-            <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
-              <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Amount</span>
-              <span className="text-base font-bold text-gray-900">{formatMoney(order.totalPrice)}</span>
             </div>
 
             {/* Reason/Status Message */}
             {order.reason && (
               <div className="mt-3 pt-3 border-t border-gray-200">
-                <p className="text-sm text-[#B80B3D]">{order.reason}</p>
+                <p className="text-sm text-red-600">{order.reason}</p>
               </div>
             )}
             </motion.div>
             ))}
           </AnimatePresence>
+        )}
+
+        {!loading && !error && filteredOrders.length > 0 && (pagination.totalPages || pagination.pages || 1) > 1 && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
+            <p className="text-xs text-gray-500">
+              Showing {pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.limit + 1} to {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} orders
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setOrdersPage((prev) => Math.max(1, prev - 1))}
+                disabled={ordersPage <= 1}
+                className="px-3 py-1.5 text-xs rounded-lg border border-gray-300 text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                Previous
+              </button>
+              <span className="text-xs text-gray-600">
+                Page {pagination.page} of {pagination.totalPages || pagination.pages || 1}
+              </span>
+              <button
+                type="button"
+                onClick={() => setOrdersPage((prev) => prev + 1)}
+                disabled={ordersPage >= (pagination.totalPages || pagination.pages || 1)}
+                className="px-3 py-1.5 text-xs rounded-lg border border-gray-300 text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
@@ -725,15 +807,23 @@ export default function AllOrdersPage() {
             />
 
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="fixed inset-0 z-50 flex items-center justify-center p-4"
-              onClick={() => setShowDateRangePopup(false)}
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{
+                type: "spring",
+                damping: 30,
+                stiffness: 300
+              }}
+              className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 md:bottom-auto md:top-1/2 md:left-1/2 md:right-auto md:-translate-x-1/2 md:-translate-y-1/2 md:w-full md:max-w-md md:rounded-2xl"
+              onClick={(e) => e.stopPropagation()}
             >
-              <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-sm max-h-[80vh] flex flex-col">
-                <div className="p-4 border-b border-gray-100 flex items-center justify-between shrink-0">
-                  <h2 className="text-lg font-bold text-gray-900">Select date range</h2>
+              <div className="flex justify-center pt-2 pb-1 md:hidden">
+                <div className="w-10 h-1 bg-gray-300 rounded-full"></div>
+              </div>
+
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                <h2 className="text-lg font-bold text-gray-900">Select date range</h2>
                 <button
                   onClick={() => setShowDateRangePopup(false)}
                   className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
@@ -743,42 +833,39 @@ export default function AllOrdersPage() {
                 </button>
               </div>
 
-              <div className="p-2 overflow-y-auto custom-scrollbar">
-                <div className="space-y-1">
-                  {dateRangeOptions.map((option) => {
-                    const isSelected =
-                      selectedDateRange?.label?.toLowerCase() === option.label.toLowerCase()
+              <div className="px-4 py-3 pb-6 space-y-2">
+                {dateRangeOptions.map((option) => {
+                  const isSelected =
+                    selectedDateRange?.label?.toLowerCase() === option.label.toLowerCase()
 
-                    return (
-                      <button
-                        key={option.label}
-                        type="button"
-                        onClick={() => handleDateRangeSelect(option)}
-                        className={`w-full flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-colors ${
-                          isSelected
-                            ? "border-blue-500 bg-blue-50"
-                            : "border-gray-200 bg-white hover:bg-gray-50"
-                        }`}
-                      >
-                        <div>
-                          <p className="text-sm font-semibold text-gray-900 capitalize">{option.label}</p>
-                          {!option.custom && (
-                            <p className="text-xs text-gray-500 mt-0.5">
-                              {(() => {
-                                const dates = option.getDates()
-                                const start = dates.start.toLocaleDateString("en-US", { day: "numeric", month: "short" })
-                                const end = dates.end.toLocaleDateString("en-US", { day: "numeric", month: "short" })
-                                return `${start} - ${end}`
-                              })()}
-                            </p>
-                          )}
-                        </div>
-                        {isSelected && <span className="text-xs font-semibold text-[#B80B3D]">Selected</span>}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
+                  return (
+                    <button
+                      key={option.label}
+                      type="button"
+                      onClick={() => handleDateRangeSelect(option)}
+                      className={`w-full flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-colors ${
+                        isSelected
+                          ? "border-blue-500 bg-blue-50"
+                          : "border-gray-200 bg-white hover:bg-gray-50"
+                      }`}
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900 capitalize">{option.label}</p>
+                        {!option.custom && !option.lifetime && (
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {(() => {
+                              const dates = option.getDates()
+                              const start = dates.start.toLocaleDateString("en-US", { day: "numeric", month: "short" })
+                              const end = dates.end.toLocaleDateString("en-US", { day: "numeric", month: "short" })
+                              return `${start} - ${end}`
+                            })()}
+                          </p>
+                        )}
+                      </div>
+                      {isSelected && <span className="text-xs font-semibold text-blue-600">Selected</span>}
+                    </button>
+                  )
+                })}
               </div>
             </motion.div>
           </>
@@ -842,7 +929,7 @@ export default function AllOrdersPage() {
                 damping: 30,
                 stiffness: 300
               }}
-              className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 flex flex-col"
+              className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 flex flex-col md:bottom-auto md:top-1/2 md:left-1/2 md:right-auto md:-translate-x-1/2 md:-translate-y-1/2 md:w-full md:max-w-2xl md:max-h-[85vh] md:rounded-2xl"
               style={{ height: '65vh' }}
               onClick={(e) => e.stopPropagation()}
             >
@@ -922,13 +1009,13 @@ export default function AllOrdersPage() {
                                   onClick={() => handleFilterToggle(option)}
                                   className={`w-5 h-5 rounded-full border-2 cursor-pointer transition-all ${
                                     isChecked 
-                                      ? 'border-[#B80B3D] bg-white' 
+                                      ? 'border-blue-600 bg-white' 
                                       : 'border-gray-300 bg-white'
                                   }`}
                                 >
                                   {isChecked && (
                                     <div className="w-full h-full rounded-full flex items-center justify-center">
-                                      <div className="w-3 h-3 rounded-full bg-gradient-to-br from-[#B80B3D] to-[#66001D]"></div>
+                                      <div className="w-3 h-3 rounded-full bg-blue-600"></div>
                                     </div>
                                   )}
                                 </div>
@@ -937,7 +1024,7 @@ export default function AllOrdersPage() {
                                   type="checkbox"
                                   checked={isChecked}
                                   onChange={() => handleFilterToggle(option)}
-                                  className="w-5 h-5 border-2 border-gray-300 rounded cursor-pointer transition-all appearance-none checked:bg-green-600 checked:border-green-600 focus:ring-2 focus:ring-green-500 focus:ring-offset-2 relative"
+                                  className="w-5 h-5 border-2 border-gray-300 rounded cursor-pointer transition-all appearance-none checked:bg-blue-600 checked:border-blue-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 relative"
                                   style={{
                                     backgroundImage: isChecked ? `url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3e%3c/svg%3e")` : 'none',
                                     backgroundSize: '100% 100%',
@@ -966,7 +1053,7 @@ export default function AllOrdersPage() {
                 <button
                   onClick={handleApplyFilters}
                   disabled={isApplyingFilters}
-                  className="flex-1 px-4 py-2.5 bg-gradient-to-br from-[#B80B3D] to-[#66001D] rounded-lg text-sm font-medium text-white hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="flex-1 px-4 py-2.5 bg-black rounded-lg text-sm font-medium text-white hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {isApplyingFilters ? (
                     <>
@@ -996,7 +1083,7 @@ export default function AllOrdersPage() {
             className="fixed inset-0 bg-white/80 backdrop-blur-sm z-50 flex items-center justify-center"
           >
             <div className="flex flex-col items-center gap-3">
-              <svg className="animate-spin h-10 w-10 text-[#B80B3D]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <svg className="animate-spin h-10 w-10 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
@@ -1014,7 +1101,7 @@ export default function AllOrdersPage() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 50 }}
             transition={{ duration: 0.3 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-60 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2"
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-60 bg-gray-900 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2"
           >
             <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -1023,13 +1110,19 @@ export default function AllOrdersPage() {
           </motion.div>
         )}
       </AnimatePresence>
+        </div>
+
+        {/* Right detail pane (desktop) — only when an order is selected */}
+        {selectedOrderId && (
+          <div className="hidden md:block w-[420px] lg:w-[450px] border-l border-gray-200 bg-white h-full overflow-hidden shrink-0">
+            <OrderDetailPage
+              orderId={selectedOrderId}
+              isSidebar
+              onClose={() => setSelectedOrderId(null)}
+            />
+          </div>
+        )}
+      </div>
     </div>
   )
 }
-
-
-
-
-
-
-

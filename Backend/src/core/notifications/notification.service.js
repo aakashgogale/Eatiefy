@@ -56,7 +56,7 @@ export const createInboxNotifications = async ({ notifications = [] } = {}) => {
             message: String(item.message).trim(),
             link: String(item.link || '').trim(),
             category: String(item.category || 'broadcast').trim(),
-            source: item.source && ['ADMIN_BROADCAST', 'FSSAI_EXPIRY', 'ORDER_UPDATE'].includes(item.source) ? item.source : 'ADMIN_BROADCAST',
+            source: 'ADMIN_BROADCAST',
             metadata: item.metadata && typeof item.metadata === 'object' ? item.metadata : {},
         };
 
@@ -96,13 +96,13 @@ export const createInboxNotifications = async ({ notifications = [] } = {}) => {
 
     await FoodNotification.bulkWrite(operations, { ordered: false });
 
-    const uniqueIds = [...new Set(
-        rows.map((item) => String(item.broadcastId))
-            .filter((value) => value && value !== 'undefined' && mongoose.Types.ObjectId.isValid(value))
-    )].map(value => new mongoose.Types.ObjectId(value));
+    const ids = rows
+        .map((item) => item.broadcastId)
+        .filter((value) => value && mongoose.Types.ObjectId.isValid(String(value)))
+        .map((value) => new mongoose.Types.ObjectId(String(value)));
 
-    if (uniqueIds.length > 0) {
-        return FoodNotification.find({ broadcastId: { $in: uniqueIds } }).sort({ createdAt: -1 }).lean();
+    if (ids.length > 0) {
+        return FoodNotification.find({ broadcastId: { $in: ids } }).sort({ createdAt: -1 }).lean();
     }
 
     return [];

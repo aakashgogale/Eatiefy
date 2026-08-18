@@ -1,7 +1,8 @@
-import React, { Suspense, lazy, useEffect } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Loader2 } from 'lucide-react'
-import MaintenanceGate from '../modules/Food/components/MaintenanceGate'
+import { Suspense, lazy, useEffect, useState } from 'react'
+import { AppShellSkeleton } from '@food/components/ui/loading-skeletons'
+import LandingPage from './LandingPage'
+import { isFeatureEnabled, loadCorePublicAppConfig } from '@food/services/publicAppConfig'
 
 const NATIVE_LAST_ROUTE_KEY = 'native_last_route'
 
@@ -10,14 +11,7 @@ const FoodApp = lazy(() => import('../modules/Food/routes'))
 const AuthApp = lazy(() => import('../modules/auth/routes'))
 import ProtectedRoute from '@food/components/ProtectedRoute'
 
-const PageLoader = () => (
-  <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center p-6 bg-white dark:bg-[#0a0a0a]">
-    <Loader2 className="h-10 w-10 animate-spin text-[#CB202D]" />
-    <p className="mt-4 text-gray-500 font-bold uppercase tracking-widest text-[10px]">
-      Loading...
-    </p>
-  </div>
-)
+const PageLoader = () => <AppShellSkeleton />
 
 /**
  * FoodAppWrapper — Quick-spicy App. को /food prefix के साथ render करता है.
@@ -27,42 +21,9 @@ const PageLoader = () => (
  * path nikalne ke baad FoodApp render karte hain. FoodApp internally BrowserRouter
  * nahi use karta (sirf Routes use karta hai), isliye ye directly kaam karta hai.
  */
-import { AppShellSkeleton, OnboardingSkeleton } from '../modules/Food/components/ui/loading-skeletons'
-
 const FoodAppWrapper = () => {
-  const location = useLocation();
-  
-  // Synchronous initial auth check to prevent AppShellSkeleton flash before redirect
-  const authStatus = localStorage.getItem("user_authenticated");
-  const token = localStorage.getItem("user_accessToken");
-  
-  // Never redirect restaurant/delivery/admin paths to user login
-  const isNonUserModulePath = 
-    location.pathname.startsWith('/food/restaurant') ||
-    location.pathname.startsWith('/food/delivery') ||
-    location.pathname.startsWith('/food/admin');
-
-  const isUserPath = !isNonUserModulePath && (
-                     location.pathname.startsWith('/home') ||
-                     location.pathname === '/food' || 
-                     location.pathname === '/food/' ||
-                     location.pathname.startsWith('/food/user'));
-
-  const isPolicyPage = location.pathname.includes('terms') || 
-                       location.pathname.includes('privacy') || 
-                       location.pathname.includes('support') ||
-                       location.pathname.includes('refund') ||
-                       location.pathname.includes('shipping') ||
-                       location.pathname.includes('cancellation');
-
-  if (isUserPath && authStatus === null && !token && !isPolicyPage) {
-    return <Navigate to="/user/auth/login" replace />;
-  }
-
-  const isOnboarding = location.pathname.startsWith('/food/restaurant/onboarding');
-
   return (
-    <Suspense fallback={isOnboarding ? <OnboardingSkeleton /> : (isPolicyPage ? <PageLoader /> : <AppShellSkeleton />)}>
+    <Suspense fallback={<PageLoader />}>
       <FoodApp />
     </Suspense>
   )
@@ -76,7 +37,32 @@ const RedirectToFood = () => {
   return <Navigate to={`/food${location.pathname}${location.search}`} replace />;
 };
 
-const MasterLandingPage = lazy(() => import('./MasterLandingPage'))
+const RootEntryRoute = () => {
+  const [loading, setLoading] = useState(true)
+  const [showLandingAtRoot, setShowLandingAtRoot] = useState(true)
+
+  useEffect(() => {
+    const loadFeatureSettings = async () => {
+      try {
+        await loadCorePublicAppConfig()
+        setShowLandingAtRoot(
+          isFeatureEnabled("root_landing_and_unregistered_control", true),
+        )
+      } catch (_error) {
+        // fallback to landing page when API is unavailable
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadFeatureSettings()
+  }, [])
+
+  if (loading) return <PageLoader />
+  if (!showLandingAtRoot) return <Navigate to="/food/user" replace />
+  return <LandingPage />
+}
+
+
 const AdminRouter = lazy(() => import('../modules/Food/components/admin/AdminRouter'))
 
 const AppRoutes = () => {
@@ -103,38 +89,42 @@ const AppRoutes = () => {
   }, [location.pathname, location.search])
 
   return (
-    <Suspense fallback={<AppShellSkeleton />}>
-      <MaintenanceGate>
-        <Routes>
-          {/* Auth Module */}
-          <Route path="/user/auth/*" element={
-            <Suspense fallback={<AppShellSkeleton />}>
-              <AuthApp />
-            </Suspense>
-          } />
+    <Routes>
+      {/* Root → Master Landing Page */}
+      <Route path="/" element={<RootEntryRoute />} />
 
-          {/* Food Module - Handle both /food and root / for the user app */}
-          <Route path="/food/*" element={<FoodAppWrapper />} />
+      {/* Auth Module */}
 
-          {/* Global Admin Portal - AdminRouter handles its own protection for sub-routes */}
-          <Route path="/admin/*" element={
-            <Suspense fallback={<AppShellSkeleton />}>
-              <AdminRouter />
-            </Suspense>
-          } />
 
-          {/* Landing Page ONLY on / */}
-          <Route path="/" element={
-            <Suspense fallback={<AppShellSkeleton />}>
-              <MasterLandingPage />
-            </Suspense>
-          } />
+      {/* Food Module */}
+      <Route path="/food/*" element={<FoodAppWrapper />} />
 
-          {/* Handle root and other paths via FoodAppWrapper */}
-          <Route path="/*" element={<FoodAppWrapper />} />
-        </Routes>
-      </MaintenanceGate>
-    </Suspense>
+      {/* Global Admin Portal - AdminRouter handles its own protection for sub-routes */}
+      <Route path="/admin/*" element={<AdminRouter />} />
+
+      {/* NEW Delivery V2 (Parallel testing) */}
+      {/* Global Admin Portal - wrap lazy router in Suspense to avoid blank/crash on direct admin URLs */}
+      <Route
+        path="/admin/*"
+        element={
+          <Suspense fallback={<PageLoader />}>
+            <AdminRouter />
+          </Suspense>
+        }
+      />
+      
+      {/* Dynamic intercept redirects for bare paths (accessed programmatically) */}
+      <Route path="/user/*" element={<RedirectToFood />} />
+      <Route path="/restaurant/*" element={<RedirectToFood />} />
+      <Route path="/delivery/*" element={<RedirectToFood />} />
+      <Route path="/usermain/*" element={<RedirectToFood />} />
+      <Route path="/profile/*" element={<RedirectToFood />} />
+      <Route path="/cart/*" element={<Navigate to="/food/user/cart" replace />} />
+      <Route path="/orders/*" element={<RedirectToFood />} />
+
+      {/* Fallback 404 */}
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   )
 }
 

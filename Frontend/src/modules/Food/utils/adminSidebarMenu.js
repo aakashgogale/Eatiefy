@@ -28,14 +28,13 @@ export const adminSidebarMenu = [
         subItems: [
           { label: "Restaurant Foods List", path: "/admin/food/foods" },
           { label: "Restaurant Addons List", path: "/admin/food/addons" },
-          { label: "Pricing Management", path: "/admin/food/pricing" },
         ],
       },
       {
-        type: "expandable",
+        type: "link",
         label: "Categories",
         icon: "FolderTree",
-        subItems: [{ label: "Category", path: "/admin/food/categories" }],
+        path: "/admin/food/categories",
       },
     ],
   },
@@ -56,11 +55,12 @@ export const adminSidebarMenu = [
         subItems: [
           { label: "Restaurants List", path: "/admin/food/restaurants" },
           { label: "New Joining Request", path: "/admin/food/restaurants/joining-request" },
-          { label: "Top Restaurants", path: "/admin/food/restaurants/top-restaurants" },
-          { label: "Restaurant Commission", path: "/admin/food/restaurants/commission" },
+          { label: "Unregistered Restaurants", path: "/admin/food/restaurants/unregistered" },
           { label: "Restaurant Reviews", path: "/admin/food/restaurants/reviews" },
           { label: "Restaurant Complaints", path: "/admin/food/restaurants/complaints" },
           { label: "Restaurant Settings", path: "/admin/food/restaurants/settings" },
+          { label: "Subscription Settings", path: "/admin/food/restaurants/subscription-settings" },
+          { label: "Subscription Billing", path: "/admin/food/restaurants/subscription-history" },
         ],
       },
     ],
@@ -75,7 +75,6 @@ export const adminSidebarMenu = [
         icon: "FileText",
         subItems: [
           { label: "All", path: "/admin/food/orders/all" },
-          // { label: "Scheduled", path: "/admin/food/orders/scheduled" },
           { label: "Pending", path: "/admin/food/orders/pending" },
           { label: "Processing", path: "/admin/food/orders/processing" },
           { label: "Food On The Way", path: "/admin/food/orders/food-on-the-way" },
@@ -85,6 +84,7 @@ export const adminSidebarMenu = [
           { label: "Payment Failed", path: "/admin/food/orders/payment-failed" },
           { label: "Refunded", path: "/admin/food/orders/refunded" },
           { label: "Offline Payments", path: "/admin/food/orders/offline-payments" },
+          { label: "User Carts", path: "/admin/food/orders/user-carts" },
         ],
       },
       {
@@ -107,14 +107,13 @@ export const adminSidebarMenu = [
       },
     ],
   },
-  // TODO: Referral feature temporarily disabled. Uncomment to re-enable in future.
-  // {
-  //   type: "section",
-  //   label: "REFERRAL & REWARDS",
-  //   items: [
-  //     { type: "link", label: "Referral Settings", path: "/admin/food/referral-settings", icon: "Gift" },
-  //   ],
-  // },
+  {
+    type: "section",
+    label: "REFERRAL & REWARDS",
+    items: [
+      { type: "link", label: "Referral Settings", path: "/admin/food/referral-settings", icon: "Gift" },
+    ],
+  },
   {
     type: "section",
     label: "CUSTOMER MANAGEMENT",
@@ -137,16 +136,14 @@ export const adminSidebarMenu = [
     type: "section",
     label: "DELIVERYMAN MANAGEMENT",
     items: [
-      { type: "link", label: "Delivery Cash Limit", path: "/admin/food/delivery-cash-limit", icon: "IndianRupee" },
-      { type: "link", label: "Multiorder Setting", path: "/admin/food/multiorder-setting", icon: "Package" },
       { type: "link", label: "Delivery & Platform Fee", path: "/admin/food/fee-settings", icon: "DollarSign" },
-      { type: "link", label: "Cash Confirmations", path: "/admin/food/cash-confirmations", icon: "CheckCircle2" },
-      { type: "link", label: "Cash limit settlement", path: "/admin/food/cash-limit-settlement", icon: "Receipt" },
       { type: "link", label: "Delivery Withdrawal", path: "/admin/food/delivery-withdrawal", icon: "Wallet" },
       { type: "link", label: "Delivery boy Wallet", path: "/admin/food/delivery-boy-wallet", icon: "PiggyBank" },
-      { type: "link", label: "Delivery Boy Payout", path: "/admin/food/delivery-boy-commission", icon: "DollarSign" },
+      { type: "link", label: "Delivery Cash Limit", path: "/admin/food/delivery-cash-limit", icon: "IndianRupee" },
+      { type: "link", label: "Cash Limit Settlement", path: "/admin/food/cash-limit-settlement", icon: "Receipt" },
       { type: "link", label: "Delivery Emergency Help", path: "/admin/food/delivery-emergency-help", icon: "Phone" },
       { type: "link", label: "Delivery Support Tickets", path: "/admin/food/delivery-support-tickets", icon: "MessageSquare" },
+      { type: "link", label: "Order Reassignment Requests", path: "/admin/food/delivery-order-reassignment-requests", icon: "AlertTriangle" },
       {
         type: "expandable",
         label: "Deliveryman",
@@ -154,8 +151,11 @@ export const adminSidebarMenu = [
         subItems: [
           { label: "New Join Request", path: "/admin/food/delivery-partners/join-request" },
           { label: "Deliveryman List", path: "/admin/food/delivery-partners" },
+          { label: "Live Tracking", path: "/admin/food/delivery-partners/live-tracking" },
           { label: "Deliveryman Reviews", path: "/admin/food/delivery-partners/reviews" },
-          { label: "Bonus", path: "/admin/food/delivery-partners/bonus" },
+          { label: "Bonus (Manual)", path: "/admin/food/delivery-partners/bonus" },
+          { label: "Target Bonus Rules", path: "/admin/food/delivery-partners/target-bonus-rules" },
+          { label: "Eligible Bonuses", path: "/admin/food/delivery-partners/eligible-bonuses" },
           { label: "Earning Addon", path: "/admin/food/delivery-partners/earning-addon" },
           { label: "Earning Addon History", path: "/admin/food/delivery-partners/earning-addon-history" },
           { label: "Delivery Earning", path: "/admin/food/delivery-partners/earnings" },
@@ -204,15 +204,16 @@ export const adminSidebarMenu = [
     label: "BANNER SETTINGS",
     items: [
       { type: "link", label: "Landing Page Management", path: "/admin/food/hero-banner-management", icon: "Image" },
+      { type: "link", label: "Promotional Banners", path: "/admin/food/promotional-banner", icon: "Megaphone" },
+// { type: "link", label: "General Banners", path: "/admin/food/banners", icon: "Image" },
     ],
   },
   {
     type: "section",
     label: "DINING MANAGEMENT",
     items: [
-      { type: "link", label: "Dining Banners", path: "/admin/food/dining-management", icon: "UtensilsCrossed" },
-      { type: "link", label: "Dining List", path: "/admin/food/dining-list", icon: "FileText" },
-      { type: "link", label: "Dining Category Request", path: "/admin/food/dining-requests", icon: "CheckCircle" },
+      // { type: "link", label: "Dining Banners", path: "/admin/food/dining-management", icon: "UtensilsCrossed" },
+      // { type: "link", label: "Dining List", path: "/admin/food/dining-list", icon: "FileText" },
     ],
   },
   {
@@ -221,20 +222,21 @@ export const adminSidebarMenu = [
     items: [
       { type: "link", label: "Broadcast Notification", path: "/admin/food/broadcast-notification", icon: "Bell" },
       { type: "link", label: "Business Setup", path: "/admin/food/business-setup", icon: "Settings" },
-      { type: "link", label: "Customization Settings", path: "/admin/food/customization-settings", icon: "Zap" },
-      { type: "link", label: "Archived Accounts", path: "/admin/food/archived-accounts", icon: "UserX" },
+    ],
+  },
+  {
+    type: "section",
+    label: "SUPER POWERS",
+    items: [
+      { type: "link", label: "Feature Settings", path: "/admin/food/feature-settings", icon: "Settings" },
+      { type: "link", label: "Power Scanning", path: "/admin/food/power-scanning", icon: "Zap" },
     ],
   },
   {
     type: "section",
     label: "ADMIN ACCESS",
     items: [
-      {
-        type: "link",
-        label: "Sub Admin List",
-        path: "/admin/food/sub-admins",
-        icon: "UserCog",
-      },
+      { type: "link", label: "Sub Admin List", path: "/admin/food/employees", icon: "UserCog" },
     ],
   },
   {
@@ -247,8 +249,7 @@ export const adminSidebarMenu = [
       { type: "link", label: "Support", path: "/admin/food/pages-social-media/support", icon: "Headset" },
       { type: "link", label: "Refund Policy", path: "/admin/food/pages-social-media/refund", icon: "Receipt" },
       { type: "link", label: "Shipping Policy", path: "/admin/food/pages-social-media/shipping", icon: "Truck" },
-      { type: "link", label: "Cancellation Policy", path: "/admin/food/pages-social-media/cancellation", icon: "FileX" },
+      { type: "link", label: "Cancellation Policy", path: "/admin/food/pages-social-media/cancellation", icon: "X" },
     ],
   },
 ];
-

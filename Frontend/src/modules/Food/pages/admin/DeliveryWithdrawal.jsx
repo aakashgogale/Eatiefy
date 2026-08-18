@@ -1,8 +1,7 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Search, Wallet, Eye, CheckCircle, XCircle, Loader2, Package, QrCode } from "lucide-react"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
-import AdminListPagination from "@food/components/admin/AdminListPagination"
 import {
   Dialog,
   DialogContent,
@@ -25,16 +24,6 @@ const TABS = [
 export default function DeliveryWithdrawal() {
   const [activeTab, setActiveTab] = useState("All")
   const [searchQuery, setSearchQuery] = useState("")
-  const [debouncedSearch, setDebouncedSearch] = useState("")
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(() => {
-    try {
-      return Number(localStorage.getItem("admin_delivery_withdraws_pageSize")) || 20
-    } catch {
-      return 20
-    }
-  })
-  const [totalItems, setTotalItems] = useState(0)
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)
   const [isViewOpen, setIsViewOpen] = useState(false)
@@ -44,50 +33,51 @@ export default function DeliveryWithdrawal() {
   const [showRejectModal, setShowRejectModal] = useState(false)
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300)
-    return () => clearTimeout(t)
-  }, [searchQuery])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [debouncedSearch, activeTab])
-
-  useEffect(() => {
     fetchRequests()
-  }, [activeTab, debouncedSearch, currentPage, pageSize])
+  }, [activeTab])
 
   const fetchRequests = async () => {
     try {
       setLoading(true)
       const response = await adminAPI.getDeliveryWithdrawals({
         status: activeTab,
-        page: currentPage,
-        limit: pageSize,
-        search: debouncedSearch || undefined,
+        page: 1,
+        limit: 200,
+        search: searchQuery.trim() || undefined,
       })
       if (response?.data?.success) {
         setRequests(response.data.data?.requests || [])
-        setTotalItems(
-          response.data.data?.total ??
-          response.data?.total ??
-          (response.data.data?.requests || []).length,
-        )
       } else {
         toast.error(response?.data?.message || "Failed to fetch delivery withdrawal requests")
         setRequests([])
-        setTotalItems(0)
       }
     } catch (error) {
       debugError("Error fetching delivery withdrawal requests:", error)
       toast.error(error.response?.data?.message || "Failed to fetch delivery withdrawal requests")
       setRequests([])
-      setTotalItems(0)
     } finally {
       setLoading(false)
     }
   }
 
-  const filteredRequests = requests
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchQuery !== undefined) fetchRequests()
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [searchQuery])
+
+  const filteredRequests = useMemo(() => {
+    if (!searchQuery.trim()) return requests
+    const q = searchQuery.toLowerCase().trim()
+    return requests.filter(
+      (r) =>
+        r.deliveryName?.toLowerCase().includes(q) ||
+        r.deliveryIdString?.toLowerCase().includes(q) ||
+        r.deliveryPhone?.toLowerCase().includes(q) ||
+        r.amount?.toString().includes(q)
+    )
+  }, [requests, searchQuery])
 
   const getStatusBadge = (status) => {
     if (status === "Approved" || status === "Processed") return "bg-green-100 text-green-700"
@@ -204,7 +194,7 @@ export default function DeliveryWithdrawal() {
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold text-slate-900">Withdrawal Requests</h2>
               <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
-                {totalItems}
+                {filteredRequests.length}
               </span>
             </div>
             <div className="relative flex-1 sm:flex-initial min-w-[200px] max-w-xs">
@@ -309,21 +299,6 @@ export default function DeliveryWithdrawal() {
               </table>
             </div>
           )}
-
-          <AdminListPagination
-            currentPage={currentPage}
-            pageSize={pageSize}
-            totalItems={totalItems}
-            onPageChange={setCurrentPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size)
-              try {
-                localStorage.setItem("admin_delivery_withdraws_pageSize", String(size))
-              } catch {}
-              setCurrentPage(1)
-            }}
-            itemLabel="withdrawals"
-          />
         </div>
 
         {/* View details dialog */}

@@ -1,6 +1,5 @@
 import { sendResponse } from '../../../../utils/response.js';
 import * as orderService from '../services/order.service.js';
-import { ValidationError } from '../../../../core/auth/errors.js';
 import * as foodOrderPaymentService from '../services/foodOrderPayment.service.js';
 import {
     validateCalculateOrderDto,
@@ -24,17 +23,6 @@ export async function calculateOrderController(req, res, next) {
     }
 }
 
-export async function initiateOnlinePaymentController(req, res, next) {
-    try {
-        const userId = req.user?.userId;
-        const dto = validateCreateOrderDto(req.body);
-        const result = await orderService.initiateOnlinePayment(userId, dto);
-        return sendResponse(res, 200, 'Online payment initiated', result);
-    } catch (err) {
-        next(err);
-    }
-}
-
 export async function createOrderController(req, res, next) {
     try {
         const userId = req.user?.userId;
@@ -52,6 +40,17 @@ export async function verifyPaymentController(req, res, next) {
         const dto = validateVerifyPaymentDto(req.body);
         const result = await orderService.verifyPayment(userId, dto);
         return sendResponse(res, 200, 'Payment verified', result);
+    } catch (err) {
+        next(err);
+    }
+}
+
+export async function abandonOnlinePaymentController(req, res, next) {
+    try {
+        const userId = req.user?.userId;
+        const orderId = req.params.orderId;
+        const result = await orderService.abandonOnlinePaymentOrder(userId, orderId);
+        return sendResponse(res, 200, 'Payment abandoned', result);
     } catch (err) {
         next(err);
     }
@@ -106,7 +105,7 @@ export async function cancelOrderController(req, res, next) {
         const userId = req.user?.userId;
         const orderId = req.params.orderId;
         const dto = validateCancelOrderDto(req.body);
-        const order = await orderService.cancelOrder(orderId, userId, dto.reason, dto.refundDestination);
+        const order = await orderService.cancelOrder(orderId, userId, dto.reason);
         return sendResponse(res, 200, 'Order cancelled', { order });
     } catch (err) {
         next(err);
@@ -183,13 +182,7 @@ export async function updateOrderStatusRestaurantController(req, res, next) {
         const restaurantId = req.user?.userId;
         const orderId = req.params.orderId;
         const dto = validateOrderStatusDto(req.body);
-        const order = await orderService.updateOrderStatusRestaurant(
-            orderId,
-            restaurantId,
-            dto.orderStatus,
-            dto.note,
-            dto.preparationTime
-        );
+        const order = await orderService.updateOrderStatusRestaurant(orderId, restaurantId, dto.orderStatus, dto.note);
         return sendResponse(res, 200, 'Order status updated', { order });
     } catch (err) {
         next(err);
@@ -211,8 +204,7 @@ export async function acceptOrderDeliveryController(req, res, next) {
         const deliveryPartnerId = req.user?.userId;
         const orderId = req.params.orderId;
         const order = await orderService.acceptOrderDelivery(orderId, deliveryPartnerId);
-        const capacity = await orderService.getPartnerOrderCapacity(deliveryPartnerId);
-        return sendResponse(res, 200, 'Order accepted', { order, capacity });
+        return sendResponse(res, 200, 'Order accepted', { order });
     } catch (err) {
         next(err);
     }
@@ -301,61 +293,8 @@ export async function updateOrderStatusDeliveryController(req, res, next) {
 export async function getCurrentTripDeliveryController(req, res, next) {
     try {
         const deliveryPartnerId = req.user?.userId;
-        const [activeOrders, capacity] = await Promise.all([
-            orderService.getActiveTripsDelivery(deliveryPartnerId),
-            orderService.getPartnerOrderCapacity(deliveryPartnerId),
-        ]);
-        return sendResponse(res, 200, 'Current trip retrieved', {
-            activeOrder: activeOrders[0] || null,
-            activeOrders,
-            capacity,
-        });
-    } catch (err) {
-        next(err);
-    }
-}
-
-/**
- * Legacy Flutter shell polls /orders/assigned and /orders/active.
- * Always 200 — never "Order not found" when the list is empty.
- */
-export async function listLegacyAssignedActiveDeliveryController(req, res, next) {
-    try {
-        const deliveryPartnerId = req.user?.userId;
-        const [activeOrders, capacity] = await Promise.all([
-            orderService.getActiveTripsDelivery(deliveryPartnerId),
-            orderService.getPartnerOrderCapacity(deliveryPartnerId),
-        ]);
-        return sendResponse(res, 200, 'Orders retrieved', {
-            orders: activeOrders,
-            activeOrder: activeOrders[0] || null,
-            activeOrders,
-            capacity,
-        });
-    } catch (err) {
-        next(err);
-    }
-}
-
-/**
- * Legacy Flutter shell polls /orders/pending (feed of available offers).
- */
-export async function listLegacyPendingDeliveryController(req, res, next) {
-    try {
-        const deliveryPartnerId = req.user?.userId;
-        const result = await orderService.listOrdersAvailableDelivery(
-            deliveryPartnerId,
-            req.query,
-        );
-        const orders = Array.isArray(result?.orders)
-            ? result.orders
-            : Array.isArray(result)
-              ? result
-              : [];
-        return sendResponse(res, 200, 'Orders retrieved', {
-            ...((result && typeof result === 'object' && !Array.isArray(result)) ? result : {}),
-            orders,
-        });
+        const order = await orderService.getCurrentTripDelivery(deliveryPartnerId);
+        return sendResponse(res, 200, 'Current trip retrieved', { activeOrder: order });
     } catch (err) {
         next(err);
     }
@@ -376,23 +315,14 @@ export async function createCollectQrController(req, res, next) {
 export async function getOrderByIdDeliveryController(req, res, next) {
     try {
         const deliveryPartnerId = req.user?.userId;
-        const orderId = String(req.params.orderId || '').trim();
-        const reserved = new Set(['assigned', 'active', 'pending', 'current', 'available']);
-        // Defense-in-depth if a reserved slug ever hits :orderId
-        if (!orderId || reserved.has(orderId.toLowerCase())) {
-            return sendResponse(res, 200, 'Orders retrieved', {
-                order: null,
-                orders: [],
-                activeOrders: [],
-                activeOrder: null,
-            });
-        }
+        const orderId = req.params.orderId;
         const order = await orderService.getOrderById(orderId, { deliveryPartnerId });
         return sendResponse(res, 200, 'Order retrieved', { order });
     } catch (err) {
         next(err);
     }
 }
+
 
 export async function getPaymentStatusController(req, res, next) {
     try {
@@ -404,6 +334,18 @@ export async function getPaymentStatusController(req, res, next) {
         next(err);
     }
 }
+
+export async function switchToCashController(req, res, next) {
+    try {
+        const deliveryPartnerId = req.user?.userId;
+        const orderId = req.params.orderId;
+        const result = await orderService.switchToCash(orderId, deliveryPartnerId);
+        return sendResponse(res, 200, 'Switched to cash collection', result);
+    } catch (err) {
+        next(err);
+    }
+}
+
 
 export async function listOrdersAdminController(req, res, next) {
     try {
@@ -458,16 +400,11 @@ export async function resendDeliveryNotificationRestaurantController(req, res, n
     }
 }
 
-export async function completeTakeawayOrderRestaurantController(req, res, next) {
+export async function resendDeliveryNotificationAdminController(req, res, next) {
     try {
-        const restaurantId = req.user?.userId;
         const orderId = req.params.orderId;
-        const { otp } = req.body;
-        if (!otp) {
-            throw new ValidationError("OTP is required");
-        }
-        const order = await orderService.completeTakeawayOrderRestaurant(orderId, restaurantId, otp);
-        return sendResponse(res, 200, 'Order verified and completed successfully', { order });
+        const result = await orderService.resendDeliveryNotificationAdmin(orderId);
+        return sendResponse(res, 200, 'Notification resent successfully', result);
     } catch (err) {
         next(err);
     }
@@ -477,7 +414,7 @@ export async function acceptOrderAdminController(req, res, next) {
     try {
         const adminId = req.user?.userId;
         const orderId = req.params.orderId;
-        const order = await orderService.acceptOrderAdmin(orderId, adminId);
+        const order = await orderService.updateOrderStatusAdmin(orderId, 'confirmed', 'Order accepted by admin', adminId);
         return sendResponse(res, 200, 'Order accepted by admin', { order });
     } catch (err) {
         next(err);
@@ -489,23 +426,32 @@ export async function rejectOrderAdminController(req, res, next) {
         const adminId = req.user?.userId;
         const orderId = req.params.orderId;
         const { reason } = req.body;
-        const order = await orderService.rejectOrderAdmin(orderId, reason || 'Order rejected by admin', adminId);
+        const order = await orderService.updateOrderStatusAdmin(orderId, 'cancelled_by_admin', reason || 'Order rejected by admin', adminId);
         return sendResponse(res, 200, 'Order rejected by admin', { order });
     } catch (err) {
         next(err);
     }
 }
 
-export async function updateOrderStatusesAdminController(req, res, next) {
+export async function markOrderDeliveredAdminController(req, res, next) {
     try {
         const adminId = req.user?.userId;
         const orderId = req.params.orderId;
-        const { orderStatus, paymentStatus } = req.body || {};
-        const order = await orderService.updateOrderStatusesAdmin(orderId, adminId, {
-            orderStatus,
-            paymentStatus,
-        });
-        return sendResponse(res, 200, 'Order status updated', { order });
+        const { note } = req.body || {};
+        const order = await orderService.markOrderDeliveredAdmin(orderId, adminId, note);
+        return sendResponse(res, 200, 'Order marked as delivered', { order });
+    } catch (err) {
+        next(err);
+    }
+}
+
+export async function processRefundAdminController(req, res, next) {
+    try {
+        const adminId = req.user?.userId;
+        const orderId = req.params.orderId;
+        const amount = req.body?.amount ?? req.body?.refundAmount;
+        const result = await orderService.processRefundAdmin(orderId, amount, adminId);
+        return sendResponse(res, 200, 'Refund processed successfully', result);
     } catch (err) {
         next(err);
     }

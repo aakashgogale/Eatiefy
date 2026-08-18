@@ -175,155 +175,172 @@ export default function UpdateBankDetails() {
   const inputClass = (key) =>
     `w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 text-base transition-colors ${
       errors[key]
-        ? "border-red-500 focus:ring-[#B80B3D] focus:border-[#B80B3D]"
+        ? "border-red-500 focus:ring-red-500 focus:border-red-500"
         : "border-gray-300 focus:ring-blue-500 focus:border-transparent"
     }`
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
-      <div className="px-4 pt-4 pb-3 flex items-center gap-3 border-b border-gray-200">
-        <button onClick={goBack} className="p-2 rounded-full hover:bg-gray-100" aria-label="Back">
-          <ArrowLeft className="w-5 h-5 text-gray-900" />
-        </button>
-        <h1 className="text-lg font-bold text-gray-900">Bank & UPI Details</h1>
+    <div className="min-h-screen bg-white flex flex-col md:min-h-full md:h-full md:overflow-hidden md:bg-slate-50">
+      <div className="sticky top-0 z-40 border-b border-gray-200 bg-white/95 backdrop-blur shrink-0">
+        <div className="px-4 pt-4 pb-3 flex items-center gap-3 md:max-w-2xl md:mx-auto md:px-8 md:py-5 md:w-full">
+          <button onClick={goBack} className="p-2 rounded-full hover:bg-gray-100 md:hidden" aria-label="Back">
+            <ArrowLeft className="w-5 h-5 text-gray-900" />
+          </button>
+          <div>
+            <h1 className="text-lg font-bold text-gray-900 md:text-2xl">Bank & UPI Details</h1>
+            <p className="hidden text-sm text-gray-500 md:block">Update payout account and UPI information</p>
+          </div>
+        </div>
       </div>
 
-      <div className="flex-1 px-4 pt-4 pb-6">
+      <div className="flex-1 overflow-y-auto px-4 pt-4 pb-6 md:min-h-0 md:max-w-2xl md:mx-auto md:px-8 md:py-8 md:w-full">
         {loading ? (
           <div className="py-12 flex items-center justify-center gap-2 text-gray-600">
             <Loader2 className="w-4 h-4 animate-spin" />
             <span>Loading details...</span>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="mb-2">
-              <h2 className="text-base font-bold text-gray-900">Account details</h2>
+          <form onSubmit={handleSubmit} className="space-y-5 md:rounded-2xl md:border md:border-slate-200 md:bg-white md:p-8 md:shadow-sm">
+            <div>
+              <p className="hidden md:block text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500 mb-1">
+                Payouts
+              </p>
+              <h2 className="text-base font-bold text-gray-900 md:text-lg">Account details</h2>
               {formattedUpdatedAt ? (
                 <p className="text-sm text-gray-500 mt-1">Last updated: {formattedUpdatedAt}</p>
               ) : null}
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Account holder name</label>
-              <input
-                type="text"
-                value={form.accountHolderName}
-                onChange={(e) => setForm((p) => ({ ...p, accountHolderName: e.target.value }))}
-                className={inputClass("accountHolderName")}
-                placeholder="Enter account holder name"
-              />
-              {errors.accountHolderName ? (
-                <p className="mt-1.5 text-xs text-[#B80B3D] flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" /> {errors.accountHolderName}
-                </p>
-              ) : null}
+            <div className="grid gap-5 md:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Account holder name</label>
+                <input
+                  type="text"
+                  value={form.accountHolderName}
+                  onChange={(e) => setForm((p) => ({ ...p, accountHolderName: e.target.value }))}
+                  className={inputClass("accountHolderName")}
+                  placeholder="Enter account holder name"
+                />
+                {errors.accountHolderName ? (
+                  <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> {errors.accountHolderName}
+                  </p>
+                ) : null}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Account number</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={form.accountNumber}
+                  onChange={(e) => setForm((p) => ({ ...p, accountNumber: e.target.value }))}
+                  onBlur={(e) => setForm((p) => ({ ...p, accountNumber: e.target.value.replace(/[^\d\s-]/g, "") }))}
+                  className={inputClass("accountNumber")}
+                  placeholder="Enter account number"
+                />
+                {errors.accountNumber ? (
+                  <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> {errors.accountNumber}
+                  </p>
+                ) : null}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Confirm account number</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={form.confirmAccountNumber}
+                  onChange={(e) => setForm((p) => ({ ...p, confirmAccountNumber: e.target.value }))}
+                  onBlur={(e) => setForm((p) => ({ ...p, confirmAccountNumber: e.target.value.replace(/[^\d\s-]/g, "") }))}
+                  className={inputClass("confirmAccountNumber")}
+                  placeholder="Re-enter account number"
+                />
+                {errors.confirmAccountNumber ? (
+                  <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> {errors.confirmAccountNumber}
+                  </p>
+                ) : null}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">IFSC code</label>
+                <input
+                  type="text"
+                  maxLength={11}
+                  value={form.ifscCode}
+                  onChange={(e) => setForm((p) => ({ ...p, ifscCode: e.target.value }))}
+                  onBlur={(e) => setForm((p) => ({ ...p, ifscCode: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") }))}
+                  className={inputClass("ifscCode")}
+                  placeholder="e.g. SBIN0018764"
+                />
+                {errors.ifscCode ? (
+                  <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> {errors.ifscCode}
+                  </p>
+                ) : null}
+              </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Account number</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={form.accountNumber}
-                onChange={(e) => setForm((p) => ({ ...p, accountNumber: e.target.value.replace(/[^\d\s-]/g, "") }))}
-                className={inputClass("accountNumber")}
-                placeholder="Enter account number"
-              />
-              {errors.accountNumber ? (
-                <p className="mt-1.5 text-xs text-[#B80B3D] flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" /> {errors.accountNumber}
-                </p>
-              ) : null}
-            </div>
+            <div className="pt-2 border-t border-gray-200 md:border-slate-200 md:pt-5">
+              <h2 className="text-base font-bold text-gray-900 mb-3 md:text-lg">UPI details</h2>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Confirm account number</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={form.confirmAccountNumber}
-                onChange={(e) => setForm((p) => ({ ...p, confirmAccountNumber: e.target.value.replace(/[^\d\s-]/g, "") }))}
-                className={inputClass("confirmAccountNumber")}
-                placeholder="Re-enter account number"
-              />
-              {errors.confirmAccountNumber ? (
-                <p className="mt-1.5 text-xs text-[#B80B3D] flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" /> {errors.confirmAccountNumber}
-                </p>
-              ) : null}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">IFSC code</label>
-              <input
-                type="text"
-                maxLength={11}
-                value={form.ifscCode}
-                onChange={(e) => setForm((p) => ({ ...p, ifscCode: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") }))}
-                className={inputClass("ifscCode")}
-                placeholder="e.g. SBIN0018764"
-              />
-              {errors.ifscCode ? (
-                <p className="mt-1.5 text-xs text-[#B80B3D] flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" /> {errors.ifscCode}
-                </p>
-              ) : null}
-            </div>
-
-            <div className="pt-2 border-t border-gray-200">
-              <h2 className="text-base font-bold text-gray-900 mb-3">UPI details</h2>
-
-              <label className="block text-sm font-medium text-gray-700 mb-2">UPI ID</label>
-              <input
-                type="text"
-                value={form.upiId}
-                onChange={(e) => setForm((p) => ({ ...p, upiId: e.target.value.trim() }))}
-                className={inputClass("upiId")}
-                placeholder="e.g. merchant@okaxis"
-              />
-              {errors.upiId ? (
-                <p className="mt-1.5 text-xs text-[#B80B3D] flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" /> {errors.upiId}
-                </p>
-              ) : null}
-
-              <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">UPI QR image</label>
-                {form.upiQrImage ? (
-                  <img
-                    src={form.upiQrImage}
-                    alt="UPI QR"
-                    className="w-40 h-40 object-contain border border-gray-200 rounded-lg bg-white"
-                  />
-                ) : (
-                  <div className="w-40 h-40 border border-dashed border-gray-300 rounded-lg flex items-center justify-center text-xs text-gray-500">
-                    No QR uploaded
-                  </div>
-                )}
-
-                <div 
-                  onClick={handleQrClick}
-                  className="inline-flex mt-3 items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium cursor-pointer hover:bg-gray-50"
-                >
-                  {uploadingQr ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Uploading...
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="w-4 h-4" />
-                      Upload QR Image
-                    </>
-                  )}
+              <div className="grid gap-5 md:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">UPI ID</label>
                   <input
-                    ref={qrInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    disabled={uploadingQr}
-                    onChange={(e) => handleQrUpload(e.target.files?.[0])}
+                    type="text"
+                    value={form.upiId}
+                    onChange={(e) => setForm((p) => ({ ...p, upiId: e.target.value.trim() }))}
+                    className={inputClass("upiId")}
+                    placeholder="e.g. merchant@okaxis"
                   />
+                  {errors.upiId ? (
+                    <p className="mt-1.5 text-xs text-red-600 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" /> {errors.upiId}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">UPI QR image</label>
+                  {form.upiQrImage ? (
+                    <img
+                      src={form.upiQrImage}
+                      alt="UPI QR"
+                      className="w-40 h-40 object-contain border border-gray-200 rounded-lg bg-white"
+                     loading="lazy" decoding="async" />
+                  ) : (
+                    <div className="w-40 h-40 border border-dashed border-gray-300 rounded-lg flex items-center justify-center text-xs text-gray-500">
+                      No QR uploaded
+                    </div>
+                  )}
+
+                  <div
+                    onClick={handleQrClick}
+                    className="inline-flex mt-3 items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium cursor-pointer hover:bg-gray-50"
+                  >
+                    {uploadingQr ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" />
+                        Upload QR Image
+                      </>
+                    )}
+                    <input
+                      ref={qrInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={uploadingQr}
+                      onChange={(e) => handleQrUpload(e.target.files?.[0])}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -331,7 +348,13 @@ export default function UpdateBankDetails() {
             <button
               type="submit"
               disabled={saving || uploadingQr}
-              className="w-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white font-bold py-4 rounded-lg text-base transition-colors"
+              className="w-full disabled:cursor-not-allowed text-white font-bold py-4 rounded-lg text-base transition-colors md:mt-2"
+              style={{
+                background: saving || uploadingQr
+                  ? "rgb(96 165 250)"
+                  : "linear-gradient(135deg, rgba(var(--module-theme-rgb,37,99,235),0.9), var(--module-theme-color,#2563EB))",
+                boxShadow: saving || uploadingQr ? "none" : "0 10px 22px rgba(var(--module-theme-rgb,37,99,235),0.28)",
+              }}
             >
               {saving ? "Saving..." : "Submit"}
             </button>
@@ -351,10 +374,3 @@ export default function UpdateBankDetails() {
     </div>
   )
 }
-
-
-
-
-
-
-

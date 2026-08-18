@@ -8,7 +8,8 @@ const foodOfferSchema = new mongoose.Schema(
         customerScope: { type: String, enum: ['all', 'first-time'], default: 'all', index: true },
         restaurantScope: { type: String, enum: ['all', 'selected'], default: 'all', index: true },
         restaurantId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodRestaurant' },
-        minOrderValue: { type: Number, default: null, min: 0 },
+        restaurantIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'FoodRestaurant' }],
+        minOrderValue: { type: Number, default: 0, min: 0 },
         maxDiscount: { type: Number, default: null, min: 0 },
         usageLimit: { type: Number, default: null, min: 0 },
         perUserLimit: { type: Number, default: null, min: 0 },
@@ -18,11 +19,14 @@ const foodOfferSchema = new mongoose.Schema(
         endDate: { type: Date },
         status: { type: String, enum: ['active', 'paused', 'inactive'], default: 'active', index: true },
         showInCart: { type: Boolean, default: true },
-        couponType: { type: String, enum: ['delivery', 'takeaway', 'all'], default: 'all', index: true }
+        createdByRole: { type: String, enum: ['ADMIN', 'RESTAURANT'], default: 'ADMIN', index: true },
+        adminBearPercentage: { type: Number, default: 100, min: 0, max: 100 },
+        restaurantBearPercentage: { type: Number, default: 0, min: 0, max: 100 }
     },
     { collection: 'food_offers', timestamps: true }
 );
 
 foodOfferSchema.index({ restaurantId: 1, createdAt: -1 });
+foodOfferSchema.index({ restaurantIds: 1, createdAt: -1 });
 
 export const FoodOffer = mongoose.model('FoodOffer', foodOfferSchema);

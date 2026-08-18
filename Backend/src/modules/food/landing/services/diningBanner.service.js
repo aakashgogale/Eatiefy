@@ -1,9 +1,10 @@
 import { FoodDiningBanner } from '../models/diningBanner.model.js';
-import { storeImageBuffer, deleteStoredAsset } from '../../../../services/storage.service.js';
+import { saveImageFile, deleteStoredFile } from '../../../../services/storage.service.js';
 
-export const listDiningBanners = async (zoneId = null) => {
-    let query = zoneId ? { zoneId } : { zoneId: null };
-    return FoodDiningBanner.find(query).sort({ sortOrder: 1, createdAt: -1 }).lean();
+const BANNER_FOLDER = 'food/dining-banners';
+
+export const listDiningBanners = async () => {
+    return FoodDiningBanner.find().sort({ sortOrder: 1, createdAt: -1 }).lean();
 };
 
 export const createDiningBannersFromFiles = async (files, meta = {}) => {
@@ -15,16 +16,15 @@ export const createDiningBannersFromFiles = async (files, meta = {}) => {
 
     for (const file of files) {
         try {
-            const uploadResult = await storeImageBuffer(file.buffer, 'food/dining-banners');
+            const saved = await saveImageFile(file, BANNER_FOLDER);
 
             const banner = await FoodDiningBanner.create({
-                imageUrl: uploadResult.secure_url,
-                publicId: uploadResult.public_id,
+                imageUrl: saved.url,
+                publicId: saved.path,
                 title: meta.title,
                 ctaText: meta.ctaText,
                 ctaLink: meta.ctaLink,
                 diningType: meta.diningType,
-                zoneId: meta.zoneId,
                 sortOrder: meta.sortOrder ?? 0,
                 isActive: true,
             });
@@ -44,8 +44,13 @@ export const deleteDiningBanner = async (id) => {
         return { deleted: false };
     }
 
-    // Never let a failed file cleanup block the record deletion.
-    await deleteStoredAsset(doc.imageUrl || doc.publicId);
+    if (doc.publicId) {
+        try {
+            await deleteStoredFile(doc.publicId);
+        } catch {
+            // ignore storage deletion errors
+        }
+    }
 
     await doc.deleteOne();
     return { deleted: true };
@@ -68,4 +73,3 @@ export const toggleDiningBannerStatus = async (id, isActive) => {
     ).lean();
     return updated;
 };
-

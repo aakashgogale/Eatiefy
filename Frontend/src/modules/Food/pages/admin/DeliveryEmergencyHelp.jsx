@@ -18,13 +18,6 @@ export default function DeliveryEmergencyHelp() {
   })
   const [formErrors, setFormErrors] = useState({})
 
-  const fieldLimits = {
-    medicalEmergency: 3,
-    accidentHelpline: 3,
-    contactPolice: 3,
-    insurance: 10,
-  }
-
   // Fetch emergency help numbers on component mount
   useEffect(() => {
     fetchEmergencyHelp()
@@ -54,31 +47,20 @@ export default function DeliveryEmergencyHelp() {
 
   const validateForm = () => {
     const errors = {}
+    const phoneRegex = /^\d{3,15}$/
     const normalizeDigits = (value) => String(value || "").replace(/[^\d]/g, "")
 
-    if (
-      formData.medicalEmergency &&
-      normalizeDigits(formData.medicalEmergency).length !== fieldLimits.medicalEmergency
-    ) {
-      errors.medicalEmergency = "Phone number must be exactly 3 digits"
+    if (formData.medicalEmergency && !phoneRegex.test(normalizeDigits(formData.medicalEmergency))) {
+      errors.medicalEmergency = "Phone number must be 3 to 15 digits"
     }
-    if (
-      formData.accidentHelpline &&
-      normalizeDigits(formData.accidentHelpline).length !== fieldLimits.accidentHelpline
-    ) {
-      errors.accidentHelpline = "Phone number must be exactly 3 digits"
+    if (formData.accidentHelpline && !phoneRegex.test(normalizeDigits(formData.accidentHelpline))) {
+      errors.accidentHelpline = "Phone number must be 3 to 15 digits"
     }
-    if (
-      formData.contactPolice &&
-      normalizeDigits(formData.contactPolice).length !== fieldLimits.contactPolice
-    ) {
-      errors.contactPolice = "Phone number must be exactly 3 digits"
+    if (formData.contactPolice && !phoneRegex.test(normalizeDigits(formData.contactPolice))) {
+      errors.contactPolice = "Phone number must be 3 to 15 digits"
     }
-    if (
-      formData.insurance &&
-      normalizeDigits(formData.insurance).length !== fieldLimits.insurance
-    ) {
-      errors.insurance = "Phone number must be exactly 10 digits"
+    if (formData.insurance && !phoneRegex.test(normalizeDigits(formData.insurance))) {
+      errors.insurance = "Phone number must be 3 to 15 digits"
     }
 
     setFormErrors(errors)
@@ -86,9 +68,7 @@ export default function DeliveryEmergencyHelp() {
   }
 
   const handleInputChange = (field, value) => {
-    const sanitizedValue = String(value || "")
-      .replace(/[^\d]/g, "")
-      .slice(0, fieldLimits[field] || 15)
+    const sanitizedValue = String(value || "").replace(/[^\d]/g, "").slice(0, 15)
     setFormData(prev => ({
       ...prev,
       [field]: sanitizedValue
@@ -140,24 +120,28 @@ export default function DeliveryEmergencyHelp() {
       id: "medicalEmergency",
       label: "Medical Emergency",
       placeholder: "Enter medical emergency phone number",
-      description: "Phone number for medical emergencies (e.g., 108)"
+      icon: "",
+      description: "Phone number for medical emergencies (e.g., 108, +91-XXX-XXX-XXXX)"
     },
     {
       id: "accidentHelpline",
       label: "Accident Helpline",
       placeholder: "Enter accident helpline phone number",
+      icon: "",
       description: "Phone number for accident helpline"
     },
     {
       id: "contactPolice",
       label: "Contact Police",
       placeholder: "Enter police emergency phone number",
+      icon: "",
       description: "Phone number for police emergency (e.g., 100)"
     },
     {
       id: "insurance",
       label: "Insurance",
       placeholder: "Enter insurance helpline phone number",
+      icon: "",
       description: "Phone number for insurance claims and policy help"
     }
   ]
@@ -209,7 +193,10 @@ export default function DeliveryEmergencyHelp() {
           <form onSubmit={handleSubmit} className="space-y-6">
             {emergencyFields.map((field) => (
               <div key={field.id} className="space-y-2">
-                <label className="block text-sm font-semibold text-slate-900">{field.label}</label>
+                <label className="block text-sm font-semibold text-slate-900">
+                  <span className="mr-2">{field.icon}</span>
+                  {field.label}
+                </label>
                 <p className="text-xs text-slate-600 mb-2">{field.description}</p>
                 <div className="relative">
                   <input
@@ -218,7 +205,7 @@ export default function DeliveryEmergencyHelp() {
                     onChange={(e) => handleInputChange(field.id, e.target.value)}
                     placeholder={field.placeholder}
                     inputMode="numeric"
-                    maxLength={fieldLimits[field.id] || 15}
+                    maxLength={15}
                     className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                       formErrors[field.id]
                         ? "border-red-300 focus:ring-red-500"

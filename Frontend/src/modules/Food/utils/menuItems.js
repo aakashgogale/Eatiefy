@@ -1,4 +1,4 @@
-import { getFoodDisplayPrice, getFoodVariants } from "./foodVariants"
+import { getFoodDisplayOtherPrice, getFoodDisplayPrice, getFoodVariants } from "./foodVariants"
 
 export const getMenuFromResponse = (response) =>
   response?.data?.data?.menu || response?.data?.menu || null
@@ -13,6 +13,7 @@ const normalizeItem = (item = {}, sectionName = "", subsectionName = "") => ({
   category: item?.category || sectionName || "Varieties",
   foodType: item?.foodType || "Non-Veg",
   price: getFoodDisplayPrice(item),
+  otherPrice: getFoodDisplayOtherPrice(item),
   rating: Number(item?.rating || 0),
   reviews: Number(item?.reviews || 0),
   stock: item?.stock || "Unlimited",

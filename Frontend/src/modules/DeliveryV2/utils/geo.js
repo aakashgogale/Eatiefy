@@ -1,46 +1,4 @@
 /**
- * Normalize mixed location shapes (lat/lng, latitude/longitude, GeoJSON Point)
- * into { lat, lng }. Corrects common India lat/lng swaps. Returns null if invalid.
- */
-export function parseLatLng(raw) {
-  if (!raw || typeof raw !== "object") return null;
-
-  let lat = parseFloat(raw.lat ?? raw.latitude);
-  let lng = parseFloat(raw.lng ?? raw.longitude);
-
-  if (
-    (!Number.isFinite(lat) || !Number.isFinite(lng)) &&
-    Array.isArray(raw.coordinates) &&
-    raw.coordinates.length >= 2
-  ) {
-    lng = parseFloat(raw.coordinates[0]);
-    lat = parseFloat(raw.coordinates[1]);
-  }
-
-  if (
-    (!Number.isFinite(lat) || !Number.isFinite(lng)) &&
-    Array.isArray(raw.location?.coordinates) &&
-    raw.location.coordinates.length >= 2
-  ) {
-    lng = parseFloat(raw.location.coordinates[0]);
-    lat = parseFloat(raw.location.coordinates[1]);
-  }
-
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-
-  // Swap if values look inverted for Indian bounding box (lat 6–37, lng 68–98)
-  if (lng >= 6 && lng <= 37 && lat >= 68 && lat <= 98) {
-    const swap = lat;
-    lat = lng;
-    lng = swap;
-  }
-
-  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
-
-  return { lat, lng };
-}
-
-/**
  * Haversine formula to calculate the distance between two points in meters.
  * @param {number} lat1 
  * @param {number} lon1 
@@ -96,3 +54,63 @@ export const calculateHeading = (lat1, lon1, lat2, lon2) => {
     const bearing = (Math.atan2(y, x) * 180) / Math.PI;
     return (bearing + 360) % 360;
 };
+
+/**
+ * Normalize any common lat/lng shape to { lat, lng }.
+ */
+export const toLatLng = (point) => {
+    if (!point || typeof point !== 'object') return null;
+    const lat = parseFloat(point.lat ?? point.latitude);
+    const lng = parseFloat(point.lng ?? point.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat, lng };
+};
+
+/**
+ * Driving (road) distance via Google Maps JS DirectionsService.
+ * Returns null when Maps JS is not loaded or the route cannot be resolved.
+ * @returns {Promise<{ distanceMeters: number, durationSeconds: number, distanceKm: number } | null>}
+ */
+export const fetchDrivingRouteClient = (origin, destination) =>
+    new Promise((resolve) => {
+        const from = toLatLng(origin);
+        const to = toLatLng(destination);
+        if (!from || !to || !window.google?.maps?.DirectionsService) {
+            resolve(null);
+            return;
+        }
+
+        const service = new window.google.maps.DirectionsService();
+        service.route(
+            {
+                origin: from,
+                destination: to,
+                travelMode: window.google.maps.TravelMode.DRIVING,
+            },
+            (result, status) => {
+                if (status !== 'OK' || !result?.routes?.[0]?.legs?.length) {
+                    resolve(null);
+                    return;
+                }
+
+                let distanceMeters = 0;
+                let durationSeconds = 0;
+                for (const leg of result.routes[0].legs) {
+                    distanceMeters += leg.distance?.value || 0;
+                    durationSeconds += leg.duration?.value || 0;
+                }
+
+                if (distanceMeters <= 0) {
+                    resolve(null);
+                    return;
+                }
+
+                resolve({
+                    distanceMeters,
+                    durationSeconds,
+                    distanceKm: Number((distanceMeters / 1000).toFixed(2)),
+                });
+            },
+        );
+    });
+

@@ -1,91 +1,117 @@
 import { useState, useEffect } from "react"
-import { Download, ChevronDown, FileText, DollarSign, Settings, FileSpreadsheet, Code, Loader2, Search } from "lucide-react"
+import { Download, ChevronDown, FileText, DollarSign, Settings, FileSpreadsheet, Code, Loader2, Calendar } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@food/components/ui/dialog"
 import { exportReportsToCSV, exportReportsToExcel, exportReportsToPDF, exportReportsToJSON } from "@food/components/admin/reports/reportsExportUtils"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
-import AdminListPagination from "@food/components/admin/AdminListPagination"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
+const DEFAULT_FILTERS = {
+  dateRangeType: "All Time",
+  fromDate: "",
+  toDate: "",
+  calculateTax: "Percentage",
+  taxRate: "Select Tax Rate",
+}
+
+function buildTaxReportDateRange(filters) {
+  let fromDate = null
+  let toDate = null
+  const now = new Date()
+
+  if (filters.dateRangeType === "Custom Range") {
+    if (filters.fromDate) {
+      fromDate = new Date(`${filters.fromDate}T00:00:00`)
+    }
+    if (filters.toDate) {
+      toDate = new Date(`${filters.toDate}T23:59:59`)
+    }
+    return { fromDate, toDate }
+  }
+
+  if (filters.dateRangeType === "Today") {
+    fromDate = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    toDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
+  } else if (filters.dateRangeType === "This Week") {
+    const dayOfWeek = now.getDay()
+    const diff = now.getDate() - dayOfWeek
+    fromDate = new Date(now.getFullYear(), now.getMonth(), diff)
+    toDate = new Date(now.getFullYear(), now.getMonth(), diff + 6, 23, 59, 59)
+  } else if (filters.dateRangeType === "This Month") {
+    fromDate = new Date(now.getFullYear(), now.getMonth(), 1)
+    toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
+  } else if (filters.dateRangeType === "This Year") {
+    fromDate = new Date(now.getFullYear(), 0, 1)
+    toDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59)
+  }
+
+  return { fromDate, toDate }
+}
+
+function buildTaxReportParams(filters) {
+  const { fromDate, toDate } = buildTaxReportDateRange(filters)
+
+  const params = {
+    fromDate: fromDate ? fromDate.toISOString() : undefined,
+    toDate: toDate ? toDate.toISOString() : undefined,
+    limit: 1000,
+  }
+
+  if (filters.taxRate && filters.taxRate !== "Select Tax Rate") {
+    params.taxRate = parseInt(filters.taxRate.replace("%", ""), 10)
+  }
+
+  if (filters.calculateTax) {
+    params.calculateTax = filters.calculateTax
+  }
+
+  return params
+}
+
 
 export default function TaxReport() {
-  const [searchQuery, setSearchQuery] = useState("")
-  const [debouncedSearch, setDebouncedSearch] = useState("")
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(() => {
-    try {
-      return Number(localStorage.getItem("admin_tax_report_pageSize")) || 20
-    } catch {
-      return 20
-    }
-  })
-  const [totalItems, setTotalItems] = useState(0)
-  const [filters, setFilters] = useState({
-    dateRangeType: "All Time",
-    calculateTax: "Percentage",
-    taxRate: "Select Tax Rate",
-  })
+  const [filters, setFilters] = useState(DEFAULT_FILTERS)
   const [reports, setReports] = useState([])
   const [stats, setStats] = useState({
     totalIncome: "₹0.00",
     totalTax: "₹0.00"
   })
   const [loading, setLoading] = useState(true)
-  const [isRefreshing, setIsRefreshing] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [selectedReport, setSelectedReport] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [reportDetail, setReportDetail] = useState(null)
 
-  const fetchTaxReport = async () => {
+  const fetchTaxReport = async (activeFilters = filters) => {
     try {
-      setIsRefreshing(true)
-      
-      let fromDate = null
-      let toDate = null
-      const now = new Date()
-      
-      if (filters.dateRangeType === "Today") {
-        fromDate = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-        toDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
-      } else if (filters.dateRangeType === "This Week") {
-        const dayOfWeek = now.getDay()
-        const diff = now.getDate() - dayOfWeek
-        fromDate = new Date(now.getFullYear(), now.getMonth(), diff)
-        toDate = new Date(now.getFullYear(), now.getMonth(), diff + 6, 23, 59, 59)
-      } else if (filters.dateRangeType === "This Month") {
-        fromDate = new Date(now.getFullYear(), now.getMonth(), 1)
-        toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
-      } else if (filters.dateRangeType === "This Year") {
-        fromDate = new Date(now.getFullYear(), 0, 1)
-        toDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59)
+      if (activeFilters.dateRangeType === "Custom Range") {
+        if (!activeFilters.fromDate || !activeFilters.toDate) {
+          toast.error("Please select both From Date and To Date")
+          return
+        }
+        if (activeFilters.fromDate > activeFilters.toDate) {
+          toast.error("From Date cannot be after To Date")
+          return
+        }
       }
 
-      const params = {
-        fromDate: fromDate ? fromDate.toISOString() : undefined,
-        toDate: toDate ? toDate.toISOString() : undefined,
-        search: debouncedSearch || undefined,
-        page: currentPage,
-        limit: pageSize,
-      }
+      setLoading(true)
 
+      const params = buildTaxReportParams(activeFilters)
       const response = await adminAPI.getTaxReport(params)
 
       if (response?.data?.success && response.data.data) {
-        const data = response.data.data
-        setReports(data.reports || [])
-        setTotalItems(data.pagination?.total ?? 0)
-        setStats(data.stats || {
+        setReports(response.data.data.reports || [])
+        setStats(response.data.data.stats || {
           totalIncome: "₹0.00",
           totalTax: "₹0.00"
         })
       } else {
         setReports([])
-        setTotalItems(0)
         if (response?.data?.message) {
           toast.error(response.data.message)
         }
@@ -94,68 +120,31 @@ export default function TaxReport() {
       debugError("Error fetching tax report:", error)
       toast.error("Failed to fetch tax report")
       setReports([])
-      setTotalItems(0)
     } finally {
-      setIsRefreshing(false)
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300)
-    return () => clearTimeout(t)
-  }, [searchQuery])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [filters.dateRangeType, debouncedSearch])
-
-  useEffect(() => {
-    fetchTaxReport()
-  }, [filters.dateRangeType, debouncedSearch, currentPage, pageSize])
+    fetchTaxReport(DEFAULT_FILTERS)
+  }, [])
 
   const handleReset = () => {
-    setFilters({
-      dateRangeType: "All Time",
-      calculateTax: "Percentage",
-      taxRate: "Select Tax Rate",
-    })
-    setSearchQuery("")
-    setCurrentPage(1)
+    setFilters(DEFAULT_FILTERS)
+    fetchTaxReport(DEFAULT_FILTERS)
   }
 
   const handleSubmit = () => {
-    fetchTaxReport()
+    fetchTaxReport(filters)
   }
 
   const handleViewDetails = async (report) => {
     setSelectedReport(report)
+    setReportDetail(null)
     setDetailLoading(true)
     try {
-      let fromDate = null
-      let toDate = null
-      const now = new Date()
-      
-      if (filters.dateRangeType === "Today") {
-        fromDate = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-        toDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
-      } else if (filters.dateRangeType === "This Week") {
-        const dayOfWeek = now.getDay()
-        const diff = now.getDate() - dayOfWeek
-        fromDate = new Date(now.getFullYear(), now.getMonth(), diff)
-        toDate = new Date(now.getFullYear(), now.getMonth(), diff + 6, 23, 59, 59)
-      } else if (filters.dateRangeType === "This Month") {
-        fromDate = new Date(now.getFullYear(), now.getMonth(), 1)
-        toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
-      } else if (filters.dateRangeType === "This Year") {
-        fromDate = new Date(now.getFullYear(), 0, 1)
-        toDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59)
-      }
-
-      const params = {
-        fromDate: fromDate ? fromDate.toISOString() : undefined,
-        toDate: toDate ? toDate.toISOString() : undefined,
-      }
+      const params = buildTaxReportParams(filters)
+      delete params.limit
 
       const response = await adminAPI.getTaxReportDetail(report.id, params)
       if (response?.data?.success) {
@@ -179,7 +168,7 @@ export default function TaxReport() {
     const headers = [
       { key: "sl", label: "SI" },
       { key: "incomeSource", label: "Income Source" },
-      { key: "totalIncome", label: "Total Income" },
+      { key: "totalIncome", label: "Total Earnings" },
       { key: "totalTax", label: "Total Tax" },
     ]
     switch (format) {
@@ -190,7 +179,7 @@ export default function TaxReport() {
     }
   }
 
-  if (loading && reports.length === 0) {
+  if (loading) {
     return (
       <div className="p-4 lg:p-6 bg-slate-50 min-h-screen flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
@@ -223,7 +212,11 @@ export default function TaxReport() {
               </label>
               <select
                 value={filters.dateRangeType}
-                onChange={(e) => setFilters(prev => ({ ...prev, dateRangeType: e.target.value }))}
+                onChange={(e) => setFilters(prev => ({
+                  ...prev,
+                  dateRangeType: e.target.value,
+                  ...(e.target.value !== "Custom Range" ? { fromDate: "", toDate: "" } : {}),
+                }))}
                 className="w-full px-4 py-2.5 pr-8 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="All Time">All Time</option>
@@ -231,6 +224,7 @@ export default function TaxReport() {
                 <option value="This Week">This Week</option>
                 <option value="This Month">This Month</option>
                 <option value="This Year">This Year</option>
+                <option value="Custom Range">Custom Range</option>
               </select>
               <ChevronDown className="absolute right-2 bottom-2.5 w-4 h-4 text-slate-500 pointer-events-none" />
             </div>
@@ -271,6 +265,40 @@ export default function TaxReport() {
             </div>
           </div>
 
+          {filters.dateRangeType === "Custom Range" && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <div className="relative">
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  From Date
+                </label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                  <input
+                    type="date"
+                    value={filters.fromDate}
+                    onChange={(e) => setFilters(prev => ({ ...prev, fromDate: e.target.value }))}
+                    className="w-full pl-10 pr-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="relative">
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  To Date
+                </label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                  <input
+                    type="date"
+                    value={filters.toDate}
+                    onChange={(e) => setFilters(prev => ({ ...prev, toDate: e.target.value }))}
+                    className="w-full pl-10 pr-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-end gap-3">
             <button
               onClick={handleReset}
@@ -289,11 +317,11 @@ export default function TaxReport() {
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          {/* Total Income Card */}
+          {/* Total Earnings Card */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Total Income</p>
+                <p className="text-sm font-medium text-slate-600 mb-1">Total Earnings</p>
                 <p className="text-2xl font-bold text-blue-600">{stats.totalIncome}</p>
               </div>
               <div className="w-14 h-14 rounded-lg bg-yellow-100 flex items-center justify-center">
@@ -319,23 +347,9 @@ export default function TaxReport() {
         {/* Tax Report List Section */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-            <h2 className="text-xl font-bold text-slate-900">Tax Report List ({totalItems})</h2>
+            <h2 className="text-xl font-bold text-slate-900">Tax Report List ({reports.length})</h2>
 
             <div className="flex items-center gap-3">
-              <div className="relative flex-1 sm:flex-initial min-w-[220px]">
-                <input
-                  type="text"
-                  placeholder="Search income source..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-4 pr-10 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                {isRefreshing && (
-                  <Loader2 className="absolute right-9 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 animate-spin" />
-                )}
-              </div>
-
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className="px-4 py-2.5 text-sm font-medium rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-2 transition-all">
@@ -399,7 +413,7 @@ export default function TaxReport() {
                       Income Source
                     </th>
                     <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                      Total Income
+                      Total Earnings
                     </th>
                     <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                       Total Tax
@@ -438,21 +452,6 @@ export default function TaxReport() {
               </table>
             </div>
           )}
-
-          <AdminListPagination
-            currentPage={currentPage}
-            pageSize={pageSize}
-            totalItems={totalItems}
-            onPageChange={setCurrentPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size)
-              try {
-                localStorage.setItem("admin_tax_report_pageSize", String(size))
-              } catch {}
-              setCurrentPage(1)
-            }}
-            itemLabel="sources"
-          />
         </div>
       </div>
 
@@ -506,7 +505,7 @@ export default function TaxReport() {
                     <tr>
                       <th className="px-4 py-2 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Order ID</th>
                       <th className="px-4 py-2 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Date</th>
-                      <th className="px-4 py-2 text-right text-[10px] font-bold text-slate-700 uppercase tracking-wider">Amount</th>
+                      <th className="px-4 py-2 text-right text-[10px] font-bold text-slate-700 uppercase tracking-wider">Earnings</th>
                       <th className="px-4 py-2 text-right text-[10px] font-bold text-slate-700 uppercase tracking-wider">Tax</th>
                     </tr>
                   </thead>

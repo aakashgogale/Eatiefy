@@ -13,16 +13,13 @@ import {
   MapPin,
   RotateCcw,
   FileText,
-  X,
-  Check,
 } from "lucide-react"
 import { orderAPI, restaurantAPI } from "@food/api"
 import { useCart } from "@food/context/CartContext"
 import { toast } from "sonner"
-import { jsPDF } from "jspdf"
-import autoTable from "jspdf-autotable"
 import { getCompanyNameAsync } from "@food/utils/businessSettings"
-import dishFallbackImage from "@food/assets/dish_fallback.webp"
+import { getCartCompareItemTotal, getLineCompareUnitPrice } from "@food/utils/foodVariants"
+import { DualMoney } from "@food/components/user/FoodPriceDisplay"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -99,20 +96,20 @@ export default function UserOrderDetails() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex items-center justify-center">
-        <p className="text-gray-600 dark:text-gray-400 text-sm">Loading order details...</p>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-600 text-sm">Loading order details...</p>
       </div>
     )
   }
 
   if (!order) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center space-y-3">
-          <p className="text-gray-700 dark:text-gray-300 text-sm font-medium">Order not found</p>
+          <p className="text-gray-700 text-sm font-medium">Order not found</p>
           <button
             onClick={() => navigate("/user/orders")}
-            className="px-4 py-2 rounded-lg bg-[#DC2626] text-white text-sm font-semibold hover:bg-[#991B1B] transition-all active:scale-95 shadow-md"
+            className="px-4 py-2 rounded-lg bg-[#EB590E] text-white text-sm font-semibold"
           >
             Back to Orders
           </button>
@@ -125,11 +122,7 @@ export default function UserOrderDetails() {
   // Use fetched restaurant data if available, otherwise use order.restaurantId or order.restaurant
   const restaurantObj = restaurant || order.restaurantId || order.restaurant || {}
   const restaurantName =
-    order.restaurantName ||
-    restaurantObj.restaurantName ||
-    restaurantObj.name ||
-    (typeof restaurantObj === 'string' ? restaurantObj : '') ||
-    "Restaurant"
+    order.restaurantName || restaurantObj.restaurantName || restaurantObj.name || "Restaurant"
 
   // Build restaurant address (try restaurant fields first, then fall back)
   const restaurantLocation = (() => {
@@ -177,8 +170,8 @@ export default function UserOrderDetails() {
   const pricing = order.pricing || {}
   const sendsCutlery = order.sendCutlery !== false
 
-  const userName = order.userName || order.customerName || ""
-  const userPhone = order.userPhone || order.customerPhone || ""
+  const userName = order.customerName || order.userName || order.userId?.name || order.userId?.fullName || ""
+  const userPhone = order.customerPhone || order.userPhone || order.userId?.phone || ""
   const paymentMethod = order.payment?.method || "Online"
   const paymentDate = order.createdAt
     ? new Date(order.createdAt).toLocaleString("en-IN", {
@@ -190,43 +183,36 @@ export default function UserOrderDetails() {
     })
     : ""
 
-  // Try all common field names the backend may use for the delivery address
-  const addressText = (() => {
-    const candidates = [
-      order.deliveryAddress,
-      order.address,
-      order.deliveryAddressId,
-      order.userAddress,
-    ].filter(Boolean);
-
-    for (const addr of candidates) {
-      // If addr is a plain string
-      if (typeof addr === "string" && addr.trim()) return addr.trim();
-
-      if (typeof addr === "object") {
-        if (addr.formattedAddress) return addr.formattedAddress;
-        if (addr.address && typeof addr.address === "string") return addr.address;
-        const parts = [
-          addr.houseNo || addr.houseNumber,
-          addr.buildingName,
-          addr.street || addr.streetAddress || addr.addressLine1,
-          addr.addressLine2,
-          addr.area || addr.locality || addr.neighbourhood,
-          addr.landmark,
-          addr.city || addr.town,
-          addr.state,
-          addr.zipCode || addr.pincode || addr.postalCode || addr.zip,
-        ].filter(Boolean);
-        if (parts.length) return parts.join(", ");
-      }
-    }
-    return "";
-  })();
+  const addressText =
+    order.deliveryAddress?.formattedAddress ||
+    order.address?.formattedAddress ||
+    [
+      order.deliveryAddress?.street || order.address?.street,
+      order.deliveryAddress?.city || order.address?.city,
+      order.deliveryAddress?.state || order.address?.state,
+      order.deliveryAddress?.zipCode || order.address?.zipCode
+    ]
+      .filter(Boolean)
+      .join(", ")
 
   const savings =
     (pricing.discount || 0) +
     (pricing.originalItemTotal || 0) -
     (pricing.subtotal || 0)
+
+  const compareItemTotal = getCartCompareItemTotal(items)
+  const itemSubtotal = Number(pricing.subtotal || pricing.total || 0) || 0
+  const orderPayTotal = Number(pricing.total || 0) || 0
+  const displayCompareItemTotal =
+    compareItemTotal > itemSubtotal
+      ? compareItemTotal
+      : Number(pricing.originalItemTotal) > itemSubtotal
+        ? Number(pricing.originalItemTotal)
+        : 0
+  const compareToPay =
+    displayCompareItemTotal > itemSubtotal
+      ? orderPayTotal + (displayCompareItemTotal - itemSubtotal)
+      : orderPayTotal
 
   // Restaurant phone (multiple fallbacks) - use fetched restaurant data first
   const restaurantPhone =
@@ -246,6 +232,10 @@ export default function UserOrderDetails() {
 
   const handleDownloadSummary = async () => {
     try {
+      const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+        import("jspdf"),
+        import("jspdf-autotable"),
+      ])
       const companyName = await getCompanyNameAsync()
       // Create new PDF document
       const doc = new jsPDF()
@@ -309,8 +299,8 @@ export default function UserOrderDetails() {
       const tableData = items.map(item => [
         item.variantName ? `${item.name || 'Item'} (${item.variantName})` : (item.name || 'Item'),
         String(item.quantity || item.qty || 1),
-        `?${Number(item.price || 0).toFixed(2)}`,
-        `?${Number((item.price || 0) * (item.quantity || item.qty || 1)).toFixed(2)}`
+        `Rs. ${Number(item.price || 0).toFixed(2)}`,
+        `Rs. ${Number((item.price || 0) * (item.quantity || item.qty || 1)).toFixed(2)}`
       ])
 
       autoTable(doc, {
@@ -335,7 +325,7 @@ export default function UserOrderDetails() {
       doc.setFontSize(12)
       doc.setFont('helvetica', 'bold')
       doc.text('Total:', 145, finalY + 10, { align: 'right' })
-      doc.text(`?${Number(pricing.total || 0).toFixed(2)}`, 195, finalY + 10, { align: 'right' })
+      doc.text(`Rs. ${Number(pricing.total || 0).toFixed(2)}`, 195, finalY + 10, { align: 'right' })
 
       // Save PDF instantly
       const fileName = `Order_Summary_${orderIdDisplay}_${Date.now()}.pdf`
@@ -373,7 +363,7 @@ export default function UserOrderDetails() {
           restaurant: restaurantName,
           restaurantId: restaurantObj._id || restaurantObj.restaurantId || currentOrder?.restaurantId,
           description: item.description || "",
-          isVeg: item.isVeg === true || item.foodType === 'Veg',
+          isVeg: item.isVeg !== false,
           quantity: Math.max(1, Number(item.quantity || item.qty) || 1),
           reorderIndex: index,
         }
@@ -393,99 +383,53 @@ export default function UserOrderDetails() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] pb-24 font-sans relative">
       {/* Header */}
-      <div className="bg-white dark:bg-[#121212] p-4 flex items-center sticky top-0 z-20 shadow-sm border-b dark:border-gray-800">
+      <div className="bg-white dark:bg-zinc-900 p-4 flex items-center sticky top-0 z-20 shadow-sm border-b border-gray-100 dark:border-zinc-800">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={goBack}
-            className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
+            className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-800"
           >
-            <ArrowLeft className="w-6 h-6 text-gray-700 dark:text-gray-300 cursor-pointer" />
+            <ArrowLeft className="w-6 h-6 text-gray-700 dark:text-gray-200 cursor-pointer" />
           </button>
-          <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Order Details</h1>
+          <h1 className="text-lg font-semibold text-gray-800 dark:text-white">Order Details</h1>
         </div>
       </div>
 
       {/* Scrollable Content */}
       <div className="p-4 space-y-4">
         {/* Status Card */}
-        <div className="bg-white dark:bg-[#121212] p-4 rounded-xl flex items-center gap-3.5 shadow-sm border dark:border-gray-800">
-          {(() => {
-            const isCancelled = order.status === "cancelled" || order.status === "cancelled_by_restaurant" || order.status === "restaurant_cancelled" || order.status?.includes('cancel');
-            const isDelivered = order.status === "delivered";
-            return (
-              <>
-                <div className={`p-2.5 rounded-lg flex items-center justify-center ${
-                  isCancelled
-                    ? "bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400"
-                    : isDelivered
-                      ? "bg-green-50 dark:bg-green-950/20 text-green-600 dark:text-green-400"
-                      : "bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400"
-                }`}>
-                  {isCancelled ? (
-                    <X className="w-5 h-5" />
-                  ) : isDelivered ? (
-                    <Check className="w-5 h-5" />
-                  ) : (
-                    <ShoppingBag className="w-5 h-5 animate-pulse" />
-                  )}
-                </div>
-                <div>
-                  <h2 className="font-bold text-gray-800 dark:text-gray-100 leading-tight">
-                    {isDelivered
-                      ? (order.orderType === "takeaway" ? "Order Picked UP" : "Order was delivered")
-                      : isCancelled
-                        ? "Order was cancelled"
-                        : "Order Status: " + (order.status?.toUpperCase() || "PROCESSING")}
-                  </h2>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    {isDelivered
-                      ? "Thank you for ordering"
-                      : isCancelled
-                        ? "This order was not fulfilled"
-                        : "We are processing your order"}
-                  </p>
-                </div>
-              </>
-            );
-          })()}
+        <div className="bg-white dark:bg-zinc-900 p-4 rounded-xl flex items-center gap-3 shadow-sm border border-gray-100 dark:border-zinc-800">
+          <div className="bg-gray-100 dark:bg-zinc-800 p-2 rounded-lg">
+            <ShoppingBag className="w-6 h-6 text-gray-600 dark:text-gray-400" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-gray-800 dark:text-white">
+              {order.status === "delivered"
+                ? "Order was delivered"
+                : "Order status: " + (order.status || "Processing")}
+            </h2>
+          </div>
         </div>
 
-        {/* Cancellation Details Alert Box */}
-        {(order.status === "cancelled" || order.status === "cancelled_by_restaurant" || order.status === "restaurant_cancelled" || order.status?.includes('cancel')) && (
-          <div className="bg-red-50/60 dark:bg-red-950/10 border border-red-100/60 dark:border-red-900/20 rounded-xl p-4 shadow-sm flex gap-3 items-start">
-            <div className="w-2 h-2 rounded-full bg-red-500 mt-1.5 flex-shrink-0" />
-            <div className="space-y-1">
-              <span className="text-[10px] font-bold text-red-800 dark:text-red-400 uppercase tracking-widest block">
-                Cancellation Reason
-              </span>
-              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-snug">
-                {order.cancellationReason || "The restaurant was unable to fulfill this order."}
-              </p>
-              <p className="text-[11px] text-gray-500 dark:text-gray-400 pt-0.5">
-                Refund will be initiated to your source payment method.
-              </p>
-            </div>
-          </div>
-        )}
-
         {/* Restaurant Info Card */}
-        <div className="bg-white dark:bg-[#121212] p-4 rounded-xl shadow-sm border dark:border-gray-800">
+        <div className="bg-white dark:bg-zinc-900 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-zinc-800">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <img
                 src={
+                  // Prefer the food image from the first ordered item
+                  (Array.isArray(items) && items[0]?.image) ||
                   restaurantObj.profileImage?.url ||
                   restaurantObj.profileImage ||
                   order.restaurantImage ||
-                  (Array.isArray(items) && items[0]?.image) ||
                   "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=100&q=80"
                 }
                 alt={restaurantName}
                 className="w-10 h-10 rounded-lg object-cover"
-              />
+               loading="lazy" decoding="async" />
               <div>
-                <h3 className="font-semibold text-gray-800 dark:text-gray-100">{restaurantName}</h3>
+                <h3 className="font-semibold text-gray-800 dark:text-white">{restaurantName}</h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400">{restaurantLocation}</p>
               </div>
             </div>
@@ -493,7 +437,7 @@ export default function UserOrderDetails() {
             <button
               type="button"
               onClick={handleCallRestaurant}
-              className="w-8 h-8 rounded-full border border-[#DC2626]/20 flex items-center justify-center text-[#DC2626] hover:bg-[#DC2626]/5"
+              className="w-8 h-8 rounded-full border border-gray-200 dark:border-zinc-700 flex items-center justify-center text-[#EB590E] hover:bg-orange-50 dark:hover:bg-orange-950/30"
             >
               <Phone className="w-4 h-4" />
             </button>
@@ -508,103 +452,80 @@ export default function UserOrderDetails() {
             </button>
           </div>
 
-          {order.note && (
-            <div className="flex flex-wrap items-center gap-2 mb-4">
-              <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
-                Note: {order.note}
+          {order.status !== "delivered" && (
+            <div className="flex items-center gap-2 mb-4">
+              <span
+                className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${sendsCutlery
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800"
+                    : "bg-orange-50 text-orange-700 border border-orange-200 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-800"
+                  }`}
+              >
+                {sendsCutlery ? "Send cutlery" : "Don't send cutlery"}
               </span>
             </div>
           )}
 
-          <div className="border-t border-dashed border-gray-200 dark:border-gray-800 my-3" />
+          <div className="border-t border-dashed border-gray-200 dark:border-zinc-800 my-3" />
 
           {/* Items */}
-          {items.map((item, idx) => (
-            <div key={idx} className="flex justify-between items-start mt-4 first:mt-0">
-              <div className="flex items-center gap-3">
-                  <div className="w-16 h-16 md:w-20 md:h-20 flex-shrink-0 rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-gray-800">
-                    <img 
-                      src={item.image || dishFallbackImage} 
-                      alt={item.name} 
-                      className="w-full h-full object-cover transform hover:scale-110 transition-transform duration-500"
-                      onError={(e) => { e.target.src = dishFallbackImage; }}
-                    />
-                  </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <div
-                      className={`w-3 h-3 border ${item.isVeg === true || item.foodType === 'Veg' ? "border-green-600" : "border-red-600"
-                        } flex items-center justify-center p-[1px]`}
-                    >
-                      <div
-                        className={`w-full h-full rounded-full ${item.isVeg === true || item.foodType === 'Veg' ? "bg-green-600" : "bg-red-600"
-                          }`}
-                      />
-                    </div>
-                    <span className="text-sm text-gray-700 dark:text-gray-300 font-medium">
-                      {item.quantity || item.qty || 1} x {item.name}{item.variantName ? ` (${item.variantName})` : ""}
-                    </span>
-                  </div>
+          {items.map((item, idx) => {
+            const qty = Number(item.quantity || item.qty) || 1
+            const price = Number(item.price) || 0
+            const compareUnit = getLineCompareUnitPrice(item)
+            return (
+            <div key={idx} className="flex justify-between items-start mt-2 gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <div
+                  className={`w-3 h-3 border shrink-0 ${item.isVeg ? "border-green-600" : "border-red-600"
+                    } flex items-center justify-center p-[1px]`}
+                >
+                  <div
+                    className={`w-full h-full rounded-full ${item.isVeg ? "bg-green-600" : "bg-red-600"
+                      }`}
+                  />
                 </div>
+                <span className="text-sm text-gray-700 dark:text-gray-300 font-medium">
+                  {qty} x {item.name}{item.variantName ? ` (${item.variantName})` : ""}
+                </span>
               </div>
-              <span className="text-sm text-gray-800 dark:text-gray-200 font-medium whitespace-nowrap">
-                ₹{(item.price || 0).toFixed(2)}
-              </span>
+              <DualMoney
+                amount={price * qty}
+                compareAmount={compareUnit > 0 ? compareUnit * qty : 0}
+                decimals={2}
+                plainClassName="text-sm text-gray-800 dark:text-gray-200 font-medium tabular-nums"
+                saleClassName="inline-flex items-center rounded-full border border-[#E2AD4B] bg-[#E2AD4B]/10 px-2 py-0.5 text-sm font-bold text-[#E2AD4B] tabular-nums"
+              />
             </div>
-          ))}
+            )
+          })}
         </div>
 
-        {/* Restaurant Complaint Button - visible after delivery */}
-        {order && order.status === "delivered" && (
-          <button
-            type="button"
-            onClick={() => {
-              const orderMongoId = order._id || orderId
-              if (!orderMongoId) {
-                toast.error("Order ID not available. Please refresh the page.")
-                return
-              }
-              const orderIdString = typeof orderMongoId === 'object' && orderMongoId.toString
-                ? orderMongoId.toString()
-                : String(orderMongoId)
-              navigate(`/user/complaints/submit/${encodeURIComponent(orderIdString)}`)
-            }}
-            className="w-full bg-[#DC2626]/5 border border-[#DC2626]/20 text-[#DC2626] py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-[#DC2626]/10 transition-colors"
-          >
-            <FileText className="w-4 h-4" />
-            Restaurant Complaint
-          </button>
-        )}
-
         {/* Bill Summary Card */}
-        <div className="bg-white dark:bg-[#121212] rounded-xl shadow-sm overflow-hidden border dark:border-gray-800">
-          <div className="p-4 flex justify-between items-center border-b border-gray-100 dark:border-gray-800">
+        <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-sm overflow-hidden border border-gray-100 dark:border-zinc-800">
+          <div className="p-4 flex justify-between items-center border-b border-gray-100 dark:border-zinc-800">
             <div className="flex items-center gap-2">
               <FileText className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-              <h3 className="font-semibold text-gray-800 dark:text-gray-100">Bill Summary</h3>
+              <h3 className="font-semibold text-gray-800 dark:text-white">Bill Summary</h3>
             </div>
             <button
               type="button"
               onClick={handleDownloadSummary}
-              className="w-7 h-7 rounded-full bg-[#DC2626]/10 flex items-center justify-center text-[#DC2626] hover:bg-[#DC2626]/20 transition-colors"
+              className="w-7 h-7 rounded-full bg-orange-50 dark:bg-orange-950/30 flex items-center justify-center text-[#EB590E] hover:bg-orange-100 dark:hover:bg-orange-900/40"
             >
               <Download className="w-4 h-4" />
             </button>
           </div>
 
           <div className="p-4 space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-500 dark:text-gray-400">Item total</span>
-              <div>
-                {pricing.originalItemTotal && (
-                  <span className="text-gray-400 dark:text-gray-500 line-through mr-1">
-                    ₹{Number(pricing.originalItemTotal).toFixed(2)}
-                  </span>
-                )}
-                <span className="text-gray-800 dark:text-gray-200">
-                  ₹{Number(pricing.subtotal || pricing.total || 0).toFixed(2)}
-                </span>
-              </div>
+            <div className="flex justify-between items-start gap-3">
+              <span className="text-gray-500 dark:text-gray-400 shrink-0">Item total</span>
+              <DualMoney
+                amount={itemSubtotal}
+                compareAmount={displayCompareItemTotal}
+                decimals={2}
+                plainClassName="text-gray-800 dark:text-gray-200 tabular-nums"
+                saleClassName="inline-flex items-center rounded-full border border-[#E2AD4B] bg-[#E2AD4B]/10 px-2 py-0.5 text-sm font-bold text-[#E2AD4B] tabular-nums"
+              />
             </div>
             <div className="flex justify-between">
               <span className="text-gray-500 dark:text-gray-400">GST (govt. taxes)</span>
@@ -612,64 +533,47 @@ export default function UserOrderDetails() {
                 ₹{Number(pricing.tax || 0).toFixed(2)}
               </span>
             </div>
-            {order.orderType !== "takeaway" && order.orderType !== "dining" && (
-              <div className="flex justify-between">
-                <span className="text-gray-400 dark:text-gray-500 font-medium">Delivery fee</span>
-                {pricing.deliveryFee === 0 && (
-                  <span className="text-[#DC2626] text-[10px] font-bold border border-[#DC2626] px-1 rounded ml-1">
-                    FREE
-                  </span>
-                )}
-                <span className="text-[#DC2626] dark:text-[#a04882] font-medium uppercase">
-                  {pricing.deliveryFee ? `₹${Number(pricing.deliveryFee).toFixed(2)}` : "Free"}
+            <div className="flex justify-between">
+              <span className="text-gray-400 dark:text-gray-500 font-medium">Delivery fee</span>
+              {pricing.deliveryFee === 0 && (
+                <span className="text-[#EB590E] text-[10px] font-bold border border-[#EB590E] px-1 rounded ml-1">
+                  FREE
+                </span>
+              )}
+              <span className="text-[#EB590E] font-medium uppercase">
+                {pricing.deliveryFee ? `₹${Number(pricing.deliveryFee).toFixed(2)}` : "Free"}
+              </span>
+            </div>
+            {Number(pricing.quickDeliveryFee || 0) > 0 && (
+              <div className="flex justify-between font-semibold">
+                <span className="text-[#E2AD4B]">Quick Mode</span>
+                <span className="text-[#E2AD4B]">
+                  ₹{Number(pricing.quickDeliveryFee).toFixed(2)}
                 </span>
               </div>
             )}
-            {Number(pricing.platformFee || 0) > 0 && (
-              <div className="flex justify-between">
-                <span className="text-gray-500 dark:text-gray-400">Platform fee</span>
-                <span className="text-gray-800 dark:text-gray-200">
-                  ₹{Number(pricing.platformFee || 0).toFixed(2)}
-                </span>
-              </div>
-            )}
-            {Number(pricing.subscriptionFee || 0) > 0 && (
-              <div className="flex justify-between">
-                <span className="text-gray-500 dark:text-gray-400">Subscription / other fees</span>
-                <span className="text-gray-800 dark:text-gray-200">
-                  ₹{Number(pricing.subscriptionFee || 0).toFixed(2)}
-                </span>
-              </div>
-            )}
+            <div className="flex justify-between">
+              <span className="text-gray-500 dark:text-gray-400">Platform fee</span>
+              <span className="text-gray-800 dark:text-gray-200">
+                ₹{Math.max(0, Number(pricing.platformFee || 0) - Number(pricing.quickDeliveryFee || 0)).toFixed(2)}
+              </span>
+            </div>
 
-            <div className="border-t border-gray-100 dark:border-gray-800 my-2 pt-2 flex justify-between items-center">
-              <span className="font-bold text-gray-800 dark:text-gray-100 flex items-center">
-                Paid
-                {(() => {
-                  const method = (order.payment?.method || order.paymentMethod || "online").toLowerCase();
-                  if (method === "cash" || method === "cod") {
-                    return (
-                      <span className="px-2 py-0.5 ml-2.5 rounded text-[10px] font-bold uppercase tracking-wider border bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700">
-                        COD
-                      </span>
-                    );
-                  }
-                  return (
-                    <span className="px-2 py-0.5 ml-2.5 rounded text-[10px] font-bold uppercase tracking-wider border bg-green-100 text-green-800 border-green-200 dark:bg-green-950/40 dark:text-green-300 dark:border-green-900/50">
-                      Online
-                    </span>
-                  );
-                })()}
-              </span>
-              <span className="font-bold text-gray-800 dark:text-gray-100">
-                ₹{Number(pricing.total || 0).toFixed(2)}
-              </span>
+            <div className="border-t border-gray-100 dark:border-zinc-800 my-2 pt-2 flex justify-between items-start gap-3">
+              <span className="font-bold text-gray-800 dark:text-white shrink-0">Paid</span>
+              <DualMoney
+                amount={orderPayTotal}
+                compareAmount={compareToPay}
+                decimals={2}
+                plainClassName="font-bold text-gray-800 dark:text-white tabular-nums"
+                saleClassName="inline-flex items-center rounded-full border border-[#E2AD4B] bg-[#E2AD4B]/10 px-2 py-0.5 text-sm font-bold text-[#E2AD4B] tabular-nums"
+              />
             </div>
           </div>
 
           {/* Savings Banner */}
           {savings > 0 && (
-            <div className="relative bg-[#DC2626]/5 p-3 pb-4 mt-2">
+            <div className="relative bg-orange-50 dark:bg-orange-950/20 p-3 pb-4 mt-2">
               <div className="absolute -top-1.5 left-0 w-full overflow-hidden leading-none">
                 <svg
                   className="relative block w-[calc(100%+1.3px)] h-[8px]"
@@ -679,14 +583,14 @@ export default function UserOrderDetails() {
                 >
                   <path
                     d="M0,0V46.29c47,0,47,69.5,94,69.5s47-69.5,94-69.5,47,69.5,94,69.5,47-69.5,94-69.5,47,69.5,94,69.5,47-69.5,94-69.5,47,69.5,94,69.5,47-69.5,94-69.5,47,69.5,94,69.5V0Z"
-                    fill="#ffffff"
-                    className="fill-white"
+                    fill="currentColor"
+                    className="text-white dark:text-zinc-900"
                   />
                 </svg>
               </div>
 
-              <div className="flex items-center justify-center gap-2 pt-1 text-[#DC2626] font-bold text-sm">
-                <span></span>
+              <div className="flex items-center justify-center gap-2 pt-1 text-[#EB590E] font-bold text-sm">
+                <span>??</span>
                 <span>
                   You saved ₹{Number(savings).toFixed(2)} on this order!
                 </span>
@@ -696,88 +600,71 @@ export default function UserOrderDetails() {
         </div>
 
         {/* User & Delivery Details */}
-        <div className="bg-white dark:bg-[#121212] p-4 rounded-xl shadow-sm space-y-4 border dark:border-gray-800">
+        <div className="bg-white dark:bg-zinc-900 p-4 rounded-xl shadow-sm space-y-5 border border-gray-100 dark:border-zinc-800">
           {/* User */}
-          <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center flex-shrink-0">
-              <User className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+          <div className="flex gap-3">
+            <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-zinc-800 flex items-center justify-center">
+              <User className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             </div>
             <div>
-              <h4 className="font-bold text-gray-800 dark:text-gray-100 text-sm">
-                Customer Details
+              <h4 className="font-semibold text-gray-800 dark:text-white text-sm">
+                {userName || "Customer"}
               </h4>
-              <p className="text-gray-600 dark:text-gray-300 text-xs mt-0.5 font-medium">{userName || "Customer"}</p>
-              <p className="text-gray-400 dark:text-gray-500 text-[11px] mt-0.5">{userPhone}</p>
+              <p className="text-gray-500 dark:text-gray-400 text-xs">{userPhone}</p>
             </div>
           </div>
-
-          <div className="border-t border-gray-100 dark:border-gray-800/50" />
 
           {/* Payment */}
-          <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center flex-shrink-0">
-              <CreditCard className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+          <div className="flex gap-3">
+            <div className="mt-0.5">
+              <CreditCard className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             </div>
             <div>
-              <h4 className="font-bold text-gray-800 dark:text-gray-100 text-sm">
-                Payment Method
+              <h4 className="font-semibold text-gray-800 dark:text-white text-sm">
+                Payment method
               </h4>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="text-gray-500 dark:text-gray-400 text-xs">Paid via</span>
-                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border ${
-                  (paymentMethod.toLowerCase() === 'cash' || paymentMethod.toLowerCase() === 'cod')
-                    ? 'bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700'
-                    : 'bg-green-100 text-green-800 border-green-200 dark:bg-green-950/40 dark:text-green-300 dark:border-green-900/50'
-                }`}>
-                  {paymentMethod}
-                </span>
-              </div>
+              <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">
+                Paid via: {paymentMethod.toUpperCase()}
+              </p>
             </div>
           </div>
 
-          <div className="border-t border-gray-100 dark:border-gray-800/50" />
-
           {/* Date */}
-          <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center flex-shrink-0">
-              <Calendar className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+          <div className="flex gap-3">
+            <div className="mt-0.5">
+              <Calendar className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             </div>
             <div>
-              <h4 className="font-bold text-gray-800 dark:text-gray-100 text-sm">
-                Payment Date
+              <h4 className="font-semibold text-gray-800 dark:text-white text-sm">
+                Payment date
               </h4>
-              <p className="text-gray-600 dark:text-gray-300 text-xs mt-0.5 font-medium">{paymentDate}</p>
+              <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">{paymentDate}</p>
             </div>
           </div>
 
           {/* Address */}
-          {order.orderType !== "takeaway" && (
-            <>
-              <div className="border-t border-gray-100 dark:border-gray-800/50" />
-              <div className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center flex-shrink-0">
-                  <MapPin className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                </div>
-                <div>
-                  <h4 className="font-bold text-gray-800 dark:text-gray-100 text-sm">
-                    Delivery Address
-                  </h4>
-                  <p className="text-gray-600 dark:text-gray-300 text-xs mt-0.5 leading-relaxed font-medium">
-                    {addressText || "Address not available"}
-                  </p>
-                </div>
-              </div>
-            </>
-          )}
+          <div className="flex gap-3">
+            <div className="mt-0.5">
+              <MapPin className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            </div>
+            <div>
+              <h4 className="font-semibold text-gray-800 dark:text-white text-sm">
+                Delivery address
+              </h4>
+              <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5 leading-relaxed">
+                {addressText || "Address not available"}
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Fixed Bottom Buttons */}
-      <div className="fixed bottom-0 w-full bg-white dark:bg-[#121212] border-t border-gray-200 dark:border-gray-800 p-4 flex gap-3 z-20">
+      <div className="fixed bottom-0 w-full bg-white dark:bg-zinc-900 border-t border-gray-200 dark:border-zinc-800 p-4 flex gap-3 z-20">
         <button
           type="button"
           onClick={() => handleReorder(order)}
-          className="flex-1 bg-[#DC2626] text-white py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-[#991B1B] transition-all active:scale-95 shadow-md"
+          className="flex-1 bg-[#EB590E] text-white py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-[#D94F0C] transition-colors"
         >
           <RotateCcw className="w-4 h-4" />
           Reorder
@@ -785,16 +672,49 @@ export default function UserOrderDetails() {
         <button
           type="button"
           onClick={handleDownloadSummary}
-          className="flex-1 bg-white dark:bg-[#1a1a1a] border border-[#DC2626] text-[#DC2626] py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-[#DC2626]/5 transition-colors"
+          className="flex-1 bg-white dark:bg-zinc-800 border border-[#EB590E] text-[#EB590E] py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
         >
           <Download className="w-4 h-4" />
           Invoice
         </button>
       </div>
 
+      {/* Restaurant Complaint Button - Below Order Details */}
+      {order && (
+        <div className="p-4 pb-24">
+          <button
+            type="button"
+            onClick={() => {
+              // Use MongoDB _id (ObjectId) for the API call - backend complaint controller expects ObjectId
+              // Priority: order._id (MongoDB ObjectId) > orderId from route params
+              const orderMongoId = order._id || orderId
+
+              if (!orderMongoId) {
+                debugError("Order ID not available:", {
+                  order: order ? { _id: order._id, orderId: order.orderId } : null,
+                  routeOrderId: orderId
+                })
+                toast.error("Order ID not available. Please refresh the page.")
+                return
+              }
+
+              // Convert to string if it's an ObjectId object
+              const orderIdString = typeof orderMongoId === 'object' && orderMongoId.toString
+                ? orderMongoId.toString()
+                : String(orderMongoId)
+
+              debugLog("Navigating to complaint page with orderId:", orderIdString)
+              navigate(`/user/complaints/submit/${encodeURIComponent(orderIdString)}`)
+            }}
+            className="w-full bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-900/30 text-orange-700 dark:text-orange-400 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-colors"
+          >
+            <FileText className="w-4 h-4" />
+            Restaurant Complaint
+          </button>
+        </div>
+      )}
     </div>
   )
 }
-
 
 

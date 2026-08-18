@@ -53,11 +53,6 @@ const parseTimeToMinutes = (timeValue) => {
 }
 
 const getTodayTiming = (restaurant, dayName) => {
-  if (Array.isArray(restaurant?.outletTimings)) {
-    const exact = restaurant.outletTimings.find((entry) => normalizeDay(entry?.day) === dayName)
-    if (exact) return exact
-  }
-
   const outletTimingsArray = restaurant?.outletTimings?.timings
   if (Array.isArray(outletTimingsArray)) {
     const exact = outletTimingsArray.find((entry) => normalizeDay(entry?.day) === dayName)
@@ -66,14 +61,8 @@ const getTodayTiming = (restaurant, dayName) => {
 
   const outletTimingsObject = restaurant?.outletTimings
   if (outletTimingsObject && typeof outletTimingsObject === "object" && !Array.isArray(outletTimingsObject)) {
-    // Day-keyed map: { Wednesday: { isOpen, openingTime, closingTime } }
     const direct = outletTimingsObject[dayName]
     if (direct && typeof direct === "object") return direct
-
-    // Single-day object from a bad list projection: { day, isOpen, openingTime, closingTime }
-    if (typeof outletTimingsObject.day === "string") {
-      return normalizeDay(outletTimingsObject.day) === dayName ? outletTimingsObject : null
-    }
   }
 
   return null
@@ -174,73 +163,68 @@ export const getRestaurantAvailabilityStatus = (restaurant, now = new Date(), op
     }
   }
 
-  const dayName = DAY_NAMES[now.getDay()]
-  const todayTiming = getTodayTiming(restaurant, dayName)
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
 
-  // Legacy openDays can get stale; enforce only when no explicit outlet timing exists for today.
-  const openDays = Array.isArray(restaurant.openDays) ? restaurant.openDays : []
-  if (!todayTiming && openDays.length > 0) {
-    const normalizedOpenDays = new Set(openDays.map((day) => normalizeDay(day)).filter(Boolean))
-    if (normalizedOpenDays.size > 0 && !normalizedOpenDays.has(dayName)) {
-      return {
-        isOpen: false,
-        isActive,
-        isAcceptingOrders,
-        isWithinTimings: false,
-        reason: "closed-day",
+  const checkDayWindow = (targetDate) => {
+    const dayName = DAY_NAMES[targetDate.getDay()]
+    const timing = getTodayTiming(restaurant, dayName)
+    const openDays = Array.isArray(restaurant.openDays) ? restaurant.openDays : []
+
+    if (timing && timing.isOpen === false) return { isWithin: false, hasWindow: true, timing }
+
+    const openingTime = timing?.openingTime || restaurant?.deliveryTimings?.openingTime || restaurant?.openingTime || null
+    const closingTime = timing?.closingTime || restaurant?.deliveryTimings?.closingTime || restaurant?.closingTime || null
+    const openingMinutes = parseTimeToMinutes(openingTime)
+    const closingMinutes = parseTimeToMinutes(closingTime)
+    const hasExplicitWindow = Boolean(openingTime || closingTime)
+
+    if (!timing && openDays.length > 0) {
+      const normalizedOpenDays = new Set(openDays.map(d => normalizeDay(d)).filter(Boolean))
+      if (normalizedOpenDays.size > 0 && !normalizedOpenDays.has(dayName)) {
+        return { isWithin: false, hasWindow: true, reason: "closed-day" }
       }
     }
+
+    const isWithin = hasExplicitWindow
+      ? (openingMinutes !== null && closingMinutes !== null
+        ? isWithinTimeWindow(nowMinutes, openingMinutes, closingMinutes)
+        : true)
+      : true
+
+    return { isWithin, hasWindow: hasExplicitWindow, openingTime, closingTime, openingMinutes, closingMinutes, timing }
   }
 
-  if (todayTiming?.isOpen === false) {
-    return {
-      isOpen: false,
-      isActive,
-      isAcceptingOrders,
-      isWithinTimings: false,
-      reason: "day-closed",
-    }
-  }
+  const today = checkDayWindow(now)
 
-  const openingTime =
-    todayTiming?.openingTime ||
-    restaurant?.deliveryTimings?.openingTime ||
-    restaurant?.openingTime ||
-    null
-  const closingTime =
-    todayTiming?.closingTime ||
-    restaurant?.deliveryTimings?.closingTime ||
-    restaurant?.closingTime ||
-    null
+  const yesterdayDate = new Date(now)
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1)
+  const yesterday = checkDayWindow(yesterdayDate)
 
-  const openingMinutes = parseTimeToMinutes(openingTime)
-  const closingMinutes = parseTimeToMinutes(closingTime)
-  const nowMinutes = now.getHours() * 60 + now.getMinutes()
-  const hasExplicitWindow = Boolean(openingTime || closingTime)
-  // If a restaurant provides only one side of the window, treat timings as not enforced
-  // (prevents accidental "offline" due to partial data).
-  const isWithinTimings = hasExplicitWindow
-    ? (openingMinutes !== null && closingMinutes !== null
-      ? isWithinTimeWindow(nowMinutes, openingMinutes, closingMinutes)
-      : true)
-    : true
-  const minutesUntilClose = isWithinTimings
-    ? getMinutesUntilClosing(nowMinutes, openingMinutes, closingMinutes)
+  const yesterdayCrossesMidnight = yesterday.openingMinutes !== null && yesterday.closingMinutes !== null && yesterday.closingMinutes < yesterday.openingMinutes
+  const isYesterdayStillOpen = yesterdayCrossesMidnight && nowMinutes <= yesterday.closingMinutes
+
+  const isTodayOpen = today.isWithin
+
+  const isOpenNow = isTodayOpen || isYesterdayStillOpen
+  const activeWindow = isTodayOpen ? today : (isYesterdayStillOpen ? yesterday : today)
+
+  const minutesUntilClose = isOpenNow
+    ? getMinutesUntilClosing(nowMinutes, activeWindow.openingMinutes, activeWindow.closingMinutes)
     : null
 
   return {
-    isOpen: isWithinTimings,
+    isOpen: isOpenNow,
     isActive,
     isAcceptingOrders,
-    isWithinTimings,
-    openingTime,
-    closingTime,
+    isWithinTimings: isOpenNow,
+    openingTime: activeWindow.openingTime,
+    closingTime: activeWindow.closingTime,
     minutesUntilClose,
-    closingCountdownLabel: isWithinTimings
-      ? formatClosingCountdown(minutesUntilClose, closingTime)
+    closingCountdownLabel: isOpenNow
+      ? formatClosingCountdown(minutesUntilClose, activeWindow.closingTime)
       : null,
-    reason: isWithinTimings
+    reason: isOpenNow
       ? (isAcceptingOrders ? "open" : "open-by-timings")
-      : (hasExplicitWindow ? "outside-hours" : "no-timings"),
+      : (activeWindow.hasWindow ? "outside-hours" : "no-timings"),
   }
 }

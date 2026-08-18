@@ -33,12 +33,6 @@ const foodHeroBannerSchema = new mongoose.Schema(
             type: Boolean,
             default: true,
             index: true
-        },
-        zoneId: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'FoodZone',
-            default: null,
-            index: true
         }
     },
     {

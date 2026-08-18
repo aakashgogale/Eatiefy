@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react"
-import { Upload, Trash2, Image as ImageIcon, Loader2, AlertCircle, CheckCircle2, ArrowUp, ArrowDown, Layout, Tag, UtensilsCrossed, ChefHat, Megaphone, Search, Star, Store } from "lucide-react"
+import { Upload, Trash2, Image as ImageIcon, Loader2, AlertCircle, CheckCircle2, ArrowUp, ArrowDown, Layout, Tag, UtensilsCrossed, ChefHat, Megaphone, Search } from "lucide-react"
 import api from "@food/api"
 import { adminAPI } from "@food/api"
 import { getModuleToken } from "@food/utils/auth"
@@ -8,43 +8,23 @@ import { Label } from "@food/components/ui/label"
 import { Button } from "@food/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@food/components/ui/dialog"
 import { Checkbox } from "@food/components/ui/checkbox"
-import { prepareUploadFile, prepareUploadFiles } from "@/shared/utils/imageCompressor"
-
-const debugLog = (...args) => {}
-const debugWarn = (...args) => {}
-const debugError = (...args) => {}
+const debugLog = (...args) => { }
+const debugWarn = (...args) => { }
+const debugError = (...args) => { }
 
 
 export default function LandingPageManagement() {
-  const [activeTab, setActiveTab] = useState('banners')
+  const [activeTab, setActiveTab] = useState('top-banners')
   const [exploreMoreSubTab, setExploreMoreSubTab] = useState('icons')
 
-  const [zones, setZones] = useState([])
-  const [zonesLoading, setZonesLoading] = useState(false)
-  const [selectedZoneId, setSelectedZoneId] = useState("")
 
-  const fetchZones = async () => {
-    setZonesLoading(true)
-    try {
-      const res = await adminAPI.getZones({ limit: 1000 })
-      const zoneData = res?.data?.data
-      const list = Array.isArray(zoneData?.zones)
-        ? zoneData.zones
-        : Array.isArray(zoneData)
-          ? zoneData
-          : []
-      setZones(list)
-    } catch (err) {
-      setZones([])
-    } finally {
-      setZonesLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchZones()
-  }, [])
-
+  // Top Banners
+  const [topBanners, setTopBanners] = useState([])
+  const [topBannersLoading, setTopBannersLoading] = useState(true)
+  const [topBannersUploading, setTopBannersUploading] = useState(false)
+  const [topBannersUploadProgress, setTopBannersUploadProgress] = useState({ current: 0, total: 0 })
+  const [topBannersDeleting, setTopBannersDeleting] = useState(null)
+  const topBannersFileInputRef = useRef(null)
 
   // Hero Banners
   const [banners, setBanners] = useState([])
@@ -72,7 +52,7 @@ export default function LandingPageManagement() {
   const [exploreIconsUploading, setExploreIconsUploading] = useState({})
   const exploreMoreFileInputRef = useRef(null)
 
-  // Under 250 Banners
+  // Eatiefy 99 Banners
   const [under250Banners, setUnder250Banners] = useState([])
   const [under250BannersLoading, setUnder250BannersLoading] = useState(true)
   const [under250BannersUploading, setUnder250BannersUploading] = useState(false)
@@ -89,14 +69,10 @@ export default function LandingPageManagement() {
   const diningBannersFileInputRef = useRef(null)
 
   // Settings
-  const [settings, setSettings] = useState({ exploreMoreHeading: "Explore More", recommendedRestaurantIds: [], under250PriceLimit: 250, festBannerImageUrl: "", festBannerTopColor: "" })
-  const [originalSettings, setOriginalSettings] = useState({ exploreMoreHeading: "Explore More", recommendedRestaurantIds: [], under250PriceLimit: 250, festBannerImageUrl: "", festBannerTopColor: "" })
-  const [selectedFestBannerFile, setSelectedFestBannerFile] = useState(null)
+  const [settings, setSettings] = useState({ exploreMoreHeading: "Explore More", recommendedRestaurantIds: [] })
   const [settingsLoading, setSettingsLoading] = useState(true)
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [recommendedSearchQuery, setRecommendedSearchQuery] = useState("")
-  const [festBannerUploading, setFestBannerUploading] = useState(false)
-  const festBannerFileInputRef = useRef(null)
 
   const [allRestaurants, setAllRestaurants] = useState([])
   const [restaurantsLoading, setRestaurantsLoading] = useState(false)
@@ -109,7 +85,6 @@ export default function LandingPageManagement() {
 
   // Common
   const [error, setError] = useState(null)
-  const [deleteDialog, setDeleteDialog] = useState({ isOpen: false, id: null, type: null })
   const [success, setSuccess] = useState(null)
 
   // Restaurant Selection Modal for Banner Advertising
@@ -131,7 +106,8 @@ export default function LandingPageManagement() {
       lowerMessage.includes('unauthorized') ||
       lowerMessage.includes('no token') ||
       lowerMessage.includes('authentication') ||
-      lowerMessage.includes('session expired')) {
+      lowerMessage.includes('session expired') ||
+      lowerMessage.includes('insufficient permissions for this action')) {
       setError(null)
     } else {
       setError(errorMessage)
@@ -169,45 +145,180 @@ export default function LandingPageManagement() {
     }
   }
 
-
-  const getZoneConfig = (additionalConfig = {}) => {
-    const config = getAuthConfig(additionalConfig)
-    if (selectedZoneId) {
-      config.params = { ...config.params, zoneId: selectedZoneId }
-    }
-    return config
-  }
-
-
+  // Fetch data on mount (authentication is handled by ProtectedRoute)
   useEffect(() => {
-    setAllRestaurants([])
-  }, [selectedZoneId])
 
-  // Lazy fetch data based on active tab to optimize page load speed
+    fetchTopBanners()
+    fetchBanners()
+    fetchUnder250Banners()
+    fetchDiningBanners()
+    fetchSettings()
+  }, [])
+
+  // Fetch Top 10 and Gourmet when Explore More tab is active; refetch restaurants so dropdown is populated
   useEffect(() => {
-    if (activeTab === 'banners') {
-      fetchBanners()
-    } else if (activeTab === 'under-250') {
-      fetchUnder250Banners()
-    } else if (activeTab === 'dining') {
-      fetchDiningBanners()
-    } else if (activeTab === 'explore-more') {
-      fetchSettings()
-      fetchAllRestaurants()
+    if (activeTab === 'explore-more') {
+      if (allRestaurants.length === 0) {
+        fetchAllRestaurants()
+      }
       if (exploreMoreSubTab === 'gourmet') {
         fetchGourmetRestaurants()
       } else if (exploreMoreSubTab === 'icons') {
         fetchExploreMore()
       }
     }
-  }, [activeTab, exploreMoreSubTab, selectedZoneId])
+  }, [activeTab, exploreMoreSubTab])
+
+
+  // ==================== TOP BANNERS ====================
+  const fetchTopBanners = async () => {
+    try {
+      setTopBannersLoading(true)
+      setError(null)
+      const response = await api.get('/food/top-banners', getAuthConfig())
+      if (response.data.success) {
+        setTopBanners(response.data.data.banners || [])
+      }
+    } catch (err) {
+      if (err.response?.status === 401) {
+        setTopBanners([])
+        setError(null)
+      } else if (err.response?.status === 404) {
+        setTopBanners([])
+        setError(null)
+      } else {
+        setErrorSafely(err.response?.data?.message || 'Failed to load top banners')
+      }
+    } finally {
+      setTopBannersLoading(false)
+    }
+  }
+
+  const handleTopBannerFileSelect = (e) => {
+    const files = Array.from(e.target?.files || e.files || [])
+    if (files.length === 0) return
+    if (files.length > 5) {
+      setError('You can upload a maximum of 5 images at once')
+      return
+    }
+    uploadTopBanners(files)
+  }
+
+  const uploadTopBanners = async (files) => {
+    try {
+      const adminToken = getModuleToken('admin')
+      if (!adminToken || adminToken.trim() === '' || adminToken === 'null' || adminToken === 'undefined') {
+        setErrorSafely('Authentication required. Please login again.')
+        return
+      }
+
+      setTopBannersUploading(true)
+      setError(null)
+      setSuccess(null)
+      setTopBannersUploadProgress({ current: 0, total: files.length })
+
+      const formData = new FormData()
+      files.forEach((file) => {
+        formData.append('files', file)
+      })
+
+      const config = getAuthConfig()
+      const response = await api.post('/food/top-banners/multiple', formData, config)
+
+      if (response.data.success) {
+        const uploadedBanners = response.data.data?.banners || []
+        const errors = response.data.data?.errors || []
+        const successCount = uploadedBanners.length
+        const failCount = errors.length
+
+        await fetchTopBanners()
+        if (topBannersFileInputRef.current) topBannersFileInputRef.current.value = ''
+
+        if (failCount === 0) {
+          setSuccess(`${successCount} top banner${successCount > 1 ? 's' : ''} uploaded successfully!`)
+          setTimeout(() => setSuccess(null), 5000)
+        } else if (successCount > 0) {
+          setSuccess(`${successCount} banner${successCount > 1 ? 's' : ''} uploaded, ${failCount} failed.`)
+          setErrorSafely(errors.join(', '))
+          setTimeout(() => { setSuccess(null); setError(null) }, 5000)
+        } else {
+          setErrorSafely(`Failed to upload banners. ${errors.join(', ')}`)
+        }
+      } else {
+        setErrorSafely(response.data.message || 'Failed to upload banners')
+      }
+
+      setTopBannersUploadProgress({ current: 0, total: 0 })
+    } catch (err) {
+      if (err.response?.status === 401 || err.message === 'Authentication token not found') {
+        setError(null)
+      } else {
+        setErrorSafely(err.response?.data?.message || 'Failed to upload banners')
+      }
+      setTopBannersUploadProgress({ current: 0, total: 0 })
+    } finally {
+      setTopBannersUploading(false)
+    }
+  }
+
+  const handleDeleteTopBanner = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this top banner?')) return
+    try {
+      setTopBannersDeleting(id)
+      setError(null)
+      setSuccess(null)
+      const response = await api.delete(`/food/top-banners/${id}`, getAuthConfig())
+      if (response.data.success) {
+        setSuccess('Top banner deleted successfully!')
+        await fetchTopBanners()
+        setTimeout(() => setSuccess(null), 3000)
+      }
+    } catch (err) {
+      setErrorSafely(err.response?.data?.message || 'Failed to delete banner.')
+    } finally {
+      setTopBannersDeleting(null)
+    }
+  }
+
+  const handleToggleTopBannerStatus = async (id, currentStatus) => {
+    try {
+      setError(null)
+      setSuccess(null)
+      const response = await api.patch(`/food/top-banners/${id}/status`, {}, getAuthConfig())
+      if (response.data.success) {
+        setSuccess(`Banner ${currentStatus ? 'deactivated' : 'activated'} successfully!`)
+        await fetchTopBanners()
+        setTimeout(() => setSuccess(null), 3000)
+      }
+    } catch (err) {
+      setErrorSafely(err.response?.data?.message || 'Failed to update banner status.')
+    }
+  }
+
+  const handleTopBannerOrderChange = async (id, direction) => {
+    const banner = topBanners.find(b => b._id === id)
+    if (!banner) return
+    const newOrder = direction === 'up' ? banner.order - 1 : banner.order + 1
+    const otherBanner = topBanners.find(b => b.order === newOrder && b._id !== id)
+    if (!otherBanner && newOrder < 0) return
+    try {
+      setError(null)
+      await api.patch(`/food/top-banners/${id}/order`, { order: newOrder }, getAuthConfig())
+      if (otherBanner) {
+        await api.patch(`/food/top-banners/${otherBanner._id}/order`, { order: banner.order }, getAuthConfig())
+      }
+      await fetchTopBanners()
+    } catch (err) {
+      setErrorSafely('Failed to update banner order.')
+    }
+  }
 
   // ==================== HERO BANNERS ====================
-  const fetchBanners = async (showLoading = true) => {
+  const fetchBanners = async () => {
     try {
-      if (showLoading) setBannersLoading(true)
+      setBannersLoading(true)
       setError(null)
-      const response = await api.get('/food/hero-banners', getZoneConfig())
+      const response = await api.get('/food/hero-banners', getAuthConfig())
       if (response.data.success) {
         setBanners(response.data.data.banners || [])
       }
@@ -257,12 +368,10 @@ export default function LandingPageManagement() {
       setBannersUploadProgress({ current: 0, total: files.length })
 
       // Use batch upload endpoint for multiple files
-      const preparedFiles = await prepareUploadFiles(files)
       const formData = new FormData()
-      preparedFiles.forEach((file) => {
+      files.forEach((file) => {
         // Backend expects field name "files" (upload.array('files'))
         formData.append('files', file)
-        if(selectedZoneId) formData.append('zoneId', selectedZoneId)
       })
 
       // Use getAuthConfig to ensure proper Authorization header
@@ -281,16 +390,15 @@ export default function LandingPageManagement() {
       const response = await api.post('/food/hero-banners/multiple', formData, config)
 
       if (response.data.success) {
-        const dataObj = response.data.data || {}
-        const uploadedBanners = dataObj.banners || (Array.isArray(dataObj.results) ? dataObj.results.filter(r => r.success).map(r => r.banner) : [])
-        const errors = dataObj.errors || (Array.isArray(dataObj.results) ? dataObj.results.filter(r => !r.success).map(r => r.error) : [])
+        const uploadedBanners = response.data.data?.banners || []
+        const errors = response.data.data?.errors || []
         const successCount = uploadedBanners.length
         const failCount = errors.length
 
         await fetchBanners()
         if (bannersFileInputRef.current) bannersFileInputRef.current.value = ''
 
-        if (failCount === 0 && successCount > 0) {
+        if (failCount === 0) {
           setSuccess(`${successCount} hero banner${successCount > 1 ? 's' : ''} uploaded successfully!`)
           setTimeout(() => setSuccess(null), 5000)
         } else if (successCount > 0) {
@@ -298,7 +406,7 @@ export default function LandingPageManagement() {
           setErrorSafely(errors.join(', '))
           setTimeout(() => { setSuccess(null); setError(null) }, 5000)
         } else {
-          setErrorSafely(`Failed to upload banners. ${errors.length > 0 ? errors.join(', ') : 'Please try again.'}`)
+          setErrorSafely(`Failed to upload banners. ${errors.join(', ')}`)
         }
       } else {
         setErrorSafely(response.data.message || 'Failed to upload banners')
@@ -333,7 +441,7 @@ export default function LandingPageManagement() {
       const response = await api.delete(`/food/hero-banners/${id}`, getAuthConfig())
       if (response.data.success) {
         setSuccess('Hero banner deleted successfully!')
-        await fetchBanners(false)
+        await fetchBanners()
         setTimeout(() => setSuccess(null), 3000)
       }
     } catch (err) {
@@ -347,10 +455,10 @@ export default function LandingPageManagement() {
     try {
       setError(null)
       setSuccess(null)
-      const response = await api.patch(`/food/hero-banners/${id}/status`, { isActive: !currentStatus }, getAuthConfig())
+      const response = await api.patch(`/food/hero-banners/${id}/status`, {}, getAuthConfig())
       if (response.data.success) {
         setSuccess(`Banner ${currentStatus ? 'deactivated' : 'activated'} successfully!`)
-        await fetchBanners(false)
+        await fetchBanners()
         setTimeout(() => setSuccess(null), 3000)
       }
     } catch (err) {
@@ -410,9 +518,9 @@ export default function LandingPageManagement() {
   const toggleRestaurantSelection = (restaurantId) => {
     setSelectedRestaurantIds(prev => {
       if (prev.includes(restaurantId)) {
-        return []
+        return prev.filter(id => id !== restaurantId)
       } else {
-        return [restaurantId]
+        return [...prev, restaurantId]
       }
     })
   }
@@ -427,6 +535,7 @@ export default function LandingPageManagement() {
   const filteredRestaurantsForRecommended = useMemo(() => {
     const query = recommendedSearchQuery.trim().toLowerCase()
     return allRestaurants
+      .filter((restaurant) => restaurant.status === 'approved')
       .filter((restaurant) => {
         if (!query) return true
         return restaurant.name?.toLowerCase().includes(query) ||
@@ -436,24 +545,19 @@ export default function LandingPageManagement() {
   }, [allRestaurants, recommendedSearchQuery])
 
   const recommendedRestaurantsSelected = useMemo(() => {
-    const selectedIds = new Set(
-      (settings.recommendedRestaurantIds || []).map((id) => (typeof id === 'object' && id !== null ? String(id._id || id) : String(id)))
-    )
-    return allRestaurants.filter((restaurant) => selectedIds.has(String(restaurant._id)))
+    const selectedIds = new Set(settings.recommendedRestaurantIds || [])
+    return allRestaurants.filter((restaurant) => selectedIds.has(restaurant._id))
   }, [allRestaurants, settings.recommendedRestaurantIds])
 
   const toggleRecommendedRestaurant = (restaurantId) => {
     setSettings((prev) => {
-      const previousIds = Array.isArray(prev.recommendedRestaurantIds)
-        ? prev.recommendedRestaurantIds.map((id) => (typeof id === 'object' && id !== null ? String(id._id || id) : String(id)))
-        : []
-      const targetId = String(restaurantId)
-      const alreadySelected = previousIds.includes(targetId)
+      const previousIds = Array.isArray(prev.recommendedRestaurantIds) ? prev.recommendedRestaurantIds : []
+      const alreadySelected = previousIds.includes(restaurantId)
       return {
         ...prev,
         recommendedRestaurantIds: alreadySelected
-          ? previousIds.filter((id) => id !== targetId)
-          : [...previousIds, targetId],
+          ? previousIds.filter((id) => id !== restaurantId)
+          : [...previousIds, restaurantId],
       }
     })
   }
@@ -463,7 +567,7 @@ export default function LandingPageManagement() {
     try {
       setCategoriesLoading(true)
       setError(null)
-      const response = await api.get('/food/hero-banners/landing/categories', getZoneConfig())
+      const response = await api.get('/food/hero-banners/landing/categories', getAuthConfig())
       if (response.data.success) {
         setCategories(response.data.data.categories || [])
       }
@@ -490,6 +594,10 @@ export default function LandingPageManagement() {
       .filter((file) => {
         if (!file.type.startsWith('image/')) {
           setError('Only image files are allowed for categories')
+          return false
+        }
+        if (file.size > 5 * 1024 * 1024) {
+          setError('Each image must be smaller than 5MB')
           return false
         }
         return true
@@ -554,8 +662,7 @@ export default function LandingPageManagement() {
         }
 
         const formData = new FormData()
-        formData.append('image', await prepareUploadFile(item.file))
-        if(selectedZoneId) formData.append('zoneId', selectedZoneId)
+        formData.append('image', item.file)
         formData.append('label', item.label.trim())
 
         try {
@@ -618,7 +725,7 @@ export default function LandingPageManagement() {
       const response = await api.delete(`/food/hero-banners/landing/categories/${id}`, getAuthConfig())
       if (response.data.success) {
         setSuccess('Category deleted successfully!')
-        await fetchCategories(false)
+        await fetchCategories()
         setTimeout(() => setSuccess(null), 3000)
       }
     } catch (err) {
@@ -635,7 +742,7 @@ export default function LandingPageManagement() {
       const response = await api.patch(`/food/hero-banners/landing/categories/${id}/status`, {}, getAuthConfig())
       if (response.data.success) {
         setSuccess(`Category ${currentStatus ? 'deactivated' : 'activated'} successfully!`)
-        await fetchCategories(false)
+        await fetchCategories()
         setTimeout(() => setSuccess(null), 3000)
       }
     } catch (err) {
@@ -662,11 +769,11 @@ export default function LandingPageManagement() {
   }
 
   // ==================== EXPLORE MORE ====================
-  const fetchExploreMore = async (showLoading = true) => {
+  const fetchExploreMore = async () => {
     try {
-      if (showLoading) setExploreMoreLoading(true)
+      setExploreMoreLoading(true)
       setError(null)
-      const response = await api.get('/food/hero-banners/landing/explore-more', getZoneConfig())
+      const response = await api.get('/food/hero-banners/landing/explore-more', getAuthConfig())
       if (response.data.success) {
         setExploreMore(response.data.data.items || [])
       }
@@ -696,14 +803,17 @@ export default function LandingPageManagement() {
       setError('Please select an image file')
       return
     }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Image size exceeds 5MB')
+      return
+    }
 
     try {
       setExploreMoreUploading(true)
       setError(null)
       setSuccess(null)
       const formData = new FormData()
-      formData.append('image', await prepareUploadFile(file))
-      if(selectedZoneId) formData.append('zoneId', selectedZoneId)
+      formData.append('image', file)
       formData.append('label', exploreMoreLabel.trim())
       formData.append('link', exploreMoreLink.trim())
       const response = await api.post('/food/hero-banners/landing/explore-more', formData, getAuthConfig({
@@ -733,7 +843,7 @@ export default function LandingPageManagement() {
       const response = await api.delete(`/food/hero-banners/landing/explore-more/${id}`, getAuthConfig())
       if (response.data.success) {
         setSuccess('Explore more item deleted successfully!')
-        await fetchExploreMore(false)
+        await fetchExploreMore()
         setTimeout(() => setSuccess(null), 3000)
       }
     } catch (err) {
@@ -750,7 +860,7 @@ export default function LandingPageManagement() {
       const response = await api.patch(`/food/hero-banners/landing/explore-more/${id}/status`, {}, getAuthConfig())
       if (response.data.success) {
         setSuccess(`Explore more item ${currentStatus ? 'deactivated' : 'activated'} successfully!`)
-        await fetchExploreMore(false)
+        await fetchExploreMore()
         setTimeout(() => setSuccess(null), 3000)
       }
     } catch (err) {
@@ -766,12 +876,9 @@ export default function LandingPageManagement() {
     // Find existing item by label
     const existingItem = exploreMore.find(item => item.label?.toLowerCase() === label.toLowerCase())
 
-    const preparedFile = await prepareUploadFile(file)
-
     // Create FormData
     const formData = new FormData()
-    formData.append('image', preparedFile)
-      if(selectedZoneId) formData.append('zoneId', selectedZoneId)
+    formData.append('image', file)
 
     try {
       setExploreIconsUploading(prev => ({ ...prev, [itemId]: true }))
@@ -822,12 +929,12 @@ export default function LandingPageManagement() {
     }
   }
 
-  // ==================== UNDER 250 BANNERS ====================
-  const fetchUnder250Banners = async (showLoading = true) => {
+  // ==================== Eatiefy 99 BANNERS ====================
+  const fetchUnder250Banners = async () => {
     try {
-      if (showLoading) setUnder250BannersLoading(true)
+      setUnder250BannersLoading(true)
       setError(null)
-      const response = await api.get('/food/hero-banners/under-250', getZoneConfig())
+      const response = await api.get('/food/hero-banners/under-250', getAuthConfig())
       if (response.data.success) {
         setUnder250Banners(response.data.data.banners || [])
       }
@@ -840,7 +947,7 @@ export default function LandingPageManagement() {
         setUnder250Banners([])
         setError(null)
       } else {
-        const errorMessage = err.response?.data?.message || 'Failed to load under 250 banners'
+        const errorMessage = err.response?.data?.message || 'Failed to load Eatiefy 99 banners'
         setErrorSafely(errorMessage)
       }
     } finally {
@@ -872,12 +979,10 @@ export default function LandingPageManagement() {
       setSuccess(null)
       setUnder250BannersUploadProgress({ current: 0, total: files.length })
 
-      const preparedFiles = await prepareUploadFiles(files)
       const formData = new FormData()
-      preparedFiles.forEach((file) => {
+      files.forEach((file) => {
         // Backend expects field name "files" (upload.array('files'))
         formData.append('files', file)
-        if(selectedZoneId) formData.append('zoneId', selectedZoneId)
       })
 
       const response = await api.post('/food/hero-banners/under-250/multiple', formData, getAuthConfig({
@@ -885,12 +990,12 @@ export default function LandingPageManagement() {
       }))
 
       if (response.data.success) {
-        setSuccess(`${response.data.data.banners?.length || files.length} under 250 banner(s) uploaded successfully!`)
+        setSuccess(`${response.data.data.banners?.length || files.length} Eatiefy 99 banner(s) uploaded successfully!`)
         await fetchUnder250Banners()
         setTimeout(() => setSuccess(null), 3000)
       }
     } catch (err) {
-      const errorMessage = err.response?.data?.message || 'Failed to upload under 250 banners'
+      const errorMessage = err.response?.data?.message || 'Failed to upload Eatiefy 99 banners'
       setErrorSafely(errorMessage)
 
       setUnder250BannersUploadProgress({ current: 0, total: 0 })
@@ -900,15 +1005,15 @@ export default function LandingPageManagement() {
   }
 
   const handleDeleteUnder250Banner = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this under 250 banner?')) return
+    if (!window.confirm('Are you sure you want to delete this Eatiefy 99 banner?')) return
     try {
       setUnder250BannersDeleting(id)
       setError(null)
       setSuccess(null)
       const response = await api.delete(`/food/hero-banners/under-250/${id}`, getAuthConfig())
       if (response.data.success) {
-        setSuccess('Under 250 banner deleted successfully!')
-        await fetchUnder250Banners(false)
+        setSuccess('Eatiefy 99 banner deleted successfully!')
+        await fetchUnder250Banners()
         setTimeout(() => setSuccess(null), 3000)
       }
     } catch (err) {
@@ -925,7 +1030,7 @@ export default function LandingPageManagement() {
       const response = await api.patch(`/food/hero-banners/under-250/${id}/status`, {}, getAuthConfig())
       if (response.data.success) {
         setSuccess(`Banner ${currentStatus ? 'deactivated' : 'activated'} successfully!`)
-        await fetchUnder250Banners(false)
+        await fetchUnder250Banners()
         setTimeout(() => setSuccess(null), 3000)
       }
     } catch (err) {
@@ -952,11 +1057,11 @@ export default function LandingPageManagement() {
   }
 
   // ==================== DINING BANNERS ====================
-  const fetchDiningBanners = async (showLoading = true) => {
+  const fetchDiningBanners = async () => {
     try {
-      if (showLoading) setDiningBannersLoading(true)
+      setDiningBannersLoading(true)
       setError(null)
-      const response = await api.get('/food/hero-banners/dining', getZoneConfig())
+      const response = await api.get('/food/hero-banners/dining', getAuthConfig())
       if (response.data.success) {
         setDiningBanners(response.data.data.banners || [])
       }
@@ -999,11 +1104,9 @@ export default function LandingPageManagement() {
       setSuccess(null)
       setDiningBannersUploadProgress({ current: 0, total: files.length })
 
-      const preparedFiles = await prepareUploadFiles(files)
       const formData = new FormData()
-      preparedFiles.forEach((file) => {
-        formData.append('files', file)
-        if(selectedZoneId) formData.append('zoneId', selectedZoneId)
+      files.forEach((file) => {
+        formData.append('images', file)
       })
 
       const response = await api.post('/food/hero-banners/dining/multiple', formData, getAuthConfig({
@@ -1033,7 +1136,7 @@ export default function LandingPageManagement() {
       const response = await api.delete(`/food/hero-banners/dining/${id}`, getAuthConfig())
       if (response.data.success) {
         setSuccess('Dining banner deleted successfully!')
-        await fetchDiningBanners(false)
+        await fetchDiningBanners()
         setTimeout(() => setSuccess(null), 3000)
       }
     } catch (err) {
@@ -1050,7 +1153,7 @@ export default function LandingPageManagement() {
       const response = await api.patch(`/food/hero-banners/dining/${id}/status`, {}, getAuthConfig())
       if (response.data.success) {
         setSuccess(`Banner ${currentStatus ? 'deactivated' : 'activated'} successfully!`)
-        await fetchDiningBanners(false)
+        await fetchDiningBanners()
         setTimeout(() => setSuccess(null), 3000)
       }
     } catch (err) {
@@ -1077,33 +1180,22 @@ export default function LandingPageManagement() {
   }
 
   // ==================== SETTINGS ====================
-  const fetchSettings = async (showLoading = true) => {
+  const fetchSettings = async () => {
     try {
-      if (showLoading) setSettingsLoading(true)
+      setSettingsLoading(true)
       setError(null)
-      const response = await api.get('/food/hero-banners/landing/settings', getZoneConfig())
+      const response = await api.get('/food/hero-banners/landing/settings', getAuthConfig())
       if (response.data.success) {
-        const nextSettings = response.data.data?.settings || response.data.data || {}
-        const rawRecommended = nextSettings.recommendedRestaurantIds
-        const recommendedIds = Array.isArray(rawRecommended)
-          ? rawRecommended.map((id) => (typeof id === 'object' && id !== null ? String(id._id || id) : String(id)))
-          : []
-        const newSettings = {
+        const nextSettings = response.data.data.settings || {}
+        setSettings({
           exploreMoreHeading: nextSettings.exploreMoreHeading || "Explore More",
-          recommendedRestaurantIds: recommendedIds,
-          under250PriceLimit: Number(nextSettings.under250PriceLimit) || 250,
-          festBannerImageUrl: typeof nextSettings.festBannerImageUrl === "string" ? nextSettings.festBannerImageUrl : "",
-          festBannerTopColor: typeof nextSettings.festBannerTopColor === "string" ? nextSettings.festBannerTopColor : ""
-        }
-        setSettings(newSettings)
-        setOriginalSettings(newSettings)
+          recommendedRestaurantIds: Array.isArray(nextSettings.recommendedRestaurantIds) ? nextSettings.recommendedRestaurantIds : []
+        })
       }
     } catch (err) {
       // Silently handle 401/404 errors - endpoints may not exist yet, use default settings
       if (err.response?.status === 401 || err.response?.status === 404) {
-        const defaultSettings = { exploreMoreHeading: "Explore More", recommendedRestaurantIds: [], under250PriceLimit: 250, festBannerImageUrl: "", festBannerTopColor: "" }
-        setSettings(defaultSettings) // Use default settings
-        setOriginalSettings(defaultSettings)
+        setSettings({ exploreMoreHeading: "Explore More", recommendedRestaurantIds: [] }) // Use default settings
         setError(null) // Clear any previous error
       } else {
         // Filter out token-related errors
@@ -1120,56 +1212,19 @@ export default function LandingPageManagement() {
       setSettingsSaving(true)
       setError(null)
       setSuccess(null)
-
-      let finalUrl = settings.festBannerImageUrl || ""
-      let finalTopColor = settings.festBannerTopColor || ""
-
-        if (selectedFestBannerFile) {
-        setFestBannerUploading(true)
-        const formData = new FormData()
-        formData.append('file', await prepareUploadFile(selectedFestBannerFile))
-        formData.append('folder', 'food/landing/fest-banner')
-        if (settings.festBannerImageUrl) formData.append('replaceUrl', settings.festBannerImageUrl)
-        if (selectedZoneId) formData.append('zoneId', selectedZoneId)
-
-        const uploadRes = await api.post('/uploads/image', formData, getAuthConfig())
-        finalUrl = uploadRes?.data?.data?.url || ''
-        finalTopColor = uploadRes?.data?.data?.dominantColor || ''
-        if (!finalUrl) {
-          setErrorSafely('Failed to upload banner image')
-          setFestBannerUploading(false)
-          return
-        }
-        setFestBannerUploading(false)
-        setSelectedFestBannerFile(null)
-      }
-
-      const response = await api.patch('/food/hero-banners/landing/settings', { zoneId: selectedZoneId || null,
+      const response = await api.patch('/food/hero-banners/landing/settings', {
         exploreMoreHeading: settings.exploreMoreHeading,
-        recommendedRestaurantIds: Array.isArray(settings.recommendedRestaurantIds) ? settings.recommendedRestaurantIds : [],
-        under250PriceLimit: Number(settings.under250PriceLimit) || 250,
-        festBannerImageUrl: finalUrl,
-        festBannerTopColor: finalTopColor
+        recommendedRestaurantIds: Array.isArray(settings.recommendedRestaurantIds) ? settings.recommendedRestaurantIds : []
       }, getAuthConfig())
       if (response.data.success) {
-        const savedSettings = response.data.data?.settings || response.data.data || {}
-        const rawRecommended = savedSettings.recommendedRestaurantIds
-        const recommendedIds = Array.isArray(rawRecommended)
-          ? rawRecommended.map((id) => (typeof id === 'object' && id !== null ? String(id._id || id) : String(id)))
-          : settings.recommendedRestaurantIds
-        const updatedSettings = {
-          exploreMoreHeading: savedSettings.exploreMoreHeading || settings.exploreMoreHeading,
-          recommendedRestaurantIds: recommendedIds,
-          under250PriceLimit: Number(savedSettings.under250PriceLimit) || settings.under250PriceLimit,
-          festBannerImageUrl: typeof savedSettings.festBannerImageUrl === "string"
-            ? savedSettings.festBannerImageUrl
-            : settings.festBannerImageUrl,
-          festBannerTopColor: typeof savedSettings.festBannerTopColor === "string"
-            ? savedSettings.festBannerTopColor
-            : settings.festBannerTopColor || ""
-        }
-        setSettings(updatedSettings)
-        setOriginalSettings(updatedSettings)
+        const savedSettings = response.data.data?.settings || {}
+        setSettings((prev) => ({
+          ...prev,
+          exploreMoreHeading: savedSettings.exploreMoreHeading || prev.exploreMoreHeading,
+          recommendedRestaurantIds: Array.isArray(savedSettings.recommendedRestaurantIds)
+            ? savedSettings.recommendedRestaurantIds
+            : prev.recommendedRestaurantIds
+        }))
         setSuccess('Settings saved successfully!')
         setTimeout(() => setSuccess(null), 3000)
       }
@@ -1177,28 +1232,6 @@ export default function LandingPageManagement() {
       setErrorSafely(err.response?.data?.message || 'Failed to save settings.')
     } finally {
       setSettingsSaving(false)
-      setFestBannerUploading(false)
-    }
-  }
-
-  const handleFestBannerImageSelect = (e) => {
-    const file = e.target?.files?.[0] || null
-    if (!file) return
-
-    if (!file.type.startsWith('image/')) {
-      setErrorSafely('Please select a valid image file')
-      return
-    }
-
-    try {
-      const localUrl = URL.createObjectURL(file)
-      setSelectedFestBannerFile(file)
-      setSettings((prev) => ({ ...prev, festBannerImageUrl: localUrl }))
-      setSuccess('Banner selected. Click Save Settings to upload and publish.')
-      if (festBannerFileInputRef.current) festBannerFileInputRef.current.value = ''
-      setTimeout(() => setSuccess(null), 3000)
-    } catch (err) {
-      setErrorSafely('Failed to read selected image')
     }
   }
 
@@ -1207,7 +1240,7 @@ export default function LandingPageManagement() {
     try {
       setRestaurantsLoading(true)
       setError(null)
-      const response = await adminAPI.getRestaurants({ limit: 1000, ...(selectedZoneId && { zoneId: selectedZoneId }) })
+      const response = await adminAPI.getRestaurants({ limit: 1000 })
       const data = response?.data?.data
       if (response?.data?.success && data) {
         const raw = Array.isArray(data) ? data : (data.restaurants || [])
@@ -1218,7 +1251,7 @@ export default function LandingPageManagement() {
         setAllRestaurants(restaurants)
       }
     } catch (err) {
-      if (err.response?.status === 401 || err.response?.status === 404) {
+      if (err.response?.status === 401 || err.response?.status === 403 || err.response?.status === 404) {
         setAllRestaurants([])
         setError(null)
       } else {
@@ -1230,11 +1263,11 @@ export default function LandingPageManagement() {
     }
   }
 
-  const fetchGourmetRestaurants = async (showLoading = true) => {
+  const fetchGourmetRestaurants = async () => {
     try {
-      if (showLoading) setGourmetLoading(true)
+      setGourmetLoading(true)
       setError(null)
-      const response = await api.get('/food/hero-banners/gourmet', getZoneConfig())
+      const response = await api.get('/food/hero-banners/gourmet', getAuthConfig())
       if (response.data.success) {
         setGourmetRestaurants(response.data.data.restaurants || [])
       }
@@ -1260,7 +1293,7 @@ export default function LandingPageManagement() {
     try {
       setError(null)
       setSuccess(null)
-      const response = await api.post('/food/hero-banners/gourmet', { zoneId: selectedZoneId || null,
+      const response = await api.post('/food/hero-banners/gourmet', {
         restaurantId: selectedRestaurantGourmet
       }, getAuthConfig())
       if (response.data.success) {
@@ -1282,7 +1315,7 @@ export default function LandingPageManagement() {
       const response = await api.delete(`/food/hero-banners/gourmet/${id}`, getAuthConfig())
       if (response.data.success) {
         setSuccess('Restaurant removed from Gourmet successfully!')
-        await fetchGourmetRestaurants(false)
+        await fetchGourmetRestaurants()
         setTimeout(() => setSuccess(null), 3000)
       }
     } catch (err) {
@@ -1317,7 +1350,7 @@ export default function LandingPageManagement() {
       const response = await api.patch(`/food/hero-banners/gourmet/${id}/status`, {}, getAuthConfig())
       if (response.data.success) {
         setSuccess(`Restaurant ${currentStatus ? 'deactivated' : 'activated'} successfully!`)
-        await fetchGourmetRestaurants(false)
+        await fetchGourmetRestaurants()
         setTimeout(() => setSuccess(null), 3000)
       }
     } catch (err) {
@@ -1326,23 +1359,19 @@ export default function LandingPageManagement() {
   }
 
   // ==================== RENDER ====================
+
   const tabs = [
+    { id: 'top-banners', label: 'Top Banners', icon: ImageIcon },
     { id: 'banners', label: 'Hero Banners', icon: ImageIcon },
-    { id: 'under-250', label: '250 Banner', icon: Tag },
-    { id: 'dining', label: 'Dining', icon: UtensilsCrossed },
+    { id: 'under-250', label: 'Eatiefy 99 Banner', icon: Tag },
+    // { id: 'dining', label: 'Dining', icon: UtensilsCrossed },
     { id: 'explore-more', label: 'Explore More', icon: Layout },
   ]
 
   const exploreMoreTabs = [
     { id: 'icons', label: 'Icons', icon: ImageIcon },
-    ...(selectedZoneId ? [{ id: 'gourmet', label: 'Gourmet', icon: ChefHat }] : []),
+    { id: 'gourmet', label: 'Gourmet', icon: ChefHat },
   ]
-
-  useEffect(() => {
-    if (!selectedZoneId && exploreMoreSubTab === 'gourmet') {
-      setExploreMoreSubTab('icons');
-    }
-  }, [selectedZoneId, exploreMoreSubTab]);
 
   return (
     <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
@@ -1356,28 +1385,8 @@ export default function LandingPageManagement() {
             <div>
               <h1 className="text-2xl font-bold text-slate-900">Landing Page Management</h1>
               <p className="text-sm text-slate-600 mt-1">Manage hero banners</p>
-
-            </div>
-            
-            <div className="flex items-center gap-2 mt-4 sm:mt-0 ml-auto">
-              <Label htmlFor="zone-select" className="text-sm font-medium text-slate-700 whitespace-nowrap">Filter by Zone:</Label>
-              <select
-                id="zone-select"
-                value={selectedZoneId}
-                onChange={(e) => setSelectedZoneId(e.target.value)}
-                className="px-3 py-2 bg-white border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm w-48"
-                disabled={zonesLoading}
-              >
-                <option value="">Global / All Zones</option>
-                {zones.map((zone) => (
-                  <option key={zone._id || zone.id} value={zone._id || zone.id}>
-                    {zone.name || zone.zoneName || 'Unnamed Zone'}
-                  </option>
-                ))}
-              </select>
             </div>
           </div>
-
         </div>
 
         {/* Tabs */}
@@ -1417,12 +1426,168 @@ export default function LandingPageManagement() {
           </div>
         )}
 
+        {/* Top Banners Tab */}
+        {activeTab === 'top-banners' && (
+          <>
+            {/* Upload Section */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+              <h2 className="text-lg font-bold text-slate-900 mb-4">Upload New Top Banner / Video (Images & Videos)</h2>
+              <div
+                className="border-2 border-dashed border-blue-300 rounded-lg p-8 text-center bg-blue-50/30 cursor-pointer transition-colors hover:border-blue-400 hover:bg-blue-50/50"
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  const files = Array.from(e.dataTransfer.files)
+                  if (files.length > 0) handleTopBannerFileSelect({ files })
+                }}
+                onClick={() => topBannersFileInputRef.current?.click()}
+              >
+                <input
+                  ref={topBannersFileInputRef}
+                  type="file"
+                  accept="image/*,video/*,.mp4,.webm,.mov,.m4v,.avi"
+                  multiple
+                  onChange={handleTopBannerFileSelect}
+                  className="hidden"
+                  disabled={topBannersUploading}
+                />
+                {topBannersUploading ? (
+                  <div className="flex flex-col items-center gap-3">
+                    <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+                    <p className="text-blue-600 font-medium">
+                      Uploading media {topBannersUploadProgress.current} of {topBannersUploadProgress.total}...
+                    </p>
+                    {topBannersUploadProgress.total > 0 && (
+                      <div className="w-full max-w-xs">
+                        <div className="w-full bg-blue-200 rounded-full h-2">
+                          <div
+                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${(topBannersUploadProgress.current / topBannersUploadProgress.total) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-3">
+                    <Upload className="w-8 h-8 text-blue-600" />
+                    <div>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); topBannersFileInputRef.current?.click(); }}
+                        className="text-blue-600 font-medium hover:text-blue-700 underline"
+                      >
+                        Click to upload
+                      </button>
+                      <span className="text-slate-600"> or drag and drop</span>
+                    </div>
+                    <p className="text-xs text-slate-500">PNG, JPG, WEBP, MP4, WEBM, MOV up to 50MB (Max 5 files at once)</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Banners List */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <h2 className="text-lg font-bold text-slate-900 mb-4">Top Banner List ({topBanners.length})</h2>
+              {topBannersLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+                </div>
+              ) : topBanners.length === 0 ? (
+                <div className="text-center py-12 text-slate-500">
+                  <ImageIcon className="w-12 h-12 mx-auto mb-3 text-slate-400" />
+                  <p>No banners or videos uploaded yet.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {topBanners.map((banner, index) => {
+                    const mediaUrl = banner.image || banner.imageUrl;
+                    const isVideo = Boolean(mediaUrl?.match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || banner.mediaType === 'video');
+                    return (
+                      <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
+                        <div className="relative aspect-video bg-slate-100">
+                          {isVideo ? (
+                            <video 
+                              src={mediaUrl} 
+                              autoPlay 
+                              loop 
+                              muted 
+                              playsInline 
+                              className="w-full h-full object-cover" 
+                            />
+                          ) : (
+                            <img src={mediaUrl} alt={`Top Banner ${index + 1}`} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
+                          )}
+                          <div className="absolute top-2 right-2 flex items-center gap-1">
+                            {isVideo && (
+                              <span className="px-2 py-1 rounded text-xs font-bold bg-purple-600 text-white">
+                                VIDEO
+                              </span>
+                            )}
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                              {banner.isActive ? 'Active' : 'Inactive'}
+                            </span>
+                          </div>
+                          <div className="absolute top-2 left-2">
+                            <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {banner.order}</span>
+                          </div>
+                        </div>
+                        <div className="p-4 bg-white">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => handleTopBannerOrderChange(banner._id, 'up')} disabled={index === 0} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
+                                <ArrowUp className="w-4 h-4 text-slate-600" />
+                              </button>
+                              <button onClick={() => handleTopBannerOrderChange(banner._id, 'down')} disabled={index === topBanners.length - 1} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
+                                <ArrowDown className="w-4 h-4 text-slate-600" />
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <button onClick={() => handleToggleTopBannerStatus(banner._id, banner.isActive)} className={`px-3 py-1.5 rounded text-sm font-medium ${banner.isActive ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
+                                {banner.isActive ? 'Deactivate' : 'Activate'}
+                              </button>
+                              <button onClick={() => handleDeleteTopBanner(banner._id)} disabled={topBannersDeleting === banner._id} className="p-1.5 rounded hover:bg-red-100 text-red-600 disabled:opacity-50">
+                                {topBannersDeleting === banner._id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                              </button>
+                            </div>
+                          </div>
+                          {banner.linkedRestaurants && banner.linkedRestaurants.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-slate-200">
+                              <p className="text-xs text-slate-600 mb-1">Linked Restaurants ({banner.linkedRestaurants.length}):</p>
+                              <div className="flex flex-wrap gap-1">
+                                {banner.linkedRestaurants.slice(0, 3).map((restaurant) => (
+                                  <span key={restaurant._id || restaurant} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">
+                                    {restaurant.name || 'Restaurant'}
+                                  </span>
+                                ))}
+                                {banner.linkedRestaurants.length > 3 && (
+                                  <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
+                                    +{banner.linkedRestaurants.length - 3} more
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
         {/* Hero Banners Tab */}
+
         {activeTab === 'banners' && (
           <>
             {/* Upload Section */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-              <h2 className="text-lg font-bold text-slate-900 mb-4">Upload New Banner(s)</h2>
+              <h2 className="text-lg font-bold text-slate-900 mb-4">Upload New Hero Banner / Video (Images & Videos)</h2>
               <div
                 className="border-2 border-dashed border-blue-300 rounded-lg p-8 text-center bg-blue-50/30 cursor-pointer transition-colors hover:border-blue-400 hover:bg-blue-50/50"
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -1438,7 +1603,7 @@ export default function LandingPageManagement() {
                 <input
                   ref={bannersFileInputRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/*,video/*,.mp4,.webm,.mov,.m4v,.avi"
                   multiple
                   onChange={handleBannerFileSelect}
                   className="hidden"
@@ -1448,7 +1613,7 @@ export default function LandingPageManagement() {
                   <div className="flex flex-col items-center gap-3">
                     <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
                     <p className="text-blue-600 font-medium">
-                      Uploading image {bannersUploadProgress.current} of {bannersUploadProgress.total}...
+                      Uploading media {bannersUploadProgress.current} of {bannersUploadProgress.total}...
                     </p>
                     {bannersUploadProgress.total > 0 && (
                       <div className="w-full max-w-xs">
@@ -1474,7 +1639,7 @@ export default function LandingPageManagement() {
                       </button>
                       <span className="text-slate-600"> or drag and drop</span>
                     </div>
-                    <p className="text-xs text-slate-500">PNG, JPG, WEBP up to 5MB each (Max 5 images at once)</p>
+                    <p className="text-xs text-slate-500">PNG, JPG, WEBP, MP4, WEBM, MOV up to 50MB (Max 5 files at once)</p>
                   </div>
                 )}
               </div>
@@ -1482,14 +1647,7 @@ export default function LandingPageManagement() {
 
             {/* Banners List */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-              <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                <span>Banner List</span>
-                {bannersLoading ? (
-                  <span className="w-8 h-5 bg-slate-200 animate-pulse rounded inline-block" />
-                ) : (
-                  <span>({banners.length})</span>
-                )}
-              </h2>
+              <h2 className="text-lg font-bold text-slate-900 mb-4">Banner List ({banners.length})</h2>
               {bannersLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
@@ -1497,23 +1655,42 @@ export default function LandingPageManagement() {
               ) : banners.length === 0 ? (
                 <div className="text-center py-12 text-slate-500">
                   <ImageIcon className="w-12 h-12 mx-auto mb-3 text-slate-400" />
-                  <p>No banners uploaded yet.</p>
+                  <p>No banners or videos uploaded yet.</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {banners.map((banner, index) => (
-                    <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
-                      <div className="relative aspect-video bg-slate-100">
-                        <img src={banner.imageUrl} alt={`Hero Banner ${index + 1}`} className="w-full h-full object-cover" />
-                        <div className="absolute top-2 right-2">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                            {banner.isActive ? 'Active' : 'Inactive'}
-                          </span>
+                  {banners.map((banner, index) => {
+                    const mediaUrl = banner.imageUrl || banner.image;
+                    const isVideo = Boolean(mediaUrl?.match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || banner.mediaType === 'video');
+                    return (
+                      <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
+                        <div className="relative aspect-video bg-slate-100">
+                          {isVideo ? (
+                            <video 
+                              src={mediaUrl} 
+                              autoPlay 
+                              loop 
+                              muted 
+                              playsInline 
+                              className="w-full h-full object-cover" 
+                            />
+                          ) : (
+                            <img src={mediaUrl} alt={`Hero Banner ${index + 1}`} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
+                          )}
+                          <div className="absolute top-2 right-2 flex items-center gap-1">
+                            {isVideo && (
+                              <span className="px-2 py-1 rounded text-xs font-bold bg-purple-600 text-white">
+                                VIDEO
+                              </span>
+                            )}
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                              {banner.isActive ? 'Active' : 'Inactive'}
+                            </span>
+                          </div>
+                          <div className="absolute top-2 left-2">
+                            <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {banner.order}</span>
+                          </div>
                         </div>
-                        <div className="absolute top-2 left-2">
-                          <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {banner.order}</span>
-                        </div>
-                      </div>
                       <div className="p-4 bg-white">
                         <div className="flex items-center justify-between gap-2 flex-wrap">
                           <div className="flex items-center gap-1">
@@ -1525,20 +1702,17 @@ export default function LandingPageManagement() {
                             </button>
                           </div>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <button
+                            {/* <button
                               onClick={() => {
                                 setSelectedBannerId(banner._id)
                                 setSelectedRestaurantIds(banner.linkedRestaurants?.map(r => r._id || r) || [])
-                                if (allRestaurants.length === 0) {
-                                  fetchAllRestaurants()
-                                }
                                 setShowRestaurantModal(true)
                               }}
                               className="px-3 py-1.5 rounded text-sm font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 flex items-center gap-1"
                             >
                               <Megaphone className="w-4 h-4" />
                               Advertise
-                            </button>
+                            </button> */}
                             <button onClick={() => handleToggleBannerStatus(banner._id, banner.isActive)} className={`px-3 py-1.5 rounded text-sm font-medium ${banner.isActive ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
                               {banner.isActive ? 'Deactivate' : 'Activate'}
                             </button>
@@ -1548,26 +1722,33 @@ export default function LandingPageManagement() {
                           </div>
                         </div>
                         {banner.linkedRestaurants && banner.linkedRestaurants.length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-semibold text-slate-500">Linked Restaurant:</span>
-                            <div className="flex items-center gap-1.5 bg-yellow-100/70 hover:bg-yellow-100 border border-yellow-200 rounded-lg px-3 py-1.5 transition-all shadow-sm">
-                              <Store className="w-3.5 h-3.5 text-yellow-700" />
-                              <span className="text-xs font-bold text-slate-800">
-                                {banner.linkedRestaurants[0].restaurantName || banner.linkedRestaurants[0].name || 'Restaurant'}
-                              </span>
+                          <div className="mt-2 pt-2 border-t border-slate-200">
+                            <p className="text-xs text-slate-600 mb-1">Linked Restaurants ({banner.linkedRestaurants.length}):</p>
+                            <div className="flex flex-wrap gap-1">
+                              {banner.linkedRestaurants.slice(0, 3).map((restaurant) => (
+                                <span key={restaurant._id || restaurant} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">
+                                  {restaurant.name || 'Restaurant'}
+                                </span>
+                              ))}
+                              {banner.linkedRestaurants.length > 3 && (
+                                <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
+                                  +{banner.linkedRestaurants.length - 3} more
+                                </span>
+                              )}
                             </div>
                           </div>
                         )}
                       </div>
                     </div>
-                  ))}
+                  );
+                })}
                 </div>
               )}
             </div>
           </>
         )}
 
-        {/* Under 250 Banner Tab */}
+        {/* Eatiefy 99 Banner Tab */}
         {activeTab === 'under-250' && (
           <>
             {/* Upload Section */}
@@ -1632,14 +1813,7 @@ export default function LandingPageManagement() {
 
             {/* Banners List */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-              <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                <span>Banner List</span>
-                {under250BannersLoading ? (
-                  <span className="w-8 h-5 bg-slate-200 animate-pulse rounded inline-block" />
-                ) : (
-                  <span>({under250Banners.length})</span>
-                )}
-              </h2>
+              <h2 className="text-lg font-bold text-slate-900 mb-4">Banner List ({under250Banners.length})</h2>
               {under250BannersLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
@@ -1647,14 +1821,14 @@ export default function LandingPageManagement() {
               ) : under250Banners.length === 0 ? (
                 <div className="text-center py-12 text-slate-500">
                   <Tag className="w-12 h-12 mx-auto mb-3 text-slate-400" />
-                  <p>No under 250 banners uploaded yet.</p>
+                  <p>No Eatiefy 99 banners uploaded yet.</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {under250Banners.map((banner, index) => (
                     <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
                       <div className="relative aspect-video bg-slate-100">
-                        <img src={banner.imageUrl} alt={`Under 250 Banner ${index + 1}`} className="w-full h-full object-cover" />
+                        <img src={banner.imageUrl} alt={`Eatiefy 99 Banner ${index + 1}`} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                         <div className="absolute top-2 right-2">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                             {banner.isActive ? 'Active' : 'Inactive'}
@@ -1755,14 +1929,7 @@ export default function LandingPageManagement() {
 
             {/* Banners List */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-              <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                <span>Banner List</span>
-                {diningBannersLoading ? (
-                  <span className="w-8 h-5 bg-slate-200 animate-pulse rounded inline-block" />
-                ) : (
-                  <span>({diningBanners.length})</span>
-                )}
-              </h2>
+              <h2 className="text-lg font-bold text-slate-900 mb-4">Banner List ({diningBanners.length})</h2>
               {diningBannersLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
@@ -1777,7 +1944,7 @@ export default function LandingPageManagement() {
                   {diningBanners.map((banner, index) => (
                     <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
                       <div className="relative aspect-video bg-slate-100">
-                        <img src={banner.imageUrl} alt={`Dining Banner ${index + 1}`} className="w-full h-full object-cover" />
+                        <img src={banner.imageUrl} alt={`Dining Banner ${index + 1}`} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                         <div className="absolute top-2 right-2">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                             {banner.isActive ? 'Active' : 'Inactive'}
@@ -1821,12 +1988,7 @@ export default function LandingPageManagement() {
                 <h2 className="text-lg font-bold text-slate-900">Landing Settings</h2>
                 <Button
                   onClick={handleSaveSettings}
-                  disabled={
-                    settingsSaving || 
-                    settingsLoading || 
-                    (JSON.stringify({...settings, recommendedRestaurantIds: [...(settings.recommendedRestaurantIds || [])].sort()}) === 
-                     JSON.stringify({...originalSettings, recommendedRestaurantIds: [...(originalSettings.recommendedRestaurantIds || [])].sort()}))
-                  }
+                  disabled={settingsSaving || settingsLoading}
                   className="bg-blue-500 hover:bg-blue-600 text-white"
                 >
                   {settingsSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
@@ -1851,68 +2013,6 @@ export default function LandingPageManagement() {
                     />
                   </div>
 
-                  <div>
-                    <Label htmlFor="under-250-price">Under Price Limit (₹)</Label>
-                    <Input
-                      id="under-250-price"
-                      type="number"
-                      min="1"
-                      max="10000"
-                      value={settings.under250PriceLimit || 250}
-                      onChange={(e) => setSettings((prev) => ({ ...prev, under250PriceLimit: Math.max(1, Number(e.target.value)) }))}
-                      className="mt-2"
-                      placeholder="250"
-                    />
-                    <p className="text-xs text-slate-500 mt-1">Button will show "Under ₹{settings.under250PriceLimit || 250}" on user home page</p>
-                  </div>
-
-                  <div>
-                    <Label>Fest Banner (User Home)</Label>
-                    <p className="text-xs text-slate-500 mt-1 mb-3">
-                      Upload a promo image for the home fest banner. If empty, the default design is shown.
-                    </p>
-                    <div className="flex flex-col gap-3">
-                      <input
-                        ref={festBannerFileInputRef}
-                        type="file"
-                        accept="image/*"
-                        onChange={handleFestBannerImageSelect}
-                        className="hidden"
-                        disabled={festBannerUploading}
-                      />
-                      <div className="flex flex-wrap items-center gap-3">
-                        <Button
-                          type="button"
-                          onClick={() => festBannerFileInputRef.current?.click()}
-                          disabled={festBannerUploading}
-                          className="bg-slate-900 hover:bg-slate-800 text-white"
-                        >
-                          {festBannerUploading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                          {festBannerUploading ? 'Uploading...' : 'Upload Banner'}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            setSettings((prev) => ({ ...prev, festBannerImageUrl: "", festBannerTopColor: "" }))
-                            setSelectedFestBannerFile(null)
-                          }}
-                          disabled={festBannerUploading || !settings.festBannerImageUrl}
-                        >
-                          Remove Banner
-                        </Button>
-                      </div>
-                      {settings.festBannerImageUrl ? (
-                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 break-all">
-                          {settings.festBannerImageUrl}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-slate-500">No banner uploaded.</p>
-                      )}
-                    </div>
-                  </div>
-
-                  {selectedZoneId !== "" && selectedZoneId != null && (
                   <div>
                     <Label htmlFor="recommended-search">Recommended For You Restaurants</Label>
                     <p className="text-xs text-slate-500 mt-1 mb-2">
@@ -1951,7 +2051,7 @@ export default function LandingPageManagement() {
                         <div className="p-4 text-sm text-slate-500 text-center">No restaurants found</div>
                       ) : (
                         filteredRestaurantsForRecommended.map((restaurant) => {
-                          const isChecked = (settings.recommendedRestaurantIds || []).some(id => String(id) === String(restaurant._id))
+                          const isChecked = (settings.recommendedRestaurantIds || []).includes(restaurant._id)
                           return (
                             <label
                               key={restaurant._id}
@@ -1959,6 +2059,7 @@ export default function LandingPageManagement() {
                             >
                               <div className="min-w-0">
                                 <p className="text-sm font-medium text-slate-800 truncate">{restaurant.name}</p>
+                                <p className="text-xs text-slate-500 truncate">{restaurant._id || "No ID"}</p>
                               </div>
                               <Checkbox
                                 checked={isChecked}
@@ -1970,7 +2071,6 @@ export default function LandingPageManagement() {
                       )}
                     </div>
                   </div>
-                  )}
                 </div>
               )}
             </div>
@@ -2009,28 +2109,23 @@ export default function LandingPageManagement() {
                   {[
                     { id: 'offers', label: 'Offers', link: '/user/offers' },
                     { id: 'gourmet', label: 'Gourmet', link: '/user/gourmet' },
-                    { id: 'collection', label: 'Collections', link: '/user/profile/favorites' },
-                    { id: 'under-250', label: 'Under 250', link: '/food/user/under-250' }
+                    { id: 'eatiefy99', label: 'Eatiefy 99', link: '/user/under-250' },
+                    { id: 'collection', label: 'Collections', link: '/user/profile/favorites' }
                   ].map((item) => {
                     // Find matching item from DB
-                    const dbItem = exploreMore.find(i => {
-                      const dbLabel = i.label?.toLowerCase().trim() || ""
-                      const itemLabel = item.label.toLowerCase().trim()
-                      return dbLabel === itemLabel || dbLabel.replace(/s$/, '') === itemLabel.replace(/s$/, '')
-                    })
-                    const iconSrc = dbItem?.imageUrl || dbItem?.iconUrl || null
+                    const dbItem = exploreMore.find(i => i.label?.toLowerCase() === item.label.toLowerCase())
 
                     return (
                       <div key={item.id} className="border border-slate-200 rounded-lg p-4 flex flex-col items-center relative">
                         <span className="text-sm font-semibold text-slate-700 mb-3">{item.label}</span>
 
                         <div className="w-24 h-24 mb-4 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center overflow-hidden relative group">
-                          {iconSrc ? (
+                          {dbItem?.imageUrl ? (
                             <img
-                              src={iconSrc}
+                              src={dbItem.imageUrl}
                               alt={item.label}
                               className="w-full h-full object-contain p-2"
-                            />
+                             loading="lazy" decoding="async" />
                           ) : (
                             <ImageIcon className="w-8 h-8 text-slate-300" />
                           )}
@@ -2085,21 +2180,14 @@ export default function LandingPageManagement() {
                         className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                         disabled={restaurantsLoading}
                       >
-                        {allRestaurants.length === 0 ? (
-                          <option value="" disabled>No restaurant found</option>
-                        ) : (
-                          <>
-                            <option value="">Select a restaurant...</option>
-                            {allRestaurants.map((restaurant) => {
-                              const isAdded = gourmetRestaurants.some(gr => gr.restaurant?._id === restaurant._id)
-                              return (
-                                <option key={restaurant._id} value={restaurant._id} disabled={isAdded}>
-                                  {restaurant.name} {isAdded ? '✅ (Already Selected)' : ''}
-                                </option>
-                              )
-                            })}
-                          </>
-                        )}
+                        <option value="">Select a restaurant...</option>
+                        {allRestaurants
+                          .filter(r => !gourmetRestaurants.some(gr => gr.restaurant?._id === r._id))
+                          .map((restaurant) => (
+                            <option key={restaurant._id} value={restaurant._id}>
+                              {restaurant.name}
+                            </option>
+                          ))}
                       </select>
                     </div>
                     <Button
@@ -2113,14 +2201,7 @@ export default function LandingPageManagement() {
                 </div>
 
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                  <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                    <span>Gourmet Restaurants</span>
-                    {gourmetLoading ? (
-                      <span className="w-8 h-5 bg-slate-200 animate-pulse rounded inline-block" />
-                    ) : (
-                      <span>({gourmetRestaurants.length})</span>
-                    )}
-                  </h2>
+                  <h2 className="text-lg font-bold text-slate-900 mb-4">Gourmet Restaurants ({gourmetRestaurants.length})</h2>
                   {gourmetLoading ? (
                     <div className="flex items-center justify-center py-12">
                       <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
@@ -2153,7 +2234,7 @@ export default function LandingPageManagement() {
                           return (
                             <div key={item._id} className="border border-slate-200 rounded-lg overflow-hidden">
                               <div className="relative h-32 bg-slate-100">
-                                <img src={restaurantImage} alt={item.restaurant?.name} className="w-full h-full object-cover" />
+                                <img src={restaurantImage} alt={item.restaurant?.name} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
                                 <div className="absolute top-1 right-1">
                                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${item.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                                     {item.isActive ? 'Active' : 'Inactive'}
@@ -2162,10 +2243,7 @@ export default function LandingPageManagement() {
                               </div>
                               <div className="p-2">
                                 <h3 className="font-semibold text-slate-900 mb-0.5 text-sm line-clamp-1">{item.restaurant?.name || 'N/A'}</h3>
-                                <div className="flex items-center gap-1 text-[10px] text-slate-500 mb-2">
-                                  <Star className="w-3 h-3 fill-amber-400 text-amber-400 inline" />
-                                  <span className="font-semibold text-slate-700">{item.restaurant?.rating || 0}</span>
-                                </div>
+                                <p className="text-[10px] text-slate-500 mb-2">Rating: {item.restaurant?.rating || 0}?</p>
                                 <div className="flex items-center justify-between gap-1">
                                   <div className="flex items-center gap-0.5">
                                     <button onClick={() => handleGourmetOrderChange(item._id, 'up')} disabled={index === 0} className="p-1 rounded hover:bg-slate-100 disabled:opacity-50">
@@ -2198,9 +2276,9 @@ export default function LandingPageManagement() {
         <Dialog open={showRestaurantModal} onOpenChange={setShowRestaurantModal}>
           <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col p-0">
             <DialogHeader className="px-6 pt-6 pb-4 border-b border-slate-200">
-              <DialogTitle className="text-2xl font-bold text-slate-900">Select Restaurant to Link with Banner</DialogTitle>
+              <DialogTitle className="text-2xl font-bold text-slate-900">Select Restaurants to Link with Banner</DialogTitle>
               <DialogDescription className="text-slate-600 mt-2">
-                Select a restaurant that will be linked to this banner. When users click on this banner, they will be redirected to the selected restaurant.
+                Select restaurants that will be linked to this banner. When users click on this banner, they will be redirected to the selected restaurants.
               </DialogDescription>
             </DialogHeader>
 
@@ -2220,15 +2298,14 @@ export default function LandingPageManagement() {
                 {selectedRestaurantIds.length > 0 && (
                   <div className="flex items-center gap-2">
                     <div className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-sm font-medium">
-                      Restaurant selected
+                      {selectedRestaurantIds.length} restaurant{selectedRestaurantIds.length > 1 ? 's' : ''} selected
                     </div>
                     <Button
-                      variant="outline"
+                      variant="ghost"
                       size="sm"
                       onClick={() => setSelectedRestaurantIds([])}
-                      className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 ml-2"
+                      className="text-xs text-slate-600 hover:text-slate-900"
                     >
-                      <Trash2 className="w-3 h-3 mr-1" />
                       Clear selection
                     </Button>
                   </div>
@@ -2305,10 +2382,10 @@ export default function LandingPageManagement() {
                               <p className="text-sm text-slate-500 truncate">
                                 ID: {restaurant.restaurantId || restaurant._id}
                               </p>
-                              {restaurant.rating !== undefined && restaurant.rating !== null && (
+                              {restaurant.rating && (
                                 <div className="flex items-center gap-1 mt-1">
-                                  <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 inline" />
-                                  <span className="text-xs font-semibold text-slate-700">{restaurant.rating}</span>
+                                  <span className="text-xs text-slate-400">?</span>
+                                  <span className="text-xs text-slate-600">{restaurant.rating}</span>
                                 </div>
                               )}
                             </div>
@@ -2349,62 +2426,23 @@ export default function LandingPageManagement() {
                   </Button>
                   <Button
                     onClick={handleLinkRestaurants}
-                    disabled={linkingRestaurants}
+                    disabled={linkingRestaurants || selectedRestaurantIds.length === 0}
                     className="bg-blue-600 hover:bg-blue-700 text-white px-6 min-w-[140px]"
                   >
                     {linkingRestaurants ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Saving...
-                      </>
-                    ) : selectedRestaurantIds.length === 0 ? (
-                      <>
-                        Save Selection
+                        Linking...
                       </>
                     ) : (
                       <>
                         <Megaphone className="w-4 h-4 mr-2" />
-                        Link Restaurant
+                        Link {selectedRestaurantIds.length > 0 ? `(${selectedRestaurantIds.length})` : ''} Restaurant{selectedRestaurantIds.length !== 1 ? 's' : ''}
                       </>
                     )}
                   </Button>
                 </div>
               </div>
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        {/* Delete Confirmation Dialog */}
-        <Dialog open={deleteDialog.isOpen} onOpenChange={(isOpen) => !isOpen && setDeleteDialog({ isOpen: false, id: null, type: null })}>
-          <DialogContent className="sm:max-w-[400px]">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-red-600">
-                <AlertCircle className="w-5 h-5" />
-                Confirm Deletion
-              </DialogTitle>
-              <DialogDescription className="py-4 text-slate-600 text-base">
-                Are you sure you want to delete this item? This action cannot be undone.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="flex justify-end gap-3 mt-4">
-              <Button variant="outline" onClick={() => setDeleteDialog({ isOpen: false, id: null, type: null })}>
-                Cancel
-              </Button>
-              <Button 
-                variant="destructive" 
-                className="bg-red-600 hover:bg-red-700 text-white"
-                onClick={() => {
-                  const { id, type } = deleteDialog;
-                  setDeleteDialog({ isOpen: false, id: null, type: null });
-                  if (type === 'hero') executeDeleteBanner(id);
-                  if (type === 'under250') executeDeleteUnder250Banner(id);
-                  if (type === 'dining') executeDeleteDiningBanner(id);
-                  if (type === 'exploreIcon') executeDeleteExploreIcon(id);
-                  if (type === 'gourmet') executeDeleteGourmetRestaurant(id);
-                }}
-              >
-                Delete
-              </Button>
             </div>
           </DialogContent>
         </Dialog>

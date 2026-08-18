@@ -1,239 +1,252 @@
 import rateLimit from 'express-rate-limit';
 import { config } from '../config/env.js';
-import { verifyAccessToken } from '../core/auth/token.util.js';
-import { logger } from '../utils/logger.js';
+import { RedisRateLimitStore } from './rateLimitStore.js';
 
-const privateWindowMs = config.rateLimitWindowMinutes * 60 * 1000;
-const authWindowMs = config.authRateLimitWindowMinutes * 60 * 1000;
+const isDev = config.nodeEnv === 'development';
 
-const privateMax =
-    config.nodeEnv === 'development'
-        ? config.rateLimitDevMaxRequests
-        : config.rateLimitMaxRequests;
+const resolveMax = (productionMax, devFloor) => {
+    if (!config.rateLimitEnabled) return Number.MAX_SAFE_INTEGER;
+    if (isDev) return Math.max(Number(productionMax) || 0, Number(devFloor) || 0);
+    return Number(productionMax) || 0;
+};
 
-/**
- * Resolve the real client IP behind Vite / nginx / Cloudflare / mobile gateways.
- */
-export function getClientIp(req) {
-    if (req.clientIp) return req.clientIp;
+const normalizeIp = (ip) => String(ip || '').trim().replace(/^::ffff:/i, '');
 
-    const headerFirst = (value) => {
-        if (!value) return null;
-        const raw = Array.isArray(value) ? value[0] : String(value);
-        const first = raw.split(',')[0]?.trim();
-        return first || null;
-    };
-
-    // Prefer left-most X-Forwarded-For (original client). Nginx sets this.
-    // CF-Connecting-IP only when Cloudflare is in front.
-    const fromForwarded = headerFirst(req.headers['x-forwarded-for']);
-    const fromCf = headerFirst(req.headers['cf-connecting-ip']);
-    const fromRealIp = headerFirst(req.headers['x-real-ip']);
-    const fromTrueClient = headerFirst(req.headers['true-client-ip']);
-
-    // If Cloudflare is present, trust CF first; otherwise XFF / X-Real-IP from nginx.
-    const picked =
-        fromCf ||
-        fromForwarded ||
-        fromRealIp ||
-        fromTrueClient ||
-        (req.ip ? stripIpv6Mapped(req.ip) : null) ||
-        stripIpv6Mapped(req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown');
-
-    return stripIpv6Mapped(picked);
-}
-
-function stripIpv6Mapped(ip) {
-    const s = String(ip || '').trim();
-    if (!s) return 'unknown';
-    if (s.startsWith('::ffff:')) return s.slice(7);
-    return s;
-}
-
-function normalizePath(req) {
-    const raw = String(req.originalUrl || req.url || '').split('?')[0];
-    return raw.replace(/\/+$/, '') || '/';
-}
-
-/**
- * High-frequency authenticated polls — do not burn the private budget.
- */
-function isHighFrequencyPrivatePoll(req) {
-    const path = normalizePath(req);
-    return (
-        /\/food\/delivery\/orders\/(available|current)(?:\/|$)/.test(path) ||
-        /\/food\/delivery\/orders\/[^/]+\/payment-status(?:\/|$)/.test(path) ||
-        /\/food\/restaurant\/orders(?:\/|$)/.test(path) ||
-        /\/food\/auth\/me$/.test(path) ||
-        /\/auth\/me$/.test(path)
+const clientIp = (req) => {
+    // Behind nginx: X-Forwarded-For (chain) then X-Real-IP; without these every
+    // proxied request looks like 127.0.0.1 and shares one global bucket.
+    const forwarded = normalizeIp(
+        String(req.headers['x-forwarded-for'] || '').split(',')[0],
     );
-}
+    const realIp = normalizeIp(req.headers['x-real-ip']);
+    const direct = normalizeIp(req.ip || req.socket?.remoteAddress);
+    return forwarded || realIp || direct || 'unknown';
+};
+
+const requestPath = (req) => String(req.originalUrl || req.url || '').split('?')[0];
 
 /**
- * Admin panel read traffic (orders list, reports, etc.) is low-volume and
- * latency-sensitive. Exempt authenticated admin GETs from the generic private
- * budget so polling + socket refreshes do not blank the UI. Writes still count.
+ * SPA-friendly skips for the global limiter only.
+ * Auth/upload routes keep their own stricter limiters.
  */
-function isAdminAuthenticatedRead(req) {
-    if (String(req.method || 'GET').toUpperCase() !== 'GET') return false;
-    const path = normalizePath(req);
-    return /\/food\/admin(?:\/|$)/.test(path);
-}
+export const shouldSkipGlobalRateLimit = (req) => {
+    if (req.method === 'OPTIONS') return true;
 
-/**
- * Public / unauthenticated catalog & CMS routes — no rate limiting.
- */
-export function isPublicApiPath(req) {
-    const path = normalizePath(req);
+    const path = requestPath(req);
 
-    if (path === '/api/v1/health' || path === '/api/health') return true;
-
-    if (
-        path.includes('/public') ||
-        /\/pages\/[^/]+$/.test(path) ||
-        path.endsWith('/referral-settings') ||
-        path.includes('/zones/detect') ||
-        path.includes('/zones/nearby') ||
-        path.includes('/zones/public') ||
-        path.includes('/geocode/') ||
-        path.includes('/payments/webhook') ||
-        path.includes('/webhook/razorpay')
-    ) {
+    // Session maintenance — must stay reachable (documented as exempt)
+    if (/^\/api\/v1\/food\/auth\/(me|refresh-token|logout)(\/|$)/.test(path)) {
+        return true;
+    }
+    if (/^\/api\/v1\/health/.test(path)) {
         return true;
     }
 
-    if (
-        /\/food\/restaurant\/restaurants(\/|$)/.test(path) ||
-        /\/food\/restaurant\/under-250$/.test(path) ||
-        /\/food\/restaurant\/offers$/.test(path) ||
-        /\/food\/restaurant\/categories\/public$/.test(path) ||
-        /\/food\/dining\/(categories|restaurants)\/public$/.test(path) ||
-        /\/food\/search\/unified$/.test(path) ||
-        /\/food\/explore-icons\/public$/.test(path)
-    ) {
+    // Cached public config/banners — high volume on every route, not abuse-prone
+    if (req.method === 'GET' && /\/public(\/|$)/.test(path)) {
         return true;
     }
 
-    if (
-        path.endsWith('/food/delivery/register') ||
-        path.endsWith('/food/restaurant/register')
-    ) {
+    // Zone detection — called on every GPS/location update
+    if (req.method === 'GET' && /\/zones\/detect/.test(path)) {
+        return true;
+    }
+
+    // Cached restaurant catalog reads (high volume on home/browse, server-side cache)
+    if (req.method === 'GET' && /\/food\/restaurant\/restaurants/.test(path)) {
+        return true;
+    }
+
+    // Dining browse listings
+    if (req.method === 'GET' && /\/food\/dining\/(categories|restaurants)\/public/.test(path)) {
+        return true;
+    }
+
+    // Search reads (unified search on every keystroke / page load)
+    if (req.method === 'GET' && /\/food\/search\//.test(path)) {
         return true;
     }
 
     return false;
-}
+};
+
+/** HTTP rate limits are keyed by IP (industry default for public/auth endpoints). */
+export const ipRateLimitKey = (req) => `ip:${clientIp(req)}`;
 
 /**
- * Strict auth credential endpoints — handled by `authRateLimiter` only.
- * refresh-token is NOT here (mobile apps refresh often; uses private limiter).
+ * Optional per-user key for authenticated expensive routes (uploads, orders).
+ * Falls back to IP when no user id is present.
  */
-export function isAuthCredentialPath(req) {
-    const path = normalizePath(req);
-    if (!path.includes('/auth/')) return false;
+export const userOrIpRateLimitKey = (req) => {
+    const userId =
+        req.user?.userId ||
+        req.user?.id ||
+        req.user?._id ||
+        null;
+    if (userId) return `user:${String(userId)}`;
+    return ipRateLimitKey(req);
+};
 
-    return (
-        /\/request-otp$/.test(path) ||
-        /\/verify-otp$/.test(path) ||
-        /\/admin\/login$/.test(path) ||
-        /\/forgot-password\//.test(path) ||
-        /\/restaurant\/reapply$/.test(path)
+const buildHandler = (defaultMessage, limiterId) => (req, res, _next, options) => {
+    const resetTime = req.rateLimit?.resetTime;
+    const retryAfterSeconds = Math.max(
+        1,
+        resetTime
+            ? Math.ceil((resetTime.getTime() - Date.now()) / 1000)
+            : Math.ceil((options.windowMs || 60000) / 1000),
     );
-}
 
-function getRateLimitUserId(req) {
-    if (req.user?.userId) return String(req.user.userId);
+    res.setHeader('Retry-After', String(retryAfterSeconds));
+    res.status(429).json({
+        success: false,
+        message: defaultMessage,
+        retryAfterSeconds,
+        limiter: limiterId,
+    });
+};
 
-    const authHeader = req.headers.authorization || '';
-    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-    if (!token) return null;
-
-    try {
-        const decoded = verifyAccessToken(token);
-        return decoded?.userId ? String(decoded.userId) : null;
-    } catch {
-        return null;
-    }
-}
-
-function buildPrivateKey(req) {
-    const ip = getClientIp(req);
-    const userId = getRateLimitUserId(req);
-    // Logged-in: per-user (IP alone would block whole CGNAT / shared Wi‑Fi).
-    // Anonymous private calls: per real IP.
-    return userId ? `private:user:${userId}` : `private:ip:${ip}`;
-}
-
-function buildAuthKey(req) {
-    const ip = getClientIp(req);
-    const phone =
-        req.body?.phone != null
-            ? String(req.body.phone).replace(/\D/g, '').slice(-15)
-            : '';
-    // Prefer phone so same number isn't blocked by shared IP; keep IP for no-body calls.
-    return phone ? `auth:phone:${phone}` : `auth:ip:${ip}`;
-}
-
-const rateLimitJson = (message) => ({
-    success: false,
+/** Create limiter at module load — express-rate-limit v7 forbids lazy init per request. */
+const createLimiter = ({
+    name,
+    windowMs,
+    max,
     message,
+    keyGenerator,
+    prefix,
+    skip,
+}) => {
+    if (!config.rateLimitEnabled) {
+        const passthrough = (_req, _res, next) => next();
+        passthrough.resetKey = async () => {};
+        return passthrough;
+    }
+
+    const limiter = rateLimit({
+        windowMs,
+        max,
+        standardHeaders: true,
+        legacyHeaders: false,
+        keyGenerator,
+        handler: buildHandler(message, name),
+        store: new RedisRateLimitStore({ prefix }),
+        skip: skip || ((request) => request.method === 'OPTIONS'),
+        validate: {
+            creationStack: false,
+            ip: false,
+            trustProxy: false,
+            xForwardedForHeader: false,
+        },
+    });
+
+    const middleware = (req, res, next) => limiter(req, res, next);
+    middleware.resetKey = async (key) => {
+        if (limiter.store?.resetKey) {
+            await limiter.store.resetKey(key);
+        }
+    };
+
+    return middleware;
+};
+
+const apiWindowMs = config.rateLimitWindowMinutes * 60 * 1000;
+const authWindowMs = config.authRateLimitWindowMinutes * 60 * 1000;
+const uploadWindowMs = config.uploadRateLimitWindowMinutes * 60 * 1000;
+
+/** Layer 1 — Global API protection (all /api routes). Key: IP */
+export const apiRateLimiter = createLimiter({
+    name: 'global-api',
+    prefix: 'rl:api',
+    windowMs: apiWindowMs,
+    max: resolveMax(config.rateLimitMaxRequests, config.rateLimitDevMaxRequests),
+    message: 'Too many requests, please try again later.',
+    keyGenerator: ipRateLimitKey,
+    skip: shouldSkipGlobalRateLimit,
 });
 
-function onLimitReached(req, kind, key) {
-    logger.warn(
-        `[RATE_LIMIT] ${kind} exceeded key=${key} ip=${getClientIp(req)} path=${normalizePath(req)} ua=${String(req.headers['user-agent'] || '').slice(0, 80)}`,
-    );
-}
-
-/** Private / authenticated API budget. */
-export const privateRateLimiter = rateLimit({
-    windowMs: privateWindowMs,
-    max: privateMax,
-    standardHeaders: true,
-    legacyHeaders: false,
-    validate: { xForwardedForHeader: false, default: true },
-    keyGenerator: (req) => buildPrivateKey(req),
-    handler: (req, res, _next, options) => {
-        onLimitReached(req, 'private', buildPrivateKey(req));
-        res.status(options.statusCode).json(options.message);
-    },
-    message: rateLimitJson('Too many requests, please try again later.'),
-    skip: (req) =>
-        !config.rateLimitEnabled ||
-        isHighFrequencyPrivatePoll(req) ||
-        isAdminAuthenticatedRead(req),
-});
-
-/** Auth OTP / login budget — phone-first (not shared Wi‑Fi IP). */
-export const authRateLimiter = rateLimit({
+/** Layer 2 — Auth / OTP / login brute-force protection. Key: IP (stacked on global). */
+export const authRateLimiter = createLimiter({
+    name: 'auth',
+    prefix: 'rl:auth',
     windowMs: authWindowMs,
-    max: config.authRateLimitMax,
-    standardHeaders: true,
-    legacyHeaders: false,
-    validate: { xForwardedForHeader: false, default: true },
-    keyGenerator: (req) => buildAuthKey(req),
-    handler: (req, res, _next, options) => {
-        onLimitReached(req, 'auth', buildAuthKey(req));
-        res.status(options.statusCode).json(options.message);
-    },
-    message: rateLimitJson('Too many authentication attempts. Please try again later.'),
-    skip: () => !config.rateLimitEnabled,
+    max: resolveMax(config.authRateLimitMax, config.authRateLimitDevMax),
+    message: 'Too many authentication attempts. Please try again later.',
+    keyGenerator: ipRateLimitKey,
 });
 
-/**
- * Mount on `/api`:
- * 1) public → no limit
- * 2) auth OTP/login → skip (route-level authRateLimiter)
- * 3) private → per-user (or per-IP if anonymous)
- */
-export function apiRateLimitMiddleware(req, res, next) {
-    if (!config.rateLimitEnabled) return next();
-    if (isPublicApiPath(req)) return next();
-    if (isAuthCredentialPath(req)) return next();
-    if (isHighFrequencyPrivatePoll(req)) return next();
-    if (isAdminAuthenticatedRead(req)) return next();
-    return privateRateLimiter(req, res, next);
-}
+/** Layer 3 — Upload abuse protection. Key: user id when logged in, else IP */
+export const uploadRateLimiter = createLimiter({
+    name: 'upload',
+    prefix: 'rl:upload',
+    windowMs: uploadWindowMs,
+    max: resolveMax(config.uploadRateLimitMax, config.uploadRateLimitDevMax),
+    message: 'Too many upload requests, please try again later.',
+    keyGenerator: userOrIpRateLimitKey,
+});
 
-/** @deprecated Use apiRateLimitMiddleware */
-export const apiRateLimiter = apiRateLimitMiddleware;
+export const getRateLimitSummary = () => ({
+    enabled: config.rateLimitEnabled,
+    environment: config.nodeEnv,
+    storage: config.redisEnabled ? 'redis-with-memory-fallback' : 'memory-per-process',
+    keyStrategy: {
+        globalApi: 'per IP',
+        auth: 'per IP',
+        upload: 'per user id (if authenticated) else per IP',
+        otpRequest: 'per phone in MongoDB (business layer)',
+        otpVerify: 'per phone attempts in MongoDB',
+    },
+    limits: {
+        globalApi: {
+            windowMinutes: config.rateLimitWindowMinutes,
+            maxProduction: config.rateLimitMaxRequests,
+            maxDevelopment: resolveMax(config.rateLimitMaxRequests, config.rateLimitDevMaxRequests),
+        },
+        auth: {
+            windowMinutes: config.authRateLimitWindowMinutes,
+            maxProduction: config.authRateLimitMax,
+            maxDevelopment: resolveMax(config.authRateLimitMax, config.authRateLimitDevMax),
+        },
+        upload: {
+            windowMinutes: config.uploadRateLimitWindowMinutes,
+            maxProduction: config.uploadRateLimitMax,
+            maxDevelopment: resolveMax(config.uploadRateLimitMax, config.uploadRateLimitDevMax),
+        },
+        otp: {
+            maxRequestsPerPhone: config.otpRateLimit,
+            windowSeconds: config.otpRateWindow,
+            maxVerifyAttempts: config.otpMaxAttempts,
+        },
+    },
+    protectedRoutes: {
+        global: 'ALL /api/* (except skipped public GETs and auth session routes)',
+        globalSkipped: [
+            'GET */public/*',
+            'GET */zones/detect',
+            'GET /api/v1/food/restaurant/restaurants/*',
+            'GET /api/v1/food/dining/*/public',
+            'GET /api/v1/food/search/*',
+            'GET /api/v1/food/auth/me',
+            'POST /api/v1/food/auth/refresh-token',
+            'POST /api/v1/food/auth/logout',
+            'GET /api/v1/health/*',
+        ],
+        auth: [
+            'POST /api/v1/food/auth/user/request-otp',
+            'POST /api/v1/food/auth/user/verify-otp',
+            'POST /api/v1/food/auth/restaurant/request-otp',
+            'POST /api/v1/food/auth/restaurant/verify-otp',
+            'POST /api/v1/food/auth/delivery/request-otp',
+            'POST /api/v1/food/auth/delivery/verify-otp',
+            'POST /api/v1/food/auth/admin/login',
+            'POST /api/v1/food/auth/admin/forgot-password/request-otp',
+            'POST /api/v1/food/auth/admin/forgot-password/reset',
+        ],
+        upload: ['POST /api/v1/uploads/image'],
+        notRateLimited: [
+            'GET /health',
+            'GET /ready',
+            'POST /api/v1/food/auth/refresh-token',
+            'POST /api/v1/food/auth/logout',
+            'GET /api/v1/food/auth/me',
+        ],
+    },
+});

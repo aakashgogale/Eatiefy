@@ -37,10 +37,6 @@ export default function SafetyEmergencyReports() {
   const [totalPages, setTotalPages] = useState(1)
 
   useEffect(() => {
-    setCurrentPage(1)
-  }, [searchQuery, statusFilter, priorityFilter])
-
-  useEffect(() => {
     fetchReports()
   }, [statusFilter, priorityFilter, currentPage, searchQuery])
 
@@ -129,9 +125,17 @@ export default function SafetyEmergencyReports() {
   }
 
   const filteredReports = useMemo(() => {
-    // Search is handled by the API globally — use server results as-is
-    return reports
-  }, [reports])
+    if (!searchQuery.trim()) {
+      return reports
+    }
+    
+    const query = searchQuery.toLowerCase().trim()
+    return reports.filter(report =>
+      report.userName?.toLowerCase().includes(query) ||
+      report.userEmail?.toLowerCase().includes(query) ||
+      report.message?.toLowerCase().includes(query)
+    )
+  }, [reports, searchQuery])
 
   const getStatusBadge = (status) => {
     const statusConfig = {
@@ -184,12 +188,8 @@ export default function SafetyEmergencyReports() {
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-6 w-6 text-red-600" />
             <h1 className="text-2xl font-bold text-slate-900">Safety Emergency Reports</h1>
-            <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700 flex items-center justify-center min-w-[2.5rem] h-7">
-              {loading ? (
-                <span className="w-5 h-3 rounded bg-slate-300/80 animate-pulse" />
-              ) : (
-                reports.length
-              )}
+            <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
+              {reports.length}
             </span>
           </div>
 

@@ -3,8 +3,7 @@ import { ValidationError } from '../../../../core/auth/errors.js';
 
 const phoneSchema = z
     .string()
-    .min(8, 'Phone must be at least 8 digits')
-    .max(15, 'Phone must be at most 15 digits');
+    .regex(/^[6-9]\d{9}$/, 'Please enter a valid 10-digit Indian phone number');
 
 const emailSchema = z.string().email('Invalid email').optional().or(z.literal(''));
 const requiredBooleanSchema = z.preprocess((value) => {
@@ -101,10 +100,52 @@ const restaurantRegisterSchema = z.object({
     ifscCode: z.string().optional(),
     accountHolderName: z.string().optional(),
     accountType: z.string().optional(),
-    isTakeawayEnabled: z.string().optional(),
-    isTakeawayCodEnabled: z.string().optional(),
-    fcmToken: z.string().optional().nullable(),
-    platform: z.string().optional().nullable()
+    subscriptionPlan: z.string().optional(),
+    subscriptionAmount: z
+        .string()
+        .optional()
+        .transform((val) => {
+            const n = Number(String(val || '').trim());
+            return Number.isFinite(n) ? n : 0;
+        }),
+    subscriptionPaidAmount: z
+        .string()
+        .optional()
+        .transform((val) => {
+            const n = Number(String(val || '').trim());
+            return Number.isFinite(n) ? n : 0;
+        }),
+    subscriptionDueAmount: z
+        .string()
+        .optional()
+        .transform((val) => {
+            const n = Number(String(val || '').trim());
+            return Number.isFinite(n) ? n : 0;
+        }),
+    onboardingFeeAmount: z
+        .string()
+        .optional()
+        .transform((val) => {
+            const n = Number(String(val || '').trim());
+            return Number.isFinite(n) ? n : 0;
+        }),
+    onboardingFeePaid: z
+        .string()
+        .optional()
+        .transform((val) => {
+            const normalized = String(val || '').trim().toLowerCase();
+            return normalized === 'true' || normalized === '1';
+        }),
+    paymentType: z.string().optional(),
+    razorpayOrderId: z.string().optional(),
+    razorpayPaymentId: z.string().optional(),
+    razorpaySignature: z.string().optional(),
+    // Allow pre-uploaded image URLs for background upload flow
+    profileImage: z.string().optional(),
+    panImage: z.string().optional(),
+    gstImage: z.string().optional(),
+    fssaiImage: z.string().optional(),
+    menuImages: z.string().optional() // can be a stringified array
 });
 
 export const validateRestaurantRegisterDto = (body) => {
@@ -119,9 +160,6 @@ export const validateRestaurantRegisterDto = (body) => {
     if (openingMinutes !== null && closingMinutes !== null) {
         if (openingMinutes === closingMinutes) {
             throw new ValidationError('Opening time and closing time cannot be same');
-        }
-        if (closingMinutes < openingMinutes) {
-            throw new ValidationError('Closing time cannot be less than opening time');
         }
     }
     return {

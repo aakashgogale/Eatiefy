@@ -69,7 +69,7 @@ export default function RushHour() {
       <div className="flex-1 overflow-y-auto px-4 py-6">
         {/* Informational Banner */}
         <div className="bg-blue-50 rounded-lg p-4 mb-6 flex items-start gap-4">
-          <div className="w-14 h-14 rounded-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] flex items-center justify-center shrink-0">
+          <div className="w-14 h-14 rounded-full bg-black flex items-center justify-center shrink-0">
             <Zap className="w-7 h-7 text-white" strokeWidth={2.5} fill="white" />
           </div>
           <p className="text-sm text-gray-900 leading-relaxed flex-1 pt-1">
@@ -121,7 +121,7 @@ export default function RushHour() {
       <div className="px-4 pb-6 pt-4 bg-white border-t border-gray-200">
         <button
           onClick={handleConfirm}
-          className="w-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg transition-colors"
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg transition-colors"
         >
           Confirm
         </button>
@@ -129,11 +129,4 @@ export default function RushHour() {
     </div>
   )
 }
-
-
-
-
-
-
-
 

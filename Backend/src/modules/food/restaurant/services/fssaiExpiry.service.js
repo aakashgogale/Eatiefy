@@ -85,15 +85,10 @@ export const syncExpiredFssaiNotifications = async () => {
     const restaurants = await listExpiredFssaiRestaurants();
     let createdCount = 0;
 
-    const threeDaysAgo = new Date();
-    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-
     for (const summary of restaurants) {
         const expiryIso = summary.fssaiExpiry;
         const restaurantId = summary.restaurantId;
         if (!restaurantId || !expiryIso) continue;
-
-        if (new Date(expiryIso) < threeDaysAgo) continue;
 
         const payload = buildRestaurantNotificationPayload({
             _id: restaurantId,

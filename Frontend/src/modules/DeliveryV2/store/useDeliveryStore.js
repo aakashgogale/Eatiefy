@@ -76,8 +76,11 @@ const mapDeliveryPhaseToTripStatus = (order) => {
 export const useDeliveryStore = create(
   persist(
     (set, get) => ({
-      isOnline: false,
       riderLocation: null,
+      activeOrder: null,
+      tripStatus: 'IDLE',
+      routeDistanceMeters: null,
+      routeDurationMins: null,
 
       newOrders: [],
       acceptedOrders: [],
@@ -89,6 +92,18 @@ export const useDeliveryStore = create(
         pickupRangeLimit: 500,
         deliveryRangeLimit: 500,
       },
+
+      setRouteMetrics: ({ distanceMeters, durationMins } = {}) =>
+        set({
+          routeDistanceMeters: distanceMeters ?? null,
+          routeDurationMins: durationMins ?? null,
+        }),
+
+      clearRouteMetrics: () =>
+        set({
+          routeDistanceMeters: null,
+          routeDurationMins: null,
+        }),
 
       toggleOnline: () => set((state) => ({ isOnline: !state.isOnline })),
       setOnline: (online) => set({ isOnline: online }),
@@ -197,8 +212,11 @@ export const useDeliveryStore = create(
           };
           const active = acceptedOrders.length;
           const max = state.capacity?.max ?? 1;
+          const focusedOrder = acceptedOrders.find((o) => orderMatchesKey(o, focusedOrderId)) || acceptedOrders[0] || order;
           return {
             acceptedOrders,
+            activeOrder: focusedOrder,
+            tripStatus: 'PICKING_UP',
             newOrders,
             focusedOrderId,
             orderSessions,
@@ -233,8 +251,14 @@ export const useDeliveryStore = create(
               };
             }
           });
+          const focusedOrder = list.find((o) => orderMatchesKey(o, focusedOrderId)) || list[0] || null;
+          const currentTripStatus = focusedOrder
+            ? (orderSessions[resolveOrderKey(focusedOrder)]?.tripStatus || mapDeliveryPhaseToTripStatus(focusedOrder) || 'PICKING_UP')
+            : 'IDLE';
           return {
             acceptedOrders: list,
+            activeOrder: focusedOrder,
+            tripStatus: currentTripStatus,
             focusedOrderId,
             orderSessions,
             capacity: options.capacity || {
@@ -249,7 +273,15 @@ export const useDeliveryStore = create(
       setFocusedOrder: (orderId) => {
         const key = String(orderId || '');
         if (!key) return;
-        set({ focusedOrderId: key });
+        set((state) => {
+          const focusedOrder = state.acceptedOrders.find((o) => orderMatchesKey(o, key)) || state.acceptedOrders[0] || null;
+          const status = focusedOrder ? (state.orderSessions[key]?.tripStatus || mapDeliveryPhaseToTripStatus(focusedOrder) || 'PICKING_UP') : 'IDLE';
+          return {
+            focusedOrderId: key,
+            activeOrder: focusedOrder,
+            tripStatus: status,
+          };
+        });
       },
 
       updateOrderSession: (orderId, patch = {}) => {
@@ -263,13 +295,16 @@ export const useDeliveryStore = create(
               ...patch,
             },
           },
+          ...(patch.tripStatus ? { tripStatus: patch.tripStatus } : {}),
         }));
       },
 
       updateTripStatus: (status, orderId) => {
         const key = String(orderId || get().focusedOrderId || resolveOrderKey(get().getFocusedOrder()) || '');
-        if (!key) return;
-        get().updateOrderSession(key, { tripStatus: status });
+        if (key) {
+          get().updateOrderSession(key, { tripStatus: status });
+        }
+        set({ tripStatus: status });
       },
 
       removeAcceptedOrder: (orderIdOrOrder) => {
@@ -294,8 +329,12 @@ export const useDeliveryStore = create(
             : state.focusedOrderId;
           const max = state.capacity?.max ?? 1;
           const active = acceptedOrders.length;
+          const focusedOrder = acceptedOrders.find((o) => orderMatchesKey(o, focusedOrderId)) || acceptedOrders[0] || null;
+          const tripStatus = focusedOrder ? (orderSessions[resolveOrderKey(focusedOrder)]?.tripStatus || 'PICKING_UP') : 'IDLE';
           return {
             acceptedOrders,
+            activeOrder: focusedOrder,
+            tripStatus,
             orderSessions,
             focusedOrderId,
             capacity: {
@@ -310,6 +349,8 @@ export const useDeliveryStore = create(
       clearAcceptedOrders: () =>
         set({
           acceptedOrders: [],
+          activeOrder: null,
+          tripStatus: 'IDLE',
           focusedOrderId: null,
           orderSessions: {},
           capacity: defaultCapacity(),
@@ -323,6 +364,7 @@ export const useDeliveryStore = create(
         get().setAcceptedOrders([order]);
         const orderId = resolveOrderKey(order);
         if (orderId) get().setFocusedOrder(orderId);
+        set({ activeOrder: order, tripStatus: mapDeliveryPhaseToTripStatus(order) || 'PICKING_UP' });
       },
 
       clearActiveOrder: () => {
@@ -333,6 +375,7 @@ export const useDeliveryStore = create(
         } else {
           get().clearAcceptedOrders();
         }
+        set({ activeOrder: null, tripStatus: 'IDLE' });
       },
 
       canAdvanceToPickup: () => {

@@ -7,21 +7,20 @@ import { getPublicDiningCategories, getPublicDiningRestaurants } from '../module
 import uploadRoutes from '../modules/uploads/routes/upload.routes.js';
 import restaurantAdminRoutes from '../modules/food/admin/routes/admin.routes.js';
 import userRoutes from '../modules/food/user/routes/user.routes.js';
-import foodCartRoutes from '../modules/food/user/routes/foodCart.routes.js';
 import orderUserRoutes from '../modules/food/orders/routes/order.routes.user.js';
 import paymentRoutes from '../core/payments/payment.routes.js';
 import fcmRoutes from '../core/notifications/fcm.routes.js';
 import notificationRoutes from '../core/notifications/notification.routes.js';
 import { authMiddleware } from '../core/auth/auth.middleware.js';
 import * as businessSettingsController from '../modules/food/admin/controllers/businessSettings.controller.js';
+import * as adminController from '../modules/food/admin/controllers/admin.controller.js';
 import * as systemConfigController from '../modules/food/admin/controllers/systemConfig.controller.js';
 import { requireRoles } from '../core/roles/role.middleware.js';
 import { getQueuesController } from '../controllers/admin.controller.js';
-import { getPublicEnvController } from '../modules/food/landing/controllers/publicEnv.controller.js';
 import webhookRoutes from '../core/payments/routes/webhook.routes.js'; // ✅ NEW
 import searchRoutes from '../modules/food/search/routes/search.routes.js';
-import diningBookingRoutes from '../modules/food/dining/routes/diningBooking.routes.js';
-import { maintenanceModeMiddleware } from '../modules/food/admin/middleware/maintenanceMode.middleware.js';
+import { config } from '../config/env.js';
+import { getRateLimitSummary } from '../middleware/rateLimit.js';
 
 const router = express.Router();
 
@@ -29,13 +28,11 @@ router.get('/v1/health', (req, res) => {
     res.status(200).json({ status: 'UP', message: 'Server is healthy' });
 });
 
-// Public settings first so clients can detect / exit maintenance without auth
-router.get('/v1/food/public/customization-settings', systemConfigController.getCustomizationSettings);
-router.get('/v1/food/public/restaurant-settings', systemConfigController.getRestaurantSettings);
-router.get('/v1/food/admin/business-settings/public', businessSettingsController.getBusinessSettings);
-
-// Block user / restaurant / delivery APIs when maintenance is on (admin stays open)
-router.use(maintenanceModeMiddleware);
+if (config.nodeEnv !== 'production') {
+    router.get('/v1/health/rate-limit', (_req, res) => {
+        res.status(200).json({ success: true, data: getRateLimitSummary() });
+    });
+}
 
 // Food-prefixed auth routes (preferred)
 router.use('/v1/food/auth', authRoutes);
@@ -49,21 +46,29 @@ router.use('/v1/food', landingRoutes);
 router.use('/v1/food/search', searchRoutes);
 router.get('/v1/food/dining/categories/public', getPublicDiningCategories);
 router.get('/v1/food/dining/restaurants/public', getPublicDiningRestaurants);
-router.use('/v1/food/dining/bookings', diningBookingRoutes);
 router.use('/v1/uploads', uploadRoutes);
 
-router.use('/v1/food/admin', authMiddleware, requireRoles('ADMIN', 'SUB_ADMIN'), restaurantAdminRoutes);
+// Public settings first so clients can detect / exit maintenance without auth
+router.get('/v1/food/public/customization-settings', systemConfigController.getCustomizationSettings);
+router.get('/v1/food/public/restaurant-settings', systemConfigController.getRestaurantSettings);
+router.get('/v1/food/admin/customization-settings/public', systemConfigController.getCustomizationSettings);
+router.get('/v1/food/admin/restaurant-settings/public', systemConfigController.getRestaurantSettings);
+
+// Mark business-settings/public as truly public (must be before protected admin block)
+router.get('/v1/food/admin/business-settings/public', businessSettingsController.getBusinessSettings);
+router.get('/v1/food/admin/power-scanning/public', businessSettingsController.getPowerScanningSettings);
+router.get('/v1/food/admin/restaurant-subscription-settings/public', adminController.getRestaurantSubscriptionSettings);
+router.get('/v1/food/admin/feature-settings/public', adminController.getFeatureSettings);
+router.get('/v1/food/admin/fee-settings/public', adminController.getFeeSettings);
+
+router.use('/v1/food/admin', authMiddleware, requireRoles('ADMIN'), restaurantAdminRoutes);
 router.use('/v1/food/user', authMiddleware, requireRoles('USER'), userRoutes);
-router.use('/v1/food/cart', authMiddleware, requireRoles('USER'), foodCartRoutes);
 router.use('/v1/food/notifications', authMiddleware, requireRoles('USER', 'RESTAURANT', 'DELIVERY_PARTNER'), notificationRoutes);
 router.use('/v1/food/orders', authMiddleware, requireRoles('USER'), orderUserRoutes);
 router.use('/v1/food/payments', authMiddleware, paymentRoutes);
 router.use('/v1/payments/webhook', webhookRoutes); // ✅ NEW: Public Webhook
 router.use('/v1/fcm-tokens', fcmRoutes);
 router.use('/fcm-tokens', fcmRoutes);
-
-// router.get('/v1/env/public', getPublicEnvController);
-// router.get('/env/public', getPublicEnvController);
 
 router.get('/v1/admin/queues', authMiddleware, requireRoles('ADMIN'), getQueuesController);
 

@@ -34,7 +34,7 @@ const AllCategoriesModal = ({
           >
             <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-black text-gray-900 dark:text-white">What's on your mind?</h2>
+                <h2 className="text-2xl font-black text-gray-900 dark:text-white">What are you craving today?</h2>
                 <p className="text-gray-500 text-sm">Explore cuisines and dishes</p>
               </div>
               <button 
@@ -53,7 +53,7 @@ const AllCategoriesModal = ({
                   placeholder="Search for a specific category..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-12 pr-4 py-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border-none focus:ring-2 focus:ring-[#DC2626]/20 text-sm font-medium transition-all"
+                  className="w-full pl-12 pr-4 py-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border-none focus:ring-2 focus:ring-primary-orange/20 text-sm font-medium transition-all"
                 />
               </div>
 
@@ -70,14 +70,14 @@ const AllCategoriesModal = ({
                     }}
                     className="flex flex-col items-center gap-3 cursor-pointer group"
                   >
-                    <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-white dark:bg-gray-800 shadow-sm group-hover:shadow-xl transition-all duration-300 p-0.5 ring-2 ring-transparent group-hover:ring-[#DC2626]/20 overflow-hidden transform group-hover:scale-105">
+                    <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-white dark:bg-gray-800 shadow-sm group-hover:shadow-xl transition-all duration-300 p-0.5 ring-2 ring-transparent group-hover:ring-primary-orange/20 overflow-hidden transform group-hover:scale-105">
                       <OptimizedImage
                         src={category.image}
                         alt={category.name}
                         className="w-full h-full object-cover rounded-full"
                       />
                     </div>
-                    <span className="text-xs sm:text-sm font-bold text-gray-700 dark:text-gray-300 group-hover:text-[#DC2626] text-center px-2 line-clamp-1">
+                    <span className="text-xs sm:text-sm font-bold text-gray-700 dark:text-gray-300 group-hover:text-primary-orange text-center px-2 line-clamp-1">
                       {category.name}
                     </span>
                   </motion.div>

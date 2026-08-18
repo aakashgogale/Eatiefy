@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react"
-import { Search, Download, ChevronDown, Filter, ArrowUpDown, Settings, FileText, FileSpreadsheet, Code } from "lucide-react"
+import { Search, Download, ChevronDown, Filter, ArrowUpDown, Settings, FileText, FileSpreadsheet, Code, Calendar } from "lucide-react"
 import { emptySubscriptionReports } from "@food/utils/adminFallbackData"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@food/components/ui/dialog"
@@ -12,6 +12,9 @@ export default function SubscriptionReport() {
     restaurant: "All restaurants",
     package: "All packages",
     all: "All",
+    time: "All Time",
+    fromDate: "",
+    toDate: "",
   })
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -77,10 +80,13 @@ export default function SubscriptionReport() {
       restaurant: "All restaurants",
       package: "All packages",
       all: "All",
+      time: "All Time",
+      fromDate: "",
+      toDate: "",
     })
   }
 
-  const activeFiltersCount = (filters.restaurant !== "All restaurants" ? 1 : 0) + (filters.package !== "All packages" ? 1 : 0) + (filters.all !== "All" ? 1 : 0)
+  const activeFiltersCount = (filters.restaurant !== "All restaurants" ? 1 : 0) + (filters.package !== "All packages" ? 1 : 0) + (filters.all !== "All" ? 1 : 0) + (filters.time !== "All Time" ? 1 : 0)
 
   return (
     <div className="p-4 lg:p-6 bg-slate-50 min-h-screen overflow-x-hidden">
@@ -146,6 +152,29 @@ export default function SubscriptionReport() {
                 </select>
                 <ChevronDown className="absolute right-2 bottom-2.5 w-4 h-4 text-slate-500 pointer-events-none" />
               </div>
+
+              <div className="relative">
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Time
+                </label>
+                <select
+                  value={filters.time}
+                  onChange={(e) => setFilters(prev => ({
+                    ...prev,
+                    time: e.target.value,
+                    ...(e.target.value !== "Custom Range" ? { fromDate: "", toDate: "" } : {}),
+                  }))}
+                  className="w-full sm:w-48 px-4 py-2.5 pr-8 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="All Time">All Time</option>
+                  <option value="Today">Today</option>
+                  <option value="This Week">This Week</option>
+                  <option value="This Month">This Month</option>
+                  <option value="This Year">This Year</option>
+                  <option value="Custom Range">Custom Range</option>
+                </select>
+                <ChevronDown className="absolute right-2 bottom-2.5 w-4 h-4 text-slate-500 pointer-events-none" />
+              </div>
             </div>
 
             <div className="flex items-end gap-2">
@@ -171,6 +200,40 @@ export default function SubscriptionReport() {
               </button>
             </div>
           </div>
+
+          {filters.time === "Custom Range" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+              <div className="relative">
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  From Date
+                </label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                  <input
+                    type="date"
+                    value={filters.fromDate}
+                    onChange={(e) => setFilters(prev => ({ ...prev, fromDate: e.target.value }))}
+                    className="w-full pl-10 pr-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <div className="relative">
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  To Date
+                </label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                  <input
+                    type="date"
+                    value={filters.toDate}
+                    onChange={(e) => setFilters(prev => ({ ...prev, toDate: e.target.value }))}
+                    className="w-full pl-10 pr-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
 
         {/* Subscription Report Table Section */}

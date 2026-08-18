@@ -169,7 +169,7 @@ export default function PhoneNumbersPage() {
                 onClick={() => handleEditClick("orderReminder1")}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
-                <Edit className="w-4 h-4 text-[#B80B3D]" />
+                <Edit className="w-4 h-4 text-blue-600" />
               </button>
             </div>
 
@@ -183,7 +183,7 @@ export default function PhoneNumbersPage() {
                 onClick={() => handleEditClick("orderReminder2")}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
-                <Edit className="w-4 h-4 text-[#B80B3D]" />
+                <Edit className="w-4 h-4 text-blue-600" />
               </button>
             </div>
           </div>
@@ -212,7 +212,7 @@ export default function PhoneNumbersPage() {
                 onClick={() => handleEditClick("restaurantPage")}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
-                <Edit className="w-4 h-4 text-[#B80B3D]" />
+                <Edit className="w-4 h-4 text-blue-600" />
               </button>
             </div>
           </div>
@@ -297,7 +297,7 @@ export default function PhoneNumbersPage() {
                   disabled={!phoneNumber.trim()}
                   className={`flex-1 py-3 px-4 rounded-lg text-sm font-semibold transition-colors ${
                     phoneNumber.trim()
-                      ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white hover:bg-gray-800"
+                      ? "bg-black text-white hover:bg-gray-800"
                       : "bg-gray-300 text-gray-500 cursor-not-allowed"
                   }`}
                 >
@@ -348,7 +348,7 @@ export default function PhoneNumbersPage() {
                       }}
                       className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-colors flex items-center gap-3 ${
                         countryCode === country.code
-                          ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white"
+                          ? "bg-gray-900 text-white"
                           : "bg-gray-50 text-gray-900 hover:bg-gray-100"
                       }`}
                     >
@@ -426,7 +426,7 @@ export default function PhoneNumbersPage() {
                   <div className="text-center">
                     <button
                       onClick={handleResendOtp}
-                      className="text-sm text-[#B80B3D] hover:text-blue-700 font-medium"
+                      className="text-sm text-blue-600 hover:text-blue-700 font-medium"
                     >
                       Resend OTP
                     </button>
@@ -445,7 +445,7 @@ export default function PhoneNumbersPage() {
                   disabled={otp.join("").length !== 6}
                   className={`flex-1 py-3 px-4 rounded-lg text-sm font-semibold transition-colors ${
                     otp.join("").length === 6
-                      ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white hover:bg-gray-800"
+                      ? "bg-black text-white hover:bg-gray-800"
                       : "bg-gray-300 text-gray-500 cursor-not-allowed"
                   }`}
                 >
@@ -459,10 +459,3 @@ export default function PhoneNumbersPage() {
     </div>
   )
 }
-
-
-
-
-
-
-

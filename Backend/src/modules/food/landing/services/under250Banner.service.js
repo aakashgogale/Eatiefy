@@ -1,9 +1,10 @@
 import { FoodUnder250Banner } from '../models/under250Banner.model.js';
-import { storeImageBuffer, deleteStoredAsset } from '../../../../services/storage.service.js';
+import { saveImageFile, deleteStoredFile } from '../../../../services/storage.service.js';
 
-export const listUnder250Banners = async (zoneId = null) => {
-    let query = zoneId ? { zoneId } : { zoneId: null };
-    return FoodUnder250Banner.find(query).sort({ sortOrder: 1, createdAt: -1 }).lean();
+const BANNER_FOLDER = 'food/under-250-banners';
+
+export const listUnder250Banners = async () => {
+    return FoodUnder250Banner.find().sort({ sortOrder: 1, createdAt: -1 }).lean();
 };
 
 export const createUnder250BannersFromFiles = async (files, meta = {}) => {
@@ -15,11 +16,11 @@ export const createUnder250BannersFromFiles = async (files, meta = {}) => {
 
     for (const file of files) {
         try {
-            const uploadResult = await storeImageBuffer(file.buffer, 'food/under-250-banners');
+            const saved = await saveImageFile(file, BANNER_FOLDER);
 
             const banner = await FoodUnder250Banner.create({
-                imageUrl: uploadResult.secure_url,
-                publicId: uploadResult.public_id,
+                imageUrl: saved.url,
+                publicId: saved.path,
                 title: meta.title,
                 ctaText: meta.ctaText,
                 ctaLink: meta.ctaLink,
@@ -43,8 +44,13 @@ export const deleteUnder250Banner = async (id) => {
         return { deleted: false };
     }
 
-    // Never let a failed file cleanup block the record deletion.
-    await deleteStoredAsset(doc.imageUrl || doc.publicId);
+    if (doc.publicId) {
+        try {
+            await deleteStoredFile(doc.publicId);
+        } catch {
+            // ignore storage deletion errors
+        }
+    }
 
     await doc.deleteOne();
     return { deleted: true };
@@ -67,4 +73,3 @@ export const toggleUnder250BannerStatus = async (id, isActive) => {
     ).lean();
     return updated;
 };
-

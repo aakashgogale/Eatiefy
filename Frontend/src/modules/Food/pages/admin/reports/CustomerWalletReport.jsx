@@ -7,9 +7,9 @@ import { adminAPI } from "@food/api"
 import { toast } from "sonner"
 
 // Import icons from Dashboard-icons
-import debitIcon from "@food/assets/Dashboard-icons/image2.png"
-import creditIcon from "@food/assets/Dashboard-icons/image1.png"
-import balanceIcon from "@food/assets/Dashboard-icons/image6.png"
+import debitIcon from "@food/assets/Dashboard-icons/image2.webp"
+import creditIcon from "@food/assets/Dashboard-icons/image1.webp"
+import balanceIcon from "@food/assets/Dashboard-icons/image6.webp"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -266,7 +266,7 @@ export default function CustomerWalletReport() {
                 <p className="text-2xl font-bold text-slate-900">{walletStats.debit}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
-                <img src={debitIcon} alt="Debit" className="w-8 h-8" />
+                <img src={debitIcon} alt="Debit" className="w-8 h-8"  loading="lazy" decoding="async" />
               </div>
             </div>
           </div>
@@ -279,7 +279,7 @@ export default function CustomerWalletReport() {
                 <p className="text-2xl font-bold text-slate-900">{walletStats.credit}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-pink-100 flex items-center justify-center">
-                <img src={creditIcon} alt="Credit" className="w-8 h-8" />
+                <img src={creditIcon} alt="Credit" className="w-8 h-8"  loading="lazy" decoding="async" />
               </div>
             </div>
           </div>
@@ -292,7 +292,7 @@ export default function CustomerWalletReport() {
                 <p className="text-2xl font-bold text-slate-900">{walletStats.balance}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
-                <img src={balanceIcon} alt="Balance" className="w-8 h-8" />
+                <img src={balanceIcon} alt="Balance" className="w-8 h-8"  loading="lazy" decoding="async" />
               </div>
             </div>
           </div>

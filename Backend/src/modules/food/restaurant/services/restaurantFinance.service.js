@@ -1,46 +1,16 @@
 import mongoose from 'mongoose';
 import { FoodOrder } from '../../orders/models/order.model.js';
-import { FoodTransaction } from '../../orders/models/foodTransaction.model.js';
 import { FoodRestaurant } from '../models/restaurant.model.js';
 import { FoodRestaurantWithdrawal } from '../models/foodRestaurantWithdrawal.model.js';
-
-function toTwoDigitYearString(dateObj) {
-    const y = String(dateObj.getFullYear());
-    return y.slice(-2);
-}
-
-function monthShort(monthIndex) {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return months[monthIndex] || 'Jan';
-}
-
-function getFixedCurrentCycleWindow(now = new Date()) {
-    const startDay = 15;
-    
-    let year = now.getFullYear();
-    let month = now.getMonth();
-
-    // If before start day, settlement belongs to previous month cycle.
-    if (now.getDate() < startDay) {
-        month = month - 1;
-        if (month < 0) {
-            month = 11;
-            year -= 1;
-        }
-    }
-
-    const start = new Date(year, month, startDay, 0, 0, 0, 0);
-    // End should be either fixed 21 or now, let's make it more inclusive for "Current Cycle"
-    // Users want to see their active earnings, so we extend it to 'now'
-    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-
-    return {
-        start,
-        end,
-        startMeta: { day: String(startDay), month: monthShort(month), year: toTwoDigitYearString(new Date(year, month, startDay)) },
-        endMeta: { day: String(now.getDate()), month: monthShort(now.getMonth()), year: toTwoDigitYearString(now) }
-    };
-}
+import { FoodOffer } from '../../admin/models/offer.model.js';
+import { FEATURE_KEYS, isFeatureEnabled } from '../../admin/services/featureSettings.service.js';
+import { getOutstandingSummary } from './subscriptionBilling.service.js';
+import { FoodSubscriptionTransaction } from '../models/subscriptionTransaction.model.js';
+import {
+    isRestaurantEarnedOrder,
+    computeRestaurantOrderShare,
+} from '../../shared/restaurantPayout.util.js';
+import { resolveDiscountSplit } from '../../shared/discountSplit.util.js';
 
 function parseISODateParam(v) {
     if (!v) return null;
@@ -62,9 +32,36 @@ function parseISODateParamEnd(v) {
     return d;
 }
 
+function parseOrdersPagination(query = {}) {
+    const page = Math.max(1, parseInt(query.ordersPage, 10) || parseInt(query.page, 10) || 1);
+    const limit = Math.min(Math.max(parseInt(query.ordersLimit, 10) || parseInt(query.limit, 10) || 10, 1), 50);
+    return { page, limit };
+}
+
+function paginateCompletedOrders(rawOrders, mapFinanceOrder, pagination) {
+    const completedOrders = rawOrders.filter(isRestaurantEarnedOrder).map(mapFinanceOrder);
+    const total = completedOrders.length;
+    const totalPages = Math.max(1, Math.ceil(total / pagination.limit) || 1);
+    const page = Math.min(pagination.page, totalPages);
+    const skip = (page - 1) * pagination.limit;
+
+    return {
+        orders: completedOrders.slice(skip, skip + pagination.limit),
+        totalOrders: total,
+        pagination: {
+            page,
+            limit: pagination.limit,
+            total,
+            totalPages,
+            pages: totalPages
+        }
+    };
+}
+
 export async function getRestaurantFinance(restaurantId, query = {}) {
     if (!restaurantId || !mongoose.Types.ObjectId.isValid(restaurantId)) return null;
     const rid = new mongoose.Types.ObjectId(restaurantId);
+    const isRestaurantSubscriptionEnabled = await isFeatureEnabled(FEATURE_KEYS.RESTAURANT_SUBSCRIPTION, true);
 
     // Fetch restaurant profile for header display.
     const restaurant = await FoodRestaurant.findById(rid)
@@ -77,147 +74,153 @@ export async function getRestaurantFinance(restaurantId, query = {}) {
             ? [restaurant.addressLine1, restaurant.addressLine2, restaurant.area].filter(Boolean).join(', ')
             : restaurant?.addressLine1 || '');
 
-    const nowWindow = getFixedCurrentCycleWindow(new Date());
+    const scopedOfferFilter = {
+        $or: [
+            { restaurantScope: { $ne: 'selected' } },
+            { restaurantId: rid },
+            { restaurantIds: rid }
+        ]
+    };
 
-    // Current cycle: sum ledger payouts in the fixed window.
-    const currentTransactions = await FoodTransaction.find({
-        restaurantId: rid,
-        status: { $in: ['captured', 'authorized'] },
-        createdAt: { $gte: nowWindow.start, $lte: nowWindow.end }
-    })
-        .populate({ path: 'orderId', select: 'order_id createdAt items pricing deliveryState orderStatus' })
-        .sort({ createdAt: -1 })
-        .lean();
+    const [allOrders, relevantOffers] = await Promise.all([
+        FoodOrder.find({
+            restaurantId: rid,
+            orderStatus: { $nin: ['pending_payment'] },
+        })
+            .populate('transactionId')
+            .sort({ createdAt: -1 })
+            .lean(),
+        FoodOffer.find(scopedOfferFilter).lean()
+    ]);
 
-    const currentCycleOrders = currentTransactions
-        .filter((tx) => tx.orderId && ['delivered', 'completed'].includes(tx.orderId.orderStatus))
-        .map((tx) => {
-        const order = tx.orderId || {};
+    const mapFinanceOrder = (order) => {
+        const tx = order.transactionId?._id ? order.transactionId : null;
         const items = Array.isArray(order.items) ? order.items : [];
         const foodNames = items.map((it) => it?.name).filter(Boolean).join(', ');
-        const orderTotalExclTax = Math.max(
-            0,
-            Number(
-              order?.pricing?.baseSubtotal ??
-                (Number(order?.pricing?.subtotal ?? 0) - Number(order?.pricing?.markupTotal ?? 0))
-            ) || 0
-        );
+
+        const pricing = tx?.pricing || order.pricing || {};
+        const amounts = tx?.amounts || {};
+
+        const subtotal = Number(pricing.subtotal) || 0;
+        const packagingFee = Number(pricing.packagingFee) || 0;
+        const commission = Number(amounts.restaurantCommission) || Number(pricing.restaurantCommission) || 0;
+        const discount = Number(pricing.discount) || 0;
+        const discountSplit = resolveDiscountSplit({ order, pricing, amounts, offers: relevantOffers, restaurantId: rid });
+        const adminDiscountShare = discountSplit.adminDiscountShare;
+        const restaurantDiscountShare = discountSplit.restaurantDiscountShare;
+
+        const payout = isRestaurantEarnedOrder(order)
+            ? computeRestaurantOrderShare(order, tx, relevantOffers, rid)
+            : 0;
+
         return {
-            orderId: order?.order_id || tx.orderReadableId,
-            createdAt: tx.createdAt,
+            orderId: order.orderId || order.order_id || `FOD-${order._id.toString().slice(-6).toUpperCase()}`,
+            createdAt: order.createdAt,
             items,
             foodNames,
-            orderTotal: orderTotalExclTax,
-            totalAmount: tx.amounts?.totalCustomerPaid || 0,
-            payout: tx.amounts?.restaurantShare || 0,
-            commission: tx.amounts?.restaurantCommission || 0,
-            paymentMethod: tx.paymentMethod || order?.payment?.method,
-            orderStatus: order?.orderStatus || order?.deliveryState?.currentPhase || order?.deliveryState?.status,
-            status: tx.status
+            orderTotal: Math.max(0, (Number(pricing.total) || 0) - (Number(pricing.tax) || 0)),
+            totalAmount: Number(pricing.total) || 0,
+            payout: Math.max(0, payout),
+            commission: commission,
+            discount,
+            adminDiscountShare,
+            restaurantDiscountShare,
+            discountAdminBearPercentage: discountSplit.adminBearPercentage,
+            discountRestaurantBearPercentage: discountSplit.restaurantBearPercentage,
+            paymentMethod: tx?.paymentMethod || order.payment?.method || 'cash',
+            orderStatus: order.orderStatus,
+            status: tx?.status || (order.payment?.status === 'paid' ? 'captured' : 'pending')
         };
-    });
+    };
 
-    const currentCycleEstimatedPayout = currentCycleOrders.reduce(
+    const ordersPagination = parseOrdersPagination(query);
+    const completedOrdersPage = paginateCompletedOrders(allOrders, mapFinanceOrder, ordersPagination);
+    const allCompletedOrders = allOrders.filter(isRestaurantEarnedOrder).map(mapFinanceOrder);
+
+    const totalEarnings = allCompletedOrders.reduce(
         (sum, o) => sum + (Number(o.payout) || 0),
         0
     );
 
-    // Calculate global estimated payout (all unsettled transactions)
-    const allUnsettledTransactions = await FoodTransaction.find({
-        restaurantId: rid,
-        status: { $in: ['captured', 'authorized'] },
-        'settlement.isRestaurantSettled': { $ne: true }
-    }).populate({ path: 'orderId', select: 'orderStatus' }).lean();
-
-    const globalEstimatedPayout = allUnsettledTransactions
-        .filter((tx) => tx.orderId && ['delivered', 'completed'].includes(tx.orderId.orderStatus))
-        .reduce(
-            (sum, tx) => sum + (Number(tx.amounts?.restaurantShare) || 0),
-            0
-        );
-
-    // Deduct all effective withdrawals from available balance.
-    // Both pending and approved reduce withdrawable amount; rejected should not.
-    const effectiveWithdrawalsAgg = await FoodRestaurantWithdrawal.aggregate([
-        {
-            $match: {
-                restaurantId: rid,
-                $expr: {
-                    $in: [
-                        { $toLower: { $trim: { input: '$status' } } },
-                        ['pending', 'approved']
-                    ]
+    // Lifetime withdrawals and subscription wallet-deductions reduce the visible balance.
+    const [committedWithdrawalsAgg, walletDeductionsAgg, outstandingSummary] = await Promise.all([
+        FoodRestaurantWithdrawal.aggregate([
+            {
+                $match: {
+                    restaurantId: rid,
+                    $expr: {
+                        $in: [
+                            { $toLower: { $trim: { input: '$status' } } },
+                            ['pending', 'approved']
+                        ]
+                    }
                 }
-            }
-        },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
+            },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]),
+        FoodSubscriptionTransaction.aggregate([
+            {
+                $match: {
+                    restaurantId: rid,
+                    type: 'wallet_deduction'
+                }
+            },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]),
+        isRestaurantSubscriptionEnabled
+            ? getOutstandingSummary(restaurantId)
+            : Promise.resolve({ lockedAmount: 0, openInvoices: [], monthsLabel: '' })
     ]);
-    const totalEffectiveWithdrawals = Number(effectiveWithdrawalsAgg?.[0]?.total || 0);
-    const availableBalance = Math.max(0, globalEstimatedPayout - totalEffectiveWithdrawals);
+    const totalCommittedWithdrawals = Number(committedWithdrawalsAgg?.[0]?.total || 0);
+    const totalWalletDeductions = Number(walletDeductionsAgg?.[0]?.total || 0);
 
-    const currentCycle = {
-        start: { ...nowWindow.startMeta },
-        end: { ...nowWindow.endMeta },
-        totalEarnings: currentCycleEstimatedPayout, // We still show current cycle earnings label
-        totalWithdrawn: totalEffectiveWithdrawals,
-        estimatedPayout: availableBalance, // This is what UI shows as "Estimated Payout" (Available Balance)
-        totalOrders: currentCycleOrders.length,
+    // Locked balance = total outstanding subscription dues (calendar-month postpaid invoices).
+    // The full balance stays visible; only withdrawal is limited to balance − locked.
+    const lockedAmount = Math.max(0, Number(outstandingSummary.lockedAmount || 0));
+    const availableBalance = Math.max(
+        0,
+        totalEarnings - totalCommittedWithdrawals - totalWalletDeductions
+    );
+
+    const wallet = {
+        totalEarnings,
+        totalWithdrawn: totalCommittedWithdrawals,
+        estimatedPayout: totalEarnings,
+        withdrawableBalance: availableBalance,
+        netAvailable: Math.max(0, availableBalance - lockedAmount), // Net amount that is ACTUALLY withdrawable
+        totalOrders: allCompletedOrders.length,
         payoutDate: null,
-        orders: currentCycleOrders
+        orders: completedOrdersPage.orders,
+        pagination: completedOrdersPage.pagination
     };
 
-    // Invoice Summary (derived from current cycle or broader if needed)
     const invoiceSummary = {
-        count: currentCycleOrders.length,
-        subtotal: currentCycleOrders.reduce((sum, o) => sum + (Number(o.orderTotal) || 0), 0),
-        taxes: currentCycleOrders.reduce((sum, o) => sum + Math.max(0, (Number(o.totalAmount) || 0) - (Number(o.orderTotal) || 0)), 0),
-        gross: currentCycleOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0)
+        count: allCompletedOrders.length,
+        subtotal: allCompletedOrders.reduce((sum, o) => sum + (Number(o.orderTotal) || 0), 0),
+        taxes: allCompletedOrders.reduce((sum, o) => sum + Math.max(0, (Number(o.totalAmount) || 0) - (Number(o.orderTotal) || 0)), 0),
+        gross: allCompletedOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0)
     };
 
-    // Past cycles: build from provided startDate/endDate query.
     const startDate = parseISODateParam(query.startDate);
     const endDate = parseISODateParamEnd(query.endDate);
 
-    let pastCyclesResult = { orders: [], totalOrders: 0 };
+    let pastCyclesResult = { orders: [], totalOrders: 0, pagination: { page: 1, limit: ordersPagination.limit, total: 0, totalPages: 1, pages: 1 } };
     if (startDate && endDate) {
-        const pastTransactions = await FoodTransaction.find({
+        const pastOrders = await FoodOrder.find({
             restaurantId: rid,
-            status: { $in: ['captured', 'authorized'] },
+            orderStatus: { $nin: ['pending_payment'] },
             createdAt: { $gte: startDate, $lte: endDate }
         })
-            .populate({ path: 'orderId', select: 'order_id createdAt items pricing deliveryState orderStatus payment' })
+            .populate('transactionId')
             .sort({ createdAt: -1 })
             .lean();
 
-        const pastCycleOrders = pastTransactions
-            .filter((tx) => tx.orderId && ['delivered', 'completed'].includes(tx.orderId.orderStatus))
-            .map((tx) => {
-            const order = tx.orderId || {};
-            const items = Array.isArray(order.items) ? order.items : [];
-            const foodNames = items.map((it) => it?.name).filter(Boolean).join(', ');
-            const orderTotalExclTax = Math.max(
-                0,
-                Number(order?.pricing?.total ?? 0) - Number(order?.pricing?.tax ?? 0) || 0
-            );
-
-            return {
-                orderId: order?.order_id || tx.orderReadableId,
-                createdAt: tx.createdAt,
-                items,
-                foodNames,
-                orderTotal: orderTotalExclTax,
-                totalAmount: tx.amounts?.totalCustomerPaid || 0,
-                payout: tx.amounts?.restaurantShare || 0,
-                commission: tx.amounts?.restaurantCommission || 0,
-                paymentMethod: tx.paymentMethod || order?.payment?.method,
-                orderStatus: order?.orderStatus || order?.deliveryState?.currentPhase || order?.deliveryState?.status,
-                status: tx.status
-            };
-        });
+        const completedPastCycle = paginateCompletedOrders(pastOrders, mapFinanceOrder, ordersPagination);
 
         pastCyclesResult = {
-            orders: pastCycleOrders,
-            totalOrders: pastCycleOrders.length
+            orders: completedPastCycle.orders,
+            totalOrders: completedPastCycle.totalOrders,
+            pagination: completedPastCycle.pagination
         };
     }
 
@@ -225,12 +228,23 @@ export async function getRestaurantFinance(restaurantId, query = {}) {
         restaurant: {
             name: restaurant?.restaurantName || '',
             restaurantId: restaurant?._id ? `REST${restaurant._id.toString().slice(-6).padStart(6, '0')}` : 'N/A',
-            address
+            address,
+            // Kept for backwards compatibility with existing clients: due = locked amount.
+            subscriptionDueAmount: lockedAmount,
+            subscriptionStatus: lockedAmount > 0 ? 'due' : 'paid',
         },
-        currentCycle,
+        subscription: {
+            lockedAmount,
+            lockedMonths: outstandingSummary.monthsLabel,
+            openInvoices: outstandingSummary.openInvoices,
+        },
+        features: {
+            restaurantSubscriptionEnabled: isRestaurantSubscriptionEnabled
+        },
+        wallet,
+        // Backward compatibility for existing clients
+        currentCycle: wallet,
         invoiceSummary,
         pastCycles: pastCyclesResult
     };
 }
-
-

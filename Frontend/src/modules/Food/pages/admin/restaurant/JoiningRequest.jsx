@@ -4,12 +4,6 @@ import {
   FileText, Image as ImageIcon, ExternalLink, CreditCard, Calendar, Star, Building2, User, Phone, Mail, MapPin, Clock
 } from "lucide-react"
 import { adminAPI, restaurantAPI } from "@food/api"
-import { toast } from "sonner"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@food/components/ui/dialog"
-import { refreshSidebarBadges } from "@food/components/admin/AdminSidebar"
-import { useAdminBadgeListRefresh } from "@food/hooks/useAdminBadgeListRefresh"
-import { getRestaurantDisplayAddress } from "@food/utils/restaurantLocation"
-import AdminListPagination from "@food/components/admin/AdminListPagination"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -25,25 +19,14 @@ const formatTime12Hour = (timeStr) => {
 
 
 export default function JoiningRequest() {
+  const [activeTab, setActiveTab] = useState("pending")
   const [searchQuery, setSearchQuery] = useState("")
-  const [debouncedSearch, setDebouncedSearch] = useState("")
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(() => {
-    try {
-      return Number(localStorage.getItem("admin_joining_requests_pageSize")) || 20
-    } catch {
-      return 20
-    }
-  })
-  const [totalItems, setTotalItems] = useState(0)
-  const [sortConfig, setSortConfig] = useState({ key: "createdAt", direction: "desc" })
   const [pendingRequests, setPendingRequests] = useState([])
+  const [rejectedRequests, setRejectedRequests] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [processing, setProcessing] = useState(false)
-  const [processingRequestId, setProcessingRequestId] = useState(null)
   const [selectedRequest, setSelectedRequest] = useState(null)
-  const [isApproveOpen, setIsApproveOpen] = useState(false)
   const [showRejectDialog, setShowRejectDialog] = useState(false)
   const [rejectionReason, setRejectionReason] = useState("")
   const [showDetailsModal, setShowDetailsModal] = useState(false)
@@ -55,76 +38,51 @@ export default function JoiningRequest() {
     dateFrom: "",
     dateTo: ""
   })
-  const today = new Date().toISOString().slice(0, 10)
 
   // Track first render to avoid duplicate fetch in React StrictMode
   const hasFetchedOnceRef = useRef(false)
 
-  const fetchRequests = async ({ silent = false } = {}) => {
+  // Fetch restaurant join requests
+  useEffect(() => {
+    // On first render, fetch once for initial tab (usually "pending")
+    if (!hasFetchedOnceRef.current) {
+      hasFetchedOnceRef.current = true
+      fetchRequests()
+      return
+    }
+
+    // On subsequent tab changes, refetch only when switching away from "pending"
+    if (activeTab !== "pending") {
+      fetchRequests()
+    }
+  }, [activeTab])
+
+  const fetchRequests = async () => {
     try {
-      if (!silent) setLoading(true)
+      setLoading(true)
       setError(null)
 
-      const response = await adminAPI.getPendingRestaurants({
-        search: debouncedSearch || undefined,
-        page: currentPage,
-        limit: pageSize,
-      })
-      const payload = response?.data?.data
-      const list = Array.isArray(payload?.restaurants)
-        ? payload.restaurants
-        : Array.isArray(payload)
-          ? payload
-          : []
-      setPendingRequests(list.filter((r) => String(r.status || "").toLowerCase() === "pending"))
-      setTotalItems(
-        payload?.total ??
-        response?.data?.total ??
-        list.length,
-      )
+      const response = await adminAPI.getPendingRestaurants()
+      const list = response?.data?.data || []
+      if (activeTab === "pending") {
+        setPendingRequests(list.filter((r) => r.status === "pending" || r.locationUpdateStatus === "pending"))
+      } else {
+        setRejectedRequests(list.filter((r) => r.status === "rejected"))
+      }
     } catch (err) {
       debugError("Error fetching restaurant requests:", err)
-      if (!silent) {
-        setError(err.message || "Failed to fetch restaurant requests")
+      setError(err.message || "Failed to fetch restaurant requests")
+      if (activeTab === "pending") {
         setPendingRequests([])
-        setTotalItems(0)
+      } else {
+        setRejectedRequests([])
       }
     } finally {
-      if (!silent) setLoading(false)
+      setLoading(false)
     }
   }
 
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300)
-    return () => clearTimeout(t)
-  }, [searchQuery])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [debouncedSearch])
-
-  useAdminBadgeListRefresh("restaurants", fetchRequests, [debouncedSearch, currentPage, pageSize])
-
-  useEffect(() => {
-    fetchRequests()
-  }, [debouncedSearch, currentPage, pageSize])
-
-  useEffect(() => {
-    const onFocus = () => fetchRequests({ silent: true })
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        fetchRequests({ silent: true })
-      }
-    }
-    window.addEventListener("focus", onFocus)
-    document.addEventListener("visibilitychange", onVisibility)
-    return () => {
-      window.removeEventListener("focus", onFocus)
-      document.removeEventListener("visibilitychange", onVisibility)
-    }
-  }, [debouncedSearch, currentPage, pageSize])
-
-  const currentRequests = pendingRequests
+  const currentRequests = activeTab === "pending" ? pendingRequests : rejectedRequests
 
   // Get unique zones and business models for filter options
   const filterOptions = useMemo(() => {
@@ -135,10 +93,23 @@ export default function JoiningRequest() {
   const filteredRequests = useMemo(() => {
     let filtered = currentRequests
 
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim()
+      filtered = filtered.filter(request =>
+        request.restaurantName?.toLowerCase().includes(query) ||
+        request.ownerName?.toLowerCase().includes(query) ||
+        request.ownerPhone?.includes(query)
+      )
+    }
+
+    // Apply zone filter
     if (filters.zone) {
       filtered = filtered.filter(request => request.zone === filters.zone)
     }
 
+
+    // Apply date range filter
     if (filters.dateFrom || filters.dateTo) {
       filtered = filtered.filter(request => {
         if (!request.createdAt) return false
@@ -156,56 +127,7 @@ export default function JoiningRequest() {
     }
 
     return filtered
-  }, [currentRequests, filters])
-
-  const sortedRequests = useMemo(() => {
-    const requests = [...filteredRequests]
-    const { key, direction } = sortConfig
-    const multiplier = direction === "asc" ? 1 : -1
-
-    const getSortValue = (request) => {
-      switch (key) {
-        case "sl":
-          return Number(request.sl || 0)
-        case "restaurantName":
-          return String(request.restaurantName || "").toLowerCase()
-        case "ownerName":
-          return String(request.ownerName || "").toLowerCase()
-        case "zone":
-          return String(request.zone || "").toLowerCase()
-        case "status":
-          return String(request.status || "").toLowerCase()
-        case "createdAt":
-        default:
-          return new Date(request.createdAt || 0).getTime()
-      }
-    }
-
-    requests.sort((left, right) => {
-      const leftValue = getSortValue(left)
-      const rightValue = getSortValue(right)
-
-      if (typeof leftValue === "number" && typeof rightValue === "number") {
-        return (leftValue - rightValue) * multiplier
-      }
-
-      return String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true }) * multiplier
-    })
-
-    return requests
-  }, [filteredRequests, sortConfig])
-
-  const handleSort = (key) => {
-    setSortConfig((prev) => ({
-      key,
-      direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc",
-    }))
-  }
-
-  const getSortIconClassName = (key) => {
-    if (sortConfig.key !== key) return "w-3 h-3 text-slate-400"
-    return sortConfig.direction === "asc" ? "w-3 h-3 text-blue-600" : "w-3 h-3 text-slate-700"
-  }
+  }, [currentRequests, searchQuery, filters])
 
   const clearFilters = () => {
     setFilters({
@@ -217,33 +139,22 @@ export default function JoiningRequest() {
 
   const hasActiveFilters = filters.zone || filters.dateFrom || filters.dateTo
 
-  const handleApprove = (request) => {
-    setSelectedRequest(request)
-    setIsApproveOpen(true)
-  }
-
-  const confirmApprove = async () => {
-    if (!selectedRequest) return
-
-    const id = selectedRequest._id
-    const restaurantName = selectedRequest.restaurantName
-
-    try {
-      setProcessing(true)
-      setProcessingRequestId(id)
-      await adminAPI.approveRestaurant(id)
-      setPendingRequests((prev) => prev.filter((r) => r._id !== id))
-      setIsApproveOpen(false)
-      setSelectedRequest(null)
-      refreshSidebarBadges("restaurants")
-      toast.success(`Successfully approved ${restaurantName}'s join request!`)
-      await fetchRequests({ silent: true })
-    } catch (err) {
-      debugError("Error approving request:", err)
-      toast.error(err.response?.data?.message || "Failed to approve request. Please try again.")
-    } finally {
-      setProcessing(false)
-      setProcessingRequestId(null)
+  const handleApprove = async (request) => {
+    if (window.confirm(`Are you sure you want to approve "${request.restaurantName}" restaurant request?`)) {
+      try {
+        setProcessing(true)
+        await adminAPI.approveRestaurant(request._id)
+        
+        // Refresh the list
+        await fetchRequests()
+        
+        alert(`Successfully approved ${request.restaurantName}'s join request!`)
+      } catch (err) {
+        debugError("Error approving request:", err)
+        alert(err.response?.data?.message || "Failed to approve request. Please try again.")
+      } finally {
+        setProcessing(false)
+      }
     }
   }
 
@@ -255,30 +166,27 @@ export default function JoiningRequest() {
 
   const confirmReject = async () => {
     if (!selectedRequest || !rejectionReason.trim()) {
-      toast.error("Please provide a rejection reason")
+      alert("Please provide a rejection reason")
       return
     }
 
-    const id = selectedRequest._id
-    const restaurantName = selectedRequest.restaurantName
-
     try {
       setProcessing(true)
-      setProcessingRequestId(id)
-      await adminAPI.rejectRestaurant(id, rejectionReason)
-      setPendingRequests((prev) => prev.filter((r) => r._id !== id))
-      refreshSidebarBadges("restaurants")
+      await adminAPI.rejectRestaurant(selectedRequest._id, rejectionReason)
+      
+      // Refresh the list
+      await fetchRequests()
+      
       setShowRejectDialog(false)
       setSelectedRequest(null)
       setRejectionReason("")
-      toast.success(`Successfully rejected ${restaurantName}'s join request!`)
-      await fetchRequests({ silent: true })
+      
+      alert(`Successfully rejected ${selectedRequest.restaurantName}'s join request!`)
     } catch (err) {
       debugError("Error rejecting request:", err)
-      toast.error(err.response?.data?.message || "Failed to reject request. Please try again.")
+      alert(err.response?.data?.message || "Failed to reject request. Please try again.")
     } finally {
       setProcessing(false)
-      setProcessingRequestId(null)
     }
   }
 
@@ -373,6 +281,30 @@ export default function JoiningRequest() {
             <h1 className="text-2xl font-bold text-slate-900">New Restaurant Join Request</h1>
           </div>
 
+          {/* Tabs */}
+          <div className="flex items-center gap-2 border-b border-slate-200 mb-6">
+            <button
+              onClick={() => setActiveTab("pending")}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === "pending"
+                  ? "border-blue-600 text-blue-600"
+                  : "border-transparent text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Pending Requests
+            </button>
+            <button
+              onClick={() => setActiveTab("rejected")}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === "rejected"
+                  ? "border-blue-600 text-blue-600"
+                  : "border-transparent text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Rejected Request
+            </button>
+          </div>
+
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
             <div className="flex items-center gap-3">
               <div className="relative flex-1 sm:flex-initial min-w-[250px]">
@@ -413,34 +345,34 @@ export default function JoiningRequest() {
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                    <button type="button" onClick={() => handleSort("sl")} className="flex items-center gap-1 hover:text-slate-900 transition-colors">
+                    <div className="flex items-center gap-1">
                       <span>SL</span>
-                      <ArrowUpDown className={getSortIconClassName("sl")} />
-                    </button>
+                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    </div>
                   </th>
                   <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                    <button type="button" onClick={() => handleSort("restaurantName")} className="flex items-center gap-1 hover:text-slate-900 transition-colors">
+                    <div className="flex items-center gap-1">
                       <span>Restaurant Info</span>
-                      <ArrowUpDown className={getSortIconClassName("restaurantName")} />
-                    </button>
+                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    </div>
                   </th>
                   <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                    <button type="button" onClick={() => handleSort("ownerName")} className="flex items-center gap-1 hover:text-slate-900 transition-colors">
+                    <div className="flex items-center gap-1">
                       <span>Owner Info</span>
-                      <ArrowUpDown className={getSortIconClassName("ownerName")} />
-                    </button>
+                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    </div>
                   </th>
                   <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                    <button type="button" onClick={() => handleSort("zone")} className="flex items-center gap-1 hover:text-slate-900 transition-colors">
+                    <div className="flex items-center gap-1">
                       <span>Zone</span>
-                      <ArrowUpDown className={getSortIconClassName("zone")} />
-                    </button>
+                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    </div>
                   </th>
                   <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                    <button type="button" onClick={() => handleSort("status")} className="flex items-center gap-1 hover:text-slate-900 transition-colors">
+                    <div className="flex items-center gap-1">
                       <span>Status</span>
-                      <ArrowUpDown className={getSortIconClassName("status")} />
-                    </button>
+                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    </div>
                   </th>
                   <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-700 uppercase tracking-wider">Action</th>
                 </tr>
@@ -460,7 +392,7 @@ export default function JoiningRequest() {
                       <p className="text-sm text-slate-500">Failed to load restaurant requests. Please try again.</p>
                     </td>
                   </tr>
-                ) : sortedRequests.length === 0 ? (
+                ) : filteredRequests.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-6 py-20 text-center">
                       <div className="flex flex-col items-center justify-center">
@@ -470,10 +402,8 @@ export default function JoiningRequest() {
                     </td>
                   </tr>
                 ) : (
-                  sortedRequests.map((request, index) => {
-                    const isRowProcessing = processingRequestId === request._id
-                    return (
-                    <tr key={request._id || index} className={`hover:bg-slate-50 transition-colors ${isRowProcessing ? "bg-blue-50/50" : ""}`}>
+                  filteredRequests.map((request, index) => (
+                    <tr key={request._id || index} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm font-medium text-slate-700">{request.sl ?? index + 1}</span>
                       </td>
@@ -516,20 +446,13 @@ export default function JoiningRequest() {
                         <span className="text-sm text-slate-700">{request.zone || "—"}</span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {isRowProcessing ? (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                            Processing...
-                          </span>
-                        ) : (
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${
-                          String(request.status || "").toLowerCase() === "pending"
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                          request.status === "Pending"
                             ? "bg-blue-100 text-blue-700"
                             : "bg-red-100 text-red-700"
                         }`}>
                           {request.status}
                         </span>
-                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-center">
                         <div className="flex items-center justify-center gap-2">
@@ -540,7 +463,7 @@ export default function JoiningRequest() {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          {String(request.status || "").toLowerCase() === "pending" && (
+                          {activeTab === "pending" && (
                             <>
                               <button
                                 onClick={() => handleApprove(request)}
@@ -548,7 +471,7 @@ export default function JoiningRequest() {
                                 className="p-1.5 rounded-full bg-green-50 text-green-600 hover:bg-green-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 title="Approve"
                               >
-                                {isRowProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                                <Check className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={() => handleReject(request)}
@@ -563,27 +486,11 @@ export default function JoiningRequest() {
                         </div>
                       </td>
                     </tr>
-                    )
-                  })
+                  ))
                 )}
               </tbody>
             </table>
           </div>
-
-          <AdminListPagination
-            currentPage={currentPage}
-            pageSize={pageSize}
-            totalItems={filters.zone || filters.dateFrom || filters.dateTo ? sortedRequests.length : totalItems}
-            onPageChange={setCurrentPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size)
-              try {
-                localStorage.setItem("admin_joining_requests_pageSize", String(size))
-              } catch {}
-              setCurrentPage(1)
-            }}
-            itemLabel="requests"
-          />
         </div>
       </div>
 
@@ -639,15 +546,8 @@ export default function JoiningRequest() {
                     <input
                       type="date"
                       value={filters.dateFrom}
-                      max={today}
-                      onChange={(e) => {
-                        const selected = e.target.value > today ? today : e.target.value
-                        setFilters({
-                          ...filters,
-                          dateFrom: selected,
-                          dateTo: filters.dateTo && filters.dateTo < selected ? selected : filters.dateTo
-                        })
-                      }}
+                      onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
+                      max={new Date().toISOString().split('T')[0]}
                       className="w-full px-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
@@ -658,12 +558,9 @@ export default function JoiningRequest() {
                     <input
                       type="date"
                       value={filters.dateTo}
-                      max={today}
-                      onChange={(e) => {
-                        const selected = e.target.value > today ? today : e.target.value
-                        setFilters({ ...filters, dateTo: selected })
-                      }}
+                      onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
                       min={filters.dateFrom}
+                      max={new Date().toISOString().split('T')[0]}
                       className="w-full px-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
@@ -690,40 +587,9 @@ export default function JoiningRequest() {
         </div>
       )}
 
-      {/* Approve Confirmation Dialog */}
-      <Dialog open={isApproveOpen} onOpenChange={(open) => { if (!processing) setIsApproveOpen(open) }}>
-        <DialogContent className="max-w-md bg-white p-0 opacity-0 data-[state=open]:opacity-100 data-[state=closed]:opacity-0 transition-opacity duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:scale-100 data-[state=closed]:scale-100">
-          <DialogHeader className="px-6 pt-6 pb-4">
-            <DialogTitle>Approve Request</DialogTitle>
-          </DialogHeader>
-          <div className="px-6 pb-6">
-            <p className="text-sm text-slate-700">
-              Are you sure you want to approve "{selectedRequest?.restaurantName}"'s join request?
-            </p>
-          </div>
-          <DialogFooter className="px-6 pb-6">
-            <button
-              onClick={() => setIsApproveOpen(false)}
-              disabled={processing}
-              className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-all disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={confirmApprove}
-              disabled={processing}
-              className="px-4 py-2 text-sm font-medium rounded-lg bg-green-600 text-white hover:bg-green-700 transition-all shadow-md disabled:opacity-50 flex items-center gap-2"
-            >
-              {processing && <Loader2 className="w-4 h-4 animate-spin" />}
-              Approve
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Reject Confirmation Dialog */}
       {showRejectDialog && selectedRequest && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => { if (!processing) setShowRejectDialog(false) }}>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowRejectDialog(false)}>
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
             <div className="p-6">
               <div className="flex items-center gap-4 mb-4">
@@ -824,9 +690,24 @@ export default function JoiningRequest() {
                 const profileImgUrl =
                   getNormalizedImageUrl(restaurantPhotoList[0]) ||
                   (typeof r?.profileImage === "string" ? r.profileImage : (r?.profileImage?.url || r?.profileImageUrl?.url || r?.restaurantImage))
+                const addressParts = [
+                  r?.addressLine1,
+                  r?.addressLine2,
+                  r?.area,
+                  r?.city,
+                  r?.landmark,
+                  r?.location?.addressLine1,
+                  r?.location?.addressLine2,
+                  r?.location?.area,
+                  r?.location?.city,
+                  r?.onboarding?.step1?.location?.addressLine1,
+                  r?.onboarding?.step1?.location?.area,
+                  r?.onboarding?.step1?.location?.city
+                ].filter(Boolean)
+                const hasAddress = addressParts.length > 0 || r?.location || r?.onboarding?.step1?.location
                 const openingTime = r?.openingTime || r?.deliveryTimings?.openingTime || r?.onboarding?.step2?.deliveryTimings?.openingTime
                 const closingTime = r?.closingTime || r?.deliveryTimings?.closingTime || r?.onboarding?.step2?.deliveryTimings?.closingTime
-                const approvalStatus = String(r?.status || "").toLowerCase() || (r?.isActive !== false ? "approved" : "pending")
+                const approvalStatus = r?.status || (r?.isActive !== false ? "approved" : "pending")
                 const hasFlatDocs = r?.panNumber || r?.panImage || r?.fssaiNumber || r?.accountNumber
                 const menuImgList = Array.isArray(r?.menuImages) ? r.menuImages : (r?.onboarding?.step2?.menuImageUrls || [])
                 return (
@@ -905,7 +786,16 @@ export default function JoiningRequest() {
                       <h4 className="text-lg font-semibold text-slate-900 mb-4">Location & Contact</h4>
                       <div className="space-y-3">
                         {(() => {
-                          const fullAddress = getRestaurantDisplayAddress(r) || r?.zone || null
+                          const loc = r?.location || r?.onboarding?.step1?.location
+                          const fullAddress = [
+                            r?.addressLine1 || loc?.addressLine1,
+                            r?.addressLine2 || loc?.addressLine2,
+                            r?.area || loc?.area,
+                            r?.city || loc?.city,
+                            r?.state || loc?.state,
+                            r?.pincode || loc?.pincode,
+                            r?.landmark || loc?.landmark,
+                          ].filter(Boolean).join(", ") || loc?.formattedAddress || loc?.address || r?.zone || null
                           return fullAddress ? (
                             <div className="flex items-start gap-3">
                               <MapPin className="w-5 h-5 text-slate-400 mt-0.5 shrink-0" />

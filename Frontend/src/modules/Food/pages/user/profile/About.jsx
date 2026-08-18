@@ -1,11 +1,11 @@
-import { Link, useNavigate } from "react-router-dom"
+import { Link } from "react-router-dom"
 import { useState, useEffect } from "react"
 import { ArrowLeft, ArrowRight, Heart, Users, Shield, Clock, Star, Award, FileText, Lock, Loader2, Receipt, Truck, XCircle } from "lucide-react"
 import { motion } from "framer-motion"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Button } from "@food/components/ui/button"
 import { Card, CardContent } from "@food/components/ui/card"
-import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png"
+import DynamicLogo from "@food/components/DynamicLogo"
 import api from "@food/api"
 import { API_ENDPOINTS } from "@food/api/config"
 import { useCompanyName } from "@food/hooks/useCompanyName"
@@ -28,7 +28,6 @@ const iconMap = {
 
 export default function About() {
   const companyName = useCompanyName()
-  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [logoUrl, setLogoUrl] = useState(null)
   const [aboutData, setAboutData] = useState({
@@ -98,14 +97,13 @@ export default function About() {
     <AnimatedPage className="min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-[#0a0a0a] dark:to-[#1a1a1a]">
       <div className="max-w-4xl mx-auto px-4 md:px-6 lg:px-8 py-6 md:py-8">
         {/* Header */}
-        <div className="flex items-center mb-6 md:mb-8">
-          <div
-            onClick={() => navigate(-1)}
-            className="h-10 w-10 md:h-11 md:w-11 flex items-center justify-center bg-white dark:bg-[#1a1a1a] rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.05)] hover:shadow-[0_4px_15px_rgba(0,0,0,0.08)] active:scale-95 transition-all cursor-pointer border border-slate-100 dark:border-gray-800"
-          >
-            <ArrowLeft className="h-5 w-5 text-slate-800 dark:text-white" />
-          </div>
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-slate-900 dark:text-white ml-4">About</h1>
+        <div className="flex items-center gap-3 md:gap-4 mb-6 md:mb-8">
+          <Link to="/user/profile">
+            <Button variant="ghost" size="icon" className="h-9 w-9 md:h-10 md:w-10 p-0 hover:bg-gray-100 dark:hover:bg-gray-800">
+              <ArrowLeft className="h-5 w-5 md:h-6 md:w-6 text-gray-900 dark:text-white" />
+            </Button>
+          </Link>
+          <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900 dark:text-white">About</h1>
         </div>
 
         {/* App Info Card */}
@@ -114,8 +112,8 @@ export default function About() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
-          <Card className="bg-gradient-to-br from-blue-50/60 to-white/40 dark:from-blue-900/20 dark:to-[#1a1a1a]/40 backdrop-blur-2xl rounded-3xl shadow-[0_8px_32px_rgba(59,130,246,0.08)] border border-blue-100/50 dark:border-blue-900/30 mb-6 md:mb-8 overflow-hidden">
-            <div className="p-8 md:p-10 text-center relative">
+          <Card className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-lg border-0 dark:border-gray-800 mb-6 overflow-hidden">
+            <div className="bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20 p-8 md:p-10 text-center">
               <motion.div
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
@@ -123,16 +121,13 @@ export default function About() {
                 className="flex justify-center mb-6"
               >
                 <div className="relative">
-                  <div className="relative bg-white dark:bg-gray-800 rounded-full p-4 md:p-6 shadow-[0_8px_30px_rgba(0,0,0,0.08)]">
-                    <img
-                      src={logoUrl || quickSpicyLogo}
+                  <div className="absolute inset-0 bg-[#EB590E] rounded-full blur-2xl opacity-30 animate-pulse" />
+                  <div className="relative bg-white dark:bg-gray-800 rounded-full p-4 md:p-6 shadow-xl">
+                    <DynamicLogo
+                      module="user"
+                      fallback={null}
                       alt={`${aboutData.appName} Logo`}
                       className="h-16 w-16 md:h-20 md:w-20 object-contain rounded-full"
-                      onError={(e) => {
-                        if (e.target.src !== quickSpicyLogo) {
-                          e.target.src = quickSpicyLogo
-                        }
-                      }}
                     />
                   </div>
                 </div>
@@ -144,23 +139,14 @@ export default function About() {
                 transition={{ delay: 0.3, duration: 0.5 }}
                 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 dark:text-white mb-2"
               >
-                Ometto
+                {aboutData.appName || companyName || "About"}
               </motion.h2>
 
               <motion.p
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.4, duration: 0.5 }}
-                className="text-gray-600 dark:text-gray-400 text-sm md:text-base font-medium mb-1"
-              >
-                Food & Takeaway
-              </motion.p>
-              
-              <motion.p
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.4, duration: 0.5 }}
-                className="text-gray-500 dark:text-gray-500 text-xs md:text-sm mb-4"
+                className="text-gray-600 dark:text-gray-400 text-sm md:text-base mb-4"
               >
                 {aboutData.version ? `Version ${aboutData.version}` : " "}
               </motion.p>
@@ -179,7 +165,47 @@ export default function About() {
           </Card>
         </motion.div>
 
-
+        {/* Features Grid */}
+        {aboutData.features && aboutData.features.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.7, duration: 0.5 }}
+            className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mb-6"
+          >
+            {aboutData.features.map((feature, index) => {
+              const IconComponent = iconMap[feature.icon] || Heart
+              return (
+                <motion.div
+                  key={index}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.8 + index * 0.1, duration: 0.3 }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <Card className="bg-white dark:bg-[#1a1a1a] rounded-xl shadow-md border-0 dark:border-gray-800 hover:shadow-xl transition-shadow duration-300 h-full">
+                    <CardContent className="p-5 md:p-6">
+                      <div className="flex items-start gap-4">
+                        <div className={`${feature.bgColor} rounded-xl p-3 flex-shrink-0`}>
+                          <IconComponent className={`h-6 w-6 md:h-7 md:w-7 ${feature.color}`} />
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-lg md:text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                            {feature.title}
+                          </h3>
+                          <p className="text-sm md:text-base text-gray-600 dark:text-gray-400 leading-relaxed">
+                            {feature.description}
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              )
+            })}
+          </motion.div>
+        )}
 
         {/* Legal Links */}
         <motion.div
@@ -202,14 +228,14 @@ export default function About() {
                     <FileText className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                   </div>
                   <div className="flex-1">
-                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#DC2626] dark:group-hover:text-[#DC2626] transition-colors">
+                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#EB590E] dark:group-hover:text-[#F97316] transition-colors">
                       Terms and Conditions
                     </div>
-                    <div className="text-sm text-slate-500 dark:text-slate-400">
+                    <div className="text-sm text-gray-500 dark:text-gray-500">
                       Read our terms and conditions
                     </div>
                   </div>
-                  <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-[#DC2626] transition-colors" />
+                  <ArrowRight className="h-5 w-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
                 </Link>
 
                 <Link
@@ -220,14 +246,14 @@ export default function About() {
                     <Lock className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                   </div>
                   <div className="flex-1">
-                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#DC2626] dark:group-hover:text-[#DC2626] transition-colors">
+                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#EB590E] dark:group-hover:text-[#F97316] transition-colors">
                       Privacy Policy
                     </div>
-                    <div className="text-sm text-slate-500 dark:text-slate-400">
+                    <div className="text-sm text-gray-500 dark:text-gray-500">
                       Learn how we protect your data
                     </div>
                   </div>
-                  <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-[#DC2626] transition-colors" />
+                  <ArrowRight className="h-5 w-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
                 </Link>
 
                 <Link
@@ -238,14 +264,14 @@ export default function About() {
                     <Receipt className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                   </div>
                   <div className="flex-1">
-                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#DC2626] dark:group-hover:text-[#DC2626] transition-colors">
+                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#EB590E] dark:group-hover:text-[#F97316] transition-colors">
                       Refund Policy
                     </div>
-                    <div className="text-sm text-slate-500 dark:text-slate-400">
+                    <div className="text-sm text-gray-500 dark:text-gray-500">
                       Read our refund terms and conditions
                     </div>
                   </div>
-                  <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-[#DC2626] transition-colors" />
+                  <ArrowRight className="h-5 w-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
                 </Link>
 
                 <Link
@@ -256,14 +282,14 @@ export default function About() {
                     <Truck className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                   </div>
                   <div className="flex-1">
-                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#DC2626] dark:group-hover:text-[#DC2626] transition-colors">
+                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#EB590E] dark:group-hover:text-[#F97316] transition-colors">
                       Shipping Policy
                     </div>
-                    <div className="text-sm text-slate-500 dark:text-slate-400">
+                    <div className="text-sm text-gray-500 dark:text-gray-500">
                       Learn about our shipping terms
                     </div>
                   </div>
-                  <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-[#DC2626] transition-colors" />
+                  <ArrowRight className="h-5 w-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
                 </Link>
 
                 <Link
@@ -274,14 +300,14 @@ export default function About() {
                     <XCircle className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                   </div>
                   <div className="flex-1">
-                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#DC2626] dark:group-hover:text-[#DC2626] transition-colors">
+                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#EB590E] dark:group-hover:text-[#F97316] transition-colors">
                       Cancellation Policy
                     </div>
-                    <div className="text-sm text-slate-500 dark:text-slate-400">
-                      Read our cancellation terms
+                    <div className="text-sm text-gray-500 dark:text-gray-500">
+                      Read our cancellation terms and conditions
                     </div>
                   </div>
-                  <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-[#DC2626] transition-colors" />
+                  <ArrowRight className="h-5 w-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
                 </Link>
               </div>
             </CardContent>
@@ -296,7 +322,7 @@ export default function About() {
           className="text-center mt-8 mb-4"
         >
           <p className="text-sm text-gray-500 dark:text-gray-500">
-            � {new Date().getFullYear()} {companyName}. All rights reserved.
+            {new Date().getFullYear()} {companyName}. All rights reserved.
           </p>
         </motion.div>
       </div>

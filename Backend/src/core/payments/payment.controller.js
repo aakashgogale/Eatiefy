@@ -1,4 +1,4 @@
-import { sendResponse } from '../../utils/response.js';
+import { sendResponse, sendError } from '../../utils/response.js';
 import { getPaymentsByOrder } from './payment.service.js';
 import { getTransactionsByOrder } from './transaction.service.js';
 import { getWalletBalance, getWalletWithTransactions, getUserWalletForFrontend } from './wallet.service.js';
@@ -11,6 +11,20 @@ import { logger } from '../../utils/logger.js';
 export const getPaymentHistoryController = async (req, res, next) => {
     try {
         const { orderId } = req.params;
+        // Ownership enforced below via order lookup when non-admin
+        const role = String(req.user?.role || '').toUpperCase();
+        if (role !== 'ADMIN') {
+            const { FoodOrder } = await import('../../modules/food/orders/models/order.model.js');
+            const order = await FoodOrder.findById(orderId).select('userId restaurantId').lean();
+            if (!order) return sendError(res, 404, 'Order not found');
+            const uid = String(req.user?.userId || '');
+            if (role === 'USER' && String(order.userId) !== uid) {
+                return sendError(res, 403, 'Forbidden');
+            }
+            if (role === 'RESTAURANT' && String(order.restaurantId) !== uid) {
+                return sendError(res, 403, 'Forbidden');
+            }
+        }
         const payments = await getPaymentsByOrder(orderId);
         return sendResponse(res, 200, 'Payment history fetched', { payments });
     } catch (err) {
@@ -21,6 +35,15 @@ export const getPaymentHistoryController = async (req, res, next) => {
 export const getOrderTransactionsController = async (req, res, next) => {
     try {
         const { orderId } = req.params;
+        const role = String(req.user?.role || '').toUpperCase();
+        if (role !== 'ADMIN') {
+            const { FoodOrder } = await import('../../modules/food/orders/models/order.model.js');
+            const order = await FoodOrder.findById(orderId).select('userId restaurantId').lean();
+            if (!order) return sendError(res, 404, 'Order not found');
+            const uid = String(req.user?.userId || '');
+            if (role === 'USER' && String(order.userId) !== uid) return sendError(res, 403, 'Forbidden');
+            if (role === 'RESTAURANT' && String(order.restaurantId) !== uid) return sendError(res, 403, 'Forbidden');
+        }
         const transactions = await getTransactionsByOrder(orderId);
         return sendResponse(res, 200, 'Transactions fetched', { transactions });
     } catch (err) {
@@ -54,9 +77,15 @@ export const getUserWalletTransactionsController = async (req, res, next) => {
 
 export const getRestaurantWalletController = async (req, res, next) => {
     try {
-        const restaurantId = req.user?.restaurantId || req.params.restaurantId;
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 20;
+        const role = String(req.user?.role || '').toUpperCase();
+        const authedId = String(req.user?.userId || '');
+        const paramId = String(req.params.restaurantId || '');
+        if (role !== 'ADMIN' && authedId !== paramId) {
+            return sendError(res, 403, 'Forbidden: cannot access another restaurant wallet');
+        }
+        const restaurantId = role === 'ADMIN' ? paramId : authedId;
+        const page = Math.min(Math.max(parseInt(req.query.page, 10) || 1, 1), 10000);
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
         const data = await getWalletWithTransactions('restaurant', restaurantId, { page, limit });
         return sendResponse(res, 200, 'Restaurant wallet fetched', data);
     } catch (err) {
@@ -68,9 +97,15 @@ export const getRestaurantWalletController = async (req, res, next) => {
 
 export const getDeliveryWalletController = async (req, res, next) => {
     try {
-        const deliveryPartnerId = req.user?.deliveryPartnerId || req.params.deliveryPartnerId;
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 20;
+        const role = String(req.user?.role || '').toUpperCase();
+        const authedId = String(req.user?.userId || '');
+        const paramId = String(req.params.deliveryPartnerId || '');
+        if (role !== 'ADMIN' && authedId !== paramId) {
+            return sendError(res, 403, 'Forbidden: cannot access another delivery wallet');
+        }
+        const deliveryPartnerId = role === 'ADMIN' ? paramId : authedId;
+        const page = Math.min(Math.max(parseInt(req.query.page, 10) || 1, 1), 10000);
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
         const data = await getWalletWithTransactions('deliveryBoy', deliveryPartnerId, { page, limit });
         return sendResponse(res, 200, 'Delivery wallet fetched', data);
     } catch (err) {
@@ -166,6 +201,15 @@ export const listRefundsController = async (req, res, next) => {
 export const getRefundsByOrderController = async (req, res, next) => {
     try {
         const { orderId } = req.params;
+        const role = String(req.user?.role || '').toUpperCase();
+        if (role !== 'ADMIN') {
+            const { FoodOrder } = await import('../../modules/food/orders/models/order.model.js');
+            const order = await FoodOrder.findById(orderId).select('userId restaurantId').lean();
+            if (!order) return sendError(res, 404, 'Order not found');
+            const uid = String(req.user?.userId || '');
+            if (role === 'USER' && String(order.userId) !== uid) return sendError(res, 403, 'Forbidden');
+            if (role === 'RESTAURANT' && String(order.restaurantId) !== uid) return sendError(res, 403, 'Forbidden');
+        }
         const refunds = await getRefundsByOrder(orderId);
         return sendResponse(res, 200, 'Refunds fetched', { refunds });
     } catch (err) {

@@ -28,22 +28,20 @@ export default function BottomNavigation() {
   const [imageError, setImageError] = useState(false)
 
   const isActive = (path) => {
-    if (path === "/food/delivery") return location.pathname === "/food/delivery"
+    if (path === "/delivery") return location.pathname === "/delivery"
     return location.pathname.startsWith(path)
   }
 
   const iconClass = "w-6 h-6"
+  const activeColor = "var(--module-theme-color, #00B761)"
 
   const TabIcon = (active, Outline, Solid) => {
     const Icon = active ? Solid : Outline
-    return <Icon className={iconClass} />
+    return <Icon className={iconClass} style={active ? { color: activeColor } : undefined} />
   }
 
   const TabLabel = (active, label) => (
-    <span
-      className={`text-[11px] font-bold tracking-[0.02em] ${active ? "" : "text-gray-500"}`}
-      style={active ? { color: "var(--dv-primary)" } : undefined}
-    >
+    <span className={`text-[10px] font-medium ${active ? "" : "text-gray-500"}`} style={active ? { color: activeColor } : undefined}>
       {label}
     </span>
   )
@@ -87,70 +85,63 @@ export default function BottomNavigation() {
   }, [])
 
   return (
-    <div
-      className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t shadow-[0_-14px_34px_rgba(15,107,203,0.16)] z-50"
-      style={{ borderColor: "color-mix(in srgb, var(--dv-primary) 18%, #ffffff)" }}
-    >
-      <div className="flex items-center justify-around py-2.5 px-3">
+    <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-50">
+      <div className="flex items-center justify-around py-2 px-4">
 
         {/* Feed */}
         <button
-          onClick={() => navigate("/food/delivery")}
-          className="flex flex-col items-center gap-1.5 p-2.5"
+          onClick={() => navigate("/delivery")}
+          className="flex flex-col items-center gap-1 p-2"
         >
-          {TabIcon(isActive("/food/delivery"), HomeOutline, HomeSolid)}
-          {TabLabel(isActive("/food/delivery"), "Feed")}
+          {TabIcon(isActive("/delivery"), HomeOutline, HomeSolid)}
+          {TabLabel(isActive("/delivery"), "Feed")}
         </button>
 
         {/* Pocket */}
         <button
-          onClick={() => navigate("/food/delivery/pocket")}
-          className="flex flex-col items-center gap-1.5 p-2.5"
+          onClick={() => navigate("/delivery/requests")}
+          className="flex flex-col items-center gap-1 p-2"
         >
-          {TabIcon(isActive("/food/delivery/pocket"), WalletOutline, WalletSolid)}
-          {TabLabel(isActive("/food/delivery/pocket"), "Pocket")}
+          {TabIcon(isActive("/delivery/requests"), WalletOutline, WalletSolid)}
+          {TabLabel(isActive("/delivery/requests"), "Pocket")}
         </button>
 
         {/* Trip History */}
         <button
-          onClick={() => navigate("/food/delivery/history")}
-          className="flex flex-col items-center gap-1.5 p-2.5"
+          onClick={() => navigate("/delivery/trip-history")}
+          className="flex flex-col items-center gap-1 p-2"
         >
-          {TabIcon(isActive("/food/delivery/history"), ClockOutline, ClockSolid)}
-          {TabLabel(isActive("/food/delivery/history"), "History")}
+          {TabIcon(isActive("/delivery/trip-history"), ClockOutline, ClockSolid)}
+          {TabLabel(isActive("/delivery/trip-history "), "Trip History")}
         </button>
 
         {/* Profile */}
         <button
-          onClick={() => navigate("/food/delivery/profile")}
-          className="flex flex-col items-center gap-1.5 p-2.5"
+          onClick={() => navigate("/delivery/profile")}
+          className="flex flex-col items-center gap-1 p-2"
         >
           {profileImage && !imageError ? (
             <img
               src={profileImage}
               alt="Profile"
               className={`w-7 h-7 rounded-full border-2 object-cover ${
-                isActive("/food/delivery/profile") ? "" : "border-gray-300"
+                isActive("/delivery/profile") ? "" : "border-gray-300"
               }`}
-              style={isActive("/food/delivery/profile") ? { borderColor: "var(--dv-primary)" } : undefined}
+              style={isActive("/delivery/profile") ? { borderColor: activeColor } : undefined}
               onError={() => {
                 setImageError(true)
               }}
             />
           ) : (
-            <img
-              src="/assets/images/profile_avatar.webp"
-              alt="Profile"
-              className={`w-7 h-7 rounded-full border-2 object-cover ${
-                isActive("/food/delivery/profile") ? "" : "border-gray-300"
-              }`}
-              style={isActive("/food/delivery/profile") ? { borderColor: "var(--dv-primary)" } : undefined}
-            />
+            <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center bg-gray-200 ${
+              isActive("/delivery/profile") ? "" : "border-gray-300"
+            }`} style={isActive("/delivery/profile") ? { borderColor: activeColor } : undefined}>
+              <User className="w-4 h-4 text-gray-500" style={isActive("/delivery/profile") ? { color: activeColor } : undefined} />
+            </div>
           )}
-          {TabLabel(isActive("/food/delivery/profile"), "Profile")}
+          {TabLabel(isActive("/delivery/profile"), "Profile")}
         </button>
       </div>
     </div>
   )
 }
-

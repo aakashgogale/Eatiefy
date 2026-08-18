@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ValidationError } from '../../../../core/auth/errors.js';
+import { normalizePlatform } from '../../../../utils/platform.js';
 
 const phoneSchema = z
     .string()
@@ -8,12 +9,14 @@ const phoneSchema = z
 
 const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
 const aadharRegex = /^[0-9]{12}$/;
-const drivingLicenseRegex = /^[A-Z]{2}[0-9]{2}[0-9]{4}[0-9]{7}$/;
+// India-wide DL support (normalized, no spaces/hyphens):
+// 2 letters (state) + 8 to 16 alphanumeric characters
+const drivingLicenseRegex = /^[A-Z]{2}[0-9A-Z]{8,16}$/;
 
 const deliveryRegisterSchema = z.object({
     name: z.string().min(1, 'Name is required'),
     phone: phoneSchema,
-    email: z.string().trim().min(1, 'Email is required').email('Valid email is required'),
+    email: z.string().email().optional().or(z.literal('')),
     countryCode: z.string().optional(),
     address: z.string().optional(),
     city: z.string().optional(),
@@ -38,7 +41,10 @@ const deliveryRegisterSchema = z.object({
         .optional()
         .or(z.literal('')),
     fcmToken: z.string().optional().nullable(),
-    platform: z.enum(['web', 'mobile']).optional().default('web')
+    platform: z.preprocess(
+        (value) => normalizePlatform(value, { allowUndefined: true }),
+        z.enum(['web', 'mobile']).optional().default('web')
+    )
 });
 
 export const validateDeliveryRegisterDto = (body) => {
@@ -51,7 +57,6 @@ export const validateDeliveryRegisterDto = (body) => {
 
 const deliveryProfileUpdateSchema = z.object({
     name: z.string().min(1).optional(),
-    email: z.string().trim().email('Valid email is required').optional().or(z.literal('')),
     countryCode: z.string().optional(),
     address: z.string().optional(),
     city: z.string().optional(),
@@ -65,7 +70,10 @@ const deliveryProfileUpdateSchema = z.object({
         .optional()
         .or(z.literal('')),
     fcmToken: z.string().optional().nullable(),
-    platform: z.enum(['web', 'mobile']).optional().default('web')
+    platform: z.preprocess(
+        (value) => normalizePlatform(value, { allowUndefined: true }),
+        z.enum(['web', 'mobile']).optional().default('web')
+    )
 });
 
 export const validateDeliveryProfileUpdateDto = (body) => {
@@ -115,4 +123,3 @@ export const validateDeliveryBankDetailsDto = (body) => {
     }
     return result.data;
 };
-

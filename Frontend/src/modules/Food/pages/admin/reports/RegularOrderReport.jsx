@@ -1,22 +1,22 @@
-import { useState, useEffect } from "react"
-import { BarChart3, ChevronDown, Settings, FileText, FileSpreadsheet, Code, Loader2, RefreshCw } from "lucide-react"
+import { useMemo, useState, useEffect, useCallback } from "react"
+import { BarChart3, ChevronDown, Settings, FileText, FileSpreadsheet, Code, Loader2, Calendar } from "lucide-react"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@food/components/ui/dialog"
 import { exportReportsToCSV, exportReportsToExcel, exportReportsToPDF, exportReportsToJSON } from "@food/components/admin/reports/reportsExportUtils"
-import AdminListPagination from "@food/components/admin/AdminListPagination"
-import searchIcon from "@food/assets/Dashboard-icons/image8.png"
-import exportIcon from "@food/assets/Dashboard-icons/image9.png"
-import scheduledIcon from "@food/assets/Dashboard-icons/scheduled.svg"
-import pendingIcon from "@food/assets/Dashboard-icons/pending.svg"
-import acceptedIcon from "@food/assets/Dashboard-icons/accepted.svg"
-import processingIcon from "@food/assets/Dashboard-icons/processing.svg"
-import onTheWayIcon from "@food/assets/Dashboard-icons/on-the-way.svg"
-import deliveredIcon from "@food/assets/Dashboard-icons/delivered.svg"
-import canceledIcon from "@food/assets/Dashboard-icons/canceled.svg"
-import paymentFailedIcon from "@food/assets/Dashboard-icons/payment-failed.svg"
-import refundedIcon from "@food/assets/Dashboard-icons/refunded.svg"
+import searchIcon from "@food/assets/Dashboard-icons/image8.webp"
+import exportIcon from "@food/assets/Dashboard-icons/image9.webp"
+import scheduledIcon from "@food/assets/Dashboard-icons/image24.webp"
+import pendingIcon from "@food/assets/Dashboard-icons/image25.webp"
+import acceptedIcon from "@food/assets/Dashboard-icons/image26.webp"
+import processingIcon from "@food/assets/Dashboard-icons/image27.webp"
+// Reuse existing icons since image28+ do not exist in assets
+import onTheWayIcon from "@food/assets/Dashboard-icons/image24.webp"
+import deliveredIcon from "@food/assets/Dashboard-icons/image25.webp"
+import canceledIcon from "@food/assets/Dashboard-icons/image26.webp"
+import paymentFailedIcon from "@food/assets/Dashboard-icons/image27.webp"
+import refundedIcon from "@food/assets/Dashboard-icons/image25.webp"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -34,69 +34,47 @@ const statusMeta = {
   Refunded: { label: "Refunded", color: "text-teal-600", bg: "bg-teal-50", icon: refundedIcon },
 }
 
+const PAGE_SIZE = 25
+
 export default function RegularOrderReport() {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
-  const [filterLoading, setFilterLoading] = useState(false)
   const [error, setError] = useState(null)
   const [zones, setZones] = useState([])
   const [restaurants, setRestaurants] = useState([])
   const [customers, setCustomers] = useState([])
-  const [totalOrders, setTotalOrders] = useState(0)
-  const [statusCounts, setStatusCounts] = useState({
-    total: 0,
-    Scheduled: 0,
-    Pending: 0,
-    Accepted: 0,
-    Processing: 0,
-    "Food On The Way": 0,
-    Delivered: 0,
-    Canceled: 0,
-    "Payment Failed": 0,
-    Refunded: 0,
-  })
   
   const [filters, setFilters] = useState({
     zone: "All Zones",
     restaurant: "All restaurants",
     customer: "All customers",
     time: "All Time",
+    fromDate: "",
+    toDate: "",
   })
   const [searchQuery, setSearchQuery] = useState("")
-  const [debouncedSearch, setDebouncedSearch] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(() => Number(localStorage.getItem("admin_order_report_pageSize")) || 20)
-  const [refreshKey, setRefreshKey] = useState(0)
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300)
-    return () => clearTimeout(t)
-  }, [searchQuery])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [debouncedSearch, filters])
 
   // Fetch zones, restaurants, and customers for filter dropdowns
   useEffect(() => {
     const fetchFilterData = async () => {
       try {
         // Fetch zones
-        const zonesRes = await adminAPI.getZones({ limit: 1000, isActive: true })
+        const zonesRes = await adminAPI.getZones({ limit: 100, isActive: true })
         if (zonesRes.data?.success) {
           setZones(zonesRes.data.data.zones || [])
         }
 
         // Fetch restaurants
-        const restaurantsRes = await adminAPI.getRestaurants({ limit: 1000 })
+        const restaurantsRes = await adminAPI.getRestaurants({ limit: 100 })
         if (restaurantsRes.data?.success) {
           setRestaurants(restaurantsRes.data.data.restaurants || [])
         }
 
         // Fetch customers (users) via existing customers API
-        const customersRes = await adminAPI.getCustomers({ limit: 1000 })
+        const customersRes = await adminAPI.getCustomers({ limit: 100 })
         if (customersRes.data?.success) {
           setCustomers(customersRes.data.data.customers || [])
         }
@@ -115,20 +93,29 @@ export default function RegularOrderReport() {
     let toDate = null
 
     switch (filters.time) {
-      case "Today":
-        fromDate = new Date(now.setHours(0, 0, 0, 0))
-        toDate = new Date(now.setHours(23, 59, 59, 999))
+      case "Custom Range":
+        if (filters.fromDate) fromDate = new Date(`${filters.fromDate}T00:00:00`)
+        if (filters.toDate) toDate = new Date(`${filters.toDate}T23:59:59`)
         break
-      case "This Week":
+      case "Today":
+        fromDate = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+        toDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
+        break
+      case "This Week": {
         const weekStart = new Date(now)
         weekStart.setDate(now.getDate() - now.getDay())
         weekStart.setHours(0, 0, 0, 0)
         fromDate = weekStart
-        toDate = new Date(now.setHours(23, 59, 59, 999))
+        toDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
         break
+      }
       case "This Month":
         fromDate = new Date(now.getFullYear(), now.getMonth(), 1)
         toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+        break
+      case "This Year":
+        fromDate = new Date(now.getFullYear(), 0, 1)
+        toDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999)
         break
       default:
         // All Time - no date filter
@@ -139,166 +126,152 @@ export default function RegularOrderReport() {
   }
 
   // Fetch orders from backend
-  useEffect(() => {
-    const fetchOrders = async () => {
-      if (orders.length === 0) {
-        setLoading(true)
-      } else {
-        setFilterLoading(true)
+  const fetchOrders = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const { fromDate, toDate } = getDateRange()
+      const params = {
+        page: 1,
+        limit: 10000,
+        ...(filters.zone !== "All Zones" && { zoneId: filters.zone }),
+        ...(filters.restaurant !== "All restaurants" && { restaurantId: filters.restaurant }),
+        ...(fromDate && { startDate: fromDate.toISOString().split('T')[0] }),
+        ...(toDate && { endDate: toDate.toISOString().split('T')[0] }),
       }
-      setError(null)
-      try {
-        const { fromDate, toDate } = getDateRange()
-        const params = {
-          page: currentPage,
-          limit: pageSize,
-          includeStatusCounts: 1,
-          startDate: fromDate ? fromDate.toISOString().split('T')[0] : undefined,
-          endDate: toDate ? toDate.toISOString().split('T')[0] : undefined,
-          search: debouncedSearch || undefined,
-          restaurantId: filters.restaurant !== "All restaurants" ? filters.restaurant : undefined,
-          userId: filters.customer !== "All customers" ? filters.customer : undefined,
-          zoneId: filters.zone !== "All Zones" ? filters.zone : undefined,
-        }
 
-        const response = await adminAPI.getOrders(params)
-        
-        if (response.data?.success) {
-          // Transform backend orders (FoodOrder docs) to report format
-          const rawOrders = response.data.data.orders || []
-          const meta = response.data.data.meta || response.data.data.pagination || {}
-          const total = Number(meta.total ?? response.data.data.total ?? rawOrders.length) || 0
-          setTotalOrders(total)
-          if (response.data.data.statusCounts) {
-            setStatusCounts({
-              Scheduled: 0,
-              Pending: 0,
-              Accepted: 0,
-              Processing: 0,
-              "Food On The Way": 0,
-              Delivered: 0,
-              Canceled: 0,
-              "Payment Failed": 0,
-              Refunded: 0,
-              ...response.data.data.statusCounts,
-              total,
-            })
-          } else {
-            setStatusCounts((prev) => ({ ...prev, total }))
+      const response = await adminAPI.getOrders(params)
+
+      if (response.data?.success) {
+        // Transform backend orders (FoodOrder docs) to report format
+        const rawOrders = response.data.data.orders || []
+        const transformedOrders = rawOrders.map((order) => {
+          const pricing = order.pricing || {}
+          const items = Array.isArray(order.items) ? order.items : []
+
+          const itemsSubtotal = items.reduce((sum, item) => {
+            const qty = Number(item.quantity || 1)
+            const price = Number(item.price || 0)
+            return sum + qty * price
+          }, 0)
+
+          const subtotal =
+            itemsSubtotal > 0
+              ? itemsSubtotal
+              : Number(pricing.subtotal || 0)
+
+          const deliveryCharge = Number(pricing.deliveryFee || 0)
+          const platformFee = Number(pricing.platformFee || 0)
+          const vatTax = Number(pricing.tax || 0)
+          const couponDiscount = Number(pricing.discount || 0)
+          const computedTotal =
+            subtotal + deliveryCharge + platformFee + vatTax - couponDiscount
+
+          const totalAmount =
+            pricing.total != null
+              ? Number(pricing.total)
+              : computedTotal
+
+          const restaurantName =
+            order.restaurantId?.restaurantName ||
+            order.restaurantName ||
+            ""
+          const restaurantId =
+            order.restaurantId?._id?.toString?.() ||
+            order.restaurantId?.toString?.() ||
+            ""
+          const orderZoneId =
+            order.restaurantId?.zoneId?._id?.toString?.() ||
+            order.restaurantId?.zoneId?.toString?.() ||
+            ""
+
+          const customerName =
+            order.userId?.name ||
+            order.customerName ||
+            "N/A"
+          const customerId =
+            order.userId?._id?.toString?.() ||
+            order.userId?.toString?.() ||
+            ""
+
+          const backendStatus = String(order.orderStatus || "").toLowerCase()
+          let displayStatus = order.orderStatus
+          if (!backendStatus || backendStatus === "created" || backendStatus === "confirmed") {
+            displayStatus = "Pending"
+          } else if (backendStatus === "preparing" || backendStatus === "ready_for_pickup") {
+            displayStatus = "Processing"
+          } else if (backendStatus === "picked_up") {
+            displayStatus = "Food On The Way"
+          } else if (backendStatus === "delivered") {
+            displayStatus = "Delivered"
+          } else if (backendStatus === "cancelled_by_restaurant") {
+            displayStatus = "Canceled"
+          } else if (backendStatus === "cancelled_by_user" || backendStatus === "cancelled_by_admin") {
+            displayStatus = "Canceled"
           }
-          const transformedOrders = rawOrders.map((order) => {
-            const pricing = order.pricing || {}
-            const items = Array.isArray(order.items) ? order.items : []
 
-            const itemsSubtotal = items.reduce((sum, item) => {
-              const qty = Number(item.quantity || 1)
-              const price = Number(item.price || 0)
-              return sum + qty * price
-            }, 0)
-
-            const subtotal =
-              itemsSubtotal > 0
-                ? itemsSubtotal
-                : Number(pricing.subtotal || 0)
-
-            const deliveryCharge = Number(pricing.deliveryFee || 0)
-            const platformFee = Number(pricing.platformFee || 0)
-            const vatTax = Number(pricing.tax || 0)
-            const couponDiscount = Number(pricing.discount || 0)
-            const computedTotal =
-              subtotal + deliveryCharge + platformFee + vatTax - couponDiscount
-
-            const totalAmount =
-              pricing.total != null
-                ? Number(pricing.total)
-                : computedTotal
-
-            const restaurantName =
-              order.restaurantId?.restaurantName ||
-              order.restaurantName ||
-              ""
-            const restaurantId =
-              order.restaurantId?._id ||
-              order.restaurantId?.id ||
-              order.restaurantId ||
-              ""
-
-            const customerName =
-              order.userId?.name ||
-              order.customerName ||
-              "N/A"
-            const customerId =
-              order.userId?._id ||
-              order.userId?.id ||
-              order.userId ||
-              ""
-
-            const restaurantMeta = restaurants.find((restaurant) => {
-              const candidateId = restaurant?._id || restaurant?.id || restaurant?.restaurantId
-              return String(candidateId || "") === String(restaurantId || "")
-            })
-
-            const zoneId =
-              order.zoneId?._id ||
-              order.zoneId?.id ||
-              order.zoneId ||
-              restaurantMeta?.zoneId?._id ||
-              restaurantMeta?.zoneId ||
-              ""
-
-            const backendStatus = String(order.orderStatus || "").toLowerCase()
-            let displayStatus = order.orderStatus
-            if (!backendStatus || backendStatus === "created" || backendStatus === "confirmed") {
-              displayStatus = "Pending"
-            } else if (backendStatus === "preparing" || backendStatus === "ready_for_pickup") {
-              displayStatus = "Processing"
-            } else if (backendStatus === "picked_up") {
-              displayStatus = "Food On The Way"
-            } else if (backendStatus === "delivered") {
-              displayStatus = "Delivered"
-            } else if (backendStatus === "cancelled_by_restaurant") {
-              displayStatus = "Canceled"
-            } else if (backendStatus === "cancelled_by_user" || backendStatus === "cancelled_by_admin") {
-              displayStatus = "Canceled"
-            }
-
-            return {
-              orderId: order.orderId,
-              restaurantId: String(restaurantId || ""),
-              restaurant: restaurantName,
-              customerId: String(customerId || ""),
-              customerName,
-              zoneId: String(zoneId || ""),
-              totalItemAmount: subtotal,
-              couponDiscount,
-              vatTax,
-              deliveryCharge,
-              platformFee,
-              totalAmount,
-              orderStatus: displayStatus,
-            }
-          })
-          setOrders(transformedOrders)
-        } else {
-          setError(response.data?.message || "Failed to fetch orders")
-          toast.error(response.data?.message || "Failed to fetch orders")
-        }
-      } catch (err) {
-        debugError("Error fetching orders:", err)
-        setError(err.response?.data?.message || "Failed to fetch orders")
-        toast.error(err.response?.data?.message || "Failed to fetch orders")
-      } finally {
-        setLoading(false)
-        setFilterLoading(false)
+          return {
+            orderId: order.orderId,
+            restaurantId,
+            zoneId: orderZoneId,
+            restaurant: restaurantName,
+            customerId,
+            customerName,
+            totalItemAmount: subtotal,
+            couponDiscount,
+            vatTax,
+            deliveryCharge,
+            platformFee,
+            totalAmount,
+            orderStatus: displayStatus,
+          }
+        })
+        setOrders(transformedOrders)
+      } else {
+        setError(response.data?.message || "Failed to fetch orders")
+        toast.error(response.data?.message || "Failed to fetch orders")
       }
+    } catch (err) {
+      debugError("Error fetching orders:", err)
+      setError(err.response?.data?.message || "Failed to fetch orders")
+      toast.error(err.response?.data?.message || "Failed to fetch orders")
+    } finally {
+      setLoading(false)
+    }
+  }, [filters])
+
+  useEffect(() => {
+    fetchOrders()
+  }, [fetchOrders])
+
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      // Search is handled locally in filteredOrders, no need to refetch
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchQuery])
+
+  const filteredOrders = useMemo(() => {
+    let scoped = orders
+    if (filters.zone !== "All Zones") {
+      scoped = scoped.filter((o) => String(o.zoneId || "") === String(filters.zone))
+    }
+    if (filters.customer !== "All customers") {
+      scoped = scoped.filter((o) => String(o.customerId || "") === String(filters.customer))
     }
 
-    fetchOrders()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, debouncedSearch, currentPage, pageSize, restaurants, refreshKey])
+    if (!searchQuery.trim()) return scoped
+    const q = searchQuery.toLowerCase().trim()
+    return scoped.filter((o) =>
+      String(o.orderId || "")
+        .toLowerCase()
+        .includes(q),
+    )
+  }, [orders, searchQuery, filters.zone, filters.customer])
 
   const handleExport = (format) => {
-    if (orders.length === 0) {
+    if (filteredOrders.length === 0) {
       alert("No data to export")
       return
     }
@@ -315,15 +288,15 @@ export default function RegularOrderReport() {
       { key: "orderStatus", label: "Status" },
     ]
     switch (format) {
-      case "csv": exportReportsToCSV(orders, headers, "regular_order_report"); break
-      case "excel": exportReportsToExcel(orders, headers, "regular_order_report"); break
-      case "pdf": exportReportsToPDF(orders, headers, "regular_order_report", "Regular Order Report"); break
-      case "json": exportReportsToJSON(orders, "regular_order_report"); break
+      case "csv": exportReportsToCSV(filteredOrders, headers, "regular_order_report"); break
+      case "excel": exportReportsToExcel(filteredOrders, headers, "regular_order_report"); break
+      case "pdf": exportReportsToPDF(filteredOrders, headers, "regular_order_report", "Regular Order Report"); break
+      case "json": exportReportsToJSON(filteredOrders, "regular_order_report"); break
     }
   }
 
-  const handleRefresh = () => {
-    setRefreshKey((k) => k + 1)
+  const handleFilterApply = () => {
+    // Filters are already applied via useMemo
   }
 
   const handleResetFilters = () => {
@@ -332,11 +305,44 @@ export default function RegularOrderReport() {
       restaurant: "All restaurants",
       customer: "All customers",
       time: "All Time",
+      fromDate: "",
+      toDate: "",
     })
-    setSearchQuery("")
-    setDebouncedSearch("")
-    setCurrentPage(1)
   }
+
+  const activeFiltersCount = (filters.zone !== "All Zones" ? 1 : 0) + (filters.restaurant !== "All restaurants" ? 1 : 0) + (filters.customer !== "All customers" ? 1 : 0) + (filters.time !== "All Time" ? 1 : 0)
+
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE))
+
+  const paginatedOrders = useMemo(() => {
+    const safePage = Math.min(currentPage, totalPages)
+    const start = (safePage - 1) * PAGE_SIZE
+    return filteredOrders.slice(start, start + PAGE_SIZE)
+  }, [filteredOrders, currentPage, totalPages])
+
+  const statusCounts = useMemo(
+    () =>
+      filteredOrders.reduce(
+        (acc, order) => {
+          acc.total += 1
+          if (acc[order.orderStatus] != null) acc[order.orderStatus] += 1
+          return acc
+        },
+        {
+          total: 0,
+          Scheduled: 0,
+          Pending: 0,
+          Accepted: 0,
+          Processing: 0,
+          "Food On The Way": 0,
+          Delivered: 0,
+          Canceled: 0,
+          "Payment Failed": 0,
+          Refunded: 0,
+        }
+      ),
+    [filteredOrders]
+  )
 
   const formatAmount = (amount) =>
     `₹${Number(amount || 0).toLocaleString("en-IN", {
@@ -345,8 +351,17 @@ export default function RegularOrderReport() {
     })}`
 
   const handleFilterChange = (key, value) => {
-    setFilters((prev) => ({ ...prev, [key]: value }))
+    setFilters((prev) => ({
+      ...prev,
+      [key]: value,
+      ...(key === "time" && value !== "Custom Range" ? { fromDate: "", toDate: "" } : {}),
+    }))
     setCurrentPage(1)
+  }
+
+  const handlePageChange = (newPage) => {
+    if (newPage < 1 || newPage > totalPages) return
+    setCurrentPage(newPage)
   }
 
   const renderStatusRow = (statusKey) => {
@@ -359,7 +374,7 @@ export default function RegularOrderReport() {
       >
         <div className="flex items-center gap-2">
           <div className={`w-8 h-8 rounded-lg ${meta.bg} flex items-center justify-center overflow-hidden`}>
-            <img src={meta.icon} alt={meta.label} className="w-5 h-5 object-contain" />
+            <img src={meta.icon} alt={meta.label} className="w-5 h-5 object-contain"  loading="lazy" decoding="async" />
           </div>
           <span className="text-[11px] font-medium text-slate-800">{meta.label}</span>
         </div>
@@ -469,28 +484,55 @@ export default function RegularOrderReport() {
                 <option key="today" value="Today">Today</option>
                 <option key="this-week" value="This Week">This Week</option>
                 <option key="this-month" value="This Month">This Month</option>
+                <option key="this-year" value="This Year">This Year</option>
+                <option key="custom-range" value="Custom Range">Custom Range</option>
               </select>
               <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500 pointer-events-none" />
             </div>
 
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={filterLoading || loading}
-              title="Refresh"
-              aria-label="Refresh"
-              className="p-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-all disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${filterLoading ? "animate-spin" : ""}`} />
-            </button>
-            <button
-              type="button"
+            <button 
               onClick={handleResetFilters}
               className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-all whitespace-nowrap"
             >
               Reset
             </button>
+            <button 
+              onClick={handleFilterApply}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-all whitespace-nowrap relative ${
+                activeFiltersCount > 0 ? "ring-2 ring-blue-300" : ""
+              }`}
+            >
+              Filter
+              {activeFiltersCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 text-white rounded-full text-[8px] flex items-center justify-center font-bold">
+                  {activeFiltersCount}
+                </span>
+              )}
+            </button>
           </div>
+
+          {filters.time === "Custom Range" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+              <div className="relative">
+                <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input
+                  type="date"
+                  value={filters.fromDate}
+                  onChange={(e) => handleFilterChange("fromDate", e.target.value)}
+                  className="w-full pl-8 pr-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="relative">
+                <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input
+                  type="date"
+                  value={filters.toDate}
+                  onChange={(e) => handleFilterChange("toDate", e.target.value)}
+                  className="w-full pl-8 pr-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Status Summary Cards */}
@@ -517,7 +559,7 @@ export default function RegularOrderReport() {
               <div className="relative flex-1 sm:flex-initial min-w-[180px]">
                 <input
                   type="text"
-                  placeholder="Search by Order ID, customer, restaurant"
+                  placeholder="Search by Order ID"
                   value={searchQuery}
                   onChange={(e) => {
                     setSearchQuery(e.target.value)
@@ -525,13 +567,13 @@ export default function RegularOrderReport() {
                   }}
                   className="pl-7 pr-2 py-1.5 w-full text-[11px] rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
-                <img src={searchIcon} alt="Search" className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3" />
+                <img src={searchIcon} alt="Search" className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3"  loading="lazy" decoding="async" />
               </div>
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1 transition-all">
-                    <img src={exportIcon} alt="Export" className="w-3 h-3" />
+                    <img src={exportIcon} alt="Export" className="w-3 h-3"  loading="lazy" decoding="async" />
                     <span>Export</span>
                     <ChevronDown className="w-2.5 h-2.5" />
                   </button>
@@ -565,13 +607,6 @@ export default function RegularOrderReport() {
               </button>
             </div>
           </div>
-
-          {filterLoading && (
-            <div className="mb-3 flex items-center gap-2 text-[11px] text-slate-500">
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
-              Updating report...
-            </div>
-          )}
 
           {/* Table */}
           <div className="overflow-x-auto scrollbar-hide">
@@ -614,7 +649,7 @@ export default function RegularOrderReport() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-100">
-                {orders.length === 0 ? (
+                {paginatedOrders.length === 0 ? (
                   <tr>
                     <td colSpan={11} className="px-6 py-20 text-center">
                       <div className="flex flex-col items-center justify-center">
@@ -624,11 +659,11 @@ export default function RegularOrderReport() {
                     </td>
                   </tr>
                 ) : (
-                  orders.map((order, index) => (
+                  paginatedOrders.map((order, index) => (
                     <tr key={order.orderId} className="hover:bg-slate-50 transition-colors">
                       <td className="px-1.5 py-1">
                         <span className="text-[10px] font-medium text-slate-700">
-                          {(currentPage - 1) * pageSize + index + 1}
+                          {(currentPage - 1) * PAGE_SIZE + index + 1}
                         </span>
                       </td>
                       <td className="px-1.5 py-1">
@@ -670,18 +705,47 @@ export default function RegularOrderReport() {
             </table>
           </div>
 
-          <AdminListPagination
-            currentPage={currentPage}
-            pageSize={pageSize}
-            totalItems={totalOrders}
-            itemLabel="orders"
-            onPageChange={setCurrentPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size)
-              localStorage.setItem("admin_order_report_pageSize", String(size))
-              setCurrentPage(1)
-            }}
-          />
+          {/* Pagination */}
+          <div className="flex items-center justify-between mt-3">
+            <p className="text-[10px] text-slate-500">
+              Showing{" "}
+              <span className="font-semibold text-slate-700">
+                {paginatedOrders.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} -{" "}
+                {(currentPage - 1) * PAGE_SIZE + paginatedOrders.length}
+              </span>{" "}
+              of <span className="font-semibold text-slate-700">{filteredOrders.length}</span> orders
+            </p>
+
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={currentPage === 1}
+                className="px-2 py-1 text-[10px] rounded border border-slate-300 text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
+              >
+                Prev
+              </button>
+              {Array.from({ length: totalPages }).map((_, idx) => (
+                <button
+                  key={idx + 1}
+                  onClick={() => handlePageChange(idx + 1)}
+                  className={`w-6 h-6 text-[10px] rounded border ${
+                    currentPage === idx + 1
+                      ? "bg-blue-600 border-blue-600 text-white"
+                      : "border-slate-300 text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  {idx + 1}
+                </button>
+              ))}
+              <button
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={currentPage === totalPages}
+                className="px-2 py-1 text-[10px] rounded border border-slate-300 text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -712,6 +776,4 @@ export default function RegularOrderReport() {
     </div>
   )
 }
-
-
 

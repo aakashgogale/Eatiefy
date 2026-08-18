@@ -26,7 +26,7 @@ const diningRestaurantSchema = new mongoose.Schema(
         maxGuests: {
             type: Number,
             default: 6,
-            min: 0
+            min: 1
         },
         pureVegRestaurant: {
             type: Boolean,
@@ -40,8 +40,6 @@ const diningRestaurantSchema = new mongoose.Schema(
     }
 );
 
-// Redundant unique index removed as it is already defined on line 9
-// diningRestaurantSchema.index({ restaurantId: 1 }, { unique: true });
 diningRestaurantSchema.index({ isEnabled: 1, primaryCategoryId: 1 });
 
 export const FoodDiningRestaurant = mongoose.model('FoodDiningRestaurant', diningRestaurantSchema);

@@ -1,11 +1,9 @@
-import React, { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Search, Download, ChevronDown, Eye, User, Star, ArrowUpDown, Settings, FileText, FileSpreadsheet, Loader2, Check, Columns, ExternalLink, Calendar, MapPin, CreditCard, Mail, Phone, Bike, FileCheck, Pencil, Save, Trash2, X } from "lucide-react"
 import { adminAPI } from "@food/api"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@food/components/ui/dialog"
-import { exportDeliverymenToExcel, exportDeliverymenToPDF } from "@food/components/admin/deliveryman/deliverymanExportUtils"
 import { toast } from "sonner"
-import AdminListPagination from "@food/components/admin/AdminListPagination"
 const debugError = () => {}
 
 
@@ -15,21 +13,41 @@ const formatCurrency = (amount) => {
   return `\u20B9${numericAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
+// Avatar component that handles broken image fallback gracefully by showing name initials
+function Avatar({ src, alt }) {
+  const [hasError, setHasError] = useState(false)
+
+  const getInitials = (name) => {
+    if (!name || typeof name !== "string") return "?"
+    const parts = name.trim().split(/\s+/).filter(Boolean)
+    if (parts.length === 0) return "?"
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase()
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase()
+  }
+
+  if (hasError || !src) {
+    return (
+      <span className="text-sm font-medium text-slate-500">
+        {getInitials(alt)}
+      </span>
+    )
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="w-full h-full object-cover"
+      onError={() => setHasError(true)}
+    />
+  )
+}
+
 export default function DeliverymanList() {
   const [searchQuery, setSearchQuery] = useState("")
-  const [debouncedSearch, setDebouncedSearch] = useState("")
   const [deliverymen, setDeliverymen] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(() => {
-    try {
-      return Number(localStorage.getItem("admin_deliverymen_pageSize")) || 20
-    } catch {
-      return 20
-    }
-  })
-  const [totalDeliverymen, setTotalDeliverymen] = useState(0)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isViewOpen, setIsViewOpen] = useState(false)
   const [viewDetails, setViewDetails] = useState(null)
@@ -37,11 +55,9 @@ export default function DeliverymanList() {
   const [editValues, setEditValues] = useState({ pocketBalance: "", cashInHand: "" })
   const [savingDeliveryId, setSavingDeliveryId] = useState(null)
   const [deletingDeliveryId, setDeletingDeliveryId] = useState(null)
-  const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" })
   const [visibleColumns, setVisibleColumns] = useState({
     si: true,
     name: true,
-    rating: true,
     contact: true,
     zone: true,
     totalOrders: true,
@@ -52,21 +68,31 @@ export default function DeliverymanList() {
     actions: true,
   })
 
-  const fetchAllWalletRows = async (search = "", page = 1, limit = 20) => {
-    try {
+  const fetchAllWalletRows = async (search = "") => {
+    const walletLimit = 100
+    let currentPage = 1
+    let totalPages = 1
+    const allRows = []
+
+    do {
       const response = await adminAPI.getDeliveryBoyWallets({
         search: search || undefined,
-        page,
-        limit,
+        page: currentPage,
+        limit: walletLimit,
       })
 
-      if (response?.data?.success) {
-        return response.data.data?.wallets || []
+      if (!response?.data?.success) {
+        break
       }
-    } catch (err) {
-      debugError("Error fetching wallet rows:", err)
-    }
-    return []
+
+      const data = response.data.data || {}
+      const rows = data.wallets || []
+      allRows.push(...rows)
+      totalPages = Number(data.pagination?.pages) || 1
+      currentPage += 1
+    } while (currentPage <= totalPages)
+
+    return allRows
   }
 
   // Fetch delivery partners from API
@@ -76,25 +102,22 @@ export default function DeliverymanList() {
       setError(null)
       
       const params = {
-        page: currentPage,
-        limit: pageSize,
+        page: 1,
+        limit: 1000, // Get all for now
       }
 
       // Add search to params if provided
-      if (debouncedSearch.trim()) {
-        params.search = debouncedSearch.trim()
+      if (searchQuery.trim()) {
+        params.search = searchQuery.trim()
       }
 
       const [partnersResponse, walletRowsResult] = await Promise.allSettled([
         adminAPI.getDeliveryPartners(params),
-        fetchAllWalletRows(debouncedSearch.trim(), currentPage, pageSize),
+        fetchAllWalletRows(searchQuery.trim()),
       ])
 
       if (partnersResponse.status === "fulfilled" && partnersResponse.value?.data?.success) {
         const partners = partnersResponse.value.data.data.deliveryPartners || []
-        const pagination = partnersResponse.value.data.data.pagination || {}
-        setTotalDeliverymen(pagination.total || partners.length)
-        
         const walletRows = walletRowsResult.status === "fulfilled" ? walletRowsResult.value || [] : []
 
         const walletMap = new Map(
@@ -106,13 +129,13 @@ export default function DeliverymanList() {
           return {
             ...partner,
             walletSummary: wallet || null,
-            pocketBalance: wallet?.pocketBalance || 0,
-            cashInHand: wallet?.cashInHand || 0,
-            remainingCashLimit: wallet?.remainingCashLimit || 0,
-            totalEarning: wallet?.totalEarning || 0,
-            bonus: wallet?.bonus || 0,
-            totalWithdrawn: wallet?.totalWithdrawn || 0,
-            availableCashLimit: wallet?.availableCashLimit || 0,
+pocketBalance: wallet?.pocketBalance || 0,
+cashInHand: wallet?.cashCollected || 0,
+remainingCashLimit: wallet?.remainingCashLimit || 0,
+totalEarning: wallet?.totalEarning || 0,
+bonus: wallet?.bonus || 0,
+totalWithdrawn: wallet?.totalWithdrawn || 0,
+availableCashLimit: wallet?.availableCashLimit || 0,
           }
         })
 
@@ -146,127 +169,25 @@ export default function DeliverymanList() {
     }
   }
 
-  const fetchDeliverymenQuietly = async () => {
-    try {
-      const params = { page: currentPage, limit: pageSize }
-      if (debouncedSearch.trim()) {
-        params.search = debouncedSearch.trim()
-      }
-
-      const [partnersResponse, walletRowsResult] = await Promise.allSettled([
-        adminAPI.getDeliveryPartners(params),
-        fetchAllWalletRows(debouncedSearch.trim(), currentPage, pageSize),
-      ])
-
-      if (partnersResponse.status === "fulfilled" && partnersResponse.value?.data?.success) {
-        const partners = partnersResponse.value.data.data.deliveryPartners || []
-        const walletRows = walletRowsResult.status === "fulfilled" ? walletRowsResult.value || [] : []
-        const walletMap = new Map(walletRows.map((wallet) => [String(wallet.deliveryId), wallet]))
-
-        const mergedPartners = partners.map((partner) => {
-          const wallet = walletMap.get(String(partner._id))
-          return {
-            ...partner,
-            walletSummary: wallet || null,
-            pocketBalance: wallet?.pocketBalance || 0,
-            cashInHand: wallet?.cashInHand || 0,
-            remainingCashLimit: wallet?.remainingCashLimit || 0,
-            totalEarning: wallet?.totalEarning || 0,
-            bonus: wallet?.bonus || 0,
-            totalWithdrawn: wallet?.totalWithdrawn || 0,
-            availableCashLimit: wallet?.availableCashLimit || 0,
-          }
-        })
-
-        setDeliverymen(mergedPartners)
-      }
-    } catch (err) {
-      debugError("Quiet fetch failed", err)
-    }
-  }
-
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300)
-    return () => clearTimeout(t)
-  }, [searchQuery])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [debouncedSearch])
-
-  // Fetch data on page or search change, and setup polling for updates
+  // Fetch on mount
   useEffect(() => {
     fetchDeliverymen()
+  }, [])
 
-    const interval = setInterval(() => {
-      fetchDeliverymenQuietly()
-    }, 8000)
+  // Debounced search effect
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchDeliverymen()
+    }, 500) // Wait 500ms after user stops typing
 
-    return () => {
-      clearInterval(interval)
-    }
-  }, [currentPage, pageSize, debouncedSearch])
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery])
 
   const filteredDeliverymen = useMemo(() => {
-    // Backend already handles search; apply client-side sorting on top.
-    const result = [...deliverymen]
-
-    if (sortConfig.key) {
-      const dir = sortConfig.direction === "asc" ? 1 : -1
-      result.sort((a, b) => {
-        let aValue
-        let bValue
-        switch (sortConfig.key) {
-          case "name":
-            aValue = String(a.name || "").toLowerCase()
-            bValue = String(b.name || "").toLowerCase()
-            break
-          case "rating":
-            aValue = Number(a.rating || 0)
-            bValue = Number(b.rating || 0)
-            break
-          case "contact":
-            aValue = String(a.email || "").toLowerCase()
-            bValue = String(b.email || "").toLowerCase()
-            break
-          case "zone":
-            aValue = String(a.zone || "").toLowerCase()
-            bValue = String(b.zone || "").toLowerCase()
-            break
-          case "totalOrders":
-            aValue = Number(a.totalOrders || 0)
-            bValue = Number(b.totalOrders || 0)
-            break
-          case "pocketBalance":
-            aValue = Number(a.pocketBalance || 0)
-            bValue = Number(b.pocketBalance || 0)
-            break
-          case "cashInHand":
-            aValue = Number(a.cashInHand || 0)
-            bValue = Number(b.cashInHand || 0)
-            break
-          case "remainingCashLimit":
-            aValue = Number(a.remainingCashLimit || 0)
-            bValue = Number(b.remainingCashLimit || 0)
-            break
-          default:
-            return 0
-        }
-        if (aValue < bValue) return -1 * dir
-        if (aValue > bValue) return 1 * dir
-        return 0
-      })
-    }
-
-    return result
-  }, [deliverymen, sortConfig])
-
-  const handleSort = (key) => {
-    setSortConfig((prev) => ({
-      key,
-      direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc",
-    }))
-  }
+    // Backend already handles search, but we can do client-side filtering if needed
+    return deliverymen
+  }, [deliverymen])
 
   const handleView = async (deliveryman) => {
     try {
@@ -297,20 +218,25 @@ availableCashLimit: deliveryman.availableCashLimit || 0,
     }
   }
 
-  const handleExportPDF = () => {
+  const loadDeliverymanExportUtils = () =>
+    import("@food/components/admin/deliveryman/deliverymanExportUtils")
+
+  const handleExportPDF = async () => {
     if (filteredDeliverymen.length === 0) {
       alert("No data to export")
       return
     }
-    exportDeliverymenToPDF(filteredDeliverymen)
+    const utils = await loadDeliverymanExportUtils()
+    utils.exportDeliverymenToPDF(filteredDeliverymen)
   }
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     if (filteredDeliverymen.length === 0) {
       alert("No data to export")
       return
     }
-    exportDeliverymenToExcel(filteredDeliverymen)
+    const utils = await loadDeliverymanExportUtils()
+    utils.exportDeliverymenToExcel(filteredDeliverymen)
   }
 
   const toggleColumn = (columnKey) => {
@@ -321,7 +247,6 @@ availableCashLimit: deliveryman.availableCashLimit || 0,
     setVisibleColumns({
       si: true,
       name: true,
-      rating: true,
       contact: true,
       zone: true,
       totalOrders: true,
@@ -336,7 +261,6 @@ availableCashLimit: deliveryman.availableCashLimit || 0,
   const columnsConfig = {
     si: "Serial Number",
     name: "Name",
-    rating: "Rating",
     contact: "Contact",
     zone: "Zone",
     totalOrders: "Total Orders",
@@ -504,10 +428,7 @@ availableCashLimit: deliveryman.availableCashLimit || 0,
                   type="text"
                   placeholder="Search by name or restaur..."
                   value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value)
-                    setCurrentPage(1)
-                  }}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10 pr-4 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400"
                 />
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -541,12 +462,8 @@ availableCashLimit: deliveryman.availableCashLimit || 0,
           <div className="mb-4">
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold text-slate-700">Deliveryman</span>
-              <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700 flex items-center justify-center min-w-[2.5rem] h-7">
-                {loading ? (
-                  <span className="w-5 h-3 rounded bg-slate-300/80 animate-pulse" />
-                ) : (
-                  totalDeliverymen
-                )}
+              <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
+                {filteredDeliverymen.length}
               </span>
             </div>
           </div>
@@ -576,104 +493,74 @@ availableCashLimit: deliveryman.availableCashLimit || 0,
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
                     {visibleColumns.si && (
-                      <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">
+                      <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                         <div className="flex items-center gap-2">
                           <span>SI</span>
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 cursor-pointer hover:text-slate-600" />
                         </div>
                       </th>
                     )}
                     {visibleColumns.name && (
-                      <th
-                        className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors"
-                        onClick={() => handleSort('name')}
-                      >
+                      <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                         <div className="flex items-center gap-2">
                           <span>Name</span>
-                          <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === 'name' ? 'text-blue-600' : 'text-slate-400'}`} />
-                        </div>
-                      </th>
-                    )}
-                    {visibleColumns.rating && (
-                      <th
-                        className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors"
-                        onClick={() => handleSort('rating')}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span>Rating</span>
-                          <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === 'rating' ? 'text-blue-600' : 'text-slate-400'}`} />
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 cursor-pointer hover:text-slate-600" />
                         </div>
                       </th>
                     )}
                     {visibleColumns.contact && (
-                      <th
-                        className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors"
-                        onClick={() => handleSort('contact')}
-                      >
+                      <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                         <div className="flex items-center gap-2">
                           <span>Contact</span>
-                          <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === 'contact' ? 'text-blue-600' : 'text-slate-400'}`} />
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 cursor-pointer hover:text-slate-600" />
                         </div>
                       </th>
                     )}
                     {visibleColumns.zone && (
-                      <th
-                        className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors"
-                        onClick={() => handleSort('zone')}
-                      >
+                      <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                         <div className="flex items-center gap-2">
                           <span>Zone</span>
-                          <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === 'zone' ? 'text-blue-600' : 'text-slate-400'}`} />
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 cursor-pointer hover:text-slate-600" />
                         </div>
                       </th>
                     )}
                     {visibleColumns.totalOrders && (
-                      <th
-                        className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors"
-                        onClick={() => handleSort('totalOrders')}
-                      >
+                      <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                         <div className="flex items-center gap-2">
                           <span>Total Orders</span>
-                          <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === 'totalOrders' ? 'text-blue-600' : 'text-slate-400'}`} />
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 cursor-pointer hover:text-slate-600" />
                         </div>
                       </th>
                     )}
                     {visibleColumns.pocketBalance && (
-                      <th
-                        className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors"
-                        onClick={() => handleSort('pocketBalance')}
-                      >
+                      <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                         <div className="flex items-center gap-2">
                           <span>Pocket Balance</span>
-                          <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === 'pocketBalance' ? 'text-blue-600' : 'text-slate-400'}`} />
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 cursor-pointer hover:text-slate-600" />
                         </div>
                       </th>
                     )}
                     {visibleColumns.cashInHand && (
-                      <th
-                        className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors"
-                        onClick={() => handleSort('cashInHand')}
-                      >
+                      <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                         <div className="flex items-center gap-2">
                           <span>Cash In Hand</span>
-                          <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === 'cashInHand' ? 'text-blue-600' : 'text-slate-400'}`} />
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 cursor-pointer hover:text-slate-600" />
                         </div>
                       </th>
                     )}
                     {visibleColumns.remainingCashLimit && (
-                      <th
-                        className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors"
-                        onClick={() => handleSort('remainingCashLimit')}
-                      >
+                      <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                         <div className="flex items-center gap-2">
                           <span>Remaining Cash Limit</span>
-                          <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === 'remainingCashLimit' ? 'text-blue-600' : 'text-slate-400'}`} />
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 cursor-pointer hover:text-slate-600" />
                         </div>
                       </th>
                     )}
                     {visibleColumns.availabilityStatus && (
-                      <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">
+                      <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                         <div className="flex items-center gap-2">
                           <span>Availability Status</span>
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 cursor-pointer hover:text-slate-600" />
                         </div>
                       </th>
                     )}
@@ -690,54 +577,39 @@ availableCashLimit: deliveryman.availableCashLimit || 0,
                       </td>
                     </tr>
                   ) : (
-                    filteredDeliverymen.map((dm, index) => (
+                    filteredDeliverymen.map((dm) => (
                       <tr key={dm._id} className="hover:bg-slate-50 transition-colors">
                         {visibleColumns.si && (
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <span className="text-sm font-medium text-slate-700">{(currentPage - 1) * pageSize + index + 1}</span>
+                            <span className="text-sm font-medium text-slate-700">{dm.sl}</span>
                           </td>
                         )}
                         {visibleColumns.name && (
-                          <td className="px-6 py-4 whitespace-nowrap align-middle">
+                          <td className="px-6 py-4">
                             <div className="flex items-center gap-3">
                               <div 
-                                className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 overflow-hidden cursor-pointer hover:opacity-80 transition-all border border-slate-200"
-                                style={{ background: 'linear-gradient(135deg, #E8EEF7 0%, #C5D3E5 100%)' }}
+                                className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center shrink-0 overflow-hidden cursor-pointer hover:opacity-80 transition-all border border-slate-100"
                                 onClick={() => handleView(dm)}
                               >
-                                <img
-                                  src={dm.profileImage?.url ?? dm.profilePhoto ?? "/assets/images/profile_avatar.webp"}
+                                <Avatar
+                                  src={dm.profileImage?.url ?? dm.profilePhoto}
                                   alt={dm.name}
-                                  className="w-full h-full object-cover"
-                                  style={{ mixBlendMode: 'multiply' }}
-                                  onError={(e) => { e.currentTarget.src = "/assets/images/profile_avatar.webp" }}
                                 />
                               </div>
-                              <span
-                                className="text-sm font-medium text-slate-900 cursor-pointer hover:text-blue-600 transition-colors"
-                                onClick={() => handleView(dm)}
-                              >
-                                {dm.name}
-                              </span>
-                            </div>
-                          </td>
-                        )}
-                        {visibleColumns.rating && (
-                          <td className="px-6 py-4 whitespace-nowrap align-middle">
-                            <div
-                              className="inline-flex items-center justify-center gap-1.5 min-w-[60px] px-2.5 py-1 rounded-lg border"
-                              style={dm.rating > 0
-                                ? { backgroundColor: '#fffbeb', borderColor: '#fde68a' }
-                                : { backgroundColor: 'transparent', borderColor: 'transparent' }}
-                            >
-                              {dm.rating > 0 ? (
-                                <>
-                                  <span className="text-sm font-bold text-amber-700 leading-none">{Number(dm.rating).toFixed(1)}</span>
-                                  <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                                </>
-                              ) : (
-                                <span className="text-sm text-slate-400 leading-none">N/A</span>
-                              )}
+                              <div className="flex items-center gap-2">
+                                <span 
+                                  className="text-sm font-medium text-slate-900 cursor-pointer hover:text-blue-600 transition-colors"
+                                  onClick={() => handleView(dm)}
+                                >
+                                  {dm.name}
+                                </span>
+                                {dm.rating > 0 && (
+                                  <div className="flex items-center gap-1">
+                                    <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
+                                    <span className="text-xs text-slate-600">{dm.rating.toFixed(1)}</span>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </td>
                         )}
@@ -865,23 +737,6 @@ availableCashLimit: deliveryman.availableCashLimit || 0,
               </table>
             )}
           </div>
-
-          <AdminListPagination
-            currentPage={currentPage}
-            pageSize={pageSize}
-            totalItems={totalDeliverymen}
-            onPageChange={setCurrentPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size)
-              try {
-                localStorage.setItem("admin_deliverymen_pageSize", String(size))
-              } catch {
-                /* ignore */
-              }
-            }}
-            itemLabel="delivery partners"
-            className="mt-4"
-          />
         </div>
       </div>
 
@@ -902,14 +757,11 @@ availableCashLimit: deliveryman.availableCashLimit || 0,
                         src={viewDetails.profileImage.url} 
                         alt={viewDetails.name}
                         className="w-24 h-24 rounded-full object-cover border-2 border-slate-200"
-                        onError={(e) => { e.currentTarget.src = "/assets/images/profile_avatar.webp" }}
-                      />
+                       loading="lazy" decoding="async" />
                     ) : (
-                      <img
-                        src="/assets/images/profile_avatar.webp"
-                        alt={viewDetails.name}
-                        className="w-24 h-24 rounded-full object-cover border-2 border-slate-200"
-                      />
+                      <div className="w-24 h-24 rounded-full bg-slate-200 flex items-center justify-center">
+                        <User className="w-12 h-12 text-slate-400" />
+                      </div>
                     )}
                   </div>
                   <div className="flex-1 grid grid-cols-2 gap-4">

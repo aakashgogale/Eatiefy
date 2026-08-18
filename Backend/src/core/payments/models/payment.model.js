@@ -32,8 +32,8 @@ const paymentSchema = new mongoose.Schema(
             default: 'none'
         },
 
-        gatewayOrderId: { type: String, default: '', sparse: true },
-        gatewayPaymentId: { type: String, default: '', sparse: true },
+        gatewayOrderId: { type: String, default: '' },
+        gatewayPaymentId: { type: String, default: '' },
 
         status: {
             type: String,
@@ -55,5 +55,16 @@ const paymentSchema = new mongoose.Schema(
 
 paymentSchema.index({ orderId: 1, createdAt: -1 });
 paymentSchema.index({ userId: 1, status: 1, createdAt: -1 });
+// At most one non-failed payment per order (supports findOrCreatePayment races)
+paymentSchema.index(
+    { orderId: 1 },
+    {
+        unique: true,
+        partialFilterExpression: { status: { $in: ['created', 'pending', 'success'] } },
+        name: 'uniq_active_payment_per_order',
+    }
+);
+paymentSchema.index({ gatewayPaymentId: 1 }, { sparse: true });
+paymentSchema.index({ gatewayOrderId: 1 }, { sparse: true });
 
 export const Payment = mongoose.model('Payment', paymentSchema);

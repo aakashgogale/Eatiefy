@@ -1,11 +1,10 @@
-import { useState, useEffect } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Search, Download, ChevronDown, Eye, Settings, Building, ArrowUpDown, FileText, FileSpreadsheet, Code, Check, Columns, CheckCircle, XCircle, Loader2 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@food/components/ui/dialog"
 import { exportTransactionsToExcel, exportTransactionsToPDF } from "@food/components/admin/transactions/transactionsExportUtils"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
-import AdminListPagination from "@food/components/admin/AdminListPagination"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -14,16 +13,6 @@ const debugError = (...args) => {}
 export default function RestaurantWithdraws() {
   const [activeTab, setActiveTab] = useState("All")
   const [searchQuery, setSearchQuery] = useState("")
-  const [debouncedSearch, setDebouncedSearch] = useState("")
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(() => {
-    try {
-      return Number(localStorage.getItem("admin_restaurant_withdraws_pageSize")) || 20
-    } catch {
-      return 20
-    }
-  })
-  const [totalItems, setTotalItems] = useState(0)
   const [withdraws, setWithdraws] = useState([])
   const [loading, setLoading] = useState(true)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -43,53 +32,54 @@ export default function RestaurantWithdraws() {
     actions: true,
   })
 
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300)
-    return () => clearTimeout(t)
-  }, [searchQuery])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [debouncedSearch, activeTab])
-
+  // Fetch withdrawal requests
   useEffect(() => {
     fetchWithdrawals()
-  }, [activeTab, debouncedSearch, currentPage, pageSize])
+  }, [activeTab])
 
   const fetchWithdrawals = async () => {
     try {
       setLoading(true)
       const status = activeTab === "All" ? undefined : activeTab
-      const response = await adminAPI.getWithdrawalRequests({
-        status,
-        search: debouncedSearch || undefined,
-        page: currentPage,
-        limit: pageSize,
-      })
+      const response = await adminAPI.getWithdrawalRequests({ status, search: searchQuery || undefined })
       if (response.data?.success) {
         setWithdraws(response.data.data?.requests || [])
-        setTotalItems(
-          response.data.data?.total ??
-          response.data?.total ??
-          (response.data.data?.requests || []).length,
-        )
       } else {
         debugError('Failed to fetch withdrawals:', response.data?.message)
         toast.error('Failed to fetch withdrawal requests')
-        setWithdraws([])
-        setTotalItems(0)
       }
     } catch (error) {
       debugError('Error fetching withdrawals:', error)
       toast.error('Failed to fetch withdrawal requests')
-      setWithdraws([])
-      setTotalItems(0)
     } finally {
       setLoading(false)
     }
   }
 
-  const filteredWithdraws = withdraws
+  // Refetch when search changes (with debounce)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchQuery !== undefined) {
+        fetchWithdrawals()
+      }
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [searchQuery])
+
+  const filteredWithdraws = useMemo(() => {
+    let result = [...withdraws]
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim()
+      result = result.filter(w =>
+        w.restaurantName?.toLowerCase().includes(query) ||
+        w.restaurantIdString?.toLowerCase().includes(query) ||
+        w.amount?.toString().includes(query)
+      )
+    }
+
+    return result
+  }, [withdraws, searchQuery])
 
   const getStatusBadge = (status) => {
     if (status === "Approved") {
@@ -174,8 +164,8 @@ export default function RestaurantWithdraws() {
   }
 
   const formatCurrency = (amount) => {
-    if (!amount) return '\u20B90.00'
-    return `\u20B9${parseFloat(amount).toLocaleString('en-IN', {
+    if (!amount) return 'Rs.0.00'
+    return `Rs.${parseFloat(amount).toLocaleString('en-IN', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
     })}`
@@ -277,12 +267,8 @@ export default function RestaurantWithdraws() {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold text-slate-900">Withdraw Request Table</h2>
-              <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700 flex items-center justify-center min-w-[2.5rem] h-7">
-                {loading ? (
-                  <span className="w-5 h-3 rounded bg-slate-300/80 animate-pulse" />
-                ) : (
-                  totalItems
-                )}
+              <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
+                {filteredWithdraws.length}
               </span>
             </div>
 
@@ -432,21 +418,6 @@ export default function RestaurantWithdraws() {
               </table>
             </div>
           )}
-
-          <AdminListPagination
-            currentPage={currentPage}
-            pageSize={pageSize}
-            totalItems={totalItems}
-            onPageChange={setCurrentPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size)
-              try {
-                localStorage.setItem("admin_restaurant_withdraws_pageSize", String(size))
-              } catch {}
-              setCurrentPage(1)
-            }}
-            itemLabel="withdrawals"
-          />
         </div>
 
         {/* View Withdraw Dialog */}
@@ -525,7 +496,7 @@ export default function RestaurantWithdraws() {
                           src={getSafeQrUrl(selectedWithdraw.restaurantBankDetails?.upiQrImage || selectedWithdraw.restaurantId?.upiQrImage)}
                           alt="Restaurant UPI QR"
                           className="w-32 h-32 object-contain border border-slate-200 rounded-md bg-white"
-                        />
+                         loading="lazy" decoding="async" />
                       </div>
                     ) : null}
                   </div>

@@ -7,7 +7,7 @@ const TrackingPage = () => {
     <div className="relative min-h-screen bg-gray-900 font-sans overflow-hidden">
 
       {/* --- 2. Floating Header (Green) --- */}
-      <div className="absolute top-0 left-0 right-0 z-20 bg-[#DC2626] p-4 pt-4 rounded-b-2xl shadow-lg">
+      <div className="absolute top-0 left-0 right-0 z-20 bg-[#EB590E] p-4 pt-4 rounded-b-2xl shadow-lg">
         <div className="flex items-center justify-between text-white mb-3">
           <ArrowLeft className="w-6 h-6 cursor-pointer" />
           <div className="flex items-center gap-2">
@@ -18,7 +18,7 @@ const TrackingPage = () => {
 
         <div className="text-center text-white">
           <h2 className="text-2xl font-bold mb-3">Order placed</h2>
-          <div className="flex items-center justify-center gap-2 bg-[#991B1B] w-fit mx-auto px-4 py-2 rounded-full">
+          <div className="flex items-center justify-center gap-2 bg-[#D94F0C] w-fit mx-auto px-4 py-2 rounded-full">
             <span className="text-sm font-medium">Food preparation will begin shortly</span>
             <RefreshCcw className="w-4 h-4 text-orange-200" />
           </div>
@@ -37,12 +37,12 @@ const TrackingPage = () => {
         </div>
 
         {/* Arrival Time Card */}
-        <div className="absolute bottom-[50vh] left-4 right-4 z-10 bg-white dark:bg-[#1a1a1a] rounded-xl p-4 shadow-lg border border-gray-200 dark:border-gray-800">
-          <p className="text-xs text-gray-600 dark:text-gray-400 mb-1 uppercase">ARRIVING IN</p>
+        <div className="absolute bottom-[50vh] left-4 right-4 z-10 bg-white rounded-xl p-4 shadow-lg border border-gray-200">
+          <p className="text-xs text-gray-600 mb-1 uppercase">ARRIVING IN</p>
           <p className="text-3xl font-bold text-red-600 mb-1">80 mins</p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">45.1 km away</p>
-          <div className="w-full h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
-            <div className="h-full bg-[#DC2626] rounded-full" style={{ width: '60%' }}></div>
+          <p className="text-sm text-gray-600 mb-2">45.1 km away</p>
+          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div className="h-full bg-[#EB590E] rounded-full" style={{ width: '60%' }}></div>
           </div>
         </div>
       </div>

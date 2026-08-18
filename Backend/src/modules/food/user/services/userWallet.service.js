@@ -1,8 +1,7 @@
 import mongoose from 'mongoose';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import { FoodUserWallet } from '../models/userWallet.model.js';
-import { createRazorpayOrder, getRazorpayKeyId, isRazorpayConfigured, verifyPaymentSignature, fetchRazorpayPayment, assertRazorpayPaymentMatches } from '../../orders/helpers/razorpay.helper.js';
-import { config } from '../../../../config/env.js';
+import { createRazorpayOrder, getRazorpayKeyId, isRazorpayConfigured, verifyPaymentSignature } from '../../orders/helpers/razorpay.helper.js';
 
 const ensureWallet = async (userId) => {
     const id = String(userId || '');
@@ -75,9 +74,6 @@ export const createWalletTopupOrder = async (userId, amountInr) => {
     const amountPaise = Math.round(amount * 100);
 
     if (!isRazorpayConfigured()) {
-        if (config.nodeEnv === 'production') {
-            throw new ValidationError('Payment gateway is not configured');
-        }
         // Dev fallback: return a compatible shape without writing to DB.
         const orderId = `order_dev_${Date.now()}`;
         return {
@@ -120,25 +116,12 @@ export const verifyWalletTopupPayment = async (userId, payload) => {
         return { wallet: await getUserWallet(userId) };
     }
 
-    if (!isRazorpayConfigured()) {
-        if (config.nodeEnv === 'production') {
-            throw new ValidationError('Payment gateway is not configured');
-        }
-        // Dev-only: accept without gateway
-    } else {
-        const ok = verifyPaymentSignature(orderId, paymentId, signature);
-        if (!ok) {
-            throw new ValidationError('Payment verification failed');
-        }
-        try {
-            const rzPayment = await fetchRazorpayPayment(paymentId);
-            assertRazorpayPaymentMatches(rzPayment, {
-                orderId,
-                amountPaise: Math.round(amount * 100),
-            });
-        } catch (err) {
-            throw new ValidationError(err?.message || 'Payment verification failed');
-        }
+    // If razorpay not configured (dev), accept and credit wallet.
+    const ok = isRazorpayConfigured()
+        ? verifyPaymentSignature(orderId, paymentId, signature)
+        : true;
+    if (!ok) {
+        throw new ValidationError('Payment verification failed');
     }
 
     // Store ONLY after payment is verified.
@@ -165,21 +148,34 @@ export const deductWalletBalance = async (userId, amountInr, description = 'Orde
         throw new ValidationError('Invalid deduction amount');
     }
 
-    const wallet = await ensureWallet(userId);
-    if (wallet.balance < amount) {
+    await ensureWallet(userId);
+    const oid = new mongoose.Types.ObjectId(String(userId));
+
+    // Atomic: only debit when balance >= amount (prevents negative / lost updates)
+    const updated = await FoodUserWallet.findOneAndUpdate(
+        { userId: oid, balance: { $gte: amount } },
+        {
+            $inc: { balance: -amount },
+            $push: {
+                transactions: {
+                    $each: [{
+                        type: 'deduction',
+                        amount,
+                        status: 'Completed',
+                        description,
+                        metadata: { source: 'order_payment', ...(metadata || {}) },
+                        createdAt: new Date(),
+                    }],
+                    $position: 0,
+                },
+            },
+        },
+        { new: true },
+    );
+
+    if (!updated) {
         throw new ValidationError('Insufficient wallet balance');
     }
-
-    wallet.transactions.unshift({
-        type: 'deduction',
-        amount,
-        status: 'Completed',
-        description,
-        metadata: { source: 'order_payment', ...(metadata || {}) }
-    });
-
-    wallet.balance = Number(wallet.balance) - amount;
-    await wallet.save();
 
     return { wallet: await getUserWallet(userId) };
 };
@@ -190,17 +186,29 @@ export const refundWalletBalance = async (userId, amountInr, description = 'Orde
         return { wallet: await getUserWallet(userId) };
     }
 
-    const wallet = await ensureWallet(userId);
-    wallet.transactions.unshift({
-        type: 'refund',
-        amount,
-        status: 'Completed',
-        description,
-        metadata: { source: 'order_refund', ...(metadata || {}) }
-    });
+    await ensureWallet(userId);
+    const oid = new mongoose.Types.ObjectId(String(userId));
 
-    wallet.balance = Number(wallet.balance) + amount;
-    await wallet.save();
+    await FoodUserWallet.findOneAndUpdate(
+        { userId: oid },
+        {
+            $inc: { balance: amount },
+            $push: {
+                transactions: {
+                    $each: [{
+                        type: 'refund',
+                        amount,
+                        status: 'Completed',
+                        description,
+                        metadata: { source: 'order_refund', ...(metadata || {}) },
+                        createdAt: new Date(),
+                    }],
+                    $position: 0,
+                },
+            },
+        },
+        { new: true },
+    );
 
     return { wallet: await getUserWallet(userId) };
 };

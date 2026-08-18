@@ -1,175 +1,291 @@
 import mongoose from 'mongoose';
 import { FoodOrder } from '../models/order.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
+import { FoodFeeSettings } from '../../admin/models/feeSettings.model.js';
 import { FoodOffer } from '../../admin/models/offer.model.js';
 import { FoodOfferUsage } from '../../admin/models/offerUsage.model.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
-import { haversineKm, assertRestaurantDeliversToZone } from './order.helpers.js';
-import { fetchDrivingDistanceKm } from '../utils/googleMaps.js';
-import { resolveFeeSettingsForZone } from '../../admin/services/zoneScopedSettings.service.js';
 import {
-  enforceMinimumFoodItemPrices,
-  resolveCheckoutItems,
-} from './order-item-pricing.service.js';
+  calculateDistanceKm,
+  normalizeDeliveryAddress,
+  normalizeRestaurantLocation,
+  parseGeoPoint,
+} from '../../shared/geo.utils.js';
+import { fetchDrivingRoute } from '../utils/googleMaps.js';
+import { attachOutletTimingsToRestaurants } from '../../restaurant/services/outletTimings.service.js';
+import { getRestaurantAvailabilityStatus } from '../../restaurant/helpers/restaurantAvailability.helper.js';
+import { resolveOrderCartItems } from '../helpers/order-cart-items.helper.js';
 
-export async function calculateOrderPricing(userId, dto) {
-  const resolved = await resolveCheckoutItems(userId, dto);
-  const items = await enforceMinimumFoodItemPrices(
-    resolved.items,
-    resolved.restaurantId || dto.restaurantId,
-  );
+const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
 
-  const restaurantId = resolved.restaurantId || dto.restaurantId;
-  if (!restaurantId) throw new ValidationError('Restaurant id required');
+/** Fixed 18% GST on delivery fee (separate from item GST in fee settings). */
+export const DELIVERY_FEE_GST_RATE = 0.18;
 
-  const restaurant = await FoodRestaurant.findById(restaurantId)
-    .select("status location zoneId restaurantName")
+export function computeDeliveryFeeGst(deliveryFee) {
+  const base = Math.max(0, Number(deliveryFee) || 0);
+  if (base <= 0) return 0;
+  return round2(base * DELIVERY_FEE_GST_RATE);
+}
+
+const applyDeliveryModePricing = (pricing, deliveryMode, quickSurcharge = 0) => {
+  const surcharge = Math.max(0, Number(quickSurcharge) || 0);
+  const mode = deliveryMode === 'quick' ? 'quick' : 'basic';
+  if (mode !== 'quick' || surcharge <= 0) {
+    return {
+      ...pricing,
+      deliveryMode: mode,
+      quickDeliveryFee: 0,
+    };
+  }
+  const platformFee = round2((Number(pricing.platformFee) || 0) + surcharge);
+  const total = round2((Number(pricing.total) || 0) + surcharge);
+  return {
+    ...pricing,
+    platformFee,
+    total,
+    deliveryMode: mode,
+    quickDeliveryFee: surcharge,
+  };
+};
+
+export async function loadRestaurantForOrdering(restaurantId) {
+  if (!restaurantId || !mongoose.Types.ObjectId.isValid(String(restaurantId))) {
+    throw new ValidationError('Restaurant not found');
+  }
+
+  const doc = await FoodRestaurant.findById(restaurantId)
+    .select(
+      'status restaurantName zoneId location isAcceptingOrders outsideHoursOverride openingTime closingTime openDays deliveryTimings isActive',
+    )
     .lean();
-  if (!restaurant) throw new ValidationError("Restaurant not found");
-  if (restaurant.status !== "approved")
-    throw new ValidationError("Restaurant not available");
 
-  assertRestaurantDeliversToZone(restaurant, {
-    zoneId: dto.zoneId,
-    orderType: dto.orderType,
-    deliveryAddress: dto.deliveryAddress,
+  if (!doc) throw new ValidationError('Restaurant not found');
+  if (doc.status !== 'approved') throw new ValidationError('Restaurant not available');
+
+  const [withTimings] = await attachOutletTimingsToRestaurants([doc], {
+    useDefaults: false,
+  });
+  if (withTimings?.location) {
+    withTimings.location = normalizeRestaurantLocation(withTimings.location);
+  }
+  return withTimings;
+}
+
+export function assertRestaurantOpenForOrdering(restaurant, at = new Date()) {
+  const availability = getRestaurantAvailabilityStatus(restaurant, at);
+  if (availability.isOpen) return availability;
+
+  if (availability.reason === 'not-accepting-orders') {
+    throw new ValidationError('Restaurant is currently offline. Please try again later.');
+  }
+
+  throw new ValidationError('Restaurant is currently closed. Please try again later.');
+}
+
+/**
+ * Single source of truth for restaurant ↔ customer trip distance.
+ * Prefer Google driving/road km (matches delivery partner Rest→User UI);
+ * fall back to Haversine when Directions is unavailable.
+ */
+export async function getDeliveryDistanceKm(restaurant, deliveryAddress) {
+  const straightLineKm = calculateDistanceKm(restaurant, deliveryAddress);
+
+  const restaurantPoint = parseGeoPoint(restaurant);
+  const customerPoint = parseGeoPoint(deliveryAddress);
+  if (!restaurantPoint || !customerPoint) {
+    return straightLineKm;
+  }
+
+  try {
+    const route = await fetchDrivingRoute(
+      { lat: restaurantPoint.lat, lng: restaurantPoint.lng },
+      { lat: customerPoint.lat, lng: customerPoint.lng },
+    );
+    if (route?.distanceKm != null && Number.isFinite(Number(route.distanceKm))) {
+      return Number(route.distanceKm);
+    }
+  } catch {
+    // Fall through to Haversine.
+  }
+
+  return straightLineKm;
+}
+
+// Single money-rounding rule (2 decimals) so preview and charged totals always match.
+
+function resolveBaseDeliveryFee(feeSettings = {}) {
+  const ranges = Array.isArray(feeSettings.deliveryFeeRanges)
+    ? feeSettings.deliveryFeeRanges
+    : [];
+  const rangeFees = ranges
+    .map((range) => Number(range?.fee))
+    .filter((fee) => Number.isFinite(fee) && fee >= 0);
+
+  const flat = Number(feeSettings.deliveryFee);
+  const hasPositiveFlat = Number.isFinite(flat) && flat > 0;
+
+  if (rangeFees.length > 0) {
+    const minRangeFee = Math.min(...rangeFees);
+    return hasPositiveFlat ? flat : minRangeFee;
+  }
+
+  return Number.isFinite(flat) && flat >= 0 ? flat : 0;
+}
+
+function matchFeeRange(ranges, distanceKm, pickValue) {
+  if (!Array.isArray(ranges) || ranges.length === 0 || !Number.isFinite(distanceKm)) {
+    return null;
+  }
+
+  const sorted = [...ranges].sort((a, b) => Number(a.min) - Number(b.min));
+  for (let i = 0; i < sorted.length; i += 1) {
+    const range = sorted[i] || {};
+    const min = Number(range.min);
+    const max = Number(range.max);
+    if (!Number.isFinite(min) || !Number.isFinite(max)) continue;
+
+    const isLast = i === sorted.length - 1;
+    const inRange = isLast
+      ? distanceKm >= min && distanceKm <= max
+      : distanceKm >= min && distanceKm < max;
+
+    if (inRange) {
+      const value = pickValue(range);
+      return Number.isFinite(value) ? value : null;
+    }
+  }
+
+  return null;
+}
+
+export async function loadActiveFeeSettings() {
+  const feeDoc = await FoodFeeSettings.findOne({ isActive: { $ne: false } })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  return (
+    feeDoc || {
+      deliveryFee: 0,
+      deliveryFeeRanges: [],
+      platformFee: 0,
+      gstRate: 0,
+    }
+  );
+}
+
+export function resolveUserDeliveryFee(feeSettings = {}, { subtotal = 0, distanceKm = null } = {}) {
+  const ranges = Array.isArray(feeSettings.deliveryFeeRanges)
+    ? feeSettings.deliveryFeeRanges
+    : [];
+
+  if (ranges.length > 0 && Number.isFinite(distanceKm)) {
+    const matchedFee = matchFeeRange(ranges, distanceKm, (range) => Number(range.fee));
+    if (Number.isFinite(matchedFee)) {
+      return {
+        deliveryFee: matchedFee,
+        distanceKm: Number(distanceKm.toFixed(2)),
+        source: 'distance',
+      };
+    }
+  }
+
+  const fallbackFee = resolveBaseDeliveryFee(feeSettings);
+  return {
+    deliveryFee: fallbackFee,
+    distanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(2)) : null,
+    source: Number.isFinite(distanceKm) ? 'default_unmatched_range' : 'default',
+  };
+}
+
+export function calculateRiderEarning(feeSettings = {}, distanceKm) {
+  const distance = Number(distanceKm);
+  if (!Number.isFinite(distance) || distance < 0) return 0;
+
+  const ranges = Array.isArray(feeSettings.deliveryFeeRanges)
+    ? feeSettings.deliveryFeeRanges
+    : [];
+
+  if (ranges.length === 0) {
+    return resolveBaseDeliveryFee(feeSettings);
+  }
+
+  const earning = matchFeeRange(ranges, distance, (range) => {
+    const basePay = Number(range.deliveryBoyBasePay || 0);
+    const perKm = Number(range.deliveryBoyPerKm || 0);
+
+    if (basePay > 0) return basePay;
+    if (perKm > 0) return distance * perKm;
+    // Fallback to the full range fee if specific rider earning is not configured
+    return Number(range.fee || 0);
   });
 
-  const couponCode = String(
-    dto.couponCode || resolved.couponCode || dto.pricing?.couponCode || "",
-  )
-    .trim()
-    .toUpperCase();
-
-  const subtotal = items.reduce(
-    (sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 1),
-    0,
-  );
-  const baseSubtotal = items.reduce((sum, it) => {
-    const base = Number(it.basePrice);
-    const unit = Number.isFinite(base) && base >= 0 ? base : Number(it.price) || 0;
-    return sum + unit * (Number(it.quantity) || 1);
-  }, 0);
-  const markupTotal = items.reduce(
-    (sum, it) =>
-      sum + Math.max(0, Number(it.markupAmount) || 0) * (Number(it.quantity) || 1),
-    0,
-  );
-
-  const pricingZoneId = dto.zoneId || restaurant.zoneId || null;
-  const feeDoc = await resolveFeeSettingsForZone(pricingZoneId);
-  const feeSettings = feeDoc || {
-    deliveryFee: 25,
-    deliveryFeeRanges: [],
-    freeDeliveryUpTo: 0,
-    platformFee: 0,
-    packagingFee: 0,
-    gstRate: 0,
-  };
-
-  const basePackagingFee = feeSettings.packagingFee != null ? Number(feeSettings.packagingFee) : 0;
-  const packagingFee = dto.orderType === "takeaway" ? 0 : basePackagingFee;
-  const platformFee = feeSettings.platformFee != null ? Number(feeSettings.platformFee) : 0;
-
-  const freeUpTo = Number(feeSettings.freeDeliveryUpTo || 0);
-  let distanceKm = null;
-  if (
-    restaurant?.location?.coordinates?.length === 2 &&
-    dto?.deliveryAddress?.location?.coordinates?.length === 2
-  ) {
-    const [rLng, rLat] = restaurant.location.coordinates;
-    const [dLng, dLat] = dto.deliveryAddress.location.coordinates;
-    const drivingKm = await fetchDrivingDistanceKm(
-      { lat: rLat, lng: rLng },
-      { lat: dLat, lng: dLng },
-    );
-    if (Number.isFinite(drivingKm) && drivingKm > 0) {
-      distanceKm = drivingKm;
-    } else {
-      const d = haversineKm(rLat, rLng, dLat, dLng);
-      distanceKm = Number.isFinite(d) ? d : null;
-    }
-  }
-  let deliveryFee = 0;
-  let deliveryFeeBreakdown = null;
-  if (dto.orderType === "takeaway") {
-    deliveryFee = 0;
-  } else if (
-    Number.isFinite(freeUpTo) &&
-    freeUpTo > 0 &&
-    subtotal >= freeUpTo
-  ) {
-    deliveryFee = 0;
-  } else {
-    const ranges = Array.isArray(feeSettings.deliveryFeeRanges)
-      ? [...feeSettings.deliveryFeeRanges]
-      : [];
-    if (ranges.length > 0) {
-      ranges.sort((a, b) => Number(a.min) - Number(b.min));
-      let matched = null;
-      for (let i = 0; i < ranges.length; i += 1) {
-        const r = ranges[i] || {};
-        const min = Number(r.min);
-        const max = Number(r.max);
-        const fee = Number(r.fee);
-        if (
-          !Number.isFinite(min) ||
-          !Number.isFinite(max) ||
-          !Number.isFinite(fee)
-        ) {
-          continue;
-        }
-        const isLast = i === ranges.length - 1;
-        if (!Number.isFinite(distanceKm)) {
-          continue;
-        }
-        const inRange = isLast
-          ? distanceKm >= min && distanceKm <= max
-          : distanceKm >= min && distanceKm < max;
-        if (inRange) {
-          matched = fee;
-          if (Number.isFinite(distanceKm)) {
-            deliveryFeeBreakdown = {
-              source: "distance",
-              distanceKm,
-              minKm: min,
-              maxKm: max,
-              fee,
-            };
-          }
-          break;
-        }
-      }
-      deliveryFee = Number.isFinite(matched)
-        ? matched
-        : Number(feeSettings.deliveryFee || 0);
-    } else {
-      deliveryFee = Number(feeSettings.deliveryFee || 0);
-    }
+  if (earning === null) {
+    return resolveBaseDeliveryFee(feeSettings);
   }
 
-  const gstRate = feeSettings.gstRate != null ? Number(feeSettings.gstRate) : 0;
-  const tax =
-    Number.isFinite(gstRate) && gstRate > 0
-      ? Math.round(subtotal * (gstRate / 100))
-      : 0;
+  return Number.isFinite(earning) ? Math.round(earning) : 0;
+}
+
+export async function calculateOrderPricing(userId, dto, options = {}) {
+  const at = options.at instanceof Date ? options.at : new Date();
+  const restaurant =
+    options.restaurant || (await loadRestaurantForOrdering(dto.restaurantId));
+
+  if (!options.skipAvailabilityCheck) {
+    assertRestaurantOpenForOrdering(restaurant, at);
+  }
+
+  const deliveryAddress = normalizeDeliveryAddress(dto.deliveryAddress);
+
+  const resolvedItems = await resolveOrderCartItems(dto.restaurantId, dto.items);
+  const items = resolvedItems.map((item) => ({
+    ...item,
+    price: Number(item.price) || 0,
+    quantity: Number(item.quantity) || 1,
+  }));
+  const subtotal = round2(
+    items.reduce(
+      (sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 1),
+      0,
+    ),
+  );
+
+  const feeSettings = await loadActiveFeeSettings();
+
+  const packagingFee = 0;
+  const platformFee = Number(feeSettings.platformFee || 0);
+
+  let distanceKm = await getDeliveryDistanceKm(restaurant, deliveryAddress);
+  const straightLineKm = calculateDistanceKm(restaurant, deliveryAddress);
+
+  const deliveryFeeResult = resolveUserDeliveryFee(feeSettings, { subtotal, distanceKm });
+  const deliveryFee = round2(deliveryFeeResult.deliveryFee);
+  distanceKm = deliveryFeeResult.distanceKm ?? distanceKm;
 
   let discount = 0;
   let appliedCoupon = null;
-  const codeRaw = couponCode;
+  const codeRaw = dto.couponCode
+    ? String(dto.couponCode).trim().toUpperCase()
+    : "";
 
   if (codeRaw) {
     const now = new Date();
     const offer = await FoodOffer.findOne({ couponCode: codeRaw }).lean();
     if (offer) {
-      const statusOk = offer.status === "active";
+      const offerEnd = offer.endDate ? new Date(offer.endDate) : null;
+      if (offerEnd && offerEnd.getHours() === 0 && offerEnd.getMinutes() === 0) {
+        offerEnd.setHours(23, 59, 59, 999);
+      }
+      const endOk = !offerEnd || now <= offerEnd;
       const startOk = !offer.startDate || now >= new Date(offer.startDate);
-      const endOk = !offer.endDate || now < new Date(offer.endDate);
+      const statusOk = offer.status === "active" && offer.showInCart !== false;
+      const selectedRestaurantIds = Array.isArray(offer.restaurantIds) && offer.restaurantIds.length > 0
+        ? offer.restaurantIds
+        : [offer.restaurantId].filter(Boolean);
       const scopeOk =
         offer.restaurantScope !== "selected" ||
-        String(offer.restaurantId || "") === String(restaurantId || "");
-      const minOrderValue = Number(offer.minOrderValue);
-      const minOk = !Number.isFinite(minOrderValue) || minOrderValue <= 0 || subtotal >= minOrderValue;
+        selectedRestaurantIds.some((id) => String(id) === String(dto.restaurantId || ""));
+      const minOk = subtotal >= (Number(offer.minOrderValue) || 0);
       let usageOk = true;
       if (
         Number(offer.usageLimit) > 0 &&
@@ -179,10 +295,10 @@ export async function calculateOrderPricing(userId, dto) {
       }
 
       let perUserOk = true;
-      if (userId && Number(offer.perUserLimit) > 0) {
+      if (userId && mongoose.Types.ObjectId.isValid(userId) && Number(offer.perUserLimit) > 0) {
         const usage = await FoodOfferUsage.findOne({
           offerId: offer._id,
-          userId,
+          userId: new mongoose.Types.ObjectId(userId),
         }).lean();
         if (usage && Number(usage.count) >= Number(offer.perUserLimit)) {
           perUserOk = false;
@@ -190,23 +306,20 @@ export async function calculateOrderPricing(userId, dto) {
       }
 
       let firstOrderOk = true;
-      if (userId && offer.customerScope === "first-time") {
-        const c = await FoodOrder.countDocuments({
-          userId: new mongoose.Types.ObjectId(userId),
-        });
-        firstOrderOk = c === 0;
+      if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+        if (offer.customerScope === "first-time") {
+          const c = await FoodOrder.countDocuments({
+            userId: new mongoose.Types.ObjectId(userId),
+          });
+          firstOrderOk = c === 0;
+        }
+        if (offer.isFirstOrderOnly === true) {
+          const c2 = await FoodOrder.countDocuments({
+            userId: new mongoose.Types.ObjectId(userId),
+          });
+          if (c2 > 0) firstOrderOk = false;
+        }
       }
-      if (userId && offer.isFirstOrderOnly === true) {
-        const c2 = await FoodOrder.countDocuments({
-          userId: new mongoose.Types.ObjectId(userId),
-        });
-        if (c2 > 0) firstOrderOk = false;
-      }
-
-      const couponTypeOk =
-        !offer.couponType ||
-        offer.couponType === "all" ||
-        String(offer.couponType).toLowerCase() === String(dto.orderType || "delivery").toLowerCase();
 
       const allowed =
         statusOk &&
@@ -216,8 +329,7 @@ export async function calculateOrderPricing(userId, dto) {
         minOk &&
         usageOk &&
         perUserOk &&
-        firstOrderOk &&
-        couponTypeOk;
+        firstOrderOk;
 
       if (allowed) {
         if (offer.discountType === "percentage") {
@@ -237,30 +349,80 @@ export async function calculateOrderPricing(userId, dto) {
     }
   }
 
-  const total = Math.max(
-    0,
-    subtotal + packagingFee + deliveryFee + platformFee + tax - discount,
+  // GST is charged on the post-discount item value (discount is already clamped to <= subtotal).
+  const gstRate = Number(feeSettings.gstRate || 0);
+  const tax =
+    Number.isFinite(gstRate) && gstRate > 0
+      ? Math.round(Math.max(0, subtotal - discount) * (gstRate / 100))
+      : 0;
+
+  const deliveryFeeGst = computeDeliveryFeeGst(deliveryFee);
+
+  const total = round2(
+    Math.max(
+      0,
+      subtotal + packagingFee + deliveryFee + deliveryFeeGst + platformFee + tax - discount,
+    ),
   );
 
+  const basePricing = {
+    subtotal,
+    tax,
+    packagingFee,
+    deliveryFee,
+    deliveryFeeGst,
+    platformFee,
+    discount,
+    total,
+    currency: "INR",
+    couponCode: appliedCoupon?.code || codeRaw || null,
+    appliedCoupon,
+    distanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(2)) : null,
+    roadDistanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(2)) : null,
+    straightLineDistanceKm: Number.isFinite(straightLineKm)
+      ? Number(straightLineKm.toFixed(2))
+      : null,
+    deliveryFeeBreakdown: deliveryFeeResult.breakdown || null,
+  };
+
+  const pricing = applyDeliveryModePricing(
+    basePricing,
+    dto.deliveryMode,
+    Number(feeSettings.quickDeliveryFee) || 0,
+  );
+
+  const priceChanges = (Array.isArray(dto.items) ? dto.items : [])
+    .map((rawItem) => {
+      const itemId = String(rawItem?.itemId || rawItem?.id || '').trim();
+      const resolved = items.find((entry) => String(entry.itemId) === itemId);
+      if (!resolved) return null;
+
+      const previousPrice = Number(rawItem?.price);
+      const nextPrice = Number(resolved.price);
+      if (!Number.isFinite(previousPrice) || previousPrice === nextPrice) return null;
+
+      return {
+        itemId,
+        name: resolved.name,
+        previousPrice,
+        price: nextPrice,
+      };
+    })
+    .filter(Boolean);
+
   return {
-    pricing: {
-      subtotal,
-      baseSubtotal: Math.round(baseSubtotal * 100) / 100,
-      markupTotal: Math.round(markupTotal * 100) / 100,
-      tax,
-      packagingFee,
-      deliveryFee,
-      deliveryFeeBreakdown: deliveryFeeBreakdown || undefined,
-      freeDeliveryUpTo: Number.isFinite(freeUpTo) ? freeUpTo : undefined,
-      platformFee,
-      discount,
-      total,
-      currency: "INR",
-      couponCode: appliedCoupon?.code || codeRaw || null,
-      appliedCoupon,
-    },
     items,
-    restaurantId: String(restaurantId),
-    restaurantName: restaurant.restaurantName || "",
+    priceChanges,
+    pricing: {
+      ...pricing,
+      deliveryFeeBreakdown: {
+        source: deliveryFeeResult.source,
+        distanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(2)) : null,
+        deliveryFee,
+        message: Number.isFinite(distanceKm)
+          ? `Distance: ${Number(distanceKm).toFixed(1)} km`
+          : null,
+      },
+    },
   };
 }

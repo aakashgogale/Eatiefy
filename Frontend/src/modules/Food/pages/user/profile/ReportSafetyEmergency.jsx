@@ -1,5 +1,4 @@
-import { Link, useLocation } from "react-router-dom"
-import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
+import { Link } from "react-router-dom"
 import { ArrowLeft, AlertTriangle, Phone, Shield, Loader2 } from "lucide-react"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Button } from "@food/components/ui/button"
@@ -21,7 +20,6 @@ const debugError = (...args) => {}
 
 
 export default function ReportSafetyEmergency() {
-  const goBack = useAppBackNavigation()
   const [report, setReport] = useState("")
   const [isSubmitted, setIsSubmitted] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -90,19 +88,23 @@ export default function ReportSafetyEmergency() {
   }
 
   const handleSubmit = async () => {
-    if (!report.trim()) {
+    const trimmedReport = report.trim()
+    
+    if (!trimmedReport) {
       toast.error('Please describe the safety concern or emergency')
       return
     }
 
-    if (report.trim().length < 10) {
-      toast.error('Description must be at least 10 characters')
+    // Check for at least 5 words
+    const words = trimmedReport.split(/\s+/).filter(word => word.length > 0)
+    if (words.length < 5) {
+      toast.error('Please provide a more detailed report (minimum 5 words)')
       return
     }
 
     try {
       setIsSubmitting(true)
-      const response = await userAPI.createSafetyEmergencyReport(report.trim())
+      const response = await userAPI.createSafetyEmergencyReport(trimmedReport)
       
       if (response.data.success) {
         setIsSubmitted(true)
@@ -115,8 +117,7 @@ export default function ReportSafetyEmergency() {
       }
     } catch (error) {
       debugError('Error submitting safety emergency report:', error)
-      const backendError = error.response?.data?.message || error.response?.data?.error
-      toast.error(backendError || 'Failed to submit safety emergency report. Please try again.')
+      toast.error(error.response?.data?.message || 'Failed to submit safety emergency report. Please try again.')
     } finally {
       setIsSubmitting(false)
     }
@@ -131,37 +132,34 @@ export default function ReportSafetyEmergency() {
     <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a] pb-24 md:pb-0">
       <div className="max-w-5xl mx-auto px-4 md:px-6 lg:px-8 py-4 md:py-6 lg:py-8">
         {/* Header */}
-        <div className="flex items-center mb-6 md:mb-8">
-          <div
-            onClick={goBack}
-            className="h-10 w-10 md:h-11 md:w-11 flex items-center justify-center bg-white dark:bg-[#1a1a1a] rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.05)] hover:shadow-[0_4px_15px_rgba(0,0,0,0.08)] active:scale-95 transition-all cursor-pointer border border-slate-100 dark:border-gray-800"
-          >
-            <ArrowLeft className="h-5 w-5 text-slate-800 dark:text-white" />
-          </div>
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-slate-900 dark:text-white ml-4">Report an Emergency</h1>
+        <div className="flex items-center gap-3 md:gap-4 mb-4 md:mb-6 lg:mb-8">
+          <Link to="/user/profile">
+            <Button variant="ghost" size="icon" className="h-8 w-8 md:h-10 md:w-10 p-0">
+              <ArrowLeft className="h-4 w-4 md:h-5 md:w-5 text-black dark:text-white" />
+            </Button>
+          </Link>
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-black dark:text-white">Report a safety emergency</h1>
         </div>
 
         {/* Emergency Contact Card */}
-        <Card className="bg-gradient-to-br from-red-50 to-white dark:from-red-950/30 dark:to-[#1a1a1a] border border-red-100 dark:border-red-900/50 rounded-2xl shadow-sm mb-5 md:mb-6 overflow-hidden">
-          <CardContent className="p-5 md:p-6 relative">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-red-100 dark:bg-red-900/20 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
-            <div className="flex items-start gap-4 relative z-10">
-              <div className="bg-red-100 dark:bg-red-900/50 rounded-full p-3 md:p-3.5 mt-0.5 shadow-sm">
-                <Phone className="h-5 w-5 md:h-6 md:w-6 text-[#DC2626] dark:text-red-400" />
+        <Card className="bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 rounded-xl shadow-sm mb-4 md:mb-5 lg:mb-6">
+          <CardContent className="p-4 md:p-5 lg:p-6">
+            <div className="flex items-start gap-3 md:gap-4">
+              <div className="bg-red-100 dark:bg-red-900/40 rounded-full p-2 md:p-3 mt-0.5">
+                <Phone className="h-5 w-5 md:h-6 md:w-6 text-red-600 dark:text-red-400" />
               </div>
               <div className="flex-1">
-                <h3 className="text-lg md:text-xl font-bold text-slate-900 dark:text-white mb-1.5">
+                <h3 className="text-base md:text-lg lg:text-xl font-semibold text-red-900 dark:text-red-200 mb-1 md:mb-2">
                   Emergency Contact
                 </h3>
-                <p className="text-sm md:text-base text-slate-600 dark:text-gray-300 mb-4 leading-relaxed">
-                  For immediate emergencies, please call your local emergency services directly for immediate assistance.
+                <p className="text-sm md:text-base text-red-700 dark:text-red-300 mb-3 md:mb-4">
+                  For immediate emergencies, please call your local emergency services.
                 </p>
                 <a
                   href="tel:100"
-                  className="inline-flex items-center justify-center bg-white dark:bg-[#222] text-[#DC2626] dark:text-red-400 border border-red-100 dark:border-red-900/30 font-bold text-base md:text-lg px-6 py-2.5 rounded-xl shadow-sm hover:shadow-md hover:bg-red-50 dark:hover:bg-red-900/20 transition-all active:scale-95"
+                  className="text-red-600 dark:text-red-400 font-semibold text-base md:text-lg lg:text-xl hover:underline"
                 >
-                  <Phone className="w-4 h-4 mr-2" />
-                  Call 100
+                  Emergency: 100
                 </a>
               </div>
             </div>
@@ -171,18 +169,18 @@ export default function ReportSafetyEmergency() {
         {!isSubmitted ? (
           <>
             {/* Info Card */}
-            <Card className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800 mb-5 md:mb-6">
-              <CardContent className="p-5 md:p-6">
-                <div className="flex items-start gap-4">
-                  <div className="bg-slate-50 dark:bg-gray-800/80 rounded-full p-3 mt-0.5 border border-slate-100 dark:border-gray-700">
-                    <Shield className="h-5 w-5 md:h-6 md:w-6 text-slate-700 dark:text-gray-300" />
+            <Card className="bg-white dark:bg-[#1a1a1a] rounded-xl shadow-sm border-0 dark:border-gray-800 mb-4 md:mb-5 lg:mb-6">
+              <CardContent className="p-4 md:p-5 lg:p-6">
+                <div className="flex items-start gap-3 md:gap-4">
+                  <div className="bg-gray-100 dark:bg-gray-800 rounded-full p-2 md:p-3 mt-0.5">
+                    <Shield className="h-5 w-5 md:h-6 md:w-6 text-gray-700 dark:text-gray-300" />
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-base md:text-lg font-bold text-slate-900 dark:text-white mb-1.5">
+                    <h3 className="text-base md:text-lg lg:text-xl font-semibold text-gray-900 dark:text-white mb-1 md:mb-2">
                       Safety is our priority
                     </h3>
-                    <p className="text-sm md:text-base text-slate-500 dark:text-gray-400 leading-relaxed">
-                      Report any safety concerns, incidents, or emergencies related to your order or delivery experience. We take these reports very seriously.
+                    <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">
+                      Report any safety concerns, incidents, or emergencies related to your order or delivery experience.
                     </p>
                   </div>
                 </div>
@@ -190,28 +188,20 @@ export default function ReportSafetyEmergency() {
             </Card>
 
             {/* Report Form */}
-            <Card className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-[0_2px_15px_rgba(0,0,0,0.02)] border border-slate-100 dark:border-gray-800 mb-5 md:mb-6">
-              <CardContent className="p-5 md:p-6">
-                <label className="block text-sm md:text-base font-semibold text-slate-900 dark:text-white mb-3">
+            <Card className="bg-white dark:bg-[#1a1a1a] rounded-xl shadow-sm border-0 dark:border-gray-800 mb-4 md:mb-5 lg:mb-6">
+              <CardContent className="p-4 md:p-5 lg:p-6">
+                <label className="block text-sm md:text-base font-medium text-gray-900 dark:text-white mb-2 md:mb-3">
                   Describe the safety concern or emergency
                 </label>
                 <Textarea
                   placeholder="Please provide details about the safety issue..."
                   value={report}
                   onChange={(e) => setReport(e.target.value)}
-                  className="min-h-[160px] md:min-h-[200px] w-full resize-y text-sm md:text-base leading-relaxed bg-slate-50 dark:bg-[#111] border-slate-200 dark:border-gray-800 focus-visible:ring-2 focus-visible:ring-slate-200 dark:focus-visible:ring-slate-800 focus-visible:border-transparent rounded-xl p-4 transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-white"
+                  className="min-h-[150px] md:min-h-[200px] lg:min-h-[250px] w-full resize-y text-sm md:text-base leading-relaxed"
                   dir="ltr"
-                  style={{
-                    direction: 'ltr',
-                    textAlign: 'left',
-                    unicodeBidi: 'bidi-override',
-                    width: '100%',
-                    maxWidth: '100%'
-                  }}
                 />
-                <p className={`text-xs md:text-sm mt-3 flex justify-between font-medium ${report.trim().length < 10 ? 'text-[#DC2626]' : 'text-slate-500 dark:text-gray-400'}`}>
-                  <span>{report.length} characters</span>
-                  <span>Min 10 characters</span>
+                <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 mt-2">
+                  {report.length} characters
                 </p>
               </CardContent>
             </Card>
@@ -219,16 +209,16 @@ export default function ReportSafetyEmergency() {
             {/* Submit Button */}
             <Button
               onClick={handleSubmit}
-              disabled={report.trim().length < 10 || isSubmitting}
-              className="w-full bg-[#DC2626] hover:bg-[#B91C1C] text-white font-semibold text-base h-12 md:h-14 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_14px_rgba(220,38,38,0.25)] hover:shadow-[0_6px_20px_rgba(220,38,38,0.3)] transition-all active:scale-[0.98]"
+              disabled={!report.trim() || isSubmitting}
+              className="w-full bg-red-600 hover:bg-red-700 text-white text-sm md:text-base h-10 md:h-12 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (
                 <>
-                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                  Submitting Report...
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Submitting...
                 </>
               ) : (
-                'Submit Safety Report'
+                'Report Safety Issue'
               )}
             </Button>
 
@@ -294,54 +284,77 @@ export default function ReportSafetyEmergency() {
               </CardContent>
             </Card>
 
-            {/* History Details Dialog */}
+            {/* History Details Dialog - Redesigned for professional look */}
             <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
-              <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2">
-                    <AlertTriangle className="h-5 w-5 text-red-600" />
-                    Report Details
-                  </DialogTitle>
-                  <DialogDescription>
-                    Full details of your safety emergency report.
-                  </DialogDescription>
-                </DialogHeader>
+              <DialogContent className="max-w-[90vw] md:max-w-xl p-0 overflow-hidden border-0 rounded-3xl shadow-2xl bg-white dark:bg-[#121212]">
+                <div className="bg-red-600 p-6">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-white/20 p-2 rounded-xl">
+                      <AlertTriangle className="h-6 w-6 text-white" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold text-white">Report Details</h2>
+                      <p className="text-red-100 text-xs">Safety Emergency Feedback</p>
+                    </div>
+                  </div>
+                </div>
 
-                {selectedHistoryItem && (
-                  <div className="space-y-4">
-                    <div className="flex flex-wrap items-center gap-2">
+                <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Status:</span>
                       {getStatusPill(selectedHistoryItem?.status)}
-                      {selectedHistoryItem?.priority ? getPriorityPill(selectedHistoryItem?.priority) : null}
-                      {selectedHistoryItem?.createdAt ? (
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          {formatDateTime(selectedHistoryItem.createdAt)}
-                        </span>
-                      ) : null}
                     </div>
-
-                    <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#0f0f0f] p-4">
-                      <p className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap leading-relaxed">
-                        {selectedHistoryItem?.message || "—"}
-                      </p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Priority:</span>
+                      {selectedHistoryItem?.priority ? getPriorityPill(selectedHistoryItem?.priority) : getPriorityPill('medium')}
                     </div>
-
-                    {selectedHistoryItem?.adminResponse && (
-                      <div className="rounded-lg border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50/60 dark:bg-emerald-900/10 p-4">
-                        <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider mb-2">
-                          Admin response
-                        </p>
-                        <p className="text-sm text-emerald-900 dark:text-emerald-100 whitespace-pre-wrap leading-relaxed">
-                          {selectedHistoryItem.adminResponse}
-                        </p>
-                        {selectedHistoryItem?.respondedAt && (
-                          <p className="text-xs text-emerald-700/80 dark:text-emerald-300/80 mt-2">
-                            Responded at: {formatDateTime(selectedHistoryItem.respondedAt)}
-                          </p>
-                        )}
+                    {selectedHistoryItem?.createdAt && (
+                      <div className="ml-auto text-[11px] font-medium text-gray-500 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-lg">
+                        {formatDateTime(selectedHistoryItem.createdAt)}
                       </div>
                     )}
                   </div>
-                )}
+
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Your Detailed Report</p>
+                    <div className="relative group">
+                      <div className="absolute -inset-1 bg-gradient-to-r from-red-600/10 to-orange-600/10 rounded-2xl blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
+                      <div className="relative rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-[#0a0a0a] p-5 shadow-sm">
+                        <p className="text-base text-gray-800 dark:text-gray-100 whitespace-pre-wrap leading-relaxed font-medium italic">
+                          "{selectedHistoryItem?.message || "—"}"
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {selectedHistoryItem?.adminResponse && (
+                    <div className="space-y-3 pt-2">
+                      <p className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest flex items-center gap-2">
+                        <Shield className="w-3 h-3" /> Official Support Response
+                      </p>
+                      <div className="rounded-2xl border border-emerald-100 dark:border-emerald-900/30 bg-emerald-50/40 dark:bg-emerald-900/10 p-5 shadow-sm">
+                        <p className="text-base text-emerald-900 dark:text-emerald-100 whitespace-pre-wrap leading-relaxed font-semibold">
+                          {selectedHistoryItem.adminResponse}
+                        </p>
+                        {selectedHistoryItem?.respondedAt && (
+                          <p className="text-[10px] text-emerald-700/60 dark:text-emerald-400/60 mt-4 font-bold uppercase tracking-tighter">
+                            Verified Response • {formatDateTime(selectedHistoryItem.respondedAt)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-4 border-t border-gray-100 dark:border-gray-800 flex justify-end bg-gray-50/50 dark:bg-[#0a0a0a]">
+                  <Button 
+                    onClick={() => setIsHistoryDialogOpen(false)}
+                    className="rounded-xl px-8 bg-black text-white hover:bg-gray-900 transition-all active:scale-95"
+                  >
+                    Got it
+                  </Button>
+                </div>
               </DialogContent>
             </Dialog>
           </>

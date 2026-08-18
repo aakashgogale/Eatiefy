@@ -1,30 +1,27 @@
-import { Link, useLocation as useRouteLocation } from "react-router-dom"
+import { Link } from "react-router-dom"
 import { useState, useEffect, useRef, useMemo } from "react"
-import { ChevronDown, ShoppingCart, Wallet, User } from "lucide-react"
+import { ChevronDown, Bell, Menu } from "lucide-react"
 import { Button } from "@food/components/ui/button"
-import { useLocation } from "@food/hooks/useLocation"
+import { useDeliveryLocation } from "@food/context/DeliveryLocationContext"
 import { useCart } from "@food/context/CartContext"
 import { useLocationSelector } from "./UserLayout"
 import { FaLocationDot } from "react-icons/fa6"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
-import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png"
-import { Avatar, AvatarFallback, AvatarImage } from "@food/components/ui/avatar"
-import { useProfile } from "@food/context/ProfileContext"
-import { isModuleAuthenticated } from "@food/utils/auth"
+import DynamicLogo from "@food/components/DynamicLogo"
 
 export default function PageNavbar({
   textColor = "white",
   zIndex = 20,
   showProfile = false,
   showLogo = true,
-  showCart = true,
-  showWallet = true,
-  onNavClick,
-  variant = "default" // "default", "reddish", or "transparent"
+  onNavClick
 }) {
-  const routerLocation = useRouteLocation()
-  const { userProfile } = useProfile()
-  const { location, loading, requestLocation } = useLocation()
+  const {
+    effectiveLocation: location,
+    displayAddressText,
+    loading,
+    requestLocation,
+  } = useDeliveryLocation()
   const { getCartCount } = useCart()
   const { openLocationSelector } = useLocationSelector()
   const cartCount = getCartCount()
@@ -43,9 +40,24 @@ export default function PageNavbar({
     requestLocationRef.current = requestLocation
   }, [requestLocation])
 
-  // Fallback: if permission is granted but location is still missing, fetch once.
+  // Auto-trigger location fetch once when location is missing/placeholder and permission is already granted.
   useEffect(() => {
     if (autoLocationAttemptedRef.current || loading || !requestLocationRef.current) return
+
+    // Preserve saved location for logged-in users.
+    // For guests, allow auto-fetch on app open.
+    try {
+      const token = localStorage.getItem("user_accessToken") || localStorage.getItem("accessToken")
+      const isAuthenticated = Boolean(token && token !== "null" && token !== "undefined")
+      const storedRaw = localStorage.getItem("userLocation")
+      const stored = storedRaw ? JSON.parse(storedRaw) : null
+      const lat = Number(stored?.latitude)
+      const lng = Number(stored?.longitude)
+      const hasStoredCoords = Number.isFinite(lat) && Number.isFinite(lng)
+      if (isAuthenticated && hasStoredCoords) return
+    } catch {
+      // ignore parsing errors and continue to auto-fetch as fallback for first open
+    }
 
     const hasMissingOrPlaceholderLocation =
       !location ||
@@ -53,32 +65,41 @@ export default function PageNavbar({
       location.city === "Current Location"
 
     if (!hasMissingOrPlaceholderLocation) return
-
+    // Reserve a single background attempt to avoid repeated checks on re-renders.
     autoLocationAttemptedRef.current = true
 
     let cancelled = false
     const timeoutId = setTimeout(async () => {
       try {
-        let isGranted = false
+        let shouldRequest = false
         if (navigator.permissions?.query) {
-          const result = await navigator.permissions.query({ name: "geolocation" })
-          isGranted = result.state === "granted"
+          const result = await navigator.permissions.query({ name: 'geolocation' })
+          shouldRequest = result.state === 'granted' || result.state === 'prompt'
+        } else {
+          // Fallback for webviews/browsers without Permissions API support.
+          shouldRequest = true
         }
-        if (!isGranted) return
 
+        if (!shouldRequest) {
+          debugLog("?? Geolocation permission not granted; waiting for user action")
+          return
+        }
         const fetchedLocation = await requestLocationRef.current()
         if (cancelled) return
-        if (
-          fetchedLocation &&
+
+        if (fetchedLocation &&
           fetchedLocation.formattedAddress !== "Select location" &&
-          fetchedLocation.city !== "Current Location"
-        ) {
-          debugLog("Location fetched successfully:", fetchedLocation)
+          fetchedLocation.city !== "Current Location") {
+          debugLog("? Location fetched successfully:", fetchedLocation)
+        } else {
+          debugLog("Location fetch returned placeholder, user may need to select manually")
         }
       } catch (err) {
-        if (!cancelled) debugLog("Location fetch failed:", err)
+        if (!cancelled) {
+          debugLog("Location fetch failed:", err)
+        }
       }
-    }, 600)
+    }, 1200)
 
     return () => {
       cancelled = true
@@ -936,18 +957,14 @@ export default function PageNavbar({
       }
     }
 
-    const areaDisplay = location?.area && location.area.trim() ? location.area.trim() : "Select Location"
-    const cityDisplay = location?.city || "Indore"
-    const fullAddressDisplay = location?.address || location?.formattedAddress || ""
-    
     return {
-      area: areaDisplay,
-      city: cityDisplay,
-      address: fullAddressDisplay
+      main: mainLocation,
+      sub: subLocation
     }
   }, [location])
 
-  const { area: areaName, city: cityName, address: fullAddress } = locationDisplay
+  const mainLocationName = locationDisplay.main
+  const subLocationName = locationDisplay.sub
   const savedAddressLabel = useMemo(() => {
     if (location?.label && String(location.label).trim()) {
       return String(location.label).trim()
@@ -961,67 +978,22 @@ export default function PageNavbar({
       return ""
     }
   }, [location?.label])
-
-  const displayArea = useMemo(() => {
-    let name = areaName || "Select Location"
-    if (/^-?\d+(\.\d+)?$/.test(name.trim())) {
-      return "Current Location"
-    }
-    const isPlusCode = /^[a-z0-9]{2,8}\+[a-z0-9]{0,3}/i.test(name.trim());
-    if (isPlusCode) {
-      return cityName || "Select Location"
-    }
-    return name
-  }, [areaName, cityName])
-
-  const displayAddress = useMemo(() => {
-    if (savedAddressLabel) return `Delivering to ${savedAddressLabel}`
-    
-    const city = location?.city || "";
-    const state = location?.state || "";
-    const pincode = location?.pincode || "";
-
-    const parts = [];
-    if (city) parts.push(city);
-    if (state) parts.push(state);
-    if (pincode) parts.push(pincode);
-    if (parts.length > 0) return parts.join(', ');
-    
-    let addr = fullAddress || ""
-    if (cityName) {
-      addr = addr.replace(new RegExp(`,?\\s*${cityName}\\s*`, 'gi'), '').trim()
-    }
-    if (areaName && areaName.length > 3) {
-      addr = addr.replace(new RegExp(`^${areaName},?\\s*`, 'i'), '').trim()
-    }
-    if (/^-?\d+\.\d+,\s*-?\\s*\d+\.\d+$/.test(fullAddress.trim()) || /^-?\d+\.\d+,\s*-?\\s*\d+\.\d+$/.test(addr.trim()) || !addr || addr === ",") {
-      return "Pinpoint location"
-    }
-    return addr
-  }, [fullAddress, cityName, areaName, savedAddressLabel, location])
-  const displayCity = ""
+  const locationSubText = savedAddressLabel ? `Delivering to ${savedAddressLabel}` : subLocationName
 
   const handleLocationClick = () => {
     // Open location selector overlay
     openLocationSelector()
   }
 
-  const isReddish = variant === "reddish"
-  const isTransparent = variant === "transparent"
-  const finalTextColorClass = (isReddish || isTransparent) ? "text-[#1a1a1a]" : (textColor === "white" ? "text-white" : "text-[#DC2626]")
-  const finalIconColor = (isReddish || isTransparent) ? "text-[#1a1a1a]" : (textColor === "white" ? "text-white" : "text-[#DC2626]")
-  
-  const initials = useMemo(() => {
-    if (!userProfile) return ""
-    const name = userProfile.firstName || userProfile.name || ""
-    return name[0]?.toUpperCase() || "U"
-  }, [userProfile])
+  const textColorClass = textColor === "white" ? "text-white" : "text-black"
+  const iconFill = textColor === "white" ? "white" : "black"
+  const ringColor = textColor === "white" ? "ring-white/30" : "ring-gray-800/30"
 
   const zIndexClass = zIndex === 50 ? "z-50" : "z-20"
 
   return (
     <nav
-      className={`relative ${zIndexClass} w-full px-3 sm:px-4 md:px-6 lg:px-8 py-0.5 sm:py-1 transition-all duration-300 ${isReddish ? "bg-gradient-to-r from-white via-[#f8fafc] to-white shadow-sm border-b border-gray-100" : (variant === "transparent" ? "bg-transparent shadow-none" : "bg-transparent shadow-none")} border-0`}
+      className={`relative ${zIndexClass} w-full px-3 sm:px-4 md:px-6 lg:px-8 py-2 sm:py-3 bg-transparent !bg-transparent shadow-none border-0`}
       onClick={onNavClick}
     >
       <div className="flex items-center justify-between max-w-7xl mx-auto">
@@ -1033,49 +1005,51 @@ export default function PageNavbar({
               <img
                 src={logoUrl}
                 alt={companyName || "Company Logo"}
-                className="h-9 w-auto sm:h-12 md:h-14 object-contain scale-[1.6] sm:scale-[1.8] origin-left"
+                className="h-10 w-auto sm:h-12 md:h-14 object-contain scale-[1.8] sm:scale-[2] origin-left"
                 crossOrigin="anonymous"
-                onError={() => {
-                  setLogoUrl(null)
+                onError={(e) => {
+                  // Fallback to name if image fails
+                  e.target.style.display = 'none'
                 }}
               />
             ) : companyName ? (
-              <span className={`text-lg font-bold ${finalTextColorClass}`}>
+              <span className={`text-lg font-bold text-${textColor}`}>
                 {companyName}
               </span>
             ) : (
-              <img
-                src={quickSpicyLogo}
+              <DynamicLogo
+                module="user"
+                fallback={null}
                 alt="Logo"
-                className="h-9 w-auto sm:h-12 md:h-14 object-contain scale-[1.6] sm:scale-[1.8] origin-left"
+                className="h-10 w-auto sm:h-12 md:h-14 object-contain scale-[1.8] sm:scale-[2] origin-left"
               />
             )}
           </Link>
         )}
 
-        {/* Center/Left: Location Selector */}
-        <div className={`flex-1 flex items-center ${(isReddish || isTransparent) ? "justify-start" : "justify-center absolute left-1/2 -translate-x-1/2"} min-w-0`}>
+        {/* Center: Location Selector (Centered) */}
+        <div className="flex-1 flex items-center justify-center min-w-0 absolute left-1/2 -translate-x-1/2">
           <Button
             variant="ghost"
             onClick={handleLocationClick}
             disabled={loading}
-            className={`h-auto px-0 py-0 hover:bg-transparent transition-colors flex-shrink-0 ${(isReddish || isTransparent) ? "flex items-center gap-1.5" : ""}`}
+            className="h-auto px-0 py-0 hover:bg-transparent transition-colors flex-shrink-0"
           >
             {loading ? (
-              <span className={`text-sm font-bold ${finalTextColorClass}`}>
+              <span className={`text-sm font-bold ${textColorClass}`}>
                 Loading...
               </span>
             ) : (
-              <div className={`flex flex-col ${(isReddish || isTransparent) ? "items-start" : "items-center"} min-w-0`}>
-                <div className="flex items-center justify-start gap-1">
-                  <span className={`text-[15px] sm:text-[17px] font-black ${finalTextColorClass} truncate max-w-[140px] sm:max-w-[200px] leading-none`}>
-                    {displayArea}
+              <div className="flex flex-col items-center min-w-0">
+                <div className="flex items-center justify-center gap-1">
+                  <span className={`text-sm sm:text-base md:text-lg font-bold ${textColorClass} truncate max-w-[140px] sm:max-w-[200px]`}>
+                    {mainLocationName}
                   </span>
-                  <ChevronDown className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${finalIconColor} flex-shrink-0`} strokeWidth={3.5} />
+                  <ChevronDown className={`h-3 w-3 sm:h-4 sm:w-4 ${textColorClass} flex-shrink-0`} strokeWidth={2.5} />
                 </div>
-                {(displayAddress || displayCity) && (
-                  <span className={`text-[10px] sm:text-[12px] font-bold text-gray-500 truncate max-w-[140px] sm:max-w-[200px] ${(isReddish || isTransparent) ? "text-left" : "text-center"} leading-tight mt-0.5`}>
-                    {displayAddress}{displayAddress && displayCity ? ", " : ""}{displayCity}
+                {locationSubText && (
+                  <span className={`text-[10px] sm:text-xs font-medium ${textColorClass}/80 truncate max-w-[140px] sm:max-w-[200px] text-center`}>
+                    {locationSubText}
                   </span>
                 )}
               </div>
@@ -1083,80 +1057,36 @@ export default function PageNavbar({
           </Button>
         </div>
 
-        {/* Right: Actions (Wallet & Cart) */}
+        {/* Right: Actions (Bell & Menu) */}
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-auto">
-          {showWallet && (
-            <Link 
-              to="/food/user/wallet" 
-              state={{ from: routerLocation.pathname }}
-              onClick={(e) => {
-                if (!isModuleAuthenticated('user')) {
-                  e.preventDefault();
-                  window.dispatchEvent(new CustomEvent('show-login-required'));
-                }
-              }}
+          <Link to="/food/user/notifications">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 sm:h-9 sm:w-9 rounded-full p-0 hover:opacity-80 transition-opacity"
+              title="Notifications"
             >
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 sm:h-9 sm:w-9 rounded-full p-0 hover:opacity-80 transition-opacity"
-                title="Wallet"
-              >
-                <div className={`h-full w-full rounded-full ${(isReddish || isTransparent) ? (isTransparent ? "bg-gradient-to-br from-[#FF4D4D] via-[#DC2626] to-[#991B1B] shadow-sm" : "bg-white shadow-sm") : "bg-white/10"} flex items-center justify-center border ${(isReddish || isTransparent) ? (isTransparent ? "border-white/10" : "border-gray-200/50") : "border-white/20"}`}>
-                  <Wallet className={`h-4.5 w-4.5 sm:h-5 sm:w-5 ${isTransparent ? "text-white" : finalIconColor}`} strokeWidth={2.5} />
-                </div>
-              </Button>
-            </Link>
-          )}
+              <div className={`h-full w-full rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center`}>
+                <Bell className={`h-4 w-4 sm:h-5 sm:w-5 ${textColor === "white" ? "text-black dark:text-white" : "text-gray-900 dark:text-white"}`} strokeWidth={2} />
+              </div>
+            </Button>
+          </Link>
 
-          {showCart && (
-            <Link to="/food/user/cart" state={{ from: routerLocation.pathname }}>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="relative h-9 w-9 sm:h-10 sm:w-10 rounded-full p-0 hover:opacity-80 transition-opacity"
-                title="Cart"
-              >
-                <div className={`h-full w-full rounded-full ${(isReddish || isTransparent) ? "bg-white shadow-sm" : "bg-white/10"} flex items-center justify-center border ${(isReddish || isTransparent) ? "border-gray-200/50" : "border-white/20"}`}>
-                  <ShoppingCart className={`h-5 w-5 sm:h-6 sm:w-6 ${finalIconColor}`} strokeWidth={2.5} />
-                </div>
-                {cartCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-[#DC2626] text-white text-[10px] font-bold h-4 w-4 sm:h-5 sm:w-5 rounded-full flex items-center justify-center border-2 border-white dark:border-[#1a1a1a]">
-                    {cartCount > 99 ? "99+" : cartCount}
-                  </span>
-                )}
-              </Button>
-            </Link>
-          )}
-
-          {showProfile && (
-            <Link 
-              to="/food/user/profile" 
-              state={{ from: routerLocation.pathname }}
-              onClick={(e) => {
-                if (!isModuleAuthenticated('user')) {
-                  e.preventDefault();
-                  window.dispatchEvent(new CustomEvent('show-login-required'));
-                }
-              }}
+          <Link to="/food/user/profile">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 sm:h-9 sm:w-9 rounded-full p-0 hover:opacity-80 transition-opacity"
+              title="Menu"
             >
-              <Avatar className="h-9 w-9 rounded-full border border-white transition-all active:scale-95 shadow-none overflow-hidden cursor-pointer transform-gpu translate-z-0">
-                <AvatarImage 
-                  src={userProfile?.profileImage?.url || userProfile?.profileImage || "/assets/images/profile_avatar.webp"} 
-                  alt="Profile" 
-                  className="object-cover"
-                />
-                <AvatarFallback className="bg-gradient-to-br from-[#DC2626] to-[#991B1B] text-white font-bold text-sm uppercase">
-                  <img src="/assets/images/profile_avatar.webp" alt="Profile" className="object-cover w-full h-full" />
-                </AvatarFallback>
-              </Avatar>
-            </Link>
-          )}
+              <div className={`h-full w-full rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center`}>
+                <Menu className={`h-4 w-4 sm:h-5 sm:w-5 ${textColor === "white" ? "text-black dark:text-white" : "text-gray-900 dark:text-white"}`} strokeWidth={2} />
+              </div>
+            </Button>
+          </Link>
         </div>
       </div>
     </nav>
   )
 }
-
-
 

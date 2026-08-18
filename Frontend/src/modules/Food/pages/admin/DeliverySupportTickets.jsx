@@ -103,7 +103,6 @@ export default function DeliverySupportTickets() {
           }
         setSelectedTicket(updatedTicket)
         setIsResponseOpen(false)
-        setIsViewOpen(false)
         setResponseText("")
         await fetchTickets()
         await fetchStats()

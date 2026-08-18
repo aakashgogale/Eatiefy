@@ -4,7 +4,6 @@ const userAddressSchema = new mongoose.Schema(
     {
         label: {
             type: String,
-            enum: ['Home', 'Office', 'Other'],
             default: 'Home',
             index: true
         },
@@ -132,24 +131,11 @@ const userSchema = new mongoose.Schema(
         },
         role: {
             type: String,
-            default: 'USER',
-            index: true
+            default: 'USER'
         },
         addresses: {
             type: [userAddressSchema],
             default: []
-        },
-        codCancellationCount: {
-            type: Number,
-            default: 0,
-            min: 0
-        },
-        isCodBlocked: {
-            type: Boolean,
-            default: false
-        },
-        deletedAt: {
-            type: Date
         }
     },
     {

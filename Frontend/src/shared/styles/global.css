@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lato:wght@400;700&family=Manrope:wght@400;500;600;700&family=Merriweather:wght@400;700&family=Montserrat:wght@400;500;600;700&family=Nunito:wght@400;600;700&family=Open+Sans:wght@400;600;700&family=Outfit:wght@400;500;600;700&family=Playfair+Display:wght@400;600;700&family=Poppins:wght@400;500;600;700&family=Raleway:wght@400;500;600;700&family=Roboto:wght@400;500;700&family=Rubik:wght@400;500;700&family=Ubuntu:wght@400;500;700&family=Work+Sans:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "leaflet/dist/leaflet.css";
@@ -17,32 +18,32 @@
   -moz-osx-font-smoothing: grayscale;
   --radius: 0.625rem;
   
-  --background: #F9F9FB;
-  --foreground: #1a0505;
-  --card: #ffffff;
-  --card-foreground: #1a0505;
-  --popover: #ffffff;
-  --popover-foreground: #3c0f3d;
-  --primary: #B80B3D;
-  --primary-foreground: #ffffff;
-  --secondary: #B80B3D;
-  --secondary-foreground: #ffffff;
-  --muted: #f1f5f9;
-  --muted-foreground: #fca5a5;
-  --accent: #fce7ec;
-  --accent-foreground: #B80B3D;
-  --destructive: #ef4444;
-  --border: #e2e8f0;
-  --input: #e2e8f0;
-  --ring: #B80B3D;
-  --sidebar: #ffffff;
-  --sidebar-foreground: #1a0505;
-  --sidebar-primary: #B80B3D;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #B80B3D;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #e2e8f0;
-  --sidebar-ring: #B80B3D;
+  --background: #ffffff;
+  --foreground: oklch(0.2 0.05 50);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.05 50);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.05 50);
+  --primary: oklch(0.7 0.15 85);
+  --primary-foreground: oklch(0.15 0.05 50);
+  --secondary: oklch(0.95 0.02 90);
+  --secondary-foreground: oklch(0.3 0.08 60);
+  --muted: oklch(0.96 0.01 90);
+  --muted-foreground: oklch(0.5 0.05 50);
+  --accent: oklch(0.92 0.08 75);
+  --accent-foreground: oklch(0.25 0.06 55);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.9 0.02 85);
+  --input: oklch(0.95 0.01 90);
+  --ring: oklch(0.7 0.15 85);
+  --sidebar: oklch(0.98 0.01 90);
+  --sidebar-foreground: oklch(0.2 0.05 50);
+  --sidebar-primary: oklch(0.7 0.15 85);
+  --sidebar-primary-foreground: oklch(0.15 0.05 50);
+  --sidebar-accent: oklch(0.95 0.02 90);
+  --sidebar-accent-foreground: oklch(0.3 0.08 60);
+  --sidebar-border: oklch(0.9 0.02 85);
+  --sidebar-ring: oklch(0.7 0.15 85);
 }
 
 @theme inline {
@@ -77,8 +78,8 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
   
-  --color-page-bg: #F9F9FB;
-  --color-primary-orange: #B80B3D;
+  --color-page-bg: #ffffff;
+  --color-primary-orange: #dc2626;
   --font-poppins: var(--font-poppins);
   --font-outfit: var(--font-outfit);
 }
@@ -113,26 +114,15 @@
 }
 
 @layer base {
+  html {
+    scroll-behavior: auto;
+  }
+
   * {
     @apply border-border outline-ring/50;
-    -webkit-touch-callout: none;
-    -webkit-user-select: none;
-    user-select: none;
-    -webkit-user-drag: none;
   }
   body {
     @apply bg-background text-foreground m-0 min-h-screen;
-  }
-  input, textarea, [contenteditable="true"] {
-    -webkit-user-select: auto;
-    user-select: auto;
-  }
-  
-  /* Allow text selection in the Admin Panel */
-  .admin-module-container,
-  .admin-module-container * {
-    -webkit-user-select: text;
-    user-select: text;
   }
 }
 
@@ -143,38 +133,6 @@
   }
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
-  }
-
-  /* Always-visible thin vertical scrollbar for Select menus */
-  .select-menu-scroll {
-    scrollbar-gutter: stable;
-    scrollbar-width: thin;
-    scrollbar-color: #64748b #e2e8f0;
-  }
-  .select-menu-scroll::-webkit-scrollbar {
-    width: 10px !important;
-    display: block !important;
-  }
-  .select-menu-scroll::-webkit-scrollbar-track {
-    background: #e2e8f0 !important;
-    border-radius: 8px;
-    margin: 4px 0;
-  }
-  .select-menu-scroll::-webkit-scrollbar-thumb {
-    background: #64748b !important;
-    border-radius: 8px;
-    border: 2px solid #e2e8f0;
-    min-height: 40px;
-  }
-  .select-menu-scroll::-webkit-scrollbar-thumb:hover {
-    background: #475569 !important;
-  }
-
-  /* Radix viewport must not swallow scroll — Content owns the scrollbar */
-  .select-menu-scroll [data-radix-select-viewport] {
-    height: auto !important;
-    max-height: none !important;
-    overflow: visible !important;
   }
 
   .content-auto {
@@ -203,27 +161,6 @@
 .animate-slide-in-left { animation: slide-in-left 0.8s ease-out; }
 .animate-fade-down { animation: fade-down 0.5s ease-out; }
 
-@keyframes skeleton-shimmer-wave {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
-}
-
-.skeleton-shimmer {
-  background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
-  background-size: 200% 100%;
-  animation: skeleton-shimmer-wave 1.6s infinite linear;
-}
-
-.dark .skeleton-shimmer {
-  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
-  background-size: 200% 100%;
-  animation: skeleton-shimmer-wave 1.6s infinite linear;
-}
-
 .leaflet-container { height: 100%; width: 100%; z-index: 1; }
 .custom-marker { background: transparent; border: none; }
 .touch-none { touch-action: none; }
@@ -233,18 +170,4 @@
 .pac-container {
   z-index: 999999 !important;
   pointer-events: auto !important;
-}
-
-/* Sonner toasts above modals / overlays */
-[data-sonner-toaster] {
-  z-index: 11000 !important;
-}
-
-[data-sonner-toast][data-styled="false"] {
-  padding: 0 !important;
-  margin: 0 !important;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  min-height: 0 !important;
 }

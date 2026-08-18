@@ -9,6 +9,7 @@ const createOfferSchema = z.object({
     customerScope: z.enum(['all', 'first-time']).default('all'),
     restaurantScope: z.enum(['all', 'selected']).default('all'),
     restaurantId: z.string().optional(),
+    restaurantIds: z.array(z.string()).optional(),
     endDate: z.string().optional().or(z.literal('')).or(z.undefined()),
     startDate: z.string().optional().or(z.literal('')).or(z.undefined()),
     minOrderValue: z.number().min(0).optional(),
@@ -16,7 +17,8 @@ const createOfferSchema = z.object({
     usageLimit: z.number().min(0).optional(),
     perUserLimit: z.number().min(0).optional(),
     isFirstOrderOnly: z.boolean().optional(),
-    couponType: z.enum(['delivery', 'takeaway', 'all']).default('all')
+    adminBearPercentage: z.number().min(0).max(100).optional(),
+    restaurantBearPercentage: z.number().min(0).max(100).optional()
 });
 
 export const validateCreateOfferDto = (body) => {
@@ -28,20 +30,18 @@ export const validateCreateOfferDto = (body) => {
         customerScope: body?.customerScope,
         restaurantScope: body?.restaurantScope,
         restaurantId: body?.restaurantId ? String(body.restaurantId) : undefined,
+        restaurantIds: Array.isArray(body?.restaurantIds)
+            ? body.restaurantIds.map((id) => String(id)).filter(Boolean)
+            : undefined,
         endDate: body?.endDate ? String(body.endDate) : undefined,
         startDate: body?.startDate ? String(body.startDate) : undefined,
-        minOrderValue: (() => {
-            if (body?.minOrderValue === undefined || body?.minOrderValue === null || body?.minOrderValue === '') {
-                return undefined;
-            }
-            const parsed = Number(body.minOrderValue);
-            return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
-        })(),
+        minOrderValue: body?.minOrderValue !== undefined ? Number(body.minOrderValue) : undefined,
         maxDiscount: body?.maxDiscount !== undefined ? Number(body.maxDiscount) : undefined,
         usageLimit: body?.usageLimit !== undefined ? Number(body.usageLimit) : undefined,
         perUserLimit: body?.perUserLimit !== undefined ? Number(body.perUserLimit) : undefined,
         isFirstOrderOnly: body?.isFirstOrderOnly !== undefined ? Boolean(body.isFirstOrderOnly) : undefined,
-        couponType: body?.couponType || 'all'
+        adminBearPercentage: body?.adminBearPercentage !== undefined ? Number(body.adminBearPercentage) : undefined,
+        restaurantBearPercentage: body?.restaurantBearPercentage !== undefined ? Number(body.restaurantBearPercentage) : undefined
     };
 
     const result = createOfferSchema.safeParse(normalized);
@@ -50,12 +50,16 @@ export const validateCreateOfferDto = (body) => {
     }
 
     if (result.data.restaurantScope === 'selected') {
-        if (!result.data.restaurantId || !mongoose.Types.ObjectId.isValid(result.data.restaurantId)) {
-            throw new ValidationError('Valid restaurantId is required for selected restaurant scope');
+        const restaurantIds = [
+            ...(result.data.restaurantIds || []),
+            ...(result.data.restaurantId ? [result.data.restaurantId] : [])
+        ];
+        if (restaurantIds.length === 0 || restaurantIds.some((id) => !mongoose.Types.ObjectId.isValid(id))) {
+            throw new ValidationError('At least one valid restaurant is required for selected restaurant scope');
         }
     }
 
-    const endDate = result.data.endDate ? new Date(`${result.data.endDate}T00:00:00.000Z`) : undefined;
+    const endDate = result.data.endDate ? new Date(`${result.data.endDate}T23:59:59.999Z`) : undefined;
     if (endDate && Number.isNaN(endDate.getTime())) {
         throw new ValidationError('Invalid endDate');
     }
@@ -80,21 +84,35 @@ export const validateCreateOfferDto = (body) => {
         maxDiscount = undefined; // ignore for flat-price
     }
 
+    const restaurantIds = result.data.restaurantScope === 'selected'
+        ? [...new Set([
+            ...(result.data.restaurantIds || []),
+            ...(result.data.restaurantId ? [result.data.restaurantId] : [])
+        ])]
+        : [];
+    const adminBearPercentage = result.data.adminBearPercentage ?? 100;
+    const restaurantBearPercentage = result.data.restaurantBearPercentage ?? 0;
+    if (Math.round((adminBearPercentage + restaurantBearPercentage) * 100) / 100 !== 100) {
+        throw new ValidationError('Admin bear and restaurant bear must total 100%');
+    }
+
     return {
         couponCode: result.data.couponCode.trim().toUpperCase(),
         discountType: result.data.discountType,
         discountValue: result.data.discountValue,
         customerScope: result.data.customerScope,
         restaurantScope: result.data.restaurantScope,
-        restaurantId: result.data.restaurantScope === 'selected' ? result.data.restaurantId : undefined,
+        restaurantId: restaurantIds[0],
+        restaurantIds,
         endDate,
         startDate,
         minOrderValue: result.data.minOrderValue,
         maxDiscount,
         usageLimit: result.data.usageLimit,
         perUserLimit: result.data.perUserLimit,
-        isFirstOrderOnly: result.data.isFirstOrderOnly === true,
-        couponType: result.data.couponType
+        isFirstOrderOnly: result.data.isFirstOrderOnly,
+        adminBearPercentage,
+        restaurantBearPercentage
     };
 };
 

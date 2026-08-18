@@ -26,7 +26,7 @@ export default function FssaiDetails() {
 
       <div className="flex-1 px-4 pt-4 pb-28 space-y-4">
         <div className="rounded-2xl bg-[#ffe9b3] px-4 py-3 flex items-start gap-3">
-          <div className="mt-1 h-6 w-6 rounded-full bg-gradient-to-br from-[#B80B3D] to-[#66001D]/80 flex items-center justify-center text-white text-xs font-semibold">
+          <div className="mt-1 h-6 w-6 rounded-full bg-black/80 flex items-center justify-center text-white text-xs font-semibold">
             i
           </div>
           <div className="flex-1">
@@ -72,8 +72,8 @@ export default function FssaiDetails() {
       <div className="px-4 pb-6 pt-3 border-t border-gray-200 bg-white">
         <button
           type="button"
-          className="w-full py-3 rounded-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white text-sm font-medium mb-2"
-          onClick={() => navigate("/food/restaurant/fssai/update")}
+          className="w-full py-3 rounded-full bg-black text-white text-sm font-medium mb-2"
+          onClick={() => navigate("/restaurant/fssai/update")}
         >
           Update FSSAI license
         </button>
@@ -81,8 +81,8 @@ export default function FssaiDetails() {
           Haven&apos;t renewed your FSSAI?{" "}
           <button
             type="button"
-            className="text-[#B80B3D] underline underline-offset-2"
-            onClick={() => navigate("/food/restaurant/fssai/update")}
+            className="text-blue-600 underline underline-offset-2"
+            onClick={() => navigate("/restaurant/fssai/update")}
           >
             Apply Now
           </button>
@@ -91,10 +91,3 @@ export default function FssaiDetails() {
     </div>
   )
 }
-
-
-
-
-
-
-

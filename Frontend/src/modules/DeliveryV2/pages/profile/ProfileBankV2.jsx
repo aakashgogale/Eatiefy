@@ -16,7 +16,8 @@ export const ProfileBankV2 = () => {
     accountNumber: "",
     ifscCode: "",
     bankName: "",
-    panNumber: ""
+    panNumber: "",
+    upiId: ""
   });
   const [isSaving, setIsSaving] = useState(false);
 
@@ -31,7 +32,8 @@ export const ProfileBankV2 = () => {
               accountNumber: profile?.documents?.bankDetails?.accountNumber || "",
               ifscCode: profile?.documents?.bankDetails?.ifscCode || "",
               bankName: profile?.documents?.bankDetails?.bankName || "",
-              panNumber: profile?.documents?.pan?.number || ""
+              panNumber: profile?.documents?.pan?.number || "",
+              upiId: profile?.documents?.bankDetails?.upiId || ""
            });
         }
       } catch (e) { toast.error("Failed to load details"); }
@@ -41,16 +43,38 @@ export const ProfileBankV2 = () => {
   }, []);
 
   const handleSave = async () => {
-     if (!form.accountNumber || !form.ifscCode) return toast.error("Missing mandatory fields");
+     // Validation checks
+     if (!form.accountHolderName.trim()) return toast.error("Account holder name is required");
+     if (!/^[a-zA-Z\s]+$/.test(form.accountHolderName)) return toast.error("Account holder name should only contain alphabets");
+     
+     if (!form.accountNumber) return toast.error("Account number is required");
+     if (!/^\d+$/.test(form.accountNumber)) return toast.error("Account number should only contain digits");
+     if (form.accountNumber.length < 9 || form.accountNumber.length > 18) return toast.error("Invalid account number length");
+
+     if (!form.ifscCode) return toast.error("IFSC code is required");
+     if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(form.ifscCode)) return toast.error("Invalid IFSC code format (e.g., SBIN0012345)");
+
+     if (!form.bankName.trim()) return toast.error("Bank name is required");
+     if (!/^[a-zA-Z\s]+$/.test(form.bankName)) return toast.error("Bank name should only contain alphabets");
+
+     if (form.panNumber && !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(form.panNumber)) {
+        return toast.error("Invalid PAN number format");
+     }
+
+     if (form.upiId && !/^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/.test(form.upiId)) {
+        return toast.error("Invalid UPI ID format (e.g., name@bank)");
+     }
+
      setIsSaving(true);
      try {
         const payload = {
            documents: {
               bankDetails: {
-                 accountHolderName: form.accountHolderName,
+                 accountHolderName: form.accountHolderName.trim(),
                  accountNumber: form.accountNumber,
                  ifscCode: form.ifscCode,
-                 bankName: form.bankName
+                 bankName: form.bankName.trim(),
+                 upiId: form.upiId.trim()
               },
               pan: { number: form.panNumber }
            }
@@ -62,6 +86,22 @@ export const ProfileBankV2 = () => {
         }
      } catch (e) { toast.error("Update failed"); }
      finally { setIsSaving(false); }
+  };
+
+  const onInputChange = (key, value) => {
+    let sanitized = value;
+    if (key === 'accountHolderName' || key === 'bankName') {
+      sanitized = value.replace(/[^a-zA-Z\s]/g, '');
+    } else if (key === 'accountNumber') {
+      sanitized = value.replace(/\D/g, '');
+    } else if (key === 'ifscCode' || key === 'panNumber') {
+      sanitized = value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+      if (key === 'ifscCode') sanitized = sanitized.slice(0, 11);
+      if (key === 'panNumber') sanitized = sanitized.slice(0, 10);
+    } else if (key === 'upiId') {
+      sanitized = value.toLowerCase().trim();
+    }
+    setForm({ ...form, [key]: sanitized });
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><Loader2 className="w-8 h-8 animate-spin text-orange-500" /></div>;
@@ -83,7 +123,8 @@ export const ProfileBankV2 = () => {
                 "Account Number": "accountNumber",
                 "IFSC Code": "ifscCode",
                 "Bank Name": "bankName",
-                "PAN Number": "panNumber"
+                "PAN Number": "panNumber",
+                "UPI ID": "upiId"
              }).map(([label, key]) => (
                 <div key={key} className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">{label}</label>
@@ -91,7 +132,7 @@ export const ProfileBankV2 = () => {
                       <input 
                          type="text" 
                          value={form[key]}
-                         onChange={(e) => setForm({...form, [key]: e.target.value})}
+                         onChange={(e) => onInputChange(key, e.target.value)}
                          className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-sm font-bold text-gray-950 focus:ring-2 focus:ring-orange-500/20"
                       />
                    ) : (

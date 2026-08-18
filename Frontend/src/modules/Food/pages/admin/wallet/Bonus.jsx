@@ -26,7 +26,7 @@ export default function Bonus() {
     { key: "en", label: "English(EN)" },
     { key: "bn", label: "Bengali - বাংলা(BN)" },
     { key: "ar", label: "Arabic - العربية (AR)" },
-    { key: "es", label: "Spanish - espa�ol(ES)" },
+    { key: "es", label: "Spanish - espa�ol(ES)" },
   ]
 
   const filteredBonuses = useMemo(() => {
@@ -149,12 +149,13 @@ export default function Bonus() {
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-2">
                   <div className="flex items-center gap-2">
-                    <span>Bonus Amount ({formData.bonusType === "Percentage (%)" ? "%" : "$"})</span>
+                    <span>Bonus Amount ({formData.bonusType === "Percentage (%)" ? "%" : "₹"})</span>
                     <Info className="w-4 h-4 text-slate-400" />
                   </div>
                 </label>
                 <input
                   type="number"
+                  min="0"
                   value={formData.bonusAmount}
                   onChange={(e) => handleInputChange("bonusAmount", e.target.value)}
                   placeholder="Ex: 100"

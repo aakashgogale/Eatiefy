@@ -7,7 +7,7 @@ import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
 import { Checkbox } from "@food/components/ui/checkbox"
-import loginBg from "@food/assets/loginbanner.png"
+import loginBg from "@food/assets/loginbanner.webp"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 
 export default function RestaurantSignIn() {
@@ -24,7 +24,7 @@ export default function RestaurantSignIn() {
   useEffect(() => {
     const isAuthenticated = isModuleAuthenticated("restaurant")
     if (isAuthenticated) {
-      navigate("/food/restaurant", { replace: true })
+      navigate("/restaurant", { replace: true })
     }
   }, [navigate])
 
@@ -45,7 +45,7 @@ export default function RestaurantSignIn() {
         // Dispatch custom event for same-tab updates
         window.dispatchEvent(new Event('restaurantAuthChanged'))
         
-        navigate("/food/restaurant", { replace: true })
+        navigate("/restaurant", { replace: true })
       } else {
         throw new Error("Login failed. Please try again.")
       }
@@ -73,10 +73,10 @@ export default function RestaurantSignIn() {
         {/* Orange half-circle text block attached to the left with animation */}
         <div className="absolute inset-0 flex items-center text-white pointer-events-none">
           <div
-            className="bg-gradient-to-br from-[#B80B3D] to-[#66001D]/80 rounded-r-full py-10 xl:py-20 pl-10 xl:pl-14 pr-10 xl:pr-20 max-w-[70%] shadow-xl backdrop-blur-[1px]"
+            className="bg-primary-orange/80 rounded-r-full py-10 xl:py-20 pl-10 xl:pl-14 pr-10 xl:pr-20 max-w-[70%] shadow-xl backdrop-blur-[1px]"
             style={{ animation: "slideInLeft 0.8s ease-out both" }}
           >
-            <h1 className="text-[#B80B3D]xl xl:text-4xl font-extrabold mb-4 tracking-wide leading-tight">
+            <h1 className="text-3xl xl:text-4xl font-extrabold mb-4 tracking-wide leading-tight">
               WELCOME TO
               <br />
               {companyName.toUpperCase()}
@@ -96,7 +96,7 @@ export default function RestaurantSignIn() {
             className="flex items-center gap-3"
             style={{ animation: "fadeInDown 0.7s ease-out both" }}
           >
-            <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-[#B80B3D] to-[#66001D] flex items-center justify-center text-white shadow-lg">
+            <div className="h-11 w-11 rounded-xl bg-primary-orange flex items-center justify-center text-white shadow-lg">
               <UtensilsCrossed className="h-6 w-6" />
             </div>
             <div className="flex flex-col items-start">
@@ -120,7 +120,7 @@ export default function RestaurantSignIn() {
         >
           {/* Title */}
           <div className="mb-8 text-center">
-            <h2 className="text-2xl sm:text-[#B80B3D]xl font-semibold text-gray-900 mb-2">
+            <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 mb-2">
               Signin To Your Restaurant Panel
             </h2>
             <p className="text-sm text-gray-500">
@@ -194,13 +194,13 @@ export default function RestaurantSignIn() {
                   id="remember"
                   checked={remember}
                   onCheckedChange={(v) => setRemember(Boolean(v))}
-                  className="border-gray-300 data-[state=checked]:bg-gradient-to-br from-[#B80B3D] to-[#66001D] data-[state=checked]:border-primary-orange"
+                  className="border-gray-300 data-[state=checked]:bg-primary-orange data-[state=checked]:border-primary-orange"
                 />
                 <span className="text-gray-700">Remember me</span>
               </label>
               <button
                 type="button"
-                onClick={() => navigate("/food/restaurant/forgot-password")}
+                onClick={() => navigate("/restaurant/forgot-password")}
                 className="text-primary-orange hover:underline font-medium"
               >
                 Forgot Password
@@ -210,7 +210,7 @@ export default function RestaurantSignIn() {
             {/* Sign in button */}
             <Button
               type="submit"
-              className="mt-2 h-11 w-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D]/90 text-white text-base font-semibold rounded-md shadow-md transition-colors"
+              className="mt-2 h-11 w-full bg-primary-orange hover:bg-primary-orange/90 text-white text-base font-semibold rounded-md shadow-md transition-colors"
               disabled={isLoading}
             >
               {isLoading ? "Signing in..." : "Sign in"}
@@ -221,7 +221,7 @@ export default function RestaurantSignIn() {
           <div className="mt-6 text-center text-sm text-gray-600">
             Don't have an account?{" "}
             <button
-              onClick={() => navigate("/food/restaurant/signup-email")}
+              onClick={() => navigate("/restaurant/signup-email")}
               className="text-primary-orange hover:underline font-medium"
             >
               Sign up
@@ -282,11 +282,4 @@ export default function RestaurantSignIn() {
     </div>
   )
 }
-
-
-
-
-
-
-
 

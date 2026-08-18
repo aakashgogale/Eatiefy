@@ -4,11 +4,11 @@ import { FoodTransaction } from '../../orders/models/foodTransaction.model.js';
 import { FoodDeliveryWithdrawal } from '../models/foodDeliveryWithdrawal.model.js';
 import { FoodDeliveryCashDeposit } from '../models/foodDeliveryCashDeposit.model.js';
 import { FoodDeliveryPartner } from '../models/deliveryPartner.model.js';
+import { FoodDeliveryWallet } from '../models/deliveryWallet.model.js';
 import { DeliveryBonusTransaction } from '../../admin/models/deliveryBonusTransaction.model.js';
 import { getDeliveryCashLimitSettings } from '../../admin/services/admin.service.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
-import { createRazorpayOrder, getRazorpayKeyId, isRazorpayConfigured, verifyPaymentSignature, fetchRazorpayPayment, assertRazorpayPaymentMatches } from '../../orders/helpers/razorpay.helper.js';
-import { config } from '../../../../config/env.js';
+import { createRazorpayOrder, getRazorpayKeyId, isRazorpayConfigured, verifyPaymentSignature } from '../../orders/helpers/razorpay.helper.js';
 
 /**
  * Enhanced wallet fetch for delivery partners.
@@ -27,7 +27,7 @@ export const getDeliveryPartnerWalletEnhanced = async (deliveryPartnerId) => {
     const partner = await FoodDeliveryPartner.findById(partnerId).lean();
     if (!partner) throw new ValidationError('Delivery partner not found');
 
-    const [cashLimitSettings, earningsAgg, cashCollectedAgg, cashDepositsAgg, pendingCashAgg, bonusAgg, withdrawalAgg, withdrawalsList, depositList] = await Promise.all([
+    const [cashLimitSettings, earningsAgg, cashCollectedAgg, cashDepositsAgg, bonusAgg, withdrawalAgg, withdrawalsList, depositList, walletDoc] = await Promise.all([
         getDeliveryCashLimitSettings(),
         // 1. Total Earnings from Delivered Orders
         FoodOrder.aggregate([
@@ -55,17 +55,6 @@ export const getDeliveryPartnerWalletEnhanced = async (deliveryPartnerId) => {
             },
             { $group: { _id: null, depositedCash: { $sum: { $ifNull: ['$amount', 0] } } } }
         ]),
-        // 3b. Pending manual cash submissions (awaiting admin confirmation)
-        FoodDeliveryCashDeposit.aggregate([
-            {
-                $match: {
-                    deliveryPartnerId: partnerId,
-                    status: 'Pending',
-                    paymentMethod: 'cash',
-                },
-            },
-            { $group: { _id: null, pendingCash: { $sum: { $ifNull: ['$amount', 0] } } } },
-        ]),
         // 4. Admin Bonuses
         DeliveryBonusTransaction.aggregate([
             { $match: { deliveryPartnerId: partnerId } },
@@ -90,35 +79,40 @@ export const getDeliveryPartnerWalletEnhanced = async (deliveryPartnerId) => {
         FoodDeliveryCashDeposit.find({ deliveryPartnerId: partnerId })
             .sort({ createdAt: -1 })
             .limit(50)
-            .lean()
+            .lean(),
+        FoodDeliveryWallet.findOne({ deliveryPartnerId: partnerId }).lean()
     ]);
 
-    const totalEarned = Number(earningsAgg?.[0]?.totalEarned) || 0;
+    const aggTotalEarned = Number(earningsAgg?.[0]?.totalEarned) || 0;
     const grossCashCollected = Number(cashCollectedAgg?.[0]?.cashCollected) || 0;
     const totalDepositedCash = Number(cashDepositsAgg?.[0]?.depositedCash) || 0;
-    const pendingCashSubmission = Number(pendingCashAgg?.[0]?.pendingCash) || 0;
-    const cashInHand = Math.max(0, grossCashCollected - totalDepositedCash);
-    const availableToDeposit = Math.max(0, cashInHand - pendingCashSubmission);
-    const totalBonus = Number(bonusAgg?.[0]?.total) || 0;
-    const totalWithdrawn = Number(withdrawalAgg?.[0]?.totalWithdrawn) || 0;
+    const computedCashInHand = Math.max(0, grossCashCollected - totalDepositedCash);
+    const aggTotalBonus = Number(bonusAgg?.[0]?.total) || 0;
+    const aggTotalWithdrawn = Number(withdrawalAgg?.[0]?.totalWithdrawn) || 0;
     const pendingWithdrawals = Number(withdrawalAgg?.[0]?.pendingWithdrawals) || 0;
+
+    // Merge computed metrics with wallet ledger values to avoid stale pocket totals across admin bonus/manual wallet updates.
+    const walletBalance = Number(walletDoc?.balance) || 0;
+    const walletLockedAmount = Number(walletDoc?.lockedAmount) || 0;
+    const walletCashInHand = Number(walletDoc?.cashInHand) || 0;
+    const walletTotalEarnings = Number(walletDoc?.totalEarnings) || 0;
+    const walletTotalBonus = Number(walletDoc?.totalBonus) || 0;
+    const walletTotalSettled = Number(walletDoc?.totalSettled) || 0;
+
+    const totalEarned = Math.max(aggTotalEarned, walletTotalEarnings);
+    const totalBonus = Math.max(aggTotalBonus, walletTotalBonus);
+    const totalWithdrawn = Math.max(aggTotalWithdrawn, walletTotalSettled);
+    const cashInHand = Math.max(computedCashInHand, walletCashInHand);
 
     const totalCashLimit = Number(cashLimitSettings.deliveryCashLimit) || 0;
     const deliveryWithdrawalLimit = Number(cashLimitSettings.deliveryWithdrawalLimit) || 100;
 
-    // Pocket Balance = (Earnings + Bonus) - Total Withdrawn (approved) - Pending Withdrawals
-    // Wait, usually pocket balance subtracts pending too so user knows how much is "left" to request.
-    const pocketBalance = Math.max(0, (totalEarned + totalBonus) - (totalWithdrawn + pendingWithdrawals));
-
-    // Most recent approved withdrawal for "Last Payout" on Pocket
-    const lastApprovedWithdrawal = (withdrawalsList || []).find((w) => w.status === 'approved') || null;
-    const lastPayout = lastApprovedWithdrawal
-        ? {
-            amount: Number(lastApprovedWithdrawal.amount) || 0,
-            date: lastApprovedWithdrawal.processedAt || lastApprovedWithdrawal.createdAt,
-            id: lastApprovedWithdrawal._id,
-          }
-        : null;
+    // Pocket Balance = (Earnings + Bonus) - Total Withdrawn (approved) - Pending Withdrawals.
+    // Keep max with wallet ledger balance to honor admin/manual wallet adjustments.
+    const computedPocketBalance = Math.max(0, (totalEarned + totalBonus) - (totalWithdrawn + pendingWithdrawals));
+    const effectiveLockedAmount = Math.max(walletLockedAmount, pendingWithdrawals);
+    const availableWalletBalance = Math.max(0, walletBalance - effectiveLockedAmount);
+    const pocketBalance = Math.max(computedPocketBalance, availableWalletBalance);
 
     // Fetch transactions for UI (Orders, Bonuses, Withdrawals)
     const [ordersTx] = await Promise.all([
@@ -145,8 +139,6 @@ export const getDeliveryPartnerWalletEnhanced = async (deliveryPartnerId) => {
             amount: w.amount,
             status: w.status === 'pending' ? 'Pending' : (w.status === 'approved' ? 'Completed' : 'Rejected'),
             date: w.createdAt,
-            processedAt: w.processedAt || null,
-            failureReason: w.rejectionReason || null,
             description: `Withdrawal Request - ${w.paymentMethod}`,
             payoutMethod: w.paymentMethod
         })),
@@ -169,13 +161,11 @@ export const getDeliveryPartnerWalletEnhanced = async (deliveryPartnerId) => {
         cashInHand, // COD to be deposited/deducted
         totalWithdrawn, // Actually paid out
         pendingWithdrawals, // In process
-        lastPayout,
+        lockedAmount: effectiveLockedAmount,
         totalEarned,
         totalBonus,
         totalCashLimit,
         availableCashLimit: Math.max(0, totalCashLimit - cashInHand),
-        pendingCashSubmission,
-        availableToDeposit,
         deliveryWithdrawalLimit,
         transactions: transactions.slice(0, 50)
     };
@@ -185,9 +175,10 @@ export const getDeliveryPartnerWalletEnhanced = async (deliveryPartnerId) => {
  * Submits a new withdrawal request for a delivery partner.
  */
 export const requestDeliveryWithdrawal = async (deliveryPartnerId, payload) => {
-    const { amount, bankDetails, paymentMethod = 'bank_transfer' } = payload;
+    const amount = Number(payload?.amount);
+    const { bankDetails, paymentMethod = 'bank_transfer' } = payload;
 
-    if (!amount || amount < 1) throw new ValidationError('Invalid amount');
+    if (!Number.isFinite(amount) || amount < 1) throw new ValidationError('Invalid amount');
 
     const wallet = await getDeliveryPartnerWalletEnhanced(deliveryPartnerId);
     if (amount < wallet.deliveryWithdrawalLimit) {
@@ -197,11 +188,42 @@ export const requestDeliveryWithdrawal = async (deliveryPartnerId, payload) => {
         throw new ValidationError('Insufficient balance for this withdrawal');
     }
 
-    const partner = await FoodDeliveryPartner.findById(deliveryPartnerId).lean();
+    const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
+    const [partner, walletDoc, pendingAgg] = await Promise.all([
+        FoodDeliveryPartner.findById(deliveryPartnerId).lean(),
+        FoodDeliveryWallet.findOne({ deliveryPartnerId: partnerId }),
+        FoodDeliveryWithdrawal.aggregate([
+            {
+                $match: {
+                    deliveryPartnerId: partnerId,
+                    status: 'pending'
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalPending: { $sum: { $ifNull: ['$amount', 0] } }
+                }
+            }
+        ])
+    ]);
+
     if (!partner) throw new ValidationError('Delivery partner not found');
 
+    const pendingBefore = Number(pendingAgg?.[0]?.totalPending) || 0;
+    const currentBalance = Number(walletDoc?.balance) || 0;
+    const currentLocked = Number(walletDoc?.lockedAmount) || 0;
+    const effectiveLockedBefore = Math.max(currentLocked, pendingBefore);
+    const computedAvailableBalance = Number(wallet.pocketBalance) || 0;
+    const targetLedgerBalance = Math.max(currentBalance, effectiveLockedBefore + computedAvailableBalance);
+    const availableBalance = Math.max(0, targetLedgerBalance - effectiveLockedBefore);
+
+    if (amount > availableBalance) {
+        throw new ValidationError('Insufficient balance for this withdrawal');
+    }
+
     const withdrawal = await FoodDeliveryWithdrawal.create({
-        deliveryPartnerId,
+        deliveryPartnerId: partnerId,
         amount,
         paymentMethod,
         bankDetails: bankDetails || {
@@ -215,7 +237,18 @@ export const requestDeliveryWithdrawal = async (deliveryPartnerId, payload) => {
         status: 'pending'
     });
 
-    return withdrawal;
+    await FoodDeliveryWallet.findOneAndUpdate(
+        { deliveryPartnerId: partnerId },
+        {
+            $set: {
+                balance: targetLedgerBalance,
+                lockedAmount: effectiveLockedBefore + amount
+            }
+        },
+        { upsert: true, new: true }
+    );
+
+    return withdrawal.toObject();
 };
 
 export const createDeliveryCashDepositOrder = async (deliveryPartnerId, amountInr) => {
@@ -227,8 +260,8 @@ export const createDeliveryCashDepositOrder = async (deliveryPartnerId, amountIn
         throw new ValidationError('Maximum deposit is ₹5,00,000');
     }
 
-    const { availableToDeposit } = await getDepositCapacity(deliveryPartnerId);
-    if (amount > availableToDeposit) {
+    const wallet = await getDeliveryPartnerWalletEnhanced(deliveryPartnerId);
+    if (amount > wallet.cashInHand) {
         throw new ValidationError('Deposit amount cannot exceed cash in hand');
     }
 
@@ -236,9 +269,6 @@ export const createDeliveryCashDepositOrder = async (deliveryPartnerId, amountIn
     const receipt = `cash_deposit_${String(deliveryPartnerId).slice(-8)}_${Date.now()}`;
 
     if (!isRazorpayConfigured()) {
-        if (config.nodeEnv === 'production') {
-            throw new ValidationError('Payment gateway is not configured');
-        }
         return {
             razorpay: {
                 key: getRazorpayKeyId() || 'rzp_test_dummy',
@@ -283,29 +313,17 @@ export const verifyDeliveryCashDepositPayment = async (deliveryPartnerId, payloa
         return { deposit: existing, wallet: await getDeliveryPartnerWalletEnhanced(deliveryPartnerId) };
     }
 
-    const { availableToDeposit } = await getDepositCapacity(deliveryPartnerId);
-    if (amount > availableToDeposit) {
+    const wallet = await getDeliveryPartnerWalletEnhanced(deliveryPartnerId);
+    if (amount > wallet.cashInHand) {
         throw new ValidationError('Deposit amount cannot exceed cash in hand');
     }
 
-    if (!isRazorpayConfigured()) {
-        if (config.nodeEnv === 'production') {
-            throw new ValidationError('Payment gateway is not configured');
-        }
-    } else {
-        const isValid = verifyPaymentSignature(orderId, paymentId, signature);
-        if (!isValid) {
-            throw new ValidationError('Payment verification failed');
-        }
-        try {
-            const rzPayment = await fetchRazorpayPayment(paymentId);
-            assertRazorpayPaymentMatches(rzPayment, {
-                orderId,
-                amountPaise: Math.round(amount * 100),
-            });
-        } catch (err) {
-            throw new ValidationError(err?.message || 'Payment verification failed');
-        }
+    const isValid = isRazorpayConfigured()
+        ? verifyPaymentSignature(orderId, paymentId, signature)
+        : true;
+
+    if (!isValid) {
+        throw new ValidationError('Payment verification failed');
     }
 
     const deposit = existing
@@ -336,129 +354,3 @@ export const verifyDeliveryCashDepositPayment = async (deliveryPartnerId, payloa
         wallet: await getDeliveryPartnerWalletEnhanced(deliveryPartnerId)
     };
 };
-
-async function getPendingCashSubmissionTotal(deliveryPartnerId) {
-    const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
-    const agg = await FoodDeliveryCashDeposit.aggregate([
-        {
-            $match: {
-                deliveryPartnerId: partnerId,
-                status: 'Pending',
-                paymentMethod: 'cash',
-            },
-        },
-        { $group: { _id: null, total: { $sum: { $ifNull: ['$amount', 0] } } } },
-    ]);
-    return Number(agg?.[0]?.total) || 0;
-}
-
-async function getDepositCapacity(deliveryPartnerId) {
-    const wallet = await getDeliveryPartnerWalletEnhanced(deliveryPartnerId);
-    const pendingCashSubmission = await getPendingCashSubmissionTotal(deliveryPartnerId);
-    const availableToDeposit = Math.max(0, wallet.cashInHand - pendingCashSubmission);
-    return { wallet, pendingCashSubmission, availableToDeposit };
-}
-
-export const submitCashDepositByHand = async (deliveryPartnerId, amountInr) => {
-    const amount = Number(amountInr);
-    if (!Number.isFinite(amount) || amount < 1) {
-        throw new ValidationError('Amount must be at least ₹1');
-    }
-    if (amount > 500000) {
-        throw new ValidationError('Maximum deposit is ₹5,00,000');
-    }
-
-    const { wallet, pendingCashSubmission, availableToDeposit } = await getDepositCapacity(deliveryPartnerId);
-    if (amount > availableToDeposit) {
-        const suffix = pendingCashSubmission > 0
-            ? ` (₹${pendingCashSubmission} already pending admin confirmation)`
-            : '';
-        throw new ValidationError(`Deposit amount cannot exceed cash in hand (₹${availableToDeposit})${suffix}`);
-    }
-
-    const deposit = await FoodDeliveryCashDeposit.create({
-        deliveryPartnerId,
-        amount,
-        paymentMethod: 'cash',
-        status: 'Pending',
-    });
-
-    const capacityAfter = await getDepositCapacity(deliveryPartnerId);
-
-    return {
-        deposit: deposit.toObject(),
-        wallet: {
-            ...capacityAfter.wallet,
-            pendingCashSubmission: capacityAfter.pendingCashSubmission,
-            availableToDeposit: capacityAfter.availableToDeposit,
-        },
-        pendingCashSubmission: capacityAfter.pendingCashSubmission,
-        availableToDeposit: capacityAfter.availableToDeposit,
-    };
-};
-
-export async function notifyDeliveryPartnerCashDepositStatus(deliveryPartnerId, { amount, status, wallet }) {
-    const partnerId = String(deliveryPartnerId);
-    const amt = Number(amount) || 0;
-    const availableLimit = Number(wallet?.availableCashLimit) || 0;
-    const cashInHand = Number(wallet?.cashInHand) || 0;
-
-    let title = 'Cash Deposit Update';
-    let body = '';
-    let category = 'cash_deposit';
-
-    if (status === 'Completed') {
-        title = 'Cash Deposit Confirmed';
-        body = cashInHand <= 0
-            ? `Your cash deposit of ₹${amt.toLocaleString('en-IN')} has been confirmed. Your cash limit has been fully restored.`
-            : `Your cash deposit of ₹${amt.toLocaleString('en-IN')} has been confirmed. Your available cash limit is now ₹${availableLimit.toLocaleString('en-IN')}.`;
-    } else if (status === 'Failed') {
-        title = 'Cash Not Received';
-        body = `The admin has not received ₹${amt.toLocaleString('en-IN')} in cash. Please submit it again.`;
-        category = 'cash_deposit_rejected';
-    } else {
-        return;
-    }
-
-    try {
-        const { notifyOwnerSafely } = await import('../../../../core/notifications/firebase.service.js');
-        const { createInboxNotifications } = await import('../../../../core/notifications/notification.service.js');
-
-        await notifyOwnerSafely(
-            { ownerType: 'DELIVERY_PARTNER', ownerId: partnerId },
-            {
-                sendToAllDevices: true,
-                title,
-                body,
-                data: {
-                    type: category,
-                    amount: String(amt),
-                    status: String(status),
-                    availableCashLimit: String(availableLimit),
-                    cashInHand: String(cashInHand),
-                    link: '/food/delivery/pocket',
-                },
-            },
-        );
-
-        await createInboxNotifications({
-            notifications: [{
-                ownerType: 'DELIVERY_PARTNER',
-                ownerId: partnerId,
-                title,
-                message: body,
-                link: '/food/delivery/pocket',
-                category,
-                source: 'ORDER_UPDATE',
-                metadata: {
-                    amount: amt,
-                    status,
-                    availableCashLimit: availableLimit,
-                    cashInHand,
-                },
-            }],
-        });
-    } catch (err) {
-        console.error('Failed to send cash deposit notification:', err?.message || err);
-    }
-}

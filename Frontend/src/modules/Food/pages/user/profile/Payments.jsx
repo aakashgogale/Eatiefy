@@ -52,7 +52,7 @@ export default function Payments() {
             </p>
           </div>
           <Link to="/user/profile/payments/new" className="w-full sm:w-auto">
-            <Button className="w-full sm:w-auto bg-gradient-to-r from-yellow-500 to-[#DC2626] hover:from-yellow-600 hover:to-#991B1B text-white text-sm sm:text-base">
+            <Button className="w-full sm:w-auto bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white text-sm sm:text-base">
               <Plus className="h-4 w-4 mr-2" />
               Add Payment Method
             </Button>
@@ -67,7 +67,7 @@ export default function Payments() {
                 Add your first payment method to get started with orders
               </p>
               <Link to="/user/profile/payments/new">
-                <Button className="bg-gradient-to-r from-yellow-500 to-[#DC2626] hover:from-yellow-600 hover:to-#991B1B text-white">
+                <Button className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white">
                   <Plus className="h-4 w-4 mr-2" />
                   Add Your First Payment Method
                 </Button>

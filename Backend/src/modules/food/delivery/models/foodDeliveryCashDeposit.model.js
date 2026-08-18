@@ -32,18 +32,12 @@ const foodDeliveryCashDepositSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
     },
-    adminNote: String,
-    confirmationAction: {
-        type: String,
-        enum: ['received', 'not_received'],
-        default: undefined,
-    }
+    adminNote: String
 }, { 
     collection: 'food_delivery_cash_deposits', 
     timestamps: true 
 });
 
 foodDeliveryCashDepositSchema.index({ createdAt: -1 });
-foodDeliveryCashDepositSchema.index({ paymentMethod: 1, status: 1, createdAt: -1 });
 
 export const FoodDeliveryCashDeposit = mongoose.model('FoodDeliveryCashDeposit', foodDeliveryCashDepositSchema);

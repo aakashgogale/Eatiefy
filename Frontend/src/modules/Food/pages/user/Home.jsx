@@ -1,4 +1,4 @@
-import { useSearchParams, Link, useNavigate, useLocation as useRouterLocation } from "react-router-dom";
+import { useSearchParams, Link, useNavigate } from "react-router-dom";
 import React, {
   useRef,
   useEffect,
@@ -25,6 +25,7 @@ import {
   Bookmark,
   BadgePercent,
   X,
+  ArrowRightLeft,
   ArrowDownUp,
   Timer,
   CalendarClock,
@@ -35,26 +36,36 @@ import {
   AlertCircle,
   Loader2,
   Plus,
+  Minus,
+  ArrowRight,
   Check,
   Share2,
-  Zap,
 } from "lucide-react";
+import { toast } from "sonner";
+import { buildCartLineId } from "@food/utils/foodVariants";
+import { isModuleAuthenticated } from "@food/utils/auth";
 import { motion, AnimatePresence } from "framer-motion";
 import Footer from "@food/components/user/Footer";
-import VoiceSearchOverlay from "@food/components/user/VoiceSearchOverlay";
-import { useVoiceSearch } from "@food/hooks/useVoiceSearch";
+import FoodFilterBar from "@food/components/user/FoodFilterBar";
 import AddToCartButton from "@food/components/user/AddToCartButton";
-import StickyCartCard from "@food/components/user/StickyCartCard";
-import OrderTrackingCard from "@food/components/user/OrderTrackingCard";
+import FloatingHomeDock from "@food/components/user/FloatingHomeDock";
+import BackToTopButton from "@food/components/user/BackToTopButton";
+import {
+  captureHomeScrollBeforeLeave,
+  clearHomeScrollState,
+  peekHomePageSnapshot,
+  peekHomeScrollState,
+  stashHomePageSnapshot,
+} from "@food/utils/homeScrollRestore";
 import {
   CategoryChipRowSkeleton,
+  ExploreGridSkeleton,
   HeroBannerSkeleton,
   LoadingSkeletonRegion,
   RestaurantGridSkeleton,
+  AppShellSkeleton,
 } from "@food/components/ui/loading-skeletons";
 import { useProfile } from "@food/context/ProfileContext";
-import { isModuleAuthenticated } from "@food/utils/auth";
-import { isVegMenuItem, isNonVegCategoryScope } from "@food/utils/vegMode";
 import { useCart } from "@food/context/CartContext";
 import { HorizontalCarousel } from "@food/components/ui/horizontal-carousel";
 import { DotPattern } from "@food/components/ui/dot-pattern";
@@ -74,158 +85,85 @@ import {
   useLocationSelector,
 } from "@food/components/user/UserLayout";
 import PageNavbar from "@food/components/user/PageNavbar";
+import {
+  getUserRestaurantDistance,
+  normalizeRestaurantLocation,
+} from "@food/utils/geo";
+import { optimizeCloudinaryUrl } from "@/shared/utils/mediaUrl";
+import {
+  fetchDrivingDistancesMatrix,
+  formatDistanceLabel,
+} from "@food/utils/roadDistance";
 
 const debugLog = (...args) => { };
 const debugWarn = (...args) => { };
 const debugError = (...args) => { };
+const VEG_MODE_OPTION_STORAGE_KEY = "food_user_veg_mode_option";
 
 // Import shared food images - prevents duplication
-import { foodImages } from "@food/constants/images";
+import { foodImages, horizontalFoodImages, verticalFoodImages } from "@food/constants/images";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@food/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@food/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@food/components/ui/dropdown-menu";
-import { useLocation, resolveServiceCity } from "@food/hooks/useLocation";
-import { useZone } from "@food/hooks/useZone";
-import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png";
-import offerImage from "@food/assets/offerimage.png";
-import api, { publicGetOnce, restaurantAPI, adminAPI } from "@food/api";
+import { useDeliveryLocation } from "@food/context/DeliveryLocationContext";
+import offerImage from "@food/assets/offerimage.webp";
+import api, { restaurantAPI, adminAPI } from "@food/api";
+import { usePublicAppConfig } from "@food/context/PublicAppConfigContext";
 import { API_BASE_URL } from "@food/api/config";
 import OptimizedImage from "@food/components/OptimizedImage";
-import RestaurantImageCarousel from "@food/components/user/RestaurantImageCarousel";
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability";
-import { compareRestaurantsByAvailabilityAndDistance } from "@food/utils/restaurantBrowseSort";
-import { normalizeImageUrl as normalizeServerImageUrl } from "@food/utils/common";
-import {
-  saveBrowseScroll,
-  peekBrowseScroll,
-  consumeBrowseScroll,
-  restoreBrowseScroll,
-} from "@food/utils/browseScrollMemory";
-import { toFoodUserPath, getRestaurantRouteId } from "@food/utils/mainTabRoutes";
-import {
-  getCachedExploreIcons,
-  setCachedExploreIcons,
-  isExploreIconsCacheFresh,
-  preloadImageUrls,
-} from "@food/utils/foodPageCache";
-import HomeHeader from "@food/components/user/home/HomeHeader";
+import HomeHeader, { SearchBarRow } from "@food/components/user/home/HomeHeader";
 import QuickSection from "@food/components/user/home/QuickSection";
 import PromoRow from "@food/components/user/home/PromoRow";
-import FestBanner from "@food/components/user/home/FestBanner";
-
-// Persistence for back-navigation and refresh speed
-const getSessionCache = (key) => {
-  try {
-    const cached = sessionStorage.getItem(key);
-    return cached ? JSON.parse(cached) : null;
-  } catch (e) { return null; }
-};
-const setSessionCache = (key, data) => {
-  try { sessionStorage.setItem(key, JSON.stringify(data)); } catch (e) { }
-};
-
-// v2: added foodTypeScope field — old cache entries without it must be dropped
-const HOME_CATEGORIES_CACHE_KEY = 'food_home_categories_v2';
-let HOME_RESTAURANTS_CACHE = getSessionCache('food_home_restaurants');
-let HOME_CATEGORIES_CACHE = getSessionCache(HOME_CATEGORIES_CACHE_KEY);
+import PromotionBannerCarousel from "@food/components/user/home/PromotionBannerCarousel";
+import OutOfZoneScreen from "@food/components/user/OutOfZoneScreen";
+import FreeCashBanner from "@food/components/user/home/FreeCashBanner";
 
 
 // Explore More Icons
-import exploreOffers from "@food/assets/explore more icons/offers.png";
-import exploreGourmet from "@food/assets/explore more icons/gourmet.png";
-import exploreTop10 from "@food/assets/explore more icons/top 10.png";
-import exploreCollection from "@food/assets/explore more icons/collection.png";
+import exploreOffers from "@food/assets/explore more icons/offers.webp";
+import exploreGourmet from "@food/assets/explore more icons/gourmet.webp";
+import exploreTop10 from "@food/assets/explore more icons/top 10.webp";
+import exploreCollection from "@food/assets/explore more icons/collection.webp";
 
-// Bundled Explore logos — warm browser cache as soon as Home module loads
-preloadImageUrls([exploreOffers, exploreGourmet, exploreTop10, exploreCollection]);
+// Generated High-Quality Food Category Images (Cloudinary CDN URLs)
+import cloudinaryImages from "@food/constants/cloudinaryImages.json";
+const khichdiImg = cloudinaryImages.khichdi;
+const sandwichImg = cloudinaryImages.sandwich;
+const parathaImg = cloudinaryImages.paratha;
+const burgerImg = cloudinaryImages.burger;
+const dosaImg = cloudinaryImages.dosa;
+const rollsImg = cloudinaryImages.rolls;
+const northIndianImg = cloudinaryImages.north_indian;
+const friedRiceImg = cloudinaryImages.fried_rice;
+const thaliImg = cloudinaryImages.thali;
+const paneerImg = cloudinaryImages.paneer;
+const pizzaImg = cloudinaryImages.pizza;
+const pastaImg = cloudinaryImages.pasta;
+const momosImg = cloudinaryImages.momos;
+const cakeImg = cloudinaryImages.cake;
+const noodlesImg = cloudinaryImages.noodles;
+const choleBhatureImg = cloudinaryImages.chole_bhature;
+const biryaniCleanImg = cloudinaryImages.biryani_clean;
+const maggieCleanImg = cloudinaryImages.maggie_clean;
+const rasgullaCleanImg = cloudinaryImages.rasgulla_clean;
+const BACKEND_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "");
 
-const CACHED_EXPLORE_BOOT = (() => {
-  try {
-    const cached = getCachedExploreIcons();
-    if (!cached || !isExploreIconsCacheFresh()) return null;
-    preloadImageUrls(
-      (cached.items || [])
-        .map((it) => it.imageUrl || it.image)
-        .filter(Boolean)
-        .map(toExploreIconThumbUrl),
-    );
-    return cached;
-  } catch {
-    return null;
+const resolveImageUrl = (url) => {
+  if (!url || typeof url !== "string") return "";
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("data:")) {
+    return trimmed;
   }
-})();
-
-function toExploreIconThumbUrl(url) {
-  return url;
-}
-
-/** Explore icons: skeleton until logo paints — never show alt/label text in the icon box. */
-function ExploreIconImage({ src, fallbackSrc, className }) {
-  const localSrc = fallbackSrc || "";
-  const remoteSrc = src && src !== localSrc ? src : "";
-  const targetSrc = remoteSrc || localSrc || src || "";
-  const [shownSrc, setShownSrc] = useState(targetSrc);
-  const [isLoaded, setIsLoaded] = useState(false);
-  const imgRef = useRef(null);
-
-  useEffect(() => {
-    const preferred = remoteSrc || localSrc || "";
-    setIsLoaded(false);
-    setShownSrc(preferred);
-  }, [remoteSrc, localSrc]);
-
-  // Cached images often skip onLoad — mark loaded if already complete
-  useEffect(() => {
-    const el = imgRef.current;
-    if (el?.complete && el.naturalWidth > 0) {
-      setIsLoaded(true);
-    }
-  }, [shownSrc]);
-
-  return (
-    <div className={`relative w-full h-full ${className || ""}`}>
-      {!isLoaded && (
-        <div
-          className="absolute inset-0 z-20 rounded-xl bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 animate-pulse dark:from-gray-700 dark:via-gray-600 dark:to-gray-700"
-          aria-hidden="true"
-        />
-      )}
-      {shownSrc ? (
-        <img
-          ref={imgRef}
-          src={shownSrc}
-          alt=""
-          aria-hidden="true"
-          className={`relative z-10 w-full h-full object-contain transition-opacity duration-150 ${
-            isLoaded ? "opacity-100" : "opacity-0"
-          }`}
-          loading="eager"
-          decoding="async"
-          fetchPriority="high"
-          draggable={false}
-          onLoad={() => setIsLoaded(true)}
-          onError={() => {
-            if (localSrc && shownSrc !== localSrc) {
-              setIsLoaded(false);
-              setShownSrc(localSrc);
-              return;
-            }
-            // Keep skeleton rather than broken-image alt text
-            setIsLoaded(false);
-            setShownSrc("");
-          }}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-// Banner images for hero carousel - will be fetched from API
+  const cleanPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return `${BACKEND_ORIGIN}${cleanPath}`;
+};
 
 // Animated placeholder for search - moved outside component to prevent recreation
 const placeholders = [
@@ -238,6 +176,8 @@ const placeholders = [
   'Search "momos"',
   'Search "dosa"',
 ];
+
+const WEBVIEW_SESSION_CACHE_BUSTER = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 const getRestaurantDisplayName = (restaurant) => {
   const nameCandidates = [
@@ -254,171 +194,763 @@ const getRestaurantDisplayName = (restaurant) => {
   return resolvedName ? resolvedName.trim() : "Restaurant";
 };
 
-// Symmetrical Scallop Icon Badge (with inline % vector text) to look exactly like the restaurant details page
-const ScallopBadge = ({ className = "" }) => (
-  <svg
-    viewBox="0 0 100 100"
-    className={`text-[#2563EB] fill-current flex-shrink-0 ${className}`}
-  >
-    <path d="M 86.29 42.78 Q 95.00 50.00 86.29 57.22 Q 91.57 67.22 80.76 70.56 Q 81.82 81.82 70.56 80.76 Q 67.22 91.57 57.22 86.29 Q 50.00 95.00 42.78 86.29 Q 32.78 91.57 29.44 80.76 Q 18.18 81.82 19.24 70.56 Q 8.43 67.22 13.71 57.22 Q 5.00 50.00 13.71 42.78 Q 8.43 32.78 19.24 29.44 Q 18.18 18.18 29.44 19.24 Q 32.78 8.43 42.78 13.71 Q 50.00 5.00 57.22 13.71 Q 67.22 8.43 70.56 19.24 Q 81.82 18.18 80.76 29.44 Q 91.57 32.78 86.29 42.78 Z" />
-    <text
-      x="50"
-      y="63"
-      textAnchor="middle"
-      fontSize="42"
-      fontWeight="900"
-      fill="white"
-      className="select-none font-sans"
-    >
-      %
-    </text>
-  </svg>
-);
+// Restaurant Image Carousel Component
+const RestaurantImageCarousel = React.memo(
+  ({
+    restaurant,
+    priority = false,
+    backendOrigin = "",
+    className = "h-48 sm:h-56 md:h-60 lg:h-64 xl:h-72",
+    roundedClass = "rounded-t-md",
+    externalIndex = null,
+    onIndexChange = null,
+    autoScroll = false, // Disabled auto-scroll by default: cards slide ONLY on hand swipe
+  }) => {
+    const webviewSessionKeyRef = useRef(WEBVIEW_SESSION_CACHE_BUSTER);
+    const imageElementRef = useRef(null);
 
-const formatCouponText = (coupon) => {
-  if (!coupon) return "";
-  const minOrderValue = Number(coupon.minOrderValue);
-  const minOrderText = Number.isFinite(minOrderValue) && minOrderValue > 0 ? ` above ₹${minOrderValue}` : "";
-  if (coupon.discountType === "percentage") {
-    const discountPercentage = coupon.discountPercentage ?? coupon.discountValue;
-    const limitText = coupon.maxDiscount ? ` up to ₹${coupon.maxDiscount}` : "";
-    return `${discountPercentage}% OFF${minOrderText}${limitText}`;
-  }
-  const value = coupon.originalPrice || coupon.discountValue || 0;
-  return `Flat ₹${value} OFF${minOrderText}`;
-};
+    const withCacheBuster = useCallback(
+      (url) => {
+        if (typeof url !== "string" || !url) return "";
+        if (/^data:/i.test(url) || /^blob:/i.test(url)) return url;
 
-// Restaurant Card Offer Carousel Component - cycles through active coupons
-const RestaurantCardOfferCarousel = React.memo(({ coupons }) => {
-  const uniqueCoupons = React.useMemo(() => {
-    if (!coupons || coupons.length === 0) return [];
-    const map = new Map();
-    coupons.forEach(c => {
-      const text = formatCouponText(c);
-      if (text && !map.has(text)) {
-        map.set(text, c);
+        // Resolve relative URLs (e.g. /uploads/...) so they load on mobile when backend is different from frontend.
+        const isRelative = !/^(https?:|\/\/|data:|blob:)/i.test(url.trim());
+        const resolvedUrl =
+          backendOrigin && isRelative
+            ? `${backendOrigin.replace(/\/$/, "")}${url.startsWith("/") ? url : `/${url}`}`
+            : url;
+
+        // Do not mutate signed URLs (legacy S3/Cloudfront/Firebase links can break if query changes).
+        const hasSignedParams =
+          /[?&](X-Amz-|Signature=|Expires=|AWSAccessKeyId=|GoogleAccessId=|token=|sig=|se=|sp=|sv=)/i.test(
+            resolvedUrl,
+          );
+        if (hasSignedParams) return resolvedUrl;
+
+        try {
+          const parsed = new URL(resolvedUrl, window.location.origin);
+
+          // Apply cache-buster only to app/backend-hosted URLs to avoid third-party CDN signature issues.
+          const currentHost =
+            typeof window !== "undefined" ? window.location.hostname : "";
+          const isLocalHost = /^(localhost|127\.0\.0\.1)$/i.test(
+            parsed.hostname,
+          );
+          const isSameHost = currentHost && parsed.hostname === currentHost;
+
+          if (isLocalHost || isSameHost) {
+            parsed.searchParams.set("_wv", webviewSessionKeyRef.current);
+          }
+          return optimizeCloudinaryUrl(parsed.toString());
+        } catch {
+          return optimizeCloudinaryUrl(resolvedUrl);
+        }
+      },
+      [backendOrigin],
+    );
+
+    const images = useMemo(() => {
+      const list = [];
+      if (!restaurant) return [foodImages[0]];
+      const hasRecommended = Array.isArray(restaurant?.recommendedItems) && restaurant.recommendedItems.length > 0;
+
+      if (hasRecommended) {
+        restaurant.recommendedItems.forEach(item => {
+          if (item && item.image) list.push(item.image);
+        });
       }
-    });
-    return Array.from(map.values());
-  }, [coupons]);
 
-  const [currentIndex, setCurrentIndex] = useState(0);
+      if (Array.isArray(restaurant?.images) && restaurant.images.length > 0) {
+        restaurant.images.forEach(img => {
+          if (typeof img === "string" && img.trim()) list.push(img.trim());
+        });
+      }
 
-  const couponsKey = uniqueCoupons.map(c => c.couponCode || c.code || "").join(",");
+      if (restaurant?.image && typeof restaurant.image === "string" && restaurant.image.trim()) {
+        list.push(restaurant.image.trim());
+      }
+      if (restaurant?.coverImage && typeof restaurant.coverImage === "string" && restaurant.coverImage.trim()) {
+        list.push(restaurant.coverImage.trim());
+      }
 
-  useEffect(() => {
-    if (uniqueCoupons.length <= 1) return;
-    const interval = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % uniqueCoupons.length);
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [couponsKey, uniqueCoupons.length]);
+      const validImages = list
+        .filter(Boolean)
+        .map((img) => withCacheBuster(img));
 
-  if (uniqueCoupons.length === 0) return null;
+      return Array.from(new Set(validImages));
+    }, [restaurant, withCacheBuster]);
 
-  // Static display if only 1 unique coupon exists to prevent layout shifting/unwanted sliding
-  if (uniqueCoupons.length === 1) {
+    const [internalIndex, setInternalIndex] = useState(0);
+    const currentIndex = externalIndex !== null ? externalIndex : internalIndex;
+
+    const setCurrentIndex = useCallback((val) => {
+      const nextIndex = typeof val === 'function' ? val(currentIndex) : val;
+      if (onIndexChange) {
+        onIndexChange(nextIndex);
+      } else {
+        setInternalIndex(nextIndex);
+      }
+    }, [currentIndex, onIndexChange]);
+
+    const [loadedBySrc, setLoadedBySrc] = useState({});
+    const [, setAttemptedSrcs] = useState({});
+    const [isImageUnavailable, setIsImageUnavailable] = useState(false);
+    const [showShimmer, setShowShimmer] = useState(true);
+    const [lastGoodSrc, setLastGoodSrc] = useState("");
+
+    const sliderRef = useRef(null);
+    const containerRef = useRef(null);
+    const touchStartX = useRef(0);
+    const touchStartY = useRef(0);
+    const isSwiping = useRef(false);
+    const isPausedRef = useRef(false);
+    const pauseTimeoutRef = useRef(null);
+    const gestureDirection = useRef('none');
+    const currentIdxRef = useRef(0);
+    const hasDragged = useRef(false);
+    const dragTimeoutRef = useRef(null);
+
+    const safeIndex =
+      images.length > 0
+        ? ((currentIndex % images.length) + images.length) % images.length
+        : 0;
+    const primarySrc = images[safeIndex] || "";
+    const displaySrc = primarySrc;
+    const renderSrc = displaySrc || lastGoodSrc;
+
+    // Sync currentIdxRef with safeIndex
+    useEffect(() => {
+      currentIdxRef.current = safeIndex;
+    }, [safeIndex]);
+
+    // Optional Auto-scroll effect (only runs if autoScroll prop is explicitly true)
+    useEffect(() => {
+      if (!autoScroll || images.length <= 1) return;
+
+      const intervalId = setInterval(() => {
+        if (!isSwiping.current && !isPausedRef.current) {
+          setCurrentIndex((prevIndex) => (prevIndex + 1) % images.length);
+        }
+      }, 3500);
+
+      return () => clearInterval(intervalId);
+    }, [autoScroll, images.length, setCurrentIndex]);
+
+    // Reset transient image state when restaurant or source list changes.
+    useEffect(() => {
+      setCurrentIndex(0);
+      setLoadedBySrc({});
+      setAttemptedSrcs({});
+      setIsImageUnavailable(images.length === 0);
+      setShowShimmer(images.length > 0);
+    }, [restaurant?.id, restaurant?.slug, restaurant?.updatedAt, images]);
+
+    // Clear sticky successful source only when card identity changes.
+    useEffect(() => {
+      setLastGoodSrc("");
+    }, [restaurant?.id, restaurant?.slug]);
+
+    useEffect(() => {
+      if (!renderSrc) return;
+      const imgEl = imageElementRef.current;
+      if (!imgEl) return;
+
+      setShowShimmer(true);
+      const shimmerTimeout = setTimeout(() => {
+        setShowShimmer(false);
+      }, 2500);
+
+      if (imgEl.complete) {
+        if (imgEl.naturalWidth > 0) {
+          setLoadedBySrc((prev) =>
+            prev[renderSrc] ? prev : { ...prev, [renderSrc]: true },
+          );
+          setLastGoodSrc(renderSrc);
+          setShowShimmer(false);
+        } else {
+          setAttemptedSrcs((prev) => ({ ...prev, [renderSrc]: true }));
+        }
+      }
+      return () => clearTimeout(shimmerTimeout);
+    }, [renderSrc]);
+
+    // Touch & Mouse drag physics for nested card image slider
+    useEffect(() => {
+      const sliderNode = sliderRef.current;
+      const containerNode = containerRef.current;
+      if (!sliderNode || !containerNode || images.length <= 1) return;
+
+      const handleStart = (clientX, clientY) => {
+        touchStartX.current = clientX;
+        touchStartY.current = clientY;
+        isSwiping.current = true;
+        isPausedRef.current = true;
+        hasDragged.current = false;
+        gestureDirection.current = 'none';
+        containerNode.style.transition = 'none';
+
+        if (pauseTimeoutRef.current) clearTimeout(pauseTimeoutRef.current);
+      };
+
+      const handleMove = (clientX, clientY, e) => {
+        if (!isSwiping.current) return;
+        const deltaX = clientX - touchStartX.current;
+        const deltaY = clientY - touchStartY.current;
+
+        if (gestureDirection.current === 'none') {
+          const absX = Math.abs(deltaX);
+          const absY = Math.abs(deltaY);
+          if (absX >= 3 || absY >= 3) {
+            if (absX > absY) {
+              gestureDirection.current = 'horizontal';
+            } else {
+              gestureDirection.current = 'vertical';
+              isSwiping.current = false;
+              return;
+            }
+          } else {
+            return;
+          }
+        }
+
+        if (gestureDirection.current === 'horizontal') {
+          hasDragged.current = true;
+          if (e) {
+            e.stopPropagation(); // Stops horizontal scroll from reaching outer cards container
+            if (e.cancelable) e.preventDefault();
+          }
+
+          const baseTranslate = -currentIdxRef.current * 100;
+          const width = containerNode.clientWidth || sliderNode.clientWidth || 100;
+          const percentDelta = (deltaX / width) * 100;
+
+          let finalTranslate = baseTranslate + percentDelta;
+          if (currentIdxRef.current === 0 && deltaX > 0) {
+            finalTranslate = percentDelta * 0.3;
+          } else if (currentIdxRef.current === images.length - 1 && deltaX < 0) {
+            finalTranslate = baseTranslate + percentDelta * 0.3;
+          }
+
+          containerNode.style.transform = `translateX(${finalTranslate}%)`;
+        }
+      };
+
+      const handleEnd = (clientX) => {
+        if (!isSwiping.current) return;
+        isSwiping.current = false;
+
+        // Resume auto-scroll 4 seconds after user interaction ends
+        if (pauseTimeoutRef.current) clearTimeout(pauseTimeoutRef.current);
+        pauseTimeoutRef.current = setTimeout(() => {
+          isPausedRef.current = false;
+        }, 4000);
+
+        if (gestureDirection.current !== 'horizontal') return;
+
+        const endX = clientX !== undefined ? clientX : touchStartX.current;
+        const deltaX = endX - touchStartX.current;
+
+        containerNode.style.transition = 'transform 300ms cubic-bezier(0.16, 1, 0.3, 1)';
+        const width = containerNode.clientWidth || sliderNode.clientWidth || 100;
+        const threshold = width * 0.15;
+
+        let newIdx = currentIdxRef.current;
+        if (deltaX < -threshold) {
+          newIdx = Math.min(currentIdxRef.current + 1, images.length - 1);
+        } else if (deltaX > threshold) {
+          newIdx = Math.max(currentIdxRef.current - 1, 0);
+        }
+
+        containerNode.style.transform = `translateX(-${newIdx * 100}%)`;
+
+        setTimeout(() => {
+          setCurrentIndex(newIdx);
+        }, 300);
+
+        if (dragTimeoutRef.current) clearTimeout(dragTimeoutRef.current);
+        dragTimeoutRef.current = setTimeout(() => {
+          hasDragged.current = false;
+        }, 300);
+      };
+
+      // Native Touch Listeners on the outer slider node
+      const onTouchStart = (e) => {
+        if (e.touches.length > 1) return;
+        const touch = e.touches[0];
+        handleStart(touch.clientX, touch.clientY);
+      };
+
+      const onTouchMove = (e) => {
+        if (!isSwiping.current) return;
+        const touch = e.touches[0];
+        handleMove(touch.clientX, touch.clientY, e);
+      };
+
+      const onTouchEnd = (e) => {
+        const touch = e.changedTouches[0] || e.touches[0];
+        handleEnd(touch ? touch.clientX : touchStartX.current);
+      };
+
+      // Mouse drag Listeners for desktop touch-device emulation & mouse drag
+      const onMouseDown = (e) => {
+        handleStart(e.clientX, e.clientY);
+      };
+
+      const onMouseMove = (e) => {
+        handleMove(e.clientX, e.clientY, e);
+      };
+
+      const onMouseUp = (e) => {
+        handleEnd(e.clientX);
+      };
+
+      const onMouseEnter = () => {
+        isPausedRef.current = true;
+      };
+
+      const onMouseLeave = (e) => {
+        handleEnd(e.clientX);
+        isPausedRef.current = false;
+      };
+
+      sliderNode.addEventListener('touchstart', onTouchStart, { passive: true });
+      sliderNode.addEventListener('touchmove', onTouchMove, { passive: false });
+      sliderNode.addEventListener('touchend', onTouchEnd, { passive: true });
+
+      sliderNode.addEventListener('mousedown', onMouseDown);
+      sliderNode.addEventListener('mousemove', onMouseMove);
+      sliderNode.addEventListener('mouseup', onMouseUp);
+      sliderNode.addEventListener('mouseenter', onMouseEnter);
+      sliderNode.addEventListener('mouseleave', onMouseLeave);
+
+      return () => {
+        sliderNode.removeEventListener('touchstart', onTouchStart);
+        sliderNode.removeEventListener('touchmove', onTouchMove);
+        sliderNode.removeEventListener('touchend', onTouchEnd);
+
+        sliderNode.removeEventListener('mousedown', onMouseDown);
+        sliderNode.removeEventListener('mousemove', onMouseMove);
+        sliderNode.removeEventListener('mouseup', onMouseUp);
+        sliderNode.removeEventListener('mouseenter', onMouseEnter);
+        sliderNode.removeEventListener('mouseleave', onMouseLeave);
+      };
+    }, [images.length, setCurrentIndex]);
+
+    const showMultipleImages = images.length > 1;
+
     return (
-      <div className="flex items-center gap-2 mt-2 overflow-hidden h-[20px] relative">
-        {/* Symmetrical Scallop Icon like Zomato */}
-        <div className="flex-shrink-0 flex items-center justify-center w-5 h-5">
-          <ScallopBadge className="h-5 w-5 text-[#2563EB]" />
+      <div
+        ref={sliderRef}
+        className={`relative ${className} w-full overflow-hidden ${roundedClass} flex-shrink-0 group select-none touch-pan-y`}
+        onClick={(e) => {
+          if (hasDragged.current) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }}
+      >
+        {showShimmer && !isImageUnavailable && Boolean(renderSrc) && (
+          <div className="absolute inset-0 z-[1] overflow-hidden bg-gray-200 pointer-events-none">
+            <div className="h-full w-full animate-pulse bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
+          </div>
+        )}
+
+        <div className="absolute inset-0 transition-transform duration-700 ease-out group-hover:scale-105 overflow-hidden">
+          <div
+            ref={containerRef}
+            className="flex w-full h-full transition-transform duration-500 ease-in-out touch-pan-y"
+            style={{ transform: `translateX(-${safeIndex * 100}%)`, willChange: 'transform' }}
+          >
+            {images.map((src, idx) => (
+              <img
+                key={src || idx}
+                ref={idx === safeIndex ? imageElementRef : null}
+                src={src}
+                alt={`${restaurant.name} - Image ${idx + 1}`}
+                className="w-full h-full flex-shrink-0 object-cover pointer-events-none"
+                draggable={false}
+                loading={priority && idx === 0 ? "eager" : "lazy"}
+                fetchPriority={priority && idx === 0 ? "high" : "auto"}
+                decoding="async"
+                onLoad={() => {
+                  setLoadedBySrc((prev) => ({ ...prev, [src]: true }));
+                  if (idx === safeIndex) {
+                    setLastGoodSrc(src);
+                    setShowShimmer(false);
+                  }
+                }}
+                onError={() => {
+                  setAttemptedSrcs((prev) => {
+                    const next = { ...prev, [src]: true };
+                    const attemptedCount = Object.keys(next).length;
+
+                    if (attemptedCount >= images.length) {
+                      setIsImageUnavailable(true);
+                    } else if (images.length > 1 && idx === safeIndex) {
+                      setCurrentIndex((prevIndex) => (prevIndex + 1) % images.length);
+                    }
+
+                    return next;
+                  });
+                  if (images.length === 1) {
+                    setIsImageUnavailable(true);
+                  }
+                }}
+              />
+            ))}
+          </div>
         </div>
-        <div className="flex-grow h-full overflow-hidden relative min-w-0">
-          <span className="absolute inset-x-0 top-0 bottom-0 text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 tracking-wide truncate flex items-center">
-            {formatCouponText(uniqueCoupons[0])}
-          </span>
-        </div>
+
+        {isImageUnavailable && (
+          <div className="absolute inset-0 z-[2] flex items-center justify-center bg-gray-100 pointer-events-none">
+            <span className="text-xs text-gray-500">Image unavailable</span>
+          </div>
+        )}
+
+        {/* Image Indicators — compact glass capsule, bottom-right */}
+        {showMultipleImages && (
+          <div
+            className="absolute bottom-2 right-2 z-10 flex items-center gap-[3px] rounded-full border border-white/20 bg-black/55 px-[5px] py-[3px] shadow-[0_2px_8px_rgba(0,0,0,0.4)]"
+            role="tablist"
+            aria-label="Restaurant image pages"
+          >
+            {images.map((_, index) => {
+              const isActive = index === safeIndex;
+              return (
+                <button
+                  key={index}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setCurrentIndex(index);
+                  }}
+                  className="flex h-3 w-3 items-center justify-center rounded-full focus:outline-none focus-visible:ring-1 focus-visible:ring-white/70 cursor-pointer"
+                  aria-label={`Go to image ${index + 1}`}>
+                  <span
+                    aria-hidden="true"
+                    className={`block rounded-full transition-[width,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${isActive
+                        ? "h-[5px] w-[13px] bg-white opacity-100"
+                        : "h-[5px] w-[5px] bg-white opacity-[0.35]"
+                      }`}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Gradient Overlay on Hover */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100 pointer-events-none" />
+
+        {/* Shine Effect */}
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full transition-transform duration-1000 group-hover:animate-shine pointer-events-none" />
       </div>
     );
-  }
+  },
+);
 
-  const currentCoupon = uniqueCoupons[currentIndex] || uniqueCoupons[0];
+const RestaurantCard = React.memo(({
+  restaurant,
+  index,
+  availabilityTick,
+  isOutOfService,
+  favorite,
+  onToggleFavorite,
+  BACKEND_ORIGIN,
+  restaurantSlug: propRestaurantSlug,
+  onNavigateAway,
+}) => {
+  const navigate = useNavigate();
+  const [slideIndex, setSlideIndex] = useState(0);
+  const [offerIndex, setOfferIndex] = useState(0);
+  const validRecommendedItems = useMemo(() => {
+    return (restaurant.recommendedItems || []).filter(item => item && item.image);
+  }, [restaurant.recommendedItems]);
+  const rotatingOffers = useMemo(() => {
+    const summaries = Array.isArray(restaurant.activeOffers)
+      ? restaurant.activeOffers
+        .map((offer) => String(offer?.summary || "").trim())
+        .filter(Boolean)
+      : [];
+
+    if (!summaries.length && restaurant.offer) {
+      return [String(restaurant.offer).trim()];
+    }
+
+    return Array.from(new Set(summaries));
+  }, [restaurant.activeOffers, restaurant.offer]);
+  const rotatingOffersKey = rotatingOffers.join("|");
+
+  const hasRecommended = validRecommendedItems.length > 0;
+  const currentOffer = rotatingOffers[offerIndex] || null;
+
+  const currentDish = hasRecommended ? validRecommendedItems[slideIndex] : null;
+  const name = currentDish ? currentDish.name : restaurant.featuredDish;
+  const price = currentDish ? currentDish.price : restaurant.featuredPrice;
+
+  const availability = getRestaurantAvailabilityStatus(
+    restaurant,
+    new Date(availabilityTick),
+  );
+
+  const restaurantSlug = useMemo(() => {
+    if (propRestaurantSlug) return propRestaurantSlug;
+    if (restaurant.slug) return restaurant.slug;
+    return (restaurant.name || restaurant.restaurantName || "restaurant")
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, "-");
+  }, [propRestaurantSlug, restaurant.slug, restaurant.name, restaurant.restaurantName]);
+
+  const targetUrl = currentDish
+    ? `/food/user/restaurants/${restaurantSlug}?dish=${currentDish.id}`
+    : `/food/user/restaurants/${restaurantSlug}`;
+
+  useEffect(() => {
+    setOfferIndex(0);
+  }, [restaurant.id, restaurant.slug, rotatingOffersKey]);
+
+  useEffect(() => {
+    if (rotatingOffers.length <= 1) return undefined;
+
+    const intervalId = window.setInterval(() => {
+      setOfferIndex((prev) => (prev + 1) % rotatingOffers.length);
+    }, 2600);
+
+    return () => window.clearInterval(intervalId);
+  }, [rotatingOffers.length, rotatingOffersKey]);
 
   return (
-    <div className="flex items-center gap-2 mt-2 overflow-hidden h-[20px] relative">
-      {/* Symmetrical Scallop Icon like Zomato */}
-      <div className="flex-shrink-0 flex items-center justify-center w-5 h-5">
-        <ScallopBadge className="h-5 w-5 text-[#2563EB]" />
-      </div>
-
-      {/* Animating Coupon Text - sliding down vertically */}
-      <div className="flex-grow h-full overflow-hidden relative min-w-0">
-        <AnimatePresence initial={false}>
-          <motion.span
-            key={`${currentCoupon.couponCode || currentCoupon.code || currentIndex}-${currentIndex}`}
-            initial={{ top: -14, opacity: 0 }}
-            animate={{ top: 0, opacity: 1 }}
-            exit={{ top: 14, opacity: 0 }}
-            transition={{ duration: 0.22, ease: "easeInOut" }}
-            className="absolute inset-x-0 bottom-0 text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 tracking-wide truncate flex items-center"
+    <div
+      className="h-full transform transition-all duration-300 hover:-translate-y-3 hover:scale-[1.02]"
+      style={{
+        perspective: 1000,
+        animation:
+          index < 10
+            ? `fade-in-up 0.5s ease-out ${index * 0.05}s backwards`
+            : "none",
+      }}>
+      <div className="h-full group">
+        <Card
+          className={`overflow-hidden gap-0 border-0 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] border-background transition-all duration-500 py-0 rounded-[28px] flex flex-col h-full w-full relative shadow-sm hover:shadow-xl ${isOutOfService || !availability.isOpen
+              ? "grayscale opacity-75"
+              : ""
+            }`}>
+          {/* Image Section with Carousel - Deep links to dish */}
+          <div
+            className="relative block cursor-pointer"
+            onClick={(e) => {
+              if (e.defaultPrevented) return;
+              try { onNavigateAway?.(e); } catch (_) { }
+              navigate(targetUrl);
+            }}
           >
-            {formatCouponText(currentCoupon)}
-          </motion.span>
-        </AnimatePresence>
+            <RestaurantImageCarousel
+              restaurant={restaurant}
+              priority={index < 3}
+              backendOrigin={BACKEND_ORIGIN}
+              externalIndex={slideIndex}
+              onIndexChange={setSlideIndex}
+              autoScroll={true}
+            />
+
+            {/* Recommended Dish Badge - Top Left */}
+            {hasRecommended && (
+              <div className="absolute top-4 left-4 flex items-center z-10 transform transition-transform duration-300 group-hover:scale-105">
+                <div className="bg-black/70 backdrop-blur-lg text-white px-4 py-1.5 rounded-full text-[11px] font-medium tracking-tight flex items-center shadow-2xl border border-white/20 min-h-[28px] min-w-[100px] justify-center overflow-hidden">
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={`${name}-${price}`}
+                      initial={{ y: 10, opacity: 0 }}
+                      animate={{ y: 0, opacity: 1 }}
+                      exit={{ y: -10, opacity: 0 }}
+                      transition={{ duration: 0.3, ease: "easeOut" }}
+                      className="whitespace-nowrap flex items-center"
+                    >
+                      {name} • ₹{price}
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Bookmark Icon - Top Right (Moved outside Image Link to ensure click-through works) */}
+          <div className="absolute top-4 right-4 z-20 transform transition-transform duration-300 group-hover:scale-110">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggleFavorite(restaurantSlug, restaurant);
+              }}
+              aria-label={
+                favorite
+                  ? "Remove from favorites"
+                  : "Add to favorites"
+              }
+              className={`h-11 w-11 rounded-[20px] shadow-xl flex items-center justify-center transition-all duration-300 ${favorite
+                  ? "bg-red-500 text-white"
+                  : "bg-white/90 backdrop-blur-sm text-gray-800 hover:bg-white"
+                }`}>
+              <Bookmark
+                className={`h-5 w-5 transition-all duration-300 ${favorite ? "fill-white" : ""
+                  }`}
+              />
+            </Button>
+          </div>
+
+          {/* Content Section - Links to restaurant ONLY */}
+          <Link
+            to={`/food/user/restaurants/${restaurantSlug}`}
+            state={{}}
+            onClick={() => {
+              onNavigateAway?.();
+              try {
+                sessionStorage.removeItem("food_last_opened_restaurant_distance")
+              } catch (_) { }
+            }}
+            className="flex-grow"
+          >
+            <div className="transform transition-transform duration-300 group-hover:-translate-y-1">
+              <CardContent className="p-3 sm:p-4 lg:p-5 pt-3 sm:pt-4 lg:pt-5 flex flex-col h-full">
+                {/* Restaurant Name & Rating */}
+                <div className="flex items-start justify-between gap-2 mb-2 lg:mb-3">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-lg lg:text-2xl font-medium text-gray-950 dark:text-white line-clamp-1 leading-tight tracking-tight transition-colors duration-300 group-hover:text-[#E2AD4B]">
+                      {restaurant.name}
+                    </h3>
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-widest shadow-sm ${availability.isOpen ? "" : "bg-gray-400 text-white"}`}
+                        style={availability.isOpen ? {
+                          backgroundColor: "var(--module-theme-color, #E2AD4B)",
+                          color: "#ffffff",
+                          boxShadow: "0 4px 10px rgba(var(--module-theme-rgb, 226,173,75), 0.25)",
+                        } : undefined}
+                      >
+                        {availability.isOpen
+                          ? "Open now"
+                          : "Offline"}
+                      </span>
+                      {availability.isOpen &&
+                        availability.closingCountdownLabel &&
+                        availability.openingTime &&
+                        availability.closingTime && (
+                          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-[10px] font-medium uppercase tracking-wide">
+                            <Timer
+                              className="h-3 w-3 flex-shrink-0"
+                              strokeWidth={2.5}
+                            />
+                            <span>
+                              {availability.closingCountdownLabel}
+                            </span>
+                          </div>
+                        )}
+                    </div>
+                  </div>
+                  <div
+                    className={`flex-shrink-0 ${Number(restaurant.rating) > 0 ? "" : "bg-gray-400"} text-white px-3 py-1.5 rounded-2xl flex items-center gap-1.5 shadow-md transform transition-transform duration-300 group-hover:scale-110`}
+                    style={Number(restaurant.rating) > 0 ? {
+                      backgroundColor: "var(--module-theme-color, #E2AD4B)",
+                      boxShadow: "0 6px 14px rgba(var(--module-theme-rgb, 226,173,75), 0.30)",
+                    } : undefined}
+                  >
+                    <span className="text-sm lg:text-lg font-medium tracking-tight">
+                      {Number(restaurant.rating) > 0 ? Number(restaurant.rating).toFixed(1) : "NEW"}
+                    </span>
+                    {Number(restaurant.rating) > 0 && <Star className="h-3.5 w-3.5 lg:h-4.5 lg:w-4.5 fill-white text-white" strokeWidth={0} />}
+                  </div>
+                </div>
+
+                {/* Delivery Time & Distance */}
+                <div className="flex items-center gap-1 text-sm lg:text-base text-gray-500 mb-2 lg:mb-3 transition-opacity duration-300 opacity-70 group-hover:opacity-100">
+                  <Clock
+                    className="h-4 w-4 lg:h-5 lg:w-5 text-gray-500 dark:text-gray-400"
+                    strokeWidth={1.5}
+                  />
+                  <span className="font-medium dark:text-gray-300 text-gray-700">
+                    {restaurant.deliveryTime}
+                  </span>
+                  <span className="mx-1">|</span>
+                  <MapPin
+                    className="h-4 w-4 lg:h-5 lg:w-5 text-gray-500 dark:text-gray-400"
+                    strokeWidth={1.5}
+                  />
+                  <span className="font-medium dark:text-gray-300 text-gray-700">
+                    {restaurant.distance}
+                  </span>
+                </div>
+
+                {/* Cuisine & Offers */}
+                <div className="mt-auto flex flex-col gap-1">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <p className="text-xs lg:text-sm text-gray-500 dark:text-gray-400 line-clamp-1 group-hover:text-gray-700 dark:group-hover:text-gray-300 transition-colors duration-300 shrink min-w-0">
+                      {restaurant.cuisine}
+                    </p>
+                    {currentOffer && (
+                      <>
+                        <span className="text-xs text-gray-300 dark:text-gray-600">|</span>
+                        <div
+                          className="flex flex-1 items-center gap-1 min-w-0"
+                          style={{ color: "#16a34a" }}
+                        >
+                          <BadgePercent
+                            className="h-3.5 w-3.5 shrink-0"
+                            style={{ color: "#16a34a" }}
+                          />
+                          <div className="flex-1 overflow-hidden min-w-0">
+                            <AnimatePresence mode="wait">
+                              <motion.span
+                                key={`${restaurantSlug}-offer-${offerIndex}-${currentOffer}`}
+                                initial={{ y: 10, opacity: 0 }}
+                                animate={{ y: 0, opacity: 1 }}
+                                exit={{ y: -10, opacity: 0 }}
+                                transition={{ duration: 0.25, ease: "easeOut" }}
+                                className="block truncate text-[11px] lg:text-xs font-semibold"
+                                style={{ color: "#16a34a" }}
+                                title={currentOffer}
+                              >
+                                {currentOffer}
+                              </motion.span>
+                            </AnimatePresence>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  {restaurant.pureVegRestaurant && (
+                    <div className="flex items-center gap-1 text-[10px] text-emerald-600 font-semibold uppercase tracking-wider">
+                      <Leaf className="h-3 w-3 fill-emerald-600" />
+                      <span>Pure Veg</span>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </div>
+          </Link>
+        </Card>
       </div>
     </div>
   );
 });
 
-export default function Home({ homeMode = null, isTabActive = true }) {
-  const navigate = useNavigate();
-  const routerLocation = useRouterLocation();
-  const hasRestoredBrowseScrollRef = useRef(false);
+export default function Home() {
   const HERO_BANNER_AUTO_SLIDE_MS = 3500;
   const BACKEND_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "");
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const query = searchParams.get("q") || "";
   const [heroSearch, setHeroSearch] = useState("");
-  const [takeawaySearchOpen, setTakeawaySearchOpen] = useState(false);
   const { openSearch, closeSearch, searchValue, setSearchValue } =
     useSearchOverlay();
   const { openLocationSelector } = useLocationSelector();
-  const { userProfile, vegMode, setVegMode: setVegModeContext, vegModeOption, setVegModeOption, orderType, setOrderType } = useProfile();
-  // homeMode lets MainTabKeepAlive mount Delivery + Takeaway Home side-by-side
-  // without both instances fighting over global orderType / pathname.
-  const isTakeawayPage =
-    homeMode === "takeaway" ||
-    (!homeMode &&
-      (routerLocation.pathname === "/food/takeaway" ||
-        routerLocation.pathname.startsWith("/food/takeaway/") ||
-        routerLocation.pathname.startsWith("/food/user/takeaway")));
-  const effectiveOrderType =
-    homeMode === "takeaway" || homeMode === "delivery"
-      ? homeMode
-      : isTakeawayPage
-        ? "takeaway"
-        : orderType;
-
-  useEffect(() => {
-    if (homeMode) return;
-    if (isTakeawayPage) {
-      if (orderType !== "takeaway") setOrderType("takeaway");
-    } else if (routerLocation.pathname.includes("/dining")) {
-      if (orderType !== "dining") setOrderType("dining");
-    } else {
-      // Default home paths set back to delivery if they were takeaway/dining
-      const isHome = routerLocation.pathname === "/food/user" ||
-        routerLocation.pathname === "/food/user/" ||
-        routerLocation.pathname === "/user" ||
-        routerLocation.pathname === "/user/" ||
-        routerLocation.pathname === "/food" ||
-        routerLocation.pathname === "/food/";
-      if (isHome && orderType !== "delivery") {
-        setOrderType("delivery");
-      }
-    }
-  }, [homeMode, isTakeawayPage, routerLocation.pathname, orderType, setOrderType]);
-
-  useEffect(() => {
-    if (!isTakeawayPage) {
-      setTakeawaySearchOpen(false);
-      setHeroSearch("");
-    }
-  }, [isTakeawayPage]);
-
-
-
+  const { vegMode, setVegMode: setVegModeContext, vegModeOption, setVegModeOption } = useProfile();
   const [prevVegMode, setPrevVegMode] = useState(vegMode);
   const [showVegModePopup, setShowVegModePopup] = useState(false);
   const [showSwitchOffPopup, setShowSwitchOffPopup] = useState(false);
@@ -426,109 +958,185 @@ export default function Home({ homeMode = null, isTabActive = true }) {
   const [isSwitchingOffVegMode, setIsSwitchingOffVegMode] = useState(false);
   const [popupPosition, setPopupPosition] = useState({ top: 0, left: 0, triangleLeft: 0 });
   const vegModeToggleRef = useRef(null);
-  const [isStickyHeaderVisible, setIsStickyHeaderVisible] = useState(false);
-  const [showStickySearch, setShowStickySearch] = useState(false);
-  const lastScrollY = useRef(0);
 
-  useEffect(() => {
-    const handleScrollHeader = () => {
-      const currentScrollY = window.scrollY;
-      const categoriesSection = document.getElementById("categories-section");
-
-      if (!categoriesSection) return;
-
-      const rect = categoriesSection.getBoundingClientRect();
-      const sectionBottom = rect.bottom + currentScrollY;
-
-      // When to show/hide the sticky header
-      // Sticky header visibility
-      setIsStickyHeaderVisible(currentScrollY > sectionBottom);
-      setShowStickySearch(currentScrollY > sectionBottom);
-
-      lastScrollY.current = currentScrollY;
-    };
-
-    window.addEventListener("scroll", handleScrollHeader, { passive: true });
-    return () => window.removeEventListener("scroll", handleScrollHeader);
-  }, []);
+  const handleClearNonVegFilter = useCallback(() => {
+    setVegModeOption("all");
+    setPrevVegMode(false);
+  }, [setVegModeOption]);
 
   const [currentBannerIndex, setCurrentBannerIndex] = useState(0);
-  const [isTransitionEnabled, setIsTransitionEnabled] = useState(true);
-  const [publicOffers, setPublicOffers] = useState([]);
+  const [topBannersData, setTopBannersData] = useState([]);
+  const [topBannersLoaded, setTopBannersLoaded] = useState(false);
+  const {
+    topBanners,
+    heroBanners,
+    promoBanners,
+    exploreIcons,
+    refreshUserHome,
+    refreshLanding,
+  } = usePublicAppConfig();
 
   useEffect(() => {
-    let active = true;
-    const fetchOffers = async () => {
-      try {
-        const response = await restaurantAPI.getPublicOffers();
-        if (!active) return;
-        const list = response?.data?.data?.allOffers || response?.data?.allOffers || [];
-        const activeOffers = list.filter((o) => {
-          if (o.showInCart === false) return false;
-          if (o.status && o.status !== "active") return false;
-          return true;
-        });
-        setPublicOffers(activeOffers);
-      } catch (err) {
-        debugError("Error fetching public offers for Home page:", err);
-      }
-    };
-    fetchOffers();
-    return () => {
-      active = false;
-    };
-  }, []);
+    void refreshUserHome();
+  }, [refreshUserHome]);
 
+  useEffect(() => {
+    const listTop = Array.isArray(topBanners) ? topBanners : [];
+    const listHero = Array.isArray(heroBanners) ? heroBanners : [];
+    const combined = listTop.length > 0 ? listTop : listHero;
+    setTopBannersData(combined);
+    if (listTop.length > 0 || listHero.length > 0) setTopBannersLoaded(true);
+  }, [topBanners, heroBanners]);
   const [heroBannerImages, setHeroBannerImages] = useState([]);
   const [heroBannersData, setHeroBannersData] = useState([]); // Store full banner data with linked restaurants
   const [loadingBanners, setLoadingBanners] = useState(true);
   const [hasScrolledPastBanner, setHasScrolledPastBanner] = useState(false);
-  const [landingCategories, setLandingCategories] = useState([]);
-  const [landingExploreMore, setLandingExploreMore] = useState(
-    () => CACHED_EXPLORE_BOOT?.items || [],
-  );
-  const [exploreMoreHeading, setExploreMoreHeading] = useState(
-    () => CACHED_EXPLORE_BOOT?.heading || "Explore More",
-  );
-  const CACHED_FEST_BANNER = (() => {
-    if (typeof window !== "undefined") {
-      try { return localStorage.getItem("CACHED_FEST_BANNER") || null; }
-      catch (e) { return null; }
-    }
-    return null;
-  })();
-  const [festBannerImageUrl, setFestBannerImageUrl] = useState(CACHED_FEST_BANNER);
-  const [festBannerTopColor, setFestBannerTopColor] = useState(() => {
-    if (typeof window !== "undefined") {
-      try { return localStorage.getItem("CACHED_FEST_BANNER_COLOR") || ''; } catch (e) { return ''; }
-    }
-    return '';
-  });
+  const [isCategoryStuck, setIsCategoryStuck] = useState(false);
+  const isCategoryStuckRef = useRef(false);
+  const headerBannerRef = useRef(null);
+  const [mealsUnder99, setMealsUnder99] = useState([]);
+  const [loadingMealsUnder99, setLoadingMealsUnder99] = useState(true);
+  const [meals99SortBy, setMeals99SortBy] = useState("relevance");
+  const [meals99IsVeg, setMeals99IsVeg] = useState(false);
+  const [meals99IsNonVeg, setMeals99IsNonVeg] = useState(false);
+  const [meals99Rating4Plus, setMeals99Rating4Plus] = useState(false);
+  const [meals99HasOffers, setMeals99HasOffers] = useState(false);
+  const [meals99Under30Mins, setMeals99Under30Mins] = useState(false);
 
+  const filteredMealsUnder99 = useMemo(() => {
+    let result = [...mealsUnder99];
+
+    // Apply global veg mode filter first
+    if (vegMode) {
+      if (vegModeOption === "non-veg") {
+        // "Only Non-Veg Restaurants" is active → show only non-veg food
+        result = result.filter((m) => !m.isVeg);
+      } else if (vegModeOption === "pure-veg") {
+        // "Pure Veg" is active → show only veg food
+        result = result.filter((m) => m.isVeg);
+      }
+      // vegModeOption === "all" → no additional restriction
+    }
+
+    if (meals99IsVeg) {
+      result = result.filter((m) => m.isVeg);
+    }
+    if (meals99IsNonVeg) {
+      result = result.filter((m) => !m.isVeg);
+    }
+    if (meals99Rating4Plus) {
+      result = result.filter((m) => (m.rating || 4.2) >= 4.0);
+    }
+    if (meals99HasOffers) {
+      result = result.filter(
+        (m) => (m.originalPrice && m.originalPrice > m.price) || m.discount > 0 || m.offer
+      );
+    }
+    if (meals99Under30Mins) {
+      result = result.filter((m) => (m.preparationTime || 25) <= 30);
+    }
+
+    if (meals99SortBy === "rating") {
+      result.sort((a, b) => (b.rating || 4.2) - (a.rating || 4.2));
+    } else if (meals99SortBy === "cost_low_to_high") {
+      result.sort((a, b) => a.price - b.price);
+    } else if (meals99SortBy === "cost_high_to_low") {
+      result.sort((a, b) => b.price - a.price);
+    } else if (meals99SortBy === "delivery_time") {
+      result.sort((a, b) => (a.preparationTime || 25) - (b.preparationTime || 25));
+    }
+
+    return result;
+  }, [
+    mealsUnder99,
+    meals99SortBy,
+    meals99IsVeg,
+    meals99IsNonVeg,
+    meals99Rating4Plus,
+    meals99HasOffers,
+    meals99Under30Mins,
+    vegMode,
+    vegModeOption,
+  ]);
+  const [landingCategories, setLandingCategories] = useState([]);
+  const [landingExploreMore, setLandingExploreMore] = useState([]);
+  const [exploreMoreHeading, setExploreMoreHeading] = useState("Explore More");
   const [recommendedRestaurantIds, setRecommendedRestaurantIds] = useState([]);
-  const [under250PriceLimit, setUnder250PriceLimit] = useState(250);
   const [
     recommendedRestaurantsFromSettings,
     setRecommendedRestaurantsFromSettings,
   ] = useState([]);
-  const [restaurantsData, setRestaurantsData] = useState(HOME_RESTAURANTS_CACHE || []);
-  const [loadingRestaurants, setLoadingRestaurants] = useState(!HOME_RESTAURANTS_CACHE || (Array.isArray(HOME_RESTAURANTS_CACHE) && HOME_RESTAURANTS_CACHE.length === 0));
-  const [realCategories, setRealCategories] = useState(HOME_CATEGORIES_CACHE || []);
-  const [loadingRealCategories, setLoadingRealCategories] = useState(!HOME_CATEGORIES_CACHE);
+  const [loadingLandingConfig, setLoadingLandingConfig] = useState(true);
+  const homeRestoreBootRef = useRef(null);
+  if (homeRestoreBootRef.current === null) {
+    const pending =
+      typeof window !== "undefined" ? peekHomeScrollState() : null;
+    const snap =
+      typeof window !== "undefined" ? peekHomePageSnapshot() : null;
+    const targetCount = pending?.visibleCount || 0;
+    const targetScrollY = pending?.scrollY || 0;
+    // Restore whenever a locked/pending home position exists.
+    // In-app restaurant back often PUSHes `/food/user` (not POP).
+    const canRestore = Boolean(
+      pending && (targetScrollY > 0 || targetCount > 0),
+    );
+
+    homeRestoreBootRef.current = {
+      canRestore,
+      pending: canRestore ? pending : null,
+      snap: canRestore ? snap : null,
+      targetCount: Math.max(targetCount, 9),
+      targetScrollY: canRestore ? targetScrollY : 0,
+    };
+  }
+  const [restaurantsData, setRestaurantsData] = useState(() => {
+    const snap = homeRestoreBootRef.current?.snap?.restaurantsData;
+    return Array.isArray(snap) && snap.length > 0 ? snap : [];
+  });
+  const [loadingRestaurants, setLoadingRestaurants] = useState(() => {
+    const snap = homeRestoreBootRef.current?.snap?.restaurantsData;
+    return !(Array.isArray(snap) && snap.length > 0);
+  });
+  const restaurantsDataRef = useRef(restaurantsData);
+  const [realCategories, setRealCategories] = useState([]);
+  const [loadingRealCategories, setLoadingRealCategories] = useState(true);
   const [menuCategories, setMenuCategories] = useState([]);
   const [loadingMenuCategories, setLoadingMenuCategories] = useState(false);
   const [restaurantDietMeta, setRestaurantDietMeta] = useState({});
   const [showAllCategoriesModal, setShowAllCategoriesModal] = useState(false);
   const [availabilityTick, setAvailabilityTick] = useState(Date.now());
   const RESTAURANTS_BATCH_SIZE = 9;
+  const homeScrollRestoreRef = useRef(null);
+  if (homeScrollRestoreRef.current === null) {
+    const boot = homeRestoreBootRef.current;
+    const hasWarmList =
+      boot?.canRestore &&
+      Array.isArray(boot?.snap?.restaurantsData) &&
+      boot.snap.restaurantsData.length > 0;
+    homeScrollRestoreRef.current = {
+      active: Boolean(boot?.canRestore),
+      targetCount: boot?.targetCount || RESTAURANTS_BATCH_SIZE,
+      targetScrollY: boot?.targetScrollY || 0,
+      appliedVisible: false,
+      scrollRestored: !(boot?.canRestore && boot?.targetScrollY > 0),
+      settleKey: null,
+      warmStart: hasWarmList,
+      skipNextFetch: hasWarmList,
+    };
+  }
   const [visibleRestaurantCount, setVisibleRestaurantCount] = useState(() => {
-    if (typeof window === "undefined") return RESTAURANTS_BATCH_SIZE;
-    const pending = peekBrowseScroll(window.location.pathname);
-    const n = Number(pending?.visibleCount);
-    if (Number.isFinite(n) && n > RESTAURANTS_BATCH_SIZE) {
-      return Math.floor(n);
+    const restore = homeScrollRestoreRef.current;
+    if (restore?.active && restore.targetCount > RESTAURANTS_BATCH_SIZE) {
+      return restore.targetCount;
     }
     return RESTAURANTS_BATCH_SIZE;
+  });
+  const visibleRestaurantCountRef = useRef(visibleRestaurantCount);
+  const homeUiStateRef = useRef({
+    activeFilters: [],
+    sortBy: null,
+    selectedCuisine: null,
+    restaurantsData: [],
   });
   const restaurantLoadMoreRef = useRef(null);
   const publicCategoriesCacheRef = useRef(new Map());
@@ -536,6 +1144,15 @@ export default function Home({ homeMode = null, isTabActive = true }) {
   const isHandlingSwitchOff = useRef(false);
   const heroShellRef = useRef(null);
   const stickyHeaderRef = useRef(null);
+  const categoryAnchorRef = useRef(null);
+  const filtersSentinelRef = useRef(null);
+  const lastScrollYRef = useRef(0);
+  const tickingRef = useRef(false);
+  const [isSmartStickyActive, setIsSmartStickyActive] = useState(false);
+  const [smartScrollDirection, setSmartScrollDirection] = useState("down");
+  const [isFiltersCrossed, setIsFiltersCrossed] = useState(false);
+  const [isCategoriesCrossed, setIsCategoriesCrossed] = useState(false);
+  const [showCuisinesModal, setShowCuisinesModal] = useState(false);
   const slugifyCategory = useCallback(
     (value) =>
       String(value || "")
@@ -544,7 +1161,6 @@ export default function Home({ homeMode = null, isTabActive = true }) {
         .replace(/(^-|-$)/g, ""),
     [],
   );
-  const isSettingsLoading = festBannerImageUrl === null;
 
   // Stable list of restaurant ids for menu-category union so we don't refetch menus
   // when `restaurantsData` changes for reasons like distance recalculation or outletTimings enrichment.
@@ -558,7 +1174,87 @@ export default function Home({ homeMode = null, isTabActive = true }) {
   }, [restaurantsData]);
 
   const normalizeImageUrl = useCallback(
-    (imageUrl) => normalizeServerImageUrl(imageUrl, BACKEND_ORIGIN),
+    (imageUrl) => {
+      if (typeof imageUrl !== "string") return "";
+      const trimmed = imageUrl.trim();
+      if (!trimmed) return "";
+      if (/^data:/i.test(trimmed) || /^blob:/i.test(trimmed)) {
+        return trimmed;
+      }
+      const appProtocol =
+        typeof window !== "undefined" ? window.location?.protocol : "";
+      const appHost =
+        typeof window !== "undefined" ? window.location?.hostname : "";
+      let normalizedInput = trimmed
+        .replace(/\\/g, "/")
+        .replace(/^(https?):\/(?!\/)/i, "$1://")
+        .replace(/^(https?:\/\/)(https?:\/\/)/i, "$1");
+
+      if (/^\/\//.test(normalizedInput)) {
+        normalizedInput = `${appProtocol || "https:"}${normalizedInput}`;
+      }
+
+      // WebView can fail on unescaped spaces/special chars; keep URLs safely encoded.
+      if (/^(https?:)?\/\//i.test(normalizedInput)) {
+        try {
+          const parsed = new URL(normalizedInput, window.location.origin);
+
+          // In mobile production, localhost/127.0.0.1 inside image URLs is unreachable.
+          // Use BACKEND_ORIGIN (API server) for image host, not frontend hostuploads are served by the backend.
+          if (
+            appHost &&
+            appHost !== "localhost" &&
+            appHost !== "127.0.0.1" &&
+            /^(localhost|127\.0\.0\.1)$/i.test(parsed.hostname)
+          ) {
+            try {
+              const backendUrl = new URL(BACKEND_ORIGIN);
+              parsed.protocol = backendUrl.protocol;
+              parsed.hostname = backendUrl.hostname;
+              parsed.port = backendUrl.port;
+            } catch {
+              parsed.protocol = window.location.protocol;
+              parsed.hostname = window.location.hostname;
+              if (window.location.port) parsed.port = window.location.port;
+            }
+          }
+
+          // Prevent mixed-content image blocking in HTTPS WebView.
+          if (appProtocol === "https:" && parsed.protocol === "http:") {
+            parsed.protocol = "https:";
+          }
+
+          const finalUrl = parsed.toString();
+          // Do not encode signed URLs (S3/Cloudfront/Cloudinary); encoding query params can break signatures.
+          const hasSignedParams =
+            /[?&](X-Amz-|Signature=|Expires=|AWSAccessKeyId=|GoogleAccessId=|token=|sig=|se=|sp=|sv=)/i.test(
+              finalUrl,
+            );
+          return hasSignedParams ? finalUrl : encodeURI(finalUrl);
+        } catch {
+          return normalizedInput;
+        }
+      }
+
+      const absolutePath = normalizedInput.startsWith("/")
+        ? `${BACKEND_ORIGIN}${normalizedInput}`
+        : `${BACKEND_ORIGIN}/${normalizedInput.replace(/^\.?\/*/, "")}`;
+
+      try {
+        const parsed = new URL(absolutePath, window.location.origin);
+        if (appProtocol === "https:" && parsed.protocol === "http:") {
+          parsed.protocol = "https:";
+        }
+        const finalUrl = parsed.toString();
+        const hasSignedParams =
+          /[?&](X-Amz-|Signature=|Expires=|AWSAccessKeyId=|GoogleAccessId=|token=|sig=|se=|sp=|sv=)/i.test(
+            finalUrl,
+          );
+        return hasSignedParams ? finalUrl : encodeURI(finalUrl);
+      } catch {
+        return absolutePath;
+      }
+    },
     [BACKEND_ORIGIN],
   );
 
@@ -597,6 +1293,31 @@ export default function Home({ homeMode = null, isTabActive = true }) {
     (value) => {
       const normalized = extractImageFromValue(value);
       if (!normalized) return [];
+
+      // Mobile WebView safety: try deterministic JPEG first, then auto, then original.
+      if (
+        /res\.cloudinary\.com/i.test(normalized) &&
+        /\/image\/upload\//i.test(normalized)
+      ) {
+        const hasTransform =
+          /\/image\/upload\/(?:f_|q_|w_|h_|c_|dpr_|g_)/i.test(normalized);
+        if (!hasTransform) {
+          return Array.from(
+            new Set([
+              normalized.replace(
+                "/image/upload/",
+                "/image/upload/f_jpg,q_auto,w_1080/",
+              ),
+              normalized.replace(
+                "/image/upload/",
+                "/image/upload/f_auto,q_auto,w_1080/",
+              ),
+              normalized,
+            ]),
+          );
+        }
+      }
+
       return [normalized];
     },
     [extractImageFromValue],
@@ -624,11 +1345,90 @@ export default function Home({ homeMode = null, isTabActive = true }) {
   );
 
   useEffect(() => {
-    const intervalId = setInterval(() => {
-      setAvailabilityTick(Date.now());
-    }, 60000);
+    visibleRestaurantCountRef.current = visibleRestaurantCount;
+  }, [visibleRestaurantCount]);
 
-    return () => clearInterval(intervalId);
+  useEffect(() => {
+    restaurantsDataRef.current = restaurantsData;
+  }, [restaurantsData]);
+
+  // Persist scroll + lazy-load batch so returning from a restaurant restores place.
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined" && window.history?.scrollRestoration) {
+        window.history.scrollRestoration = "manual";
+      }
+    } catch {
+      // ignore
+    }
+
+    const persist = () => {
+      // Avoid clobbering a pending restore payload (e.g. React Strict Mode remount).
+      if (homeScrollRestoreRef.current?.active && !homeScrollRestoreRef.current?.scrollRestored) {
+        return;
+      }
+      const ui = homeUiStateRef.current;
+      captureHomeScrollBeforeLeave(visibleRestaurantCountRef.current, {
+        filters: {
+          activeFilters: ui.activeFilters,
+          sortBy: ui.sortBy,
+          selectedCuisine: ui.selectedCuisine,
+        },
+        lock: false,
+      });
+      if (ui.restaurantsData?.length) {
+        stashHomePageSnapshot({ restaurantsData: ui.restaurantsData });
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        persist();
+      }
+    };
+
+    window.addEventListener("pagehide", persist);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      persist();
+      window.removeEventListener("pagehide", persist);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
+
+  const captureScrollBeforeRestaurantNav = useCallback(() => {
+    const ui = homeUiStateRef.current;
+    captureHomeScrollBeforeLeave(visibleRestaurantCountRef.current, {
+      filters: {
+        activeFilters: ui.activeFilters,
+        sortBy: ui.sortBy,
+        selectedCuisine: ui.selectedCuisine,
+      },
+      lock: true,
+    });
+    if (ui.restaurantsData?.length) {
+      stashHomePageSnapshot({ restaurantsData: ui.restaurantsData });
+    }
+  }, []);
+
+  useEffect(() => {
+    const tickAvailability = () => {
+      if (typeof document !== "undefined" && document.hidden) return
+      setAvailabilityTick(Date.now());
+    }
+    const intervalId = setInterval(tickAvailability, 60000);
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        setAvailabilityTick(Date.now());
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
   }, []);
 
   useEffect(() => {
@@ -656,36 +1456,119 @@ export default function Home({ homeMode = null, isTabActive = true }) {
     };
   }, []);
 
+  useEffect(() => {
+    const commitStuckState = (nextValue) => {
+      if (isCategoryStuckRef.current === nextValue) return;
+      isCategoryStuckRef.current = nextValue;
+      setIsCategoryStuck(nextValue);
+    };
+
+    const syncStuckState = () => {
+      if (window.innerWidth >= 768) {
+        commitStuckState(false);
+        return;
+      }
+      const anchor = categoryAnchorRef.current;
+      if (!anchor) return;
+      // Use sentinel directly so blur and sticky release on the same scroll tick.
+      const shouldStick = anchor.getBoundingClientRect().top <= 72;
+      commitStuckState(shouldStick);
+    };
+
+    syncStuckState();
+    window.addEventListener("scroll", syncStuckState, { passive: true, capture: true });
+    window.addEventListener("resize", syncStuckState);
+
+    return () => {
+      window.removeEventListener("scroll", syncStuckState, { capture: true });
+      window.removeEventListener("resize", syncStuckState);
+    };
+  }, []);
+
+  // Smart Scroll-Aware Sticky Header Listener (Dynamic Banner Height Based)
+  useEffect(() => {
+    const handleScroll = () => {
+      if (!tickingRef.current) {
+        requestAnimationFrame(() => {
+          const currentScrollY = window.scrollY || document.documentElement.scrollTop;
+          const deltaY = currentScrollY - lastScrollYRef.current;
+
+          // Measure bottom position of the top banner header element
+          let bannerBottom = -1;
+          let bannerHeight = 360;
+          if (headerBannerRef.current) {
+            const rect = headerBannerRef.current.getBoundingClientRect();
+            bannerBottom = rect.bottom;
+            bannerHeight = rect.height || 360;
+          }
+
+          // Sticky header active threshold
+          const activeThreshold = Math.max(100, bannerHeight - 50);
+          setIsSmartStickyActive(currentScrollY > activeThreshold);
+
+          // Scroll direction detection with minimum 4px hysteresis to prevent jitter
+          if (Math.abs(deltaY) > 4) {
+            setSmartScrollDirection(deltaY > 0 ? "up" : "down");
+          }
+
+          // Detect if original filters sentinel has reached/crossed top area
+          if (filtersSentinelRef.current) {
+            const rect = filtersSentinelRef.current.getBoundingClientRect();
+            setIsFiltersCrossed(rect.top <= 140);
+          } else {
+            setIsFiltersCrossed(false);
+          }
+
+          // STRICT CHECK: Banner MUST be 100% offscreen (bottom <= 0 or scrollY > bannerHeight + 10)
+          // Add 25px hysteresis gap to prevent stuttering/jitter when scrolling around threshold
+          const isBannerFullyOffscreen = bannerBottom !== -1
+            ? bannerBottom <= 0
+            : currentScrollY > (bannerHeight + 10);
+
+          setIsCategoriesCrossed((prev) => {
+            if (isBannerFullyOffscreen) return true;
+            // Only turn OFF if user scrolls back UP enough that banner bottom is visible (>= 25px on screen)
+            if (bannerBottom >= 25 || currentScrollY < bannerHeight - 20) return false;
+            return prev;
+          });
+
+          lastScrollYRef.current = currentScrollY;
+          tickingRef.current = false;
+        });
+        tickingRef.current = true;
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true, capture: true });
+    window.addEventListener("resize", handleScroll);
+    handleScroll();
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll, { capture: true });
+      window.removeEventListener("resize", handleScroll);
+    };
+  }, []);
+
+
   // Merge API explore items with fallback to ensure all 4 cards are shown
   const finalExploreItems = useMemo(() => {
     const fallback = [
       {
-        id: "under-250",
-        label: "Under 250",
-        // Local asset always used for first paint; remote admin icon swaps in when ready
-        image: exploreOffers,
-        fallbackImage: exploreOffers,
-        href: "/food/user/under-250",
-      },
-      {
         id: "offers",
         label: "Offers",
         image: exploreOffers,
-        fallbackImage: exploreOffers,
         href: "/food/user/offers",
       },
       {
         id: "gourmet",
         label: "Gourmet",
         image: exploreGourmet,
-        fallbackImage: exploreGourmet,
         href: "/food/user/gourmet",
       },
       {
         id: "collection",
         label: "Collections",
         image: exploreCollection,
-        fallbackImage: exploreCollection,
         href: "/food/user/profile/favorites",
       },
     ];
@@ -693,49 +1576,26 @@ export default function Home({ homeMode = null, isTabActive = true }) {
     if (!landingExploreMore || landingExploreMore.length === 0) return fallback;
 
     return fallback.map((item) => {
-      const itemLabel = item.label.toLowerCase();
-      const apiItem = landingExploreMore.find((ai) => {
-        const label = String(ai.label || ai.name || "").toLowerCase().trim();
-        const linkType = String(ai.linkType || "").toLowerCase().trim();
-        const link = String(ai.link || ai.targetPath || "").toLowerCase();
-        return (
-          label === itemLabel ||
-          linkType === item.id ||
-          link.includes(item.id) ||
-          (item.id === "under-250" &&
-            (label.includes("under 250") ||
-              label.includes("under-250") ||
-              label.includes("under ₹250") ||
-              label.includes("under rs")))
-        );
-      });
+      const apiItem = landingExploreMore.find(
+        (ai) => ai.label?.toLowerCase() === item.label?.toLowerCase(),
+      );
       if (apiItem) {
         const href = apiItem.link
           ? apiItem.link.startsWith("/")
             ? apiItem.link
             : `/${apiItem.link}`
           : item.href;
-        const remote =
-          toExploreIconThumbUrl(
-            normalizeImageUrl(apiItem.imageUrl || apiItem.iconUrl || apiItem.image || "") ||
-              "",
-          ) || "";
         return {
           ...item,
-          // Keep bundled PNG as fallbackImage forever; remote only via image when different
-          image: remote || item.image,
-          fallbackImage: item.fallbackImage,
+          image:
+            normalizeImageUrl(apiItem.imageUrl || apiItem.image || "") ||
+            item.image,
           href,
         };
       }
       return item;
     });
   }, [landingExploreMore, normalizeImageUrl]);
-
-  // Warm Explore thumbs as soon as URLs are known
-  useEffect(() => {
-    preloadImageUrls(finalExploreItems.map((item) => item.image).filter(Boolean));
-  }, [finalExploreItems]);
 
   const normalizedLandingCategories = useMemo(() => {
     return (landingCategories || []).map((category, index) => ({
@@ -752,23 +1612,75 @@ export default function Home({ homeMode = null, isTabActive = true }) {
   }, [landingCategories, normalizeImageUrl, slugifyCategory]);
 
   const displayCategories = useMemo(() => {
-    const filterByVeg = (cats) => {
-      if (!vegMode) return cats;
-      return cats.filter((cat) => !isNonVegCategoryScope(cat));
-    };
-    if (realCategories.length > 0) return filterByVeg(realCategories);
-    if (menuCategories.length > 0) return filterByVeg(menuCategories);
-    return filterByVeg(normalizedLandingCategories);
-  }, [menuCategories, realCategories, normalizedLandingCategories, vegMode]);
+    let list = [];
+    if (realCategories.length > 0) list = [...realCategories];
+    else if (menuCategories.length > 0) list = [...menuCategories];
+    else list = [...normalizedLandingCategories];
 
-  useEffect(() => {
-    preloadImageUrls(
-      (displayCategories || [])
-        .slice(0, 12)
-        .map((cat) => cat.image)
-        .filter(Boolean),
-    );
-  }, [displayCategories]);
+    // Required food categories requested by user
+    const requiredItems = [
+      { id: "cat-pizza", name: "Pizza", slug: "pizza", image: pizzaImg },
+      { id: "cat-biryani", name: "Biryani", slug: "biryani", image: "https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=400&h=400&fit=crop" },
+      { id: "cat-paneer", name: "paneer", slug: "paneer", image: paneerImg },
+      { id: "cat-burger", name: "Burger", slug: "burger", image: burgerImg },
+      { id: "cat-rolls", name: "Rolls", slug: "rolls", image: rollsImg },
+      { id: "cat-fried-rice", name: "Fried Rice", slug: "fried-rice", image: friedRiceImg },
+      { id: "cat-sandwich", name: "Sandwich", slug: "sandwich", image: sandwichImg },
+      { id: "cat-momos", name: "Momos", slug: "momos", image: momosImg },
+      { id: "cat-khichdi", name: "Khichdi", slug: "khichdi", image: khichdiImg },
+      { id: "cat-dosa", name: "Dosa", slug: "dosa", image: dosaImg },
+      { id: "cat-pasta", name: "Pasta", slug: "pasta", image: pastaImg },
+      { id: "cat-chole-bhature", name: "Chole Bhature", slug: "chole-bhature", image: choleBhatureImg },
+      { id: "cat-cake", name: "Cake", slug: "cake", image: cakeImg },
+      { id: "cat-paratha", name: "Paratha", slug: "paratha", image: parathaImg },
+      { id: "cat-noodles", name: "Noodles", slug: "noodles", image: noodlesImg },
+      { id: "cat-thali", name: "Thali", slug: "thali", image: thaliImg },
+      { id: "cat-north-indian", name: "North Indian", slug: "north-indian", image: northIndianImg },
+    ];
+
+    // Ensure required items are present if missing from API, or update image if item exists
+    requiredItems.forEach((req) => {
+      const idx = list.findIndex(
+        (c) => (c.name || c.label || "").toLowerCase() === req.name.toLowerCase()
+      );
+      if (idx !== -1) {
+        list[idx] = { ...list[idx], image: req.image };
+      } else {
+        list.push(req);
+      }
+    });
+
+    // Rearrange category order based on user request (Vibrant mixed order):
+    if (list.length > 0) {
+      const findAndExtract = (predicate) => {
+        const idx = list.findIndex(predicate);
+        if (idx !== -1) {
+          const [item] = list.splice(idx, 1);
+          return item;
+        }
+        return null;
+      };
+
+      const paneerItem = findAndExtract((c) => (c.name || c.label || "").toLowerCase().includes("paneer"));
+      const beverageItem = findAndExtract((c) => {
+        const name = (c.name || c.label || "").toLowerCase();
+        return name.includes("beverage") || name.includes("drink");
+      });
+      const pizzaItem = findAndExtract((c) => (c.name || c.label || "").toLowerCase().includes("pizza"));
+      const biryaniItem = findAndExtract((c) => (c.name || c.label || "").toLowerCase().includes("biryani"));
+      const burgerItem = findAndExtract((c) => (c.name || c.label || "").toLowerCase().includes("burger"));
+      const momosItem = findAndExtract((c) => (c.name || c.label || "").toLowerCase().includes("momo"));
+
+      if (paneerItem) list.splice(1, 0, paneerItem);
+      if (beverageItem) list.splice(3, 0, beverageItem);
+      if (pizzaItem) list.splice(0, 0, pizzaItem);
+      if (biryaniItem) list.splice(2, 0, biryaniItem);
+      if (burgerItem) list.splice(5, 0, burgerItem);
+      if (momosItem) list.splice(7, 0, momosItem);
+    }
+
+    return list;
+  }, [menuCategories, realCategories, normalizedLandingCategories]);
 
   // Swipe functionality for hero banner carousel
   const touchStartX = useRef(0);
@@ -802,14 +1714,13 @@ export default function Home({ homeMode = null, isTabActive = true }) {
 
     if (newValue && !prevVegMode) {
       // Veg mode was just turned ON
-      // Calculate popup position relative to toggle (right-aligned to button)
+      // Calculate popup position relative to toggle
       if (vegModeToggleRef.current) {
         const rect = vegModeToggleRef.current.getBoundingClientRect();
         const screenWidth = window.innerWidth;
-        const popupWidth = Math.min(screenWidth - 32, 320);
+        const popupWidth = Math.min(screenWidth - 32, 320); // 320 is max-w-xs
 
-        // Right-align popup to the button's right edge
-        let left = rect.right - popupWidth;
+        let left = rect.left + rect.width / 2 - popupWidth / 2;
         left = Math.max(16, Math.min(left, screenWidth - popupWidth - 16));
 
         const triangleLeft = rect.left + rect.width / 2 - left;
@@ -834,15 +1745,16 @@ export default function Home({ homeMode = null, isTabActive = true }) {
     }
   };
 
-  // Lock body scroll when veg mode popup is open
+  // Listen for top VEG MODE switch clicks from DesktopNavbar
   useEffect(() => {
-    if (showVegModePopup) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
-    return () => { document.body.style.overflow = '' }
-  }, [showVegModePopup])
+    const handleTrigger = (e) => {
+      e.preventDefault();
+      const targetVal = e.detail?.newValue !== undefined ? e.detail.newValue : !vegMode;
+      handleVegModeChange(targetVal);
+    };
+    window.addEventListener("triggerVegModePopup", handleTrigger);
+    return () => window.removeEventListener("triggerVegModePopup", handleTrigger);
+  }, [handleVegModeChange, vegMode]);
 
   // Update popup position on scroll/resize
   useEffect(() => {
@@ -854,7 +1766,7 @@ export default function Home({ homeMode = null, isTabActive = true }) {
         const screenWidth = window.innerWidth;
         const popupWidth = Math.min(screenWidth - 32, 320);
 
-        let left = rect.right - popupWidth;
+        let left = rect.left + rect.width / 2 - popupWidth / 2;
         left = Math.max(16, Math.min(left, screenWidth - popupWidth - 16));
 
         const triangleLeft = rect.left + rect.width / 2 - left;
@@ -875,6 +1787,39 @@ export default function Home({ homeMode = null, isTabActive = true }) {
       window.removeEventListener("resize", updatePosition);
     };
   }, [showVegModePopup]);
+
+  // Hero / Promo banners from centralized public config
+  useEffect(() => {
+    const bannersList = Array.isArray(promoBanners) && promoBanners.length > 0
+      ? promoBanners
+      : (Array.isArray(heroBanners) ? heroBanners.filter(b => !String(b?.imageUrl || '').match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i)) : []);
+
+    if (bannersList.length === 0 && !Array.isArray(promoBanners)) {
+      setLoadingBanners(true);
+      return;
+    }
+
+    const images = bannersList
+      .map((b) => {
+        if (!b) return "";
+        const raw = b.imageUrl || b.image || b.bannerImage || b.bannerUrl || b.url || (typeof b === "string" ? b : "");
+        if (!raw) return "";
+        return resolveImageUrl(raw);
+      })
+      .filter(Boolean);
+    setHeroBannerImages(images);
+    setHeroBannersData(bannersList);
+    setCurrentBannerIndex(0);
+    setLoadingBanners(false);
+  }, [promoBanners, heroBanners]);
+
+  // Old backend endpoint removed: keep UI stable with empty categories.
+  useEffect(() => {
+    setLoadingRealCategories(true);
+    setRealCategories([]);
+    setLoadingRealCategories(false);
+  }, []);
+
 
 
   // Keep index within current banner bounds after admin updates/reloads.
@@ -902,36 +1847,11 @@ export default function Home({ homeMode = null, isTabActive = true }) {
     if (heroBannerImages.length <= 1) return;
 
     autoSlideIntervalRef.current = setInterval(() => {
-      if (!isSwiping.current) {
-        setIsTransitionEnabled(true);
-        setCurrentBannerIndex((prev) => {
-          if (prev >= heroBannerImages.length) return prev;
-          return prev + 1;
-        });
+      if (!isSwiping.current && (typeof document === "undefined" || !document.hidden)) {
+        setCurrentBannerIndex((prev) => (prev + 1) % heroBannerImages.length);
       }
     }, HERO_BANNER_AUTO_SLIDE_MS);
   }, [heroBannerImages.length, HERO_BANNER_AUTO_SLIDE_MS]);
-
-  // Handle snap-back when reaching the cloned slide at the end
-  useEffect(() => {
-    if (currentBannerIndex === heroBannerImages.length && heroBannerImages.length > 1) {
-      const timer = setTimeout(() => {
-        setIsTransitionEnabled(false);
-        setCurrentBannerIndex(0);
-      }, 500); // match transition duration
-      return () => clearTimeout(timer);
-    }
-  }, [currentBannerIndex, heroBannerImages.length]);
-
-  // Re-enable transition after snap-back
-  useEffect(() => {
-    if (!isTransitionEnabled && currentBannerIndex === 0) {
-      const timer = setTimeout(() => {
-        setIsTransitionEnabled(true);
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [isTransitionEnabled, currentBannerIndex]);
 
   // Auto-cycle hero banner images
   useEffect(() => {
@@ -972,24 +1892,13 @@ export default function Home({ homeMode = null, isTabActive = true }) {
     if (Math.abs(deltaX) > minSwipeDistance && Math.abs(deltaX) > deltaY) {
       if (deltaX > 0) {
         // Swipe right - go to previous image
-        if (currentBannerIndex === 0) {
-          setIsTransitionEnabled(false);
-          setCurrentBannerIndex(heroBannerImages.length);
-          setTimeout(() => {
-            setIsTransitionEnabled(true);
-            setCurrentBannerIndex(heroBannerImages.length - 1);
-          }, 50);
-        } else {
-          setIsTransitionEnabled(true);
-          setCurrentBannerIndex((prev) => prev - 1);
-        }
+        setCurrentBannerIndex(
+          (prev) =>
+            (prev - 1 + heroBannerImages.length) % heroBannerImages.length,
+        );
       } else {
         // Swipe left - go to next image
-        setIsTransitionEnabled(true);
-        setCurrentBannerIndex((prev) => {
-          if (prev >= heroBannerImages.length) return prev;
-          return prev + 1;
-        });
+        setCurrentBannerIndex((prev) => (prev + 1) % heroBannerImages.length);
       }
       // Reset auto-slide timer after manual swipe
       resetAutoSlide();
@@ -1029,23 +1938,12 @@ export default function Home({ homeMode = null, isTabActive = true }) {
 
     if (Math.abs(deltaX) > minSwipeDistance && Math.abs(deltaX) > deltaY) {
       if (deltaX > 0) {
-        if (currentBannerIndex === 0) {
-          setIsTransitionEnabled(false);
-          setCurrentBannerIndex(heroBannerImages.length);
-          setTimeout(() => {
-            setIsTransitionEnabled(true);
-            setCurrentBannerIndex(heroBannerImages.length - 1);
-          }, 50);
-        } else {
-          setIsTransitionEnabled(true);
-          setCurrentBannerIndex((prev) => prev - 1);
-        }
+        setCurrentBannerIndex(
+          (prev) =>
+            (prev - 1 + heroBannerImages.length) % heroBannerImages.length,
+        );
       } else {
-        setIsTransitionEnabled(true);
-        setCurrentBannerIndex((prev) => {
-          if (prev >= heroBannerImages.length) return prev;
-          return prev + 1;
-        });
+        setCurrentBannerIndex((prev) => (prev + 1) % heroBannerImages.length);
       }
       // Reset auto-slide timer after manual swipe
       resetAutoSlide();
@@ -1060,26 +1958,55 @@ export default function Home({ homeMode = null, isTabActive = true }) {
     touchEndX.current = 0;
     touchEndY.current = 0;
   };
-  const [activeFilters, setActiveFilters] = useState(new Set());
-  const [sortBy, setSortBy] = useState(null); // null, 'price-low', 'price-high', 'rating-high', 'rating-low'
-  const [selectedCuisine, setSelectedCuisine] = useState(null);
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [isVoiceOverlayOpen, setIsVoiceOverlayOpen] = useState(false);
-  const voiceSearch = useVoiceSearch((transcript) => {
-    navigate(`/food/user/search?q=${encodeURIComponent(transcript)}&mode=delivery`);
-    setIsVoiceOverlayOpen(false);
+  const [activeFilters, setActiveFilters] = useState(() => {
+    const list = homeRestoreBootRef.current?.pending?.filters?.activeFilters;
+    return new Set(Array.isArray(list) ? list : []);
   });
-  const [appliedFilters, setAppliedFilters] = useState({
-    activeFilters: new Set(),
-    sortBy: null,
-    selectedCuisine: null,
+  const [sortBy, setSortBy] = useState(
+    () => homeRestoreBootRef.current?.pending?.filters?.sortBy ?? null,
+  ); // null, 'price-low', 'price-high', 'rating-high', 'rating-low'
+  const [selectedCuisine, setSelectedCuisine] = useState(
+    () => homeRestoreBootRef.current?.pending?.filters?.selectedCuisine ?? null,
+  );
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [appliedFilters, setAppliedFilters] = useState(() => {
+    const f = homeRestoreBootRef.current?.pending?.filters;
+    return {
+      activeFilters: new Set(Array.isArray(f?.activeFilters) ? f.activeFilters : []),
+      sortBy: f?.sortBy ?? null,
+      selectedCuisine: f?.selectedCuisine ?? null,
+    };
   });
   const [isLoadingFilterResults, setIsLoadingFilterResults] = useState(false);
   const [activeFilterTab, setActiveFilterTab] = useState("sort");
+
+  const toggleHomeFilter = useCallback((filterKey) => {
+    setActiveFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(filterKey)) {
+        next.delete(filterKey);
+      } else {
+        next.add(filterKey);
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    homeUiStateRef.current = {
+      activeFilters: Array.from(activeFilters),
+      sortBy,
+      selectedCuisine,
+      restaurantsData,
+    };
+  }, [activeFilters, sortBy, selectedCuisine, restaurantsData]);
   const categoryScrollRef = useRef(null);
   const gsapAnimationsRef = useRef([]);
   // Show skeletons immediately while loading — delayed toggles caused visible layout swap (CLS).
   const showBannerSkeleton = loadingBanners;
+  const showCategorySkeleton = loadingRealCategories || loadingMenuCategories;
+  const showExploreSkeleton = loadingLandingConfig;
+  const showRestaurantSkeleton = isLoadingFilterResults || loadingRestaurants;
   // Safely get profile context - handle case when ProfileProvider is not available
   let profileContext = null;
   try {
@@ -1101,140 +2028,302 @@ export default function Home({ homeMode = null, isTabActive = true }) {
     removeFavorite,
     isFavorite,
     getFavorites,
-    getDefaultAddress,
   } = profileContext;
-  const { addToCart, cart } = useCart();
-  const { location, loading, requestLocation } = useLocation();
+  const { addToCart, updateQuantity, removeFromCart, getCartItem, cart } = useCart();
   const {
+    effectiveLocation,
+    deliveryAddressMode,
+    savedAddressText,
     zoneId,
     zoneStatus,
     isInService,
     isOutOfService,
-    loading: zoneLoading,
-    error: zoneError,
-  } = useZone(location);
+    zoneLoading,
+    zoneError,
+  } = useDeliveryLocation();
+
+  useEffect(() => {
+    if (Array.isArray(exploreIcons)) {
+      setLandingExploreMore(exploreIcons);
+    }
+  }, [exploreIcons]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchMealsUnder99 = async () => {
+      try {
+        setLoadingMealsUnder99(true);
+        if (!zoneId) {
+          setMealsUnder99([]);
+          return;
+        }
+
+        const foodsResponse = await restaurantAPI.getPublicFoods({ zoneId, limit: 40 });
+
+        if (cancelled) return;
+
+        const foodsRaw = Array.isArray(foodsResponse?.data?.data?.foods)
+          ? foodsResponse.data.data.foods
+          : [];
+
+        const filteredMeals = foodsRaw
+          .filter((food) => {
+            const price = Number(food?.price || 0);
+            return price > 0 && price <= 99 && food?.isAvailable !== false;
+          })
+          .map((food) => {
+            const rId = String(food?.restaurantId || "").trim();
+            const foodType = String(food?.foodType || "").toLowerCase();
+            const isVeg = foodType.includes("veg") && !foodType.includes("non");
+
+            return {
+              ...food,
+              id: String(food?.id || food?._id || `${rId}-${food?.name || "dish"}`),
+              price: Number(food?.price || 0),
+              isVeg,
+              restaurantName: food?.restaurantName || "Restaurant",
+              restaurantId: rId,
+              rating: Number(food?.rating || 4.2),
+              image: food?.image || "",
+            };
+          });
+
+        const uniqueMeals = [];
+        const seenNames = new Set();
+        for (const meal of filteredMeals) {
+          const nameKey = meal.name.toLowerCase().trim();
+          if (!seenNames.has(nameKey)) {
+            seenNames.add(nameKey);
+            uniqueMeals.push(meal);
+          }
+        }
+
+        if (!cancelled) {
+          setMealsUnder99(uniqueMeals.slice(0, 15));
+        }
+      } catch (error) {
+        console.error("Error fetching meals under 99:", error);
+      } finally {
+        if (!cancelled) {
+          setLoadingMealsUnder99(false);
+        }
+      }
+    };
+
+    fetchMealsUnder99();
+    return () => {
+      cancelled = true;
+    };
+  }, [zoneId]);
+
+  const getCartItemQuantity = (dish) => {
+    const variants = dish.variants || [];
+    const resolvedVariant = variants.length > 0 ? variants[0] : null;
+    const lineItemId = buildCartLineId(dish.id || dish._id || "", resolvedVariant?.id || resolvedVariant?._id || "");
+    const item = getCartItem(lineItemId);
+    return item ? item.quantity : 0;
+  };
+
+  const handleIncreaseQuantity = (dish, event = null) => {
+    // Check authentication
+    if (!isModuleAuthenticated('user')) {
+      toast.error("Please login to add items to cart");
+      navigate('/food/user/auth/login', { state: { from: window.location.pathname } });
+      return;
+    }
+
+    const variants = dish.variants || [];
+    const resolvedVariant = variants.length > 0 ? variants[0] : null;
+    const lineItemId = buildCartLineId(dish.id || dish._id || "", resolvedVariant?.id || resolvedVariant?._id || "");
+    const existingCartItem = getCartItem(lineItemId);
+
+    if (isOutOfService) {
+      toast.error('You are outside the service zone. Please select a location within the service area.');
+      return;
+    }
+
+    const cartItem = {
+      id: lineItemId,
+      lineItemId,
+      itemId: dish.id || dish._id,
+      name: dish.name,
+      price: resolvedVariant?.price ?? dish.price,
+      variantId: resolvedVariant?.id || "",
+      variantName: resolvedVariant?.name || "",
+      variantPrice: resolvedVariant?.price ?? dish.price,
+      image: dish.image,
+      restaurant: dish.restaurantName || "Restaurant",
+      restaurantId: dish.restaurantId || undefined,
+      description: dish.description || "",
+      originalPrice: dish.originalPrice || dish.price,
+      foodType: dish.foodType,
+      isVeg: dish.isVeg,
+    };
+
+    let sourcePosition = null;
+    if (event) {
+      const buttonElement = event.currentTarget;
+      if (buttonElement) {
+        const rect = buttonElement.getBoundingClientRect();
+        sourcePosition = {
+          viewportX: rect.left + rect.width / 2,
+          viewportY: rect.top + rect.height / 2,
+          scrollX: window.scrollX || 0,
+          scrollY: window.scrollY || 0,
+          itemId: lineItemId,
+        };
+      }
+    }
+
+    if (existingCartItem) {
+      addToCart(cartItem, sourcePosition, { quantity: 1 });
+    } else {
+      const result = addToCart(cartItem, sourcePosition, { quantity: 1 });
+      if (result?.ok === false) {
+        if (result.needsConfirmation) return;
+        toast.error(result.error || 'Cannot add item from different restaurant. Please clear cart first.');
+      }
+    }
+  };
+
+  const handleDecreaseQuantity = (dish, event = null) => {
+    const variants = dish.variants || [];
+    const resolvedVariant = variants.length > 0 ? variants[0] : null;
+    const lineItemId = buildCartLineId(dish.id || dish._id || "", resolvedVariant?.id || resolvedVariant?._id || "");
+    const existingCartItem = getCartItem(lineItemId);
+    if (!existingCartItem) return;
+
+    const newQuantity = existingCartItem.quantity - 1;
+
+    let sourcePosition = null;
+    if (event) {
+      const buttonElement = event.currentTarget;
+      if (buttonElement) {
+        const rect = buttonElement.getBoundingClientRect();
+        sourcePosition = {
+          viewportX: rect.left + rect.width / 2,
+          viewportY: rect.top + rect.height / 2,
+          scrollX: window.scrollX || 0,
+          scrollY: window.scrollY || 0,
+          itemId: lineItemId,
+        };
+      }
+    }
+
+    const productInfo = {
+      id: lineItemId,
+      name: dish.name,
+      imageUrl: dish.image,
+    };
+
+    if (newQuantity <= 0) {
+      removeFromCart(lineItemId, sourcePosition, productInfo);
+    } else {
+      updateQuantity(lineItemId, newQuantity, sourcePosition, productInfo);
+    }
+  };
+
+  // Landing settings (zone-specific) from centralized public config
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingLandingConfig(true);
+
+    void refreshLanding(zoneId)
+      .then((landing) => {
+        if (cancelled || !landing) return;
+        setExploreMoreHeading(landing.exploreMoreHeading || "Explore More");
+        setRecommendedRestaurantIds(landing.recommendedRestaurantIds || []);
+        setRecommendedRestaurantsFromSettings(landing.recommendedRestaurants || []);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setExploreMoreHeading("Explore More");
+          setRecommendedRestaurantsFromSettings([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingLandingConfig(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [zoneId, refreshLanding]);
   const [showToast, setShowToast] = useState(false);
   const [showManageCollections, setShowManageCollections] = useState(false);
   const [selectedRestaurantSlug, setSelectedRestaurantSlug] = useState(null);
 
-  // Fetch hero banners from public API (no auth required)
+  // Fetch categories (zone-aware) for the homepage category rail.
   useEffect(() => {
-    if (zoneLoading) return;
-    let cancelled = false;
-    setLoadingBanners(true);
-    publicGetOnce("/food/hero-banners/public", zoneId ? { params: { zoneId } } : {})
-      .then((response) => {
-        if (cancelled) return;
-        const data = response?.data?.data;
-        const list = Array.isArray(data?.banners)
-          ? data.banners
-          : Array.isArray(data)
-            ? data
-            : [];
-        const images = list
-          .map((b) => (b && typeof b.imageUrl === "string" ? b.imageUrl : ""))
-          .filter(Boolean);
-        setHeroBannerImages(images);
-        setHeroBannersData(list);
-        setCurrentBannerIndex(0);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        debugError("Failed to fetch hero banners", err);
-        setHeroBannerImages([]);
-        setHeroBannersData([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingBanners(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [zoneId, zoneLoading]);
+    let cancelled = false
+    const run = async () => {
+      const zoneKey = String(zoneId || "global")
+      try {
+        // Dedupe repeated calls (StrictMode + zone settling). Cache per zoneKey and share in-flight request.
+        const cached = publicCategoriesCacheRef.current.get(zoneKey)
+        if (cached) {
+          if (!cancelled) setRealCategories(cached)
+          return
+        }
 
-  // Old backend endpoint removed: keep UI stable with empty categories.
-  useEffect(() => {
-    setLoadingRealCategories(true);
-    setRealCategories([]);
-    setLoadingRealCategories(false);
-  }, []);
+        const inFlight = publicCategoriesInFlightRef.current.get(zoneKey)
+        if (inFlight) {
+          const categories = await inFlight
+          if (!cancelled) setRealCategories(categories)
+          return
+        }
 
-  // Fetch explore icons and landing settings from public APIs
-  useEffect(() => {
-    if (zoneLoading) return;
-    let cancelled = false;
-    const reqConfig = zoneId ? { params: { zoneId } } : {};
-    Promise.all([
-      publicGetOnce("/food/explore-icons/public", reqConfig)
-        .catch(() => ({ data: { data: {} } })),
-      publicGetOnce("/food/landing/settings/public", reqConfig)
-        .catch(() => ({ data: { data: {} } })),
-    ])
-      .then(([exploreRes, settingsRes]) => {
-        if (cancelled) return;
-        const exploreData = exploreRes?.data?.data;
-        const items = Array.isArray(exploreData?.items)
-          ? exploreData.items
-          : Array.isArray(exploreData)
-            ? exploreData
-            : [];
-        const mappedItems = items.map((it) => ({
-          ...it,
-          imageUrl: it.imageUrl || it.iconUrl,
-          label: it.label || it.name,
-        }));
-        setLandingExploreMore(mappedItems);
-        const settings = settingsRes?.data?.data || {};
-        const heading = settings.exploreMoreHeading || "Explore More";
-        setExploreMoreHeading(heading);
-        setRecommendedRestaurantIds(settings.recommendedRestaurantIds || []);
-        setUnder250PriceLimit(Number(settings.under250PriceLimit) || 250);
-        setRecommendedRestaurantsFromSettings(
-          settings.recommendedRestaurants || [],
-        );
-        const newBannerUrl = typeof settings.festBannerImageUrl === "string" ? settings.festBannerImageUrl : "";
-        const newTopColor = typeof settings.festBannerTopColor === "string" && settings.festBannerTopColor ? settings.festBannerTopColor : '';
-        setFestBannerImageUrl(newBannerUrl);
-        setFestBannerTopColor(newTopColor);
-        if (typeof window !== "undefined") {
-          try { localStorage.setItem("CACHED_FEST_BANNER", newBannerUrl); } catch (e) {}
-          try { localStorage.setItem("CACHED_FEST_BANNER_COLOR", newTopColor); } catch (e) {}
-        }
-        // Update status bar color immediately from saved color
-        if (newBannerUrl && newTopColor) {
-          try {
-            let meta = document.querySelector('meta[name="theme-color"]');
-            if (!meta) { meta = document.createElement('meta'); meta.name = 'theme-color'; document.head.appendChild(meta); }
-            meta.setAttribute('content', newTopColor);
-          } catch (e) {}
-        } else {
-          try {
-            const meta = document.querySelector('meta[name="theme-color"]');
-            if (meta) meta.setAttribute('content', '#D91F3A');
-          } catch (e) {}
-        }
-        setCachedExploreIcons({ items: mappedItems, heading });
-        preloadImageUrls(
-          mappedItems
-            .map((it) => toExploreIconThumbUrl(it.imageUrl || it.image))
-            .filter(Boolean),
-        );
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setLandingExploreMore([]);
-          setExploreMoreHeading("Explore More");
-          setRecommendedRestaurantsFromSettings([]);
-          setFestBannerImageUrl("");
-          if (typeof window !== "undefined") {
-            try { localStorage.setItem("CACHED_FEST_BANNER", ""); } catch (e) {}
-          }
-        }
-      });
+        setLoadingRealCategories(true)
+        const promise = (async () => {
+          const res = await adminAPI.getPublicCategories(zoneId ? { zoneId } : {})
+          const list =
+            res?.data?.data?.categories ||
+            res?.data?.categories ||
+            []
+          const categories = Array.isArray(list)
+            ? list.map((cat, idx) => {
+              const nameLower = (cat?.name || "").toLowerCase()
+              let customImage = ""
+              if (nameLower.includes("thali") || nameLower.includes("main course")) customImage = "/images/categories/thali.png"
+              else if (nameLower.includes("beverage") || nameLower.includes("drink")) customImage = "/images/categories/beverages.png"
+              else if (nameLower.includes("sweet") || nameLower.includes("cake")) customImage = "/images/categories/sweet.png"
+              else if (nameLower.includes("momo")) customImage = "/images/categories/momos.png"
+
+              return {
+                id: String(cat?.id || cat?._id || cat?.slug || idx),
+                name: cat?.name || "",
+                slug: cat?.slug || String(cat?.name || "").toLowerCase().replace(/\s+/g, "-"),
+                image:
+                  customImage ||
+                  normalizeImageUrl(cat?.image || cat?.imageUrl) ||
+                  foodImages[idx % foodImages.length] ||
+                  foodImages[0],
+                type: cat?.type || "",
+              }
+            })
+            : []
+
+          publicCategoriesCacheRef.current.set(zoneKey, categories)
+          return categories
+        })()
+
+        publicCategoriesInFlightRef.current.set(zoneKey, promise)
+        const categories = await promise
+        publicCategoriesInFlightRef.current.delete(zoneKey)
+
+        if (!cancelled) setRealCategories(categories)
+      } catch (err) {
+        debugWarn("Failed to fetch categories:", err)
+        if (!cancelled) setRealCategories([])
+      } finally {
+        if (!cancelled) setLoadingRealCategories(false)
+      }
+    }
+    run()
     return () => {
-      cancelled = true;
-    };
-  }, [zoneId, zoneLoading]);
+      cancelled = true
+    }
+  }, [zoneId, normalizeImageUrl])
 
   // Memoize cartCount to prevent recalculation on every render - use cart directly
   const cartCount = useMemo(
@@ -1242,10 +2331,10 @@ export default function Home({ homeMode = null, isTabActive = true }) {
     [cart],
   );
 
-  const cityName = location?.city || "Select";
-  const stateName = location?.state || "Location";
+  const cityName = effectiveLocation?.city || "Select";
+  const stateName = effectiveLocation?.state || "Location";
   const hasLiveLocation = useMemo(() => {
-    if (!location) return false;
+    if (!effectiveLocation) return false;
 
     const isPlaceholder = (value) => {
       if (!value) return true;
@@ -1258,189 +2347,16 @@ export default function Home({ homeMode = null, isTabActive = true }) {
     };
 
     const hasAddressText =
-      !isPlaceholder(location.formattedAddress) ||
-      !isPlaceholder(location.address);
+      !isPlaceholder(effectiveLocation.formattedAddress) ||
+      !isPlaceholder(effectiveLocation.address);
     const hasCityState =
-      !isPlaceholder(location.city) || !isPlaceholder(location.state);
+      !isPlaceholder(effectiveLocation.city) || !isPlaceholder(effectiveLocation.state);
 
     return hasAddressText || hasCityState;
-  }, [location]);
+  }, [effectiveLocation]);
 
-  const formatSavedAddress = useCallback((address) => {
-    if (!address) return "";
-
-    if (
-      address.formattedAddress &&
-      address.formattedAddress !== "Select location"
-    ) {
-      return address.formattedAddress;
-    }
-
-    const parts = [];
-    if (address.additionalDetails) parts.push(address.additionalDetails);
-    if (address.street) parts.push(address.street);
-    if (address.city) parts.push(address.city);
-    if (address.state) parts.push(address.state);
-    if (address.zipCode) parts.push(address.zipCode);
-
-    if (parts.length > 0) return parts.join(", ");
-    if (address.address && address.address !== "Select location")
-      return address.address;
-
-    return "";
-  }, []);
-
-  const savedAddressText = useMemo(() => {
-    const defaultAddress = getDefaultAddress?.();
-    return formatSavedAddress(defaultAddress);
-  }, [getDefaultAddress, formatSavedAddress]);
-
-  const defaultSavedAddress = useMemo(
-    () => getDefaultAddress?.() || null,
-    [getDefaultAddress],
-  );
-
-  const defaultSavedAddressLocation = useMemo(() => {
-    const coords = defaultSavedAddress?.location?.coordinates;
-    if (Array.isArray(coords) && coords.length >= 2) {
-      const lng = parseFloat(coords[0]);
-      const lat = parseFloat(coords[1]);
-      if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        return { latitude: lat, longitude: lng };
-      }
-    }
-
-    const lat = parseFloat(
-      defaultSavedAddress?.latitude || defaultSavedAddress?.lat,
-    );
-    const lng = parseFloat(
-      defaultSavedAddress?.longitude || defaultSavedAddress?.lng,
-    );
-    if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      return { latitude: lat, longitude: lng };
-    }
-
-    return null;
-  }, [defaultSavedAddress]);
-
-  const effectiveLocation = location;
-  // Prefer selected/saved delivery address for distance so home cards match cart bill.
-  const distanceOrigin = useMemo(() => {
-    if (
-      Number.isFinite(defaultSavedAddressLocation?.latitude) &&
-      Number.isFinite(defaultSavedAddressLocation?.longitude)
-    ) {
-      return defaultSavedAddressLocation;
-    }
-    if (
-      Number.isFinite(effectiveLocation?.latitude) &&
-      Number.isFinite(effectiveLocation?.longitude)
-    ) {
-      return {
-        latitude: Number(effectiveLocation.latitude),
-        longitude: Number(effectiveLocation.longitude),
-      };
-    }
-    return null;
-  }, [defaultSavedAddressLocation, effectiveLocation]);
-  // Single zone hook — duplicate useZone(location) caused double detect + loading flicker.
-  const effectiveZoneId = zoneId;
-  const effectiveZoneLoading = zoneLoading;
-
-  const showCategorySkeleton = loadingRealCategories || loadingMenuCategories || zoneLoading;
-  const showRestaurantSkeleton = isLoadingFilterResults || loadingRestaurants || zoneLoading;
-  // While zone/restaurants are settling, never surface a real "0 restaurants" count.
-  const isRestaurantsResolving =
-    loadingRestaurants ||
-    isLoadingFilterResults ||
-    zoneLoading;
-
-  // Only flip restaurant loading when the zone actually changes (not every detect flicker).
-  const prevResolvedZoneIdRef = useRef(zoneId);
-  useEffect(() => {
-    if (zoneLoading) return;
-    if (prevResolvedZoneIdRef.current === zoneId) return;
-    prevResolvedZoneIdRef.current = zoneId;
-    setLoadingRealCategories(true);
-    setLoadingRestaurants(true);
-  }, [zoneId, zoneLoading]);
-
-  // Fetch categories (zone-aware) for the homepage category rail.
-  useEffect(() => {
-    if (zoneLoading) return;
-
-    let cancelled = false;
-    const run = async () => {
-      const zoneKey = String(zoneId || "global");
-      try {
-        // Dedupe repeated calls (StrictMode + zone settling). Cache per zoneKey and share in-flight request.
-        const cached = publicCategoriesCacheRef.current.get(zoneKey);
-        if (cached) {
-          if (!cancelled) {
-            setRealCategories(cached);
-            setLoadingRealCategories(false);
-          }
-          return;
-        }
-
-        const inFlight = publicCategoriesInFlightRef.current.get(zoneKey);
-        if (inFlight) {
-          const categories = await inFlight;
-          if (!cancelled) {
-            setRealCategories(categories);
-            setLoadingRealCategories(false);
-          }
-          return;
-        }
-
-        setLoadingRealCategories(true);
-        const promise = (async () => {
-          const res = await adminAPI.getPublicCategories(zoneId ? { zoneId } : {});
-          const list =
-            res?.data?.data?.categories ||
-            res?.data?.categories ||
-            [];
-          const categories = Array.isArray(list)
-            ? list.map((cat, idx) => ({
-              id: String(cat?.id || cat?._id || cat?.slug || idx),
-              name: cat?.name || "",
-              slug: cat?.slug || String(cat?.name || "").toLowerCase().replace(/\s+/g, "-"),
-              image:
-                normalizeImageUrl(cat?.image || cat?.imageUrl) ||
-                foodImages[idx % foodImages.length] ||
-                foodImages[0],
-              type: cat?.type || "",
-              foodTypeScope: cat?.foodTypeScope || "",
-            }))
-            : [];
-
-          publicCategoriesCacheRef.current.set(zoneKey, categories);
-          return categories;
-        })();
-
-        publicCategoriesInFlightRef.current.set(zoneKey, promise);
-        const categories = await promise;
-        publicCategoriesInFlightRef.current.delete(zoneKey);
-
-        if (!cancelled) {
-          setRealCategories(categories);
-          HOME_CATEGORIES_CACHE = categories;
-          setSessionCache(HOME_CATEGORIES_CACHE_KEY, categories);
-        }
-      } catch (err) {
-        debugWarn("Failed to fetch categories:", err);
-        if (!cancelled) setRealCategories(HOME_CATEGORIES_CACHE || []);
-      } finally {
-        if (!cancelled) setLoadingRealCategories(false);
-      }
-    };
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [zoneId, zoneLoading, normalizeImageUrl]);
-
-
+  const headerSavedAddressText =
+    deliveryAddressMode === "saved" ? savedAddressText : "";
 
   // Mock points value - replace with actual points from context/store
   const userPoints = 99;
@@ -1466,6 +2382,8 @@ export default function Home({ homeMode = null, isTabActive = true }) {
   const filterSectionRefs = useRef({});
   const [activeScrollSection, setActiveScrollSection] = useState("sort");
   const rightContentRef = useRef(null);
+  const isProgrammaticScrollRef = useRef(false);
+  const scrollTimeoutRef = useRef(null);
   const restaurantsRequestSeqRef = useRef(0);
   const menuUnionRequestSeqRef = useRef(0);
   const menuUnionCacheRef = useRef(new Map());
@@ -1481,6 +2399,7 @@ export default function Home({ homeMode = null, isTabActive = true }) {
     };
 
     const observer = new IntersectionObserver((entries) => {
+      if (isProgrammaticScrollRef.current) return;
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
           const sectionId = entry.target.getAttribute("data-section-id");
@@ -1503,16 +2422,14 @@ export default function Home({ homeMode = null, isTabActive = true }) {
   // Fetch restaurants from API with filters
   const fetchRestaurants = useCallback(
     async (filters = {}) => {
-        if (!effectiveZoneId) {
-          setRestaurantsData([]);
-          setLoadingRestaurants(false);
-          return;
-        }
-
-        const requestSeq = ++restaurantsRequestSeqRef.current;
+      const requestSeq = ++restaurantsRequestSeqRef.current;
       try {
-        // Soft refresh: keep cached list visible — don't flash full-page skeleton
-        if (!(Array.isArray(HOME_RESTAURANTS_CACHE) && HOME_RESTAURANTS_CACHE.length > 0)) {
+        const restore = homeScrollRestoreRef.current;
+        const suppressLoading =
+          restore?.active &&
+          !restore?.scrollRestored &&
+          (restaurantsDataRef.current?.length > 0);
+        if (!suppressLoading) {
           setLoadingRestaurants(true);
         }
 
@@ -1521,26 +2438,18 @@ export default function Home({ homeMode = null, isTabActive = true }) {
         // Build query parameters from filters
         const params = {};
 
-        // Use saved/selected delivery address coords (same origin as cart bill).
+        // Always send user coordinates when available so backend can compute distance/sort.
         if (
-          Number.isFinite(distanceOrigin?.latitude) &&
-          Number.isFinite(distanceOrigin?.longitude)
+          Number.isFinite(effectiveLocation?.latitude) &&
+          Number.isFinite(effectiveLocation?.longitude)
         ) {
-          params.lat = Number(distanceOrigin.latitude);
-          params.lng = Number(distanceOrigin.longitude);
+          params.lat = effectiveLocation.latitude;
+          params.lng = effectiveLocation.longitude;
         }
-
-        // Limit results for performance
-        params.limit = 40;
 
         // Sort by
-        if (filters.sortBy || sortBy) {
-          params.sortBy = filters.sortBy || sortBy;
-        }
-
-        // Order Type (Takeaway/Delivery)
-        if (effectiveOrderType) {
-          params.orderType = effectiveOrderType;
+        if (filters.sortBy) {
+          params.sortBy = filters.sortBy;
         }
 
         // Cuisine
@@ -1563,7 +2472,6 @@ export default function Home({ homeMode = null, isTabActive = true }) {
         } else if (filters.activeFilters?.has("delivery-under-45")) {
           params.maxDeliveryTime = 45;
         }
-
         // Distance filters
         if (filters.activeFilters?.has("distance-under-1km")) {
           params.radiusKm = 1.0;
@@ -1578,6 +2486,11 @@ export default function Home({ homeMode = null, isTabActive = true }) {
           params.maxPrice = 500;
         }
 
+        // Veg mode filter
+        if (vegModeOption && vegModeOption !== "all") {
+          params.vegModeOption = vegModeOption;
+        }
+
         // Offers filter
         if (filters.activeFilters?.has("has-offers")) {
           params.hasOffers = "true";
@@ -1590,37 +2503,22 @@ export default function Home({ homeMode = null, isTabActive = true }) {
           params.trusted = "true";
         }
 
-        if (effectiveZoneId) {
-          params.zoneId = effectiveZoneId;
-        } else {
-          // Zone id vanished mid-request — keep resolving state, don't flash 0.
-          setLoadingRestaurants(true);
+        // Strict zone-only listing for user home.
+        // If zone is not detected yet, don't fetch global restaurants.
+        if (!zoneId) {
+          const keepWarmList =
+            homeScrollRestoreRef.current?.active &&
+            !homeScrollRestoreRef.current?.scrollRestored &&
+            restaurantsDataRef.current?.length > 0;
+          if (!keepWarmList) {
+            setRestaurantsData([]);
+          }
+          if (requestSeq === restaurantsRequestSeqRef.current) {
+            setLoadingRestaurants(false);
+          }
           return;
         }
-
-        // Zone-based delivery: do NOT filter by city name.
-        // Villages like "Dugal Kalan" / "Dogal" sit inside a zone whose restaurants
-        // are typically registered under the main town (e.g. "Patran"). City matching
-        // incorrectly returns 0 restaurants even when the pin is inside the zone.
-        const resolvedCity = resolveServiceCity({
-          locality: effectiveLocation?.city || "",
-          formattedAddress:
-            effectiveLocation?.formattedAddress ||
-            effectiveLocation?.address ||
-            "",
-          fallback: "",
-        });
-        const normalizedUserCity = String(resolvedCity || effectiveLocation?.city || "")
-          .trim()
-          .toLowerCase();
-        const hasUsableUserCity =
-          normalizedUserCity &&
-          normalizedUserCity !== "current location" &&
-          normalizedUserCity !== "unknown city" &&
-          normalizedUserCity !== "select location";
-        if (!effectiveZoneId && hasUsableUserCity) {
-          params.city = resolvedCity || String(effectiveLocation.city).trim();
-        }
+        params.zoneId = zoneId;
 
         debugLog("Fetching restaurants with params:", params);
         const response = await restaurantAPI.getRestaurants(params);
@@ -1640,23 +2538,24 @@ export default function Home({ homeMode = null, isTabActive = true }) {
 
           if (restaurantsArray.length === 0) {
             debugWarn("No restaurants found in API response");
-            setRestaurantsData([]);
-            if (requestSeq === restaurantsRequestSeqRef.current) {
-              setLoadingRestaurants(false);
+            const keepWarmList =
+              homeScrollRestoreRef.current?.active &&
+              !homeScrollRestoreRef.current?.scrollRestored &&
+              restaurantsDataRef.current?.length > 0;
+            if (!keepWarmList) {
+              setRestaurantsData([]);
             }
             return;
           }
 
+          // Get user coordinates
           const userLat = effectiveLocation?.latitude;
           const userLng = effectiveLocation?.longitude;
 
+          // Transform API data to match expected format
           const transformedRestaurants = restaurantsArray
             .filter((restaurant) => {
-              if (effectiveOrderType === "takeaway" || isTakeawayPage) {
-                if (!restaurant.takeawaySettings?.isEnabled && !restaurant.takeawayAvailable) {
-                  return false;
-                }
-              }
+              const name = (restaurant.restaurantName || restaurant.name || "").toLowerCase()
               return true
             })
             .map((restaurant, index) => {
@@ -1664,14 +2563,27 @@ export default function Home({ homeMode = null, isTabActive = true }) {
               const deliveryTime =
                 restaurant.estimatedDeliveryTime || "25-30 mins";
 
-              // Use pre-calculated distance from backend
-              const distance = restaurant.distance || null;
-              const distanceInKm = Number.isFinite(Number(restaurant.distanceInKm))
-                ? Number(restaurant.distanceInKm)
-                : null;
-              const topOrder = Number.isFinite(Number(restaurant.__topOrder ?? restaurant.topOrder))
-                ? Number(restaurant.__topOrder ?? restaurant.topOrder)
-                : 1000000;
+              // Same Haversine + coordinate parsing as delivery new-order / cart fees.
+              let distance = "—";
+              let distanceInKm = null;
+
+              const restaurantLoc = normalizeRestaurantLocation(
+                restaurant.location || restaurant,
+              );
+              const measured = getUserRestaurantDistance(
+                effectiveLocation?.deliveryAddress || effectiveLocation,
+                restaurantLoc,
+              );
+              if (measured) {
+                distanceInKm = measured.km;
+                distance = measured.label;
+              } else if (Number.isFinite(Number(restaurant.distanceInKm))) {
+                distanceInKm = Number(restaurant.distanceInKm);
+                distance =
+                  distanceInKm >= 1
+                    ? `${distanceInKm.toFixed(1)} km`
+                    : `${Math.round(distanceInKm * 1000)} m`;
+              }
 
               // Get first cuisine or default
               const cuisine =
@@ -1705,8 +2617,12 @@ export default function Home({ homeMode = null, isTabActive = true }) {
               );
 
               // Keep single image for backward compatibility
-              const image = allImages[0] || profileImageUrl || "";
-              const offerText = restaurant.offer || null;
+              const fallbackImage = horizontalFoodImages[index % horizontalFoodImages.length];
+              const image = allImages[0] || profileImageUrl || fallbackImage;
+              const activeOffers = Array.isArray(restaurant.activeOffers)
+                ? restaurant.activeOffers
+                : [];
+              const offerText = activeOffers[0]?.summary || restaurant.offer || null;
 
               return {
                 id: restaurant.restaurantId || restaurant._id,
@@ -1717,39 +2633,33 @@ export default function Home({ homeMode = null, isTabActive = true }) {
                   ? restaurant.cuisines
                   : [],
                 rating: Number(restaurant.rating) || 0,
-                totalRatings: Number(restaurant.totalRatings) || 0,
                 deliveryTime:
-                  (effectiveOrderType === "takeaway" || isTakeawayPage)
-                    ? (restaurant.preparationTime || "20-25 mins")
-                    : (restaurant.deliveryTime ||
-                      restaurant.estimatedDeliveryTime ||
-                      (restaurant.estimatedDeliveryTimeMinutes
-                        ? `${restaurant.estimatedDeliveryTimeMinutes} mins`
-                        : deliveryTime)),
-                takeawaySettings: restaurant.takeawaySettings || null,
+                  restaurant.deliveryTime ||
+                  restaurant.estimatedDeliveryTime ||
+                  (restaurant.estimatedDeliveryTimeMinutes
+                    ? `${restaurant.estimatedDeliveryTimeMinutes} mins`
+                    : deliveryTime),
                 distance: distance,
                 distanceInKm: distanceInKm, // Store numeric distance for sorting
-                topOrder,
-                __topOrder: topOrder,
                 image: image,
                 images: allImages, // Array of cover images for carousel (separate from menu images)
                 priceRange: restaurant.priceRange || "$$", // Use from API or default
                 featuredDish:
                   restaurant.featuredDish ||
-                  (Array.isArray(restaurant.recommendedDishes) && restaurant.recommendedDishes.length > 0
-                    ? restaurant.recommendedDishes[0].name
-                    : (restaurant.cuisines && restaurant.cuisines.length > 0
-                      ? `${restaurant.cuisines[0]} Special`
-                      : "Special Dish")),
-                featuredPrice: restaurant.featuredPrice ||
-                  (Array.isArray(restaurant.recommendedDishes) && restaurant.recommendedDishes.length > 0
-                    ? restaurant.recommendedDishes[0].price
-                    : 249),
+                  (restaurant.cuisines && restaurant.cuisines.length > 0
+                    ? `${restaurant.cuisines[0]} Special`
+                    : "Special Dish"),
+                featuredPrice: restaurant.featuredPrice || 249, // Use from API or default
                 offer: offerText,
+                activeOffers,
+                offerCount:
+                  Number(restaurant.offerCount) > 0
+                    ? Number(restaurant.offerCount)
+                    : activeOffers.length,
                 slug: restaurant.slug,
                 restaurantId: restaurant.restaurantId,
                 pureVegRestaurant: restaurant.pureVegRestaurant === true,
-                location: restaurant.location, // Store location for distance recalculation
+                location: restaurantLoc || restaurant.location, // Normalized for distance recalculation
                 isActive: restaurant.isActive !== false, // Default to true if not specified
                 isAcceptingOrders: restaurant.isAcceptingOrders !== false, // Default to true if not specified
                 openDays: Array.isArray(restaurant.openDays)
@@ -1759,24 +2669,116 @@ export default function Home({ homeMode = null, isTabActive = true }) {
                 outletTimings: restaurant.outletTimings || null,
                 openingTime: restaurant.openingTime || restaurant?.deliveryTimings?.openingTime || null,
                 closingTime: restaurant.closingTime || restaurant?.deliveryTimings?.closingTime || null,
-                recommendedDishes: Array.isArray(restaurant.recommendedDishes) ? restaurant.recommendedDishes : [],
-                hasDishes: restaurant.hasDishes === true || (restaurant.totalMenuItems > 0),
-                totalMenuItems: restaurant.totalMenuItems || 0,
+                recommendedItems: Array.isArray(restaurant.recommendedItems) ? restaurant.recommendedItems : [],
               };
-            });
+            },
+            );
 
-          // Commit list + end loading in the same turn so UI never paints "0" in between.
-          setRestaurantsData(transformedRestaurants);
-          HOME_RESTAURANTS_CACHE = transformedRestaurants;
-          setSessionCache('food_home_restaurants', transformedRestaurants);
-          if (requestSeq === restaurantsRequestSeqRef.current) {
-            setLoadingRestaurants(false);
+          const sortRestaurantsForDisplay = (restaurants) => {
+            if (!userLat || !userLng) return restaurants;
+            return [...restaurants].sort((a, b) => {
+              // Available restaurants first, then unavailable
+              const aAvailable = getRestaurantAvailabilityStatus(a, new Date()).isOpen;
+              const bAvailable = getRestaurantAvailabilityStatus(b, new Date()).isOpen;
+
+              if (aAvailable !== bAvailable) {
+                return aAvailable ? -1 : 1; // Available restaurants come first
+              }
+
+              // Apply secondary sort based on sortBy filter
+              if (filters.sortBy === "price-low") {
+                return (a.featuredPrice || 0) - (b.featuredPrice || 0);
+              }
+              if (filters.sortBy === "price-high") {
+                return (b.featuredPrice || 0) - (a.featuredPrice || 0);
+              }
+              if (filters.sortBy === "rating-high") {
+                return (b.rating || 0) - (a.rating || 0);
+              }
+              if (filters.sortBy === "rating-low") {
+                return (a.rating || 0) - (b.rating || 0);
+              }
+
+              // Default: sort by distance
+              const aDistance =
+                a.distanceInKm !== null ? a.distanceInKm : Infinity;
+              const bDistance =
+                b.distanceInKm !== null ? b.distanceInKm : Infinity;
+              return aDistance - bDistance;
+            });
+          };
+
+          debugLog(
+            "Transformed and sorted restaurants:",
+            transformedRestaurants,
+          );
+          startTransition(() => {
+            setRestaurantsData(sortRestaurantsForDisplay(transformedRestaurants));
+          });
+
+          const restaurantsNeedingOutletTimings = transformedRestaurants.filter(
+            (restaurant) => restaurant.mongoId && !restaurant.outletTimings,
+          );
+
+          if (restaurantsNeedingOutletTimings.length > 0) {
+            void (async () => {
+              const resolvedOutletTimings = new Map();
+
+              for (const restaurant of restaurantsNeedingOutletTimings) {
+                try {
+                  const outletResponse =
+                    await restaurantAPI.getOutletTimingsByRestaurantId(
+                      restaurant.mongoId,
+                      { noCache: true },
+                    );
+                  const outletTimings =
+                    outletResponse?.data?.data?.outletTimings ||
+                    outletResponse?.data?.outletTimings ||
+                    null;
+
+                  if (outletTimings) {
+                    resolvedOutletTimings.set(restaurant.mongoId, outletTimings);
+                  }
+                } catch (_) {
+                  // Keep the existing restaurant data if enrichment fails.
+                }
+              }
+
+              if (
+                requestSeq !== restaurantsRequestSeqRef.current ||
+                resolvedOutletTimings.size === 0
+              ) {
+                return;
+              }
+
+              startTransition(() => {
+                setRestaurantsData((currentRestaurants) => {
+                  let hasChanges = false;
+                  const nextRestaurants = currentRestaurants.map((restaurant) => {
+                    if (!restaurant.mongoId) return restaurant;
+                    const outletTimings = resolvedOutletTimings.get(
+                      restaurant.mongoId,
+                    );
+                    if (!outletTimings) return restaurant;
+                    hasChanges = true;
+                    return { ...restaurant, outletTimings };
+                  });
+
+                  return hasChanges
+                    ? sortRestaurantsForDisplay(nextRestaurants)
+                    : currentRestaurants;
+                });
+              });
+            })();
           }
         } else {
           debugWarn("Invalid API response structure:", response.data);
-          setRestaurantsData([]);
-          if (requestSeq === restaurantsRequestSeqRef.current) {
-            setLoadingRestaurants(false);
+          const keepWarmList =
+            homeScrollRestoreRef.current?.active &&
+            !homeScrollRestoreRef.current?.scrollRestored &&
+            restaurantsDataRef.current?.length > 0;
+          if (!keepWarmList) {
+            setRestaurantsData([]);
           }
         }
       } catch (error) {
@@ -1784,7 +2786,14 @@ export default function Home({ homeMode = null, isTabActive = true }) {
         debugError("Error details:", error.response?.data || error.message);
         // Don't set hardcoded data here - let the useMemo fallback handle it
         // This way, if API succeeds later, it will show the real data
-        setRestaurantsData([]);
+        const keepWarmList =
+          homeScrollRestoreRef.current?.active &&
+          !homeScrollRestoreRef.current?.scrollRestored &&
+          restaurantsDataRef.current?.length > 0;
+        if (!keepWarmList) {
+          setRestaurantsData([]);
+        }
+      } finally {
         if (requestSeq === restaurantsRequestSeqRef.current) {
           setLoadingRestaurants(false);
         }
@@ -1793,13 +2802,10 @@ export default function Home({ homeMode = null, isTabActive = true }) {
     [
       extractImages,
       buildRestaurantImageCandidates,
-      distanceOrigin?.latitude,
-      distanceOrigin?.longitude,
       effectiveLocation?.latitude,
       effectiveLocation?.longitude,
-      effectiveZoneId,
-      effectiveOrderType,
-      isTakeawayPage,
+      zoneId,
+      vegModeOption,
     ],
   );
 
@@ -1829,59 +2835,153 @@ export default function Home({ homeMode = null, isTabActive = true }) {
     [activeFilters, sortBy, selectedCuisine, fetchRestaurants],
   );
 
-  // Fetch when filters/orderType/zone settle. Wait for zoneLoading so we never
-  // skip a fetch and get stuck on "Finding Restaurants For You".
+  // Fetch restaurants when appliedFilters change
   useEffect(() => {
-    if (zoneLoading) return;
-    if (!effectiveZoneId) {
-      setRestaurantsData([]);
+    const restore = homeScrollRestoreRef.current;
+    if (restore?.skipNextFetch) {
+      restore.skipNextFetch = false;
       setLoadingRestaurants(false);
       return;
     }
-    const timer = setTimeout(() => {
-      fetchRestaurants(appliedFilters);
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [appliedFilters, fetchRestaurants, effectiveOrderType, zoneLoading, effectiveZoneId]);
+    fetchRestaurants(appliedFilters);
+  }, [appliedFilters, fetchRestaurants]);
 
+  // Recalculate distances when user location updates
+  useEffect(() => {
+    if (!effectiveLocation?.latitude || !effectiveLocation?.longitude) return;
 
+    setRestaurantsData((prevData) => {
+      if (!prevData || prevData.length === 0) return prevData;
+
+      let hasChanges = false;
+      const updatedRestaurants = prevData.map((restaurant) => {
+        if (!restaurant.location) return restaurant;
+        // Don't clobber Google road distance with Haversine.
+        if (restaurant.distanceSource === "road") return restaurant;
+
+        const measured = getUserRestaurantDistance(
+          effectiveLocation?.deliveryAddress || effectiveLocation,
+          normalizeRestaurantLocation(restaurant.location) || restaurant.location,
+        );
+        if (!measured) return restaurant;
+
+        const { km: distanceInKm, label: calculatedDistance } = measured;
+
+        if (
+          restaurant.distance !== calculatedDistance ||
+          restaurant.distanceInKm !== distanceInKm
+        ) {
+          hasChanges = true;
+          return {
+            ...restaurant,
+            distance: calculatedDistance,
+            distanceInKm: distanceInKm, // Preserve numeric distance for sorting
+            distanceSource: "haversine",
+            location:
+              normalizeRestaurantLocation(restaurant.location) ||
+              restaurant.location,
+          };
+        }
+        return restaurant;
+      });
+
+      return hasChanges ? updatedRestaurants : prevData;
+    });
+
+    debugLog(
+      "?? Recalculated distances for all restaurants based on user location",
+    );
+  }, [effectiveLocation?.latitude, effectiveLocation?.longitude]);
+
+  const restaurantsDistanceKey = useMemo(
+    () =>
+      (restaurantsData || [])
+        .map((restaurant) => String(restaurant.id || restaurant.mongoId || ""))
+        .filter(Boolean)
+        .join("|"),
+    [restaurantsData],
+  );
+
+  // Upgrade Haversine (~6.9) to Google road distance (~7.7) so home matches delivery Rest→User.
+  useEffect(() => {
+    let cancelled = false;
+    const userPoint =
+      effectiveLocation?.deliveryAddress || effectiveLocation;
+    if (
+      !userPoint ||
+      !Array.isArray(restaurantsData) ||
+      restaurantsData.length === 0 ||
+      !restaurantsDistanceKey
+    ) {
+      return undefined;
+    }
+
+    const run = async () => {
+      const destinations = restaurantsData.map(
+        (restaurant) => restaurant.location || restaurant,
+      );
+      const roadKms = await fetchDrivingDistancesMatrix(userPoint, destinations);
+      if (cancelled || !Array.isArray(roadKms) || roadKms.length === 0) return;
+
+      setRestaurantsData((prev) => {
+        if (!Array.isArray(prev) || prev.length === 0) return prev;
+        let changed = false;
+        const next = prev.map((restaurant, index) => {
+          const km = roadKms[index];
+          if (!Number.isFinite(Number(km))) return restaurant;
+          const label = formatDistanceLabel(km);
+          if (
+            restaurant.distance === label &&
+            restaurant.distanceInKm === Number(km) &&
+            restaurant.distanceSource === "road"
+          ) {
+            return restaurant;
+          }
+          changed = true;
+          return {
+            ...restaurant,
+            distance: label,
+            distanceInKm: Number(km),
+            distanceSource: "road",
+          };
+        });
+        return changed ? next : prev;
+      });
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+    // restaurantsData intentionally read from closure when restaurantsDistanceKey changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    restaurantsDistanceKey,
+    effectiveLocation?.latitude,
+    effectiveLocation?.longitude,
+    effectiveLocation?.coordinates?.[0],
+    effectiveLocation?.coordinates?.[1],
+  ]);
 
   // IMPORTANT:
-  // Homepage must NOT eagerly hit /menu for every restaurant (N+1 storm).
-  // Menu meta is only needed for Veg Mode diet filtering. Category rail uses
-  // admin/public categories, then landing fallbacks — never per-restaurant menus.
+  // Eager N+1 menu requests removed. The backend listApprovedRestaurants API now handles vegModeOption directly.
   useEffect(() => {
-    const restaurantIds = menuUnionRestaurantIdsKey
-      ? menuUnionRestaurantIdsKey.split(",").filter(Boolean)
-      : [];
-    const shouldFetchMenuMeta = Boolean(vegMode);
-
+    if (realCategories.length > 0 || !menuUnionRestaurantIdsKey) return;
+    // We only resolve menu metadata when admin categories are unavailable (fallback).
+    // This removes the massive N+1 query issue for Veg Mode.
+    const restaurantIds = menuUnionRestaurantIdsKey.split(",").filter(Boolean);
     const fetchMenuCategories = async () => {
       const requestSeq = ++menuUnionRequestSeqRef.current;
-
-      if (!menuUnionRestaurantIdsKey || !shouldFetchMenuMeta) {
-        setMenuCategories([]);
-        if (!vegMode) setRestaurantDietMeta({});
-        setLoadingMenuCategories(false);
-        return;
-      }
-
       setLoadingMenuCategories(true);
       try {
         const categoryMap = new Map();
         const menuCache = menuUnionCacheRef.current;
         const menuResponses = [];
-
         for (let index = 0; index < restaurantIds.length; index += 4) {
           const batchIds = restaurantIds.slice(index, index + 4);
           const batchResponses = await Promise.all(
             batchIds.map(async (id) => {
-              if (!id) return { id: null, menu: null };
-
-              if (menuCache.has(id)) {
-                return { id, menu: menuCache.get(id) };
-              }
-
+              if (menuCache.has(id)) return { id, menu: menuCache.get(id) };
               try {
                 const response = await restaurantAPI.getMenuByRestaurantId(id);
                 const menu = response?.data?.data?.menu || null;
@@ -1891,87 +2991,24 @@ export default function Home({ homeMode = null, isTabActive = true }) {
                 menuCache.set(id, null);
                 return { id, menu: null };
               }
-            }),
+            })
           );
-
           if (requestSeq !== menuUnionRequestSeqRef.current) return;
           menuResponses.push(...batchResponses);
         }
-
         if (requestSeq !== menuUnionRequestSeqRef.current) return;
 
-        const nextDietMeta = {};
-
         menuResponses.forEach(({ id, menu }) => {
-          let hasVeg = false;
-          let hasNonVeg = false;
-          const markItemDiet = (item) => {
-            const foodType = String(item?.foodType || "")
-              .trim()
-              .toLowerCase();
-            if (foodType === "veg" || item?.isVeg === true) {
-              hasVeg = true;
-              return "veg";
-            }
-            if (
-              foodType === "non-veg" ||
-              foodType === "non veg" ||
-              foodType === "nonveg" ||
-              foodType.includes("non") ||
-              item?.isVeg === false
-            ) {
-              hasNonVeg = true;
-              return "non-veg";
-            }
-            return "unknown";
-          };
           const sections = Array.isArray(menu?.sections) ? menu.sections : [];
           sections.forEach((section) => {
-            const sectionItems = Array.isArray(section?.items)
-              ? section.items
-              : [];
-            let sectionHasVeg = false;
-            sectionItems.forEach((item) => {
-              if (markItemDiet(item) === "veg") sectionHasVeg = true;
-            });
-
-            const subsections = Array.isArray(section?.subsections)
-              ? section.subsections
-              : [];
-            subsections.forEach((subsection) => {
-              const subsectionItems = Array.isArray(subsection?.items)
-                ? subsection.items
-                : [];
-              subsectionItems.forEach((item) => {
-                if (markItemDiet(item) === "veg") sectionHasVeg = true;
-              });
-            });
-
             const categoryName = String(section?.name || "").trim();
             if (!categoryName) return;
-
             const slug = slugifyCategory(categoryName);
             if (!slug) return;
-
-            // Skip non-veg-only sections when veg mode is on
-            if (vegMode && !sectionHasVeg) return;
-
             let image = "";
             if (Array.isArray(section?.items) && section.items.length > 0) {
               image = normalizeImageUrl(section.items[0]?.image);
             }
-            if (!image && Array.isArray(section?.subsections)) {
-              for (const subsection of section.subsections) {
-                if (
-                  Array.isArray(subsection?.items) &&
-                  subsection.items.length > 0
-                ) {
-                  image = normalizeImageUrl(subsection.items[0]?.image);
-                  if (image) break;
-                }
-              }
-            }
-
             if (!categoryMap.has(slug)) {
               categoryMap.set(slug, {
                 id: slug,
@@ -1984,264 +3021,156 @@ export default function Home({ homeMode = null, isTabActive = true }) {
               categoryMap.get(slug).image = image;
             }
           });
-
-          if (id) {
-            nextDietMeta[id] = {
-              hasVeg,
-              hasNonVeg,
-              isPureVeg: hasVeg && !hasNonVeg,
-            };
-          }
         });
 
         const categories = Array.from(categoryMap.values())
           .sort((a, b) => a.name.localeCompare(b.name))
           .map((category, index) => ({
             ...category,
-            image:
-              category.image ||
-              foodImages[index % foodImages.length] ||
-              foodImages[0],
+            image: category.image || foodImages[index % foodImages.length] || foodImages[0],
           }));
-
         setMenuCategories(categories);
-        setRestaurantDietMeta(nextDietMeta);
       } finally {
         if (requestSeq === menuUnionRequestSeqRef.current) {
           setLoadingMenuCategories(false);
         }
       }
     };
-
     fetchMenuCategories();
-  }, [
-    menuUnionRestaurantIdsKey,
-    normalizeImageUrl,
-    slugifyCategory,
-    vegMode,
-  ]);
+  }, [menuUnionRestaurantIdsKey, normalizeImageUrl, realCategories.length, slugifyCategory]);
 
-  const matchesVegMode = useCallback(
-    (restaurant) => {
-      if (!vegMode) return true;
-      if (vegModeOption !== "pure-veg") return true; // "all": show all restaurants; dishes filtered elsewhere
+  const applyClientFilters = useCallback(
+    (list) => {
+      if (!Array.isArray(list)) return [];
 
-      const id = String(
-        restaurant?.id || restaurant?.restaurantId || restaurant?.mongoId || "",
-      );
-      const meta = id ? restaurantDietMeta?.[id] : null;
+      let result = list;
 
-      // Menu scan available — evidence wins over the restaurant flag
-      if (meta) {
-        if (meta.hasNonVeg === true) return false;
-        if (meta.isPureVeg === true) return true;
-        if (meta.hasVeg === true && meta.hasNonVeg === false) return true;
-        return false;
+      // Veg filter
+      if (activeFilters.has("veg")) {
+        result = result.filter((r) => r.pureVegRestaurant === true || r.isVeg === true);
       }
 
-      // Meta not loaded yet — provisional trust of admin pure-veg flag
-      return restaurant?.pureVegRestaurant === true;
-    },
-    [vegMode, vegModeOption, restaurantDietMeta],
-  );
+      // Non-Veg filter
+      if (activeFilters.has("non-veg")) {
+        result = result.filter((r) => r.pureVegRestaurant === false);
+      }
 
-  const matchesTakeawayName = useCallback((restaurant, q) => {
-    const name = String(restaurant?.name || restaurant?.restaurantName || "")
-      .trim()
-      .toLowerCase();
-    const slug = String(restaurant?.slug || "")
-      .trim()
-      .toLowerCase()
-      .replace(/-/g, " ");
-    return name.includes(q) || slug.includes(q);
-  }, []);
+      // Rating filters
+      if (activeFilters.has("rating-4plus") || activeFilters.has("rating-4-plus")) {
+        result = result.filter((r) => (Number(r.rating) || 4.2) >= 4.0);
+      }
+      if (activeFilters.has("rating-35-plus")) {
+        result = result.filter((r) => (Number(r.rating) || 4.2) >= 3.5);
+      }
+      if (activeFilters.has("rating-45-plus")) {
+        result = result.filter((r) => (Number(r.rating) || 4.2) >= 4.5);
+      }
+
+      // Offers filters
+      if (
+        activeFilters.has("has-offers") ||
+        activeFilters.has("offers") ||
+        activeFilters.has("offer-50-percent") ||
+        activeFilters.has("offer-40-percent") ||
+        activeFilters.has("offer-30-percent") ||
+        activeFilters.has("offer-free-delivery") ||
+        activeFilters.has("offer-bogo") ||
+        activeFilters.has("offer-under-99") ||
+        activeFilters.has("offer-under-250")
+      ) {
+        result = result.filter((r) => {
+          if (activeFilters.has("offer-50-percent")) {
+            return (r.discount || 0) >= 50 || String(r.offer || "").includes("50");
+          }
+          if (activeFilters.has("offer-40-percent")) {
+            return (r.discount || 0) >= 40 || String(r.offer || "").includes("40");
+          }
+          if (activeFilters.has("offer-30-percent")) {
+            return (r.discount || 0) >= 30 || String(r.offer || "").includes("30");
+          }
+          if (activeFilters.has("offer-free-delivery")) {
+            return r.freeDelivery === true || r.deliveryFee === 0;
+          }
+          if (activeFilters.has("offer-under-99")) {
+            return (r.price || r.avgPrice || 99) <= 99;
+          }
+          if (activeFilters.has("offer-under-250")) {
+            return (r.price || r.avgPrice || 150) <= 250;
+          }
+          return Boolean(r.offer || r.discount || r.hasOffers || (Array.isArray(r.offers) && r.offers.length > 0));
+        });
+      }
+
+      // Delivery time filters
+      if (activeFilters.has("delivery-under-30") || activeFilters.has("delivery-30min")) {
+        result = result.filter((r) => {
+          const mins = parseInt(String(r.deliveryTime || "").match(/\d+/)?.[0] || "30", 10);
+          return mins <= 30;
+        });
+      }
+      if (activeFilters.has("delivery-under-45")) {
+        result = result.filter((r) => {
+          const mins = parseInt(String(r.deliveryTime || "").match(/\d+/)?.[0] || "30", 10);
+          return mins <= 45;
+        });
+      }
+
+      // Distance filters
+      if (activeFilters.has("distance-under-1km")) {
+        result = result.filter((r) => {
+          const dist = parseFloat(String(r.distance || "").replace(/[^0-9.]/g, "") || "1.0");
+          return dist <= 1.0;
+        });
+      }
+      if (activeFilters.has("distance-under-2km")) {
+        result = result.filter((r) => {
+          const dist = parseFloat(String(r.distance || "").replace(/[^0-9.]/g, "") || "2.0");
+          return dist <= 2.0;
+        });
+      }
+
+      // Dish Price filters
+      if (activeFilters.has("price-under-200")) {
+        result = result.filter((r) => (r.price || r.avgPrice || 150) <= 200);
+      }
+      if (activeFilters.has("price-under-500")) {
+        result = result.filter((r) => (r.price || r.avgPrice || 150) <= 500);
+      }
+
+      // Sorting
+      if (sortBy) {
+        result = [...result];
+        if (sortBy === "price-low" || sortBy === "cost_low_to_high") {
+          result.sort((a, b) => (a.price || a.avgPrice || 0) - (b.price || b.avgPrice || 0));
+        } else if (sortBy === "price-high" || sortBy === "cost_high_to_low") {
+          result.sort((a, b) => (b.price || b.avgPrice || 0) - (a.price || a.avgPrice || 0));
+        } else if (sortBy === "rating-high" || sortBy === "rating") {
+          result.sort((a, b) => (Number(b.rating) || 0) - (Number(a.rating) || 0));
+        } else if (sortBy === "rating-low") {
+          result.sort((a, b) => (Number(a.rating) || 0) - (Number(b.rating) || 0));
+        } else if (sortBy === "delivery_time" || sortBy === "delivery-time-low") {
+          result.sort((a, b) => {
+            const timeA = parseInt(String(a.deliveryTime || "").match(/\d+/)?.[0] || "30", 10);
+            const timeB = parseInt(String(b.deliveryTime || "").match(/\d+/)?.[0] || "30", 10);
+            return timeA - timeB;
+          });
+        }
+      }
+
+      return result;
+    },
+    [activeFilters, sortBy]
+  );
 
   // Filter restaurants and foods based on active filters
   const filteredRestaurants = useMemo(() => {
-    let result = (restaurantsData || []).filter(matchesVegMode);
-
-    if (effectiveOrderType === "takeaway" || isTakeawayPage) {
-      result = result.filter(
-        (restaurant) =>
-          restaurant?.takeawaySettings?.isEnabled === true ||
-          restaurant?.takeawayAvailable === true,
-      );
-
-      if (heroSearch.trim()) {
-        const q = heroSearch.trim().toLowerCase();
-        result = result.filter((restaurant) => matchesTakeawayName(restaurant, q));
-      }
-    }
-
-    // Online first → pinned top order → nearest distance (same when all offline)
-    const sortedResult = result
-      .map((restaurant, index) => ({ restaurant, index }))
-      .sort((a, b) => {
-        const byBrowse = compareRestaurantsByAvailabilityAndDistance(
-          a.restaurant,
-          b.restaurant,
-          { now: new Date(availabilityTick) },
-        );
-        if (byBrowse !== 0) return byBrowse;
-        return a.index - b.index;
-      })
-      .map((item) => item.restaurant);
-
-    return sortedResult;
-  }, [restaurantsData, matchesVegMode, effectiveOrderType, isTakeawayPage, heroSearch, matchesTakeawayName, availabilityTick]);
-
-  // Stable browse path — don't use restaurant URL while Home stays mounted underneath
-  const homeBrowsePath =
-    homeMode === "takeaway" || isTakeawayPage
-      ? "/user/takeaway"
-      : homeMode === "delivery"
-        ? "/user"
-        : routerLocation.pathname || "/user";
-
-  const rememberHomeBrowsePosition = useCallback((focusId) => {
-    saveBrowseScroll({
-      path: homeBrowsePath,
-      scrollY: typeof window !== "undefined" ? window.scrollY : 0,
-      focusId,
-      visibleCount: visibleRestaurantCount,
-    });
-  }, [visibleRestaurantCount, homeBrowsePath]);
-
-  // Category open from Home: lock current scroll (often top) so back lands here — not mid-page.
-  const rememberLeaveForCategory = useCallback(() => {
-    const y =
-      typeof window !== "undefined" ? Math.max(0, window.scrollY || 0) : 0;
-    const tabKey =
-      homeMode === "takeaway" || isTakeawayPage ? "takeaway" : "delivery";
-    try {
-      sessionStorage.setItem(`main_tab_scroll_${tabKey}`, String(y));
-    } catch {
-      // ignore
-    }
-    saveBrowseScroll({
-      path: homeBrowsePath,
-      scrollY: y,
-      focusId: null,
-      visibleCount: visibleRestaurantCount,
-    });
-  }, [homeBrowsePath, homeMode, isTakeawayPage, visibleRestaurantCount]);
-
-  // Allow restore again after leaving for restaurant (tabs stay mounted now)
-  useEffect(() => {
-    if (!isTabActive) {
-      hasRestoredBrowseScrollRef.current = false;
-    }
-  }, [isTabActive]);
-
-  // After back from restaurant details: restore exact scrollY before paint (list already in memory)
-  useLayoutEffect(() => {
-    if (!isTabActive) return;
-    if (hasRestoredBrowseScrollRef.current) return;
-
-    const browsePath = homeBrowsePath;
-    const pending = peekBrowseScroll(browsePath);
-    if (!pending) return;
-
-    const targetY = Math.max(0, Number(pending.scrollY) || 0);
-    window.scrollTo({ top: targetY, left: 0, behavior: "instant" });
-
-    if (loadingRestaurants) return;
-    if (!Array.isArray(filteredRestaurants) || filteredRestaurants.length === 0) return;
-
-    let needed = Math.min(
-      Math.max(Number(pending.visibleCount) || 0, RESTAURANTS_BATCH_SIZE),
-      filteredRestaurants.length,
-    );
-
-    if (pending.focusId) {
-      const focusKey = String(pending.focusId);
-      const focusIndex = filteredRestaurants.findIndex((r) => {
-        const slug = String(r.slug || r.name || "")
-          .toLowerCase()
-          .replace(/[\s/]+/g, "-");
-        return (
-          String(r.mongoId || "") === focusKey ||
-          String(r.id || "") === focusKey ||
-          slug === focusKey
-        );
-      });
-      if (focusIndex >= 0) {
-        needed = Math.min(
-          Math.max(needed, focusIndex + 1, RESTAURANTS_BATCH_SIZE),
-          filteredRestaurants.length,
-        );
-      }
-    }
-
-    if (needed > visibleRestaurantCount) {
-      setVisibleRestaurantCount(needed);
-      return;
-    }
-
-    if (pending.focusId) {
-      const safeId = String(pending.focusId).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-      const el = document.querySelector(`[data-browse-focus="${safeId}"]`);
-      if (!el && needed < filteredRestaurants.length) {
-        setVisibleRestaurantCount((prev) =>
-          Math.min(prev + RESTAURANTS_BATCH_SIZE, filteredRestaurants.length),
-        );
-        return;
-      }
-    }
-
-    const saved = consumeBrowseScroll(browsePath);
-    if (!saved) return;
-    hasRestoredBrowseScrollRef.current = true;
-    return restoreBrowseScroll(saved);
-  }, [
-    isTabActive,
-    loadingRestaurants,
-    filteredRestaurants,
-    visibleRestaurantCount,
-    RESTAURANTS_BATCH_SIZE,
-    homeBrowsePath,
-  ]);
+    return applyClientFilters(restaurantsData || []);
+  }, [restaurantsData, applyClientFilters]);
 
   const restaurantLazyLoadResetKey = useMemo(() => {
     const activeFilterKey = Array.from(activeFilters).sort().join("|");
-    return `${restaurantsData.length}:${activeFilterKey}:${selectedCuisine || ""}:${sortBy || ""}:${vegMode ? "1" : "0"}:${vegModeOption}:${heroSearch || ""}`;
-  }, [activeFilters, restaurantsData.length, selectedCuisine, sortBy, vegMode, vegModeOption, heroSearch]);
-
-  const isTakeawayActive = effectiveOrderType === "takeaway" || isTakeawayPage;
-  const takeawaySearchQuery = isTakeawayActive ? heroSearch.trim() : "";
-  const isTakeawaySearching = takeawaySearchQuery.length > 0;
-  const showTakeawaySearchEmpty =
-    isTakeawayActive &&
-    isTakeawaySearching &&
-    !loadingRestaurants &&
-    !showRestaurantSkeleton &&
-    filteredRestaurants.length === 0;
-
-  const takeawaySectionSubtitle = useMemo(() => {
-    if (isRestaurantsResolving) return "Finding Restaurants For You";
-    if (!isTakeawayActive) {
-      return `${filteredRestaurants.length} Restaurants Delivering to You`;
-    }
-    if (isTakeawaySearching) {
-      if (filteredRestaurants.length === 0) return null;
-      return filteredRestaurants.length === 1
-        ? `1 result for "${takeawaySearchQuery}"`
-        : `${filteredRestaurants.length} results for "${takeawaySearchQuery}"`;
-    }
-    return `${filteredRestaurants.length} Restaurant${filteredRestaurants.length === 1 ? "" : "s"} near you`;
-  }, [
-    isRestaurantsResolving,
-    isTakeawayActive,
-    isTakeawaySearching,
-    filteredRestaurants.length,
-    takeawaySearchQuery,
-  ]);
-
-  const takeawaySectionTitle = useMemo(() => {
-    if (!isTakeawayActive) return "Featured Restaurants";
-    if (isTakeawaySearching) return "Search Results";
-    return "Takeaway Restaurants";
-  }, [isTakeawayActive, isTakeawaySearching]);
+    return `${restaurantsData.length}:${activeFilterKey}:${selectedCuisine || ""}:${sortBy || ""}:${vegMode ? "1" : "0"}:${vegModeOption}`;
+  }, [activeFilters, restaurantsData.length, selectedCuisine, sortBy, vegMode, vegModeOption]);
 
   const visibleRestaurants = useMemo(
     () => filteredRestaurants.slice(0, visibleRestaurantCount),
@@ -2258,40 +3187,169 @@ export default function Home({ homeMode = null, isTabActive = true }) {
   }, [filteredRestaurants.length, RESTAURANTS_BATCH_SIZE]);
 
   useEffect(() => {
-    // Don't collapse the list while Home is hidden under restaurant/category
-    if (!isTabActive) return;
+    const restore = homeScrollRestoreRef.current;
 
-    // Keep expanded list when returning from a restaurant (browse scroll pending)
-    const pending = peekBrowseScroll(homeBrowsePath);
-    if (pending?.visibleCount) {
-      const needed = Math.min(
-        Math.max(Number(pending.visibleCount) || 0, RESTAURANTS_BATCH_SIZE),
-        Math.max(filteredRestaurants.length, Number(pending.visibleCount) || 0),
-      );
-      setVisibleRestaurantCount(needed);
-      return;
+    // Hold restored batch until scroll restore finishes so async filter/veg
+    // hydration cannot collapse the list mid-restore.
+    if (restore.active && restore.targetCount > RESTAURANTS_BATCH_SIZE) {
+      if (!restore.scrollRestored) {
+        if (filteredRestaurants.length > 0) {
+          if (
+            !restore.appliedVisible ||
+            visibleRestaurantCountRef.current <
+            Math.min(restore.targetCount, filteredRestaurants.length)
+          ) {
+            setVisibleRestaurantCount(
+              Math.min(restore.targetCount, filteredRestaurants.length),
+            );
+            restore.appliedVisible = true;
+          }
+          // Track latest key while restoring so late veg/filter hydration
+          // does not look like a user-driven change after settle.
+          restore.settleKey = restaurantLazyLoadResetKey;
+        }
+        return;
+      }
+
+      if (restore.settleKey === restaurantLazyLoadResetKey) {
+        return;
+      }
+      // User changed filters/sort after restore settled.
+      restore.active = false;
+      restore.targetCount = 0;
     }
-    if (hasRestoredBrowseScrollRef.current) return;
 
     setVisibleRestaurantCount(
       Math.min(RESTAURANTS_BATCH_SIZE, filteredRestaurants.length),
     );
-  }, [
-    restaurantLazyLoadResetKey,
-    filteredRestaurants.length,
-    RESTAURANTS_BATCH_SIZE,
-    homeBrowsePath,
-    isTabActive,
-  ]);
+  }, [restaurantLazyLoadResetKey, filteredRestaurants.length, RESTAURANTS_BATCH_SIZE]);
 
   useEffect(() => {
     if (visibleRestaurantCount <= filteredRestaurants.length) return;
+    const restore = homeScrollRestoreRef.current;
+    if (
+      restore.active &&
+      restore.targetCount > RESTAURANTS_BATCH_SIZE &&
+      filteredRestaurants.length === 0
+    ) {
+      return;
+    }
     setVisibleRestaurantCount(filteredRestaurants.length);
-  }, [filteredRestaurants.length, visibleRestaurantCount]);
+  }, [filteredRestaurants.length, visibleRestaurantCount, RESTAURANTS_BATCH_SIZE]);
+
+  // Restore window scroll after restaurants are painted with enough rows.
+  useLayoutEffect(() => {
+    const restore = homeScrollRestoreRef.current;
+    if (!restore.active || restore.scrollRestored) return;
+    if (restore.targetScrollY <= 0) {
+      restore.scrollRestored = true;
+      window.setTimeout(() => {
+        clearHomeScrollState();
+      }, 400);
+      return;
+    }
+
+    // Jump immediately before paint so Home never flashes at the top.
+    window.scrollTo(0, restore.targetScrollY);
+    if (document.documentElement) {
+      document.documentElement.scrollTop = restore.targetScrollY;
+    }
+    if (document.body) {
+      document.body.scrollTop = restore.targetScrollY;
+    }
+  }, []);
+
+  useEffect(() => {
+    const restore = homeScrollRestoreRef.current;
+    if (!restore.active || restore.scrollRestored) return;
+
+    if (restore.targetScrollY <= 0) {
+      restore.scrollRestored = true;
+      window.setTimeout(() => {
+        clearHomeScrollState();
+      }, 400);
+      return;
+    }
+
+    // Allow restore as soon as we have enough painted rows (warm snapshot),
+    // even if a background refetch is still in flight.
+    if (
+      (showRestaurantSkeleton || loadingRestaurants || isLoadingFilterResults) &&
+      visibleRestaurants.length === 0
+    ) {
+      return;
+    }
+    if (
+      restore.targetCount > RESTAURANTS_BATCH_SIZE &&
+      filteredRestaurants.length > 0 &&
+      !restore.appliedVisible
+    ) {
+      return;
+    }
+
+    const targetY = restore.targetScrollY;
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 60;
+
+    const finish = () => {
+      restore.scrollRestored = true;
+      // Short grace so React Strict Mode remount can still peek pending state.
+      window.setTimeout(() => {
+        clearHomeScrollState();
+      }, 400);
+    };
+
+    const tryRestore = () => {
+      if (cancelled) return;
+      attempts += 1;
+      const docHeight = Math.max(
+        document.documentElement?.scrollHeight || 0,
+        document.body?.scrollHeight || 0,
+      );
+      const viewport = window.innerHeight || 0;
+      const canReach = docHeight >= targetY + Math.min(80, viewport * 0.2);
+
+      window.scrollTo(0, targetY);
+      if (document.documentElement) document.documentElement.scrollTop = targetY;
+      if (document.body) document.body.scrollTop = targetY;
+
+      const currentY =
+        window.scrollY ||
+        window.pageYOffset ||
+        document.documentElement?.scrollTop ||
+        0;
+      const closeEnough = Math.abs(currentY - targetY) < 12;
+
+      if ((canReach && closeEnough) || attempts >= maxAttempts) {
+        finish();
+        return;
+      }
+
+      window.setTimeout(() => {
+        requestAnimationFrame(tryRestore);
+      }, 40);
+    };
+
+    const frame = requestAnimationFrame(() => {
+      requestAnimationFrame(tryRestore);
+    });
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
+  }, [
+    showRestaurantSkeleton,
+    loadingRestaurants,
+    isLoadingFilterResults,
+    visibleRestaurants.length,
+    filteredRestaurants.length,
+    RESTAURANTS_BATCH_SIZE,
+  ]);
 
   useEffect(() => {
     if (!hasMoreRestaurants) return;
-    if (!isTabActive) return;
     if (showRestaurantSkeleton || loadingRestaurants || isLoadingFilterResults) return;
     const target = restaurantLoadMoreRef.current;
     if (!target || typeof window === "undefined") return;
@@ -2315,18 +3373,30 @@ export default function Home({ homeMode = null, isTabActive = true }) {
     return () => observer.disconnect();
   }, [
     hasMoreRestaurants,
-    isTabActive,
     showRestaurantSkeleton,
     loadingRestaurants,
     isLoadingFilterResults,
     loadMoreRestaurants,
   ]);
+  const matchesVegMode = useCallback(
+    (restaurant) => {
+      if (!vegMode) return true;
+      if (vegModeOption === "non-veg") {
+        return restaurant?.pureVegRestaurant === false && restaurant?.isVeg !== true;
+      }
+      if (vegModeOption === "pure-veg") {
+        return restaurant?.pureVegRestaurant === true || restaurant?.isVeg === true;
+      }
+      return true;
+    },
+    [vegMode, vegModeOption]
+  );
 
   const recommendedForYouRestaurants = useMemo(() => {
     const idsInOrder = (recommendedRestaurantIds || []).map((id) => String(id));
     const hasIds = idsInOrder.length > 0;
     const fromSettings = Array.isArray(recommendedRestaurantsFromSettings)
-      ? recommendedRestaurantsFromSettings.filter(r => !r.zoneId || !zoneId || String(r.zoneId) === String(zoneId))
+      ? recommendedRestaurantsFromSettings
       : [];
 
     // Primary source: restaurants returned by landing settings API (already admin-selected).
@@ -2358,11 +3428,8 @@ export default function Home({ homeMode = null, isTabActive = true }) {
         slug: restaurant?.slug || restaurant?.restaurantId || restaurantId,
         offer: null,
         pureVegRestaurant: restaurant?.pureVegRestaurant === true,
-        isActive: restaurant?.isActive !== false,
-        isAcceptingOrders: restaurant?.isAcceptingOrders !== false,
-        openingTime: restaurant?.openingTime || null,
-        closingTime: restaurant?.closingTime || null,
-        openDays: Array.isArray(restaurant?.openDays) ? restaurant.openDays : [],
+        isActive: true,
+        isAcceptingOrders: true,
       };
     });
 
@@ -2402,6 +3469,10 @@ export default function Home({ homeMode = null, isTabActive = true }) {
     matchesVegMode,
   ]);
 
+  const filteredRecommendedForYou = useMemo(() => {
+    return applyClientFilters(recommendedForYouRestaurants || []);
+  }, [recommendedForYouRestaurants, applyClientFilters]);
+
   // Featured foods removed - will be handled by restaurants data from API
   const filteredFeaturedFoods = useMemo(() => {
     // Return empty array - featured foods will come from API if needed
@@ -2414,17 +3485,20 @@ export default function Home({ homeMode = null, isTabActive = true }) {
   }, [openLocationSelector]);
 
   const handleSearchFocus = useCallback(() => {
-    if (effectiveOrderType === "takeaway" || isTakeawayPage) {
-      setTakeawaySearchOpen(true);
-      return;
-    }
-    navigate("/food/user/search?mode=delivery");
-  }, [navigate, orderType, isTakeawayPage]);
+    openSearch();
+  }, [openSearch]);
 
   const handleSearchClose = useCallback(() => {
     closeSearch();
     setHeroSearch("");
   }, [closeSearch]);
+
+  const shouldShowOutOfZoneScreen = useMemo(() => {
+    const hasCoords =
+      Number.isFinite(Number(effectiveLocation?.latitude)) &&
+      Number.isFinite(Number(effectiveLocation?.longitude));
+    return hasCoords && zoneStatus === "OUT_OF_SERVICE" && !zoneLoading;
+  }, [effectiveLocation?.latitude, effectiveLocation?.longitude, zoneStatus, zoneLoading]);
 
   // Removed GSAP animations - using CSS and ScrollReveal components instead for better performance
   // Auto-scroll removed - manual scroll only
@@ -2432,43 +3506,41 @@ export default function Home({ homeMode = null, isTabActive = true }) {
   // Animated placeholder cycling - same as RestaurantDetails highlight offer animation
   useEffect(() => {
     const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return
       setPlaceholderIndex((prev) => (prev + 1) % placeholders.length);
     }, 2000); // Change placeholder every 2 seconds (same as RestaurantDetails)
 
-    return () => clearInterval(interval);
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        setPlaceholderIndex((prev) => (prev + 1) % placeholders.length);
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
   }, []); // placeholders is a constant, no need for dependency
 
   // Memoized Hero Banner Component for better perf
   const HeroBannerSection = useMemo(() => {
     if (showBannerSkeleton) {
       return (
-        <div className="px-4 py-2">
-          <HeroBannerSkeleton className="h-36 sm:h-44 lg:h-56 rounded-2xl" />
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full py-3 sm:py-4">
+          <HeroBannerSkeleton className="w-full aspect-[1.85/1] sm:aspect-[2/1] rounded-3xl" />
         </div>
       );
     }
 
     if (heroBannerImages.length === 0) return null;
 
-    // Create the slides array with the first banner duplicated at the end
-    const slides = heroBannerImages.length > 1
-      ? [...heroBannerImages, heroBannerImages[0]]
-      : heroBannerImages;
-
-    const transitionStyle = isTransitionEnabled
-      ? "transform 500ms cubic-bezier(0.25, 1, 0.5, 1)"
-      : "none";
-
-    const activeDotIndex = currentBannerIndex === heroBannerImages.length
-      ? 0
-      : currentBannerIndex;
-
     return (
-      <div className="px-4 py-2">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full py-3 sm:py-4">
         <div
           ref={heroShellRef}
           data-home-hero-shell="true"
-          className="relative w-full overflow-hidden aspect-[1.7/1] sm:aspect-[1.9/1] lg:aspect-[2.1/1] min-h-[180px] sm:min-h-[220px] lg:min-h-[260px] rounded-2xl shadow-sm group cursor-pointer bg-white"
+          className="relative w-full overflow-hidden aspect-[1.85/1] sm:aspect-[2/1] rounded-3xl sm:rounded-[2.4rem] shadow-xl shadow-gray-200/80 dark:shadow-black/60 border border-gray-100 dark:border-gray-800/90 group cursor-pointer bg-white dark:bg-gray-900 transition-all duration-300 hover:shadow-2xl hover:scale-[1.005]"
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
@@ -2477,169 +3549,222 @@ export default function Home({ homeMode = null, isTabActive = true }) {
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
         >
-          {/* Sliding Track for Banners */}
-          <div
-            className="flex w-full h-full"
-            style={{
-              transform: `translateX(-${currentBannerIndex * 100}%)`,
-              transition: transitionStyle
-            }}
-          >
-            {slides.map((image, index) => (
+          <div className="absolute inset-0 z-0">
+            {/* Shining Glint Effect */}
+            <div className="absolute inset-0 z-10 pointer-events-none overflow-hidden">
+              <motion.div
+                animate={{
+                  x: ['-200%', '200%'],
+                }}
+                transition={{
+                  duration: 2.5,
+                  repeat: Infinity,
+                  repeatDelay: 5,
+                  ease: "easeInOut"
+                }}
+                className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-[-20deg] w-[150%] h-full"
+              />
+            </div>
+            {heroBannerImages.map((image, index) => (
               <div
                 key={`${index}-${image}`}
-                className="w-full h-full flex-shrink-0 relative"
-              >
+                className="absolute inset-0 transition-opacity duration-700 ease-in-out z-0"
+                style={{
+                  opacity: currentBannerIndex === index ? 1 : 0,
+                  zIndex: currentBannerIndex === index ? 2 : 1,
+                  pointerEvents: "none",
+                }}>
                 <img
-                  src={image}
+                  src={resolveImageUrl(image)}
                   alt={`Hero Banner ${index + 1}`}
-                  className="h-full w-full object-cover select-none"
+                  className="h-full w-full object-cover"
+                  loading={index === currentBannerIndex ? "eager" : "lazy"}
+                  fetchPriority={index === currentBannerIndex ? "high" : "low"}
                   draggable={false}
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = cloudinaryImages.biryani_clean;
+                  }}
                 />
               </div>
             ))}
           </div>
 
-          {/* Shining Glint Effect */}
-          <div className="absolute inset-0 z-10 pointer-events-none overflow-hidden">
-            <motion.div
-              animate={{
-                x: ['-200%', '200%'],
-              }}
-              transition={{
-                duration: 2.5,
-                repeat: Infinity,
-                repeatDelay: 5,
-                ease: "easeInOut"
-              }}
-              className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-[-20deg] w-[150%] h-full"
-            />
-          </div>
-
-          {/* Clickable Overlay to Navigate */}
           <button
             type="button"
             className="absolute inset-0 z-20 h-full w-full border-0 p-0 bg-transparent text-left"
             onClick={() => {
-              const actualIndex = currentBannerIndex === heroBannerImages.length ? 0 : currentBannerIndex;
-              const bannerData = heroBannersData[actualIndex];
-              const allLinked = bannerData?.linkedRestaurants || [];
-              const linkedRestaurants = zoneId ? allLinked.filter(r => !r.zoneId || String(r.zoneId) === String(zoneId)) : allLinked;
+              const bannerData = heroBannersData[currentBannerIndex];
+              const ctaLink = bannerData?.ctaLink || bannerData?.link || bannerData?.targetLink;
+              if (ctaLink) {
+                captureScrollBeforeRestaurantNav();
+                navigate(ctaLink);
+                return;
+              }
+              const linkedRestaurants = bannerData?.linkedRestaurants || [];
               if (linkedRestaurants.length > 0) {
                 const firstRestaurant = linkedRestaurants[0];
-                const restaurantId =
-                  getRestaurantRouteId(firstRestaurant) ||
-                  firstRestaurant.restaurantId ||
-                  firstRestaurant._id;
-                if (restaurantId) {
-                  navigate(toFoodUserPath(`/user/restaurants/${restaurantId}`));
-                }
+                const restaurantSlug = firstRestaurant.slug || firstRestaurant.restaurantId || firstRestaurant._id;
+                captureScrollBeforeRestaurantNav();
+                navigate(`/restaurants/${restaurantSlug}`);
               }
             }}
             aria-label={`Open hero banner ${currentBannerIndex + 1}`}
           />
 
-          {/* Bottom Right Carousel Pagination Dots */}
-          {heroBannerImages.length > 1 && (
-            <div className="absolute bottom-3 right-3 z-30 flex items-center gap-1.5 pointer-events-auto">
-              {heroBannerImages.map((_, dotIndex) => (
-                <button
-                  key={dotIndex}
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsTransitionEnabled(true);
-                    setCurrentBannerIndex(dotIndex);
-                    resetAutoSlide();
-                  }}
-                  className={`transition-all duration-300 rounded-full ${
-                    activeDotIndex === dotIndex
-                      ? "w-4 h-1.5 bg-white shadow-sm"
-                      : "w-1.5 h-1.5 bg-white/50 hover:bg-white/80"
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 px-3 py-1.5 bg-black/25 backdrop-blur-md rounded-full border border-white/20 z-30 shadow-md">
+            {heroBannerImages.map((_, index) => (
+              <button
+                key={index}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCurrentBannerIndex(index);
+                }}
+                className={`h-1.5 rounded-full transition-all duration-300 ${currentBannerIndex === index ? "bg-white w-5 shadow-sm" : "bg-white/40 w-1.5 hover:bg-white/70"
                   }`}
-                  aria-label={`Go to banner ${dotIndex + 1}`}
-                />
-              ))}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }, [heroBannerImages, currentBannerIndex, showBannerSkeleton, heroBannersData, navigate, captureScrollBeforeRestaurantNav]);
+
+  // Memoized Category Rail Header
+  const CategoryRailHeader = useMemo(() => {
+    return (
+      <section className="space-y-4 pt-4 sm:pt-6">
+        <div className="px-4 flex items-center justify-between">
+          <h2 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 dark:text-white tracking-tight">
+            What are you craving today?
+          </h2>
+          <button
+            type="button"
+            onClick={() => setShowCuisinesModal(true)}
+            className="text-xs sm:text-sm font-bold text-[#659116] hover:text-[#5ECC11] transition-colors cursor-pointer"
+            style={{ color: "var(--module-theme-color, #659116)" }}>
+            See more
+          </button>
+        </div>
+      </section>
+    );
+  }, []);
+
+  // Memoized Category Rail Component
+  const CategoryRailSection = useMemo(() => {
+    const isPopup = isCategoriesCrossed;
+
+    return (
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full">
+        {isPopup && (
+          <div className="px-2 pt-0.5 pb-0 flex items-center justify-between">
+            <span className="text-[10.5px] sm:text-xs font-black text-gray-800 dark:text-gray-200 tracking-wider uppercase">
+              Hungry?
+            </span>
+          </div>
+        )}
+        <div
+          ref={categoryScrollRef}
+          className={`flex overflow-x-auto md:overflow-x-visible overflow-y-visible scrollbar-hide scroll-smooth ${isPopup ? 'gap-2.5 sm:gap-3.5 px-2 py-0.5 sm:py-1' : 'gap-3 sm:gap-4 md:gap-5 lg:gap-6 px-2 sm:px-3 py-1.5 sm:py-2 md:py-3'
+            }`}
+          style={{
+            scrollbarWidth: "none",
+            msOverflowStyle: "none",
+            touchAction: "pan-x pan-y pinch-zoom",
+            overflowY: "hidden",
+          }}
+        >
+          {showCategorySkeleton ? (
+            <CategoryChipRowSkeleton className="py-1" />
+          ) : (
+            displayCategories.slice(0, 12).map((category, index) => {
+              if (!category) return null;
+              const catName = category.name || category.label || "Category";
+              const catSlug = category.slug || catName.toLowerCase().replace(/\s+/g, "-");
+              return (
+                <Link
+                  key={category.id || category._id || index}
+                  to={`/food/user/category/${catSlug}`}
+                  className="flex-shrink-0"
+                >
+                  <motion.div
+                    className={`flex flex-col items-center ${isPopup ? 'gap-1 w-[56px] sm:w-16 md:w-20' : 'gap-2 w-[72px] sm:w-24 md:w-28'
+                      }`}
+                    whileHover={{ scale: 1.08, y: -2 }}
+                    whileTap={{ scale: 0.95 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    style={{ animation: `fade-in-up 0.5s ease-out forwards ${index * 0.04}s`, opacity: 0 }}
+                  >
+                    <div
+                      className={`rounded-full overflow-hidden shadow-md transition-all border border-gray-100 dark:border-gray-800 bg-white ${isPopup ? 'w-11 h-11 sm:w-14 sm:h-14' : 'w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24'
+                        }`}
+                    >
+                      <img
+                        src={category.image}
+                        alt={catName}
+                        className="w-full h-full object-cover bg-white rounded-full transition-transform duration-300 group-hover:scale-110"
+                        loading="lazy"
+                      />
+                    </div>
+                    <span
+                      className={`font-bold text-gray-800 dark:text-gray-200 text-center leading-tight whitespace-nowrap group-hover:text-[#659116] transition-colors ${isPopup ? 'text-[10.5px] sm:text-xs pb-0.5' : 'text-xs sm:text-sm md:text-base pb-1'
+                        }`}
+                    >
+                      {catName}
+                    </span>
+                  </motion.div>
+                </Link>
+              );
+            })
+          )}
+
+          {/* See All: always show when sticky, otherwise only when >12 categories */}
+          {!showCategorySkeleton && (isCategoryStuck || isPopup || displayCategories.length > 12) && (
+            <div
+              className="flex-shrink-0 cursor-pointer"
+              onClick={() => setShowCuisinesModal(true)}
+            >
+              <motion.div
+                className={`flex flex-col items-center ${isPopup ? 'gap-1 w-[56px] sm:w-16 md:w-20' : 'gap-2 w-[72px] sm:w-24 md:w-28'
+                  }`}
+                whileHover={{ scale: 1.08, y: -2 }}
+                whileTap={{ scale: 0.95 }}
+                transition={{ type: "spring", stiffness: 300, damping: 20 }}
+              >
+                <div
+                  className={`rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/50 transition-all shadow-sm ${isPopup ? 'w-11 h-11 sm:w-14 sm:h-14' : 'w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24'
+                    }`}
+                >
+                  <Plus
+                    className={`text-[#659116] ${isPopup ? 'w-4 h-4' : 'w-6 h-6'}`}
+                    style={{ color: "var(--module-theme-color, #659116)" }}
+                  />
+                </div>
+                <span
+                  className={`font-bold text-gray-800 dark:text-gray-200 text-center ${isPopup ? 'text-[10.5px] sm:text-xs pb-0.5' : 'text-xs sm:text-sm md:text-base pb-1'
+                    }`}
+                >
+                  See more
+                </span>
+              </motion.div>
             </div>
           )}
         </div>
       </div>
     );
-  }, [heroBannerImages, currentBannerIndex, isTransitionEnabled, showBannerSkeleton, heroBannersData, navigate, resetAutoSlide]);
+  }, [displayCategories, showCategorySkeleton, navigate, isCategoryStuck, isCategoriesCrossed]);
 
-  // Memoized Category Rail Component
-  const CategoryRailSection = useMemo(() => {
-    return (
-      <section className="space-y-1 sm:space-y-1.5 lg:space-y-2 min-h-[108px] sm:min-h-[120px]">
-        <div
-          ref={categoryScrollRef}
-          className="flex gap-3 sm:gap-4 lg:gap-5 overflow-x-auto overflow-y-visible scrollbar-hide scroll-smooth px-2 sm:px-3 py-2 sm:py-3"
-          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-        >
-          {/* Meals Under 200 Card */}
-          <div
-            className="flex-shrink-0 flex flex-col items-center gap-2 cursor-pointer transition-transform hover:scale-105 active:scale-95"
-            onClick={() => navigate(toFoodUserPath("/user/under-250"))}
-          >
-            <div className="w-16 h-16 sm:w-20 sm:h-20 bg-[#DC2626] rounded-b-full rounded-t-sm shadow-md border-t-4 border-orange-200 flex flex-col items-center justify-center p-1">
-              <span className="text-[10px] sm:text-xs font-bold text-white text-center leading-tight">UNDER</span>
-              <span className="text-sm sm:text-base font-extrabold text-white">₹200</span>
-              <div className="w-10 h-3.5 bg-white rounded-full mt-1 flex items-center justify-center">
-                <span className="text-[8px] font-bold text-[#DC2626]">Explore</span>
-              </div>
-            </div>
-            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Offers</span>
-          </div>
+  if (shouldShowOutOfZoneScreen) {
+    return <OutOfZoneScreen location={effectiveLocation} />;
+  }
 
-          {showCategorySkeleton ? (
-            <CategoryChipRowSkeleton className="py-1" />
-          ) : (
-            displayCategories.slice(0, 12).map((category, index) => (
-              <Link
-                key={category.id || index}
-                to={`/food/user/category/${category.slug || category.name.toLowerCase().replace(/\s+/g, "-")}`}
-                onClick={rememberLeaveForCategory}
-                className="flex-shrink-0 flex flex-col items-center gap-2 group transition-all duration-300 hover:-translate-y-1"
-              >
-                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden shadow-sm border border-gray-100 dark:border-gray-800 group-hover:border-[#DC2626] transition-colors">
-                  <OptimizedImage
-                    src={category.image}
-                    alt={category.name}
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                    sizes="80px"
-                    priority={index < 6}
-                    responsive={false}
-                    placeholder="empty"
-                  />
-                </div>
-                <span className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 text-center truncate max-w-[72px]">
-                  {category.name}
-                </span>
-              </Link>
-            ))
-          )}
-
-          {displayCategories.length > 0 && !showCategorySkeleton && (
-            <div
-              className="flex-shrink-0 flex flex-col items-center gap-2 cursor-pointer group"
-              onClick={() => navigate("/food/user/categories")}
-            >
-              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-orange-50 dark:bg-orange-950 flex items-center justify-center border border-orange-100 group-hover:border-[#DC2626] transition-all">
-                <Plus className="w-6 h-6 text-[#DC2626]" />
-              </div>
-              <span className="text-xs font-medium text-gray-700">See All</span>
-            </div>
-          )}
-        </div>
-      </section>
-    );
-  }, [displayCategories, showCategorySkeleton, navigate]);
+  if (loadingLandingConfig && loadingRestaurants && (!restaurantsData || restaurantsData.length === 0)) {
+    return <AppShellSkeleton />;
+  }
 
   return (
-    
-    <div
-      className="relative min-h-screen bg-white dark:bg-[#0a0a0a] pb-16 md:pb-6 overflow-x-clip"
-    >
+
+    <div className="relative min-h-screen bg-white dark:bg-[#0a0a0a] pb-[140px] md:pb-6 overflow-x-clip">
       <div className="transition-all duration-300">
         {/* Unified Background for Entire Page - Vibrant Food Theme */}
         <div className="absolute top-0 left-0 right-0 bottom-0 pointer-events-none overflow-hidden z-0">
@@ -2747,924 +3872,629 @@ export default function Home({ homeMode = null, isTabActive = true }) {
               transform: translateY(0);
             }
           }
-          .home-red-banner-bg {
-            background-color: #D91F3A;
-          }
         `}</style>
         </div>
 
-        <div className="md:hidden relative overflow-x-clip bg-white dark:bg-[#0a0a0a]">
-          {/* Brand Top Section (Red Theme) */}
-          <div 
-            className={`relative overflow-hidden rounded-b-[2rem] shadow-lg mb-2 ${!(festBannerImageUrl && effectiveOrderType !== "takeaway" && !isTakeawayPage && festBannerTopColor) ? 'home-red-banner-bg' : ''}`}
-            style={{
-              backgroundColor: (festBannerImageUrl && effectiveOrderType !== "takeaway" && !isTakeawayPage && festBannerTopColor) ? festBannerTopColor : undefined
-            }}
-          >
-            {festBannerImageUrl && (
-              <div 
-                className="absolute inset-0 z-0 transition-opacity duration-200"
-                style={{
-                  opacity: (effectiveOrderType !== "takeaway" && !isTakeawayPage) ? 1 : 0,
-                  pointerEvents: (effectiveOrderType !== "takeaway" && !isTakeawayPage) ? 'auto' : 'none'
-                }}
-              >
-                <img
-                  src={festBannerImageUrl}
-                  alt="Fest Banner"
-                  className="w-full h-full object-cover"
-                  onError={() => {
-                    setFestBannerImageUrl("");
-                    setFestBannerTopColor("");
-                    if (typeof window !== "undefined") {
-                      try { localStorage.setItem("CACHED_FEST_BANNER", ""); } catch(e) {}
-                      try { localStorage.setItem("CACHED_FEST_BANNER_COLOR", ""); } catch(e) {}
-                    }
-                    try {
-                      const meta = document.querySelector('meta[name="theme-color"]');
-                      if (meta) meta.setAttribute('content', '#D91F3A');
-                    } catch(e) {}
-                  }}
-                />
-              </div>
-            )}
-            <div className="relative z-10">
-              {effectiveOrderType !== "takeaway" && !isTakeawayPage ? (
-                <HomeHeader
-                  activeTab={activeTab}
-                  setActiveTab={setActiveTab}
-                  location={effectiveLocation}
-                  handleSearchFocus={handleSearchFocus}
-                  placeholderIndex={placeholderIndex}
-                  placeholders={placeholders}
-                  vegMode={vegMode}
-                  handleVegModeChange={handleVegModeChange}
-                  vegModeToggleRef={vegModeToggleRef}
-                  // Pass Banner Props to Unified Component
-                  showBanner={activeTab === "food" && effectiveOrderType !== "takeaway" && !isTakeawayPage}
-                  videoUrl={""}
-                  hideFoodImages={!!festBannerImageUrl}
-                />
-              ) : (
-                <div className="bg-white/0 dark:bg-black/0 px-4 pt-2 pb-4 border-b-0 dark:border-gray-800 backdrop-blur-sm">
-                  <div className="flex items-center justify-between">
-                    <div className="flex flex-col">
-                      <span className="text-[10px] font-bold text-gray-200 uppercase tracking-[0.2em] mb-0.5 drop-shadow-md">Self-Pickup</span>
-                      <h1 className="text-xl font-bold text-white flex items-center gap-2 drop-shadow-md">
-                        Takeaway
-                      </h1>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => {
-                          setTakeawaySearchOpen(true);
-                        }}
-                        className={`p-2.5 backdrop-blur-md rounded-full active:scale-95 transition-all duration-200 ${takeawaySearchOpen ? "bg-white text-[#DC2626]" : "bg-white/20 dark:bg-black/20"}`}
-                        aria-label="Search takeaway restaurants"
-                      >
-                        <Search className={`h-5 w-5 ${takeawaySearchOpen ? "text-[#DC2626]" : "text-white"}`} strokeWidth={2.5} />
-                      </button>
-                      <Link
-                        to="/food/user/cart"
-                        state={{ from: routerLocation.pathname }}
-                        className="p-2.5 bg-white/20 dark:bg-black/20 backdrop-blur-md rounded-full active:scale-95 transition-all relative flex items-center justify-center"
-                        title="Cart"
-                      >
-                        <ShoppingCart className="h-5 w-5 text-white" strokeWidth={2.5} />
-                        {cartCount > 0 && (
-                          <span className="absolute -top-1 -right-1 bg-[#DC2626] text-white text-[9px] font-bold h-4.5 w-4.5 rounded-full flex items-center justify-center border-2 border-white dark:border-[#1a1a1a]">
-                            {cartCount > 99 ? "99+" : cartCount}
-                          </span>
-                        )}
-                      </Link>
-                      <Link
-                        to="/food/user/profile"
-                        state={{ from: routerLocation.pathname }}
-                        onClick={(e) => {
-                          if (!isModuleAuthenticated('user')) {
-                            e.preventDefault();
-                            window.dispatchEvent(new CustomEvent('show-login-required'));
-                          }
-                        }}
-                        className="h-10 w-10 relative flex items-center justify-center rounded-full border-[1.5px] border-white shadow-none cursor-pointer active:scale-95 transition-all overflow-hidden ring-1 ring-red-500/80"
-                      >
-                        <Avatar className="h-full w-full bg-[#FFF5E6]">
-                          <AvatarImage
-                            src={userProfile?.profileImage || "/assets/images/profile_avatar.webp"}
-                            alt="Profile"
-                            className="object-cover"
-                          />
-                          <AvatarFallback className="bg-[#FFF5E6] text-[20px] font-black text-[#DC2626] leading-none tracking-tighter antialiased">
-                            <img src="/assets/images/profile_avatar.webp" alt="Profile" className="object-cover w-full h-full" />
-                          </AvatarFallback>
-                        </Avatar>
-                      </Link>
-                    </div>
-                  </div>
+        {/* Clean Sticky Category Popup Overlay (Appears ONLY when Top Banner is 100% Offscreen) */}
+        <AnimatePresence mode="wait">
+          {isCategoriesCrossed && (
+            <motion.div
+              ref={stickyHeaderRef}
+              initial={{ opacity: 0, y: -25 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -25 }}
+              transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+              className="fixed top-0 left-0 right-0 z-[100] bg-white/95 dark:bg-[#1a1a1a]/95 backdrop-blur-xl border-b border-gray-100/60 dark:border-gray-800/80 rounded-b-3xl sm:rounded-b-[2rem] shadow-xl overflow-hidden py-1.5"
+            >
+              {CategoryRailSection}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-                  <AnimatePresence initial={false}>
-                    {takeawaySearchOpen && (
-                      <motion.section
-                        key="takeaway-search-bar"
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: "auto", opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{
-                          height: { type: "spring", stiffness: 380, damping: 32, mass: 0.82 },
-                          opacity: { duration: 0.24, ease: [0.22, 1, 0.36, 1] },
-                        }}
-                        className="overflow-hidden origin-top"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <motion.div
-                          initial={{ y: -8, opacity: 0, scale: 0.97 }}
-                          animate={{ y: 0, opacity: 1, scale: 1 }}
-                          exit={{ y: -6, opacity: 0, scale: 0.98 }}
-                          transition={{
-                            type: "spring",
-                            stiffness: 460,
-                            damping: 30,
-                            mass: 0.72,
-                          }}
-                          className="relative bg-gray-50 dark:bg-[#1a1a1a] rounded-xl border border-gray-200 dark:border-gray-800 p-2 flex items-center shadow-inner group mt-3"
-                        >
-                          <Search className="h-4 w-4 text-[#DC2626] ml-2 shrink-0" strokeWidth={2.5} />
-                          <div className="flex-1 px-3">
-                            <Input
-                              autoFocus
-                              value={heroSearch}
-                              onChange={(e) => setHeroSearch(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Escape") {
-                                  setHeroSearch("");
-                                  setTakeawaySearchOpen(false);
-                                }
-                              }}
-                              className="h-6 w-full bg-transparent border-0 text-[13px] font-bold text-gray-700 dark:text-white focus-visible:ring-0 focus-visible:ring-offset-0 p-0 leading-none placeholder:text-gray-400"
-                              placeholder="Search takeaway restaurants..."
-                            />
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {heroSearch && (
-                              <button
-                                type="button"
-                                onClick={() => setHeroSearch("")}
-                                className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-200/90 text-gray-500 hover:bg-gray-300 hover:text-gray-700 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 transition-colors"
-                                aria-label="Clear search"
-                              >
-                                <X className="h-3.5 w-3.5" strokeWidth={2.5} />
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setHeroSearch("");
-                                setTakeawaySearchOpen(false);
-                              }}
-                              className="flex h-7 w-7 items-center justify-center rounded-full bg-[#DC2626]/10 text-[#DC2626] hover:bg-[#DC2626]/20 transition-colors"
-                              aria-label="Close search"
-                            >
-                              <X className="h-4 w-4" strokeWidth={2.5} />
-                            </button>
-                          </div>
-                        </motion.div>
-                      </motion.section>
-                    )}
-                  </AnimatePresence>
-                </div>
-              )}
+        <div className="relative z-10">
+          <HomeHeader 
+            headerRef={headerBannerRef}
+            topBanners={topBannersData}
+            topBannersLoaded={topBannersLoaded}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            location={effectiveLocation}
+            savedAddressText={headerSavedAddressText}
+            handleLocationClick={handleLocationClick}
+            handleSearchFocus={handleSearchFocus}
+            placeholderIndex={placeholderIndex}
+            placeholders={placeholders}
+            handleVegModeChange={handleVegModeChange}
+            isVegMode={vegModeOption === "pure-veg"}
+            vegModeToggleRef={vegModeToggleRef}
+            isCategoryStuck={isCategoryStuck}
+            vegModeOption={vegModeOption}
+            onClearNonVegFilter={handleClearNonVegFilter}
+          />
 
-            </div>
+          {/* Category sticky anchor sentinel */}
+          <div ref={categoryAnchorRef} aria-hidden="true" />
+
+          <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full">
+            {CategoryRailHeader}
           </div>
 
-          <AnimatePresence mode="wait">
-            {activeTab === "food" ? (
-              <motion.div
-                key="food-content"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                className="bg-transparent dark:bg-transparent"
+          {/* Category Rail (In-flow layout) */}
+          <div
+            className={`transition-opacity duration-200 ${isSmartStickyActive && isCategoriesCrossed ? 'opacity-0 pointer-events-none' : 'opacity-100'
+              }`}
+          >
+            {CategoryRailSection}
+          </div>
+
+          <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 w-full">
+
+            {/* Meals under 99 Section */}
+            {(loadingMealsUnder99 || mealsUnder99.length > 0) && (
+              <motion.section
+                className="content-auto space-y-4 pt-4 sm:pt-6"
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5 }}
               >
-                {(effectiveOrderType === "takeaway" || isTakeawayPage) && (
-                  <div className="px-4 pt-3 pb-1 bg-white dark:bg-[#0a0a0a]">
-                    <div className="flex flex-col gap-1">
-                      <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                        <span className="p-2 bg-green-100 dark:bg-green-900/30 rounded-xl">
-                          <ShoppingBag className="h-6 w-6 text-green-600" />
-                        </span>
-                        Pickup Restaurants
-                      </h1>
-                      <p className="text-[13px] text-gray-500 font-medium flex items-center gap-1.5 ml-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
-                        Order online, skip the queue & pickup yourself
-                      </p>
-                    </div>
-                    <div className="h-[1px] bg-gradient-to-r from-gray-100 via-gray-200 to-transparent dark:from-gray-800 dark:via-gray-700 dark:to-transparent mt-3 mb-1"></div>
+                <div className="px-4 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <h2 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 dark:text-white tracking-tight">
+                      Meals under
+                    </h2>
+                    <span className="flex items-center justify-center border-[1.5px] border-gray-900 dark:border-white rounded-full px-2 py-0.5 text-xs sm:text-sm font-black text-gray-900 dark:text-white leading-none">
+                      ₹99
+                    </span>
                   </div>
-                )}
-                {/* "What's on your mind today?" Section */}
-                {effectiveOrderType !== "takeaway" && !isTakeawayPage && (
-                  <div
-                    id="categories-section"
-                    className="px-4 py-2.5 space-y-3 bg-white dark:bg-[#0a0a0a]"
+                  <Link
+                    to="/food/user/under-250"
+                    className="text-xs sm:text-sm font-bold flex items-center gap-0.5 transition-all hover:opacity-80 active:scale-95"
+                    style={{ color: "var(--module-theme-color, #E2AD4B)" }}
                   >
+                    See more
+                  </Link>
+                </div>
 
+                {loadingMealsUnder99 ? (
+                  <div className="flex gap-3 sm:gap-4 px-4 pb-2 overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <div key={i} className="flex-shrink-0 w-[140px] flex flex-col gap-2">
+                        <div className="w-full h-[140px] rounded-2xl bg-gray-100 dark:bg-neutral-800 animate-pulse" />
+                        <div className="h-3 w-12 bg-gray-100 dark:bg-neutral-800 animate-pulse rounded" />
+                        <div className="h-4 w-full bg-gray-100 dark:bg-neutral-800 animate-pulse rounded" />
+                        <div className="h-4 w-1/2 bg-gray-100 dark:bg-neutral-800 animate-pulse rounded" />
+                      </div>
+                    ))}
+                  </div>
+                ) : filteredMealsUnder99.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+                    No meals under ₹99 match the selected filters.
+                  </div>
+                ) : (
+                  <div
+                    className="flex gap-3 sm:gap-4 px-4 pb-2 overflow-x-auto scrollbar-hide scroll-smooth"
+                    style={{
+                      scrollbarWidth: "none",
+                      msOverflowStyle: "none",
+                      touchAction: "pan-x pan-y pinch-zoom",
+                    }}
+                  >
+                    {filteredMealsUnder99.map((dish) => {
+                      const variants = dish.variants || [];
+                      const hasVariants = variants && variants.length > 0;
+                      const totalQty = getCartItemQuantity(dish);
 
-                    {/* Categories Horizontal Slider */}
-                    <div className="flex overflow-x-auto gap-1.5 pb-2 scrollbar-hide -mx-4 px-4 mask-edge-fade">
-                      {displayCategories.slice(0, 12).map((category, index) => (
-                        <Link
-                          key={category.id || index}
-                          to={`/food/user/category/${category.slug}`}
-                          state={{ from: '/food/user' }}
-                          onClick={rememberLeaveForCategory}
-                          className="flex-shrink-0 flex flex-col items-center gap-2.5 group w-[92px]"
+                      // Image sanitizer to replace transparent checkerboard PNGs or missing images
+                      const getSanitizedImage = (item) => {
+                        const name = (item.name || "").toLowerCase();
+                        const img = item.image || "";
+                        if (!img || img.includes("transparent") || img.includes("checkerboard") || img.includes("placeholder")) {
+                          if (name.includes("biryani")) return biryaniCleanImg;
+                          if (name.includes("maggie") || name.includes("maggi") || name.includes("noodle")) return maggieCleanImg;
+                          if (name.includes("rasgulla") || name.includes("sweet") || name.includes("dessert")) return rasgullaCleanImg;
+                          return biryaniCleanImg;
+                        }
+                        if (name.includes("biryani")) return biryaniCleanImg;
+                        if (name.includes("maggie") || name.includes("maggi")) return maggieCleanImg;
+                        if (name.includes("rasgulla")) return rasgullaCleanImg;
+                        return img;
+                      };
+
+                      return (
+                        <div
+                          key={dish.id}
+                          className="flex-shrink-0 w-[145px] sm:w-[155px] flex flex-col gap-2 group cursor-pointer"
                         >
-                          <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden shadow-md border-2 border-gray-100 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] group-active:scale-95 transition-all duration-300">
-                            {/* Shining Glint Effect */}
-                            <div className="absolute inset-0 z-10 pointer-events-none overflow-hidden">
-                              <motion.div
-                                animate={{
-                                  x: ['-200%', '200%'],
-                                }}
-                                transition={{
-                                  duration: 2,
-                                  repeat: Infinity,
-                                  repeatDelay: 3 + index * 0.5,
-                                  ease: "easeInOut"
-                                }}
-                                className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent skew-x-[-20deg] w-[150%] h-full"
-                              />
+                          {/* Image container with subtle light border */}
+                          <div className="relative w-full h-[142px] sm:h-[150px] rounded-2xl bg-white dark:bg-neutral-900 border border-gray-200/80 dark:border-gray-700/70 shadow-sm overflow-hidden transition-all duration-300 group-hover:shadow-md group-hover:border-gray-300/90 group-hover:-translate-y-0.5">
+                            <img
+                              src={getSanitizedImage(dish)}
+                              alt={dish.name}
+                              className="w-full h-full object-cover rounded-2xl bg-white transition-transform duration-300 group-hover:scale-105"
+                              loading="lazy"
+                            />
+
+                            {/* Rating Badge Overlay */}
+                            <div className="absolute bottom-2 left-2 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md px-2 py-0.5 rounded-full shadow-md border border-gray-200/80 dark:border-gray-700/70 flex items-center gap-0.5 text-gray-900 dark:text-white text-[10.5px] font-extrabold z-10">
+                              <span className="text-[#659116] text-[10.5px] leading-none">★</span>
+                              <span className="leading-none">{dish.rating || 4.2}</span>
                             </div>
 
-                            <OptimizedImage
-                              src={category.image}
-                              alt={category.name}
-                              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-                              sizes="96px"
-                              priority={index < 6}
-                              responsive={false}
-                              placeholder="empty"
-                            />
-                          </div>
-                          <span className="text-[10px] font-bold text-gray-600 dark:text-gray-300 text-center leading-tight line-clamp-1 w-full px-0.5">
-                            {category.name}
-                          </span>
-                        </Link>
-                      ))}
+                            {/* Popular Badge */}
+                            <div
+                              className="absolute top-2 left-2 text-white text-[9.5px] font-black px-2 py-0.5 rounded-full shadow-md backdrop-blur-md z-10"
+                              style={{ backgroundColor: "#659116" }}
+                            >
+                              Popular
+                            </div>
 
-                      {/* See All Card */}
-                      {displayCategories.length > 0 && (
-                        <Link
-                          to="/food/user/categories"
-                          state={{ from: '/food/user' }}
-                          className="flex-shrink-0 flex flex-col items-center gap-2.5 group w-[92px]"
-                        >
-                          <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden shadow-md border-2 border-red-100 dark:border-red-950/30 bg-red-50 dark:bg-red-950/20 flex items-center justify-center group-active:scale-95 transition-all duration-300">
-                            <UtensilsCrossed className="w-8 h-8 sm:w-10 sm:h-10 text-red-500" />
+                            {/* Plus Button or Quantity Selector Overlay */}
+                            {totalQty > 0 ? (
+                              <div
+                                className="absolute bottom-2 right-2 h-8 rounded-full bg-white dark:bg-gray-900 shadow-md flex items-center justify-between border px-1.5 gap-1.5 border-gray-200/90 dark:border-gray-700/80 z-10"
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleDecreaseQuantity(dish, e)}
+                                  className="w-5 h-5 flex items-center justify-center hover:opacity-80 transition-all active:scale-75 text-[#659116]"
+                                >
+                                  <Minus className="h-3.5 w-3.5" strokeWidth={3.5} />
+                                </button>
+                                <span className="text-[12px] font-black text-gray-950 dark:text-white min-w-[12px] text-center select-none">
+                                  {totalQty}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleIncreaseQuantity(dish, e)}
+                                  className="w-5 h-5 flex items-center justify-center hover:opacity-80 transition-all active:scale-75 text-[#659116]"
+                                >
+                                  <Plus className="h-3.5 w-3.5" strokeWidth={3.5} />
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => handleIncreaseQuantity(dish, e)}
+                                className="absolute bottom-2 right-2 w-8 h-8 rounded-full bg-white dark:bg-gray-900 shadow-md flex items-center justify-center border transition-all active:scale-90 border-gray-200/90 dark:border-gray-700/80 hover:bg-gray-50 z-10"
+                              >
+                                <Plus className="h-4 w-4 text-[#659116]" strokeWidth={3} />
+                              </button>
+                            )}
                           </div>
-                          <span className="text-[10px] font-bold text-gray-600 dark:text-gray-300 text-center leading-tight flex items-center justify-center gap-1 w-full px-0.5 group-hover:text-red-500 transition-colors">
-                            See all <span className="text-[7px] text-red-500">▼</span>
-                          </span>
-                        </Link>
-                      )}
-                    </div>
+
+                          {/* Content info */}
+                          <div className="flex flex-col gap-0.5 min-w-0 px-0.5">
+                            {/* Restaurant Name */}
+                            <span className="text-[10.5px] text-gray-500 dark:text-gray-400 font-semibold truncate">
+                              {dish.restaurantName}
+                            </span>
+
+                            {/* Veg/Non-veg Dot & Name */}
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <div className="shrink-0 w-3.5 h-3.5 border border-gray-300 dark:border-gray-700 rounded flex items-center justify-center p-[2px] bg-white">
+                                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: dish.isVeg ? "#22c55e" : "#dc2626" }} />
+                              </div>
+                              <span className="text-xs font-bold text-gray-900 dark:text-white truncate group-hover:text-[#659116] transition-colors">
+                                {dish.name}
+                              </span>
+                            </div>
+
+                            {/* Price */}
+                            <div className="flex items-center justify-between w-full mt-0.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-sm font-black text-gray-900 dark:text-white">
+                                  ₹{dish.price}
+                                </span>
+                                {dish.originalPrice && dish.originalPrice > dish.price && (
+                                  <span className="text-[11px] font-semibold text-gray-400 line-through">
+                                    ₹{dish.originalPrice}
+                                  </span>
+                                )}
+                              </div>
+                              {hasVariants && (
+                                <span className="text-[8px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                                  Customisable
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
+              </motion.section>
+            )}
 
-                {/* Dynamic Sticky Header (Search + Slider + Filters) */}
-                <AnimatePresence initial={false}>
-                  {isStickyHeaderVisible && (
+            {/* Filters sentinel to detect when original Filters section is crossed */}
+            <div ref={filtersSentinelRef} aria-hidden="true" />
+
+            {/* Main Food & Restaurant Filter Bar */}
+            <div
+              className={`pt-4 px-0 transition-opacity duration-200 ${isSmartStickyActive && isFiltersCrossed ? 'opacity-0 pointer-events-none' : 'opacity-100'
+                }`}
+            >
+              <FoodFilterBar
+                sortBy={sortBy || "relevance"}
+                onSortChange={(val) => setSortBy(val === "relevance" ? null : val)}
+                isVeg={activeFilters.has("veg")}
+                onVegToggle={() => toggleHomeFilter("veg")}
+                isNonVeg={activeFilters.has("non-veg")}
+                onNonVegToggle={() => toggleHomeFilter("non-veg")}
+                rating4Plus={activeFilters.has("rating-4plus")}
+                onRating4PlusToggle={() => toggleHomeFilter("rating-4plus")}
+                hasOffers={activeFilters.has("has-offers")}
+                onOffersToggle={() => toggleHomeFilter("has-offers")}
+                under30Mins={activeFilters.has("delivery-under-30")}
+                onUnder30MinsToggle={() => toggleHomeFilter("delivery-under-30")}
+                onFilterButtonClick={() => setIsFilterOpen(true)}
+              />
+            </div>
+
+            {filteredRecommendedForYou.length > 0 && (
+              <motion.section
+                className="content-auto space-y-4 pt-4 sm:pt-6"
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5 }}>
+                {/* Header Row */}
+                <div className="px-4 flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <h2 className="text-lg sm:text-xl md:text-2xl font-extrabold text-gray-900 dark:text-white tracking-tight">
+                        Recommended for you
+                      </h2>
+                    </div>
+                    <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-0.5 font-medium">
+                      Curated picks we think you'll love
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => navigate('/food/user/restaurants')}
+                    className="flex items-center gap-1 text-xs sm:text-sm font-bold text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-800 px-3 py-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                  >
+                    <span>See all</span>
+                    <ArrowRight className="w-3.5 h-3.5" strokeWidth={2.5} />
+                  </button>
+                </div>
+
+                {/* Horizontal Scroll Cards List */}
+                <div
+                  className="flex gap-4 sm:gap-5 px-4 pb-3 overflow-x-auto scrollbar-hide scroll-smooth"
+                  style={{
+                    scrollbarWidth: "none",
+                    msOverflowStyle: "none",
+                    touchAction: "pan-x pan-y pinch-zoom",
+                  }}
+                >
+                  {filteredRecommendedForYou.map((restaurant, index) => {
+                    if (!restaurant) return null;
+                    const restaurantName = getRestaurantDisplayName(restaurant) || "Restaurant";
+                    const restaurantSlug =
+                      restaurant.slug ||
+                      restaurantName.toLowerCase().replace(/\s+/g, "-");
+
+                    const isFav = typeof isFavorite === "function" ? isFavorite(restaurantSlug) : false;
+
+                    const badgeInfo = index % 4 === 0
+                      ? { label: "Recommended", icon: "👍" }
+                      : index % 4 === 1
+                      ? { label: "Top rated", icon: "★" }
+                      : index % 4 === 2
+                      ? { label: "Trending", icon: "📈" }
+                      : { label: "Popular", icon: "❤️" };
+
+                    const fallbackRecommendedImage = horizontalFoodImages[index % horizontalFoodImages.length];
+
+                    const rawCover =
+                      restaurant.profileImage?.url ||
+                      restaurant.image ||
+                      restaurant.coverImages?.[0]?.url ||
+                      restaurant.coverImages?.[0] ||
+                      fallbackRecommendedImage;
+
+                    const rawLogo =
+                      restaurant.logo ||
+                      restaurant.profileImage?.url ||
+                      restaurant.image ||
+                      null;
+
+                    const resolvedCover = typeof rawCover === "string" && rawCover.trim() !== "" ? resolveImageUrl(rawCover) : (rawCover?.url ? resolveImageUrl(rawCover.url) : fallbackRecommendedImage);
+                    const resolvedLogo = typeof rawLogo === "string" ? resolveImageUrl(rawLogo) : (rawLogo?.url ? resolveImageUrl(rawLogo.url) : null);
+
+                    const cuisinesList = Array.isArray(restaurant.cuisines)
+                      ? restaurant.cuisines.join(" • ")
+                      : (restaurant.cuisine || "Italian • Pasta • Pizza");
+
+                    const priceForTwo = restaurant.costForTwo || restaurant.priceForTwo || (200 + (index * 30));
+
+                    return (
+                      <motion.div
+                        key={`recommended-${restaurant.mongoId || restaurant.id || restaurantSlug || index}`}
+                        className="flex-shrink-0 w-[195px] sm:w-[220px] md:w-[235px]"
+                        initial={{ opacity: 0, y: 12 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        viewport={{ once: true }}
+                        transition={{ duration: 0.35, delay: index * 0.05 }}
+                      >
+                        <div
+                          className="group relative flex flex-col rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] shadow-sm hover:shadow-lg transition-all duration-300 cursor-pointer h-full"
+                          onClick={(e) => {
+                            if (e.defaultPrevented) return;
+                            try { captureHomeScrollBeforeLeave(); } catch (_) { }
+                            navigate(`/food/user/restaurants/${restaurantSlug}`);
+                          }}
+                        >
+                          {/* Image Shell (Ultra Compact Height: h-24 sm:h-28 md:h-32) */}
+                          <div className="relative w-full h-24 sm:h-28 md:h-32 bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                            <img
+                              src={resolvedCover}
+                              alt={restaurantName}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
+                              loading="lazy"
+                            />
+
+                            {/* Top Right Heart Action Button */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (isFav) {
+                                  if (typeof removeFavorite === "function") removeFavorite(restaurantSlug);
+                                } else {
+                                  if (typeof addFavorite === "function") {
+                                    addFavorite({
+                                      slug: restaurantSlug,
+                                      name: restaurantName,
+                                      cuisine: restaurant.cuisine,
+                                      rating: restaurant.rating,
+                                      deliveryTime: restaurant.deliveryTime,
+                                      distance: restaurant.distance,
+                                      image: resolvedCover,
+                                    });
+                                  }
+                                }
+                              }}
+                              className="absolute top-2 right-2 z-10 w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-md"
+                              aria-label="Favorite"
+                            >
+                              <Heart className={`w-3 h-3 sm:w-3.5 sm:h-3.5 ${isFav ? "fill-red-500 text-red-500" : "text-white"}`} strokeWidth={2.2} />
+                            </button>
+                          </div>
+
+                          {/* Overlapping Restaurant Logo Circle */}
+                          <div className="relative z-10 -mt-5 ml-3 w-9 h-9 sm:w-10 sm:h-10 rounded-full border-2 border-white dark:border-[#1a1a1a] shadow-md bg-white dark:bg-gray-800 overflow-hidden flex items-center justify-center shrink-0">
+                            {resolvedLogo ? (
+                              <img
+                                src={resolvedLogo}
+                                alt={restaurantName}
+                                className="w-full h-full object-cover"
+                               loading="lazy" decoding="async" />
+                            ) : (
+                              <div className="w-full h-full bg-gradient-to-br from-amber-400 to-orange-500 text-white font-extrabold text-[10px] sm:text-xs flex items-center justify-center uppercase">
+                                {restaurantName.slice(0, 2)}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Card Content Area */}
+                          <div className="pt-1.5 px-3 pb-3 flex flex-col justify-between flex-1">
+                            <div>
+                              {/* Restaurant Name & Rating Row */}
+                              <div className="flex items-center justify-between gap-1.5">
+                                <h3 className="text-xs sm:text-sm font-extrabold text-gray-900 dark:text-white truncate tracking-tight flex-1">
+                                  {restaurantName}
+                                </h3>
+                                <span className="bg-[#24963F] text-white text-[9.5px] sm:text-[10px] font-extrabold px-1.5 py-0.5 rounded flex items-center gap-0.5 shrink-0 shadow-sm">
+                                  <Star className="w-2.5 h-2.5 fill-white text-white" />
+                                  {Number(restaurant.rating) > 0 ? Number(restaurant.rating).toFixed(1) : "4.6"}
+                                </span>
+                              </div>
+
+                              <p className="text-[10px] sm:text-[11px] text-gray-500 dark:text-gray-400 truncate mt-0.5 font-medium">
+                                {cuisinesList}
+                              </p>
+
+                              {/* Stats Row: Time • Distance */}
+                              <div className="flex items-center gap-1.5 text-[10.5px] sm:text-[11px] font-extrabold text-gray-600 dark:text-gray-400 mt-1.5 whitespace-nowrap overflow-hidden">
+                                <span className="flex items-center gap-0.5 shrink-0">
+                                  <Clock className="w-3 h-3 text-gray-400" />
+                                  <span>{restaurant.deliveryTime || "20-30 min"}</span>
+                                </span>
+                                <span className="text-gray-300 dark:text-gray-700 font-normal">•</span>
+                                <span className="flex items-center gap-0.5 shrink-0">
+                                  <MapPin className="w-3 h-3 text-gray-400" />
+                                  <span>{restaurant.distance || "1.4 km"}</span>
+                                </span>
+                              </div>
+
+                              {/* Delivery & Price Row */}
+                              <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-gray-100 dark:border-gray-800/80">
+                                <span className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 text-[9px] sm:text-[10px] font-extrabold px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                                  <span>🛵</span>
+                                  <span>Free</span>
+                                </span>
+                                <span className="text-[10px] sm:text-[11px] font-bold text-gray-700 dark:text-gray-300">
+                                  ₹{priceForTwo} for two
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* View Menu Button */}
+                            <button className="w-full mt-2 py-1.5 px-2 rounded-lg bg-gray-100 dark:bg-zinc-800 group-hover:bg-gray-900 group-hover:text-white dark:group-hover:bg-amber-500 dark:group-hover:text-black text-gray-900 dark:text-white font-extrabold text-[11px] flex items-center justify-center gap-1 transition-all shadow-sm">
+                              <span>View Menu</span>
+                              <ArrowRight className="w-3 h-3" strokeWidth={2.5} />
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              </motion.section>
+            )}
+
+            <div className="py-4">
+              <PromoRow
+                handleVegModeChange={handleVegModeChange}
+                navigate={navigate}
+                isVegMode={vegModeOption === "pure-veg" || vegModeOption === "non-veg"}
+                toggleRef={vegModeToggleRef}
+              />
+            </div>
+
+            <div className="py-2">
+              <FreeCashBanner amount={20} minOrderValue={99} />
+            </div>
+
+            {/* {HeroBannerSection} */}
+
+            {/* Restaurants - Enhanced with Animations */}
+            <motion.section
+              className="content-auto space-y-0 pt-3 sm:pt-4 lg:pt-6 pb-8 md:pb-10"
+              initial={false}
+              animate={{ opacity: 1 }}>
+              <div className="px-4 mb-3 lg:mb-4">
+                <div className="flex flex-col gap-0.5 lg:gap-1">
+                  <h2 className="text-xs sm:text-sm lg:text-base font-semibold text-gray-400 tracking-widest uppercase">
+                    {filteredRestaurants.length} Restaurants Delivering to You
+                  </h2>
+                  <span className="text-base sm:text-lg lg:text-2xl text-gray-500 font-normal">
+                    Featured
+                  </span>
+                </div>
+              </div>
+              <div
+                className={`relative ${showRestaurantSkeleton ? "min-h-[360px] sm:min-h-[420px]" : ""}`}>
+                {/* Loading Overlay */}
+                <AnimatePresence>
+                  {showRestaurantSkeleton && (
                     <motion.div
+                      className="absolute inset-0 z-10 rounded-lg bg-white/94 dark:bg-[#1a1a1a]/94"
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      transition={{ duration: 0.2 }}
-                      className="fixed top-0 left-0 right-0 z-[100] bg-white/80 dark:bg-[#0a0a0a]/80 backdrop-blur-md shadow-lg border-b border-white/10 dark:border-white/5 safe-top md:hidden"
-                    >
-                      {/* Search Bar + Veg Mode Row (Always visible when sticky) */}
-                      <AnimatePresence>
-                        {showStickySearch && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            className="px-4 pt-3 pb-2 flex items-center gap-3"
-                          >
-                            <div
-                              className="bg-white dark:bg-[#1a1a1a] flex-1 rounded-2xl flex items-center px-4 py-3 cursor-pointer border-2 border-[#DC2626]/30 dark:border-[#DC2626]/50 shadow-md"
-                              onClick={handleSearchFocus}
-                            >
-                              <Search className="h-5 w-5 text-[#DC2626] dark:text-[#a14b84] mr-3" strokeWidth={2.5} />
-                              <div className="flex-1 relative h-5 overflow-hidden">
-                                <span className="absolute inset-0 text-base text-gray-400 font-medium">Search "biryani"</span>
-                              </div>
-                              <div className="h-5 w-[1px] bg-gray-200 dark:bg-white/10 mx-2" />
-                              <Mic
-                                className="h-5 w-5 text-[#DC2626] dark:text-[#a14b84]"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  voiceSearch.clearError();
-                                  void voiceSearch.startListening();
-                                  setIsVoiceOverlayOpen(true);
-                                }}
-                              />
-                            </div>
-
-                            {/* Veg Mode Toggle in Sticky Header */}
-                            <div
-                              ref={vegModeToggleRef}
-                              className="flex flex-col items-center gap-1 shrink-0 antialiased"
-                            >
-                              <span className="text-[8px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-[0.1em] leading-none">Veg Mode</span>
-                              <div
-                                className={`w-10 h-4.5 rounded-full relative transition-all duration-500 cursor-pointer border border-gray-200 dark:border-white/10 shadow-sm ${vegMode ? 'bg-[#48c479]' : 'bg-gray-300 dark:bg-gray-700'}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleVegModeChange(!vegMode);
-                                }}
-                              >
-                                <motion.div
-                                  animate={{ x: vegMode ? 22 : 2 }}
-                                  transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                                  className="absolute top-0.5 w-3.5 h-3.5 bg-white rounded-full shadow-sm"
-                                />
-                              </div>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-
-                      {/* Categories Slider (Increased Icon Size) */}
-                      <div className="flex overflow-x-auto gap-5 py-3 pb-2 scrollbar-hide px-4 mask-edge-fade">
-                        {displayCategories.slice(0, 12).map((category, index) => (
-                          <Link
-                            key={`sticky-${category.id || index}`}
-                            to={`/food/user/category/${category.slug}`}
-                            onClick={rememberLeaveForCategory}
-                            className="flex-shrink-0 flex flex-col items-center gap-1.5 group w-[74px]"
-                          >
-                            <div className="w-18 h-18 rounded-full overflow-hidden border-2 border-gray-100 dark:border-white/10 shadow-md bg-white dark:bg-white/5 transition-transform group-active:scale-95">
-                              <OptimizedImage
-                                src={category.image}
-                                alt={category.name}
-                                className="w-full h-full object-cover"
-                                sizes="72px"
-                                priority={index < 6}
-                                responsive={false}
-                                placeholder="empty"
-                              />
-                            </div>
-                            <span className="text-[9px] font-bold text-gray-700 dark:text-gray-300 text-center truncate w-full uppercase tracking-tighter">
-                              {category.name}
-                            </span>
-                          </Link>
-                        ))}
-
-                        {/* See All Sticky Card */}
-                        {displayCategories.length > 0 && (
-                          <Link
-                            to="/food/user/categories"
-                            state={{ from: '/food/user' }}
-                            className="flex-shrink-0 flex flex-col items-center gap-1.5 group w-[74px]"
-                          >
-                            <div className="w-18 h-18 rounded-full overflow-hidden border-2 border-red-100 dark:border-red-950/30 bg-red-50 dark:bg-red-950/20 flex items-center justify-center transition-transform group-active:scale-95">
-                              <UtensilsCrossed className="w-7 h-7 text-red-500" />
-                            </div>
-                            <span className="text-[9px] font-bold text-gray-700 dark:text-gray-300 text-center truncate w-full uppercase tracking-tighter flex items-center justify-center gap-0.5 group-hover:text-red-500 transition-colors">
-                              See all <span className="text-[7px] text-red-500">▼</span>
-                            </span>
-                          </Link>
-                        )}
-                      </div>
-
-
+                      transition={{ duration: 0.25 }}>
+                      <LoadingSkeletonRegion label="Loading restaurants" className="h-full p-1 sm:p-2">
+                        <RestaurantGridSkeleton
+                          count={3}
+                          className="grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3"
+                          compact
+                        />
+                      </LoadingSkeletonRegion>
                     </motion.div>
                   )}
                 </AnimatePresence>
+                <div
+                  className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-4 lg:gap-5 xl:gap-6 px-4 pt-1 sm:pt-1.5 lg:pt-2 items-stretch ${isLoadingFilterResults || loadingRestaurants ? "opacity-50" : "opacity-100"} transition-opacity duration-300`}>
+                  {visibleRestaurants.map((restaurant, index) => {
+                    const nameStr =
+                      typeof restaurant?.name === "string"
+                        ? restaurant.name.trim()
+                        : "";
+                    const fallbackSlugSource =
+                      nameStr ||
+                      (typeof restaurant?.restaurantName === "string"
+                        ? restaurant.restaurantName.trim()
+                        : "") ||
+                      String(
+                        restaurant?.slug ||
+                        restaurant?.id ||
+                        restaurant?._id ||
+                        `restaurant-${index}`,
+                      );
 
-                {/* Admin Hero Banners Section - Now below categories */}
-                {HeroBannerSection}
+                    const restaurantSlug =
+                      typeof restaurant?.slug === "string" &&
+                        restaurant.slug.trim()
+                        ? restaurant.slug.trim()
+                        : fallbackSlugSource.toLowerCase().replace(/\s+/g, "-");
 
-                {/* Filters Sticky Sidebar Header - Hidden for takeaway as per request */}
-                {effectiveOrderType !== "takeaway" && !isTakeawayPage && (
-                  <section className="py-2.5 px-4 bg-white/95 dark:bg-[#0a0a0a]/95 backdrop-blur-md sticky top-0 md:top-[140px] z-[40] -mx-4 w-[calc(100%+2rem)] border-b border-gray-100 dark:border-white/5 shadow-sm transition-colors duration-300">
-                    <div
-                      className="flex items-center gap-2 overflow-x-auto scrollbar-hide px-4"
-                      style={{
-                        scrollbarWidth: "none",
-                        msOverflowStyle: "none",
-                      }}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setIsFilterOpen(true)}
-                        className="h-9 px-4 rounded-full flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 font-bold transition-all bg-white dark:bg-[#1a1a1a] border border-gray-200 shadow-sm active:scale-95"
-                      >
-                        <SlidersHorizontal className="h-4 w-4 text-black dark:text-white" />
-                        <span className="text-xs font-bold text-black dark:text-white uppercase tracking-tight">
-                          Filters
-                        </span>
-                      </button>
+                    const favorite = isFavorite(restaurantSlug);
 
-                      {[
-                        { id: "delivery-under-30", label: "Under 30 mins" },
-                        { id: "delivery-under-45", label: "Under 45 mins" },
-                        { id: "distance-under-1km", label: "Under 1km", icon: MapPin },
-                        { id: "distance-under-2km", label: "Under 2km", icon: MapPin },
-                      ].map((filter) => {
-                        const Icon = filter.icon;
-                        const isActive = activeFilters.has(filter.id);
-                        return (
-                          <button
-                            key={filter.id}
-                            type="button"
-                            onClick={() => {
-                              const nextFilters = new Set(activeFilters);
-                              if (nextFilters.has(filter.id)) {
-                                nextFilters.delete(filter.id);
-                              } else {
-                                nextFilters.add(filter.id);
-                              }
-                              setActiveFilters(nextFilters);
-                              void applyFiltersAndRefetch(
-                                nextFilters,
-                                sortBy,
-                                selectedCuisine,
-                              );
-                            }}
-                            className={`h-9 px-4 rounded-full flex items-center gap-2 whitespace-nowrap flex-shrink-0 transition-all font-bold shadow-sm active:scale-95 ${isActive
-                              ? "bg-[#DC2626] text-white border border-[#DC2626] hover:bg-orange-700"
-                              : "bg-white dark:bg-[#1a1a1a] border border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
-                              }`}
-                          >
-                            {Icon && (
-                              <Icon
-                                className={`h-3.5 w-3.5 ${isActive ? "fill-white" : ""}`}
-                              />
-                            )}
-                            <span className="text-xs font-bold tracking-tight">
-                              {filter.label}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </section>
-                )}
-
-              </motion.div>
-            ) : (
-              <motion.div
-                key="quick-content"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.3 }}
-              >
-                <QuickSection />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        {effectiveOrderType !== "takeaway" && !isTakeawayPage && recommendedForYouRestaurants.length > 0 && (
-          <motion.section
-            className="content-auto pt-1 sm:pt-2"
-            initial={false}
-            animate={{ opacity: 1, y: 0 }}>
-            <h2 className="text-xs sm:text-sm lg:text-base font-semibold text-gray-400 dark:text-gray-500 tracking-widest uppercase mb-2 sm:mb-3 px-4">
-              Recommended For You
-            </h2>
-
-            <div className="flex overflow-x-auto gap-3.5 pb-4 scrollbar-hide px-4 mask-edge-fade">
-              {recommendedForYouRestaurants.map((restaurant, index) => {
-                const restaurantRouteId = getRestaurantRouteId(restaurant);
-                const rawSlug = restaurant.slug || restaurant.name;
-                const restaurantSlug = String(rawSlug || "")
-                  .toLowerCase()
-                  .replace(/[\s/]+/g, "-");
-                const linkId = restaurantRouteId || restaurantSlug;
-                return (
-                  <motion.div
-                    key={`recommended-${restaurant.mongoId || restaurant.id || linkId}`}
-                    initial={{ opacity: 0, y: 12 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true }}
-                    transition={{ duration: 0.35, delay: index * 0.05 }}
-                    className="flex-shrink-0 w-[150px] sm:w-[170px] md:w-[190px]">
-                    <Link
-                      to={toFoodUserPath(`/user/restaurants/${linkId}`)}
-                      state={{ from: homeBrowsePath, restaurantData: restaurant }}
-                      data-browse-focus={restaurant.mongoId || restaurant.id || linkId}
-                      onClick={() =>
-                        rememberHomeBrowsePosition(
-                          restaurant.mongoId || restaurant.id || linkId,
-                        )
+                    const handleToggleFavorite = (slug, res) => {
+                      if (favorite) {
+                        setSelectedRestaurantSlug(slug);
+                        setShowManageCollections(true);
+                      } else {
+                        addFavorite({
+                          slug: slug,
+                          name: res.name,
+                          cuisine: res.cuisine,
+                          rating: res.rating,
+                          deliveryTime: res.deliveryTime,
+                          distance: res.distance,
+                          priceRange: res.priceRange,
+                          image: res.image,
+                        });
+                        setShowToast(true);
+                        setTimeout(() => {
+                          setShowToast(false);
+                        }, 3000);
                       }
-                      className="block rounded-[20px] overflow-hidden border border-gray-200/70 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] shadow-md hover:shadow-lg transition-all duration-300">
-                      <div className="relative h-24 sm:h-28 md:h-32 bg-gray-50">
-                        <RestaurantImageCarousel
-                          restaurant={restaurant}
-                          backendOrigin={BACKEND_ORIGIN}
-                          className="h-24 sm:h-28 md:h-32"
-                          roundedClass="rounded-t-[20px]"
-                          backFrom={homeBrowsePath}
-                          focusId={restaurant.mongoId || restaurant.id || linkId}
-                          visibleCount={visibleRestaurantCount}
-                        />
-                        <div className={`absolute bottom-2 left-2 px-2 py-0.5 rounded-lg ${Number(restaurant.rating) > 0 ? "bg-black/80 backdrop-blur-md text-white font-medium" : "bg-gray-200/90 text-gray-600 font-medium"} text-[10px] shadow-lg border border-white/10`}>
-                          {Number(restaurant.rating) > 0 ? Number(restaurant.rating).toFixed(1) : "NEW"}
-                        </div>
-                      </div>
-                      <div className="p-2.5">
-                        <p className="text-sm font-semibold text-gray-900 dark:text-white truncate tracking-tight">
-                          {restaurant.name}
-                        </p>
-                        <p className="text-[10px] text-[#DC2626] font-bold mt-1 flex items-center gap-1 uppercase tracking-wider">
-                          <Flame className="w-3.5 h-3.5 fill-[#DC2626]" />
-                          Near & Fast
-                        </p>
-                      </div>
-                    </Link>
-                  </motion.div>
-                );
-              })}
-            </div>
-          </motion.section>
-        )}
+                    };
 
-        {/* Explore More Section */}
-        {effectiveOrderType !== "takeaway" && !isTakeawayPage && (
-          <motion.section
-            className="content-auto pt-2 sm:pt-3 lg:pt-4"
-            initial={false}
-            animate={{ opacity: 1, y: 0 }}>
-            <div className="px-4 mb-3 flex items-center gap-2">
-              <h2 className="text-[11px] font-black text-gray-400 uppercase tracking-widest leading-tight">
-                {exploreMoreHeading}
-              </h2>
-              <div className="h-[1px] bg-gray-100 dark:bg-gray-800 flex-1"></div>
-            </div>
-            <div className="px-4.5 pb-4 lg:pb-6">
-              <div className="grid grid-cols-4 gap-1.5 sm:gap-4">
-                  {finalExploreItems.slice(0, 4).map((item, index) => (
-                    <motion.div
-                      key={item.id}
-                      initial={false}
-                      animate={{ opacity: 1, y: 0 }}
-                      whileTap={{ scale: 0.95 }}
-                      className="w-full">
-                      <Link
-                        to={item.href}
-                        state={{ from: '/food/user' }}
-                        aria-label={item.label}
-                        className="block">
-                        <div className="flex flex-col items-center gap-1.5 group">
-                          <div className="relative aspect-square w-full rounded-2xl sm:rounded-[24px] bg-white dark:bg-[#1a1a1a] flex items-center justify-center shadow-sm hover:shadow-md transition-all duration-500 overflow-hidden border border-gray-100 dark:border-gray-800 p-1 group-hover:border-[#DC2626]/40">
-                            {/* Colorful Glow Background */}
-                            <div className={`absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity duration-500 bg-gradient-to-br ${index % 3 === 0 ? 'from-[#DC2626] to-rose-500' : index % 3 === 1 ? 'from-indigo-500 to-purple-500' : 'from-teal-500 to-emerald-500'} z-20 pointer-events-none`} />
-
-                            <ExploreIconImage
-                              src={item.image}
-                              fallbackSrc={item.fallbackImage || exploreOffers}
-                              className="relative z-10 transition-transform duration-500 group-hover:scale-110 drop-shadow-sm rounded-xl"
-                            />
-                          </div>
-                          <span className="text-[9px] sm:text-[10px] font-bold text-gray-500 dark:text-gray-400 group-hover:text-[#DC2626] transition-colors text-center tracking-tighter leading-tight uppercase truncate w-full px-0.5">
-                            {item.label}
-                          </span>
-                        </div>
-                      </Link>
-                    </motion.div>
-                  ))}
-              </div>
-            </div>
-          </motion.section>
-        )}
-
-        {/* Featured Foods - Horizontal Scroll */}
-
-        {/* Restaurants - Enhanced with Animations */}
-        <motion.section
-          className={`content-auto space-y-0 pb-8 md:pb-10 ${(effectiveOrderType === "takeaway" || isTakeawayPage) ? "pt-1 sm:pt-2 lg:pt-3" : "pt-3 sm:pt-4 lg:pt-6"}`}
-          initial={false}
-          animate={{ opacity: 1 }}>
-          <div className="px-4 mb-3 lg:mb-4">
-            {!showTakeawaySearchEmpty && (
-              <div className="flex flex-col gap-1 antialiased">
-                {takeawaySectionSubtitle && (
-                  <h2 className="text-[11px] sm:text-xs font-semibold text-[#5d80a3] tracking-[0.15em] uppercase">
-                    {takeawaySectionSubtitle}
-                  </h2>
-                )}
-                <h3 className="text-lg sm:text-xl font-bold text-[#364d66] dark:text-gray-200 tracking-tight">
-                  {takeawaySectionTitle}
-                </h3>
-              </div>
-            )}
-          </div>
-          <div
-            className={`relative ${showRestaurantSkeleton ? "min-h-[360px] sm:min-h-[420px]" : ""}`}>
-            {/* Loading Overlay */}
-            <AnimatePresence>
-              {showRestaurantSkeleton && (
-                <motion.div
-                  className="absolute inset-0 z-10 rounded-lg bg-white/94 dark:bg-[#1a1a1a]/94"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.25 }}>
-                  <LoadingSkeletonRegion label="Loading restaurants" className="h-full p-1 sm:p-2">
-                    <RestaurantGridSkeleton
-                      count={3}
-                      className="grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3"
-                      compact
-                    />
-                  </LoadingSkeletonRegion>
-                </motion.div>
-              )}
-            </AnimatePresence>
-            <div
-              className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-4 lg:gap-5 xl:gap-6 px-4 pt-1 sm:pt-1.5 lg:pt-2 items-stretch ${isLoadingFilterResults || loadingRestaurants ? "opacity-50" : "opacity-100"} transition-opacity duration-300`}>
-              {visibleRestaurants.map((restaurant, index) => {
-                const nameStr =
-                  typeof restaurant?.name === "string"
-                    ? restaurant.name.trim()
-                    : "";
-                const fallbackSlugSource =
-                  nameStr ||
-                  (typeof restaurant?.restaurantName === "string"
-                    ? restaurant.restaurantName.trim()
-                    : "") ||
-                  String(
-                    restaurant?.slug ||
-                    restaurant?.id ||
-                    restaurant?._id ||
-                    `restaurant-${index}`,
-                  );
-                const rawSlug = (typeof restaurant?.slug === "string" && restaurant.slug.trim()) ? restaurant.slug.trim() : fallbackSlugSource;
-                const restaurantSlug = rawSlug.toLowerCase().replace(/[\s\/]+/g, "-");
-                const restaurantRouteId = getRestaurantRouteId(restaurant) || restaurantSlug;
-                const availability = getRestaurantAvailabilityStatus(
-                  restaurant,
-                  new Date(availabilityTick),
-                );
-                // Direct favorite check - isFavorite is already memoized in context
-                const favorite = isFavorite(restaurantSlug);
-
-                const restaurantCoupons = restaurant.hasDishes === false ? [] : publicOffers.filter((o) => {
-                  // 1. Restaurant Scope check
-                  if (String(o?.restaurantScope) === "selected") {
-                    const couponRestId = String(o.restaurantId || "").trim();
-                    const rId = String(restaurant.restaurantId || "").trim();
-                    const id = String(restaurant.id || "").trim();
-                    const mongoId = String(restaurant.mongoId || "").trim();
-                    if (!(couponRestId === rId || couponRestId === id || couponRestId === mongoId)) {
-                      return false;
-                    }
-                  }
-
-                  // 2. Order/Tab Type check (couponType: 'delivery', 'takeaway', 'all')
-                  const isTakeawayActive = effectiveOrderType === "takeaway" || isTakeawayPage;
-                  const cType = String(o.couponType || "all").trim().toLowerCase();
-
-                  if (isTakeawayActive) {
-                    return cType === "takeaway" || cType === "all";
-                  } else {
-                    return cType === "delivery" || cType === "all";
-                  }
-                });
-
-                const handleToggleFavorite = (e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (favorite) {
-                    // If already bookmarked, show Manage Collections modal
-                    setSelectedRestaurantSlug(restaurantSlug);
-                    setShowManageCollections(true);
-                  } else {
-                    // Add to favorites and show toast
-                    addFavorite({
-                      slug: restaurantSlug,
-                      name: restaurant.name,
-                      cuisine: restaurant.cuisine,
-                      rating: restaurant.rating,
-                      deliveryTime: restaurant.deliveryTime,
-                      distance: restaurant.distance,
-                      priceRange: restaurant.priceRange,
-                      image: restaurant.image,
-                    });
-                    setShowToast(true);
-                    setTimeout(() => {
-                      setShowToast(false);
-                    }, 3000);
-                  }
-                };
-
-                return (
-                  <div
-                    key={
-                      restaurant?.id ||
-                      restaurant?._id ||
-                      restaurantSlug ||
-                      index
-                    }
-                    className="h-full transform transition-all duration-300 hover:-translate-y-3 hover:scale-[1.02]"
-                    style={{
-                      perspective: 1000,
-                      animation:
-                        index < 10
-                          ? `fade-in-up 0.5s ease-out ${index * 0.05}s backwards`
-                          : "none",
-                    }}>
-                    <div className="h-full group" data-browse-focus={restaurant.mongoId || restaurant.id || restaurantRouteId}>
-                      <Link
-                        to={toFoodUserPath(`/user/restaurants/${restaurantRouteId}`)}
-                        state={{ from: homeBrowsePath, restaurantData: restaurant }}
-                        onClick={() =>
-                          rememberHomeBrowsePosition(
-                            restaurant.mongoId || restaurant.id || restaurantRouteId,
-                          )
-                        }
-                        className="h-full flex">
-                        <Card
-                          className={`overflow-hidden gap-0 cursor-pointer border border-gray-200/70 dark:border-gray-800/80 group bg-white dark:bg-[#1a1a1a] transition-all duration-500 py-0 rounded-[28px] flex flex-col h-full w-full relative shadow-md hover:shadow-2xl ${isOutOfService || !availability.isOpen
-                            ? "grayscale opacity-75"
-                            : ""
-                            }`}>
-                          {/* Image Section with Carousel */}
-                          <div className="relative">
-                            <RestaurantImageCarousel
-                              restaurant={restaurant}
-                              priority={index < 2}
-                              backendOrigin={BACKEND_ORIGIN}
-                              backFrom={homeBrowsePath}
-                              focusId={restaurant.mongoId || restaurant.id || restaurantRouteId}
-                              visibleCount={visibleRestaurantCount}
-                            />
-
-
-
-                            {/* Bookmark Icon - Top Right */}
-                            <div className="absolute top-4 right-4 z-10 transform transition-transform duration-300 group-hover:scale-110">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={handleToggleFavorite}
-                                aria-label={
-                                  favorite
-                                    ? "Remove from favorites"
-                                    : "Add to favorites"
-                                }
-                                className={`h-11 w-11 rounded-[20px] shadow-xl flex items-center justify-center transition-all duration-300 ${favorite
-                                  ? "bg-red-500 text-white"
-                                  : "bg-white/90 backdrop-blur-sm text-gray-800 hover:bg-white"
-                                  }`}>
-                                <Bookmark
-                                  className={`h-5 w-5 transition-all duration-300 ${favorite ? "fill-white" : ""
-                                    }`}
-                                />
-                              </Button>
-                            </div>
-                          </div>
-
-                          {/* Content Section */}
-                          <div className="transform transition-transform duration-300 group-hover:-translate-y-1">
-                            <CardContent className="p-3 sm:p-4 lg:p-5 pt-3 sm:pt-4 lg:pt-5 flex flex-col flex-grow">
-                              {/* Restaurant Name & Rating */}
-                              <div className="flex items-start justify-between gap-2 mb-2 lg:mb-3">
-                                <div className="flex-1 min-w-0">
-                                  <h3 className="text-2xl lg:text-3xl font-bold text-[#1c1c1c] dark:text-white line-clamp-2 leading-tight tracking-tight transition-colors duration-300 group-hover:text-[#257d3c]">
-                                    {restaurant.name}
-                                  </h3>
-                                  <div className="flex flex-wrap items-center gap-2 mt-2">
-                                    {/* Delivery Time & Distance moved here - Green Theme with Zap icon */}
-                                    <div className="flex items-center gap-1.5 text-sm font-semibold text-[#257d3c] transition-all duration-300">
-                                      <Zap
-                                        className="h-4 w-4 fill-[#257d3c]"
-                                        strokeWidth={2.5}
-                                      />
-                                      <span>
-                                        {restaurant.deliveryTime}
-                                      </span>
-                                      <span className="text-[#257d3c] mx-1 font-bold">|</span>
-                                      <span>
-                                        {restaurant.distance}
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  {/* Offer Badge - Animated Carousel */}
-                                  <RestaurantCardOfferCarousel coupons={restaurantCoupons} />
-                                </div>
-                                <div className="flex flex-col items-end gap-0.5">
-                                  <div className="flex-shrink-0 bg-[#257d3c] text-white px-2 py-1 rounded-lg flex items-center gap-1">
-                                    <Star className="h-3.5 w-3.5 fill-white text-white" strokeWidth={0} />
-                                    <span className="text-sm font-bold tracking-tight">
-                                      {Number(restaurant.rating) > 0 ? Number(restaurant.rating).toFixed(1) : "NEW"}
-                                    </span>
-                                  </div>
-                                  {Number(restaurant.rating) > 0 && (
-                                    <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 mt-0.5 whitespace-nowrap">
-                                      {(() => {
-                                        const count = Number(restaurant.totalRatings) || 0;
-                                        if (count === 1) return "1 rating";
-                                        if (count < 100) return `${count} ratings`;
-                                        if (count < 1000) return `${Math.floor(count / 100) * 100}+ ratings`;
-                                        return `${(count / 1000).toFixed(1)}K+ ratings`;
-                                      })()}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-
-                              {/* Closes in / Opening time badge moved here */}
-                              <div className="flex items-center gap-1 text-sm lg:text-base text-gray-500 mt-2">
-                                {!availability.isOpen && (
-                                  <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide transition-all duration-300 ${availability.reason === "inactive" || availability.reason === "not-accepting-orders"
-                                    ? "bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-900/30"
-                                    : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700"
-                                    }`}>
-                                    {availability.reason === "inactive" || availability.reason === "not-accepting-orders" ? (
-                                      <>
-                                        <AlertCircle className="h-3 w-3 flex-shrink-0 text-red-500 dark:text-red-400" strokeWidth={2.5} />
-                                        <span>Offline</span>
-                                      </>
-                                    ) : availability.openingTime ? (
-                                      <>
-                                        <Clock className="h-3 w-3 flex-shrink-0 text-gray-500 dark:text-gray-400" strokeWidth={2.5} />
-                                        <span>Opens at {availability.openingTime}</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <AlertCircle className="h-3 w-3 flex-shrink-0 text-gray-500 dark:text-gray-400" strokeWidth={2.5} />
-                                        <span>Closed</span>
-                                      </>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            </CardContent>
-                          </div>
-
-                          {/* Border Glow Effect */}
-                          <div className="absolute inset-0 rounded-md pointer-events-none z-0 transition-all duration-300 border border-transparent group-hover:border-[#DC2626]/30 group-hover:shadow-[inset_0_0_0_1px_rgba(235,89,14,0.2)]" />
-                        </Card>
-                      </Link>
+                    return (
+                      <RestaurantCard
+                        key={restaurant?.id || restaurant?._id || restaurantSlug || index}
+                        restaurant={restaurant}
+                        index={index}
+                        availabilityTick={availabilityTick}
+                        isOutOfService={isOutOfService}
+                        favorite={favorite}
+                        onToggleFavorite={handleToggleFavorite}
+                        BACKEND_ORIGIN={BACKEND_ORIGIN}
+                        restaurantSlug={restaurantSlug}
+                        onNavigateAway={captureHomeScrollBeforeLeave}
+                      />
+                    );
+                  })}
+                </div>
+                {filteredRestaurants.length === 0 && !showRestaurantSkeleton && (
+                  <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                    <div className="w-16 h-16 rounded-full bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center mb-3">
+                      <SlidersHorizontal className="w-8 h-8 text-[#659116]" />
                     </div>
-                  </div>
-                );
-              })}
-              {!showRestaurantSkeleton &&
-                showTakeawaySearchEmpty &&
-                visibleRestaurants.length === 0 && (
-                  <div className="col-span-full flex flex-col items-center justify-center py-14 px-6 text-center">
-                    <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
-                      <Search className="h-7 w-7 text-gray-300 dark:text-gray-500" />
-                    </div>
-                    <p className="text-base font-bold text-gray-800 dark:text-gray-200">
-                      No takeaway restaurants found for &quot;{takeawaySearchQuery}&quot;
+                    <h3 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white mb-1">
+                      No restaurants match your filters
+                    </h3>
+                    <p className="text-xs sm:text-sm text-gray-500 max-w-xs mb-4">
+                      Try clearing or adjusting your selected filters to see more restaurants.
                     </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1.5 max-w-xs">
-                      Search by restaurant name only
-                    </p>
+                    <button
+                      onClick={() => {
+                        setActiveFilters(new Set());
+                        setSortBy(null);
+                        setSelectedCuisine(null);
+                      }}
+                      className="px-4 py-2 rounded-xl bg-[#659116] text-white text-xs sm:text-sm font-bold shadow-sm hover:opacity-90 transition-opacity"
+                    >
+                      Clear All Filters
+                    </button>
                   </div>
                 )}
-            </div>
+              </div>
+              <div className="flex flex-col items-center pt-2 sm:pt-3 gap-2 px-4">
+                {hasMoreRestaurants && (
+                  <Button
+                    variant="outline"
+                    onClick={loadMoreRestaurants}
+                    className="text-sm font-medium border-gray-300 hover:border-gray-400">
+                    Load more restaurants
+                  </Button>
+                )}
+                <div
+                  ref={restaurantLoadMoreRef}
+                  className="h-1 w-full"
+                  aria-hidden="true"
+                />
+              </div>
+            </motion.section>
           </div>
-          <div className="flex flex-col items-center pt-2 sm:pt-3 gap-2 px-4">
-            {hasMoreRestaurants && (
-              <Button
-                variant="outline"
-                onClick={loadMoreRestaurants}
-                className="text-sm font-medium border-gray-300 hover:border-gray-400">
-                Load more restaurants
-              </Button>
-            )}
-            <div
-              ref={restaurantLoadMoreRef}
-              className="h-1 w-full"
-              aria-hidden="true"
-            />
-          </div>
-        </motion.section>
+        </div>
       </div>
-
-      <VoiceSearchOverlay
-        isOpen={isVoiceOverlayOpen}
-        onClose={() => {
-          voiceSearch.stopListening();
-          setIsVoiceOverlayOpen(false);
-        }}
-        onSearchResult={(transcript) => {
-          navigate(`/food/user/search?q=${encodeURIComponent(transcript)}&mode=delivery`);
-        }}
-        voiceSearch={voiceSearch}
-        autoStart={false}
-      />
 
       {/* Filter Modal - Bottom Sheet */}
       <AnimatePresence>
@@ -3703,7 +4533,7 @@ export default function Home({ homeMode = null, isTabActive = true }) {
                     setSortBy(null);
                     setSelectedCuisine(null);
                   }}
-                  className="text-[#DC2626] font-medium text-sm">
+                  className="text-[#659116] font-bold text-sm">
                   Clear all
                 </button>
               </div>
@@ -3722,28 +4552,35 @@ export default function Home({ homeMode = null, isTabActive = true }) {
                     { id: "trust", label: "Trust", icon: ShieldCheck },
                   ].map((tab) => {
                     const Icon = tab.icon;
-                    const isActive =
-                      activeScrollSection === tab.id ||
-                      activeFilterTab === tab.id;
+                    const isActive = activeFilterTab === tab.id;
                     return (
                       <button
                         key={tab.id}
                         onClick={() => {
                           setActiveFilterTab(tab.id);
+                          isProgrammaticScrollRef.current = true;
+                          if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+                          
+                          const container = rightContentRef.current;
                           const section = filterSectionRefs.current[tab.id];
-                          if (section) {
-                            section.scrollIntoView({
-                              behavior: "smooth",
-                              block: "start",
+                          if (container && section) {
+                            const offset = section.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+                            container.scrollTo({
+                              top: offset,
+                              behavior: "smooth"
                             });
                           }
+
+                          scrollTimeoutRef.current = setTimeout(() => {
+                            isProgrammaticScrollRef.current = false;
+                          }, 800);
                         }}
                         className={`flex flex-col items-center gap-1 py-4 px-2 text-center relative transition-colors ${isActive
-                          ? "bg-white dark:bg-[#1a1a1a] text-[#DC2626]"
-                          : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+                            ? "bg-white dark:bg-[#1a1a1a] text-[#659116] font-bold"
+                            : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
                           }`}>
                         {isActive && (
-                          <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#DC2626] rounded-r" />
+                          <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#659116] rounded-r" />
                         )}
                         <Icon className="h-5 w-5" strokeWidth={1.5} />
                         <span className="text-xs font-medium leading-tight">
@@ -3778,11 +4615,11 @@ export default function Home({ homeMode = null, isTabActive = true }) {
                           key={option.id || "relevance"}
                           onClick={() => setSortBy(option.id)}
                           className={`px-4 py-3 rounded-xl border text-left transition-colors ${sortBy === option.id
-                            ? "border-[#DC2626] bg-[#F9F9FB] dark:bg-green-900/20"
-                            : "border-gray-200 dark:border-gray-800 hover:border-[#DC2626]"
+                              ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30 font-bold text-[#659116]"
+                              : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                             }`}>
                           <span
-                            className={`text-sm font-medium ${sortBy === option.id ? "text-[#DC2626]" : "text-gray-700 dark:text-gray-300"}`}>
+                            className={`text-sm font-medium ${sortBy === option.id ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
                             {option.label}
                           </span>
                         </button>
@@ -3796,37 +4633,37 @@ export default function Home({ homeMode = null, isTabActive = true }) {
                     data-section-id="time"
                     className="space-y-4 mb-8">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                      {(effectiveOrderType === "takeaway" || isTakeawayPage) ? "Estimated Readiness" : "Estimated Time"}
+                      Estimated Time
                     </h3>
                     <div className="grid grid-cols-2 gap-3">
                       <button
                         onClick={() => toggleFilter("delivery-under-30")}
                         className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${activeFilters.has("delivery-under-30")
-                          ? "border-[#DC2626] bg-[#F9F9FB] dark:bg-green-900/20"
-                          : "border-gray-200 dark:border-gray-800 hover:border-[#DC2626]"
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                         <Timer
-                          className={`h-6 w-6 ${activeFilters.has("delivery-under-30") ? "text-[#DC2626]" : "text-gray-600 dark:text-gray-400"}`}
+                          className={`h-6 w-6 ${activeFilters.has("delivery-under-30") ? "text-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
                           strokeWidth={1.5}
                         />
                         <span
-                          className={`text-sm font-medium ${activeFilters.has("delivery-under-30") ? "text-[#DC2626]" : "text-gray-700 dark:text-gray-300"}`}>
-                          {(effectiveOrderType === "takeaway" || isTakeawayPage) ? "Within 30 mins" : "Under 30 mins"}
+                          className={`text-sm font-medium ${activeFilters.has("delivery-under-30") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          Under 30 mins
                         </span>
                       </button>
                       <button
                         onClick={() => toggleFilter("delivery-under-45")}
                         className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${activeFilters.has("delivery-under-45")
-                          ? "border-[#DC2626] bg-[#F9F9FB] dark:bg-green-900/20"
-                          : "border-gray-200 dark:border-gray-800 hover:border-[#DC2626]"
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                         <Timer
-                          className={`h-6 w-6 ${activeFilters.has("delivery-under-45") ? "text-[#DC2626]" : "text-gray-600 dark:text-gray-400"}`}
+                          className={`h-6 w-6 ${activeFilters.has("delivery-under-45") ? "text-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
                           strokeWidth={1.5}
                         />
                         <span
-                          className={`text-sm font-medium ${activeFilters.has("delivery-under-45") ? "text-[#DC2626]" : "text-gray-700 dark:text-gray-300"}`}>
-                          {(effectiveOrderType === "takeaway" || isTakeawayPage) ? "Within 45 mins" : "Under 45 mins"}
+                          className={`text-sm font-medium ${activeFilters.has("delivery-under-45") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          Under 45 mins
                         </span>
                       </button>
                     </div>
@@ -3844,43 +4681,46 @@ export default function Home({ homeMode = null, isTabActive = true }) {
                       <button
                         onClick={() => toggleFilter("rating-35-plus")}
                         className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${activeFilters.has("rating-35-plus")
-                          ? "border-[#DC2626] bg-[#F9F9FB] dark:bg-green-900/20"
-                          : "border-gray-200 dark:border-gray-800 hover:border-[#DC2626]"
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                         <Star
-                          className={`h-6 w-6 ${activeFilters.has("rating-35-plus") ? "text-[#DC2626] fill-[#DC2626]" : "text-gray-400 dark:text-gray-500"}`}
+                          className={`h-6 w-6 ${activeFilters.has("rating-35-plus") ? "text-[#659116] fill-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
+                          strokeWidth={1.5}
                         />
                         <span
-                          className={`text-sm font-medium ${activeFilters.has("rating-35-plus") ? "text-[#DC2626]" : "text-gray-700 dark:text-gray-300"}`}>
-                          Rated 3.5+
+                          className={`text-sm font-medium ${activeFilters.has("rating-35-plus") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          3.5+ Rating
                         </span>
                       </button>
                       <button
                         onClick={() => toggleFilter("rating-4-plus")}
                         className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${activeFilters.has("rating-4-plus")
-                          ? "border-[#DC2626] bg-[#F9F9FB] dark:bg-green-900/20"
-                          : "border-gray-200 dark:border-gray-800 hover:border-[#DC2626]"
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                         <Star
-                          className={`h-6 w-6 ${activeFilters.has("rating-4-plus") ? "text-[#DC2626] fill-[#DC2626]" : "text-gray-400 dark:text-gray-500"}`}
+                          className={`h-6 w-6 ${activeFilters.has("rating-4-plus") ? "text-[#659116] fill-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
+                          strokeWidth={1.5}
                         />
                         <span
-                          className={`text-sm font-medium ${activeFilters.has("rating-4-plus") ? "text-[#DC2626]" : "text-gray-700 dark:text-gray-300"}`}>
-                          Rated 4.0+
+                          className={`text-sm font-medium ${activeFilters.has("rating-4-plus") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          4.0+ Rating
                         </span>
                       </button>
                       <button
                         onClick={() => toggleFilter("rating-45-plus")}
                         className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${activeFilters.has("rating-45-plus")
-                          ? "border-[#DC2626] bg-[#F9F9FB] dark:bg-green-900/20"
-                          : "border-gray-200 dark:border-gray-800 hover:border-[#DC2626]"
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                         <Star
-                          className={`h-6 w-6 ${activeFilters.has("rating-45-plus") ? "text-[#DC2626] fill-[#DC2626]" : "text-gray-400 dark:text-gray-500"}`}
+                          className={`h-6 w-6 ${activeFilters.has("rating-45-plus") ? "text-[#659116] fill-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
+                          strokeWidth={1.5}
                         />
                         <span
-                          className={`text-sm font-medium ${activeFilters.has("rating-45-plus") ? "text-[#DC2626]" : "text-gray-700 dark:text-gray-300"}`}>
-                          Rated 4.5+
+                          className={`text-sm font-medium ${activeFilters.has("rating-45-plus") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          4.5+ Rating
                         </span>
                       </button>
                     </div>
@@ -3898,30 +4738,30 @@ export default function Home({ homeMode = null, isTabActive = true }) {
                       <button
                         onClick={() => toggleFilter("distance-under-1km")}
                         className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${activeFilters.has("distance-under-1km")
-                          ? "border-[#DC2626] bg-[#F9F9FB] dark:bg-green-900/20"
-                          : "border-gray-200 dark:border-gray-800 hover:border-[#DC2626]"
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                         <MapPin
-                          className={`h-6 w-6 ${activeFilters.has("distance-under-1km") ? "text-[#DC2626]" : "text-gray-600 dark:text-gray-400"}`}
+                          className={`h-6 w-6 ${activeFilters.has("distance-under-1km") ? "text-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
                           strokeWidth={1.5}
                         />
                         <span
-                          className={`text-sm font-medium ${activeFilters.has("distance-under-1km") ? "text-[#DC2626]" : "text-gray-700 dark:text-gray-300"}`}>
+                          className={`text-sm font-medium ${activeFilters.has("distance-under-1km") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
                           Under 1 km
                         </span>
                       </button>
                       <button
                         onClick={() => toggleFilter("distance-under-2km")}
                         className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors ${activeFilters.has("distance-under-2km")
-                          ? "border-[#DC2626] bg-[#F9F9FB] dark:bg-green-900/20"
-                          : "border-gray-200 dark:border-gray-800 hover:border-[#DC2626]"
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                         <MapPin
-                          className={`h-6 w-6 ${activeFilters.has("distance-under-2km") ? "text-[#DC2626]" : "text-gray-600 dark:text-gray-400"}`}
+                          className={`h-6 w-6 ${activeFilters.has("distance-under-2km") ? "text-[#659116]" : "text-gray-600 dark:text-gray-400"}`}
                           strokeWidth={1.5}
                         />
                         <span
-                          className={`text-sm font-medium ${activeFilters.has("distance-under-2km") ? "text-[#DC2626]" : "text-gray-700 dark:text-gray-300"}`}>
+                          className={`text-sm font-medium ${activeFilters.has("distance-under-2km") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
                           Under 2 km
                         </span>
                       </button>
@@ -3940,22 +4780,22 @@ export default function Home({ homeMode = null, isTabActive = true }) {
                       <button
                         onClick={() => toggleFilter("price-under-200")}
                         className={`px-4 py-3 rounded-xl border text-left transition-colors ${activeFilters.has("price-under-200")
-                          ? "border-[#DC2626] bg-[#F9F9FB] dark:bg-green-900/20"
-                          : "border-gray-200 dark:border-gray-800 hover:border-[#DC2626]"
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                         <span
-                          className={`text-sm font-medium ${activeFilters.has("price-under-200") ? "text-[#DC2626]" : "text-gray-700 dark:text-gray-300"}`}>
+                          className={`text-sm font-medium ${activeFilters.has("price-under-200") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
                           Under ₹200
                         </span>
                       </button>
                       <button
                         onClick={() => toggleFilter("price-under-500")}
                         className={`px-4 py-3 rounded-xl border text-left transition-colors ${activeFilters.has("price-under-500")
-                          ? "border-[#DC2626] bg-[#F9F9FB] dark:bg-green-900/20"
-                          : "border-gray-200 dark:border-gray-800 hover:border-[#DC2626]"
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                         <span
-                          className={`text-sm font-medium ${activeFilters.has("price-under-500") ? "text-[#DC2626]" : "text-gray-700 dark:text-gray-300"}`}>
+                          className={`text-sm font-medium ${activeFilters.has("price-under-500") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
                           Under ₹500
                         </span>
                       </button>
@@ -3963,40 +4803,6 @@ export default function Home({ homeMode = null, isTabActive = true }) {
                   </div>
 
 
-
-                  {/* Trust Markers Tab */}
-                  <div
-                    ref={(el) => (filterSectionRefs.current["trust"] = el)}
-                    data-section-id="trust"
-                    className="space-y-4 mb-8">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                      Trust Markers
-                    </h3>
-                    <div className="flex flex-col gap-3">
-                      <button
-                        onClick={() => toggleFilter("top-rated")}
-                        className={`px-4 py-3 rounded-xl border text-left transition-colors ${activeFilters.has("top-rated")
-                          ? "border-[#DC2626] bg-[#F9F9FB] dark:bg-green-900/20"
-                          : "border-gray-200 dark:border-gray-800 hover:border-[#DC2626]"
-                          }`}>
-                        <span
-                          className={`text-sm font-medium ${activeFilters.has("top-rated") ? "text-[#DC2626]" : "text-gray-700 dark:text-gray-300"}`}>
-                          Top Rated
-                        </span>
-                      </button>
-                      <button
-                        onClick={() => toggleFilter("trusted")}
-                        className={`px-4 py-3 rounded-xl border text-left transition-colors ${activeFilters.has("trusted")
-                          ? "border-[#DC2626] bg-[#F9F9FB] dark:bg-green-900/20"
-                          : "border-gray-200 dark:border-gray-800 hover:border-[#DC2626]"
-                          }`}>
-                        <span
-                          className={`text-sm font-medium ${activeFilters.has("trusted") ? "text-[#DC2626]" : "text-gray-700 dark:text-gray-300"}`}>
-                          Trusted by 1000+ users
-                        </span>
-                      </button>
-                    </div>
-                  </div>
 
                   {/* Offers Tab */}
                   <div
@@ -4010,12 +4816,46 @@ export default function Home({ homeMode = null, isTabActive = true }) {
                       <button
                         onClick={() => toggleFilter("has-offers")}
                         className={`px-4 py-3 rounded-xl border text-left transition-colors ${activeFilters.has("has-offers")
-                          ? "border-[#DC2626] bg-[#F9F9FB] dark:bg-green-900/20"
-                          : "border-gray-200 dark:border-gray-800 hover:border-[#DC2626]"
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
                           }`}>
                         <span
-                          className={`text-sm font-medium ${activeFilters.has("has-offers") ? "text-[#DC2626]" : "text-gray-700 dark:text-gray-300"}`}>
+                          className={`text-sm font-medium ${activeFilters.has("has-offers") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
                           Restaurants with offers
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Trust Markers Tab */}
+                  <div
+                    ref={(el) => (filterSectionRefs.current["trust"] = el)}
+                    data-section-id="trust"
+                    className="space-y-4 mb-8">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                      Trust Markers
+                    </h3>
+                    <div className="flex flex-col gap-3">
+                      <button
+                        onClick={() => toggleFilter("top-rated")}
+                        className={`px-4 py-3 rounded-xl border text-left transition-colors ${activeFilters.has("top-rated")
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
+                          }`}>
+                        <span
+                          className={`text-sm font-medium ${activeFilters.has("top-rated") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          Top Rated
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => toggleFilter("trusted")}
+                        className={`px-4 py-3 rounded-xl border text-left transition-colors ${activeFilters.has("trusted")
+                            ? "border-[#659116] bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-800 hover:border-[#659116]"
+                          }`}>
+                        <span
+                          className={`text-sm font-medium ${activeFilters.has("trusted") ? "text-[#659116]" : "text-gray-700 dark:text-gray-300"}`}>
+                          Trusted by 1000+ users
                         </span>
                       </button>
                     </div>
@@ -4040,8 +4880,8 @@ export default function Home({ homeMode = null, isTabActive = true }) {
                     );
                   }}
                   className={`flex-1 py-3 font-semibold rounded-xl transition-colors ${activeFilters.size > 0 || sortBy || selectedCuisine
-                    ? "bg-[#DC2626] text-white hover:bg-[#991B1B]"
-                    : "bg-gray-200 text-gray-500"
+                      ? "bg-[#659116] text-white hover:bg-[#5ECC11]"
+                      : "bg-gray-200 text-gray-500"
                     }`}
                   disabled={isLoadingFilterResults}>
                   {isLoadingFilterResults
@@ -4057,342 +4897,378 @@ export default function Home({ homeMode = null, isTabActive = true }) {
       </AnimatePresence>
 
       {/* Veg Mode Popup */}
-      {typeof window !== "undefined" &&
-        createPortal(
-          <AnimatePresence>
-            {showVegModePopup && (
-              <>
-                {/* Backdrop */}
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  onClick={() => {
-                    setShowVegModePopup(false);
-                    // Revert veg mode to OFF if popup is closed without applying
-                    setVegModeContext(false);
-                    setPrevVegMode(false);
-                  }}
-                  className="fixed inset-0 bg-black/30 z-[9998] backdrop-blur-sm"
-                />
-
-                {/* Popup */}
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.8, y: -8 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.8, y: -8 }}
-                  transition={{
-                    type: "spring",
-                    damping: 22,
-                    stiffness: 380,
-                    mass: 0.7,
-                  }}
-                  className="fixed z-[9999] bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl p-4 w-[calc(100%-2rem)] max-w-xs"
-                  style={{
-                    top: `${popupPosition.top}px`,
-                    left: `${popupPosition.left}px`,
-                    transformOrigin: `${popupPosition.triangleLeft}px -10px`
-                  }}
-                  onClick={(e) => e.stopPropagation()}>
-                  {/* Pointer Triangle */}
-                  <div
-                    className="absolute -top-2 w-3 h-3 bg-white dark:bg-[#1a1a1a] transform rotate-45"
-                    style={{
-                      left: `${popupPosition.triangleLeft - 6}px`,
-                      boxShadow: "-2px -2px 4px rgba(0,0,0,0.1)",
-                    }}
-                  />
-
-                  {/* Title */}
-                  <h3 className="text-base font-bold text-gray-900 dark:text-white mb-3">
-                    See veg dishes from
-                  </h3>
-
-                  {/* Radio Options */}
-                  <div className="space-y-2 mb-4">
-                    {/* All restaurants */}
-                    <label
-                      className="flex items-center gap-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                      onClick={() => setVegModeOption("all")}>
-                      <div className="relative flex items-center justify-center">
-                        <input
-                          type="radio"
-                          name="vegModeOption"
-                          value="all"
-                          checked={vegModeOption === "all"}
-                          onChange={() => setVegModeOption("all")}
-                          className="sr-only"
-                        />
-                        <div
-                          className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all ${vegModeOption === "all"
-                            ? "border-green-600 dark:border-green-500 bg-green-600 dark:bg-green-500"
-                            : "border-gray-300 dark:border-gray-600 bg-white dark:bg-[#2a2a2a]"
-                            }`}>
-                          {vegModeOption === "all" && (
-                            <div className="w-1.5 h-1.5 rounded-full bg-white dark:bg-white" />
-                          )}
-                        </div>
-                      </div>
-                      <span className="text-sm font-medium text-gray-900 dark:text-white">
-                        All restaurants
-                      </span>
-                    </label>
-
-                    {/* Pure Veg restaurants only */}
-                    <label
-                      className="flex items-center gap-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                      onClick={() => setVegModeOption("pure-veg")}>
-                      <div className="relative flex items-center justify-center">
-                        <input
-                          type="radio"
-                          name="vegModeOption"
-                          value="pure-veg"
-                          checked={vegModeOption === "pure-veg"}
-                          onChange={() => setVegModeOption("pure-veg")}
-                          className="sr-only"
-                        />
-                        <div
-                          className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all ${vegModeOption === "pure-veg"
-                            ? "border-green-600 dark:border-green-500 bg-green-600 dark:bg-green-500"
-                            : "border-gray-300 dark:border-gray-600 bg-white dark:bg-[#2a2a2a]"
-                            }`}>
-                          {vegModeOption === "pure-veg" && (
-                            <div className="w-1.5 h-1.5 rounded-full bg-white dark:bg-white" />
-                          )}
-                        </div>
-                      </div>
-                      <span className="text-sm font-medium text-gray-900 dark:text-white">
-                        Pure Veg restaurants only
-                      </span>
-                    </label>
-                  </div>
-
-                  {/* Apply Button */}
-                  <button
-                    onClick={() => {
-                      setShowVegModePopup(false);
-                      setIsApplyingVegMode(true);
-                      // Confirm veg mode is ON by updating context and prevVegMode
-                      setVegModeContext(true);
-                      setPrevVegMode(true);
-                      // Simulate applying veg mode settings
-                      setTimeout(() => {
-                        setIsApplyingVegMode(false);
-                      }, 2000);
-                    }}
-                    className="w-full bg-[#DC2626] text-white font-semibold py-2.5 rounded-xl hover:bg-[#991B1B] transition-colors mb-2 text-sm">
-                    Apply
-                  </button>
-                </motion.div>
-              </>
-            )}
-          </AnimatePresence>,
-          document.body
+      <AnimatePresence>
+        {showVegModePopup && (
+          <motion.div
+            key="veg-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => {
+              setShowVegModePopup(false);
+              setVegModeOption("all");
+              setPrevVegMode(false);
+            }}
+            className="fixed inset-0 bg-black/30 z-[9998] backdrop-blur-sm"
+          />
         )}
+        {showVegModePopup && (
+          /* Popup */
+          <motion.div
+            key="veg-popup"
+            initial={{ opacity: 0, scale: 0.9, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 10 }}
+            transition={{
+              type: "spring",
+              damping: 25,
+              stiffness: 300,
+              mass: 0.8,
+            }}
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl p-6 pt-7 w-[85%] max-w-xs relative border border-gray-100 dark:border-gray-800">
+              {/* Food Illustration in Top Right Corner */}
+              <div className="absolute top-2.5 right-10 w-16 h-16 pointer-events-none select-none z-10">
+                <img
+                  src="/food_popup_ill2.webp"
+                  alt="Food illustration"
+                  className="w-full h-full object-contain"
+                 loading="lazy" decoding="async" />
+              </div>
+
+              <button
+                type="button"
+                aria-label="Close veg mode popup"
+                onClick={() => {
+                  setShowVegModePopup(false);
+                  setVegModeOption("all");
+                  setPrevVegMode(false);
+                }}
+                className="absolute top-4 right-4 p-0.5 text-gray-450 hover:text-gray-700 dark:text-gray-450 dark:hover:text-gray-200 transition-colors z-20"
+              >
+                <X className="h-4.5 w-4.5" strokeWidth={2.5} />
+              </button>
+
+              {/* Title */}
+              <h3 className="text-base sm:text-lg font-black text-gray-900 dark:text-white mb-4 pr-24 leading-snug">
+                I want to see choices from
+              </h3>
+
+              {/* Radio Options */}
+              <div className="space-y-3 mb-5">
+                {/* All restaurants */}
+                <label
+                  className="flex items-center justify-between cursor-pointer py-1 hover:bg-gray-50/50 dark:hover:bg-gray-800/35 transition-colors w-full"
+                  onClick={() => setVegModeOption("all")}
+                >
+                  <span className={`text-sm font-semibold transition-colors ${vegModeOption === "all" ? "text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
+                    }`}>
+                    All restaurants
+                  </span>
+                  <div className="relative flex items-center justify-center">
+                    <input
+                      type="radio"
+                      name="vegModeOption"
+                      value="all"
+                      checked={vegModeOption === "all"}
+                      onChange={() => setVegModeOption("all")}
+                      className="sr-only"
+                    />
+                    <div
+                      className={`w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center transition-all ${vegModeOption === "all"
+                          ? "border-[#659116] bg-[#659116]"
+                          : "border-gray-300 dark:border-gray-600 bg-white dark:bg-[#2a2a2a]"
+                        }`}
+                    >
+                      {vegModeOption === "all" && (
+                        <div className="w-2 h-2 rounded-full bg-white" />
+                      )}
+                    </div>
+                  </div>
+                </label>
+
+                {/* Pure Veg restaurants only */}
+                <label
+                  className="flex items-center justify-between cursor-pointer py-1 hover:bg-gray-50/50 dark:hover:bg-gray-800/35 transition-colors w-full"
+                  onClick={() => setVegModeOption("pure-veg")}
+                >
+                  <span className={`text-sm font-semibold transition-colors ${vegModeOption === "pure-veg" ? "text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
+                    }`}>
+                    Pure veg restaurants only
+                  </span>
+                  <div className="relative flex items-center justify-center">
+                    <input
+                      type="radio"
+                      name="vegModeOption"
+                      value="pure-veg"
+                      checked={vegModeOption === "pure-veg"}
+                      onChange={() => setVegModeOption("pure-veg")}
+                      className="sr-only"
+                    />
+                    <div
+                      className={`w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center transition-all ${vegModeOption === "pure-veg"
+                          ? "border-[#659116] bg-[#659116]"
+                          : "border-gray-300 dark:border-gray-600 bg-white dark:bg-[#2a2a2a]"
+                        }`}
+                    >
+                      {vegModeOption === "pure-veg" && (
+                        <div className="w-2 h-2 rounded-full bg-white" />
+                      )}
+                    </div>
+                  </div>
+                </label>
+
+                {/* Non-veg restaurants only */}
+                <label
+                  className="flex items-center justify-between cursor-pointer py-1 hover:bg-gray-50/50 dark:hover:bg-gray-800/35 transition-colors w-full"
+                  onClick={() => setVegModeOption("non-veg")}
+                >
+                  <span className={`text-sm font-semibold transition-colors ${vegModeOption === "non-veg" ? "text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
+                    }`}>
+                    Non-veg restaurants only
+                  </span>
+                  <div className="relative flex items-center justify-center">
+                    <input
+                      type="radio"
+                      name="vegModeOption"
+                      value="non-veg"
+                      checked={vegModeOption === "non-veg"}
+                      onChange={() => setVegModeOption("non-veg")}
+                      className="sr-only"
+                    />
+                    <div
+                      className={`w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center transition-all ${vegModeOption === "non-veg"
+                          ? "border-[#659116] bg-[#659116]"
+                          : "border-gray-300 dark:border-gray-600 bg-white dark:bg-[#2a2a2a]"
+                        }`}
+                    >
+                      {vegModeOption === "non-veg" && (
+                        <div className="w-2 h-2 rounded-full bg-white" />
+                      )}
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              {/* Apply Button */}
+              <button
+                onClick={() => {
+                  setShowVegModePopup(false);
+                  setIsApplyingVegMode(true);
+                  // Save preference to context
+                  setVegModeOption(vegModeOption);
+                  const isEnabled = vegModeOption !== "all";
+                  setPrevVegMode(isEnabled);
+                  // Simulate applying veg mode settings
+                  setTimeout(() => {
+                    setIsApplyingVegMode(false);
+                  }, 1000);
+                }}
+                className="w-full bg-[#659116] hover:bg-[#5ECC11] text-white font-bold py-2.5 rounded-xl transition-colors mb-1 text-sm shadow-md shadow-emerald-500/10 active:scale-[0.98]"
+              >
+                Show restaurants
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Switch Off Veg Mode Popup */}
-      {typeof window !== "undefined" &&
-        createPortal(
-          <AnimatePresence>
-            {showSwitchOffPopup && (
-              <>
-                {/* Backdrop */}
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.2 }}
+      <AnimatePresence>
+        {showSwitchOffPopup && (
+          <motion.div
+            key="off-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => {
+              setShowSwitchOffPopup(false);
+              isHandlingSwitchOff.current = false;
+              setVegModeContext(true);
+              // prevVegMode stays true (from before), which is correct
+            }}
+            className="fixed inset-0 bg-black/50 z-[9998] backdrop-blur-sm"
+          />
+        )}
+        {showSwitchOffPopup && (
+          <motion.div
+            key="off-popup"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            transition={{
+              type: "spring",
+              damping: 25,
+              stiffness: 300,
+              mass: 0.8,
+            }}
+            className="fixed inset-0 z-[9999] flex dark:bg-[#lalala] dark:text-white items-center justify-center p-4"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="bg-white dark:bg-[#lalala] dark:text-white rounded-2xl shadow-2xl w-[85%] max-w-sm p-6">
+              {/* Warning Icon */}
+              <div className="flex justify-center mb-4">
+                <div className="w-20 h-20 rounded-full bg-pink-100 flex items-center justify-center">
+                  <AlertCircle
+                    className="w-20 h-20 text-white bg-red-500/90 rounded-full p-2"
+                    strokeWidth={2.5}
+                  />
+                </div>
+              </div>
+
+              {/* Title */}
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white text-center mb-2">
+                {vegModeOption === "non-veg" ? "Switch off Non-Veg Mode?" : "Switch off Veg Mode?"}
+              </h2>
+
+              {/* Description */}
+              <p className="text-gray-600 dark:text-gray-400 text-center mb-6 text-sm">
+                {vegModeOption === "non-veg"
+                  ? "You'll see all restaurants, including those serving veg dishes"
+                  : "You'll see all restaurants, including those serving non-veg dishes"}
+              </p>
+
+              {/* Buttons */}
+              <div className="space-y-3">
+                <button
+                  onClick={() => {
+                    setShowSwitchOffPopup(false);
+                    setIsSwitchingOffVegMode(true);
+                    // Simulate switching off veg mode
+                    setTimeout(() => {
+                      setIsSwitchingOffVegMode(false);
+                      isHandlingSwitchOff.current = false;
+                      setVegModeOption("all");
+                      setPrevVegMode(false); // Set to false to match current state (veg mode is OFF)
+                    }, 2000);
+                  }}
+                  className="w-full bg-transparent text-red-600 font-normal py-1 text-normal rounded-xl hover:bg-red-50 transition-colors text-base">
+                  Switch off
+                </button>
+
+                <button
                   onClick={() => {
                     setShowSwitchOffPopup(false);
                     isHandlingSwitchOff.current = false;
-                    setVegModeContext(true);
-                    // prevVegMode stays true (from before), which is correct
+                    // prevVegMode and vegModeOption stay as they were, which is correct
                   }}
-                  className="fixed inset-0 bg-black/50 z-[9998] backdrop-blur-sm"
-                />
-
-                {/* Popup */}
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  transition={{
-                    type: "spring",
-                    damping: 25,
-                    stiffness: 300,
-                    mass: 0.8,
-                  }}
-                  className="fixed inset-0 z-[9999] flex dark:bg-[#lalala] dark:text-white items-center justify-center p-4"
-                  onClick={(e) => e.stopPropagation()}>
-                  <div className="bg-white dark:bg-[#lalala] dark:text-white rounded-2xl shadow-2xl w-[85%] max-w-sm p-6">
-                    {/* Warning Icon */}
-                    <div className="flex justify-center mb-4">
-                      <div className="w-20 h-20 rounded-full bg-pink-100 flex items-center justify-center">
-                        <AlertCircle
-                          className="w-20 h-20 text-white bg-red-500/90 rounded-full p-2"
-                          strokeWidth={2.5}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Title */}
-                    <h2 className="text-2xl font-bold text-gray-900  text-center mb-2">
-                      Switch off Veg Mode?
-                    </h2>
-
-                    {/* Description */}
-                    <p className="text-gray-600 text-center mb-6 text-sm">
-                      You'll see all restaurants, including those serving non-veg
-                      dishes
-                    </p>
-
-                    {/* Buttons */}
-                    <div className="space-y-3">
-                      <button
-                        onClick={() => {
-                          setShowSwitchOffPopup(false);
-                          setIsSwitchingOffVegMode(true);
-                          // Simulate switching off veg mode
-                          setTimeout(() => {
-                            setIsSwitchingOffVegMode(false);
-                            isHandlingSwitchOff.current = false;
-                            setVegModeContext(false);
-                            setPrevVegMode(false); // Set to false to match current state (veg mode is OFF)
-                          }, 2000);
-                        }}
-                        className="w-full bg-transparent text-red-600 font-normal py-1 text-normal rounded-xl hover:bg-red-50 transition-colors text-base">
-                        Switch off
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setShowSwitchOffPopup(false);
-                          isHandlingSwitchOff.current = false;
-                          setVegModeContext(true);
-                          // prevVegMode stays true (from before), which is correct
-                        }}
-                        className="w-full text-gray-900 font-normal py-1 text-center rounded-xl hover:bg-gray-200 transition-colors text-base">
-                        Keep using this mode
-                      </button>
-                    </div>
-                  </div>
-                </motion.div>
-              </>
-            )}
-          </AnimatePresence>,
-          document.body
+                  className="w-full text-gray-900 dark:text-white font-normal py-1 text-center rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors text-base">
+                  Keep using this mode
+                </button>
+              </div>
+            </div>
+          </motion.div>
         )}
+      </AnimatePresence>
 
       {/* All Categories Modal */}
       <AnimatePresence>
         {showAllCategoriesModal && (
-          <>
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              onClick={() => setShowAllCategoriesModal(false)}
-              className="fixed inset-0 bg-black/40 z-[9998] backdrop-blur-sm"
-            />
+          <motion.div
+            key="cat-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => setShowAllCategoriesModal(false)}
+            className="fixed inset-0 bg-black/40 z-[9998] backdrop-blur-sm"
+          />
+        )}
+        {showAllCategoriesModal && (
+          <motion.div
+            key="cat-modal"
+            initial={{ opacity: 0, y: "100%" }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: "100%" }}
+            transition={{
+              type: "spring",
+              damping: 30,
+              stiffness: 300,
+            }}
+            className="fixed inset-x-0 bottom-0 top-12 sm:top-16 md:top-20 z-[9999] bg-white dark:bg-[#1a1a1a] rounded-t-3xl shadow-2xl overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 sm:px-6 sm:py-5 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
+              <h2 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
+                All Categories
+              </h2>
+              <button
+                onClick={() => setShowAllCategoriesModal(false)}
+                className="p-1.5 sm:p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                aria-label="Close">
+                <X className="w-5 h-5 sm:w-6 sm:h-6 text-gray-600 dark:text-gray-400" />
+              </button>
+            </div>
 
-            {/* Modal - Full screen with rounded corners */}
-            <motion.div
-              initial={{ opacity: 0, y: "100%" }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: "100%" }}
-              transition={{
-                type: "spring",
-                damping: 30,
-                stiffness: 300,
-              }}
-              className="fixed inset-x-0 bottom-0 top-12 sm:top-16 md:top-20 z-[9999] bg-white dark:bg-[#1a1a1a] rounded-t-3xl shadow-2xl overflow-hidden flex flex-col"
-              onClick={(e) => e.stopPropagation()}>
-              {/* Header */}
-              <div className="flex items-center justify-between px-5 py-4 sm:px-6 sm:py-5 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
-                <h2 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
-                  All Categories
-                </h2>
-                <button
-                  onClick={() => setShowAllCategoriesModal(false)}
-                  className="p-1.5 sm:p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                  aria-label="Close">
-                  <X className="w-5 h-5 sm:w-6 sm:h-6 text-gray-600 dark:text-gray-400" />
-                </button>
-              </div>
-
-              {/* Categories Grid - Scrollable */}
-              <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 sm:py-5">
-                <div className="grid grid-cols-3 gap-4 sm:gap-5 md:gap-6">
-                  {displayCategories.map((category, index) => {
-                    const categoryData = {
-                      name: category.name || category.label,
-                      image: category.image || category.imageUrl,
-                      slug: category.slug,
-                    };
-                    return (
-                      <motion.div
-                        key={category.id || index}
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{
-                          duration: 0.3,
-                          delay: index * 0.02,
-                          type: "spring",
-                          stiffness: 100,
-                        }}
-                        whileTap={{ scale: 0.95 }}>
-                        <Link
-                          to={toFoodUserPath(`/user/category/${categoryData.slug || categoryData.name.toLowerCase().replace(/\s+/g, "-")}`)}
-                          onClick={() => {
-                            rememberLeaveForCategory();
-                            setShowAllCategoriesModal(false);
-                          }}
-                          className="block">
-                          <div className="flex flex-col items-center gap-2 sm:gap-2.5 cursor-pointer w-full">
-                            <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full overflow-hidden shadow-md transition-all hover:shadow-lg flex-shrink-0">
-                              <OptimizedImage
-                                src={categoryData.image}
-                                alt={categoryData.name}
-                                className="w-full h-full bg-white rounded-full"
-                                sizes="(max-width: 640px) 80px, (max-width: 768px) 96px, 112px"
-                                objectFit="cover"
-                                responsive={false}
-                                placeholder="empty"
-                                priority={index < 8}
-                                onError={() => { }}
-                              />
-                            </div>
-                            <span className="text-xs sm:text-sm font-medium text-gray-800 dark:text-gray-200 text-center leading-tight px-1 break-words w-full min-w-0">
-                              {categoryData.name}
-                            </span>
+            {/* Categories Grid - Scrollable */}
+            <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 sm:py-5">
+              <div className="grid grid-cols-3 gap-4 sm:gap-5 md:gap-6">
+                {displayCategories.map((category, index) => {
+                  const categoryData = {
+                    name: category.name || category.label,
+                    image: category.image || category.imageUrl,
+                    slug: category.slug,
+                  };
+                  return (
+                    <motion.div
+                      key={category.id || index}
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{
+                        duration: 0.3,
+                        delay: index * 0.02,
+                        type: "spring",
+                        stiffness: 100,
+                      }}
+                      whileTap={{ scale: 0.95 }}>
+                      <Link
+                        to={`/user/category/${categoryData.slug || categoryData.name.toLowerCase().replace(/\s+/g, "-")}`}
+                        onClick={() => setShowAllCategoriesModal(false)}
+                        className="block">
+                        <div className="flex flex-col items-center gap-2 sm:gap-2.5 cursor-pointer w-full">
+                          <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full overflow-hidden shadow-md transition-all hover:shadow-lg flex-shrink-0">
+                            <OptimizedImage
+                              src={categoryData.image}
+                              alt={categoryData.name}
+                              className="w-full h-full bg-white rounded-full p-1"
+                              sizes="(max-width: 640px) 80px, (max-width: 768px) 96px, 112px"
+                              objectFit="contain"
+                              placeholder="blur"
+                              onError={() => { }}
+                            />
                           </div>
-                        </Link>
-                      </motion.div>
-                    );
-                  })}
-                </div>
+                          <span className="text-xs sm:text-sm font-medium text-gray-800 dark:text-gray-200 text-center leading-tight px-1 break-words w-full min-w-0">
+                            {categoryData.name}
+                          </span>
+                        </div>
+                      </Link>
+                    </motion.div>
+                  );
+                })}
               </div>
-            </motion.div>
-          </>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
+
+          <AnimatePresence>
         {isApplyingVegMode && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="fixed inset-0 z-[10000] bg-white dark:bg-[#0a0a0a] flex items-center justify-center">
-            <div className="relative w-32 h-32 flex items-center justify-center w-full">
+            className="fixed inset-0 z-[10000] bg-white dark:bg-[#0a0a0a] flex flex-col items-center justify-center gap-12">
+            <div className="relative w-32 h-32 flex items-center justify-center">
               {/* Animated circles - positioned absolutely at the center */}
               {[...Array(8)].map((_, i) => {
                 const baseSize = 112;
                 const maxSize = 600;
+                const isNonVeg = vegModeOption === "non-veg";
                 return (
                   <motion.div
                     key={i}
@@ -4410,7 +5286,13 @@ export default function Home({ homeMode = null, isTabActive = true }) {
                       ease: "easeOut",
                       delay: i * 0.15,
                     }}
-                    className="absolute rounded-full border border-green-300 dark:border-green-600"
+                    className={`absolute rounded-full border ${
+                      isNonVeg
+                        ? "border-red-300 dark:border-red-650"
+                        : vegModeOption === "all"
+                          ? "border-gray-300 dark:border-gray-650"
+                          : "border-green-300 dark:border-green-650"
+                    }`}
                     style={{
                       width: baseSize,
                       height: baseSize,
@@ -4419,7 +5301,7 @@ export default function Home({ homeMode = null, isTabActive = true }) {
                 );
               })}
 
-              {/* 100% VEG badge - absolute positioning at exact center */}
+              {/* Diet Mode badge - absolute positioning at exact center */}
               <motion.div
                 initial={{ scale: 0, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
@@ -4429,31 +5311,53 @@ export default function Home({ homeMode = null, isTabActive = true }) {
                   damping: 15,
                   delay: 0.1,
                 }}
-                className="absolute z-10 w-28 h-28 rounded-full border-2 border-green-600 dark:border-green-500 bg-white dark:bg-[#1a1a1a] flex flex-col items-center justify-center shadow-sm"
+                className={`absolute z-10 w-28 h-28 rounded-full border-2 bg-white dark:bg-[#1a1a1a] flex flex-col items-center justify-center shadow-sm ${
+                  vegModeOption === "non-veg"
+                    ? "border-red-600 dark:border-red-500"
+                    : vegModeOption === "all"
+                      ? "border-gray-650 dark:border-gray-500"
+                      : "border-green-600 dark:border-green-500"
+                }`}
               >
                 <motion.div
-                  className="flex flex-col items-center"
+                  className="flex flex-col items-center justify-center w-full"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.3 }}>
-                  <span className="text-green-600 dark:text-green-400 font-extrabold text-3xl leading-none">
+                  <span className={`font-extrabold leading-none ${
+                    vegModeOption === "non-veg"
+                      ? "text-red-600 dark:text-red-400 text-2xl"
+                      : vegModeOption === "all"
+                        ? "text-gray-700 dark:text-gray-400 text-3xl"
+                        : "text-green-600 dark:text-green-400 text-3xl"
+                  }`}>
                     100%
                   </span>
-                  <span className="text-green-600 dark:text-green-400 font-extrabold text-3xl leading-none mt-0.5">
-                    VEG
+                  <span className={`font-extrabold leading-none mt-1.5 whitespace-nowrap text-center ${
+                    vegModeOption === "non-veg"
+                      ? "text-red-600 dark:text-red-400 text-[13px] tracking-wider"
+                      : vegModeOption === "all"
+                        ? "text-gray-700 dark:text-gray-400 text-2xl"
+                        : "text-green-600 dark:text-green-400 text-3xl"
+                  }`}>
+                    {vegModeOption === "non-veg" ? "NON-VEG" : vegModeOption === "all" ? "ALL" : "VEG"}
                   </span>
                 </motion.div>
               </motion.div>
-
-              {/* Text below badge */}
-              <motion.p
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.4 }}
-                className="text-xl font-normal text-gray-800 dark:text-gray-200 text-center relative z-10 mt-56 w-full">
-                Explore veg dishes from all restaurants
-              </motion.p>
             </div>
+
+            {/* Text below badge */}
+            <motion.p
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+              className="text-xl font-normal text-gray-800 dark:text-gray-200 text-center relative z-10 w-full px-6">
+              {vegModeOption === "pure-veg"
+                ? "Explore pure veg restaurants only"
+                : vegModeOption === "non-veg"
+                  ? "Explore non-veg restaurants only"
+                  : "Explore dishes from all restaurants"}
+            </motion.p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -4524,7 +5428,7 @@ export default function Home({ homeMode = null, isTabActive = true }) {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.5 }}>
-                  Veg Mode for you
+                  {vegModeOption === "non-veg" ? "Non-Veg Mode for you" : "Veg Mode for you"}
                 </motion.p>
               </motion.div>
             </div>
@@ -4618,7 +5522,7 @@ export default function Home({ homeMode = null, isTabActive = true }) {
                                     setShowManageCollections(false);
                                   }
                                 }}
-                                className="h-5 w-5 rounded border-2 border-green-500 data-[state=checked]:bg-green-500 data-[state=checked]:border-green-500"
+                                className="h-5 w-5 rounded border-2 border-red-500 data-[state=checked]:bg-red-500 data-[state=checked]:border-red-500"
                               />
                             </div>
                           )}
@@ -4668,10 +5572,93 @@ export default function Home({ homeMode = null, isTabActive = true }) {
           document.body,
         )}
 
-      <Footer />
-      <StickyCartCard />
-      {/* Live order strip: only on homepage (not in UserLayout) */}
-      <OrderTrackingCard hasBottomNav />
+        {/* Cuisines and Dishes Bottom Sheet Modal */}
+        {createPortal(
+          <AnimatePresence>
+            {showCuisinesModal && (
+              <>
+                {/* Backdrop */}
+                <motion.div
+                  key="cuisines-backdrop"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999]"
+                  onClick={() => setShowCuisinesModal(false)}
+                />
+
+                {/* Bottom Sheet Modal */}
+                <motion.div
+                  key="cuisines-sheet"
+                  initial={{ y: "100%" }}
+                  animate={{ y: 0 }}
+                  exit={{ y: "100%" }}
+                  transition={{
+                    type: "spring",
+                    damping: 28,
+                    stiffness: 300,
+                  }}
+                  className="fixed left-0 right-0 bottom-0 z-[10000] bg-white dark:bg-gray-900 rounded-t-3xl sm:rounded-t-[2.5rem] max-h-[85vh] flex flex-col overflow-hidden shadow-2xl border-t border-gray-100 dark:border-gray-800"
+                >
+                  {/* Handle & Header */}
+                  <div className="relative pt-3 pb-3.5 px-5 sm:px-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between bg-white dark:bg-gray-900 sticky top-0 z-10">
+                    <div className="absolute left-1/2 -translate-x-1/2 top-2.5 w-12 h-1.5 bg-gray-300 dark:bg-gray-700 rounded-full" />
+
+                    <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white tracking-tight mt-3">
+                      Cuisines and dishes
+                    </h2>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowCuisinesModal(false)}
+                      className="mt-3 w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  {/* Scrollable Dishes Grid (4-Column Layout) */}
+                  <div className="flex-1 overflow-y-auto overscroll-contain scroll-smooth touch-pan-y max-h-[75vh] px-4 sm:px-6 pt-5 pb-16 scrollbar-hide">
+                    <div className="grid grid-cols-4 gap-y-7 gap-x-3 sm:gap-x-5">
+                      {displayCategories.map((category, index) => (
+                        <div
+                          key={category.id || index}
+                          onClick={() => {
+                            setShowCuisinesModal(false);
+                            navigate(
+                              `/food/user/category/${
+                                category.slug ||
+                                category.name.toLowerCase().replace(/\s+/g, "-")
+                              }`
+                            );
+                          }}
+                          className="flex flex-col items-center gap-2 cursor-pointer group"
+                        >
+                          <div className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full overflow-hidden shadow-md border border-gray-100 dark:border-gray-800 bg-white transition-transform duration-300 group-hover:scale-110 group-active:scale-95">
+                            <img
+                              src={category.image}
+                              alt={category.name}
+                              className="w-full h-full object-cover rounded-full bg-white transition-transform duration-300 group-hover:scale-105"
+                              loading="lazy"
+                            />
+                          </div>
+                          <span className="text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-200 text-center leading-tight whitespace-nowrap group-hover:text-[#659116] transition-colors">
+                            {category.name}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>,
+          document.body
+        )}
+
+      <FloatingHomeDock hasBottomNav />
+      <BackToTopButton />
     </div>
   );
 }

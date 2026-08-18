@@ -23,7 +23,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import { Activity, ArrowUpRight, ShoppingBag, CreditCard, Truck, Receipt, DollarSign, Store, UserCheck, Package, UserCircle, Clock, CheckCircle, Plus, XCircle, IndianRupee } from "lucide-react"
+import { Activity, ArrowUpRight, ShoppingBag, CreditCard, Truck, Receipt, DollarSign, Store, UserCheck, Package, UserCircle, Clock, CheckCircle, Plus, XCircle, Trophy, Gift } from "lucide-react"
 import { adminAPI } from "@food/api"
 const debugLog = () => {}
 const debugError = () => {}
@@ -44,19 +44,15 @@ export default function AdminHome() {
   const [isLoading, setIsLoading] = useState(true)
   const [dashboardData, setDashboardData] = useState(null)
   const [zones, setZones] = useState([])
+  const [bonusSummary, setBonusSummary] = useState({ eligible: 0, bonusGiven: 0, total: 0 })
 
   // Fetch zone list for filter
   useEffect(() => {
     const fetchZones = async () => {
       try {
         const response = await adminAPI.getZones({ page: 1, limit: 1000 })
-        const zoneData = response?.data?.data
-        const list = Array.isArray(zoneData?.zones)
-          ? zoneData.zones
-          : Array.isArray(zoneData)
-            ? zoneData
-            : []
-        setZones(list)
+        const list = response?.data?.data?.zones || []
+        setZones(Array.isArray(list) ? list : [])
       } catch (error) {
         debugError("Error fetching zones:", error)
         setZones([])
@@ -80,15 +76,11 @@ export default function AdminHome() {
           setDashboardData(response.data.data)
           debugLog("Dashboard stats fetched:", response.data.data)
         } else {
-          if (!dashboardData) {
-            setDashboardData(null)
-          }
+          setDashboardData(null)
           debugError("Invalid dashboard response format:", response.data)
         }
       } catch (error) {
-        if (!dashboardData && Number(error?.response?.status || 0) !== 429) {
-          setDashboardData(null)
-        }
+        setDashboardData(null)
         debugError("Error fetching dashboard stats:", error)
       } finally {
         setIsLoading(false)
@@ -98,6 +90,13 @@ export default function AdminHome() {
     fetchDashboardStats()
   }, [selectedZone, selectedPeriod])
 
+  // Fetch today's bonus eligibility summary
+  useEffect(() => {
+    adminAPI.getEligibleBonusSummary()
+      .then((res) => { if (res.data?.data) setBonusSummary(res.data.data) })
+      .catch(() => {})
+  }, [])
+
   // Get order stats from real data
   const getOrderStats = () => {
     if (!dashboardData?.orders?.byStatus) {
@@ -106,8 +105,6 @@ export default function AdminHome() {
         { label: "Cancelled", value: 0, color: "#ef4444" },
         { label: "Refunded", value: 0, color: "#f59e0b" },
         { label: "Pending", value: 0, color: "#10b981" },
-        { label: "Processing", value: 0, color: "#f97316" },
-        { label: "In Transit", value: 0, color: "#8b5cf6" },
       ]
     }
 
@@ -115,10 +112,8 @@ export default function AdminHome() {
     return [
       { label: "Delivered", value: byStatus.delivered || 0, color: "#0ea5e9" },
       { label: "Cancelled", value: byStatus.cancelled || 0, color: "#ef4444" },
-      { label: "Refunded", value: byStatus.refunded || 0, color: "#f59e0b" },
+      { label: "Refunded", value: 0, color: "#f59e0b" }, // Refunded not tracked separately
       { label: "Pending", value: byStatus.pending || 0, color: "#10b981" },
-      { label: "Processing", value: byStatus.processing || 0, color: "#f97316" },
-      { label: "In Transit", value: byStatus.inTransit || 0, color: "#8b5cf6" },
     ]
   }
 
@@ -144,12 +139,6 @@ export default function AdminHome() {
 
   // Calculate totals from real data
   const revenueTotal = dashboardData?.revenue?.total || 0
-  const cashOrdersTotal = dashboardData?.cod?.cashOrders || 0
-  const onlineOrdersTotal = dashboardData?.cod?.onlineOrders || 0
-  const cancelledOrdersTotal = dashboardData?.orders?.byStatus?.cancelled || 0
-  const deliveryBoyEarningTotal =
-    dashboardData?.deliveryBoyEarning ?? dashboardData?.riderEarnings?.total ?? 0
-  const restaurantEarningTotal = dashboardData?.restaurantEarning || 0
   const commissionTotal = dashboardData?.commission?.total || 0
   const ordersTotal = dashboardData?.orders?.total || 0
   const platformFeeTotal = dashboardData?.platformFee?.total || 0
@@ -166,8 +155,8 @@ export default function AdminHome() {
   const totalAddons = dashboardData?.addons?.total || 0
   const totalCustomers = dashboardData?.customers?.total || 0
   const pendingOrders = dashboardData?.orderStats?.pending || 0
-  const processingOrders = dashboardData?.orderStats?.processing || 0
   const completedOrders = dashboardData?.orderStats?.completed || 0
+  const activeOrdersTotal = pendingOrders
 
   const pieData = orderStats.map((item) => ({
     name: item.label,
@@ -188,13 +177,17 @@ export default function AdminHome() {
     `GST: ${formatCurrency(gstTotal)}`,
   ].join(" + ")
 
-  if (isLoading && !dashboardData) {
-    return <DashboardSkeleton />
-  }
-
   return (
     <div className="px-4 pb-10 lg:px-6 pt-4">
       <div className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-[0_30px_120px_-60px_rgba(0,0,0,0.28)]">
+        {isLoading && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/70 backdrop-blur-sm">
+            <div className="flex items-center gap-3 rounded-full bg-white px-4 py-2 text-sm text-neutral-700 ring-1 ring-neutral-200">
+              <span className="h-3 w-3 animate-ping rounded-full bg-neutral-800/70" />
+              Updating metrics...
+            </div>
+          </div>
+        )}
 
         <div className="flex flex-col gap-4 border-b border-neutral-200 bg-linear-to-br from-white via-neutral-50 to-neutral-100 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-4">
@@ -238,11 +231,10 @@ export default function AdminHome() {
             <MetricCard
               title="Gross revenue"
               value={formatCurrency(revenueTotal)}
-              helper={`${periodLabel} delivered order totals (GMV)`}
+              helper={`${periodLabel} transaction volume`}
               icon={<ShoppingBag className="h-5 w-5 text-emerald-600" />}
               accent="bg-emerald-200/40"
               path="/admin/food/transaction-report"
-              loading={isLoading}
             />
             <MetricCard
               title="Commission earned"
@@ -250,17 +242,15 @@ export default function AdminHome() {
               helper={`${periodLabel} restaurant cut`}
               icon={<ArrowUpRight className="h-5 w-5 text-indigo-600" />}
               accent="bg-indigo-200/40"
-              path="/admin/food/transaction-report?focus=platform-total"
-              loading={isLoading}
+              path="/admin/food/restaurants/commission"
             />
             <MetricCard
               title="Orders processed"
-              value={processingOrders.toLocaleString("en-IN")}
-              helper="Orders currently being processed"
+              value={activeOrdersTotal.toLocaleString("en-IN")}
+              helper="Restaurant accepted — awaiting delivery partner"
               icon={<Activity className="h-5 w-5 text-amber-600" />}
               accent="bg-amber-200/40"
               path="/admin/food/orders/processing"
-              loading={isLoading}
             />
             <MetricCard
               title="Platform fee"
@@ -269,7 +259,6 @@ export default function AdminHome() {
               icon={<CreditCard className="h-5 w-5 text-purple-600" />}
               accent="bg-purple-200/40"
               path="/admin/food/fee-settings"
-              loading={isLoading}
             />
             <MetricCard
               title="Delivery fee"
@@ -278,7 +267,6 @@ export default function AdminHome() {
               icon={<Truck className="h-5 w-5 text-blue-600" />}
               accent="bg-blue-200/40"
               path="/admin/food/transaction-report"
-              loading={isLoading}
             />
             <MetricCard
               title="GST"
@@ -287,7 +275,6 @@ export default function AdminHome() {
               icon={<Receipt className="h-5 w-5 text-orange-600" />}
               accent="bg-orange-200/40"
               path="/admin/food/tax-report"
-              loading={isLoading}
             />
             <MetricCard
               title="Platform Total"
@@ -295,8 +282,7 @@ export default function AdminHome() {
               helper={totalRevenueHelper}
               icon={<DollarSign className="h-5 w-5 text-green-600" />}
               accent="bg-green-200/40"
-              path="/admin/food/transaction-report?focus=platform-total"
-              loading={isLoading}
+              path="/admin/food/transaction-report"
             />
             <MetricCard
               title="Total restaurants"
@@ -355,22 +341,12 @@ export default function AdminHome() {
               path="/admin/food/customers"
             />
             <MetricCard
-              title="Total orders"
-              value={ordersTotal.toLocaleString("en-IN")}
-              helper={`${periodLabel} all orders`}
-              icon={<Package className="h-5 w-5 text-slate-600" />}
-              accent="bg-slate-200/40"
-              path="/admin/food/orders/all"
-              loading={isLoading}
-            />
-            <MetricCard
               title="Pending orders"
               value={pendingOrders.toLocaleString("en-IN")}
               helper="Orders awaiting processing"
               icon={<Clock className="h-5 w-5 text-red-600" />}
               accent="bg-red-200/40"
               path="/admin/food/orders/pending"
-              loading={isLoading}
             />
             <MetricCard
               title="Completed orders"
@@ -379,52 +355,6 @@ export default function AdminHome() {
               icon={<CheckCircle className="h-5 w-5 text-emerald-600" />}
               accent="bg-emerald-200/40"
               path="/admin/food/orders/delivered"
-              loading={isLoading}
-            />
-            <MetricCard
-              title="Total Cash Orders"
-              value={cashOrdersTotal.toLocaleString("en-IN")}
-              helper={`${periodLabel} cash / COD orders`}
-              icon={<IndianRupee className="h-5 w-5 text-teal-600" />}
-              accent="bg-teal-200/40"
-              path="/admin/food/orders/all"
-              loading={isLoading}
-            />
-            <MetricCard
-              title="Total Online Orders"
-              value={onlineOrdersTotal.toLocaleString("en-IN")}
-              helper={`${periodLabel} online payment orders`}
-              icon={<CreditCard className="h-5 w-5 text-sky-600" />}
-              accent="bg-sky-200/40"
-              path="/admin/food/orders/all"
-              loading={isLoading}
-            />
-            <MetricCard
-              title="Total Cancelled Orders"
-              value={cancelledOrdersTotal.toLocaleString("en-IN")}
-              helper={`${periodLabel} cancelled orders`}
-              icon={<XCircle className="h-5 w-5 text-rose-600" />}
-              accent="bg-rose-200/40"
-              path="/admin/food/orders/canceled"
-              loading={isLoading}
-            />
-            <MetricCard
-              title="Delivery Boy Earning"
-              value={formatCurrency(deliveryBoyEarningTotal)}
-              helper={`${periodLabel} rider payout on delivered orders`}
-              icon={<Truck className="h-5 w-5 text-violet-600" />}
-              accent="bg-violet-200/40"
-              path="/admin/food/delivery-partners/earnings"
-              loading={isLoading}
-            />
-            <MetricCard
-              title="Restaurants Earning"
-              value={formatCurrency(restaurantEarningTotal)}
-              helper={`${periodLabel} restaurant share (subtotal + packaging − commission)`}
-              icon={<Store className="h-5 w-5 text-lime-600" />}
-              accent="bg-lime-200/40"
-              path="/admin/food/transaction-report"
-              loading={isLoading}
             />
           </div>
 
@@ -495,7 +425,7 @@ export default function AdminHome() {
                   <p className="text-sm text-neutral-500">Distribution by state</p>
                 </div>
                 <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs text-neutral-700">
-                  {ordersTotal.toLocaleString("en-IN")} orders
+                  {orderStats.reduce((s, o) => s + o.value, 0)} orders
                 </span>
               </CardHeader>
               <CardContent className="min-w-0 pt-4">
@@ -534,9 +464,7 @@ export default function AdminHome() {
                           'Delivered': '/admin/food/orders/delivered',
                           'Cancelled': '/admin/food/orders/canceled',
                           'Refunded': '/admin/food/orders/refunded',
-                          'Pending': '/admin/food/orders/pending',
-                          'Processing': '/admin/food/orders/processing',
-                          'In Transit': '/admin/food/orders/food-on-the-way',
+                          'Pending': '/admin/food/orders/pending'
                         }
                         navigate(routes[item.label] || '/admin/food/orders/all')
                       }}
@@ -666,9 +594,7 @@ export default function AdminHome() {
                         'Delivered': '/admin/food/orders/delivered',
                         'Cancelled': '/admin/food/orders/canceled',
                         'Refunded': '/admin/food/orders/refunded',
-                        'Pending': '/admin/food/orders/pending',
-                        'Processing': '/admin/food/orders/processing',
-                        'In Transit': '/admin/food/orders/food-on-the-way',
+                        'Pending': '/admin/food/orders/pending'
                       }
                       navigate(routes[item.label] || '/admin/food/orders/all')
                     }}
@@ -694,11 +620,49 @@ export default function AdminHome() {
           </div>
         </div>
       </div>
+
+      {/* Today's Bonus Eligibility Widget */}
+      <div className="mt-4 bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl p-5 text-white shadow-lg">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-white/20 rounded-xl">
+              <Trophy className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h3 className="font-bold text-base">Today's Bonus Eligibility</h3>
+              <p className="text-indigo-200 text-xs mt-0.5">Delivery partners who hit their daily target</p>
+            </div>
+          </div>
+          <button
+            onClick={() => navigate("/admin/food/delivery-partners/eligible-bonuses")}
+            className="text-xs text-indigo-200 hover:text-white transition-colors flex items-center gap-1"
+          >
+            View All <ArrowUpRight className="w-3 h-3" />
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-white/15 rounded-xl p-3.5 text-center">
+            <p className="text-2xl font-bold">{bonusSummary.total}</p>
+            <p className="text-xs text-indigo-200 mt-1">Total Eligible</p>
+          </div>
+          <div className="bg-white/15 rounded-xl p-3.5 text-center">
+            <p className="text-2xl font-bold text-emerald-300">{bonusSummary.bonusGiven}</p>
+            <p className="text-xs text-indigo-200 mt-1">Approved</p>
+          </div>
+          <button
+            onClick={() => navigate("/admin/food/delivery-partners/eligible-bonuses?status=eligible")}
+            className="bg-amber-400/30 hover:bg-amber-400/50 border border-amber-300/40 rounded-xl p-3.5 text-center transition-all cursor-pointer"
+          >
+            <p className="text-2xl font-bold text-amber-200">{bonusSummary.eligible}</p>
+            <p className="text-xs text-amber-200 mt-1">Pending ↗</p>
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
 
-function MetricCard({ title, value, helper, icon, accent, path, loading = false }) {
+function MetricCard({ title, value, helper, icon, accent, path }) {
   const navigate = useNavigate()
   return (
     <Card
@@ -710,20 +674,8 @@ function MetricCard({ title, value, helper, icon, accent, path, loading = false 
         <div className="relative flex items-center justify-between z-10">
           <div className="flex-1 min-w-0 mr-2">
             <p className="text-[10px] uppercase tracking-[0.18em] text-neutral-500 font-bold mb-1 truncate">{title}</p>
-            <div className="text-xl font-bold text-neutral-900 leading-tight mb-1 min-h-[1.75rem] flex items-center">
-              {loading ? (
-                <span className="inline-block h-6 w-24 rounded-md bg-neutral-200 animate-pulse" />
-              ) : (
-                value
-              )}
-            </div>
-            <p className="text-[10px] text-neutral-500 font-medium line-clamp-2 leading-snug break-words">
-              {loading ? (
-                <span className="inline-block h-3 w-32 rounded bg-neutral-100 animate-pulse" />
-              ) : (
-                helper
-              )}
-            </p>
+            <p className="text-xl font-bold text-neutral-900 leading-tight mb-1">{value}</p>
+            <p className="text-[10px] text-neutral-500 font-medium line-clamp-1">{helper}</p>
           </div>
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/90 ring-1 ring-neutral-200 shadow-sm transition-all duration-300 group-hover:scale-110 group-hover:rotate-6 group-hover:shadow-md">
             {icon}
@@ -734,58 +686,6 @@ function MetricCard({ title, value, helper, icon, accent, path, loading = false 
         </div>
       </CardContent>
     </Card>
-  )
-}
-
-function DashboardSkeleton() {
-  return (
-    <div className="px-4 pb-10 lg:px-6 pt-4 w-full">
-      <div className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-[0_30px_120px_-60px_rgba(0,0,0,0.28)]">
-        {/* Header Skeleton */}
-        <div className="flex flex-col gap-4 border-b border-neutral-200 bg-gradient-to-br from-white via-neutral-50 to-neutral-100 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-4">
-            <div>
-              <div className="h-3 w-32 rounded bg-neutral-200 animate-pulse mb-2" />
-              <div className="h-6 w-48 rounded bg-neutral-300 animate-pulse" />
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <div className="h-10 w-[160px] rounded-lg bg-neutral-200 animate-pulse" />
-            <div className="h-10 w-[140px] rounded-lg bg-neutral-200 animate-pulse" />
-          </div>
-        </div>
-
-        {/* Cards Skeleton */}
-        <div className="space-y-6 px-6 py-6">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {Array.from({ length: 16 }).map((_, i) => (
-              <div key={i} className="border border-neutral-200 rounded-xl bg-white p-4 h-[100px] flex items-center justify-between">
-                <div className="flex flex-col gap-2 w-2/3">
-                  <div className="h-2 w-16 bg-neutral-200 rounded animate-pulse" />
-                  <div className="h-6 w-24 bg-neutral-300 rounded animate-pulse" />
-                  <div className="h-2 w-32 bg-neutral-100 rounded animate-pulse" />
-                </div>
-                <div className="h-10 w-10 bg-neutral-200 rounded-xl animate-pulse shrink-0" />
-              </div>
-            ))}
-          </div>
-          
-          {/* Charts Skeleton */}
-          <div className="grid gap-4 lg:grid-cols-3">
-            <div className="lg:col-span-2 border border-neutral-200 rounded-xl bg-white p-4 h-[400px]">
-              <div className="h-5 w-40 bg-neutral-200 rounded animate-pulse mb-2" />
-              <div className="h-3 w-64 bg-neutral-100 rounded animate-pulse mb-6" />
-              <div className="h-[300px] w-full bg-neutral-50 rounded animate-pulse" />
-            </div>
-            <div className="border border-neutral-200 rounded-xl bg-white p-4 h-[400px]">
-              <div className="h-5 w-32 bg-neutral-200 rounded animate-pulse mb-2" />
-              <div className="h-3 w-48 bg-neutral-100 rounded animate-pulse mb-6" />
-              <div className="h-[250px] w-[250px] bg-neutral-50 rounded-full animate-pulse mx-auto" />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
   )
 }
 

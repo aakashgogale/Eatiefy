@@ -1,4 +1,4 @@
-const debugLog = (...args) => {}
+﻿const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 

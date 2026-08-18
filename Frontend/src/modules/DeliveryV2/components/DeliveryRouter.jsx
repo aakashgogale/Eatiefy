@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react"
+import { Suspense, lazy, useEffect } from "react"
 import { Routes, Route } from "react-router-dom"
 import DeliveryLayout from "./DeliveryLayout"
 import ProtectedRoute from "./ProtectedRoute"
@@ -53,13 +53,24 @@ const SignupStep1 = lazy(() => import("@food/pages/delivery/auth/SignupStep1"))
 const SignupStep2 = lazy(() => import("@food/pages/delivery/auth/SignupStep2"))
 
 export default function DeliveryRouter() {
+  // Safely enforce light mode for the Delivery app to prevent User dark mode bleeding
+  useEffect(() => {
+    document.documentElement.classList.remove('dark');
+    return () => {
+      const savedTheme = localStorage.getItem('appTheme') || 'light';
+      if (savedTheme === 'dark') {
+        document.documentElement.classList.add('dark');
+      }
+    };
+  }, []);
+
   return (
     <Suspense fallback={<Loader />}>
       <Routes>
         {/* Auth routes */}
         <Route path="welcome" element={<Welcome />} />
         <Route path="login" element={<SignIn />} />
-        <Route path="otp" element={<SignIn />} />
+        <Route path="otp" element={<OTP />} />
         <Route path="signup" element={<Signup />} />
         <Route path="signup/details" element={<SignupStep1 />} />
         <Route path="signup/documents" element={<SignupStep2 />} />

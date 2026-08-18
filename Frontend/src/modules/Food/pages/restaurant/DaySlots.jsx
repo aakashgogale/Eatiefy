@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
-import Lenis from "lenis"
 import { ArrowLeft, Clock, Edit2, Trash2, ChevronDown, AlertTriangle, X } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { Checkbox } from "@food/components/ui/checkbox"
@@ -368,7 +367,7 @@ function TimePickerWheel({
           <div className="border-t border-gray-200 px-4 py-4 flex justify-center">
             <button
               onClick={handleConfirm}
-              className="text-[#B80B3D] hover:text-blue-700 font-medium text-base transition-colors"
+              className="text-blue-600 hover:text-blue-700 font-medium text-base transition-colors"
             >
               Okay
             </button>
@@ -422,26 +421,6 @@ export default function DaySlots() {
       updateSlot(slotId, periodField, period)
     }
   }
-
-  // Lenis smooth scrolling
-  useEffect(() => {
-    const lenis = new Lenis({
-      duration: 1.2,
-      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-      smoothWheel: true,
-    })
-
-    function raf(time) {
-      lenis.raf(time)
-      requestAnimationFrame(raf)
-    }
-
-    requestAnimationFrame(raf)
-
-    return () => {
-      lenis.destroy()
-    }
-  }, [])
 
   // Calculate duration for a slot
   const calculateSlotDuration = (start, end, startPeriod, endPeriod) => {
@@ -577,10 +556,10 @@ export default function DaySlots() {
   }
 
   return (
-    <div className="min-h-screen bg-white overflow-x-hidden flex flex-col">
+    <div className="min-h-screen bg-white overflow-x-hidden flex flex-col md:min-h-full md:h-full md:overflow-hidden md:bg-slate-50">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-50">
-        <div className="flex items-center gap-3">
+      <div className="bg-white/95 backdrop-blur border-b border-gray-200 px-4 py-3 sticky top-0 z-50 md:border-slate-200">
+        <div className="flex items-center gap-3 md:max-w-3xl md:mx-auto md:px-8 md:py-2">
           <button
             onClick={() => navigate("/food/restaurant/outlet-timings")}
             className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
@@ -588,25 +567,23 @@ export default function DaySlots() {
           >
             <ArrowLeft className="w-6 h-6 text-gray-900" />
           </button>
-          <div className="flex-1">
-            <h1 className="text-xl font-bold text-gray-900">{dayName}</h1>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl font-bold text-gray-900 md:text-2xl">{dayName}</h1>
             <p className="text-sm text-gray-500">{companyName} delivery</p>
           </div>
         </div>
       </div>
         
-        <div className="bg-gray-50 p-2">
-          <p className="text-sm text-gray-700">
+        <div className="bg-gray-50 p-2 md:bg-transparent md:px-0 md:pt-4">
+          <p className="text-sm text-gray-700 md:max-w-3xl md:mx-auto md:px-8 md:rounded-xl md:border md:border-slate-200 md:bg-white md:px-4 md:py-3 md:shadow-sm">
             Add or modify your restaurant timings here. You can create maximum up to 3 time slots in a day.
           </p>
         </div>
 
       {/* Main Content - Scrollable */}
-      <div className="flex-1 overflow-y-auto">  
-        {/* Instructional Text */}
-
+      <div className="flex-1 overflow-y-auto md:min-h-0">
         {/* Time Slots */}
-        <div className="space-y-6 divide-gray-400">
+        <div className="space-y-6 divide-gray-400 md:max-w-3xl md:mx-auto md:px-8 md:py-4 md:space-y-4">
           {dayData.slots.map((slot, index) => {
             const duration = calculateSlotDuration(slot.start, slot.end, slot.startPeriod, slot.endPeriod)
             return (
@@ -615,7 +592,7 @@ export default function DaySlots() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2, delay: index * 0.1 }}
-                className="bg-white rounded-0 p-4 space-y-3 mb-0 border-b border-gray-200"
+                className="bg-white rounded-0 p-4 space-y-3 mb-0 border-b border-gray-200 md:rounded-2xl md:border md:border-slate-200 md:shadow-sm md:mb-0"
               >
                 {/* Slot Header */}
                 <div className="flex items-center justify-between">
@@ -625,7 +602,7 @@ export default function DaySlots() {
                   </div>
                   <button
                     onClick={() => deleteSlot(slot.id)}
-                    className="w-8 h-8 bg-pink-100 hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D] rounded-full flex items-center justify-center transition-colors"
+                    className="w-8 h-8 bg-pink-100 hover:bg-red-600 rounded-full flex items-center justify-center transition-colors"
                     aria-label="Delete slot"
                   >
                     <Trash2 className="w-4 h-4 text-red-400" />
@@ -714,7 +691,7 @@ export default function DaySlots() {
         {dayData.slots.length < 3 && (
           <button
             onClick={addSlot}
-            className="w-full text-[#B80B3D] hover:text-blue-700 text-sm font-medium py-3 transition-colors"
+            className="w-full text-blue-600 hover:text-blue-700 text-sm font-medium py-3 transition-colors md:max-w-3xl md:mx-auto md:px-8 md:block"
           >
             + Add time slot
           </button>
@@ -722,15 +699,15 @@ export default function DaySlots() {
       </div>
 
       {/* Sticky Bottom Controls */}
-      <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 py-4 z-40 shadow-lg">
-        <div className="space-y-4">
+      <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 py-4 z-40 shadow-lg md:border-slate-200">
+        <div className="space-y-4 md:max-w-3xl md:mx-auto md:px-8">
           {/* Copy to all days */}
           <div className="flex items-center gap-3">
             <Checkbox
               id="copy-to-all"
               checked={copyToAllDays}
               onCheckedChange={setCopyToAllDays}
-              className="w-5 h-5 border-2 border-gray-300 rounded data-[state=checked]:bg-green-600 data-[state=checked]:border-green-600"
+              className="w-5 h-5 border-2 border-gray-300 rounded data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
             />
             <label
               htmlFor="copy-to-all"
@@ -748,7 +725,7 @@ export default function DaySlots() {
           {/* Save Button */}
           <Button
             onClick={handleSave}
-            className="w-full bg-gray-800 hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white font-medium py-3 rounded-lg"
+            className="w-full bg-gray-800 hover:bg-gray-900 text-white font-medium py-3 rounded-lg"
           >
             Save
           </Button>
@@ -805,7 +782,7 @@ export default function DaySlots() {
           <DialogHeader>
             <div className="flex items-center gap-3 mb-2">
               <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center shrink-0">
-                <AlertTriangle className="w-6 h-6 text-[#B80B3D]" />
+                <AlertTriangle className="w-6 h-6 text-red-600" />
               </div>
               <DialogTitle className="text-left">Delete Time Slot</DialogTitle>
             </div>
@@ -826,7 +803,7 @@ export default function DaySlots() {
             </Button>
             <Button
               onClick={confirmDelete}
-              className="w-full sm:w-auto bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-red-700 text-white"
+              className="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white"
             >
               Delete
             </Button>
@@ -836,11 +813,4 @@ export default function DaySlots() {
     </div>
   )
 }
-
-
-
-
-
-
-
 

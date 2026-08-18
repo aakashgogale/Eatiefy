@@ -6,7 +6,7 @@ import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@food/components/ui/card"
-import loginBg from "@food/assets/loginbanner.png"
+import loginBg from "@food/assets/loginbanner.webp"
 import { restaurantAPI } from "@food/api"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 
@@ -42,6 +42,17 @@ export default function RestaurantSignupEmail() {
       return
     }
 
+    const emailRegex = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9\-]+(?:\.[a-zA-Z0-9\-]+)*\.[a-zA-Z]{2,10}$/;
+    if (!emailRegex.test(formData.email.trim()) || formData.email.includes('..')) {
+      setError("Please enter a valid email address");
+      return;
+    }
+    const emailParts = formData.email.trim().toLowerCase().split('@')[1]?.split('.') || [];
+    if (emailParts.length >= 2 && emailParts[emailParts.length - 1] === emailParts[emailParts.length - 2]) {
+      setError("Invalid email domain format (repeated segments)");
+      return;
+    }
+
     if (!formData.password) {
       setError("Password is required")
       return
@@ -63,6 +74,7 @@ export default function RestaurantSignupEmail() {
       setStep(2)
       setResendTimer(60)
       const timer = setInterval(() => {
+        if (typeof document !== "undefined" && document.hidden) return
         setResendTimer((prev) => {
           if (prev <= 1) {
             clearInterval(timer)
@@ -147,7 +159,7 @@ export default function RestaurantSignupEmail() {
         
         window.dispatchEvent(new Event("restaurantAuthChanged"))
         
-        navigate("/food/restaurant/onboarding", { replace: true })
+        navigate("/restaurant", { replace: true })
       } else {
         throw new Error("Registration failed. Please try again.")
       }
@@ -174,6 +186,7 @@ export default function RestaurantSignupEmail() {
       await restaurantAPI.sendOTP(null, "register", formData.email)
       setResendTimer(60)
       const timer = setInterval(() => {
+        if (typeof document !== "undefined" && document.hidden) return
         setResendTimer((prev) => {
           if (prev <= 1) {
             clearInterval(timer)
@@ -202,11 +215,11 @@ export default function RestaurantSignupEmail() {
           src={loginBg}
           alt="Restaurant background"
           className="w-full h-full object-cover"
-        />
+         loading="lazy" decoding="async" />
         <div className="absolute inset-0 flex items-center text-white pointer-events-none">
-          <div className="bg-gradient-to-br from-[#B80B3D] to-[#66001D]/80 rounded-r-full py-10 xl:py-20 pl-10 xl:pl-14 pr-10 xl:pr-20 max-w-[70%] shadow-xl backdrop-blur-[1px]">
-            <h1 className="text-[#B80B3D]xl xl:text-4xl font-extrabold mb-4 tracking-wide leading-tight">
-              JOIN OMETTO
+          <div className="bg-primary-orange/80 rounded-r-full py-10 xl:py-20 pl-10 xl:pl-14 pr-10 xl:pr-20 max-w-[70%] shadow-xl backdrop-blur-[1px]">
+            <h1 className="text-3xl xl:text-4xl font-extrabold mb-4 tracking-wide leading-tight">
+              JOIN EATIEFY
               <br />
               FOOD PLATFORM
             </h1>
@@ -222,7 +235,7 @@ export default function RestaurantSignupEmail() {
         {/* Top logo */}
         <div className="relative flex items-center justify-center px-6 sm:px-10 lg:px-16 pt-6 pb-4">
           <div className="flex items-center gap-3">
-            <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-[#B80B3D] to-[#66001D] flex items-center justify-center text-white shadow-lg">
+            <div className="h-11 w-11 rounded-xl bg-primary-orange flex items-center justify-center text-white shadow-lg">
               <UtensilsCrossed className="h-6 w-6" />
             </div>
             <div className="flex flex-col items-start">
@@ -240,7 +253,7 @@ export default function RestaurantSignupEmail() {
         <div className="flex-1 flex flex-col items-center justify-center px-6 sm:px-10 lg:px-16 pb-8">
           <Card className="w-full max-w-lg bg-white/80 backdrop-blur-sm border border-gray-200 shadow-xl">
             <CardHeader>
-              <CardTitle className="text-2xl sm:text-[#B80B3D]xl font-semibold text-gray-900">
+              <CardTitle className="text-2xl sm:text-3xl font-semibold text-gray-900">
                 {step === 1 ? "Create Account" : "Verify Email"}
               </CardTitle>
               <CardDescription className="text-sm text-gray-500">
@@ -377,7 +390,7 @@ export default function RestaurantSignupEmail() {
 
                   <Button
                     type="submit"
-                    className="h-11 w-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D]/90 text-white"
+                    className="h-11 w-full bg-primary-orange hover:bg-primary-orange/90 text-white"
                     disabled={isLoading}
                   >
                     {isLoading ? "Sending..." : "Continue"}
@@ -439,7 +452,7 @@ export default function RestaurantSignupEmail() {
 
                   <Button
                     type="submit"
-                    className="h-11 w-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D]/90 text-white"
+                    className="h-11 w-full bg-primary-orange hover:bg-primary-orange/90 text-white"
                     disabled={isLoading}
                   >
                     {isLoading ? "Verifying..." : "Verify & Sign Up"}
@@ -449,7 +462,7 @@ export default function RestaurantSignupEmail() {
 
               <div className="pt-4 border-t">
                 <button
-                  onClick={() => navigate("/food/restaurant/login")}
+                  onClick={() => navigate("/restaurant/login")}
                   className="flex items-center gap-2 text-sm text-primary-orange hover:text-primary-orange/80 transition-colors"
                 >
                   <ArrowLeft className="h-4 w-4" />
@@ -458,7 +471,7 @@ export default function RestaurantSignupEmail() {
                 <p className="text-sm text-gray-500 mt-2 text-center">
                   Already have an account?{" "}
                   <button
-                    onClick={() => navigate("/food/restaurant/login")}
+                    onClick={() => navigate("/restaurant/login")}
                     className="text-primary-orange hover:underline font-medium"
                   >
                     Sign in
@@ -472,11 +485,3 @@ export default function RestaurantSignupEmail() {
     </div>
   )
 }
-
-
-
-
-
-
-
-

@@ -4,8 +4,7 @@ import { ValidationError } from '../../../../core/auth/errors.js';
 
 export const getAdminLandingSettingsController = async (req, res, next) => {
     try {
-        const { zoneId } = req.query;
-        const settings = await getLandingSettings(zoneId);
+        const settings = await getLandingSettings();
         return sendResponse(res, 200, 'Landing settings fetched successfully', settings);
     } catch (error) {
         next(error);
@@ -18,8 +17,7 @@ export const updateAdminLandingSettingsController = async (req, res, next) => {
         if (typeof payload !== 'object') {
             throw new ValidationError('Invalid settings payload');
         }
-        const zoneId = payload.zoneId;
-        const updated = await updateLandingSettings(payload, zoneId);
+        const updated = await updateLandingSettings(payload);
         return sendResponse(res, 200, 'Landing settings updated successfully', updated);
     } catch (error) {
         next(error);

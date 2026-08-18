@@ -85,7 +85,6 @@ const normalizeDetailsFormFromRestaurant = (restaurant) => {
     openingTime: restaurant?.openingTime || restaurant?.deliveryTimings?.openingTime || "",
     closingTime: restaurant?.closingTime || restaurant?.deliveryTimings?.closingTime || "",
     isActive: restaurant?.isActive !== false,
-    takeawayEnabled: restaurant?.takeawaySettings?.isEnabled ?? false,
   }
 }
 
@@ -318,9 +317,6 @@ export default function EditRestaurant() {
         openingTime: detailsForm.openingTime,
         closingTime: detailsForm.closingTime,
         isActive: detailsForm.isActive !== false,
-        takeawaySettings: {
-          isEnabled: detailsForm.takeawayEnabled === true,
-        },
       }
 
       const res = await adminAPI.updateRestaurant(restaurantId, payload)
@@ -498,33 +494,6 @@ export default function EditRestaurant() {
                 <div>
                   <Label>Offer</Label>
                   <Input value={detailsForm.offer} onChange={(e) => setDetailsForm((p) => ({ ...p, offer: e.target.value }))} />
-                </div>
-                <div>
-                  <Label>Takeaway (Pickup) Enabled</Label>
-                  <div className="mt-2 flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setDetailsForm((p) => ({ ...p, takeawayEnabled: true }))}
-                      className={`px-3 py-1.5 text-xs rounded-full border ${
-                        detailsForm.takeawayEnabled === true
-                          ? "bg-green-600 text-white border-green-600"
-                          : "bg-white text-slate-700 border-slate-300"
-                      }`}
-                    >
-                      Enabled
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDetailsForm((p) => ({ ...p, takeawayEnabled: false }))}
-                      className={`px-3 py-1.5 text-xs rounded-full border ${
-                        detailsForm.takeawayEnabled === false
-                          ? "bg-slate-900 text-white border-slate-900"
-                          : "bg-white text-slate-700 border-slate-300"
-                      }`}
-                    >
-                      Disabled
-                    </button>
-                  </div>
                 </div>
               </div>
             </section>

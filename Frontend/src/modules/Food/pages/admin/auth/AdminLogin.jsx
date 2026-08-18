@@ -1,284 +1,307 @@
-import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import { adminAPI } from "@food/api";
-import { setAuthData } from "@food/utils/auth";
-import { User, Lock, Loader2, Eye, EyeOff } from "lucide-react";
-import { toast } from "sonner";
+import { useState, useEffect, useRef } from "react"
+import { useNavigate, useLocation } from "react-router-dom"
+import { motion, useReducedMotion } from "framer-motion"
+import { adminAPI } from "@food/api"
+import { setAuthData } from "@food/utils/auth"
+import {
+  loadBusinessSettings,
+  applyModulePowerScanning,
+  getModulePowerScanning,
+} from "@food/utils/businessSettings"
+import { useCompanyName } from "@food/hooks/useCompanyName"
+import { Button } from "@food/components/ui/button"
+import { Input } from "@food/components/ui/input"
+import { Label } from "@food/components/ui/label"
+import AdminAuthHero from "@food/components/admin/auth/AdminAuthHero"
+import { Eye, EyeOff, Shield, Loader2 } from "lucide-react"
+import quickSpicyLogo from "@food/assets/user-app-logo.webp"
+import DynamicLogo from "@food/components/DynamicLogo"
 
+const debugLog = (...args) => {}
+const debugWarn = (...args) => {}
+const debugError = (...args) => {}
 
-// Reusable Input Component (Inline)
-function LoginInput({
-  label,
-  icon: Icon,
-  type = "text",
-  placeholder = "",
-  value,
-  onChange,
-  error,
-  required = false,
-  ...props
-}) {
-  const isPassword = type === "password";
-  const [showPassword, setShowPassword] = useState(false);
-  const inputType = isPassword ? (showPassword ? "text" : "password") : type;
+const THEME = "#E2AD4B"
+const THEME_RGB = "226,173,75"
 
-  return (
-    <div className="flex flex-col w-full font-poppins">
-      {label && (
-        <label className="text-white text-[12px] md:text-[14px] font-normal tracking-wide mb-1.5 md:mb-2">
-          {label}
-        </label>
-      )}
-      <div
-        className={`w-full h-[42px] md:h-[50px] bg-white/10 md:bg-white/20 hover:bg-white/15 md:hover:bg-white/25 focus-within:bg-white/20 md:focus-within:bg-white/30 transition-all duration-300 rounded-full flex items-center px-1.5 border border-white/10 md:border-transparent hover:border-white/20 md:hover:border-transparent focus-within:border-white/30 md:focus-within:border-transparent shadow-inner md:shadow-none ${
-          error ? "border-red-400 focus-within:ring-red-400/20" : ""
-        }`}
-      >
-        {/* Left Icon Circle */}
-        {Icon && (
-          <div className="w-[30px] h-[30px] md:w-[38px] md:h-[38px] rounded-full bg-gradient-to-br from-[#A31515] to-[#801124] md:bg-none md:bg-[#801124] flex items-center justify-center text-white shrink-0 shadow-md md:shadow-sm shadow-black/10">
-            <Icon size={15} className="md:scale-[1.2]" />
-          </div>
-        )}
-
-        {/* Text Input with class to force transparency */}
-        <input
-          type={inputType}
-          value={value}
-          onChange={onChange}
-          placeholder={placeholder}
-          required={required}
-          className="login-input-field bg-transparent text-white placeholder-white/50 text-[13px] md:text-[15px] h-full flex-1 px-2.5 md:px-3 border-none outline-none focus:outline-none focus:ring-0 focus:border-none focus:bg-transparent"
-          {...props}
-        />
-
-        {/* Right Password Toggle Icon */}
-        {isPassword && (
-          <button
-            type="button"
-            onClick={() => setShowPassword(!showPassword)}
-            className="w-[30px] h-[30px] md:w-[38px] md:h-[38px] flex items-center justify-center text-white/60 hover:text-white transition-colors duration-200 shrink-0 focus:outline-none mr-1"
-          >
-            {showPassword ? <EyeOff size={15} className="md:scale-[1.2]" /> : <Eye size={15} className="md:scale-[1.2]" />}
-          </button>
-        )}
-      </div>
-
-      {error && (
-        <span className="text-red-200 text-[10px] md:text-xs font-normal mt-1 pl-4 transition-all duration-300 animate-fadeIn">
-          {error}
-        </span>
-      )}
-    </div>
-  );
-}
-
-// Reusable Button Component (Inline)
-function LoginButton({
-  children,
-  onClick,
-  type = "submit",
-  disabled = false,
-  loading = false,
-  ...props
-}) {
-  return (
-    <button
-      type={type}
-      onClick={onClick}
-      disabled={disabled || loading}
-      className="w-[160px] md:w-[220px] h-[40px] md:h-[48px] rounded-full bg-white/20 hover:bg-white/25 focus:bg-white/35 border border-white/20 backdrop-blur-md text-white text-[13px] md:text-[16px] font-semibold font-poppins tracking-wider shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-75 disabled:cursor-not-allowed flex items-center justify-center"
-      {...props}
-    >
-      {loading ? <Loader2 className="w-4 h-4 md:w-5 md:h-5 animate-spin" /> : children}
-    </button>
-  );
-}
-
-
-// Main Export Component
 export default function AdminLogin() {
-  const navigate = useNavigate();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState({});
-  const submitting = useRef(false);
-  const [isDesktop, setIsDesktop] = useState(true);
+  const navigate = useNavigate()
+  const location = useLocation()
+  const companyName = useCompanyName()
+  const prefersReducedMotion = useReducedMotion()
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [successMessage, setSuccessMessage] = useState("")
+  const [logoUrl, setLogoUrl] = useState(quickSpicyLogo)
+  const [themeColor, setThemeColor] = useState(THEME)
+  const submittingRef = useRef(false)
 
-  // Responsiveness tracker for conditional clip-path
   useEffect(() => {
-    const handleResize = () => {
-      setIsDesktop(window.innerWidth >= 768);
-    };
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+    const message = location.state?.message
+    if (message) {
+      setSuccessMessage(message)
+      window.history.replaceState({}, document.title, location.pathname)
+    }
+  }, [location.state?.message, location.pathname])
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setErrors({});
+  useEffect(() => {
+    const initBranding = async () => {
+      try {
+        const settings = await loadBusinessSettings()
+        applyModulePowerScanning("user", settings)
+        const { themeColor: color } = getModulePowerScanning("user", settings)
+        setThemeColor(color)
+        if (settings?.logo?.url) {
+          setLogoUrl(settings.logo.url)
+        }
+      } catch (err) {
+        debugWarn("Failed to load business settings:", err)
+      }
+    }
+    initBranding()
 
-    let newErrors = {};
-    if (!email) newErrors.email = "Username is required";
-    if (!password) newErrors.password = "Password is required";
+    const handleSettingsUpdate = async () => {
+      const settings = await loadBusinessSettings()
+      applyModulePowerScanning("user", settings)
+      const { themeColor: color } = getModulePowerScanning("user", settings)
+      setThemeColor(color)
+      if (settings?.logo?.url) {
+        setLogoUrl(settings.logo.url)
+      }
+    }
+    window.addEventListener("businessSettingsUpdated", handleSettingsUpdate)
+    return () => window.removeEventListener("businessSettingsUpdated", handleSettingsUpdate)
+  }, [])
 
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
-      toast.error("Please fill in all fields");
-      return;
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError("")
+    setSuccessMessage("")
+    if (submittingRef.current) return
+
+    const trimmedEmail = email.trim()
+    if (!trimmedEmail) {
+      setError("Email is required")
+      return
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(trimmedEmail)) {
+      setError("Please enter a valid email address")
+      return
+    }
+    if (!password) {
+      setError("Password is required")
+      return
+    }
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters")
+      return
     }
 
-    if (submitting.current) return;
-    submitting.current = true;
-    setLoading(true);
+    submittingRef.current = true
+    setIsLoading(true)
 
     try {
-      const response = await adminAPI.login(email.trim(), password);
-      const data = response?.data?.data || response?.data || {};
+      const response = await adminAPI.login(trimmedEmail, password)
+      const data = response?.data?.data || response?.data || {}
 
-      const accessToken = data.accessToken;
-      const adminUser = data.user || data.admin;
-      const refreshToken = data.refreshToken ?? null;
+      const accessToken = data.accessToken
+      const adminUser = data.user || data.admin
+      const refreshToken = data.refreshToken ?? null
 
-      if (!accessToken || !adminUser || !refreshToken) {
-        throw new Error("Invalid response from server");
+      if (!accessToken || !adminUser) {
+        throw new Error("Invalid response from server")
+      }
+      if (!refreshToken) {
+        throw new Error("Invalid response from server: missing refresh token")
+      }
+      setAuthData("admin", accessToken, adminUser, refreshToken)
+      navigate("/admin/food", { replace: true })
+    } catch (err) {
+      const message =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        "Login failed. Please check your credentials."
+      setError(message)
+    } finally {
+      setIsLoading(false)
+      submittingRef.current = false
+    }
+  }
+
+  const formMotion = prefersReducedMotion
+    ? {}
+    : {
+        initial: { opacity: 0, y: 12 },
+        animate: { opacity: 1, y: 0 },
+        transition: { duration: 0.35, ease: "easeOut" },
       }
 
-      setAuthData("admin", accessToken, adminUser, refreshToken);
-      toast.success("Welcome, Administrator");
-      navigate("/admin/food", { replace: true });
-    } catch (err) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.message ||
-        "Login failed. Check your credentials.";
-      toast.error(msg);
-    } finally {
-      setLoading(false);
-      submitting.current = false;
-    }
-  };
-
   return (
-    <div className="w-screen h-screen flex flex-col-reverse md:flex-row overflow-hidden font-poppins bg-white relative">
-      <style>{`
-        /* Override Chrome Autofill styling */
-        input:-webkit-autofill,
-        input:-webkit-autofill:hover, 
-        input:-webkit-autofill:focus, 
-        input:-webkit-autofill:active  {
-          -webkit-text-fill-color: white !important;
-          -webkit-box-shadow: 0 0 0px 1000px transparent inset !important;
-          transition: background-color 5000s ease-in-out 0s !important;
-        }
-        /* Override global preflight inputs and borders */
-        .login-input-field {
-          background-color: transparent !important;
-          background: transparent !important;
-          border: none !important;
-          outline: none !important;
-          box-shadow: none !important;
-        }
-        .login-input-field:focus {
-          background-color: transparent !important;
-          background: transparent !important;
-          border: none !important;
-          outline: none !important;
-          box-shadow: none !important;
-        }
-        .premium-heading {
-          font-family: 'Outfit', sans-serif !important;
-          font-weight: 800 !important;
-          letter-spacing: 0.25em !important;
-          background: linear-gradient(135deg, #FFFFFF 0%, #FFEBEF 100%) !important;
-          -webkit-background-clip: text !important;
-          -webkit-text-fill-color: transparent !important;
-          text-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-        }
-      `}</style>
-
-      {/* SVG Wave Clip Path Definition */}
-      <svg className="absolute w-0 h-0">
-        <defs>
-          <clipPath id="wave-clip" clipPathUnits="objectBoundingBox">
-            <path d="M 0.13,0 C 0.13,0.08 0.24,0.1 0.24,0.18 C 0.24,0.26 0.16,0.38 0.16,0.5 C 0.16,0.62 0.28,0.7 0.28,0.82 C 0.28,0.92 0.24,0.96 0.24,1 L 1,1 L 1,0 Z" />
-          </clipPath>
-        </defs>
-      </svg>
-
-      {/* LEFT SECTION (54% desktop, hidden on mobile) */}
-      <div className="hidden md:flex w-full md:w-[54%] h-[45vh] md:h-full bg-white relative items-center justify-center overflow-hidden shrink-0 z-0">
-        <img
-          src="/assets/images/adminloginpagedesign.webp"
-          alt="Login Illustration"
-          className="w-full h-full object-contain scale-[0.86] md:-translate-x-10"
-        />
+    <div className="flex h-[100dvh] overflow-hidden bg-white">
+      {/* Left — hero */}
+      <div className="hidden h-full lg:block lg:w-1/2">
+        <AdminAuthHero themeColor={themeColor} logoUrl={logoUrl} />
       </div>
 
-      {/* RIGHT SECTION CONTENT (46% desktop, full h-screen on mobile) */}
-      <div className={`w-full md:w-[46%] h-screen md:h-full relative flex flex-col justify-center items-center px-4 sm:px-12 md:px-16 lg:px-24 shrink-0 z-20 overflow-hidden ${!isDesktop ? "bg-gradient-to-br from-[#8B0000] via-[#B71C1C] to-[#8B0000]" : "bg-transparent"}`}>
-        {/* Ambient Glow Blobs (Mobile only) */}
-        <div className="absolute -top-20 -left-20 w-[280px] h-[280px] rounded-full bg-[#FF8A80]/15 blur-[60px] pointer-events-none md:hidden" />
-        <div className="absolute -bottom-20 -right-20 w-[300px] h-[300px] rounded-full bg-[#FF8A80]/12 blur-[70px] pointer-events-none md:hidden" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[350px] h-[350px] rounded-full bg-white/5 blur-[90px] pointer-events-none md:hidden" />
-
-        <form onSubmit={handleLogin} className="w-full max-w-[350px] sm:max-w-[380px] p-7 sm:p-9 md:p-0 rounded-[2rem] md:rounded-none bg-white/10 md:bg-transparent backdrop-blur-xl md:backdrop-blur-none border border-white/10 md:border-none shadow-2xl md:shadow-none shadow-black/25 flex flex-col items-center -mt-16 md:-mt-16 z-10">
-          {/* Logo */}
-          <div className="w-[160px] md:w-[220px] mb-4 select-none flex justify-center items-center md:items-start">
-             <img
-              src="/assets/images/ometto_logo_admin.png"
-              alt="Ometto Logo"
-              className="w-full object-contain"
-            />
+      {/* Right — form */}
+      <div className="flex h-full w-full flex-col bg-[#F0F2F5] lg:w-1/2">
+        {/* Mobile brand strip */}
+        <div
+          className="relative shrink-0 overflow-hidden px-6 py-5 lg:hidden"
+          style={{ backgroundColor: "#141018" }}
+        >
+          <div
+            className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full blur-2xl"
+            style={{ backgroundColor: `${themeColor}35` }}
+          />
+          <div className="relative flex items-center gap-2.5">
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-lg"
+              style={{ backgroundColor: `${themeColor}20` }}
+            >
+              <Shield className="h-3.5 w-3.5" style={{ color: themeColor }} aria-hidden="true" />
+            </div>
+            <div>
+              <p className="text-[10px] font-medium text-white/50">Admin Portal</p>
+              <p className="text-sm font-semibold text-white">{companyName}</p>
+            </div>
           </div>
+        </div>
 
-          {/* Heading */}
-          <h1 className="premium-heading text-[16px] sm:text-[18px] md:text-[32px] mb-8 text-center uppercase whitespace-nowrap">
-            Admin Panel
-          </h1>
+        <div className="flex flex-1 items-center justify-center overflow-hidden px-5 sm:px-10">
+          <motion.div {...formMotion} className="w-full max-w-[380px]">
+            {/* Header */}
+            <div className="mb-7 text-center lg:text-left">
+              <div className="mb-5 flex justify-center lg:justify-start">
+                <DynamicLogo
+                  module="user"
+                  fallback={quickSpicyLogo}
+                  alt={`${companyName} Logo`}
+                  className="mx-auto h-24 w-auto mb-6 drop-shadow-md object-contain"
+                />
+              </div>
+              <h2 className="text-2xl font-bold tracking-tight text-gray-900">Sign in</h2>
+              <p className="mt-1 text-sm text-gray-500">
+                Enter your credentials to access the dashboard
+              </p>
+            </div>
 
-          {/* Inputs */}
-          <div className="w-full space-y-3 md:space-y-5 mb-5 md:mb-8">
-            <LoginInput
-              label="Username"
-              icon={User}
-              type="text"
-              placeholder=""
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              error={errors.email}
-            />
-            <LoginInput
-              label="Password"
-              icon={Lock}
-              type="password"
-              placeholder=""
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              error={errors.password}
-            />
-          </div>
+            {/* Form card */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.08)] sm:p-7">
+              <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+                {successMessage && (
+                  <div
+                    role="status"
+                    className="rounded-xl px-4 py-3 text-sm"
+                    style={{
+                      backgroundColor: `rgba(${THEME_RGB},0.08)`,
+                      color: themeColor,
+                      border: `1px solid rgba(${THEME_RGB},0.15)`,
+                    }}
+                  >
+                    {successMessage}
+                  </div>
+                )}
+                {error && (
+                  <div
+                    role="alert"
+                    className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600"
+                  >
+                    {error}
+                  </div>
+                )}
 
-          {/* Submit Button */}
-          <LoginButton loading={loading}>
-            LOGIN
-          </LoginButton>
-        </form>
+                <div className="space-y-1.5">
+                  <Label htmlFor="email" className="text-sm font-medium text-gray-700">
+                    Email
+                  </Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="you@company.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={isLoading}
+                    autoComplete="off"
+                    required
+                    className="h-12 rounded-xl border border-gray-200 bg-white text-gray-900 shadow-sm transition-all placeholder:text-gray-400 focus:border-gray-300 focus:bg-white focus-visible:ring-2 focus-visible:ring-primary-orange/30"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="password" className="text-sm font-medium text-gray-700">
+                    Password
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      disabled={isLoading}
+                      autoComplete="new-password"
+                      required
+                      className="h-12 rounded-xl border border-gray-200 bg-white pr-12 text-gray-900 shadow-sm transition-all placeholder:text-gray-400 focus:border-gray-300 focus:bg-white focus-visible:ring-2 focus-visible:ring-primary-orange/30 [&::-ms-reveal]:hidden [&::-webkit-password-reveal-button]:hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-1 top-1/2 flex h-10 w-10 -translate-y-1/2 cursor-pointer items-center justify-center rounded-lg text-gray-400 transition-colors hover:text-gray-600 focus-visible:outline-none"
+                      disabled={isLoading}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => navigate("/admin/forgot-password")}
+                    className="cursor-pointer text-sm font-medium transition-colors hover:underline focus-visible:outline-none"
+                    style={{ color: themeColor }}
+                    disabled={isLoading}
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+
+                <Button
+                  type="submit"
+                  variant="ghost"
+                  className="h-12 w-full cursor-pointer rounded-xl border-0 text-sm font-semibold text-white shadow-sm transition-all hover:opacity-90 focus-visible:ring-2 focus-visible:ring-offset-2"
+                  style={{ backgroundColor: themeColor }}
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      Signing in...
+                    </>
+                  ) : (
+                    "Sign in"
+                  )}
+                </Button>
+              </form>
+            </div>
+
+            <p className="mt-5 text-center text-xs text-gray-400">
+              Protected admin access &middot; {companyName}
+            </p>
+          </motion.div>
+        </div>
       </div>
-
-      {/* RIGHT BACKGROUND WAVE OVERLAY (Direct Sibling, NOT clipped by right container!) */}
-      <div
-        className={`absolute top-0 right-0 h-full w-[59vw] bg-gradient-to-br from-[#8B0000] via-[#A31515] to-[#C62828] z-10 pointer-events-none ${isDesktop ? "block" : "hidden"}`}
-        style={{
-          clipPath: isDesktop ? "url(#wave-clip)" : "none",
-        }}
-      />
     </div>
-  );
+  )
 }
-
-
-
-

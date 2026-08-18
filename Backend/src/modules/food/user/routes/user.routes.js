@@ -10,7 +10,8 @@ import {
 import {
     getCurrentUserProfileController,
     updateCurrentUserProfileController,
-    uploadCurrentUserProfileImageController
+    uploadCurrentUserProfileImageController,
+    deleteCurrentUserAccountController
 } from '../controllers/userProfile.controller.js';
 import {
     getUserWalletController,
@@ -29,12 +30,14 @@ import {
     createSupportTicketController,
     listMySupportTicketsController
 } from '../controllers/supportTicket.controller.js';
+import { syncUserCartController } from '../controllers/userCart.controller.js';
 
 const router = express.Router();
 
 router.get('/profile', getCurrentUserProfileController);
 router.patch('/profile', updateCurrentUserProfileController);
 router.post('/profile/profile-image', upload.single('file'), uploadCurrentUserProfileImageController);
+router.delete('/profile', deleteCurrentUserAccountController);
 
 // Wallet (Bearer USER)
 router.get('/wallet', getUserWalletController);
@@ -59,5 +62,6 @@ router.patch('/addresses/:addressId', updateAddressController);
 router.delete('/addresses/:addressId', deleteAddressController);
 router.patch('/addresses/:addressId/default', setDefaultAddressController);
 
+router.put('/cart', syncUserCartController);
 
 export default router;

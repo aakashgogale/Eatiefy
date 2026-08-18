@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from "react"
+import { useState, useRef, useEffect } from "react"
 import { useNavigate, useParams, useLocation } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import { motion, AnimatePresence } from "framer-motion"
@@ -14,8 +14,7 @@ import {
   ThumbsUp,
   ChevronLeft,
   ChevronRight,
-  Loader2,
-  Search
+  Loader2
 } from "lucide-react"
 import { Switch } from "@food/components/ui/switch"
 // Removed getAllFoods and saveFood - now using menu API
@@ -25,12 +24,10 @@ import { toast } from "sonner"
 import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
 import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 import { getFoodVariants } from "@food/utils/foodVariants"
-import dishFallbackImage from "@food/assets/dish_fallback.webp"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
-const INVENTORY_RECOMMENDED_KEY = "restaurant_inventory_recommended_map"
 
 
 const getUploadErrorMessage = (error, fileName = "image") => {
@@ -42,18 +39,13 @@ const getUploadErrorMessage = (error, fileName = "image") => {
   return `Failed to upload ${fileName}: ${message}`
 }
 
-const createVariantDraft = (variant = {}) => {
-  const restaurantPrice =
-    variant?.basePrice != null && Number.isFinite(Number(variant.basePrice))
-      ? Number(variant.basePrice)
-      : variant?.price;
-  return {
-    localId: String(variant?.id || variant?._id || `variant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
-    persistedId: String(variant?.id || variant?._id || ""),
-    name: String(variant?.name || ""),
-    price: restaurantPrice != null ? String(restaurantPrice) : "",
-  };
-}
+const createVariantDraft = (variant = {}) => ({
+  localId: String(variant?.id || variant?._id || `variant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+  persistedId: String(variant?.id || variant?._id || ""),
+  name: String(variant?.name || ""),
+  price: variant?.price != null ? String(variant.price) : "",
+  otherPrice: variant?.otherPrice != null ? String(variant.otherPrice) : "",
+})
 
 export default function ItemDetailsPage() {
   const navigate = useNavigate()
@@ -76,9 +68,9 @@ export default function ItemDetailsPage() {
   const [itemSizeQuantity, setItemSizeQuantity] = useState("")
   const [itemSizeUnit, setItemSizeUnit] = useState("piece")
   const [itemDescription, setItemDescription] = useState("")
-  const [foodType, setFoodType] = useState("Veg")
-  const [isPureVegRestaurant, setIsPureVegRestaurant] = useState(false)
+  const [foodType, setFoodType] = useState("Non-Veg")
   const [basePrice, setBasePrice] = useState("")
+  const [otherPrice, setOtherPrice] = useState("")
   const [variants, setVariants] = useState([])
   const [preparationTime, setPreparationTime] = useState("")
   const [gst, setGst] = useState("5.0")
@@ -103,39 +95,15 @@ export default function ItemDetailsPage() {
   const [direction, setDirection] = useState(0)
   const carouselRef = useRef(null)
   const [isCategoryPopupOpen, setIsCategoryPopupOpen] = useState(false)
-  const [categorySearchQuery, setCategorySearchQuery] = useState("")
-  const [debouncedCategorySearch, setDebouncedCategorySearch] = useState("")
-  const categorySearchInputRef = useRef(null)
   const [isServesPopupOpen, setIsServesPopupOpen] = useState(false)
   const [isItemSizePopupOpen, setIsItemSizePopupOpen] = useState(false)
   const [isGstPopupOpen, setIsGstPopupOpen] = useState(false)
   const [isTagsPopupOpen, setIsTagsPopupOpen] = useState(false)
-  const [showRemoveImageConfirm, setShowRemoveImageConfirm] = useState(false)
-  const [showDeleteItemConfirm, setShowDeleteItemConfirm] = useState(false)
-  const [isDeletingItem, setIsDeletingItem] = useState(false)
   const [categories, setCategories] = useState([])
   const [loadingCategories, setLoadingCategories] = useState(true)
   const [loadingItem, setLoadingItem] = useState(false)
   const [keyboardInset, setKeyboardInset] = useState(0)
-
-  const handleDeleteItem = async () => {
-    if (isNewItem) return
-    const itemId = String(itemData?.id || id || "")
-    if (!itemId) return
-    try {
-      setIsDeletingItem(true)
-      await restaurantAPI.deleteFood(itemId)
-      toast.success("Item deleted from restaurant menu")
-      window.dispatchEvent(new CustomEvent("foodsChanged"))
-      navigate("/food/restaurant/inventory", { replace: true })
-    } catch (error) {
-      debugError("Failed to delete food item:", error)
-      toast.error(error.response?.data?.message || "Failed to delete item")
-    } finally {
-      setIsDeletingItem(false)
-      setShowDeleteItemConfirm(false)
-    }
-  }
+  const [isPureVegRestaurant, setIsPureVegRestaurant] = useState(false)
 
   const maxNameLength = 70
   const maxDescriptionLength = 1000
@@ -156,40 +124,11 @@ export default function ItemDetailsPage() {
     setItemSizeQuantity(item.itemSizeQuantity || "")
     setItemSizeUnit(item.itemSizeUnit || "piece")
     setItemDescription(item.description || "")
-    if (isPureVegRestaurant) {
-      setFoodType("Veg")
-    } else {
-      setFoodType(item.foodType === "Veg" ? "Veg" : "Non-Veg")
-    }
-    const rawVariants = Array.isArray(item.variants)
-      ? item.variants
-      : Array.isArray(item.variations)
-        ? item.variations
-        : []
-    // Restaurant edit must use basePrice (own price), never admin selling price.
-    const itemVariants = rawVariants.length
-      ? rawVariants
-          .map((variant, index) => {
-            const name = String(variant?.name || "").trim()
-            const base = Number(variant?.basePrice)
-            const price = Number.isFinite(base) && base >= 0 ? base : Number(variant?.price)
-            if (!name || !Number.isFinite(price) || price <= 0) return null
-            return {
-              id: String(variant?.id || variant?._id || `variant-${index}`),
-              _id: String(variant?.id || variant?._id || `variant-${index}`),
-              name,
-              price,
-              basePrice: price,
-            }
-          })
-          .filter(Boolean)
-      : getFoodVariants(item)
+    setFoodType(item.foodType === "Veg" ? "Veg" : "Non-Veg")
+    const itemVariants = getFoodVariants(item)
     setVariants(itemVariants.map(createVariantDraft))
-    const restaurantBase =
-      item.basePrice != null && Number.isFinite(Number(item.basePrice))
-        ? item.basePrice
-        : item.price
-    setBasePrice(itemVariants.length === 0 ? (restaurantBase != null ? String(restaurantBase) : "") : "")
+    setBasePrice(itemVariants.length === 0 ? item.price?.toString() || "" : "")
+    setOtherPrice(itemVariants.length === 0 ? item.otherPrice?.toString() || "" : "")
     setPreparationTime(item.preparationTime || "")
     setGst(item.gst?.toString() || "5.0")
     setIsRecommended(item.isRecommended || false)
@@ -239,26 +178,6 @@ export default function ItemDetailsPage() {
       setAllergens(item.allergies.join(", "))
     }
   }
-
-  // Fetch item data from menu API when editing
-  useEffect(() => {
-    const fetchRestaurantDietType = async () => {
-      try {
-        const response = await restaurantAPI.getCurrentRestaurant()
-        const profile =
-          response?.data?.data?.restaurant ||
-          response?.data?.restaurant ||
-          response?.data?.data ||
-          null
-        const pureVeg = profile?.pureVegRestaurant === true
-        setIsPureVegRestaurant(pureVeg)
-        if (pureVeg) setFoodType("Veg")
-      } catch (error) {
-        debugWarn("Failed to load restaurant diet type:", error)
-      }
-    }
-    fetchRestaurantDietType()
-  }, [])
 
   // Fetch item data from menu API when editing
   useEffect(() => {
@@ -320,68 +239,59 @@ export default function ItemDetailsPage() {
     fetchItemData()
   }, [id, isNewItem, location.state, defaultCategory])
 
-  // Fetch categories once on mount
-  const fetchCategories = useCallback(async () => {
-    try {
-      setLoadingCategories(true)
-      const response = await restaurantAPI.getCategories()
-      if (response.data.success && response.data.data.categories) {
-        const formattedCategories = response.data.data.categories.map(cat => ({
-          id: cat._id || cat.id,
-          name: cat.name,
-          foodTypeScope: cat.foodTypeScope || "Both",
-        }))
-        setCategories(formattedCategories)
-        return formattedCategories
-      }
-      setCategories([])
-      return []
-    } catch (error) {
-      debugError('Error fetching restaurant categories:', error)
-      setCategories([])
-      return []
-    } finally {
-      setLoadingCategories(false)
-    }
-  }, [])
-
-  // Fetch categories once on mount; auto-match by name if category passed via nav state
+  // Fetch categories from restaurant-specific API
   useEffect(() => {
-    fetchCategories().then((formattedCategories) => {
-      if (!defaultCategoryId && defaultCategory && defaultCategory !== "Select category") {
-        const matched = formattedCategories.find((cat) => cat.name === defaultCategory)
-        if (matched) {
-          setSelectedCategoryId(matched.id)
-          setCategory(matched.name)
+    const fetchCategories = async () => {
+      try {
+        setLoadingCategories(true)
+        try {
+          const restaurantRes = await restaurantAPI.getCurrentRestaurant()
+          const restaurant = restaurantRes?.data?.data?.restaurant || restaurantRes?.data?.restaurant
+          setIsPureVegRestaurant(restaurant?.pureVegRestaurant === true)
+        } catch {
+          setIsPureVegRestaurant(false)
         }
+        const response = await restaurantAPI.getCategories()
+        if (response.data.success && response.data.data.categories) {
+          // Format categories for the UI - flat list, no subcategories
+          const formattedCategories = response.data.data.categories.map(cat => ({
+            id: cat._id || cat.id,
+            name: cat.name,
+            foodTypeScope: cat.foodTypeScope || "Both",
+          }))
+
+          debugLog('Formatted restaurant categories:', formattedCategories)
+          setCategories(formattedCategories)
+          if (!selectedCategoryId && formattedCategories.length > 0) {
+            const preferredName = String(category || defaultCategory || "").trim()
+            const matchedByName = formattedCategories.find((cat) => cat.name === preferredName)
+            const nextCategory = matchedByName || (isNewItem ? formattedCategories[0] : null)
+            if (nextCategory) {
+              setSelectedCategoryId(nextCategory.id)
+              setCategory(nextCategory.name)
+            }
+          }
+        } else {
+          // If no categories exist, show empty array (user can add categories)
+          setCategories([])
+        }
+      } catch (error) {
+        debugError('Error fetching restaurant categories:', error)
+        // Show empty array on error - user can add categories
+        setCategories([])
+      } finally {
+        setLoadingCategories(false)
       }
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    }
+
+    fetchCategories()
+  }, [category, defaultCategory, defaultCategoryId, isNewItem, selectedCategoryId])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setDebouncedCategorySearch(categorySearchQuery.trim())
-    }, 300)
-    return () => window.clearTimeout(timer)
-  }, [categorySearchQuery])
-
-  useEffect(() => {
-    if (!isCategoryPopupOpen) {
-      setCategorySearchQuery("")
-      setDebouncedCategorySearch("")
+    if (isPureVegRestaurant && foodType !== "Veg") {
+      setFoodType("Veg")
     }
-  }, [isCategoryPopupOpen])
-
-  const filteredCategories = useMemo(() => {
-    let list = categories
-    if (isPureVegRestaurant) {
-      list = list.filter((cat) => cat.foodTypeScope !== "Non-Veg")
-    }
-    if (!debouncedCategorySearch) return list
-    const query = debouncedCategorySearch.toLowerCase()
-    return list.filter((cat) => String(cat.name || "").toLowerCase().includes(query))
-  }, [categories, debouncedCategorySearch, isPureVegRestaurant])
+  }, [isPureVegRestaurant, foodType])
 
   // Keep focused form fields visible above mobile keyboard
   useEffect(() => {
@@ -490,7 +400,11 @@ export default function ItemDetailsPage() {
   }
 
   const handleCameraClick = () => {
-    setIsPhotoPickerOpen(true)
+    if (isFlutterBridgeAvailable()) {
+      setIsPhotoPickerOpen(true)
+    } else {
+      fileInputRef.current?.click()
+    }
   }
 
   const handleImageDelete = (index) => {
@@ -615,13 +529,15 @@ export default function ItemDetailsPage() {
       toast.error("Please enter an item name")
       return
     }
-
-
+    if (isNewItem && images.length === 0) {
+      toast.error("Please add at least one image")
+      return
+    }
 
     try {
       setUploadingImages(true)
 
-      // Upload new images to the server
+      // Upload new images to Cloudinary
       const uploadedImageUrls = []
 
       // Separate existing URLs (already uploaded) from new files (blob URLs)
@@ -635,7 +551,7 @@ export default function ItemDetailsPage() {
       debugLog('Existing image URLs (already uploaded):', existingImageUrls)
       debugLog('Image files map:', imageFiles)
 
-      // Upload new File objects to the server
+      // Upload new File objects to Cloudinary (files that are blob URLs)
       const filesToUpload = Array.from(imageFiles.values())
       debugLog('Files to upload:', filesToUpload.length, filesToUpload)
 
@@ -648,7 +564,7 @@ export default function ItemDetailsPage() {
             let uploadResponse
             try {
               uploadResponse = await uploadAPI.uploadMedia(file, {
-                folder: 'appzeto/restaurant/menu-items'
+                folder: 'eatiefy/restaurant/menu-items'
               })
             } catch (folderUploadError) {
               // Fallback: retry without folder in case provider/account rejects custom folder.
@@ -683,7 +599,11 @@ export default function ItemDetailsPage() {
         self.indexOf(url) === index
       ).slice(0, 1)
 
-
+      if (isNewItem && allImageUrls.length === 0) {
+        toast.error("Please add at least one image")
+        setUploadingImages(false)
+        return
+      }
 
       // Debug: Log image URLs
       debugLog('=== IMAGE UPLOAD SUMMARY ===')
@@ -721,6 +641,7 @@ export default function ItemDetailsPage() {
           persistedId: String(variant.persistedId || "").trim(),
           name: String(variant.name || "").trim(),
           price: Number(variant.price),
+          otherPrice: Number(variant.otherPrice) || 0,
         }))
         .filter((variant) => variant.name || variant.persistedId || variant.price)
 
@@ -744,13 +665,24 @@ export default function ItemDetailsPage() {
         return
       }
 
+      const parsedOtherPrice = Number(otherPrice) || 0
+      if (
+        !hasVariants &&
+        Number.isFinite(parsedOtherPrice) &&
+        parsedOtherPrice > 0 &&
+        parsedOtherPrice <= parsedBasePrice
+      ) {
+        toast.error("Other platform price should be greater than your selling price")
+        setUploadingImages(false)
+        return
+      }
+
       const variantPayload = normalizedVariants.map((variant) => ({
         ...(variant.persistedId ? { _id: variant.persistedId } : {}),
         name: variant.name,
         price: variant.price,
+        otherPrice: variant.otherPrice > 0 ? variant.otherPrice : 0,
       }))
-
-      const effectiveFoodType = isPureVegRestaurant ? "Veg" : foodType
 
       // Create/update FoodItem in DB (single call per explicit Save; no autosave spam)
       let itemId
@@ -759,14 +691,15 @@ export default function ItemDetailsPage() {
           name: itemName.trim(),
           description: itemDescription.trim(),
           price: hasVariants ? undefined : parsedBasePrice,
+          otherPrice: hasVariants ? 0 : parsedOtherPrice,
           variants: variantPayload,
           image: allImageUrls.length > 0 ? allImageUrls[0] : "",
-          foodType: effectiveFoodType,
+          foodType: foodType,
           isAvailable: isInStock,
-          isRecommended: isRecommended === true,
           preparationTime: preparationTime || "",
           categoryId: categoryId || undefined,
           categoryName,
+          isRecommended,
         })
         const created = createRes?.data?.data?.food || createRes?.data?.food
         itemId = String(created?._id || created?.id || "")
@@ -782,43 +715,24 @@ export default function ItemDetailsPage() {
           name: itemName.trim(),
           description: itemDescription.trim(),
           price: hasVariants ? undefined : parsedBasePrice,
+          otherPrice: hasVariants ? 0 : parsedOtherPrice,
           variants: variantPayload,
           image: allImageUrls.length > 0 ? allImageUrls[0] : "",
-          foodType: effectiveFoodType,
+          foodType: foodType,
           isAvailable: isInStock,
-          isRecommended: isRecommended === true,
           preparationTime: preparationTime || "",
           categoryId: categoryId || undefined,
           categoryName,
+          isRecommended,
         })
       }
 
-      try {
-        const nextRecommendedMap = (() => {
-          if (typeof window === "undefined") return null
-          const raw = window.localStorage.getItem(INVENTORY_RECOMMENDED_KEY)
-          const parsed = raw ? JSON.parse(raw) : {}
-          const safeMap = parsed && typeof parsed === "object" ? parsed : {}
-          return {
-            ...safeMap,
-            [String(itemId)]: Boolean(isRecommended),
-          }
-        })()
 
-        if (nextRecommendedMap && typeof window !== "undefined") {
-          window.localStorage.setItem(
-            INVENTORY_RECOMMENDED_KEY,
-            JSON.stringify(nextRecommendedMap),
-          )
-        }
-      } catch (recommendedError) {
-        debugWarn("Failed to persist recommended state after save:", recommendedError)
-      }
-
+      const imageCount = allImageUrls.length
       toast.success(
         isNewItem
-          ? "Item created successfully"
-          : "Item updated and sent for approval again"
+          ? `Item created successfully with ${imageCount} image(s)`
+          : `Item updated and sent for approval again with ${imageCount} image(s)`
       )
       await new Promise((resolve) => setTimeout(resolve, 200))
       navigate("/food/restaurant/inventory", { replace: true })
@@ -858,7 +772,7 @@ export default function ItemDetailsPage() {
   }
 
   return (
-    <div className="h-screen bg-white flex flex-col overflow-hidden">
+    <div className="h-screen bg-white flex flex-col overflow-hidden md:h-full md:bg-slate-50">
       <style>{`
         [data-slot="switch"][data-state="checked"] {
           background-color: #16a34a !important;
@@ -868,27 +782,36 @@ export default function ItemDetailsPage() {
         }
       `}</style>
       {/* Header */}
-      <div className="sticky top-0 z-40 bg-white border-b border-gray-200 flex-shrink-0">
-        <div className="px-4 py-3 flex items-center gap-3">
+      <div className="sticky top-0 z-40 bg-white border-b border-gray-200 flex-shrink-0 md:border-slate-200">
+        <div className="px-4 py-3 flex items-center gap-3 md:max-w-6xl md:mx-auto md:px-6 md:py-4">
           <button
             onClick={goBack}
             className="p-1 rounded-full hover:bg-gray-100"
           >
             <ArrowLeft className="w-5 h-5 text-gray-700" />
           </button>
-          <h1 className="text-xl font-bold text-gray-900">Item details</h1>
+          <div>
+            <h1 className="text-xl font-bold text-gray-900 md:text-2xl">
+              {isNewItem ? "Add menu item" : "Edit menu item"}
+            </h1>
+            <p className="hidden md:block text-sm text-slate-500 mt-0.5">
+              Photos, pricing, and availability in one place
+            </p>
+          </div>
         </div>
       </div>
 
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto" style={{ paddingBottom: `${96 + keyboardInset}px` }}>
+      <div className="flex-1 overflow-y-auto md:py-6 md:min-h-0" style={{ paddingBottom: `${96 + keyboardInset}px` }}>
+        <div className="md:max-w-6xl md:mx-auto md:px-6 md:grid md:grid-cols-[minmax(300px,380px)_minmax(0,1fr)] md:gap-8 md:items-start">
+        <div className="md:sticky md:top-6">
         {!isNewItem && currentApprovalStatus === "rejected" && currentRejectionReason ? (
-          <div className="px-4 pt-4">
+          <div className="px-4 pt-4 md:px-0 md:mb-4">
             <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
               <p className="text-sm font-semibold text-red-700">Approval rejected</p>
-              <p className="mt-1 text-sm leading-5 text-[#B80B3D]">Reason: {currentRejectionReason}</p>
-              <p className="mt-2 text-xs font-medium uppercase tracking-[0.18em] text-[#B80B3D]">
+              <p className="mt-1 text-sm leading-5 text-red-600">Reason: {currentRejectionReason}</p>
+              <p className="mt-2 text-xs font-medium uppercase tracking-[0.18em] text-red-500">
                 Update the dish and save to send it for approval again
               </p>
             </div>
@@ -896,9 +819,9 @@ export default function ItemDetailsPage() {
         ) : null}
 
         {/* Image Carousel */}
-        <div className="relative bg-white">
+        <div className="relative bg-white md:rounded-2xl md:border md:border-slate-200 md:shadow-sm md:overflow-hidden">
           {images.length > 0 ? (
-            <div className="relative w-full h-80 overflow-hidden bg-gray-100">
+            <div className="relative w-full h-80 md:h-72 overflow-hidden bg-gray-100">
               {/* Image container with swipe support */}
               <div
                 ref={carouselRef}
@@ -922,7 +845,7 @@ export default function ItemDetailsPage() {
                         src={images[currentImageIndex]}
                         alt={`${itemName} - Image ${currentImageIndex + 1}`}
                         className="w-full h-full object-cover"
-                      />
+                       loading="lazy" decoding="async" />
                     ) : null}
                   </motion.div>
                 </AnimatePresence>
@@ -945,17 +868,13 @@ export default function ItemDetailsPage() {
                   </>
                 )}
 
-                {/* Remove Dish Photo button (Top Right) */}
-                {images.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowRemoveImageConfirm(true)}
-                    className="absolute top-4 right-4 w-10 h-10 bg-[#B80B3D] hover:bg-[#990831] rounded-full flex items-center justify-center shadow-md transition-all z-20 text-white active:scale-95 border border-white/30"
-                    title="Remove Dish Photo"
-                  >
-                    <Trash2 className="w-5 h-5 text-white stroke-[2.2]" />
-                  </button>
-                )}
+                {/* Delete image button */}
+                <button
+                  onClick={() => handleImageDelete(currentImageIndex)}
+                  className="absolute top-4 right-4 w-10 h-10 bg-white/90 backdrop-blur-sm rounded-full flex items-center justify-center shadow-lg hover:bg-white transition-all z-10"
+                >
+                  <Trash2 className="w-5 h-5 text-gray-900" />
+                </button>
 
                 {/* Image counter */}
                 {images.length > 1 && (
@@ -978,7 +897,7 @@ export default function ItemDetailsPage() {
                         setCurrentImageIndex(index)
                       }}
                       className={`transition-all duration-300 rounded-full ${index === currentImageIndex
-                        ? "w-8 h-2 bg-gradient-to-br from-[#B80B3D] to-[#66001D]"
+                        ? "w-8 h-2 bg-gray-900"
                         : "w-2 h-2 bg-gray-300 hover:bg-gray-400"
                         }`}
                     />
@@ -987,26 +906,19 @@ export default function ItemDetailsPage() {
               )}
             </div>
           ) : (
-            <div className="relative w-full h-80 bg-gray-100 overflow-hidden">
-              <img
-                src={dishFallbackImage}
-                alt="Dish Fallback"
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px] flex items-center justify-center">
-                <div className="text-center bg-white/90 dark:bg-gray-900/90 backdrop-blur-md px-6 py-4 rounded-2xl shadow-xl border border-white/20">
-                  <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-2">
-                    <Camera className="w-6 h-6 text-gray-600 dark:text-gray-300" />
-                  </div>
-                  <p className="text-sm font-bold text-gray-900 dark:text-gray-100">No Image Uploaded</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Optional: Tap button below to add a photo</p>
+            <div className="relative w-full h-80 md:h-72 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+              <div className="text-center">
+                <div className="w-20 h-20 bg-white/80 rounded-full flex items-center justify-center mx-auto mb-3 shadow-lg">
+                  <Camera className="w-10 h-10 text-gray-400" />
                 </div>
+                <p className="text-sm font-medium text-gray-600">No images added yet</p>
+                <p className="text-xs text-gray-500 mt-1">Tap the button below to add one image</p>
               </div>
             </div>
           )}
 
           {/* Add image button - redesigned */}
-          <div className="px-4 py-4 bg-white border-t border-gray-100">
+          <div className="px-4 py-4 bg-white border-t border-gray-100 md:px-5 md:py-5">
             <input
               ref={fileInputRef}
               type="file"
@@ -1016,18 +928,20 @@ export default function ItemDetailsPage() {
             />
             <button
               onClick={handleCameraClick}
-              className="w-full flex items-center justify-center gap-2.5 px-6 py-3.5 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white rounded-xl text-sm font-semibold cursor-pointer hover:from-gray-800 hover:to-gray-700 transition-all shadow-md hover:shadow-lg active:scale-95"
+              className="w-full flex items-center justify-center gap-2.5 px-6 py-3.5 bg-gradient-to-r from-gray-900 to-gray-800 text-white rounded-xl text-sm font-semibold cursor-pointer hover:from-gray-800 hover:to-gray-700 transition-all shadow-md hover:shadow-lg active:scale-95"
             >
               <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center">
                 <Plus className="w-4 h-4" />
               </div>
-              <span>{images.length > 0 ? "Replace Image" : "Add Image (Optional)"}</span>
+              <span>Add Image</span>
             </button>
           </div>
         </div>
+        </div>
 
         {/* Form Fields */}
-        <div className="p-4 space-y-3">
+        <div className="p-4 space-y-3 md:p-0 md:space-y-5">
+          <div className="md:bg-white md:rounded-2xl md:border md:border-slate-200 md:shadow-sm md:p-6 md:space-y-5">
           {/* Category Selector */}
           <div>
             <label className="block text-sm font-medium text-gray-900 mb-2">
@@ -1035,10 +949,10 @@ export default function ItemDetailsPage() {
             </label>
             <button
               onClick={() => setIsCategoryPopupOpen(true)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg text-left flex items-center justify-between bg-white hover:bg-gray-50 transition-colors"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg text-left flex items-center justify-between bg-white hover:bg-gray-50 transition-colors md:rounded-xl"
             >
-              <span className={`text-sm ${selectedCategoryId ? "text-gray-900" : "text-gray-400"}`}>
-                {selectedCategoryId ? category : "Select category"}
+              <span className="text-sm text-gray-900">
+                {category || "Select category"}
               </span>
               <ChevronDown className="w-5 h-5 text-gray-500" />
             </button>
@@ -1055,7 +969,7 @@ export default function ItemDetailsPage() {
                 value={itemName}
                 onChange={(e) => setItemName(e.target.value)}
                 maxLength={maxNameLength}
-                className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#B80B3D] focus:border-transparent"
+                className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="Enter item name"
               />
               <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-gray-100">
@@ -1069,8 +983,9 @@ export default function ItemDetailsPage() {
             </div>
           </div>
 
+
           {/* Item Description */}
-          <div className="-mt-1">
+          <div>
             <label className="block text-sm font-medium text-gray-900 mb-2">
               Item description
             </label>
@@ -1081,14 +996,14 @@ export default function ItemDetailsPage() {
                 maxLength={maxDescriptionLength}
                 rows={4}
                 placeholder="Eg: Yummy veg paneer burger with a soft patty, veggies, cheese, and special sauce"
-                className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#B80B3D] focus:border-transparent resize-none"
+                className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
               />
               <button className="absolute right-3 top-3 p-1 rounded-full hover:bg-gray-100">
                 <EditIcon className="w-4 h-4 text-gray-500" />
               </button>
             </div>
             <div className="flex items-center justify-between mt-1">
-              <span className={`text-xs ${descriptionLength < minDescriptionLength ? "text-[#B80B3D]" : "text-gray-500"}`}>
+              <span className={`text-xs ${descriptionLength < minDescriptionLength ? "text-red-500" : "text-gray-500"}`}>
                 {descriptionLength < minDescriptionLength ? "Min 5 characters required" : ""}
               </span>
               <span className="text-xs text-gray-500">
@@ -1098,22 +1013,21 @@ export default function ItemDetailsPage() {
             {/* Dietary Options */}
             <div className="flex gap-2 mt-3">
               <button
-                type="button"
                 onClick={() => setFoodType("Veg")}
                 className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${foodType === "Veg"
-                  ? "border-green-600 border-2 text-green-600"
+                  ? "border-2"
                   : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                   }`}
+                style={foodType === "Veg" ? { borderColor: "#16A34A", color: "#16A34A", backgroundColor: "#F0FDF4" } : undefined}
               >
-                {foodType === "Veg" && <Check className="w-4 h-4" />}
+                {foodType === "Veg" && <Check className="w-4 h-4" style={{ color: "#16A34A" }} />}
                 <span>Veg</span>
               </button>
               {!isPureVegRestaurant && (
                 <button
-                  type="button"
                   onClick={() => setFoodType("Non-Veg")}
                   className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${foodType === "Non-Veg"
-                    ? "border-red-600 border-2 text-[#B80B3D]"
+                    ? "border-red-600 border-2 text-red-600"
                     : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                     }`}
                 >
@@ -1131,7 +1045,7 @@ export default function ItemDetailsPage() {
             </label>
             <div className="space-y-3">
               {variants.length === 0 ? (
-                <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="relative">
                     <label className="block text-xs text-gray-600 mb-1">Base price</label>
                     <div className="relative">
@@ -1152,7 +1066,7 @@ export default function ItemDetailsPage() {
                           }
                         }}
                         placeholder="Enter price"
-                        className="w-full pl-8 pr-12 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#B80B3D] focus:border-transparent"
+                        className="w-full pl-8 pr-12 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       />
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-600">{"\u20B9"}</span>
                       <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-gray-100">
@@ -1160,7 +1074,30 @@ export default function ItemDetailsPage() {
                       </button>
                     </div>
                   </div>
-                </>
+                  <div className="relative">
+                    <label className="block text-xs text-gray-600 mb-1">Other platform price (Optional)</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={otherPrice}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/[\u20B9\s,]/g, '').replace(/[^0-9.]/g, '')
+                          const parts = value.split('.')
+                          const cleanedValue = parts.length > 2
+                            ? parts[0] + '.' + parts.slice(1).join('')
+                            : value
+                          setOtherPrice(cleanedValue)
+                        }}
+                        placeholder="Price on other apps"
+                        className="w-full pl-8 pr-3 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-600">{"\u20B9"}</span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-gray-500">
+                      Shown with a strikethrough next to your selling price when higher.
+                    </p>
+                  </div>
+                </div>
               ) : (
                 <div className="rounded-lg border border-orange-100 bg-orange-50 px-3 py-2 text-sm text-orange-700">
                   Customers will see the lowest variant price first.
@@ -1187,15 +1124,15 @@ export default function ItemDetailsPage() {
                   <div className="space-y-3">
                     {variants.map((variant, index) => (
                       <div key={variant.localId} className="grid grid-cols-[1fr_auto] gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                           <div>
                             <label className="block text-xs text-gray-600 mb-1">Variant name</label>
                             <input
                               type="text"
                               value={variant.name}
                               onChange={(e) => handleVariantChange(variant.localId, "name", e.target.value)}
-                              placeholder={index === 0 ? "e.g., Half" : "e.g., Full"}
-                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#B80B3D] focus:border-transparent"
+                              placeholder={index === 0 ? "Full" : "Half"}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             />
                           </div>
                           <div>
@@ -1213,7 +1150,27 @@ export default function ItemDetailsPage() {
                                   handleVariantChange(variant.localId, "price", cleanedValue)
                                 }}
                                 placeholder="Enter price"
-                                className="w-full pl-8 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#B80B3D] focus:border-transparent"
+                                className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              />
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-600">{"\u20B9"}</span>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-600 mb-1">Other price</label>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={variant.otherPrice}
+                                onChange={(e) => {
+                                  const value = e.target.value.replace(/[\u20B9\s,]/g, '').replace(/[^0-9.]/g, '')
+                                  const parts = value.split('.')
+                                  const cleanedValue = parts.length > 2
+                                    ? parts[0] + '.' + parts.slice(1).join('')
+                                    : value
+                                  handleVariantChange(variant.localId, "otherPrice", cleanedValue)
+                                }}
+                                placeholder="Optional"
+                                className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                               />
                               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-600">{"\u20B9"}</span>
                             </div>
@@ -1222,9 +1179,10 @@ export default function ItemDetailsPage() {
                         <button
                           type="button"
                           onClick={() => handleRemoveVariant(variant.localId)}
-                          className="h-10 w-10 rounded-full border border-gray-200 bg-white text-gray-500 hover:bg-gray-100 flex items-center justify-center"
+                          className="self-start rounded-full p-2 text-gray-500 hover:bg-white hover:text-red-500"
+                          aria-label="Remove variant"
                         >
-                          <X className="w-4 h-4" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     ))}
@@ -1241,7 +1199,7 @@ export default function ItemDetailsPage() {
                   <select
                     value={preparationTime}
                     onChange={(e) => setPreparationTime(e.target.value)}
-                    className="w-full pl-4 pr-10 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#B80B3D] focus:border-transparent appearance-none"
+                    className="w-full pl-4 pr-10 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none"
                   >
                     <option value="">Select timing</option>
                     <option value="10-20 mins">10-20 mins</option>
@@ -1267,26 +1225,30 @@ export default function ItemDetailsPage() {
           </div>
 
           {/* Recommend and In Stock */}
-          <div className="space-y-4 py-4 border-t border-gray-200">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700">Recommended</span>
-              <Switch
-                checked={isRecommended}
-                onCheckedChange={setIsRecommended}
-                className="data-[state=checked]:bg-green-600"
-              />
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700">In stock</span>
+          <div className="flex items-center justify-between py-3 border-t border-gray-200 md:pt-5 md:mt-1">
+            <button
+              onClick={() => setIsRecommended(!isRecommended)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isRecommended
+                ? "bg-blue-100 text-blue-700"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+            >
+              <ThumbsUp className="w-4 h-4" />
+              <span>Recommend</span>
+            </button>
+            <div className="flex items-center gap-2">
               <Switch
                 checked={isInStock}
                 onCheckedChange={setIsInStock}
-                className="data-[state=checked]:bg-green-600"
+                className="data-[state=unchecked]:bg-gray-300"
               />
+              <span className="text-sm text-gray-700">In stock</span>
             </div>
           </div>
 
 
+          </div>
+        </div>
         </div>
       </div>
 
@@ -1301,25 +1263,24 @@ export default function ItemDetailsPage() {
               onClick={() => setIsCategoryPopupOpen(false)}
               className="fixed inset-0 bg-black/50 z-50"
             />
+            {/* Mobile bottom sheet */}
             <motion.div
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 30, stiffness: 300 }}
-              className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 h-[85vh] flex flex-col"
+              className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 max-h-[85vh] flex flex-col md:hidden"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="shrink-0 flex items-center justify-between px-4 py-4 border-b border-gray-200">
+              <div className="flex items-center justify-between px-4 py-4 border-b border-gray-200">
                 <h2 className="text-lg font-bold text-gray-900">Select category</h2>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
                       setIsCategoryPopupOpen(false)
-                      navigate('/restaurant/menu-categories', {
-                        state: { backTo: location.pathname, openCategoryPopup: true }
-                      })
+                      navigate('/food/restaurant/menu-categories')
                     }}
-                    className="p-2 rounded-lg bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white hover:bg-gray-800 transition-colors flex items-center gap-1.5"
+                    className="p-2 rounded-lg bg-black text-white hover:bg-gray-800 transition-colors flex items-center gap-1.5"
                     title="Add Category"
                   >
                     <Plus className="w-4 h-4" />
@@ -1333,96 +1294,135 @@ export default function ItemDetailsPage() {
                   </button>
                 </div>
               </div>
-              <div className="shrink-0 border-b border-gray-200 bg-white px-4 py-3">
-                <div className="relative">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                  <input
-                    ref={categorySearchInputRef}
-                    type="text"
-                    value={categorySearchQuery}
-                    onChange={(e) => setCategorySearchQuery(e.target.value)}
-                    placeholder="Search categories..."
-                    className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#B80B3D]/25 focus:border-[#B80B3D]/40 focus:bg-white transition-colors"
-                  />
-                  {categorySearchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setCategorySearchQuery("")}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                      aria-label="Clear search"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="flex-1 min-h-0 overflow-y-auto p-2 flex flex-col">
+              <div className="flex-1 overflow-y-auto p-2">
                 {loadingCategories ? (
-                  <div className="flex flex-1 items-center justify-center">
+                  <div className="flex items-center justify-center py-12">
                     <Loader2 className="w-6 h-6 animate-spin text-gray-600" />
                   </div>
                 ) : categories.length === 0 ? (
-                  <div className="flex flex-1 flex-col items-center justify-center space-y-4">
+                  <div className="text-center py-12 space-y-4">
                     <p className="text-sm text-gray-500">No categories available</p>
                     <button
                       onClick={() => {
                         setIsCategoryPopupOpen(false)
-                        navigate('/restaurant/menu-categories', {
-                          state: { backTo: location.pathname, openCategoryPopup: true }
-                        })
+                        navigate('/food/restaurant/menu-categories')
                       }}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white rounded-lg font-semibold hover:bg-gray-800 transition-colors"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg font-semibold hover:bg-gray-800 transition-colors"
                     >
                       <Plus className="w-5 h-5" />
                       Add Category
                     </button>
                   </div>
-                ) : filteredCategories.length === 0 ? (
-                  <div className="flex flex-1 items-center justify-center">
-                    <p className="text-sm text-gray-500">No matching categories found.</p>
-                  </div>
                 ) : (
-                  <div className="space-y-1.5">
-                    {filteredCategories.map((cat) => {
-                      const isSelected = String(selectedCategoryId || "") === String(cat.id)
-                      const isVeg = cat.foodTypeScope === "Veg"
-                      const isNonVeg = cat.foodTypeScope === "Non-Veg"
-                      return (
+                  <div className="space-y-2">
+                    {categories.map((cat) => (
+                      <button
+                        key={cat.id}
+                        onClick={() => handleCategorySelect(cat.id, cat.name)}
+                        className={`w-full rounded-lg px-4 py-3 text-left transition-colors ${String(selectedCategoryId || "") === String(cat.id)
+                          ? "bg-gray-900 text-white"
+                          : "bg-gray-50 text-gray-900 hover:bg-gray-100"
+                          }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-sm font-medium">{cat.name}</span>
+                          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${cat.foodTypeScope === "Veg"
+                            ? "border-green-200 bg-green-50 text-green-700"
+                            : cat.foodTypeScope === "Non-Veg"
+                              ? "border-red-200 bg-red-50 text-red-700"
+                              : "border-slate-200 bg-slate-100 text-slate-700"
+                            }`}>
+                            {cat.foodTypeScope || "Both"}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+
+            {/* Desktop centered dialog */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              transition={{ duration: 0.2 }}
+              className="hidden md:flex fixed inset-0 z-50 items-center justify-center p-6"
+              onClick={() => setIsCategoryPopupOpen(false)}
+            >
+              <div
+                className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden border border-slate-200"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+                  <h2 className="text-lg font-bold text-gray-900">Select category</h2>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setIsCategoryPopupOpen(false)
+                        navigate('/food/restaurant/menu-categories')
+                      }}
+                      className="p-2 rounded-lg bg-black text-white hover:bg-gray-800 transition-colors flex items-center gap-1.5"
+                      title="Add Category"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span className="text-sm font-medium">Add</span>
+                    </button>
+                    <button
+                      onClick={() => setIsCategoryPopupOpen(false)}
+                      className="p-1 rounded-full hover:bg-gray-100"
+                    >
+                      <X className="w-5 h-5 text-gray-600" />
+                    </button>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto p-3">
+                  {loadingCategories ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="w-6 h-6 animate-spin text-gray-600" />
+                    </div>
+                  ) : categories.length === 0 ? (
+                    <div className="text-center py-12 space-y-4">
+                      <p className="text-sm text-gray-500">No categories available</p>
+                      <button
+                        onClick={() => {
+                          setIsCategoryPopupOpen(false)
+                          navigate('/food/restaurant/menu-categories')
+                        }}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg font-semibold hover:bg-gray-800 transition-colors"
+                      >
+                        <Plus className="w-5 h-5" />
+                        Add Category
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {categories.map((cat) => (
                         <button
-                          key={cat.id}
+                          key={`desktop-${cat.id}`}
                           onClick={() => handleCategorySelect(cat.id, cat.name)}
-                          className={`w-full rounded-xl px-4 py-3 text-left transition-all ${isSelected
-                            ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white shadow-md"
-                            : "bg-gray-50 text-gray-900 hover:bg-gray-100"
+                          className={`w-full rounded-xl px-4 py-3 text-left transition-colors ${String(selectedCategoryId || "") === String(cat.id)
+                            ? "bg-gray-900 text-white"
+                            : "bg-slate-50 text-gray-900 hover:bg-slate-100"
                             }`}
                         >
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-sm font-medium">{cat.name}</span>
-                            {isVeg ? (
-                              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold ${isSelected ? "border-green-400 bg-green-900/40 text-green-300" : "border-green-300 bg-green-50 text-green-700"}`}>
-                                <span className={`w-3.5 h-3.5 rounded-sm border-2 flex items-center justify-center flex-shrink-0 ${isSelected ? "border-green-400" : "border-green-600"}`}>
-                                  <span className={`w-1.5 h-1.5 rounded-full block ${isSelected ? "bg-green-400" : "bg-green-600"}`} />
-                                </span>
-                                Veg
-                              </div>
-                            ) : isNonVeg ? (
-                              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold ${isSelected ? "border-white/40 bg-white/15 text-white" : "border-red-300 bg-red-50 text-red-700"}`}>
-                                <span className={`w-3.5 h-3.5 rounded-sm border-2 flex items-center justify-center flex-shrink-0 ${isSelected ? "border-white" : "border-red-600"}`}>
-                                  <span className={`w-1.5 h-1.5 rounded-full block ${isSelected ? "bg-white" : "bg-red-600"}`} />
-                                </span>
-                                Non-Veg
-                              </div>
-                            ) : (
-                              <div className={`flex items-center gap-1 px-2.5 py-1 rounded-full border text-[11px] font-semibold ${isSelected ? "border-white/40 bg-white/15 text-white" : "border-slate-200 bg-slate-100 text-slate-600"}`}>
-                                Both
-                              </div>
-                            )}
+                            <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${cat.foodTypeScope === "Veg"
+                              ? "border-green-200 bg-green-50 text-green-700"
+                              : cat.foodTypeScope === "Non-Veg"
+                                ? "border-red-200 bg-red-50 text-red-700"
+                                : "border-slate-200 bg-slate-100 text-slate-700"
+                              }`}>
+                              {cat.foodTypeScope || "Both"}
+                            </span>
                           </div>
                         </button>
-                      )
-                    })}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </motion.div>
           </>
@@ -1455,7 +1455,7 @@ export default function ItemDetailsPage() {
                   onClick={() => setIsGstPopupOpen(false)}
                   className="p-1 rounded-full hover:bg-gray-100"
                 >
-                  <X className="w-5 h-5 text-gray-600" />
+                  <X className="w-5 h-5 text-gray-600"
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto px-4 py-4">
@@ -1466,7 +1466,7 @@ export default function ItemDetailsPage() {
                       onClick={() => handleGstSelect(gstValue)}
                       className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
                         gst === gstValue
-                          ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white"
+                          ? "bg-gray-900 text-white"
                           : "bg-gray-50 text-gray-900 hover:bg-gray-100"
                       }`}
                     >
@@ -1483,37 +1483,30 @@ export default function ItemDetailsPage() {
 
       {/* Bottom Sticky Buttons */}
       <div
-        className="fixed left-0 right-0 bg-white border-t border-gray-200 z-40"
+        className="fixed left-0 right-0 bg-white border-t border-gray-200 z-40 md:left-64 md:bg-white/95 md:backdrop-blur md:border-slate-200"
         style={{ bottom: `${keyboardInset}px` }}
       >
-        {!isNewItem && (
-          <div className="pt-2 pb-0 text-center border-b border-gray-100">
+        <div className={`flex gap-3 px-4 py-4 md:max-w-6xl md:mx-auto md:px-6 ${isNewItem ? 'justify-end' : ''}`}>
+          {!isNewItem && (
             <button
-              type="button"
-              onClick={() => setShowDeleteItemConfirm(true)}
-              className="text-xs font-semibold text-rose-600 hover:text-rose-700 hover:underline flex items-center justify-center gap-1.5 mx-auto py-1.5 px-3 rounded-lg hover:bg-rose-50 transition-colors"
+              onClick={handleDelete}
+              className="flex-1 py-3 px-4 border border-black rounded-lg text-sm font-semibold text-black bg-white hover:bg-gray-50 transition-colors md:flex-none md:min-w-[140px]"
             >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Delete Entire Item from Menu</span>
+              Delete
             </button>
-          </div>
-        )}
-        <div className="flex gap-3 px-4 py-3">
-          <button
-            onClick={goBack}
-            className="flex-1 py-3 px-4 border border-gray-300 rounded-lg text-sm font-bold text-gray-900 bg-white hover:bg-gray-50 transition-colors uppercase"
-          >
-            Cancel
-          </button>
+          )}
           <button
             onClick={handleSave}
             disabled={uploadingImages}
-            className="flex-1 py-3 px-4 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 uppercase bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D] disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
+            className={`${isNewItem ? 'w-full' : 'flex-1'} py-3 px-4 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 md:w-auto md:flex-none md:min-w-[220px] ${!uploadingImages
+              ? "bg-black text-white hover:bg-black"
+              : "bg-gray-300 text-gray-500 cursor-not-allowed"
+              }`}
           >
             {uploadingImages ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Saving...</span>
+                <span>Uploading...</span>
               </>
             ) : (
               "Save"
@@ -1521,102 +1514,6 @@ export default function ItemDetailsPage() {
           </button>
         </div>
       </div>
-
-      {/* Photo Removal Confirmation Modal */}
-      <AnimatePresence>
-        {showRemoveImageConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-sm bg-white dark:bg-gray-900 rounded-2xl p-6 shadow-2xl border border-gray-100 dark:border-gray-800 text-center"
-            >
-              <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-600 flex items-center justify-center mx-auto mb-4 border border-rose-100 dark:border-rose-900/50">
-                <Trash2 className="w-7 h-7" />
-              </div>
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
-                Remove Dish Photo?
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-6 leading-relaxed">
-                Are you sure you want to remove this dish photo? The photo will be removed once you click <strong>SAVE</strong>.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowRemoveImageConfirm(false)}
-                  className="flex-1 py-3 px-4 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setImages([]);
-                    setImageFiles(new Map());
-                    setCurrentImageIndex(0);
-                    setShowRemoveImageConfirm(false);
-                    toast.info("Photo removed. Click SAVE to apply changes.");
-                  }}
-                  className="flex-1 py-3 px-4 rounded-xl bg-rose-600 text-white text-sm font-semibold hover:bg-rose-700 transition-colors shadow-md shadow-rose-600/20"
-                >
-                  Yes, Remove
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Entire Dish Item Deletion Confirmation Modal */}
-      <AnimatePresence>
-        {showDeleteItemConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-sm bg-white dark:bg-gray-900 rounded-2xl p-6 shadow-2xl border border-gray-100 dark:border-gray-800 text-center"
-            >
-              <div className="w-14 h-14 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-600 flex items-center justify-center mx-auto mb-4 border border-rose-100 dark:border-rose-900/50">
-                <Trash2 className="w-7 h-7" />
-              </div>
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
-                Delete Dish Item?
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-6 leading-relaxed">
-                Are you sure you want to delete <strong>{itemName || "this item"}</strong> from your restaurant menu? This action cannot be undone.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  disabled={isDeletingItem}
-                  onClick={() => setShowDeleteItemConfirm(false)}
-                  className="flex-1 py-3 px-4 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={isDeletingItem}
-                  onClick={handleDeleteItem}
-                  className="flex-1 py-3 px-4 rounded-xl bg-rose-600 text-white text-sm font-semibold hover:bg-rose-700 transition-colors shadow-md shadow-rose-600/20 disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {isDeletingItem ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Deleting...</span>
-                    </>
-                  ) : (
-                    "Yes, Delete"
-                  )}
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
       {/* Photo Picker */}
       <ImageSourcePicker
         isOpen={isPhotoPickerOpen}
@@ -1630,12 +1527,3 @@ export default function ItemDetailsPage() {
     </div>
   )
 }
-
-
-
-
-
-
-
-
-

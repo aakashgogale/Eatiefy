@@ -1,10 +1,9 @@
-import { useState, useEffect } from "react"
+﻿import { useState, useEffect, useMemo } from "react"
 import { Search, Plus, Edit, Trash2, ToggleLeft, ToggleRight, Settings, ArrowUpDown, Check, Columns, Package } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@food/components/ui/dialog"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
-import AdminListPagination from "@food/components/admin/AdminListPagination"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -12,16 +11,6 @@ const debugError = (...args) => {}
 
 export default function EarningAddon() {
   const [searchQuery, setSearchQuery] = useState("")
-  const [debouncedSearch, setDebouncedSearch] = useState("")
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(() => {
-    try {
-      return Number(localStorage.getItem("admin_earning_addon_pageSize")) || 20
-    } catch {
-      return 20
-    }
-  })
-  const [totalItems, setTotalItems] = useState(0)
   const [earningAddons, setEarningAddons] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -50,45 +39,54 @@ export default function EarningAddon() {
   })
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300)
-    return () => clearTimeout(t)
-  }, [searchQuery])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [debouncedSearch])
-
-  useEffect(() => {
     fetchEarningAddons()
-  }, [currentPage, pageSize, debouncedSearch])
+  }, [])
 
   const fetchEarningAddons = async () => {
     try {
       setIsLoading(true)
-      const response = await adminAPI.getEarningAddons({
-        page: currentPage,
-        limit: pageSize,
-        search: debouncedSearch || undefined,
-      })
+      const response = await adminAPI.getEarningAddons()
       if (response.data.success) {
         const addons = response.data.data.earningAddons || []
+        debugLog('?? Fetched earning addons:', addons)
+        // Log redemption counts for debugging
+        addons.forEach(addon => {
+          debugLog(`?? Addon "${addon.title}":`, {
+            currentRedemptions: addon.currentRedemptions,
+            maxRedemptions: addon.maxRedemptions,
+            display: `${addon.currentRedemptions || 0} / ${addon.maxRedemptions || '8'}`
+          })
+        })
         setEarningAddons(addons)
-        setTotalItems(response.data.data.pagination?.total ?? addons.length)
       } else {
         toast.error(response.data.message || "Failed to fetch earning addons")
-        setEarningAddons([])
-        setTotalItems(0)
       }
     } catch (error) {
       debugError("Error fetching earning addons:", error)
+      debugError("Error details:", {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        url: error.config?.url
+      })
       const errorMessage = error.response?.data?.message || error.message || "Failed to fetch earning addons"
       toast.error(errorMessage)
-      setEarningAddons([])
-      setTotalItems(0)
     } finally {
       setIsLoading(false)
     }
   }
+
+  const filteredAddons = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return earningAddons
+    }
+    
+    const query = searchQuery.toLowerCase().trim()
+    return earningAddons.filter(addon =>
+      addon.title?.toLowerCase().includes(query) ||
+      addon.description?.toLowerCase().includes(query)
+    )
+  }, [earningAddons, searchQuery])
 
   const handleOpenDialog = (addon = null) => {
     if (addon) {
@@ -295,7 +293,7 @@ export default function EarningAddon() {
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold text-slate-900">Earning Addon Offers</h1>
               <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
-                {totalItems}
+                {filteredAddons.length}
               </span>
             </div>
 
@@ -354,7 +352,7 @@ export default function EarningAddon() {
                     {visibleColumns.earningAmount && (
                       <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                         <div className="flex items-center gap-2">
-                          <span>Earning Amount (₹)</span>
+                          <span>Earning Amount</span>
                         </div>
                       </th>
                     )}
@@ -394,14 +392,14 @@ export default function EarningAddon() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-100">
-                  {earningAddons.length === 0 ? (
+                  {filteredAddons.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="px-6 py-12 text-center text-slate-500">
                         No earning addons found. Create your first offer!
                       </td>
                     </tr>
                   ) : (
-                    earningAddons.map((addon, index) => (
+                    filteredAddons.map((addon) => (
                       <tr key={addon._id} className="hover:bg-slate-50 transition-colors">
                         {visibleColumns.title && (
                           <td className="px-6 py-4">
@@ -493,22 +491,6 @@ export default function EarningAddon() {
               </table>
             </div>
           )}
-
-          <AdminListPagination
-            currentPage={currentPage}
-            pageSize={pageSize}
-            totalItems={totalItems}
-            onPageChange={setCurrentPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size)
-              try {
-                localStorage.setItem("admin_earning_addon_pageSize", String(size))
-              } catch {
-                /* ignore */
-              }
-            }}
-            itemLabel="offers"
-          />
         </div>
       </div>
 
@@ -589,7 +571,7 @@ export default function EarningAddon() {
                   required
                   value={formData.startDate}
                   onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                  min={new Date().toISOString().split('T')[0]}
+                  max={new Date().toISOString().split('T')[0]}
                   className="w-full px-3 py-2.5 border-2 border-slate-200 rounded-lg bg-white focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all text-sm"
                 />
               </div>

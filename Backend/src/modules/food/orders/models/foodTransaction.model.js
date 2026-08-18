@@ -28,9 +28,11 @@ const foodTransactionSchema = new mongoose.Schema({
         tax: { type: Number, default: 0, min: 0 },
         packagingFee: { type: Number, default: 0, min: 0 },
         deliveryFee: { type: Number, default: 0, min: 0 },
+        deliveryFeeGst: { type: Number, default: 0, min: 0 },
         platformFee: { type: Number, default: 0, min: 0 },
         restaurantCommission: { type: Number, default: 0, min: 0 },
         discount: { type: Number, default: 0, min: 0 },
+        couponCode: { type: String, default: null, trim: true, uppercase: true },
         total: { type: Number, default: 0, min: 0 },
         currency: { type: String, default: 'INR', trim: true },
     },
@@ -61,8 +63,13 @@ const foodTransactionSchema = new mongoose.Schema({
         restaurantShare: { type: Number, required: true, min: 0 },
         restaurantCommission: { type: Number, required: true, min: 0 },
         riderShare: { type: Number, required: true, min: 0 },
-        platformNetProfit: { type: Number, required: true, min: 0 },
-        taxAmount: { type: Number, default: 0, min: 0 }
+        // Can be negative when discounts/rider pay exceed platform income; store the real value.
+        platformNetProfit: { type: Number, required: true },
+        taxAmount: { type: Number, default: 0, min: 0 },
+        adminDiscountShare: { type: Number, default: 0, min: 0 },
+        restaurantDiscountShare: { type: Number, default: 0, min: 0 },
+        discountAdminBearPercentage: { type: Number, default: 0, min: 0, max: 100 },
+        discountRestaurantBearPercentage: { type: Number, default: 0, min: 0, max: 100 }
     },
 
     // Gateway / Provider Metadata

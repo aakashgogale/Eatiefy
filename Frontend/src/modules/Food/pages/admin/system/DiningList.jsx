@@ -1,9 +1,8 @@
 import { useState, useMemo, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { Search, Download, ChevronDown, Eye, Settings, ArrowUpDown, Loader2, Star, Building2, User, FileText, Phone, Mail, MapPin, ShieldX, Trash2, ArrowRight, Plus } from "lucide-react"
+import { Search, Download, ChevronDown, Eye, Settings, ArrowUpDown, Loader2, Star, Building2, User, FileText, Phone, Mail, MapPin, ShieldX, Trash2, ArrowRight } from "lucide-react"
 import { adminAPI } from "@food/api"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
-import { exportRestaurantsToPDF } from "@food/components/admin/restaurants/restaurantsExportUtils"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -46,13 +45,9 @@ export default function DiningList() {
 
     // Fetch restaurants from backend API
     useEffect(() => {
-        let isInitialLoad = true;
-        
         const fetchRestaurants = async () => {
             try {
-                if (isInitialLoad) {
-                    setLoading(true)
-                }
+                setLoading(true)
                 setError(null)
 
                 const response = await adminAPI.getDiningRestaurants()
@@ -79,30 +74,18 @@ export default function DiningList() {
 
                     setRestaurants(mappedRestaurants)
                 } else {
-                    if (isInitialLoad) setRestaurants([])
+                    setRestaurants([])
                 }
             } catch (err) {
                 debugError("Error fetching restaurants:", err)
-                if (isInitialLoad) {
-                    setError(err.message || "Failed to fetch restaurants")
-                    setRestaurants([])
-                }
+                setError(err.message || "Failed to fetch restaurants")
+                setRestaurants([])
             } finally {
-                if (isInitialLoad) {
-                    setLoading(false)
-                    isInitialLoad = false;
-                }
+                setLoading(false)
             }
         }
 
         fetchRestaurants()
-        
-        // Setup polling for real-time reflection
-        const intervalId = setInterval(() => {
-            fetchRestaurants()
-        }, 3000)
-        
-        return () => clearInterval(intervalId)
     }, [])
 
     // Fetch categories
@@ -527,4 +510,3 @@ export default function DiningList() {
         </div>
     )
 }
-

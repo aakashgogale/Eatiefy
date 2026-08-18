@@ -3,6 +3,12 @@ import { ValidationError } from '../../../../core/auth/errors.js';
 
 const toTrimmedString = (value) => (value == null ? '' : String(value).trim());
 
+const toNonNegativeNumber = (value, fallback = 0) => {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 0) return fallback;
+    return n;
+};
+
 export const extractRawFoodVariants = (value = {}) => {
     if (Array.isArray(value?.variants)) return value.variants;
     if (Array.isArray(value?.variations)) return value.variations;
@@ -38,7 +44,8 @@ export const normalizeFoodVariantsInput = (value = [], options = {}) => {
 
             const variant = {
                 name,
-                price
+                price,
+                otherPrice: toNonNegativeNumber(entry?.otherPrice, 0)
             };
 
             const variantId = entry?._id || entry?.id;
@@ -69,7 +76,8 @@ export const serializeFoodVariants = (value = []) =>
                 id: variantId ? String(variantId) : '',
                 _id: variantId ? String(variantId) : '',
                 name,
-                price
+                price,
+                otherPrice: toNonNegativeNumber(entry?.otherPrice, 0)
             };
         })
         .filter(Boolean);
@@ -77,18 +85,28 @@ export const serializeFoodVariants = (value = []) =>
 export const hasFoodVariants = (value = {}) => serializeFoodVariants(value?.variants || value?.variations || []).length > 0;
 
 export const getFoodDisplayPrice = (value = {}) => {
-    const price = Number(value?.price);
-    if (Number.isFinite(price) && price > 0) {
-        return price;
-    }
-
     const variants = serializeFoodVariants(value?.variants || value?.variations || []);
     if (variants.length > 0) {
         return Math.min(...variants.map((entry) => Number(entry.price) || 0));
     }
 
-    return 0;
+    const price = Number(value?.price);
+    return Number.isFinite(price) ? price : 0;
 };
 
-/** @deprecated Legacy compare-at removed — always returns 0. */
-export const getFoodDisplayOtherPrice = () => 0;
+export const getFoodDisplayOtherPrice = (value = {}) => {
+    const variants = serializeFoodVariants(value?.variants || value?.variations || []);
+    if (variants.length > 0) {
+        const validOtherPrices = variants
+            .map((entry) => Number(entry.otherPrice) || 0)
+            .filter((p) => p > 0);
+        return validOtherPrices.length > 0 ? Math.min(...validOtherPrices) : 0;
+    }
+
+    const otherPrice = Number(value?.otherPrice);
+    if (Number.isFinite(otherPrice) && otherPrice > 0) {
+        return otherPrice;
+    }
+
+    return 0;
+};

@@ -56,6 +56,12 @@ const notificationBroadcastSchema = new mongoose.Schema(
             default: '',
             trim: true
         },
+        zoneId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'FoodZone',
+            default: null,
+            index: true
+        },
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'FoodAdmin',
@@ -74,7 +80,6 @@ const notificationBroadcastSchema = new mongoose.Schema(
 );
 
 notificationBroadcastSchema.index({ createdAt: -1 });
-// TTL Index: Auto-delete broadcast logs older than 3 days (259,200 seconds) for 512MB Free DB Tier safety
-notificationBroadcastSchema.index({ createdAt: 1 }, { expireAfterSeconds: 3 * 24 * 60 * 60 });
+notificationBroadcastSchema.index({ createdAt: 1 }, { expireAfterSeconds: 7 * 24 * 60 * 60 });
 
 export const BroadcastNotification = mongoose.model('BroadcastNotification', notificationBroadcastSchema);

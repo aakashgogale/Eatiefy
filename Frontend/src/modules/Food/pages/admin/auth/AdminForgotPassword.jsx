@@ -1,26 +1,60 @@
 import { useState, useRef, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
+import { motion, useReducedMotion } from "framer-motion"
 import { Button } from "@food/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@food/components/ui/card"
 import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
-import { Mail, ArrowLeft, Shield } from "lucide-react"
-import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png"
+import AdminAuthHero from "@food/components/admin/auth/AdminAuthHero"
+import { ArrowLeft, Shield, Eye, EyeOff, Loader2 } from "lucide-react"
+import quickSpicyLogo from "@food/assets/user-app-logo.webp"
+import DynamicLogo from "@food/components/DynamicLogo"
 import { adminAPI } from "@food/api"
 import { useCompanyName } from "@food/hooks/useCompanyName"
-import { loadBusinessSettings } from "@food/utils/businessSettings"
+import {
+  loadBusinessSettings,
+  applyModulePowerScanning,
+  getModulePowerScanning,
+} from "@food/utils/businessSettings"
+
+const THEME = "#E2AD4B"
+
+const STEP_META = {
+  1: { title: "Forgot password", subtitle: "Enter your email to receive a verification code" },
+  2: { title: "Verify OTP", subtitle: "Enter the 6-digit code sent to your email" },
+  3: { title: "Reset password", subtitle: "Choose a new password for your account" },
+}
+
+function StepIndicator({ step, themeColor }) {
+  return (
+    <div className="mb-6 flex items-center gap-2">
+      {[1, 2, 3].map((s) => (
+        <div key={s} className="flex flex-1 items-center gap-2">
+          <div
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors"
+            style={{
+              backgroundColor: s <= step ? themeColor : "#E5E7EB",
+              color: s <= step ? "#fff" : "#9CA3AF",
+            }}
+          >
+            {s}
+          </div>
+          {s < 3 && (
+            <div
+              className="h-0.5 flex-1 rounded-full transition-colors"
+              style={{ backgroundColor: s < step ? themeColor : "#E5E7EB" }}
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export default function AdminForgotPassword() {
   const companyName = useCompanyName()
   const navigate = useNavigate()
-  const [step, setStep] = useState(1) // 1: email, 2: OTP, 3: new password
+  const prefersReducedMotion = useReducedMotion()
+  const [step, setStep] = useState(1)
   const [email, setEmail] = useState("")
   const [otp, setOtp] = useState(["", "", "", "", "", ""])
   const [newPassword, setNewPassword] = useState("")
@@ -31,31 +65,36 @@ export default function AdminForgotPassword() {
   const [error, setError] = useState("")
   const [resendTimer, setResendTimer] = useState(0)
   const [logoUrl, setLogoUrl] = useState(quickSpicyLogo)
+  const [themeColor, setThemeColor] = useState(THEME)
   const inputRefs = useRef(Array(6).fill(null).map(() => null))
 
-  // Fetch business settings logo on mount
   useEffect(() => {
-    const fetchLogo = async () => {
+    const initBranding = async () => {
       try {
         const settings = await loadBusinessSettings()
+        applyModulePowerScanning("user", settings)
+        const { themeColor: color } = getModulePowerScanning("user", settings)
+        setThemeColor(color)
         if (settings?.logo?.url) {
           setLogoUrl(settings.logo.url)
         }
-      } catch (error) {
+      } catch {
         // Silently fail
       }
     }
-    fetchLogo()
+    initBranding()
 
-    // Listen for business settings updates
     const handleSettingsUpdate = async () => {
-      const settings = await loadBusinessSettings();
+      const settings = await loadBusinessSettings()
+      applyModulePowerScanning("user", settings)
+      const { themeColor: color } = getModulePowerScanning("user", settings)
+      setThemeColor(color)
       if (settings?.logo?.url) {
-        setLogoUrl(settings.logo.url);
+        setLogoUrl(settings.logo.url)
       }
-    };
-    window.addEventListener('businessSettingsUpdated', handleSettingsUpdate);
-    return () => window.removeEventListener('businessSettingsUpdated', handleSettingsUpdate);
+    }
+    window.addEventListener("businessSettingsUpdated", handleSettingsUpdate)
+    return () => window.removeEventListener("businessSettingsUpdated", handleSettingsUpdate)
   }, [])
 
   const handleEmailSubmit = async (e) => {
@@ -210,233 +249,283 @@ export default function AdminForgotPassword() {
     }
   }
 
+  const formMotion = prefersReducedMotion
+    ? {}
+    : {
+        initial: { opacity: 0, y: 12 },
+        animate: { opacity: 1, y: 0 },
+        transition: { duration: 0.35, ease: "easeOut" },
+      }
+
+  const inputClass =
+    "h-12 rounded-xl border border-gray-200 bg-white text-gray-900 shadow-sm transition-all placeholder:text-gray-400 focus:border-gray-300 focus:bg-white focus-visible:ring-2 focus-visible:ring-primary-orange/30"
+
+  const { title, subtitle } = STEP_META[step]
+
   return (
-    <div className="min-h-screen bg-linear-to-br from-neutral-50 via-gray-100 to-white relative">
-      <div className="absolute inset-0 -z-10 overflow-hidden">
-        <div className="absolute -left-24 -top-24 h-64 w-64 rounded-full bg-neutral-900/5 blur-3xl" />
-        <div className="absolute right-[-80px] bottom-[-80px] h-72 w-72 rounded-full bg-gray-700/5 blur-3xl" />
+    <div className="flex h-[100dvh] overflow-hidden bg-white">
+      <div className="hidden h-full lg:block lg:w-1/2">
+        <AdminAuthHero themeColor={themeColor} logoUrl={logoUrl} />
       </div>
 
-      <div className="flex min-h-screen items-center justify-center px-4 py-12">
-        <Card className="w-full max-w-lg bg-white/90 backdrop-blur border-neutral-200 shadow-2xl">
-          <CardHeader className="pb-4">
-            <div className="flex w-full items-center gap-4 sm:gap-5">
-              <div className="flex h-14 w-28 shrink-0 items-center justify-center rounded-xl bg-gray-900/5 ring-1 ring-neutral-200">
-                <img
-                  src={logoUrl || quickSpicyLogo}
-                  alt={companyName}
-                  className="h-10 w-24 object-contain"
-                  loading="lazy"
-                  onError={(e) => {
-                    if (e.target.src !== quickSpicyLogo) {
-                      e.target.src = quickSpicyLogo
-                    }
-                  }}
+      <div className="flex h-full w-full flex-col bg-[#F0F2F5] lg:w-1/2">
+        <div
+          className="relative shrink-0 overflow-hidden px-6 py-5 lg:hidden"
+          style={{ backgroundColor: "#141018" }}
+        >
+          <div
+            className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full blur-2xl"
+            style={{ backgroundColor: `${themeColor}35` }}
+          />
+          <div className="relative flex items-center gap-2.5">
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-lg"
+              style={{ backgroundColor: `${themeColor}20` }}
+            >
+              <Shield className="h-3.5 w-3.5" style={{ color: themeColor }} aria-hidden="true" />
+            </div>
+            <div>
+              <p className="text-[10px] font-medium text-white/50">Admin Portal</p>
+              <p className="text-sm font-semibold text-white">{companyName}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-1 items-center justify-center overflow-y-auto px-5 py-6 sm:px-10">
+          <motion.div {...formMotion} className="my-auto w-full max-w-[400px]">
+            <div className="mb-6 text-center lg:text-left">
+              <div className="mb-5 flex justify-center lg:justify-start">
+                <DynamicLogo
+                  module="user"
+                  fallback={quickSpicyLogo}
+                  alt={`${companyName} logo`}
+                  className="h-14 lg:h-20 w-auto object-contain"
                 />
               </div>
-              <div className="flex flex-col gap-1">
-                <CardTitle className="text-3xl leading-tight text-gray-900">
-                  {step === 1 && "Forgot Password"}
-                  {step === 2 && "Verify OTP"}
-                  {step === 3 && "Reset Password"}
-                </CardTitle>
-                <CardDescription className="text-base text-gray-600">
-                  {step === 1 && "Enter your email to receive a verification code"}
-                  {step === 2 && "Enter the 6-digit code sent to your email"}
-                  {step === 3 && "Enter your new password"}
-                </CardDescription>
-              </div>
+              <h2 className="text-2xl font-bold tracking-tight text-gray-900">{title}</h2>
+              <p className="mt-1 text-sm text-gray-500">{subtitle}</p>
             </div>
-          </CardHeader>
 
-          <CardContent>
-            {error && (
-              <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 mb-6">
-                {error}
-              </div>
-            )}
+            <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.08)] sm:p-7">
+              <StepIndicator step={step} themeColor={themeColor} />
 
-            {step === 1 && (
-              <form onSubmit={handleEmailSubmit} className="space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="email" className="text-base font-medium text-gray-900">
-                    Email Address
-                  </Label>
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-3 flex items-center text-gray-400 pointer-events-none">
-                      <Mail className="h-5 w-5" />
-                    </span>
+              {error && (
+                <div
+                  role="alert"
+                  className="mb-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600"
+                >
+                  {error}
+                </div>
+              )}
+
+              {step === 1 && (
+                <form onSubmit={handleEmailSubmit} className="space-y-4" noValidate>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="email" className="text-sm font-medium text-gray-700">
+                      Email
+                    </Label>
                     <Input
                       id="email"
                       type="email"
-                      placeholder="admin@domain.com"
+                      placeholder="you@company.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       disabled={isLoading}
                       autoComplete="email"
                       required
-                      className="h-12 pl-10 text-base"
+                      className={inputClass}
                     />
                   </div>
-                </div>
 
-                <Button
-                  type="submit"
-                  className="h-12 w-full bg-black text-white transition-colors hover:bg-neutral-900"
-                  disabled={isLoading}
-                >
-                  {isLoading ? "Sending..." : "Send Verification Code"}
-                </Button>
-              </form>
-            )}
-
-            {step === 2 && (
-              <form onSubmit={handleOtpSubmit} className="space-y-6">
-                <div className="space-y-4">
-                  <Label className="text-base font-medium text-gray-900 text-center block">
-                    Enter Verification Code
-                  </Label>
-                  <div className="flex justify-center gap-2">
-                    {otp.map((digit, index) => (
-                      <Input
-                        key={index}
-                        ref={(el) => {
-                          if (inputRefs.current) {
-                            inputRefs.current[index] = el
-                          }
-                        }}
-                        type="text"
-                        inputMode="numeric"
-                        maxLength={1}
-                        value={digit}
-                        onChange={(e) => handleOtpChange(index, e.target.value)}
-                        onKeyDown={(e) => handleOtpKeyDown(index, e)}
-                        onPaste={index === 0 ? handleOtpPaste : undefined}
-                        className="h-14 w-14 text-center text-2xl font-semibold border-2 focus-visible:ring-2 focus-visible:ring-black"
-                        disabled={isLoading}
-                      />
-                    ))}
-                  </div>
-                  <p className="text-sm text-gray-500 text-center">
-                    Code sent to <span className="font-medium">{email}</span>
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-between text-sm">
-                  <button
-                    type="button"
-                    onClick={() => setStep(1)}
-                    className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
+                  <Button
+                    type="submit"
+                    variant="ghost"
+                    className="h-12 w-full cursor-pointer rounded-xl border-0 text-sm font-semibold text-white shadow-sm transition-all hover:opacity-90"
+                    style={{ backgroundColor: themeColor }}
                     disabled={isLoading}
                   >
-                    <ArrowLeft className="h-4 w-4" />
-                    Change email
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleResendOtp}
-                    disabled={resendTimer > 0 || isLoading}
-                    className="text-black hover:underline font-medium disabled:text-gray-400 disabled:no-underline"
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                        Sending...
+                      </>
+                    ) : (
+                      "Send verification code"
+                    )}
+                  </Button>
+                </form>
+              )}
+
+              {step === 2 && (
+                <form onSubmit={handleOtpSubmit} className="space-y-4" noValidate>
+                  <div className="space-y-3">
+                    <Label className="block text-center text-sm font-medium text-gray-700">
+                      Verification code
+                    </Label>
+                    <div className="flex justify-center gap-2">
+                      {otp.map((digit, index) => (
+                        <Input
+                          key={index}
+                          ref={(el) => {
+                            if (inputRefs.current) {
+                              inputRefs.current[index] = el
+                            }
+                          }}
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={1}
+                          value={digit}
+                          onChange={(e) => handleOtpChange(index, e.target.value)}
+                          onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                          onPaste={index === 0 ? handleOtpPaste : undefined}
+                          className="h-12 w-11 rounded-xl border border-gray-200 bg-white p-0 text-center text-lg font-semibold shadow-sm focus-visible:ring-2 focus-visible:ring-primary-orange/30 sm:h-14 sm:w-12 sm:text-xl"
+                          disabled={isLoading}
+                          aria-label={`Digit ${index + 1}`}
+                        />
+                      ))}
+                    </div>
+                    <p className="text-center text-sm text-gray-500">
+                      Sent to <span className="font-medium text-gray-700">{email}</span>
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between text-sm">
+                    <button
+                      type="button"
+                      onClick={() => setStep(1)}
+                      className="flex cursor-pointer items-center gap-1.5 text-gray-500 transition-colors hover:text-gray-800"
+                      disabled={isLoading}
+                    >
+                      <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                      Change email
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleResendOtp}
+                      disabled={resendTimer > 0 || isLoading}
+                      className="cursor-pointer font-medium transition-colors hover:underline disabled:cursor-not-allowed disabled:text-gray-400 disabled:no-underline"
+                      style={{ color: resendTimer > 0 ? undefined : themeColor }}
+                    >
+                      {resendTimer > 0 ? `Resend in ${resendTimer}s` : "Resend code"}
+                    </button>
+                  </div>
+
+                  <Button
+                    type="submit"
+                    variant="ghost"
+                    className="h-12 w-full cursor-pointer rounded-xl border-0 text-sm font-semibold text-white shadow-sm transition-all hover:opacity-90"
+                    style={{ backgroundColor: themeColor }}
+                    disabled={isLoading}
                   >
-                    {resendTimer > 0 ? `Resend in ${resendTimer}s` : "Resend code"}
-                  </button>
-                </div>
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                        Verifying...
+                      </>
+                    ) : (
+                      "Verify code"
+                    )}
+                  </Button>
+                </form>
+              )}
 
-                <Button
-                  type="submit"
-                  className="h-12 w-full bg-black text-white transition-colors hover:bg-neutral-900"
-                  disabled={isLoading}
-                >
-                  {isLoading ? "Verifying..." : "Verify Code"}
-                </Button>
-              </form>
-            )}
-
-            {step === 3 && (
-              <form onSubmit={handlePasswordSubmit} className="space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="newPassword" className="text-base font-medium text-gray-900">
-                    New Password
-                  </Label>
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-3 flex items-center text-gray-400 pointer-events-none">
-                      <Shield className="h-5 w-5" />
-                    </span>
-                    <Input
-                      id="newPassword"
-                      type={showPassword ? "text" : "password"}
-                      placeholder="Enter new password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      disabled={isLoading}
-                      autoComplete="new-password"
-                      required
-                      className="h-12 pl-10 pr-10 text-base"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-800"
-                      disabled={isLoading}
-                    >
-                      {showPassword ? "Hide" : "Show"}
-                    </button>
+              {step === 3 && (
+                <form onSubmit={handlePasswordSubmit} className="space-y-4" noValidate>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="newPassword" className="text-sm font-medium text-gray-700">
+                      New password
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        id="newPassword"
+                        type={showPassword ? "text" : "password"}
+                        placeholder="••••••••"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        disabled={isLoading}
+                        autoComplete="new-password"
+                        required
+                        className={`${inputClass} pr-12 [&::-ms-reveal]:hidden [&::-webkit-password-reveal-button]:hidden`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-1 top-1/2 flex h-10 w-10 -translate-y-1/2 cursor-pointer items-center justify-center rounded-lg text-gray-400 transition-colors hover:text-gray-600"
+                        disabled={isLoading}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
                   </div>
-                </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="confirmPassword" className="text-base font-medium text-gray-900">
-                    Confirm Password
-                  </Label>
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-3 flex items-center text-gray-400 pointer-events-none">
-                      <Shield className="h-5 w-5" />
-                    </span>
-                    <Input
-                      id="confirmPassword"
-                      type={showConfirmPassword ? "text" : "password"}
-                      placeholder="Confirm new password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      disabled={isLoading}
-                      autoComplete="new-password"
-                      required
-                      className="h-12 pl-10 pr-10 text-base"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-800"
-                      disabled={isLoading}
-                    >
-                      {showConfirmPassword ? "Hide" : "Show"}
-                    </button>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="confirmPassword" className="text-sm font-medium text-gray-700">
+                      Confirm password
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        id="confirmPassword"
+                        type={showConfirmPassword ? "text" : "password"}
+                        placeholder="••••••••"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        disabled={isLoading}
+                        autoComplete="new-password"
+                        required
+                        className={`${inputClass} pr-12 [&::-ms-reveal]:hidden [&::-webkit-password-reveal-button]:hidden`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        className="absolute right-1 top-1/2 flex h-10 w-10 -translate-y-1/2 cursor-pointer items-center justify-center rounded-lg text-gray-400 transition-colors hover:text-gray-600"
+                        disabled={isLoading}
+                        aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                      >
+                        {showConfirmPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
                   </div>
-                </div>
 
-                <Button
-                  type="submit"
-                  className="h-12 w-full bg-black text-white transition-colors hover:bg-neutral-900"
-                  disabled={isLoading}
-                >
-                  {isLoading ? "Resetting..." : "Reset Password"}
-                </Button>
-              </form>
-            )}
-          </CardContent>
+                  <Button
+                    type="submit"
+                    variant="ghost"
+                    className="h-12 w-full cursor-pointer rounded-xl border-0 text-sm font-semibold text-white shadow-sm transition-all hover:opacity-90"
+                    style={{ backgroundColor: themeColor }}
+                    disabled={isLoading}
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                        Resetting...
+                      </>
+                    ) : (
+                      "Reset password"
+                    )}
+                  </Button>
+                </form>
+              )}
+            </div>
 
-          <CardFooter className="flex-col items-start gap-2 text-sm text-gray-500">
             <button
+              type="button"
               onClick={() => navigate("/admin/login")}
-              className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
+              className="mt-5 flex w-full cursor-pointer items-center justify-center gap-1.5 text-sm text-gray-500 transition-colors hover:text-gray-800"
             >
-              <ArrowLeft className="h-4 w-4" />
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               Back to login
             </button>
-          </CardFooter>
-        </Card>
+          </motion.div>
+        </div>
       </div>
     </div>
   )
 }
-

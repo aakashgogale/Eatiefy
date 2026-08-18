@@ -43,7 +43,7 @@ function isLocalDevClient(req) {
   if (refererHost && LOCAL_HOST_RE.test(refererHost)) return true;
 
   // Optional explicit marker from local axios (harmless if spoofed; Origin is primary)
-  const marker = String(req.headers['x-ometto-client'] || '').toLowerCase();
+  const marker = String(req.headers['x-eatify-client'] || req.headers['x-eatiefy-client'] || req.headers['x-ometto-client'] || '').toLowerCase();
   if (marker === 'local-dev') return true;
 
   return false;

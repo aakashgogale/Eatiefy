@@ -1,15 +1,13 @@
 import { FoodExploreIcon } from '../models/exploreIcon.model.js';
-import { storeImageBuffer, deleteStoredAsset } from '../../../../services/storage.service.js';
+import { saveImageFile, deleteStoredFile } from '../../../../services/storage.service.js';
 
 const ICON_FOLDER = 'food/explore-icons';
-const ICON_MAX_WIDTH = 400;
 
 /**
  * List all explore icons (admin). Sorted by sortOrder.
  */
-export const listExploreIcons = async (zoneId = null) => {
-    let query = zoneId ? { zoneId } : { zoneId: null };
-    return FoodExploreIcon.find(query)
+export const listExploreIcons = async () => {
+    return FoodExploreIcon.find()
         .sort({ sortOrder: 1, createdAt: -1 })
         .lean();
 };
@@ -20,16 +18,6 @@ export const listExploreIcons = async (zoneId = null) => {
 const getNextSortOrder = async () => {
     const last = await FoodExploreIcon.findOne().sort({ sortOrder: -1 }).select('sortOrder').lean();
     return (last?.sortOrder ?? -1) + 1;
-};
-
-/**
- * Store an icon on disk and return { secure_url, public_id }.
- */
-const uploadIcon = async (buffer) => {
-    const { secure_url, public_id } = await storeImageBuffer(buffer, ICON_FOLDER, {
-        maxWidth: ICON_MAX_WIDTH
-    });
-    return { secure_url, public_id };
 };
 
 /**
@@ -46,25 +34,16 @@ export const createExploreIcon = async (file, meta) => {
         throw new Error('Label is required');
     }
 
-    const { secure_url, public_id } = await uploadIcon(file.buffer);
+    const saved = await saveImageFile(file, ICON_FOLDER);
     const sortOrder = await getNextSortOrder();
-
-    // Infer linkType from label for known types
-    let linkType = 'custom';
-    const lowerLabel = label.toLowerCase();
-    if (lowerLabel === 'offers') linkType = 'offers';
-    else if (lowerLabel === 'gourmet') linkType = 'gourmet';
-    else if (lowerLabel === 'collections') linkType = 'collections';
-    else if (lowerLabel === 'under 250' || lowerLabel === 'under-250') linkType = 'under-250';
 
     const doc = await FoodExploreIcon.create({
         label,
-        iconUrl: secure_url,
-        publicId: public_id,
-        linkType,
+        iconUrl: saved.url,
+        publicId: saved.path,
+        linkType: 'custom',
         targetPath: (meta?.link || '').trim() || undefined,
         sortOrder,
-        zoneId: meta?.zoneId || null,
         isActive: true
     });
 
@@ -85,23 +64,20 @@ export const updateExploreIcon = async (id, payload) => {
     const updates = {};
 
     if (payload?.file?.buffer) {
-        const { secure_url, public_id } = await uploadIcon(payload.file.buffer);
-        await deleteStoredAsset(doc.iconUrl || doc.publicId);
-        updates.iconUrl = secure_url;
-        updates.publicId = public_id;
+        try {
+            if (doc.publicId) {
+                await deleteStoredFile(doc.publicId).catch(() => {});
+            }
+            const saved = await saveImageFile(payload.file, ICON_FOLDER);
+            updates.iconUrl = saved.url;
+            updates.publicId = saved.path;
+        } catch {
+            throw new Error('Image upload failed');
+        }
     }
 
     if (payload?.label !== undefined) {
-        const label = String(payload.label).trim();
-        updates.label = label;
-        
-        // Infer linkType from label for known types
-        const lowerLabel = label.toLowerCase();
-        if (lowerLabel === 'offers') updates.linkType = 'offers';
-        else if (lowerLabel === 'gourmet') updates.linkType = 'gourmet';
-        else if (lowerLabel === 'collections') updates.linkType = 'collections';
-        else if (lowerLabel === 'under 250' || lowerLabel === 'under-250') updates.linkType = 'under-250';
-        else updates.linkType = 'custom';
+        updates.label = String(payload.label).trim();
     }
     if (payload?.link !== undefined) {
         updates.targetPath = String(payload.link).trim() || undefined;
@@ -116,14 +92,20 @@ export const updateExploreIcon = async (id, payload) => {
 };
 
 /**
- * Delete explore icon and its stored file.
+ * Delete explore icon and stored asset.
  */
 export const deleteExploreIcon = async (id) => {
     const doc = await FoodExploreIcon.findById(id);
     if (!doc) {
         return { deleted: false };
     }
-    await deleteStoredAsset(doc.iconUrl || doc.publicId);
+    if (doc.publicId) {
+        try {
+            await deleteStoredFile(doc.publicId);
+        } catch {
+            // ignore
+        }
+    }
     await doc.deleteOne();
     return { deleted: true };
 };

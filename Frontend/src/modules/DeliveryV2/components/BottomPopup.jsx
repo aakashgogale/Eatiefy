@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { X, ChevronDown } from "lucide-react"
+import { ChevronDown } from "lucide-react"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -29,7 +29,7 @@ export default function BottomPopup({
   title,
   showCloseButton = true,
   closeOnBackdropClick = true,
-  maxHeight = "86vh",
+  maxHeight = "90vh",
   showHandle = true,
   disableSwipeToClose = false,
   collapsedContent = null, // Content to show when collapsed (e.g., Reached pickup button)
@@ -258,7 +258,7 @@ export default function BottomPopup({
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               onClick={handleBackdropClick}
-              className="fixed inset-0 bg-black/50 z-100"
+              className="fixed inset-0 bg-black/50 z-[100]"
             />
           )}
 
@@ -294,7 +294,7 @@ export default function BottomPopup({
               }
               handlePopupClick(e)
             }}
-            className="fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl z-110 overflow-hidden flex flex-col"
+            className="fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl z-[110] overflow-hidden flex flex-col"
             style={{
               maxHeight: isCollapsed ? "120px" : maxHeight,
               touchAction: disableSwipeToClose ? 'auto' : 'none'
@@ -321,11 +321,7 @@ export default function BottomPopup({
                   e.stopPropagation()
                 }}
                 onTouchEnd={(e) => {
-                  // Handle touch end for mobile collapse toggle
-                  debugLog('?? Handle touched, current collapsed:', isCollapsed)
                   e.stopPropagation()
-                  e.preventDefault()
-                  handleCollapseToggle(e)
                 }}
                 onMouseDown={(e) => {
                   // Prevent drag when clicking handle
@@ -339,9 +335,6 @@ export default function BottomPopup({
                   background: 'transparent'
                 }}
               >
-                <ChevronDown
-                  className="w-6 h-6 text-gray-400 mb-1 pointer-events-none"
-                />
                 <div
                   className="w-12 h-1.5 bg-gray-300 rounded-full pointer-events-none"
                 />
@@ -370,11 +363,11 @@ export default function BottomPopup({
 
             {/* Content */}
             {!isCollapsed ? (
-              <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 sm:py-4">
+              <div className="flex-1 overflow-y-auto px-4 py-4">
                 {children}
               </div>
             ) : (
-              <div className="px-3 sm:px-4 py-3 sm:py-4 pb-5 sm:pb-6">
+              <div className="px-4 py-4 pb-6">
                 {collapsedContent}
               </div>
             )}
@@ -384,4 +377,3 @@ export default function BottomPopup({
     </AnimatePresence>
   )
 }
-

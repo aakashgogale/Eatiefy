@@ -1,351 +1,225 @@
-import { useState, useMemo } from "react"
-import { Users, ChevronDown, Search, Settings, Edit, Trash2, ArrowUpDown, Download, FileText, FileSpreadsheet, Code, Check, Columns } from "lucide-react"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@food/components/ui/dialog"
-const debugLog = (...args) => {}
-const debugWarn = (...args) => {}
-const debugError = (...args) => {}
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { Plus, Search, Shield, Trash2, ToggleLeft, ToggleRight } from "lucide-react";
+import { adminAPI } from "@food/api";
 
+const SUBADMIN_EMAIL_REGEX = /^(?!.*\.\.)([A-Za-z0-9]+[._%+-]?)*[A-Za-z0-9]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}$/;
+const INDIAN_MOBILE_REGEX = /^[6-9]\d{9}$/;
+const NAME_REGEX = /^[A-Za-z]+(?:\s+[A-Za-z]+)*$/;
 
-const initialEmployees = [
-  {
-    id: 1,
-    name: "Jhon",
-    phone: "+81234567890",
-    email: "jhon@gmail.com",
-    createdAt: "07 Feb, 2023",
-  },
-  {
-    id: 2,
-    name: "Monali Khan",
-    phone: "+81234567891",
-    email: "test@gmail.com",
-    createdAt: "22 Aug, 2021",
-  },
-]
+const hasSuspiciousEmailTld = (emailValue) => {
+  const email = String(emailValue || "").trim().toLowerCase();
+  const domain = email.split("@")[1] || "";
+  const tld = domain.split(".").pop() || "";
+  if (!tld) return true;
+  if (/^com+$/i.test(tld) && tld !== "com") return true;
+  if (/(.)\1{2,}/.test(tld)) return true;
+  return false;
+};
 
 export default function EmployeeList() {
-  const [searchQuery, setSearchQuery] = useState("")
-  const [employees, setEmployees] = useState(initialEmployees)
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-  const [visibleColumns, setVisibleColumns] = useState({
-    si: true,
-    name: true,
-    phone: true,
-    email: true,
-    createdAt: true,
-    actions: true,
-  })
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "" });
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
 
-  const filteredEmployees = useMemo(() => {
-    if (!searchQuery.trim()) return employees
-    const query = searchQuery.toLowerCase().trim()
-    return employees.filter(employee =>
-      employee.name.toLowerCase().includes(query) ||
-      employee.email.toLowerCase().includes(query)
-    )
-  }, [employees, searchQuery])
+  const validateForm = (payload) => {
+    const nextErrors = {};
+    const name = String(payload?.name || "").trim();
+    const email = String(payload?.email || "").trim().toLowerCase();
+    const phone = String(payload?.phone || "").trim();
+    const password = String(payload?.password || "");
 
-  const maskPhone = (phone) => {
-    if (!phone) return ""
-    if (phone.length > 2) {
-      return phone.slice(0, 2) + "*".repeat(phone.length - 2)
+    if (!name) {
+      nextErrors.name = "Name is required.";
+    } else if (name.length < 2) {
+      nextErrors.name = "Name must be at least 2 characters.";
+    } else if (!NAME_REGEX.test(name)) {
+      nextErrors.name = "Name can contain only letters and spaces.";
     }
-    return phone
-  }
 
-  const maskEmail = (email) => {
-    if (!email) return ""
-    const [localPart, domain] = email.split("@")
-    if (localPart.length > 1) {
-      const masked = localPart[0] + "*".repeat(localPart.length - 1)
-      return `${masked}@${domain}`
+    if (!email) {
+      nextErrors.email = "Email is required.";
+    } else if (!SUBADMIN_EMAIL_REGEX.test(email) || hasSuspiciousEmailTld(email)) {
+      nextErrors.email = "Enter a valid email address.";
     }
-    return email
-  }
 
-  const handleDelete = (id) => {
-    if (window.confirm("Are you sure you want to delete this employee?")) {
-      setEmployees(employees.filter(employee => employee.id !== id))
+    if (!phone) {
+      nextErrors.phone = "Phone is required.";
+    } else if (!INDIAN_MOBILE_REGEX.test(phone)) {
+      nextErrors.phone = "Enter a valid 10-digit Indian mobile number.";
     }
-  }
 
-  const handleExport = (format) => {
-    if (filteredEmployees.length === 0) {
-      alert("No data to export")
-      return
+    if (!password) {
+      nextErrors.password = "Password is required.";
+    } else if (password.length < 8) {
+      nextErrors.password = "Password must be at least 8 characters.";
+    } else if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/\d/.test(password) || !/[^\w\s]/.test(password)) {
+      nextErrors.password = "Use uppercase, lowercase, number, and special character.";
     }
-    debugLog(`Exporting as ${format}`, filteredEmployees)
-  }
 
-  const toggleColumn = (columnKey) => {
-    setVisibleColumns(prev => ({ ...prev, [columnKey]: !prev[columnKey] }))
-  }
+    return nextErrors;
+  };
 
-  const resetColumns = () => {
-    setVisibleColumns({
-      si: true,
-      name: true,
-      phone: true,
-      email: true,
-      createdAt: true,
-      actions: true,
-    })
-  }
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await adminAPI.getSubAdmins({ search });
+      setItems(Array.isArray(res?.data?.data?.items) ? res.data.data.items : []);
+    } catch (_e) {
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const columnsConfig = {
-    si: "Serial Number",
-    name: "Employee Name",
-    phone: "Phone",
-    email: "Email",
-    createdAt: "Created At",
-    actions: "Actions",
-  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return items;
+    const q = search.toLowerCase();
+    return items.filter((it) => [it.name, it.email, it.phone].some((v) => String(v || "").toLowerCase().includes(q)));
+  }, [items, search]);
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    const normalizedForm = {
+      name: String(form.name || "").trim(),
+      email: String(form.email || "").trim().toLowerCase(),
+      phone: String(form.phone || "").trim(),
+      password: String(form.password || ""),
+    };
+    const validationErrors = validateForm(normalizedForm);
+    setErrors(validationErrors);
+    if (Object.keys(validationErrors).length > 0) return;
+
+    setSaving(true);
+    try {
+      await adminAPI.createSubAdmin(normalizedForm);
+      setForm({ name: "", email: "", phone: "", password: "" });
+      setErrors({});
+      await load();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleStatus = async (item) => {
+    await adminAPI.updateSubAdminStatus(item._id, !item.isActive);
+    await load();
+  };
+
+  const remove = async (item) => {
+    if (!window.confirm(`Delete ${item.name || item.email}?`)) return;
+    await adminAPI.deleteSubAdmin(item._id);
+    await load();
+  };
 
   return (
-    <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
-              <Users className="w-5 h-5 text-white" />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-900">Employee List</h1>
-          </div>
-        </div>
-
-        {/* Employee List Section */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-            <div className="flex items-center gap-3">
-              <Users className="w-5 h-5 text-slate-600" />
-              <h2 className="text-xl font-bold text-slate-900">Employee List</h2>
-              <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
-                {filteredEmployees.length}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="relative flex-1 sm:flex-initial min-w-[250px]">
-                <input
-                  type="text"
-                  placeholder="Search by name or email"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 pr-4 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400"
-                />
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              </div>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="px-4 py-2.5 text-sm font-medium rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-2 transition-all">
-                    <Download className="w-4 h-4" />
-                    <span className="text-black font-bold">Export</span>
-                    <ChevronDown className="w-3 h-3" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56 bg-white border border-slate-200 rounded-lg shadow-lg z-50 animate-in fade-in-0 zoom-in-95 duration-200 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95">
-                  <DropdownMenuLabel>Export Format</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => handleExport("csv")} className="cursor-pointer">
-                    <FileText className="w-4 h-4 mr-2" />
-                    Export as CSV
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleExport("excel")} className="cursor-pointer">
-                    <FileSpreadsheet className="w-4 h-4 mr-2" />
-                    Export as Excel
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleExport("pdf")} className="cursor-pointer">
-                    <FileText className="w-4 h-4 mr-2" />
-                    Export as PDF
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleExport("json")} className="cursor-pointer">
-                    <Code className="w-4 h-4 mr-2" />
-                    Export as JSON
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <button 
-                onClick={() => setIsSettingsOpen(true)}
-                className="p-2.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 transition-all"
-              >
-                <Settings className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  {visibleColumns.si && (
-                    <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                      <div className="flex items-center gap-2">
-                        <span>SI</span>
-                        <ArrowUpDown className="w-3 h-3 text-slate-400 cursor-pointer hover:text-slate-600" />
-                      </div>
-                    </th>
-                  )}
-                  {visibleColumns.name && (
-                    <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                      <div className="flex items-center gap-2">
-                        <span>Employee Name</span>
-                        <ArrowUpDown className="w-3 h-3 text-slate-400 cursor-pointer hover:text-slate-600" />
-                      </div>
-                    </th>
-                  )}
-                  {visibleColumns.phone && (
-                    <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                      <div className="flex items-center gap-2">
-                        <span>Phone</span>
-                        <ArrowUpDown className="w-3 h-3 text-slate-400 cursor-pointer hover:text-slate-600" />
-                      </div>
-                    </th>
-                  )}
-                  {visibleColumns.email && (
-                    <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                      <div className="flex items-center gap-2">
-                        <span>Email</span>
-                        <ArrowUpDown className="w-3 h-3 text-slate-400 cursor-pointer hover:text-slate-600" />
-                      </div>
-                    </th>
-                  )}
-                  {visibleColumns.createdAt && (
-                    <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                      <div className="flex items-center gap-2">
-                        <span>Created At</span>
-                        <ArrowUpDown className="w-3 h-3 text-slate-400 cursor-pointer hover:text-slate-600" />
-                      </div>
-                    </th>
-                  )}
-                  {visibleColumns.actions && (
-                    <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-700 uppercase tracking-wider">Action</th>
-                  )}
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-slate-100">
-                {filteredEmployees.length === 0 ? (
-                  <tr>
-                    <td colSpan={Object.values(visibleColumns).filter(v => v).length} className="px-6 py-8 text-center text-slate-500">
-                      No employees found
-                    </td>
-                  </tr>
-                ) : (
-                  filteredEmployees.map((employee, index) => (
-                    <tr
-                      key={employee.id}
-                      className="hover:bg-slate-50 transition-colors"
-                    >
-                      {visibleColumns.si && (
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="text-sm font-medium text-slate-700">{index + 1}</span>
-                        </td>
-                      )}
-                      {visibleColumns.name && (
-                        <td className="px-6 py-4">
-                          <span className="text-sm font-medium text-slate-900">{employee.name}</span>
-                        </td>
-                      )}
-                      {visibleColumns.phone && (
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="text-sm text-slate-700">{maskPhone(employee.phone)}</span>
-                        </td>
-                      )}
-                      {visibleColumns.email && (
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="text-sm text-slate-700">{maskEmail(employee.email)}</span>
-                        </td>
-                      )}
-                      {visibleColumns.createdAt && (
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="text-sm text-slate-700">{employee.createdAt}</span>
-                        </td>
-                      )}
-                      {visibleColumns.actions && (
-                        <td className="px-6 py-4 whitespace-nowrap text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            <button
-                              className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors"
-                              title="Edit"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDelete(employee.id)}
-                              className="p-1.5 rounded text-red-600 hover:bg-red-50 transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+    <div className="p-4 lg:p-6 bg-slate-50 min-h-screen space-y-6">
+      <div className="bg-white border border-slate-200 rounded-xl p-5">
+        <h1 className="text-2xl font-bold text-slate-900">Sub Admin Management</h1>
+        <p className="text-sm text-slate-600 mt-1">Create, disable, and delete sub admins. Permissions are managed per admin.</p>
       </div>
 
-      {/* Settings Dialog */}
-      <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-        <DialogContent className="max-w-md bg-white p-0 opacity-0 data-[state=open]:opacity-100 data-[state=closed]:opacity-0 transition-opacity duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:scale-100 data-[state=closed]:scale-100">
-          <DialogHeader className="px-6 pt-6 pb-4">
-            <DialogTitle className="flex items-center gap-2">
-              <Settings className="w-5 h-5" />
-              Table Settings
-            </DialogTitle>
-          </DialogHeader>
-          <div className="px-6 pb-6 space-y-4">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                <Columns className="w-4 h-4" />
-                Visible Columns
-              </h3>
-              <div className="space-y-2">
-                {Object.entries(columnsConfig).map(([key, label]) => (
-                  <label
-                    key={key}
-                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns[key]}
-                      onChange={() => toggleColumn(key)}
-                      className="w-4 h-4 text-emerald-600 border-slate-300 rounded focus:ring-emerald-500"
-                    />
-                    <span className="text-sm text-slate-700">{label}</span>
-                    {visibleColumns[key] && (
-                      <Check className="w-4 h-4 text-emerald-600 ml-auto" />
-                    )}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
-              <button
-                onClick={resetColumns}
-                className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-all"
-              >
-                Reset
-              </button>
-              <button
-                onClick={() => setIsSettingsOpen(false)}
-                className="px-4 py-2 text-sm font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition-all shadow-md"
-              >
-                Apply
-              </button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
-}
+      <form onSubmit={handleCreate} className="bg-white border border-slate-200 rounded-xl p-5 grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <input
+            className={`border rounded-lg px-3 py-2 w-full ${errors.name ? "border-red-400" : ""}`}
+            placeholder="Name"
+            value={form.name}
+            onChange={(e) => {
+              const cleaned = e.target.value.replace(/[^A-Za-z\s]/g, "").replace(/\s{2,}/g, " ");
+              setForm((p) => ({ ...p, name: cleaned }));
+              if (errors.name) setErrors((prev) => ({ ...prev, name: "" }));
+            }}
+          />
+          {errors.name ? <p className="mt-1 text-xs text-red-600">{errors.name}</p> : null}
+        </div>
+        <div>
+          <input
+            className={`border rounded-lg px-3 py-2 w-full ${errors.email ? "border-red-400" : ""}`}
+            placeholder="Email"
+            value={form.email}
+            onChange={(e) => {
+              setForm((p) => ({ ...p, email: e.target.value }));
+              if (errors.email) setErrors((prev) => ({ ...prev, email: "" }));
+            }}
+          />
+          {errors.email ? <p className="mt-1 text-xs text-red-600">{errors.email}</p> : null}
+        </div>
+        <div>
+          <input
+            className={`border rounded-lg px-3 py-2 w-full ${errors.phone ? "border-red-400" : ""}`}
+            placeholder="Phone"
+            value={form.phone}
+            onChange={(e) => {
+              const onlyDigits = e.target.value.replace(/\D/g, "").slice(0, 10);
+              setForm((p) => ({ ...p, phone: onlyDigits }));
+              if (errors.phone) setErrors((prev) => ({ ...prev, phone: "" }));
+            }}
+          />
+          {errors.phone ? <p className="mt-1 text-xs text-red-600">{errors.phone}</p> : null}
+        </div>
+        <div>
+          <input
+            className={`border rounded-lg px-3 py-2 w-full ${errors.password ? "border-red-400" : ""}`}
+            placeholder="Password"
+            type="password"
+            value={form.password}
+            onChange={(e) => {
+              setForm((p) => ({ ...p, password: e.target.value }));
+              if (errors.password) setErrors((prev) => ({ ...prev, password: "" }));
+            }}
+          />
+          {errors.password ? <p className="mt-1 text-xs text-red-600">{errors.password}</p> : null}
+        </div>
+        <div className="md:col-span-2">
+          <button disabled={saving} className="inline-flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg">
+            <Plus className="w-4 h-4" /> Create Sub Admin
+          </button>
+        </div>
+      </form>
 
+      <div className="bg-white border border-slate-200 rounded-xl p-5">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="relative w-full max-w-sm">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input className="border rounded-lg pl-9 pr-3 py-2 w-full" placeholder="Search sub admins" value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+          <button className="px-3 py-2 border rounded-lg text-sm" onClick={load}>Refresh</button>
+        </div>
+
+        {loading ? <div className="text-sm text-slate-500">Loading...</div> : (
+          <div className="space-y-3">
+            {filtered.map((item) => (
+              <div key={item._id} className="border border-slate-200 rounded-lg p-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-slate-900">{item.name || "Unnamed"}</p>
+                  <p className="text-sm text-slate-600">{item.email} {item.phone ? `• ${item.phone}` : ""}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Link to={`/admin/food/employee-role?id=${item._id}`} className="inline-flex items-center gap-1 px-3 py-2 border rounded-lg text-sm">
+                    <Shield className="w-4 h-4" /> Permissions
+                  </Link>
+                  <button onClick={() => toggleStatus(item)} className="px-3 py-2 border rounded-lg text-sm inline-flex items-center gap-1">
+                    {item.isActive ? <ToggleRight className="w-4 h-4 text-green-600" /> : <ToggleLeft className="w-4 h-4 text-slate-500" />}
+                    {item.isActive ? "Disable" : "Enable"}
+                  </button>
+                  <button onClick={() => remove(item)} className="px-3 py-2 border border-red-200 text-red-600 rounded-lg text-sm inline-flex items-center gap-1">
+                    <Trash2 className="w-4 h-4" /> Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+            {!filtered.length && <div className="text-sm text-slate-500">No sub admins found.</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

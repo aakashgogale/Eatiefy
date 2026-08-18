@@ -9,9 +9,7 @@ import {
 import { logger } from '../../../../utils/logger.js';
 import {
   createPaymentLink,
-  createRazorpayQrCode,
   fetchRazorpayPaymentLink,
-  fetchRazorpayQrCodePayments,
   isRazorpayConfigured,
 } from '../helpers/razorpay.helper.js';
 import * as foodTransactionService from './foodTransaction.service.js';
@@ -20,67 +18,81 @@ import {
   enqueueOrderEvent,
 } from './order.helpers.js';
 
-async function syncRazorpayQrPayment(orderDoc) {
-  // Phase 2: avoid relying on FoodOrder.payment as the source of truth.
-  const tx = await FoodTransaction.findOne({ orderId: orderDoc?._id }).lean();
+export async function syncRazorpayQrPayment(orderDoc) {
+  const orderId = orderDoc?._id;
+  // FoodTransaction is source of truth; FoodOrder.payment is fallback
+  const tx = await FoodTransaction.findOne({ orderId }).lean();
   const payment = tx?.payment || orderDoc?.payment || null;
-  if (!payment) return null;
-  if (payment.method !== 'razorpay_qr') return payment;
+  if (!payment) {
+    logger.warn(`[QrSync] No payment found for order ${orderId}`);
+    return null;
+  }
+
+  // Allow sync if either tx OR FoodOrder has razorpay_qr method
+  const isQrMethod = payment.method === 'razorpay_qr';
+  if (!isQrMethod) return payment;
   if (payment.status === 'paid') return payment;
 
-  const qrId = payment?.qr?.qrCodeId || payment?.qr?.paymentLinkId;
-  if (!qrId || !isRazorpayConfigured()) return orderDoc.payment;
-
-  let isPaid = false;
-
-  try {
-    if (String(qrId).startsWith('qr_')) {
-      const res = await fetchRazorpayQrCodePayments(qrId);
-      const items = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : [];
-      const successful = items.find((p) =>
-        ['captured', 'authorized'].includes(String(p?.status || '').toLowerCase())
-      );
-      if (successful) {
-        isPaid = true;
-      }
-    } else {
-      const link = await fetchRazorpayPaymentLink(qrId);
-      const linkStatus = String(link?.status || '').toLowerCase();
-      if (['paid', 'captured', 'authorized'].includes(linkStatus)) {
-        isPaid = true;
-      }
-    }
-  } catch (error) {
-    logger.warn(
-      `Razorpay QR status check failed for ${qrId}: ${error?.message || error}`
-    );
-    return orderDoc.payment;
+  const paymentLinkId = payment?.qr?.paymentLinkId;
+  if (!paymentLinkId) {
+    logger.warn(`[QrSync] No paymentLinkId for order ${orderId}`);
+    return payment;
+  }
+  if (!isRazorpayConfigured()) {
+    logger.warn(`[QrSync] Razorpay not configured – cannot sync order ${orderId}`);
+    return payment;
   }
 
+  let link;
+  try {
+    link = await fetchRazorpayPaymentLink(paymentLinkId);
+    logger.info(`[QrSync] Razorpay link status for ${paymentLinkId}: ${link?.status}`);
+  } catch (error) {
+    logger.error(
+      `[QrSync] Razorpay payment-link fetch FAILED for ${paymentLinkId}: ${
+        error?.message || error
+      }`,
+    );
+    return payment;
+  }
+
+  const linkStatus = String(link?.status || '').toLowerCase();
+  if (!linkStatus) {
+    logger.warn(`[QrSync] Empty linkStatus for ${paymentLinkId}`);
+    return payment;
+  }
+
+  // Razorpay Payment Link statuses: created, partially_paid, paid, expired, cancelled
+  const isPaid = ['paid', 'partially_paid', 'captured', 'authorized'].includes(linkStatus);
+  const isFailed = ['expired', 'cancelled', 'canceled', 'failed'].includes(linkStatus);
+  const newPaymentStatus = isPaid ? 'paid' : isFailed ? 'failed' : (payment.status || 'pending_qr');
+
+  logger.info(`[QrSync] Updating order ${orderId} payment.status from '${payment.status}' to '${newPaymentStatus}'`);
+
+  // Update FoodTransaction (upsert in case it didn't exist)
+  await FoodTransaction.updateOne(
+    { orderId },
+    {
+      $set: {
+        'payment.qr.status': linkStatus,
+        'payment.status': newPaymentStatus,
+      },
+    },
+  );
+
+  // Keep FoodOrder in sync too
   if (isPaid) {
     await FoodOrder.updateOne(
-      { _id: orderDoc._id },
-      {
-        $set: {
-          'payment.status': 'paid',
-          'payment.paidAt': new Date(),
-        },
-      }
-    );
-    await FoodTransaction.updateOne(
-      { orderId: orderDoc._id },
-      {
-        $set: {
-          'payment.qr.status': 'paid',
-          'payment.status': 'paid',
-          'payment.paidAt': new Date(),
-        },
-      }
+      { _id: orderId },
+      { $set: { 'payment.status': 'paid', 'payment.qr.status': 'paid' } }
     );
   }
 
-  return payment;
+  const updatedTx = await FoodTransaction.findOne({ orderId }).lean();
+  return updatedTx?.payment || payment;
 }
+
+
 
 export async function createCollectQr(
   orderId,
@@ -114,77 +126,82 @@ export async function createCollectQr(
   }
 
   const user = order.userId || {};
-  const amountPaise = Math.round(amountDue * 100);
+  const link = await createPaymentLink({
+    amountPaise: Math.round(amountDue * 100),
+    currency: 'INR',
+    description: `Order ${order._id.toString()} - COD collect`,
+    orderId: order._id.toString(),
+    customerName: customerInfo.name || user.name || 'Customer',
+    customerEmail: customerInfo.email || user.email || 'customer@example.com',
+    customerPhone: customerInfo.phone || user.phone,
+  });
 
-  let qrData = null;
-  try {
-    // Attempt 1: Create real Dynamic UPI QR Code via Razorpay QR Code API
-    const rzQr = await createRazorpayQrCode({
-      amountPaise,
-      name: `Order #${String(order.orderId || order._id).slice(-6)}`,
-      description: `Payment for Order #${order.orderId || order._id}`,
-      notes: {
-        foodOrderId: order._id.toString(),
-        orderDisplayId: String(order.orderId || ''),
-        purpose: 'cod_collect_qr',
-      },
-    });
 
-    const directImage = rzQr.image_url || rzQr.imageUrl || rzQr.image || rzQr.short_url || rzQr.upi_link || rzQr.url;
-    logger.info(`Razorpay QR created successfully: id=${rzQr.id}, image=${directImage}`);
-
-    qrData = {
-      qrCodeId: rzQr.id,
-      paymentLinkId: rzQr.id,
-      shortUrl: directImage,
-      imageUrl: directImage,
-      status: rzQr.status || 'active',
-      expiresAt: rzQr.close_by ? new Date(rzQr.close_by * 1000) : null,
-    };
-  } catch (qrError) {
-    logger.warn(
-      `Razorpay QR Code API creation failed (${qrError?.message}), falling back to Payment Link`,
-    );
-    // Fallback: Create Payment Link
-    const link = await createPaymentLink({
-      amountPaise,
-      currency: 'INR',
-      description: `Order ${order._id.toString()} - COD collect`,
-      orderId: order._id.toString(),
-      customerName: customerInfo.name || user.name || 'Customer',
-      customerEmail: customerInfo.email || user.email || 'customer@example.com',
-      customerPhone: customerInfo.phone || user.phone,
-      notes: {
-        foodOrderId: order._id.toString(),
-        orderDisplayId: String(order.orderId || ''),
-        purpose: 'cod_collect_qr',
-      },
-    });
-
-    qrData = {
-      qrCodeId: link.id,
-      paymentLinkId: link.id,
-      shortUrl: link.short_url,
-      imageUrl: link.short_url,
-      status: link.status || 'created',
-      expiresAt: link.expire_by ? new Date(link.expire_by * 1000) : null,
-    };
-  }
-
-  // Write QR collection state into FoodTransaction
-  await FoodTransaction.updateOne(
-    { orderId: order._id },
-    {
-      $set: {
-        paymentMethod: 'razorpay_qr',
-        'payment.method': 'razorpay_qr',
-        'payment.status': 'pending_qr',
-        'payment.qr': qrData,
+  // CRITICAL: use upsert so this works even if FoodTransaction was never created at order placement
+  const upsertData = {
+    $set: {
+      paymentMethod: 'razorpay_qr',
+      'payment.method': 'razorpay_qr',
+      'payment.status': 'pending_qr',
+      'payment.amountDue': amountDue,
+      'payment.qr': {
+        paymentLinkId: link.id,
+        shortUrl: link.short_url,
+        imageUrl: link.short_url,
+        status: link.status || 'created',
+        expiresAt: link.expire_by ? new Date(link.expire_by * 1000) : null,
       },
     },
+    $setOnInsert: {
+      orderId: order._id,
+      userId: order.userId?._id || order.userId,
+      restaurantId: order.restaurantId,
+      deliveryPartnerId: order.dispatch?.deliveryPartnerId,
+      currency: 'INR',
+      status: 'pending',
+      pricing: {
+        subtotal: order.pricing?.subtotal || 0,
+        tax: order.pricing?.tax || 0,
+        packagingFee: order.pricing?.packagingFee || 0,
+        deliveryFee: order.pricing?.deliveryFee || 0,
+        deliveryFeeGst: order.pricing?.deliveryFeeGst || 0,
+        platformFee: order.pricing?.platformFee || 0,
+        restaurantCommission: order.pricing?.restaurantCommission || 0,
+        discount: order.pricing?.discount || 0,
+        couponCode: order.pricing?.couponCode ? String(order.pricing.couponCode).trim().toUpperCase() : null,
+        total: order.pricing?.total || 0,
+        currency: 'INR',
+      },
+      amounts: {
+        totalCustomerPaid: order.pricing?.total || 0,
+        restaurantShare: 0, riderShare: 0, restaurantCommission: 0, platformNetProfit: 0,
+      },
+      history: [{ kind: 'created', amount: amountDue, note: 'Transaction auto-created at QR generation' }],
+    },
+  };
+
+  await FoodTransaction.updateOne(
+    { orderId: order._id },
+    upsertData,
+    { upsert: true }
+  );
+
+  // Also write to FoodOrder so sync can find paymentLinkId even without a TX doc
+  await FoodOrder.updateOne(
+    { _id: order._id },
+    {
+      $set: {
+        'payment.method': 'razorpay_qr',
+        'payment.status': 'pending_qr',
+        'payment.qr.paymentLinkId': link.id,
+        'payment.qr.shortUrl': link.short_url,
+        'payment.qr.status': link.status || 'created',
+      }
+    }
   );
 
   const updatedTx = await FoodTransaction.findOne({ orderId: order._id }).lean();
+
 
   if (updatedTx) {
     await foodTransactionService.updateTransactionStatus(
@@ -202,17 +219,26 @@ export async function createCollectQr(
     orderMongoId: String(orderId),
     orderId: order?.orderId || null,
     deliveryPartnerId,
-    paymentLinkId: qrData.paymentLinkId,
-    shortUrl: qrData.shortUrl,
+    paymentLinkId: link.id,
+    shortUrl: link.short_url,
     amountDue,
   });
 
   return {
-    shortUrl: qrData.shortUrl,
-    imageUrl: qrData.imageUrl,
-    qrCodeId: qrData.qrCodeId,
+    shortUrl:
+      link?.short_url ?? link?.shortUrl ?? link?.short_url_path ?? null,
+    imageUrl:
+      link?.short_url ??
+      link?.image_url ??
+      link?.imageUrl ??
+      link?.image ??
+      null,
     amount: amountDue,
-    expiresAt: qrData.expiresAt,
+    expiresAt: link?.expire_by
+      ? new Date(link.expire_by * 1000)
+      : link?.expiresAt
+        ? new Date(link.expiresAt)
+        : null,
   };
 }
 
@@ -220,8 +246,9 @@ export async function getPaymentStatus(orderId, deliveryPartnerId) {
   const identity = buildOrderIdentityFilter(orderId);
   if (!identity) throw new ValidationError('Order id required');
 
+  // Include payment field so syncRazorpayQrPayment can use it as fallback
   const order = await FoodOrder.findOne(identity).select(
-    'dispatch riderEarning platformProfit',
+    'dispatch riderEarning platformProfit payment',
   );
   if (!order) throw new NotFoundError('Order not found');
   if (
@@ -230,20 +257,81 @@ export async function getPaymentStatus(orderId, deliveryPartnerId) {
     throw new ForbiddenError('Not your order');
   }
 
-  const transaction = await FoodTransaction.findOne({ orderId: order._id }).lean();
-  if (transaction?.payment?.method === 'razorpay_qr') {
+  let transaction = await FoodTransaction.findOne({ orderId: order._id }).lean();
+  const effectiveMethod = transaction?.payment?.method || order.payment?.method;
+  const hasPaymentLink = transaction?.payment?.qr?.paymentLinkId || order.payment?.qr?.paymentLinkId;
+  
+  logger.info(`[getPaymentStatus] order=${order._id} method=${effectiveMethod} txStatus=${transaction?.payment?.status} hasLink=${!!hasPaymentLink}`);
+
+  // Sync if this is a QR payment (check both tx and order) and not already paid
+  if (effectiveMethod === 'razorpay_qr' && transaction?.payment?.status !== 'paid' && hasPaymentLink) {
     await syncRazorpayQrPayment(order);
+    // Re-fetch to get the latest status after sync
+    transaction = await FoodTransaction.findOne({ orderId: order._id }).lean();
+    logger.info(`[getPaymentStatus] After sync: tx.payment.status=${transaction?.payment?.status}`);
   }
+
+  // If no transaction, fall back to FoodOrder.payment
+  const paymentData = transaction?.payment || order.payment?.toObject?.() || {};
+
   const latestHistory =
     (transaction?.history || []).sort((a, b) => (b.at || 0) - (a.at || 0))[0] ||
     null;
 
   return {
-    payment: transaction?.payment || {},
+    payment: paymentData,
     latestPaymentSnapshot: latestHistory,
     riderEarning: order.riderEarning ?? 0,
     platformProfit: order.platformProfit ?? 0,
     pricingTotal: transaction?.pricing?.total ?? 0,
     transactionStatus: transaction?.status ?? null,
   };
+}
+
+
+
+export async function switchToCash(orderId, deliveryPartnerId) {
+  const query = mongoose.Types.ObjectId.isValid(orderId)
+    ? { _id: orderId }
+    : { orderId };
+
+  const order = await FoodOrder.findOne(query).lean();
+  if (!order) throw new NotFoundError('Order not found');
+  if (order.dispatch.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) {
+    throw new ForbiddenError('Not your order');
+  }
+
+  // Only pay-at-delivery orders (legacy COD or QR-collect) may switch to cash.
+  const orderPayMethod = String(order.payment?.method || '').toLowerCase();
+  if (!['cash', 'razorpay_qr'].includes(orderPayMethod)) {
+    throw new ValidationError('Online-paid orders cannot be switched to cash collection');
+  }
+  if (String(order.payment?.status || '').toLowerCase() === 'paid') {
+    throw new ValidationError('Order is already paid');
+  }
+
+  // Reset payment method to cash in FoodTransaction
+  await FoodTransaction.updateOne(
+    { orderId: order._id },
+    {
+      $set: {
+        paymentMethod: 'cash',
+        'payment.method': 'cash',
+        'payment.status': 'cod_pending',
+        'payment.qr': {} // Clear QR info
+      }
+    }
+  );
+
+  await foodTransactionService.updateTransactionStatus(
+    order._id,
+    'cod_switched_to_cash',
+    {
+      recordedByRole: 'DELIVERY_PARTNER',
+      recordedById: deliveryPartnerId,
+      note: 'Rider switched from QR to Cash collection',
+    }
+  );
+
+  return { success: true };
 }

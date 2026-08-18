@@ -11,14 +11,11 @@ const MAX_RETRY_DELAY_MS = 30000;
  */
 const getRetryStrategy = () => (times) => {
     const delay = Math.min(DEFAULT_RETRY_DELAY_MS * Math.pow(2, times), MAX_RETRY_DELAY_MS);
-    if (times === 1 || times % 10 === 0) {
-        logger.warn(`BullMQ Redis reconnecting in ${delay}ms (attempt ${times})`);
-    }
+    logger.warn(`BullMQ Redis reconnecting in ${delay}ms (attempt ${times})`);
     return delay;
 };
 
 let connection = null;
-let connectionReady = false;
 
 /**
  * Creates and returns a BullMQ-compatible Redis connection.
@@ -27,6 +24,7 @@ let connectionReady = false;
  */
 export const getBullMQConnection = () => {
     if (!config.redisEnabled) {
+        logger.warn('BullMQ: Redis is disabled (REDIS_ENABLED is not true), queue connection skipped.');
         return null;
     }
 
@@ -42,54 +40,22 @@ export const getBullMQConnection = () => {
     connection = new IORedis(config.redisUrl, {
         maxRetriesPerRequest: null,
         enableReadyCheck: true,
-        // Keep commands queued briefly while reconnecting — avoid hard fails on blips
-        enableOfflineQueue: true,
-        retryStrategy: getRetryStrategy(),
+        retryStrategy: getRetryStrategy()
     });
 
     connection.on('error', (err) => {
-        connectionReady = false;
         logger.error(`BullMQ Redis connection error: ${err.message}`);
     });
 
-    connection.on('ready', () => {
-        connectionReady = true;
+    connection.on('connect', () => {
         logger.info('BullMQ Redis connection established');
     });
 
-    connection.on('connect', () => {
-        logger.info('BullMQ Redis connecting...');
-    });
-
     connection.on('close', () => {
-        connectionReady = false;
         logger.warn('BullMQ Redis connection closed');
     });
 
     return connection;
-};
-
-/**
- * True when BullMQ Redis has reported ready at least once and is not closed.
- */
-export const isBullMQConnectionReady = () => Boolean(connection && connectionReady);
-
-/**
- * Ping Redis to confirm BullMQ connection is usable.
- * @returns {Promise<boolean>}
- */
-export const pingBullMQRedis = async () => {
-    const conn = getBullMQConnection();
-    if (!conn) return false;
-    try {
-        const result = await conn.ping();
-        connectionReady = String(result).toUpperCase() === 'PONG';
-        return connectionReady;
-    } catch (err) {
-        connectionReady = false;
-        logger.warn(`BullMQ Redis ping failed: ${err.message}`);
-        return false;
-    }
 };
 
 /**
@@ -98,18 +64,8 @@ export const pingBullMQRedis = async () => {
  */
 export const closeBullMQConnection = async () => {
     if (connection) {
-        try {
-            await connection.quit();
-        } catch (err) {
-            logger.warn(`BullMQ Redis quit error: ${err.message}`);
-            try {
-                connection.disconnect();
-            } catch {
-                /* ignore */
-            }
-        }
+        await connection.quit();
         connection = null;
-        connectionReady = false;
         logger.info('BullMQ Redis connection closed');
     }
 };

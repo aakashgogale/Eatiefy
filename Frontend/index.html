@@ -1,128 +1,74 @@
 <!doctype html>
 <html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/assets/images/favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&display=swap">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"></noscript>
+    <title>Eatiefy</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Outfit:wght@300;400;500;600;700;800&display=swap">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
+  </head>
+  <body> 
+    <div id="root"></div>
+    <script>
+      // Dev-only diagnostics. Never wipe React root via innerHTML (breaks the app).
+      (function () {
+        var isLocal =
+          location.hostname === "localhost" ||
+          location.hostname === "127.0.0.1" ||
+          location.hostname === "[::1]";
 
-<head>
-  <meta charset="UTF-8" />
-  <script>
-    // Prevent chunk loading and dynamic import MIME type mismatch crashes on deployment updates
-    (function() {
-      function reloadPage(reason) {
-        try {
-          var lastReload = sessionStorage.getItem('chunk_reload_timestamp');
-          var now = Date.now();
-          // Cooldown of 10 seconds to avoid infinite reload loops (e.g., if offline or asset is truly missing)
-          if (!lastReload || (now - parseInt(lastReload, 10)) > 10000) {
-            sessionStorage.setItem('chunk_reload_timestamp', String(now));
-            console.warn('Ometto: Chunk/Module load failure caught (' + reason + '). Reloading application...');
-            window.location.reload();
+        function isBenignRejection(reason) {
+          if (!reason) return true;
+          var msg = String(reason && reason.message ? reason.message : reason);
+          var code = reason && reason.code;
+          var name = reason && reason.name;
+          return (
+            name === "AxiosError" ||
+            code === "ECONNABORTED" ||
+            code === "ERR_NETWORK" ||
+            msg.indexOf("timeout") !== -1 ||
+            msg.indexOf("Network Error") !== -1 ||
+            msg.indexOf("Failed to fetch") !== -1
+          );
+        }
+
+        function showBanner(title, detail) {
+          if (!isLocal) return;
+          var el = document.createElement("div");
+          el.setAttribute("data-eatiefy-debug-banner", "1");
+          el.style.cssText =
+            "position:fixed;top:0;left:0;right:0;background:#b91c1c;color:#fff;padding:12px 16px;z-index:999999;font:14px/1.4 system-ui,sans-serif;max-height:40vh;overflow:auto";
+          el.innerHTML = "<b>" + title + "</b> " + String(detail || "");
+          document.body.appendChild(el);
+        }
+
+        window.addEventListener("error", function (e) {
+          if (!isLocal) return;
+          showBanner("Runtime Error:", e.message || "Unknown error");
+        });
+
+        window.addEventListener("unhandledrejection", function (e) {
+          if (isBenignRejection(e.reason)) {
+            e.preventDefault();
+            return;
           }
-        } catch (e) {
-          console.error('Ometto: Failed to handle reload', e);
-        }
-      }
-
-      // 1. Listen for global uncaught module fetch and MIME type errors
-      window.addEventListener('error', function(event) {
-        var errorMsg = event.message || '';
-        var errorObj = event.error;
-        var errorObjMsg = errorObj ? (errorObj.message || String(errorObj)) : '';
-
-        var isMimeOrImportError = 
-          errorMsg.indexOf('Failed to fetch dynamically imported module') > -1 ||
-          errorMsg.indexOf('Expected a JavaScript-or-Wasm module script') > -1 ||
-          errorObjMsg.indexOf('Failed to fetch dynamically imported module') > -1 ||
-          errorObjMsg.indexOf('Expected a JavaScript-or-Wasm module script') > -1;
-
-        if (isMimeOrImportError) {
-          reloadPage('Error Event: ' + (errorMsg || errorObjMsg));
-          return;
-        }
-
-        // 2. Capture failed <script> / <link> tag loads (e.g. 404 on old hashes)
-        if (event.target && (event.target.tagName === 'SCRIPT' || event.target.tagName === 'LINK')) {
-          var url = event.target.src || event.target.href || '';
-          if (url && (url.indexOf('/assets/') > -1 || url.indexOf('.js') > -1)) {
-            reloadPage('Asset Load Failure: ' + url);
+          if (!isLocal) {
+            e.preventDefault();
+            return;
           }
-        }
-      }, true); // Must use capture phase to intercept resource loading errors
-
-      // 3. Listen for unhandled promise rejections (Vite dynamic import failures are rejected promises)
-      window.addEventListener('unhandledrejection', function(event) {
-        var reason = event.reason;
-        var reasonMsg = reason ? (reason.message || String(reason)) : '';
-        if (reasonMsg.indexOf('Failed to fetch dynamically imported module') > -1) {
-          reloadPage('Unhandled Rejection: ' + reasonMsg);
-        }
-      });
-
-      // 4. Vite-specific preload error handler
-      window.addEventListener('vite:preloadError', function(event) {
-        reloadPage('Vite Preload Error');
-      });
-    })();
-  </script>
-  <link rel="icon" type="image/png" href="/assets/images/favicon.png" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#D91F3A" />
-  <style>
-    html, body {
-      margin: 0; padding: 0; background: #fffdf9;
-    }
-    .initial-loader {
-      display: flex; flex-direction: column; gap: 1.5rem; padding: 1.5rem;
-      min-height: 100vh; background: linear-gradient(180deg, #fffdf9 0%, #fff8f1 100%);
-    }
-    .skeleton-box {
-      background: rgba(0,0,0,0.05); border-radius: 9999px;
-      animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-    }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
-    .header-row { display: flex; justify-content: space-between; gap: 1rem; }
-    .header-left { height: 2.75rem; width: 10rem; }
-    .header-right { display: flex; gap: 0.75rem; }
-    .header-btn1 { height: 2.75rem; width: 6rem; }
-    .header-btn2 { height: 2.75rem; width: 2.75rem; }
-    .hero-banner { height: 12rem; border-radius: 1.5rem; width: 100%; margin-top: 0.5rem; }
-    .title-line { height: 1.75rem; width: 13rem; margin-top: 1rem; }
-    .chips-row { display: flex; gap: 0.75rem; margin-top: 0.5rem; }
-    .chip { height: 2rem; width: 4.5rem; }
-  </style>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="preconnect" href="https://maps.googleapis.com">
-  <link rel="preconnect" href="https://maps.gstatic.com" crossorigin>
-  <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&display=swap"
-    rel="stylesheet">
-  <title>Ometto</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link
-    href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Outfit:wght@300;400;500;600;700;800;900&family=Caveat:wght@400;700&family=Yellowtail&display=swap"
-    rel="stylesheet">
-</head>
-
-<body>
-  <div id="root">
-    <div class="initial-loader">
-      <div class="header-row">
-        <div class="skeleton-box header-left"></div>
-        <div class="header-right">
-          <div class="skeleton-box header-btn1"></div>
-          <div class="skeleton-box header-btn2"></div>
-        </div>
-      </div>
-      <div class="skeleton-box hero-banner"></div>
-      <div class="skeleton-box title-line"></div>
-      <div class="chips-row">
-        <div class="skeleton-box chip"></div>
-        <div class="skeleton-box chip" style="width: 5.5rem;"></div>
-        <div class="skeleton-box chip"></div>
-      </div>
-    </div>
-  </div>
-  <script type="module" src="/src/index.jsx"></script>
-</body>
-
+          showBanner("Unhandled Promise Rejection:", e.reason);
+        });
+      })();
+    </script>
+    <script type="module" src="/src/index.jsx"></script>
+  </body>
 </html>

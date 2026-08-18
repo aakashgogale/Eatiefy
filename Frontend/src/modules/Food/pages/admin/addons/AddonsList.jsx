@@ -4,7 +4,6 @@ import { Switch } from "@food/components/ui/switch"
 import { adminAPI, uploadAPI } from "@food/api"
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@food/components/ui/dialog"
-import AdminListPagination from "@food/components/admin/AdminListPagination"
 
 const debugError = (...args) => {}
 
@@ -34,16 +33,6 @@ const getAddonImage = (addon) =>
 
 export default function AddonsList() {
   const [searchQuery, setSearchQuery] = useState("")
-  const [debouncedSearch, setDebouncedSearch] = useState("")
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(() => {
-    try {
-      return Number(localStorage.getItem("admin_addons_pageSize")) || 20
-    } catch {
-      return 20
-    }
-  })
-  const [totalItems, setTotalItems] = useState(0)
   const [addons, setAddons] = useState([])
   const [loading, setLoading] = useState(true)
   const [submittingAction, setSubmittingAction] = useState(false)
@@ -57,49 +46,33 @@ export default function AddonsList() {
   const [editImageFile, setEditImageFile] = useState(null)
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300)
-    return () => clearTimeout(t)
-  }, [searchQuery])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [debouncedSearch])
-
-  useEffect(() => {
     const fetchAddons = async () => {
       try {
         setLoading(true)
         const response = await adminAPI.getRestaurantAddons({
+          // only approved items should be visible in this list
           approvalStatus: "approved",
-          search: debouncedSearch || undefined,
-          page: currentPage,
-          limit: pageSize,
+          search: searchQuery?.trim() ? searchQuery.trim() : undefined,
+          limit: 200,
+          page: 1,
         })
-        const data = response?.data?.data ?? response?.data
-        const list = Array.isArray(data?.addons)
-          ? data.addons
-          : Array.isArray(data)
-            ? data
-            : []
-        const approvedOnly = list.filter((addon) => String(addon.approvalStatus || "").toLowerCase() === "approved")
+        const data = response?.data?.data?.addons || response?.data?.addons || []
+        const approvedOnly = Array.isArray(data)
+          ? data.filter((addon) => String(addon.approvalStatus || "").toLowerCase() === "approved")
+          : []
         setAddons(approvedOnly)
-        setTotalItems(
-          response?.data?.data?.total ??
-          response?.data?.total ??
-          approvedOnly.length
-        )
       } catch (error) {
         debugError("Error fetching addons:", error)
         toast.error("Failed to load restaurant add-ons")
         setAddons([])
-        setTotalItems(0)
       } finally {
         setLoading(false)
       }
     }
 
-    fetchAddons()
-  }, [debouncedSearch, currentPage, pageSize])
+    const t = setTimeout(fetchAddons, 250)
+    return () => clearTimeout(t)
+  }, [searchQuery])
 
   const filteredAddons = useMemo(() => {
     const result = Array.isArray(addons) ? [...addons] : []
@@ -107,7 +80,7 @@ export default function AddonsList() {
     return result
   }, [addons])
 
-  const countLabel = totalItems
+  const countLabel = filteredAddons.length
 
   const handleViewDetails = (addon) => {
     setSelectedAddon(addon)
@@ -150,7 +123,7 @@ export default function AddonsList() {
       let imageUrl = editImagePreview || ""
       // If a new file selected, upload it
       if (editImageFile) {
-        const uploadRes = await uploadAPI.uploadMedia(editImageFile, { folder: "appzeto/admin/addons" })
+        const uploadRes = await uploadAPI.uploadMedia(editImageFile, { folder: "eatiefy/admin/addons" })
         imageUrl = uploadRes?.data?.data?.url || uploadRes?.data?.url || imageUrl
       }
 
@@ -217,9 +190,7 @@ export default function AddonsList() {
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-slate-900">Restaurant add-ons</h1>
-            </div>
+            <h1 className="text-2xl font-bold text-slate-900">Restaurant add-ons</h1>
             <div className="text-sm text-slate-500 mt-1">Manage add-ons submitted by restaurants.</div>
           </div>
 
@@ -291,7 +262,7 @@ export default function AddonsList() {
                 filteredAddons.map((addon, index) => (
                   <tr key={String(addon.id || addon._id)} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-medium text-slate-700">{(currentPage - 1) * pageSize + index + 1}</span>
+                      <span className="text-sm font-medium text-slate-700">{index + 1}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-100 flex items-center justify-center">
@@ -355,21 +326,6 @@ export default function AddonsList() {
             </tbody>
           </table>
         </div>
-
-        <AdminListPagination
-          currentPage={currentPage}
-          pageSize={pageSize}
-          totalItems={totalItems}
-          onPageChange={setCurrentPage}
-          onPageSizeChange={(size) => {
-            setPageSize(size)
-            try {
-              localStorage.setItem("admin_addons_pageSize", String(size))
-            } catch {}
-            setCurrentPage(1)
-          }}
-          itemLabel="add-ons"
-        />
       </div>
 
       <Dialog open={showDetailModal} onOpenChange={setShowDetailModal}>

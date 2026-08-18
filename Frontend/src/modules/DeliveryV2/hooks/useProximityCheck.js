@@ -1,49 +1,45 @@
 import { useMemo } from 'react';
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { calculateDistance } from '@/modules/DeliveryV2/hooks/proximity.utils';
-import { parseLatLng } from '@/modules/DeliveryV2/utils/geo';
-
-/** City delivery should never show 100+ km — usually GPS fallback / bad coords. */
-const MAX_TRUSTED_TRIP_DISTANCE_M = 100_000;
 
 /**
  * useProximityCheck - Professional hook for dynamic range monitoring.
  * Ensures rider can only advance based on Admin-defined ranges.
  *
- * Target phase:
- * - PICKING_UP / REACHED_PICKUP → restaurant
- * - PICKED_UP / REACHED_DROP → customer
+ * distanceToTarget = Haversine (meters) for geofence / auto-arrival.
+ * displayDistanceMeters = road distance when Directions is available.
  *
- * @returns {Object} { distanceToTarget, isWithinRange, actionLimit, targetType }
+ * @returns {Object} { distanceToTarget, displayDistanceMeters, isWithinRange, actionLimit, distanceLabel }
  */
 export const useProximityCheck = () => {
   const riderLocation = useDeliveryStore((state) => state.riderLocation);
-  const activeOrder = useDeliveryStore((state) => state.getFocusedOrder());
-  const tripStatus = useDeliveryStore((state) => state.getFocusedTripStatus());
+  const activeOrder = useDeliveryStore((state) => state.activeOrder);
+  const tripStatus = useDeliveryStore((state) => state.tripStatus);
   const settings = useDeliveryStore((state) => state.settings);
+  const routeDistanceMeters = useDeliveryStore((state) => state.routeDistanceMeters);
 
-  const targetType = useMemo(() => {
-    if (['PICKING_UP', 'REACHED_PICKUP'].includes(tripStatus)) return 'restaurant';
-    if (['PICKED_UP', 'REACHED_DROP'].includes(tripStatus)) return 'customer';
-    return null;
-  }, [tripStatus]);
+  const toPoint = (loc) => {
+    if (!loc) return null;
+    const lat = parseFloat(loc.lat ?? loc.latitude);
+    const lng = parseFloat(loc.lng ?? loc.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat, lng };
+  };
 
   // Determine current target based on trip state
   const targetLocation = useMemo(() => {
-    if (!activeOrder || !targetType) return null;
+    if (!activeOrder) return null;
 
-    if (targetType === 'restaurant') {
-      return parseLatLng(
-        activeOrder.restaurantLocation || activeOrder.restaurant_location,
-      );
+    if (['PICKING_UP', 'REACHED_PICKUP'].includes(tripStatus)) {
+      return toPoint(activeOrder.restaurantLocation || activeOrder.restaurant_location);
     }
 
-    return parseLatLng(
-      activeOrder.customerLocation || activeOrder.customer_location,
-    );
-  }, [activeOrder, targetType]);
+    if (['PICKED_UP', 'REACHED_DROP'].includes(tripStatus)) {
+      return toPoint(activeOrder.customerLocation || activeOrder.customer_location);
+    }
 
-  const riderPoint = useMemo(() => parseLatLng(riderLocation), [riderLocation]);
+    return null;
+  }, [activeOrder, tripStatus]);
 
   // Determine current range limit from admin settings
   const actionLimit = useMemo(() => {
@@ -52,26 +48,48 @@ export const useProximityCheck = () => {
     return 500;
   }, [tripStatus, settings]);
 
-  // Calculate real-time distance (Infinity = unknown / untrusted)
+  // Haversine for proximity / geofence only
   const distanceToTarget = useMemo(() => {
-    if (!riderPoint || !targetLocation) return Infinity;
+    if (!riderLocation || !targetLocation) return Infinity;
 
-    const meters = calculateDistance(
-      riderPoint.lat,
-      riderPoint.lng,
-      targetLocation.lat,
-      targetLocation.lng,
-    );
+    const rLat = parseFloat(riderLocation.lat ?? riderLocation.latitude);
+    const rLng = parseFloat(riderLocation.lng ?? riderLocation.longitude);
+    if (!Number.isFinite(rLat) || !Number.isFinite(rLng)) return Infinity;
 
-    if (!Number.isFinite(meters) || meters > MAX_TRUSTED_TRIP_DISTANCE_M) {
-      return Infinity;
+    return calculateDistance(rLat, rLng, targetLocation.lat, targetLocation.lng);
+  }, [riderLocation, targetLocation]);
+
+  /**
+   * Stage-based DISPLAY distance (road when possible):
+   * - Before pickup: delivery partner → restaurant (live Directions)
+   * - After pickup: restaurant → user (tripDistanceKm road), else live road remaining to customer
+   */
+  const displayDistanceMeters = useMemo(() => {
+    if (['PICKED_UP', 'REACHED_DROP'].includes(tripStatus)) {
+      const roadTripKm = Number(
+        activeOrder?.tripDistanceKm ?? activeOrder?.pricing?.roadDistanceKm,
+      );
+      // Fixed restaurant ↔ customer road trip after food is taken
+      if (Number.isFinite(roadTripKm) && roadTripKm > 0) {
+        return roadTripKm * 1000;
+      }
     }
 
-    return meters;
-  }, [riderPoint, targetLocation]);
+    if (routeDistanceMeters != null && Number.isFinite(routeDistanceMeters)) {
+      return routeDistanceMeters;
+    }
+
+    return distanceToTarget;
+  }, [tripStatus, activeOrder, routeDistanceMeters, distanceToTarget]);
+
+  const distanceLabel = useMemo(() => {
+    if (['PICKING_UP', 'REACHED_PICKUP'].includes(tripStatus)) return 'To restaurant';
+    if (['PICKED_UP', 'REACHED_DROP'].includes(tripStatus)) return 'To customer';
+    return 'Distance';
+  }, [tripStatus]);
 
   // Dev mode bypass
-  const isDevMode = import.meta.env.VITE_APP_MODE === 'developer' || 
+  const isDevMode = import.meta.env.VITE_APP_MODE === 'developer' ||
                     import.meta.env.VITE_ENABLE_RANGE_BYPASS === 'true' ||
                     import.meta.env.DEV;
 
@@ -79,20 +97,9 @@ export const useProximityCheck = () => {
 
   return {
     distanceToTarget,
+    displayDistanceMeters,
+    distanceLabel,
     isWithinRange,
     actionLimit,
-    targetType,
   };
 };
-
-/** Display km for trip HUD — never show Infinity / bogus values. */
-export function formatTripDistanceKm(distanceToTarget) {
-  if (
-    distanceToTarget == null ||
-    distanceToTarget === Infinity ||
-    !Number.isFinite(distanceToTarget)
-  ) {
-    return '--';
-  }
-  return (distanceToTarget / 1000).toFixed(1);
-}

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { 
   Search, 
   Settings, 
@@ -23,7 +23,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@food/components/ui/dialog"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
-import AdminListPagination from "@food/components/admin/AdminListPagination"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -31,16 +30,6 @@ const debugError = (...args) => {}
 
 export default function EarningAddonHistory() {
   const [searchQuery, setSearchQuery] = useState("")
-  const [debouncedSearch, setDebouncedSearch] = useState("")
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(() => {
-    try {
-      return Number(localStorage.getItem("admin_earning_addon_history_pageSize")) || 20
-    } catch {
-      return 20
-    }
-  })
-  const [totalItems, setTotalItems] = useState(0)
   const [history, setHistory] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -60,42 +49,58 @@ export default function EarningAddonHistory() {
   })
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300)
-    return () => clearTimeout(t)
-  }, [searchQuery])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [debouncedSearch])
-
-  useEffect(() => {
     fetchHistory()
-  }, [currentPage, pageSize, debouncedSearch])
+  }, [])
 
   const fetchHistory = async () => {
     try {
       setIsLoading(true)
-      const response = await adminAPI.getEarningAddonHistory({
-        page: currentPage,
-        limit: pageSize,
-        search: debouncedSearch || undefined,
+      debugLog('?? Fetching earning addon history...')
+      const response = await adminAPI.getEarningAddonHistory()
+      debugLog('?? API Response:', {
+        success: response.data.success,
+        message: response.data.message,
+        dataKeys: response.data.data ? Object.keys(response.data.data) : [],
+        historyCount: response.data.data?.history?.length || 0,
+        pagination: response.data.data?.pagination
       })
-
+      
       if (response.data.success) {
         const historyData = response.data.data.history || []
+        debugLog('? Earning Addon History fetched:', historyData.length, 'records')
+        
+        // Log sample data for debugging
+        if (historyData.length > 0) {
+          debugLog('?? Sample history record:', {
+            deliveryman: historyData[0].deliveryman,
+            offerTitle: historyData[0].offerTitle,
+            status: historyData[0].status,
+            ordersCompleted: historyData[0].ordersCompleted,
+            earningAmount: historyData[0].earningAmount
+          })
+        }
+        
         setHistory(historyData)
-        setTotalItems(response.data.data.pagination?.total ?? historyData.length)
+        if (historyData.length === 0) {
+          debugLog('?? No history records found in database')
+          toast.info("No earning addon history found. History will appear when delivery boys complete offers.")
+        } else {
+          debugLog(`? Successfully loaded ${historyData.length} history records`)
+        }
       } else {
+        debugError('? API returned unsuccessful response:', response.data)
         toast.error(response.data.message || "Failed to fetch earning addon history")
-        setHistory([])
-        setTotalItems(0)
       }
     } catch (error) {
-      debugError("Error fetching earning addon history:", error)
+      debugError("? Error fetching earning addon history:", error)
+      debugError("Error details:", {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        url: error.config?.url
+      })
       const errorMessage = error.response?.data?.message || error.message || "Failed to fetch earning addon history"
       toast.error(errorMessage)
-      setHistory([])
-      setTotalItems(0)
     } finally {
       setIsLoading(false)
     }
@@ -118,6 +123,19 @@ export default function EarningAddonHistory() {
       return dateString
     }
   }
+
+  const filteredHistory = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return history
+    }
+    
+    const query = searchQuery.toLowerCase().trim()
+    return history.filter(item =>
+      item.deliveryman?.toLowerCase().includes(query) ||
+      item.deliveryId?.toLowerCase().includes(query) ||
+      item.offerTitle?.toLowerCase().includes(query)
+    )
+  }, [history, searchQuery])
 
   const handleCredit = async () => {
     if (!selectedHistory) return
@@ -201,13 +219,119 @@ export default function EarningAddonHistory() {
     )
   }
 
-  const handleExport = (format) => {
-    if (history.length === 0) {
+  const handleExport = async (format) => {
+    if (filteredHistory.length === 0) {
       toast.error("No data to export")
       return
     }
-    // Export functionality can be added here
-    toast.info(`Export as ${format.toUpperCase()} - Feature coming soon`)
+
+    const headers = ["SI", "Deliveryman", "Delivery ID", "Phone", "Offer Title", "Orders Completed", "Orders Required", "Earning Amount", "Date", "Status"]
+    const data = filteredHistory.map((item, index) => ({
+      sl: index + 1,
+      deliveryman: item.deliveryman || 'Unknown',
+      deliveryId: item.deliveryId || 'N/A',
+      phone: item.deliveryPhone || 'N/A',
+      offerTitle: item.offerTitle || 'N/A',
+      ordersCompleted: item.ordersCompleted || 0,
+      ordersRequired: item.ordersRequired || 0,
+      earningAmount: `Rs.${(item.totalEarning || item.earningAmount || 0).toFixed(2)}`,
+      date: formatDate(item.date || item.completedAt),
+      status: item.status || 'unknown'
+    }))
+
+    switch (format) {
+      case "csv":
+        const csvContent = [
+          headers.join(","),
+          ...data.map(row => headers.map(h => `"${row[h.toLowerCase().replace(' ', '_')] || ''}"`).join(","))
+        ].join("\n")
+        const csvBlob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+        const csvLink = document.createElement("a")
+        csvLink.href = URL.createObjectURL(csvBlob)
+        csvLink.download = `earning_addon_history_${new Date().toISOString().split('T')[0]}.csv`
+        csvLink.click()
+        toast.success("CSV exported successfully")
+        break
+      case "excel":
+        // Create HTML table for better Excel compatibility
+        const excelHtml = `
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <style>
+                table { border-collapse: collapse; width: 100%; }
+                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                th { background-color: #f2f2f2; font-weight: bold; }
+              </style>
+            </head>
+            <body>
+              <table>
+                <thead>
+                  <tr>
+                    ${headers.map(h => `<th>${h}</th>`).join("")}
+                  </tr>
+                </thead>
+                <tbody>
+                  ${data.map(row => `<tr>${[
+                    row.sl,
+                    row.deliveryman,
+                    row.deliveryId,
+                    row.phone,
+                    row.offerTitle,
+                    row.ordersCompleted,
+                    row.ordersRequired,
+                    row.earningAmount,
+                    row.date,
+                    row.status
+                  ].map(cell => `<td>${String(cell).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>`).join("")}</tr>`).join("")}
+                </tbody>
+              </table>
+            </body>
+          </html>
+        `
+        const excelBlob = new Blob([excelHtml], { type: "application/vnd.ms-excel;charset=utf-8" })
+        const excelLink = document.createElement("a")
+        excelLink.href = URL.createObjectURL(excelBlob)
+        excelLink.download = `earning_addon_history_${new Date().toISOString().split('T')[0]}.xls`
+        excelLink.click()
+        toast.success("Excel exported successfully")
+        break
+      case "pdf":
+        try {
+          const { default: jsPDF } = await import('jspdf')
+          const { default: autoTable } = await import('jspdf-autotable')
+          const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+          doc.setFontSize(16)
+          doc.text('Earning Addon History Report', 14, 15)
+          doc.setFontSize(10)
+          doc.text(`Exported on: ${new Date().toLocaleString('en-GB')} | Total Records: ${data.length}`, 14, 22)
+
+          autoTable(doc, {
+            head: [headers],
+            body: data.map(row => [row.sl, row.deliveryman, row.deliveryId, row.phone, row.offerTitle, row.ordersCompleted, row.ordersRequired, row.earningAmount, row.date, row.status]),
+            startY: 28,
+            styles: { fontSize: 7, cellPadding: 2 },
+            headStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: 'bold' }
+          })
+          doc.save(`earning_addon_history_${new Date().toISOString().split('T')[0]}.pdf`)
+          toast.success("PDF exported successfully")
+        } catch (error) {
+          debugError("PDF export error:", error)
+          toast.error("Failed to export PDF")
+        }
+        break
+      case "json":
+        const jsonContent = JSON.stringify(data, null, 2)
+        const jsonBlob = new Blob([jsonContent], { type: "application/json" })
+        const jsonLink = document.createElement("a")
+        jsonLink.href = URL.createObjectURL(jsonBlob)
+        jsonLink.download = `earning_addon_history_${new Date().toISOString().split('T')[0]}.json`
+        jsonLink.click()
+        toast.success("JSON exported successfully")
+        break
+      default:
+        break
+    }
   }
 
   const handleCheckAllCompletions = async () => {
@@ -242,7 +366,7 @@ export default function EarningAddonHistory() {
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold text-slate-900">Earning Addon History</h1>
               <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
-                {totalItems}
+                {filteredHistory.length}
               </span>
             </div>
 
@@ -375,11 +499,11 @@ export default function EarningAddonHistory() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-100">
-                  {history.length === 0 ? (
+                  {filteredHistory.length === 0 ? (
                     <tr>
                       <td colSpan={Object.values(visibleColumns).filter(v => v).length} className="px-6 py-12 text-center">
                         <div className="flex flex-col items-center gap-2">
-                          <FileText className="w-10 h-10 text-slate-300 mb-1" />
+                          <div className="text-slate-400 text-4xl mb-2">??</div>
                           <p className="text-slate-500 font-medium">No earning addon history found</p>
                           <p className="text-sm text-slate-400 mt-1">
                             {searchQuery ? 'Try adjusting your search query' : 'History will appear when delivery boys complete earning addon offers'}
@@ -388,11 +512,11 @@ export default function EarningAddonHistory() {
                       </td>
                     </tr>
                   ) : (
-                    history.map((item, index) => (
+                    filteredHistory.map((item) => (
                       <tr key={item._id} className="hover:bg-slate-50 transition-colors">
                         {visibleColumns.si && (
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <span className="text-sm font-medium text-slate-700">{(currentPage - 1) * pageSize + index + 1}</span>
+                            <span className="text-sm font-medium text-slate-700">{item.sl}</span>
                           </td>
                         )}
                         {visibleColumns.deliveryman && (
@@ -432,8 +556,8 @@ export default function EarningAddonHistory() {
                         {visibleColumns.earningAmount && (
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="flex items-center gap-1">
-                              <DollarSign className="w-4 h-4 text-emerald-500" />
-                              <span className="text-sm font-medium text-slate-900">{"\u20B9"}{item.totalEarning?.toFixed(2) || item.earningAmount?.toFixed(2) || '0.00'}</span>
+                              <span className="text-sm font-semibold text-emerald-500">Rs.</span>
+                              <span className="text-sm font-medium text-slate-900">{item.totalEarning?.toFixed(2) || item.earningAmount?.toFixed(2) || '0.00'}</span>
                             </div>
                           </td>
                         )}
@@ -485,22 +609,6 @@ export default function EarningAddonHistory() {
               </table>
             </div>
           )}
-
-          <AdminListPagination
-            currentPage={currentPage}
-            pageSize={pageSize}
-            totalItems={totalItems}
-            onPageChange={setCurrentPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size)
-              try {
-                localStorage.setItem("admin_earning_addon_history_pageSize", String(size))
-              } catch {
-                /* ignore */
-              }
-            }}
-            itemLabel="records"
-          />
         </div>
       </div>
 
@@ -608,15 +716,15 @@ export default function EarningAddonHistory() {
 
       {/* Settings Dialog */}
       <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-        <DialogContent className="max-w-md bg-white">
-          <DialogHeader>
+        <DialogContent className="max-w-md bg-white p-0 overflow-hidden">
+          <DialogHeader className="px-5 pt-5 pb-3 border-b border-slate-200">
             <DialogTitle className="flex items-center gap-2">
               <Settings className="w-5 h-5" />
               Table Settings
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div>
+          <div className="px-5 py-4">
+            <div className="max-h-[55vh] overflow-y-auto pr-1">
               <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
                 <Columns className="w-4 h-4" />
                 Visible Columns
@@ -641,7 +749,7 @@ export default function EarningAddonHistory() {
                 ))}
               </div>
             </div>
-            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
+            <div className="mt-4 flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
               <button
                 onClick={resetColumns}
                 className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
@@ -661,5 +769,4 @@ export default function EarningAddonHistory() {
     </div>
   )
 }
-
 

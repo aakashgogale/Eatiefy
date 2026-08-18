@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ValidationError } from "../../core/auth/errors.js";
+import { normalizePlatform } from "../../utils/platform.js";
 
 const schema = z.object({
   phone: z
@@ -14,9 +15,11 @@ const schema = z.object({
     .regex(/^\d{4}$/, "OTP must be numeric and exactly 4 digits"),
   ref: z.string().trim().max(64).optional().or(z.literal("")),
   fcmToken: z.string().optional(),
-  platform: z.enum(["web", "mobile"]).optional(),
+  platform: z.preprocess(
+    (value) => normalizePlatform(value, { allowUndefined: true }),
+    z.enum(["web", "mobile"]).optional(),
+  ),
   name: z.string().trim().min(2, "Name must be at least 2 characters").max(100).optional(),
-  confirmAction: z.enum(["restore", "new"]).optional(),
 });
 
 export const validateUserOtpVerifyDto = (body) => {

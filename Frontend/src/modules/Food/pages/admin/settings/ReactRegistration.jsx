@@ -103,7 +103,7 @@ export default function ReactRegistration() {
                     src={heroImagePreview}
                     alt="Hero section preview"
                     className="w-full h-auto rounded-lg max-h-96 object-contain mx-auto"
-                  />
+                   loading="lazy" decoding="async" />
                   <button
                     type="button"
                     onClick={handleRemoveImage}
@@ -248,7 +248,7 @@ export default function ReactRegistration() {
                               src={opp.icon}
                               alt="Icon"
                               className="w-24 h-24 object-cover rounded-lg border border-slate-300"
-                            />
+                             loading="lazy" decoding="async" />
                             <button
                               type="button"
                               onClick={() => {

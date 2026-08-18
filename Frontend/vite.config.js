@@ -3,9 +3,8 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { createRequire } from 'module';
+import { VitePWA } from 'vite-plugin-pwa'
 
-const require = createRequire(import.meta.url);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -13,7 +12,70 @@ const foodSrc = path.resolve(__dirname, './src/modules/Food')
 const servicesApi = path.resolve(__dirname, './src/services/api')
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      workbox: {
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'google-fonts-cache',
+              expiration: {
+                maxEntries: 10,
+                maxAgeSeconds: 60 * 60 * 24 * 365
+              },
+              cacheableResponse: {
+                statuses: [0, 200]
+              }
+            }
+          },
+          {
+            urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'gstatic-fonts-cache',
+              expiration: {
+                maxEntries: 10,
+                maxAgeSeconds: 60 * 60 * 24 * 365
+              },
+              cacheableResponse: {
+                statuses: [0, 200]
+              }
+            }
+          },
+          {
+            urlPattern: /^https:\/\/res\.cloudinary\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'cloudinary-images',
+              expiration: {
+                maxEntries: 100,
+                maxAgeSeconds: 60 * 60 * 24 * 30
+              },
+              cacheableResponse: {
+                statuses: [0, 200]
+              }
+            }
+          },
+          {
+            urlPattern: /\/api\/v1\/.*/i,
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'api-cache',
+              expiration: {
+                maxEntries: 50,
+                maxAgeSeconds: 60 * 60 * 24
+              }
+            }
+          }
+        ]
+      }
+    })
+  ],
   resolve: {
     alias: {
       // More specific first so @food/api/* resolves to services (no backend)
@@ -34,6 +96,18 @@ export default defineConfig({
       '@mui/x-date-pickers',
     ],
   },
+  build: {
+    chunkSizeWarningLimit: 2000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-ui': ['@mui/material', '@emotion/react', '@emotion/styled', 'lucide-react'],
+          'vendor-utils': ['axios', 'dayjs', 'clsx', 'tailwind-merge'],
+        },
+      },
+    },
+  },
   server: {
     host: '0.0.0.0',
     port: 5173,
@@ -43,29 +117,10 @@ export default defineConfig({
         target: process.env.VITE_BACKEND_PROXY_TARGET || 'http://localhost:5000',
         changeOrigin: true,
       },
-    },
-  },
-  build: {
-    rollupOptions: {
-      output: {
-        entryFileNames: 'assets/js/[name]-[hash].js',
-        chunkFileNames: 'assets/js/[name]-[hash].js',
-        assetFileNames: (assetInfo) => {
-          const name = assetInfo.name || ''
-          if (/\.(png|jpe?g|gif|svg|webp|ico|avif)$/i.test(name)) {
-            return 'assets/images/[name]-[hash][extname]'
-          }
-          if (/\.css$/i.test(name)) {
-            return 'assets/css/[name]-[hash][extname]'
-          }
-          if (/\.(mp3|mp4|wav|webm|ogg)$/i.test(name)) {
-            return 'assets/media/[name]-[hash][extname]'
-          }
-          if (/\.woff2?$/i.test(name)) {
-            return 'assets/fonts/[name]-[hash][extname]'
-          }
-          return 'assets/[name]-[hash][extname]'
-        },
+      // Uploaded images — same origin as frontend in dev (avoids CORP / NotSameOrigin)
+      '/uploads': {
+        target: process.env.VITE_BACKEND_PROXY_TARGET || 'http://localhost:5000',
+        changeOrigin: true,
       },
     },
   },

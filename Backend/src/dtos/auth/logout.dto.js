@@ -1,10 +1,14 @@
 import { z } from 'zod';
 import { ValidationError } from '../../core/auth/errors.js';
+import { normalizePlatform } from '../../utils/platform.js';
 
 const schema = z.object({
     refreshToken: z.string().min(1, 'Refresh token is required'),
     fcmToken: z.string().optional(),
-    platform: z.enum(['web', 'mobile']).optional()
+    platform: z.preprocess(
+        (value) => normalizePlatform(value, { allowUndefined: true }),
+        z.enum(['web', 'mobile']).optional()
+    )
 });
 
 export const validateLogoutDto = (body) => {

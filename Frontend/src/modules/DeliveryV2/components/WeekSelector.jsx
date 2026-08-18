@@ -16,7 +16,7 @@ export default function WeekSelector({ weekStartsOn = 0, onChange, className }) 
   const [open, setOpen] = React.useState(false);
   const [anchorDate, setAnchorDate] = React.useState(new Date());
 
-  const computeRange = React.useCallback(
+  const computeWeekRange = React.useCallback(
     (date) => ({
       start: startOfWeek(date, { weekStartsOn }),
       end: endOfWeek(date, { weekStartsOn }),
@@ -24,11 +24,19 @@ export default function WeekSelector({ weekStartsOn = 0, onChange, className }) 
     [weekStartsOn]
   );
 
+  const computeDayRange = React.useCallback((date) => {
+    const start = new Date(date);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(date);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }, []);
+
   // current range shown
-  const [range, setRange] = React.useState(() => computeRange(new Date()));
+  const [range, setRange] = React.useState(() => computeWeekRange(new Date()));
 
   const setThisWeek = () => {
-    const r = computeRange(new Date());
+    const r = computeWeekRange(new Date());
     setRange(r);
     setAnchorDate(new Date());
     if (onChange) onChange(r);
@@ -36,7 +44,7 @@ export default function WeekSelector({ weekStartsOn = 0, onChange, className }) 
 
   const setLastWeek = () => {
     const lastWeekDate = addDays(new Date(), -7);
-    const r = computeRange(lastWeekDate);
+    const r = computeWeekRange(lastWeekDate);
     setRange(r);
     setAnchorDate(lastWeekDate);
     if (onChange) onChange(r);
@@ -44,7 +52,10 @@ export default function WeekSelector({ weekStartsOn = 0, onChange, className }) 
 
   const onSelectDate = (date) => {
     if (!date) return;
-    const r = computeRange(date);
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    if (date > today) return;
+    const r = computeDayRange(date);
     setRange(r);
     setAnchorDate(date);
     setOpen(false);
@@ -65,7 +76,7 @@ export default function WeekSelector({ weekStartsOn = 0, onChange, className }) 
           onClick={setThisWeek}
           className={cn(
             "rounded-md px-2 h-10 text-xs whitespace-nowrap",
-            isSameRange(range, computeRange(new Date())) &&
+            isSameRange(range, computeWeekRange(new Date())) &&
             "bg-emerald-50 text-emerald-900 border-emerald-200"
           )}
         >
@@ -90,15 +101,16 @@ export default function WeekSelector({ weekStartsOn = 0, onChange, className }) 
             </Button>
           </PopoverTrigger>
           <PopoverContent className="p-0" align="start">
-            {/* Using single-date selection; we compute its week. */}
+            {/* Single-date selection for day-level filtering. */}
             <Calendar
               mode="single"
               selected={anchorDate}
               onSelect={onSelectDate}
-              className="rounded-md [--primary:#15498b] [--primary-foreground:#ffffff]"
+              className="rounded-md"
               captionLayout="dropdown-buttons"
               fromYear={2020}
               toYear={2030}
+              toDate={new Date()}
             />
           </PopoverContent>
         </Popover>
@@ -106,11 +118,11 @@ export default function WeekSelector({ weekStartsOn = 0, onChange, className }) 
 
       {/* Divider + Date Range */}
       <div className="mt-6 flex items-center gap-4">
-        <div className="h-px flex-1 bg-gray-200" />
-        <div className="text-lg sm:text-xl font-semibold text-[#15498b]">
+        <div className="h-px flex-1 bg-muted" />
+        <div className="text-lg sm:text-xl font-semibold text-muted-foreground">
           {fmt(range.start)} - {fmt(range.end)}
         </div>
-        <div className="h-px flex-1 bg-gray-200" />
+        <div className="h-px flex-1 bg-muted" />
       </div>
     </div>
   );
