@@ -1,0 +1,47 @@
+import mongoose from 'mongoose';
+
+const diningRestaurantSchema = new mongoose.Schema(
+    {
+        restaurantId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'FoodRestaurant',
+            required: true,
+            unique: true
+        },
+        categoryIds: [
+            {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: 'FoodDiningCategory'
+            }
+        ],
+        primaryCategoryId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'FoodDiningCategory',
+            default: null
+        },
+        isEnabled: {
+            type: Boolean,
+            default: false
+        },
+        maxGuests: {
+            type: Number,
+            default: 6,
+            min: 0
+        },
+        pureVegRestaurant: {
+            type: Boolean,
+            required: true,
+            default: false
+        }
+    },
+    {
+        collection: 'food_dining_restaurants',
+        timestamps: true
+    }
+);
+
+// Redundant unique index removed as it is already defined on line 9
+// diningRestaurantSchema.index({ restaurantId: 1 }, { unique: true });
+diningRestaurantSchema.index({ isEnabled: 1, primaryCategoryId: 1 });
+
+export const FoodDiningRestaurant = mongoose.model('FoodDiningRestaurant', diningRestaurantSchema);
