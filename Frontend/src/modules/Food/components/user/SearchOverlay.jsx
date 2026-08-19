@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
 import { ArrowLeft, RotateCcw, Loader2, Mic, X, Search } from "lucide-react"
 import { restaurantAPI } from "@food/api"
@@ -11,12 +11,16 @@ const DEFAULT_RECENT = [
   "Hyderabadi Biryani"
 ]
 
+// In-memory module cache for public dishes (5 min TTL)
+let cachedDishesList = null
+let cachedDishesTimestamp = 0
+const DISHES_CACHE_TTL = 1000 * 60 * 5
+
 export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchChange, isListening, startVoiceSearch }) {
   const navigate = useNavigate()
   const inputRef = useRef(null)
   const openedAtRef = useRef(0)
-  const [allFoods, setAllFoods] = useState([])
-  const [filteredFoods, setFilteredFoods] = useState([])
+  const [allFoods, setAllFoods] = useState(() => cachedDishesList || [])
   const [recentSuggestions, setRecentSuggestions] = useState(DEFAULT_RECENT)
   const [loadingFoods, setLoadingFoods] = useState(false)
 
@@ -24,7 +28,7 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
     if (isOpen) {
       openedAtRef.current = Date.now()
       if (inputRef.current) {
-        setTimeout(() => inputRef.current?.focus(), 100)
+        setTimeout(() => inputRef.current?.focus(), 80)
       }
     }
   }, [isOpen])
@@ -47,6 +51,11 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
     }
 
     const fetchDynamicDataFromDB = async () => {
+      if (cachedDishesList && Date.now() - cachedDishesTimestamp < DISHES_CACHE_TTL) {
+        setAllFoods(cachedDishesList)
+        return
+      }
+
       setLoadingFoods(true)
       try {
         const dishesRes = await restaurantAPI.getPublicDishes({ limit: 800 })
@@ -63,9 +72,11 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
             image: typeof dish.image === "string" ? dish.image : (dish.image?.url || ""),
           }))
 
+        cachedDishesList = normalized
+        cachedDishesTimestamp = Date.now()
         setAllFoods(normalized)
       } catch {
-        setAllFoods([])
+        if (!cachedDishesList) setAllFoods([])
       } finally {
         setLoadingFoods(false)
       }
@@ -93,15 +104,10 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
     }
   }, [isOpen, onClose])
 
-  useEffect(() => {
-    if (searchValue.trim() === "") {
-      setFilteredFoods(allFoods)
-    } else {
-      const filtered = allFoods.filter((food) =>
-        food.name.toLowerCase().includes(searchValue.toLowerCase())
-      )
-      setFilteredFoods(filtered)
-    }
+  const filteredFoods = useMemo(() => {
+    const query = String(searchValue || "").toLowerCase().trim()
+    if (!query) return allFoods
+    return allFoods.filter((food) => food.name.toLowerCase().includes(query))
   }, [searchValue, allFoods])
 
   const saveRecentSearch = (term) => {

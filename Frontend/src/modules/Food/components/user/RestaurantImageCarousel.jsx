@@ -7,7 +7,7 @@ import { saveBrowseScroll, saveCategoryBrowseClick } from "@food/utils/browseScr
 import dishFallbackImage from "@food/assets/dish_fallback.webp";
 import { toFoodUserPath, getRestaurantRouteId } from "@food/utils/mainTabRoutes";
 
-const WEBVIEW_SESSION_CACHE_BUSTER = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+import { optimizeCloudinaryUrl } from "@/shared/utils/mediaUrl";
 
 /** Home / category restaurant card image carousel (auto-swipe + dish overlay). */
 const RestaurantImageCarousel = React.memo(
@@ -22,11 +22,10 @@ const RestaurantImageCarousel = React.memo(
     visibleCount,
     categoryFallbackImage = null,
   }) => {
-    const webviewSessionKeyRef = useRef(WEBVIEW_SESSION_CACHE_BUSTER);
     const navigate = useNavigate();
     const { vegMode } = useProfile();
 
-    const withCacheBuster = useCallback(
+    const resolveCarouselImageUrl = useCallback(
       (url) => {
         if (typeof url !== "string" || !url) return "";
         if (/^data:/i.test(url) || /^blob:/i.test(url)) return url;
@@ -37,26 +36,7 @@ const RestaurantImageCarousel = React.memo(
             ? `${backendOrigin.replace(/\/$/, "")}${url.startsWith("/") ? url : `/${url}`}`
             : url;
 
-        const hasSignedParams =
-          /[?&](X-Amz-|Signature=|Expires=|AWSAccessKeyId=|GoogleAccessId=|token=|sig=|se=|sp=|sv=)/i.test(
-            resolvedUrl,
-          );
-        if (hasSignedParams) return resolvedUrl;
-
-        try {
-          const parsed = new URL(resolvedUrl, window.location.origin);
-          const currentHost =
-            typeof window !== "undefined" ? window.location.hostname : "";
-          const isLocalHost = /^(localhost|127\.0\.0\.1)$/i.test(parsed.hostname);
-          const isSameHost = currentHost && parsed.hostname === currentHost;
-
-          if (isLocalHost || isSameHost) {
-            parsed.searchParams.set("_wv", webviewSessionKeyRef.current);
-          }
-          return parsed.toString();
-        } catch {
-          return resolvedUrl;
-        }
+        return optimizeCloudinaryUrl(resolvedUrl, { width: 500 });
       },
       [backendOrigin],
     );
@@ -84,16 +64,16 @@ const RestaurantImageCarousel = React.memo(
             .map((img) => img.trim())
             .filter(Boolean);
           if (validImages.length > 0) {
-            items.push({ id: "fallback", src: withCacheBuster(validImages[0]), dish: null });
+            items.push({ id: "fallback", src: resolveCarouselImageUrl(validImages[0]), dish: null });
           } else if (categoryFallbackImage) {
-            const finalSrc = categoryFallbackImage === dishFallbackImage ? dishFallbackImage : withCacheBuster(categoryFallbackImage);
+            const finalSrc = categoryFallbackImage === dishFallbackImage ? dishFallbackImage : resolveCarouselImageUrl(categoryFallbackImage);
             items.push({ id: "fallback", src: finalSrc, dish: null });
           } else {
             items.push({ id: "fallback", src: dishFallbackImage, dish: null });
           }
         }
       return items;
-    }, [restaurant.recommendedDishes, restaurant.images, restaurant.image, withCacheBuster, vegMode, categoryFallbackImage]);
+    }, [restaurant.recommendedDishes, restaurant.images, restaurant.image, resolveCarouselImageUrl, vegMode, categoryFallbackImage]);
 
     const carouselRef = useRef(null);
     const [isCentered, setIsCentered] = useState(false);

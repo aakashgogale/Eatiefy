@@ -79,20 +79,39 @@ const getMediaRewriteOrigin = () => {
   return "";
 };
 
-export const optimizeCloudinaryUrl = (url) => {
+export const optimizeCloudinaryUrl = (url, options = {}) => {
   if (!url || typeof url !== 'string') return url;
-  if (!url.includes('cloudinary.com')) return url;
-  
-  const uploadRegex = /\/(image\/upload)\/(?:v\d+\/)?(.*)/;
-  const match = url.match(uploadRegex);
-  
-  if (match) {
-    const base = url.substring(0, match.index + '/image/upload/'.length);
-    const rest = match[2];
-    // Global fallback optimization for urls not using the CloudinaryImage component
-    return `${base}f_auto,q_auto,dpr_auto,c_fill,g_auto/${rest}`;
+  const trimmed = url.trim();
+  if (!trimmed.includes('res.cloudinary.com') || !trimmed.includes('/image/upload/')) {
+    return trimmed;
   }
-  return url;
+
+  // Do not modify signed or version-specific raw transformations if already customized
+  const hasSignedParams = SIGNED_URL_PATTERN.test(trimmed);
+  if (hasSignedParams) return trimmed;
+
+  const { width, quality = 'auto', format = 'auto' } = options;
+
+  const uploadIndex = trimmed.indexOf('/image/upload/');
+  if (uploadIndex === -1) return trimmed;
+
+  const prefix = trimmed.substring(0, uploadIndex + '/image/upload/'.length);
+  const rest = trimmed.substring(uploadIndex + '/image/upload/'.length);
+
+  // If already has transformation parameters like f_auto or w_, avoid duplicate prefixing
+  if (/^(f_|q_|w_|c_|dpr_|e_|r_)/i.test(rest)) {
+    return trimmed;
+  }
+
+  const transforms = [];
+  if (format) transforms.push(`f_${format}`);
+  if (quality) transforms.push(`q_${quality}`);
+  if (width && Number(width) > 0) transforms.push(`w_${Math.round(Number(width))},c_limit`);
+
+  if (transforms.length === 0) return trimmed;
+  const transformStr = transforms.join(',');
+
+  return `${prefix}${transformStr}/${rest}`;
 };
 
 const finalizeAbsoluteUrl = (url) => {

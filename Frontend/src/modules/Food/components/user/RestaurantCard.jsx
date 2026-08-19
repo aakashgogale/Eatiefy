@@ -3,13 +3,12 @@ import { motion } from "framer-motion";
 import { Star, Clock, IndianRupee, Heart } from "lucide-react";
 import OptimizedImage from "@food/components/OptimizedImage";
 
-const WEBVIEW_SESSION_CACHE_BUSTER = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+import { optimizeCloudinaryUrl } from "@/shared/utils/mediaUrl";
 
 const RestaurantImageCarousel = React.memo(({ restaurant, priority = false, backendOrigin = "", autoScroll = false }) => {
-  const webviewSessionKeyRef = useRef(WEBVIEW_SESSION_CACHE_BUSTER);
   const imageElementRef = useRef(null);
 
-  const withCacheBuster = useCallback((url) => {
+  const resolveCardImageUrl = useCallback((url) => {
     if (typeof url !== "string" || !url) return "";
     if (/^data:/i.test(url) || /^blob:/i.test(url)) return url;
 
@@ -18,23 +17,7 @@ const RestaurantImageCarousel = React.memo(({ restaurant, priority = false, back
       ? `${backendOrigin.replace(/\/$/, "")}${url.startsWith("/") ? url : `/${url}`}`
       : url;
 
-    const hasSignedParams =
-      /[?&](X-Amz-|Signature=|Expires=|AWSAccessKeyId=|GoogleAccessId=|token=|sig=|se=|sp=|sv=)/i.test(resolvedUrl);
-    if (hasSignedParams) return resolvedUrl;
-
-    try {
-      const parsed = new URL(resolvedUrl, window.location.origin);
-      const currentHost = typeof window !== "undefined" ? window.location.hostname : "";
-      const isLocalHost = /^(localhost|127\.0\.0\.1)$/i.test(parsed.hostname);
-      const isSameHost = currentHost && parsed.hostname === currentHost;
-
-      if (isLocalHost || isSameHost) {
-        parsed.searchParams.set("_wv", webviewSessionKeyRef.current);
-      }
-      return parsed.toString();
-    } catch {
-      return resolvedUrl;
-    }
+    return optimizeCloudinaryUrl(resolvedUrl, { width: 500 });
   }, [backendOrigin]);
 
   const images = React.useMemo(() => {
@@ -47,9 +30,9 @@ const RestaurantImageCarousel = React.memo(({ restaurant, priority = false, back
       .map((img) => img.trim())
       .filter(Boolean);
 
-    const resolved = validImages.map((img) => withCacheBuster(img));
+    const resolved = validImages.map((img) => resolveCardImageUrl(img));
     return Array.from(new Set(resolved));
-  }, [restaurant.images, restaurant.image, withCacheBuster]);
+  }, [restaurant.images, restaurant.image, resolveCardImageUrl]);
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loadedBySrc, setLoadedBySrc] = useState({});

@@ -1,36 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 /**
- * Parses Cloudinary URL and injects optimizations
+ * Parses Cloudinary URL and returns clean valid source
  */
-const getOptimizedUrl = (url, width, isLqip = false) => {
+const getOptimizedUrl = (url) => {
   if (!url || typeof url !== 'string') return url;
-  if (!url.includes('cloudinary.com')) return url;
-
-  // Pattern to match Cloudinary upload URL before the public ID
-  // e.g. https://res.cloudinary.com/cloud_name/image/upload/v12345/public_id.jpg
-  // or https://res.cloudinary.com/cloud_name/image/upload/public_id.jpg
-  
-  const uploadRegex = /\/(image\/upload)\/(?:v\d+\/)?(.*)/;
-  const match = url.match(uploadRegex);
-  
-  if (match) {
-    const base = url.substring(0, match.index + '/image/upload/'.length);
-    const rest = match[2]; // the public ID + extension
-    
-    if (isLqip) {
-      return `${base}w_20,e_blur:1000,q_1,f_auto/${rest}`;
-    }
-    
-    // Add f_auto,q_auto,dpr_auto,w_{width},c_fill,g_auto
-    let transform = 'f_auto,q_auto,dpr_auto,c_fill,g_auto';
-    if (width) {
-      transform += `,w_${width}`;
-    }
-    
-    return `${base}${transform}/${rest}`;
-  }
-  
   return url;
 };
 

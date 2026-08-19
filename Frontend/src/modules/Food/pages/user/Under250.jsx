@@ -194,6 +194,35 @@ const getSanitizedUnder250Image = (item) => {
   return resolveImageUrl(img)
 }
 
+export const getCleanCategoryImage = (catName = "", rawImage = "") => {
+  const name = String(catName || "").toLowerCase().trim()
+  
+  if (name.includes("biryani")) return "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=350&h=350&fit=crop&q=85"
+  if (name.includes("chinese") || name.includes("manchurian") || name.includes("chilli")) return "https://images.unsplash.com/photo-1563245372-f21724e3856d?w=350&h=350&fit=crop&q=85"
+  if (name.includes("paneer")) return "https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=350&h=350&fit=crop&q=85"
+  if (name.includes("corn")) return "https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=350&h=350&fit=crop&q=85"
+  if (name.includes("sweet") || name.includes("dessert") || name.includes("cake") || name.includes("pastry") || name.includes("mithai")) return "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=350&h=350&fit=crop&q=85"
+  if (name.includes("pizza")) return "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=350&h=350&fit=crop&q=85"
+  if (name.includes("burger")) return "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=350&h=350&fit=crop&q=85"
+  if (name.includes("roll") || name.includes("wrap") || name.includes("kathi")) return "https://images.unsplash.com/photo-1626777552726-4a6b54c97e46?w=350&h=350&fit=crop&q=85"
+  if (name.includes("momo") || name.includes("dimsum")) return "https://images.unsplash.com/photo-1625246333195-78d9c38ad449?w=350&h=350&fit=crop&q=85"
+  if (name.includes("dosa") || name.includes("south")) return "https://images.unsplash.com/photo-1668236543090-82eba5ee5976?w=350&h=350&fit=crop&q=85"
+  if (name.includes("chole") || name.includes("bhature")) return "https://images.unsplash.com/photo-1626132647523-66f5bf380027?w=350&h=350&fit=crop&q=85"
+  if (name.includes("thali") || name.includes("main course") || name.includes("meal")) return "https://images.unsplash.com/photo-1610057099431-d73a1c9d2f2f?w=350&h=350&fit=crop&q=85"
+  if (name.includes("noodle") || name.includes("chowmein") || name.includes("maggi")) return "https://images.unsplash.com/photo-1612927601601-6638404737ce?w=350&h=350&fit=crop&q=85"
+  if (name.includes("sandwich") || name.includes("toast")) return "https://images.unsplash.com/photo-1528735602780-2552fd46c7af?w=350&h=350&fit=crop&q=85"
+  if (name.includes("pasta")) return "https://images.unsplash.com/photo-1621996346565-e3d5d628120b?w=350&h=350&fit=crop&q=85"
+  if (name.includes("beverage") || name.includes("drink") || name.includes("shake") || name.includes("juice") || name.includes("tea") || name.includes("coffee")) return "https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=350&h=350&fit=crop&q=85"
+  if (name.includes("fried rice") || name.includes("rice") || name.includes("khichdi") || name.includes("pulao")) return "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=350&h=350&fit=crop&q=85"
+  if (name.includes("paratha")) return "https://images.unsplash.com/photo-1601050690597-df0568f70950?w=350&h=350&fit=crop&q=85"
+  if (name.includes("north indian") || name.includes("curry") || name.includes("gravy")) return "https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=350&h=350&fit=crop&q=85"
+
+  if (rawImage && typeof rawImage === "string" && !rawImage.includes("placeholder") && !rawImage.includes("default") && rawImage.startsWith("http")) {
+    return rawImage
+  }
+  return "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=350&h=350&fit=crop&q=85"
+}
+
 const buildeatiefyMenuItem = (food, restaurant, restaurantId) => {
   const foodType = String(food?.foodType || "").toLowerCase()
   const isVeg = foodType.includes("veg") && !foodType.includes("non")
@@ -332,9 +361,10 @@ export default function Under250() {
   const navigate = useNavigate()
   const { addToCart, updateQuantity, removeFromCart, getCartItem, cart } = useCart()
   const [activeCategory, setActiveCategory] = useState(initialFiltersRef.current.activeCategory)
+  const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [showSortPopup, setShowSortPopup] = useState(false)
-  const [selectedSort, setSelectedSort] = useState(initialFiltersRef.current.selectedSort)
-  const [draftSelectedSort, setDraftSelectedSort] = useState(initialFiltersRef.current.selectedSort)
+  const [selectedSort, setSelectedSort] = useState(initialFiltersRef.current.selectedSort || "relevance")
+  const [draftSelectedSort, setDraftSelectedSort] = useState(initialFiltersRef.current.selectedSort || "relevance")
   const [under30MinsFilter, setUnder30MinsFilter] = useState(initialFiltersRef.current.under30MinsFilter)
   const [isVeg, setIsVeg] = useState(false)
   const [isNonVeg, setIsNonVeg] = useState(false)
@@ -847,12 +877,7 @@ export default function Under250() {
             const name = String(cat?.name || "").trim()
             if (!name) return null
 
-            const nameLower = name.toLowerCase()
-            let finalImage = cat?.imageUrl || cat?.image || cat?.icon || ""
-            if (nameLower.includes("thali") || nameLower.includes("main course")) finalImage = "/images/categories/thali.png"
-            else if (nameLower.includes("beverage") || nameLower.includes("drink")) finalImage = "/images/categories/beverages.png"
-            else if (nameLower.includes("sweet") || nameLower.includes("cake")) finalImage = "/images/categories/sweet.png"
-            else if (nameLower.includes("momo")) finalImage = "/images/categories/momos.png"
+            const finalImage = getCleanCategoryImage(name, cat?.imageUrl || cat?.image || cat?.icon || "")
 
             return {
               id: String(cat?.id || cat?._id || cat?.slug || `cat-${index}`),
@@ -1348,69 +1373,81 @@ export default function Under250() {
 
         <section className="space-y-1 sm:space-y-1.5">
           <div
-            className="flex gap-3 sm:gap-4 md:gap-5 lg:gap-6 overflow-x-auto md:overflow-x-visible overflow-y-visible scrollbar-hide scroll-smooth px-2 sm:px-3 py-2 sm:py-3 md:py-4"
+            className="flex gap-3 sm:gap-4 md:gap-5 lg:gap-6 overflow-x-auto scrollbar-hide scroll-smooth px-2 sm:px-3 py-2 sm:py-3"
             style={{
               scrollbarWidth: "none",
               msOverflowStyle: "none",
               touchAction: "pan-x pan-y pinch-zoom",
-              overflowY: "hidden",
             }}
           >
             {/* All Button */}
-            <div className="flex-shrink-0 cursor-pointer" onClick={() => setActiveCategory(null)}>
+            <div className="flex-shrink-0 cursor-pointer group" onClick={() => setActiveCategory(null)}>
               <motion.div
-                className="flex flex-col items-center gap-2 w-[62px] sm:w-24 md:w-28"
-                whileHover={{ scale: 1.1, y: -4 }}
+                className="flex flex-col items-center gap-1.5 w-[68px] sm:w-20 md:w-24"
+                whileHover={{ scale: 1.06 }}
                 whileTap={{ scale: 0.95 }}
-                transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                transition={{ type: "spring", stiffness: 350, damping: 22 }}
               >
                 <div 
-                  className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full overflow-hidden shadow-md transition-all"
-                  style={!activeCategory ? { boxShadow: "0 0 0 2px var(--window-bg-color, #fff), 0 0 0 4px var(--module-theme-color, #E2AD4B)" } : {}}
+                  className={`w-16 h-16 sm:w-18 sm:h-18 md:w-20 md:h-20 rounded-full overflow-hidden p-0.5 transition-all duration-200 border-2 ${
+                    !activeCategory 
+                      ? "border-[#24963F] ring-2 ring-[#24963F]/25 shadow-md scale-105" 
+                      : "border-gray-100 dark:border-neutral-800 group-hover:border-gray-300 shadow-xs"
+                  }`}
                 >
-                  <OptimizedImage
-                    src={offerImage}
+                  <img
+                    src="https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=350&h=350&fit=crop&q=85"
                     alt="All"
-                    className="w-full h-full bg-white rounded-full p-1"
-                    objectFit="contain"
-                    sizes="(max-width: 640px) 62px, (max-width: 768px) 96px, 112px"
-                    placeholder="blur"
+                    className="w-full h-full object-cover rounded-full transition-transform duration-300 group-hover:scale-110"
+                    loading="lazy"
                   />
                 </div>
                 <span 
-                  className="text-xs sm:text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 text-center pb-1"
-                  style={!activeCategory ? { color: "var(--module-theme-color, #E2AD4B)" } : {}}
+                  className={`text-xs sm:text-sm font-bold text-center leading-tight transition-colors capitalize ${
+                    !activeCategory 
+                      ? "text-[#24963F] font-black" 
+                      : "text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white"
+                  }`}
                 >
                   All
                 </span>
               </motion.div>
             </div>
-            {categories.map((category, index) => {
+
+            {categories.map((category) => {
               const isActive = activeCategory === category.id
+              const cleanImg = getCleanCategoryImage(category.name, category.image)
               return (
-                <div key={category.id} className="flex-shrink-0 cursor-pointer" onClick={() => setActiveCategory(isActive ? null : category.id)}>
+                <div key={category.id} className="flex-shrink-0 cursor-pointer group" onClick={() => setActiveCategory(isActive ? null : category.id)}>
                   <motion.div
-                    className="flex flex-col items-center gap-2 w-[72px] sm:w-24 md:w-28"
-                    whileHover={{ scale: 1.1, y: -4 }}
+                    className="flex flex-col items-center gap-1.5 w-[68px] sm:w-20 md:w-24"
+                    whileHover={{ scale: 1.06 }}
                     whileTap={{ scale: 0.95 }}
-                    transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    transition={{ type: "spring", stiffness: 350, damping: 22 }}
                   >
                     <div 
-                      className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full overflow-hidden shadow-md transition-all"
-                      style={isActive ? { boxShadow: "0 0 0 2px var(--window-bg-color, #fff), 0 0 0 4px var(--module-theme-color, #E2AD4B)" } : {}}
+                      className={`w-16 h-16 sm:w-18 sm:h-18 md:w-20 md:h-20 rounded-full overflow-hidden p-0.5 transition-all duration-200 border-2 ${
+                        isActive 
+                          ? "border-[#24963F] ring-2 ring-[#24963F]/25 shadow-md scale-105" 
+                          : "border-gray-100 dark:border-neutral-800 group-hover:border-gray-300 shadow-xs"
+                      }`}
                     >
-                      <OptimizedImage
-                        src={category.image}
+                      <img
+                        src={cleanImg}
                         alt={category.name}
-                        className="w-full h-full bg-white rounded-full p-1"
-                        objectFit="contain"
-                        sizes="(max-width: 640px) 62px, (max-width: 768px) 96px, 112px"
-                        placeholder="blur"
+                        className="w-full h-full object-cover rounded-full transition-transform duration-300 group-hover:scale-110"
+                        loading="lazy"
+                        onError={(e) => {
+                          e.currentTarget.src = getCleanCategoryImage(category.name, "")
+                        }}
                       />
                     </div>
                     <span 
-                      className="text-xs sm:text-sm md:text-base font-bold text-gray-800 dark:text-gray-200 text-center leading-tight whitespace-nowrap pb-1"
-                      style={isActive ? { color: "var(--module-theme-color, #E2AD4B)" } : {}}
+                      className={`text-xs sm:text-sm font-bold text-center leading-tight whitespace-nowrap transition-colors capitalize ${
+                        isActive 
+                          ? "text-[#24963F] font-black" 
+                          : "text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white"
+                      }`}
                     >
                       {category.name}
                     </span>
@@ -1435,6 +1472,7 @@ export default function Under250() {
             onOffersToggle={() => setHasOffers((prev) => !prev)}
             under30Mins={under30MinsFilter}
             onUnder30MinsToggle={() => setUnder30MinsFilter((prev) => !prev)}
+            onFilterButtonClick={() => setIsFilterOpen(true)}
           />
         </section>
 
@@ -1488,7 +1526,7 @@ export default function Under250() {
                 {restaurant.menuItems && restaurant.menuItems.length > 0 && (
                   <div className="space-y-2 md:space-y-3 lg:space-y-4">
                     <div
-                      className="flex md:grid gap-3 sm:gap-4 md:gap-5 lg:gap-6 overflow-x-auto md:overflow-x-visible overflow-y-visible scrollbar-hide scroll-smooth pb-2 md:pb-0 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+                      className="flex md:grid items-start gap-3 sm:gap-4 md:gap-5 lg:gap-6 overflow-x-auto md:overflow-x-visible overflow-y-visible scrollbar-hide scroll-smooth pb-3 pt-1 px-0.5 md:pb-0 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
                       style={{
                         scrollbarWidth: "none",
                         msOverflowStyle: "none",
@@ -1501,51 +1539,51 @@ export default function Under250() {
                         return (
                           <motion.div
                             key={item.id}
-                            className={`flex-shrink-0 w-[150px] sm:w-[170px] md:w-[200px] lg:w-full bg-transparent overflow-visible relative ${shouldShowGrayscale ? 'cursor-default' : 'cursor-pointer'}`}
+                            className={`flex-shrink-0 w-[150px] sm:w-[165px] md:w-[185px] lg:w-full bg-transparent flex flex-col group ${shouldShowGrayscale ? 'cursor-default' : 'cursor-pointer'}`}
                             onClick={() => {
                               if (!shouldShowGrayscale) {
                                 handleItemClick(item, restaurant)
                               }
                             }}
-                            initial={{ opacity: 0, y: 20 }}
+                            initial={{ opacity: 0, y: 15 }}
                             whileInView={{ opacity: 1, y: 0 }}
-                            viewport={{ once: true, margin: "-50px" }}
-                            transition={{ duration: 0.4, delay: itemIndex * 0.05 }}
-                            whileHover={{ y: -8, scale: 1.02 }}
+                            viewport={{ once: true, margin: "-30px" }}
+                            transition={{ duration: 0.35, delay: itemIndex * 0.04 }}
+                            whileHover={{ y: -3 }}
                           >
-                            {/* Item Image Container */}
-                            <div className="relative w-full h-[120px] sm:h-[140px] md:h-[155px] lg:h-[175px] rounded-2xl overflow-hidden shadow-sm border border-gray-200/80 dark:border-gray-700/70 bg-white dark:bg-neutral-900 transition-all duration-300 group-hover:shadow-md group-hover:border-gray-300/90">
+                            {/* 1. Top Box: Dish Image */}
+                            <div className="relative w-full h-[130px] sm:h-[145px] md:h-[160px] lg:h-[175px] rounded-2xl overflow-hidden shadow-sm border border-gray-200/80 dark:border-gray-700/70 bg-gray-50 dark:bg-neutral-900 transition-all duration-300 group-hover:shadow-md group-hover:border-gray-300">
                               <motion.div
-                                className="absolute inset-0 w-full h-full"
+                                className="w-full h-full"
                                 whileHover={{ scale: 1.05 }}
                                 transition={{ duration: 0.3, ease: "easeOut" }}
                               >
                                 <img
                                   src={getSanitizedUnder250Image(item)}
                                   alt={item.name}
-                                  className="w-full h-full object-cover rounded-2xl bg-white"
+                                  className="w-full h-full object-cover bg-white"
                                   loading="lazy"
                                 />
                               </motion.div>
 
                               {/* Popular Badge */}
                               <div
-                                className="absolute top-2 left-2 text-white text-[9.5px] font-black px-2 py-0.5 rounded-full shadow-md backdrop-blur-md z-10"
-                                style={{ backgroundColor: "#659116" }}
+                                className="absolute top-2 left-2 text-white text-[9.5px] font-black px-2.5 py-0.5 rounded-full shadow-md backdrop-blur-md z-10 tracking-wide"
+                                style={{ backgroundColor: "#24963F" }}
                               >
                                 Popular
                               </div>
 
                               {/* Rating Badge Overlay (bottom-left) */}
                               <div className="absolute bottom-2 left-2 z-10 flex items-center gap-0.5 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md text-gray-900 dark:text-white px-2 py-0.5 rounded-full shadow-md border border-gray-200/80 dark:border-gray-700/70 text-[10.5px] font-extrabold">
-                                <span className="text-[#659116] leading-none">★</span>
+                                <span className="text-[#24963F] leading-none text-[11px]">★</span>
                                 <span className="leading-none">{item.rating ?? restaurant.rating ?? 4.2}</span>
                               </div>
 
                               {/* Floating Action Button (bottom-right) */}
                               {quantity > 0 ? (
                                 <div
-                                  className="absolute bottom-2 right-2.5 z-20 flex items-center justify-between gap-1 sm:gap-2 px-1.5 sm:px-2 py-0.5 rounded-full bg-white dark:bg-gray-900 shadow-md border border-gray-200/90 dark:border-gray-700/80 h-7 sm:h-8 min-w-[55px] sm:min-w-[70px]"
+                                  className="absolute bottom-2 right-2 z-20 flex items-center justify-between gap-1 sm:gap-2 px-1.5 sm:px-2 py-0.5 rounded-full bg-white dark:bg-gray-900 shadow-md border border-gray-200/90 dark:border-gray-700/80 h-8 min-w-[62px] sm:min-w-[70px]"
                                   onClick={(e) => e.stopPropagation()}
                                 >
                                   <button
@@ -1557,11 +1595,11 @@ export default function Under250() {
                                         e
                                       )
                                     }}
-                                    className="text-[#659116] hover:opacity-80 p-0.5"
+                                    className="text-[#24963F] hover:opacity-80 p-0.5 active:scale-75 transition-transform"
                                   >
                                     <Minus className="h-3 w-3" strokeWidth={3.5} />
                                   </button>
-                                  <span className="text-[12px] font-black text-gray-950 dark:text-white">
+                                  <span className="text-[12px] font-black text-gray-950 dark:text-white select-none">
                                     {quantity}
                                   </span>
                                   <button
@@ -1573,7 +1611,7 @@ export default function Under250() {
                                         e
                                       )
                                     }}
-                                    className="text-[#659116] hover:opacity-80 p-0.5"
+                                    className="text-[#24963F] hover:opacity-80 p-0.5 active:scale-75 transition-transform"
                                   >
                                     <Plus className="h-3 w-3" strokeWidth={3.5} />
                                   </button>
@@ -1581,8 +1619,8 @@ export default function Under250() {
                               ) : (
                                 <button
                                   disabled={shouldShowGrayscale}
-                                  className={`absolute bottom-2 right-2.5 z-20 h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-white dark:bg-gray-900 shadow-md flex items-center justify-center hover:scale-105 transition-transform duration-200 border border-gray-200/90 dark:border-gray-700/80 ${
-                                    shouldShowGrayscale ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                                  className={`absolute bottom-2 right-2 z-20 h-8 w-8 rounded-full bg-white dark:bg-gray-900 shadow-md flex items-center justify-center hover:scale-110 active:scale-90 transition-all duration-200 border border-gray-200/90 dark:border-gray-700/80 ${
+                                    shouldShowGrayscale ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-gray-50'
                                   }`}
                                   onClick={(e) => {
                                     e.stopPropagation()
@@ -1591,22 +1629,17 @@ export default function Under250() {
                                     }
                                   }}
                                 >
-                                  <Plus className="h-4 w-4 text-[#659116]" strokeWidth={3} />
+                                  <Plus className="h-4 w-4 text-[#24963F]" strokeWidth={3} />
                                 </button>
                               )}
                             </div>
 
-                            {/* Item Details below image */}
-                            <div className="pt-2 px-1 pb-1">
-                              {/* Restaurant Name */}
-                              <div className="text-[10px] sm:text-xs font-medium text-gray-500 dark:text-gray-400 truncate">
-                                {restaurant.name}
-                              </div>
-
+                            {/* 2. Bottom Info: Name & Price */}
+                            <div className="pt-2 px-0.5 pb-0.5 flex flex-col justify-between min-w-0">
                               {/* Item Name Row with Veg Icon */}
-                              <div className="flex items-center gap-1 sm:gap-1.5 mt-0.5">
+                              <div className="flex items-center gap-1.5 min-w-0">
                                 <div 
-                                  className="h-3 w-3 rounded border flex items-center justify-center flex-shrink-0"
+                                  className="h-3.5 w-3.5 rounded border flex items-center justify-center flex-shrink-0 bg-white"
                                   style={{
                                     borderColor: item.isVeg ? "#16A34A" : "#dc2626",
                                     backgroundColor: item.isVeg ? "#F0FDF4" : "#FEF2F2"
@@ -1619,13 +1652,13 @@ export default function Under250() {
                                     }}
                                   />
                                 </div>
-                                <span className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white truncate flex-1">
+                                <span className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white truncate flex-1 group-hover:text-[#24963F] transition-colors">
                                   {item.name}
                                 </span>
                               </div>
 
                               {/* Price and Optional View Cart Link */}
-                              <div className="flex items-baseline justify-between mt-0.5">
+                              <div className="flex items-center justify-between mt-1">
                                 <span className="text-sm sm:text-base font-extrabold text-gray-950 dark:text-white">
                                   <FoodPriceDisplay item={item} />
                                 </span>
@@ -1633,8 +1666,7 @@ export default function Under250() {
                                   <Link 
                                     to="/food/user/cart" 
                                     onClick={(e) => e.stopPropagation()} 
-                                    className="text-[9px] sm:text-[10px] font-bold hover:underline"
-                                    style={{ color: "var(--module-theme-color, #E2AD4B)" }}
+                                    className="text-[10px] sm:text-xs font-bold text-[#24963F] hover:underline"
                                   >
                                     View cart
                                   </Link>
@@ -1645,29 +1677,48 @@ export default function Under250() {
                         )
                       })}
 
-                      {/* End-of-scroll "View Full Menu" Card (Swiggy / Zomato style) */}
+                      {/* End-of-scroll "View Full Menu" Card (Zomato-exact 2-tier matching architecture) */}
                       <motion.div
-                        className="flex-shrink-0 w-[140px] sm:w-[160px] md:w-[180px] lg:w-[200px] flex flex-col items-center justify-center cursor-pointer group"
-                        initial={{ opacity: 0, y: 20 }}
+                        className="flex-shrink-0 w-[150px] sm:w-[165px] md:w-[185px] lg:w-full flex flex-col group cursor-pointer"
+                        initial={{ opacity: 0, y: 15 }}
                         whileInView={{ opacity: 1, y: 0 }}
-                        viewport={{ once: true, margin: "-50px" }}
-                        transition={{ duration: 0.4 }}
-                        whileHover={{ scale: 1.03 }}
+                        viewport={{ once: true, margin: "-30px" }}
+                        transition={{ duration: 0.35 }}
+                        whileHover={{ y: -3 }}
                         onClick={() => navigate(`/food/user/restaurants/${restaurantSlug}?under250=true`)}
                       >
-                        <div className="w-full h-[120px] sm:h-[140px] md:h-[155px] lg:h-[175px] rounded-2xl border-2 border-dashed border-[#E2AD4B]/60 dark:border-[#E2AD4B]/50 bg-gradient-to-br from-[#E2AD4B]/10 via-amber-500/5 to-transparent dark:from-[#E2AD4B]/20 dark:via-transparent flex flex-col items-center justify-center p-4 text-center transition-all duration-300 group-hover:border-[#E2AD4B] group-hover:bg-[#E2AD4B]/20 group-hover:shadow-lg">
-                          <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-[#E2AD4B] text-white flex items-center justify-center shadow-md mb-2 group-hover:scale-110 transition-transform duration-300">
-                            <ArrowRight className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={2.5} />
+                        {/* 1. Top Box: Matching Image Box Dimensions & Curvature Exactly */}
+                        <div className="relative w-full h-[130px] sm:h-[145px] md:h-[160px] lg:h-[175px] rounded-2xl border border-emerald-300/80 hover:border-emerald-500 dark:border-emerald-600/40 dark:hover:border-emerald-500 bg-gradient-to-br from-emerald-50 via-emerald-50/50 to-green-100/60 dark:from-emerald-950/40 dark:via-neutral-900 dark:to-neutral-900 shadow-sm flex flex-col items-center justify-center p-3 text-center transition-all duration-300 group-hover:shadow-md group-hover:from-emerald-100/70">
+                          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#24963F] text-white flex items-center justify-center shadow-md mb-1.5 group-hover:scale-110 group-hover:bg-[#1e7e34] transition-all duration-300">
+                            <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2.5} />
                           </div>
                           <span className="text-xs sm:text-sm font-extrabold text-gray-900 dark:text-white leading-tight">
                             View Full Menu
                           </span>
-                          <span className="text-[10px] sm:text-xs font-medium text-gray-500 dark:text-gray-400 mt-0.5">
+                          <span className="text-[10px] sm:text-[11px] font-bold text-[#24963F] dark:text-emerald-400 mt-0.5">
                             See all dishes →
                           </span>
                         </div>
-                        <div className="pt-2 text-[10px] sm:text-xs font-semibold text-gray-400 dark:text-gray-500 text-center">
-                          {restaurant.name}
+
+                        {/* 2. Bottom Info: Matching Dish Card Info Baseline & Alignment */}
+                        <div className="pt-2 px-0.5 pb-0.5 flex flex-col justify-between min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <div className="h-3.5 w-3.5 rounded border border-emerald-500/50 bg-emerald-50 dark:bg-emerald-950 flex items-center justify-center flex-shrink-0">
+                              <ArrowRight className="h-2 w-2 text-[#24963F]" strokeWidth={3} />
+                            </div>
+                            <span className="text-xs sm:text-sm font-bold text-gray-700 dark:text-gray-200 truncate flex-1 group-hover:text-[#24963F] transition-colors">
+                              {restaurant.name}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between mt-1">
+                            <span className="text-[11px] sm:text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                              Explore catalog
+                            </span>
+                            <span className="text-[10px] font-extrabold text-gray-400 dark:text-gray-500">
+                              →
+                            </span>
+                          </div>
                         </div>
                       </motion.div>
                     </div>
@@ -1678,9 +1729,9 @@ export default function Under250() {
           }))}
       </div>
 
-      {/* Sort Popup - Bottom Sheet */}
+      {/* Comprehensive Filter & Sort Bottom Sheet Modal */}
       <AnimatePresence>
-        {showSortPopup && (
+        {isFilterOpen && (
           <>
             {/* Backdrop */}
             <motion.div
@@ -1688,8 +1739,8 @@ export default function Under250() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              onClick={() => setShowSortPopup(false)}
-              className="fixed inset-0 bg-black/50 z-100"
+              onClick={() => setIsFilterOpen(false)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[100]"
             />
 
             {/* Bottom Sheet */}
@@ -1699,60 +1750,200 @@ export default function Under250() {
               exit={{ y: "100%" }}
               transition={{
                 type: "spring",
-                stiffness: 300,
-                damping: 30
+                stiffness: 320,
+                damping: 32,
               }}
-              className="fixed bottom-0 left-0 right-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:max-w-lg lg:max-w-2xl bg-white dark:bg-[#1a1a1a] rounded-t-3xl shadow-2xl z-[110] max-h-[60vh] md:max-h-[80vh] overflow-hidden flex flex-col"
+              className="fixed bottom-0 left-0 right-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:max-w-lg lg:max-w-xl bg-white dark:bg-[#1a1a1a] rounded-t-3xl shadow-2xl z-[110] max-h-[85vh] overflow-hidden flex flex-col"
             >
               {/* Drag Handle */}
-              <div className="flex justify-center pt-3 pb-2">
-                <div className="w-12 h-1 bg-gray-300 rounded-full" />
+              <div className="flex justify-center pt-3 pb-1">
+                <div className="w-12 h-1 bg-gray-300 dark:bg-neutral-700 rounded-full" />
               </div>
 
               {/* Header */}
-              <div className="flex items-center justify-between px-4 md:px-6 py-4 md:py-5 border-b dark:border-gray-800">
-                <h2 className="text-lg md:text-xl lg:text-2xl font-bold text-gray-900 dark:text-white">Sort By</h2>
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-800">
+                <div className="flex items-center gap-2">
+                  <SlidersHorizontal className="w-5 h-5 text-[#24963F]" />
+                  <h2 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white">
+                    Filters & Sort
+                  </h2>
+                </div>
                 <button
-                  onClick={handleClearAll}
-                  className="text-[#EB590E] dark:text-[#F97316] font-medium text-sm md:text-base"
+                  onClick={() => {
+                    setSelectedSort("relevance")
+                    setIsVeg(false)
+                    setIsNonVeg(false)
+                    setRating4Plus(false)
+                    setHasOffers(false)
+                    setUnder30MinsFilter(false)
+                    setActiveCategory(null)
+                  }}
+                  className="text-xs sm:text-sm font-bold text-[#24963F] hover:underline"
                 >
                   Clear all
                 </button>
               </div>
 
-              {/* Content */}
-              <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 md:py-6">
-                <div className="flex flex-col gap-3 md:gap-4">
-                  {sortOptions.map((option) => (
+              {/* Scrollable Filter Content */}
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+                {/* 1. Dietary & Fast Filters */}
+                <div>
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2.5">
+                    Dietary & Quick Filters
+                  </h3>
+                  <div className="grid grid-cols-2 gap-2.5">
                     <button
-                      key={option.id || 'relevance'}
-                      onClick={() => setDraftSelectedSort(option.id)}
-                      className={`px-4 md:px-5 lg:px-6 py-3 md:py-4 rounded-xl border text-left transition-colors ${draftSelectedSort === option.id
-                        ? 'border-[#EB590E] bg-[#FFF2EB] dark:bg-orange-900/20'
-                        : 'border-gray-200 dark:border-gray-800 hover:border-[#EB590E]'
-                        }`}
+                      onClick={() => setIsVeg((prev) => !prev)}
+                      className={`flex items-center gap-2 p-3 rounded-2xl border text-left transition-all ${
+                        isVeg
+                          ? "border-[#16A34A] bg-emerald-50/70 dark:bg-emerald-950/40 text-[#16A34A] font-extrabold shadow-xs"
+                          : "border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-neutral-800"
+                      }`}
                     >
-                      <span className={`text-sm md:text-base lg:text-lg font-medium ${draftSelectedSort === option.id ? 'text-[#EB590E] dark:text-[#F97316]' : 'text-gray-700 dark:text-gray-300'}`}>
-                        {option.label}
-                      </span>
+                      <div className="w-3.5 h-3.5 rounded border border-[#16A34A] flex items-center justify-center p-[2px] bg-white">
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#16A34A]" />
+                      </div>
+                      <span className="text-xs sm:text-sm font-bold">Pure Veg</span>
                     </button>
-                  ))}
+
+                    <button
+                      onClick={() => setIsNonVeg((prev) => !prev)}
+                      className={`flex items-center gap-2 p-3 rounded-2xl border text-left transition-all ${
+                        isNonVeg
+                          ? "border-red-500 bg-red-50/70 dark:bg-red-950/40 text-red-600 dark:text-red-400 font-extrabold shadow-xs"
+                          : "border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-neutral-800"
+                      }`}
+                    >
+                      <div className="w-3.5 h-3.5 rounded border border-red-500 flex items-center justify-center p-[2px] bg-white">
+                        <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                      </div>
+                      <span className="text-xs sm:text-sm font-bold">Non-Veg</span>
+                    </button>
+
+                    <button
+                      onClick={() => setRating4Plus((prev) => !prev)}
+                      className={`flex items-center gap-2 p-3 rounded-2xl border text-left transition-all ${
+                        rating4Plus
+                          ? "border-[#24963F] bg-emerald-50/70 dark:bg-emerald-950/40 text-[#24963F] font-extrabold shadow-xs"
+                          : "border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-neutral-800"
+                      }`}
+                    >
+                      <Star className="w-4 h-4 fill-[#24963F] text-[#24963F]" />
+                      <span className="text-xs sm:text-sm font-bold">Ratings 4.0+</span>
+                    </button>
+
+                    <button
+                      onClick={() => setHasOffers((prev) => !prev)}
+                      className={`flex items-center gap-2 p-3 rounded-2xl border text-left transition-all ${
+                        hasOffers
+                          ? "border-[#24963F] bg-emerald-50/70 dark:bg-emerald-950/40 text-[#24963F] font-extrabold shadow-xs"
+                          : "border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-neutral-800"
+                      }`}
+                    >
+                      <BadgePercent className="w-4 h-4 text-[#24963F]" />
+                      <span className="text-xs sm:text-sm font-bold">With Offers</span>
+                    </button>
+
+                    <button
+                      onClick={() => setUnder30MinsFilter((prev) => !prev)}
+                      className={`col-span-2 flex items-center gap-2 p-3 rounded-2xl border text-left transition-all ${
+                        under30MinsFilter
+                          ? "border-[#24963F] bg-emerald-50/70 dark:bg-emerald-950/40 text-[#24963F] font-extrabold shadow-xs"
+                          : "border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-neutral-800"
+                      }`}
+                    >
+                      <Timer className="w-4 h-4 text-[#24963F]" />
+                      <span className="text-xs sm:text-sm font-bold">Fast Delivery (Under 30 mins)</span>
+                    </button>
+                  </div>
                 </div>
+
+                {/* 2. Sort By */}
+                <div>
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2.5">
+                    Sort By
+                  </h3>
+                  <div className="space-y-2">
+                    {[
+                      { id: "relevance", label: "Relevance (Default)" },
+                      { id: "delivery-time-low", label: "Delivery Time: Fastest First" },
+                      { id: "rating-high", label: "Rating: High to Low" },
+                      { id: "cost_low_to_high", label: "Cost: Low to High" },
+                      { id: "cost_high_to_low", label: "Cost: High to Low" },
+                    ].map((opt) => {
+                      const isSelected = selectedSort === opt.id || (!selectedSort && opt.id === "relevance")
+                      return (
+                        <button
+                          key={opt.id}
+                          onClick={() => setSelectedSort(opt.id)}
+                          className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl border text-left transition-all ${
+                            isSelected
+                              ? "border-[#24963F] bg-emerald-50/50 dark:bg-emerald-950/40 text-[#24963F] font-extrabold"
+                              : "border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-neutral-800"
+                          }`}
+                        >
+                          <span className="text-xs sm:text-sm">{opt.label}</span>
+                          <div
+                            className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                              isSelected ? "border-[#24963F]" : "border-gray-300 dark:border-gray-600"
+                            }`}
+                          >
+                            {isSelected && <div className="w-2 h-2 rounded-full bg-[#24963F]" />}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* 3. Categories Filter */}
+                {categories.length > 0 && (
+                  <div>
+                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2.5">
+                      Categories
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => setActiveCategory(null)}
+                        className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
+                          !activeCategory
+                            ? "bg-[#24963F] text-white border-[#24963F]"
+                            : "bg-gray-100 dark:bg-neutral-800 text-gray-700 dark:text-gray-300 border-transparent hover:bg-gray-200"
+                        }`}
+                      >
+                        All
+                      </button>
+                      {categories.map((cat) => (
+                        <button
+                          key={cat.id}
+                          onClick={() => setActiveCategory(activeCategory === cat.id ? null : cat.id)}
+                          className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
+                            activeCategory === cat.id
+                              ? "bg-[#24963F] text-white border-[#24963F]"
+                              : "bg-gray-100 dark:bg-neutral-800 text-gray-700 dark:text-gray-300 border-transparent hover:bg-gray-200"
+                          }`}
+                        >
+                          {cat.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Footer */}
-              <div className="flex items-center gap-4 md:gap-6 px-4 md:px-6 py-4 md:py-5 border-t dark:border-gray-800 bg-white dark:bg-[#1a1a1a]">
+              <div className="flex items-center gap-3 px-5 py-4 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-[#1a1a1a]">
                 <button
-                  onClick={() => setShowSortPopup(false)}
-                  className="flex-1 py-3 md:py-4 text-center font-semibold text-gray-700 dark:text-gray-300 text-sm md:text-base"
+                  onClick={() => setIsFilterOpen(false)}
+                  className="flex-1 py-3 text-center font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800 rounded-xl transition-colors text-sm"
                 >
                   Close
                 </button>
                 <button
-                  onClick={handleApply}
-                  className="flex-1 py-3 md:py-4 font-semibold rounded-xl transition-colors text-sm md:text-base bg-[#EB590E] text-white hover:bg-[#D94F0C]"
+                  onClick={() => setIsFilterOpen(false)}
+                  className="flex-1 py-3 font-bold rounded-xl text-sm bg-[#24963F] text-white hover:bg-[#1e7e34] shadow-md transition-all active:scale-98"
                 >
-                  Apply
+                  Apply Filters
                 </button>
               </div>
             </motion.div>

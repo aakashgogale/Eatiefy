@@ -366,6 +366,7 @@ export default function HomeHeader({
                 autoPlay 
                 muted 
                 playsInline 
+                preload="auto"
                 onEnded={handleNextSlide}
                 className="w-full h-full object-cover transition-opacity duration-700 ease-in-out brightness-105 contrast-105" 
               />
@@ -374,6 +375,9 @@ export default function HomeHeader({
                 src={activeBannerImage} 
                 alt={activeBanner?.title || "Header Banner"} 
                 className="w-full h-full object-cover transition-opacity duration-700 ease-in-out brightness-105 contrast-105" 
+                loading="eager"
+                fetchPriority="high"
+                decoding="async"
               />
             )}
             {/* Subtle Gradient Overlay for Clean Icon Contrast without Dimming Video */}

@@ -163,7 +163,7 @@ export default function AdminRouter() {
           <Route path="/" element={<Navigate to="food" replace />} />
 
           {/* FOOD ADMIN - All food related routes nested here */}
-          <Route path="food/*">
+          <Route path="food">
             <Route index element={<AdminHome />} />
             <Route path="point-of-sale" element={<PointOfSale />} />
             <Route path="profile" element={<AdminProfile />} />

@@ -99,11 +99,7 @@ const AppRoutes = () => {
       {/* Food Module */}
       <Route path="/food/*" element={<FoodAppWrapper />} />
 
-      {/* Global Admin Portal - AdminRouter handles its own protection for sub-routes */}
-      <Route path="/admin/*" element={<AdminRouter />} />
-
-      {/* NEW Delivery V2 (Parallel testing) */}
-      {/* Global Admin Portal - wrap lazy router in Suspense to avoid blank/crash on direct admin URLs */}
+      {/* Global Admin Portal - AdminRouter wrapped in Suspense for direct URL access */}
       <Route
         path="/admin/*"
         element={

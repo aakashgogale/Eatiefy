@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from "react"
 import { useNavigate, Link } from "react-router-dom"
-import { ArrowLeft, RotateCcw, ShoppingBag, Utensils, ChevronRight, Loader2 } from "lucide-react"
+import { ArrowLeft, RotateCcw, ShoppingBag, Utensils, ChevronRight, Loader2, Sparkles, Flame, Clock } from "lucide-react"
 import { orderAPI } from "@food/api"
 import { useCart } from "@food/context/CartContext"
 import { toast } from "sonner"
+import FloatingHomeDock from "@food/components/user/FloatingHomeDock"
 
 export default function Reorder() {
   const navigate = useNavigate()
   const { replaceCart } = useCart()
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
+  const [imageError, setImageError] = useState(false)
 
   useEffect(() => {
     let isMounted = true
@@ -121,9 +123,9 @@ export default function Reorder() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f8f9fa] dark:bg-[#0a0a0a] pb-28 transition-colors duration-200">
+    <div className="min-h-screen bg-[#f8f9fa] dark:bg-[#0a0a0a] pb-32 transition-colors duration-200">
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 px-4 py-3.5 flex items-center justify-between shadow-sm">
+      <header className="sticky top-0 z-40 bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 px-4 py-3.5 flex items-center justify-between shadow-xs">
         <button
           onClick={() => navigate(-1)}
           className="p-2 -ml-1 rounded-full text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
@@ -131,7 +133,7 @@ export default function Reorder() {
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <h1 className="text-base sm:text-lg font-bold tracking-wider text-gray-900 dark:text-white uppercase">
+        <h1 className="text-base sm:text-lg font-extrabold tracking-wider text-gray-900 dark:text-white uppercase">
           REORDER
         </h1>
         <div className="w-8" />
@@ -140,34 +142,61 @@ export default function Reorder() {
       {/* Main Content */}
       <main className="max-w-2xl mx-auto px-4 py-6">
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-20 gap-3 text-gray-500">
-            <Loader2 className="w-8 h-8 animate-spin theme-text" />
-            <p className="text-sm font-medium">Loading your orders...</p>
+          <div className="flex flex-col items-center justify-center py-24 gap-3 text-gray-500">
+            <Loader2 className="w-9 h-9 animate-spin text-[#24963F]" />
+            <p className="text-sm font-semibold">Loading your orders...</p>
           </div>
         ) : orders.length === 0 ? (
-          /* Empty State - Matching reference image theme */
-          <div className="flex flex-col items-center justify-center text-center py-12 px-4">
+          /* Empty State - Modern Zomato Standard */
+          <div className="flex flex-col items-center justify-center text-center py-10 px-4">
             <div className="relative mb-6 flex items-center justify-center">
+              {/* Ambient Glow */}
+              <div className="absolute w-44 h-44 rounded-full bg-emerald-100/60 dark:bg-emerald-950/40 blur-2xl pointer-events-none" />
+
               <div className="w-48 h-48 sm:w-56 sm:h-56 relative flex items-center justify-center">
-                <img
-                  src="/assets/empty_reorder_plate.webp"
-                  alt="Empty Food Orders"
-                  className="w-full h-full object-contain mix-blend-multiply dark:mix-blend-normal opacity-90"
-                 loading="lazy" decoding="async" />
+                {!imageError ? (
+                  <img
+                    src="/assets/empty_reorder_plate.png"
+                    alt="Empty Food Orders"
+                    className="w-full h-full object-contain drop-shadow-md transition-transform duration-500 hover:scale-105"
+                    loading="lazy"
+                    onError={() => setImageError(true)}
+                  />
+                ) : (
+                  /* Fallback Illustration */
+                  <div className="w-40 h-40 rounded-full bg-gradient-to-tr from-emerald-50 to-emerald-100 dark:from-emerald-950/60 dark:to-emerald-900/40 border-2 border-dashed border-[#24963F]/40 flex flex-col items-center justify-center shadow-inner">
+                    <Utensils className="w-16 h-16 text-[#24963F] opacity-85 mb-1" />
+                    <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">No Orders Yet</span>
+                  </div>
+                )}
               </div>
             </div>
 
-            <h2 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white mb-2">
+            <h2 className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white mb-2 tracking-tight">
               Uh Oh! You don’t have any food orders
             </h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-8 max-w-xs">
-              Order now to avail great discounts!
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 max-w-sm font-medium">
+              Order your favorite meals now to avail exclusive deals and fast doorstep delivery!
             </p>
+
+            {/* Feature Pills */}
+            <div className="flex flex-wrap items-center justify-center gap-2 mb-7">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 dark:bg-emerald-950/50 text-[#24963F] border border-emerald-200 dark:border-emerald-900">
+                <Clock className="w-3.5 h-3.5" /> Under 30 mins
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 dark:bg-amber-950/50 text-amber-600 border border-amber-200 dark:border-amber-900">
+                <Flame className="w-3.5 h-3.5" /> Flat Deals
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-purple-50 dark:bg-purple-950/50 text-purple-600 border border-purple-200 dark:border-purple-900">
+                <Sparkles className="w-3.5 h-3.5" /> Best Restaurants
+              </span>
+            </div>
 
             <Link
               to="/food/user"
-              className="inline-flex items-center justify-center px-8 py-3 rounded-xl theme-bg text-white font-semibold text-sm shadow-md hover:shadow-lg transition-all transform active:scale-95"
+              className="inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-2xl bg-gradient-to-r from-[#24963F] to-[#16A34A] text-white font-bold text-sm sm:text-base shadow-lg shadow-emerald-600/25 hover:shadow-emerald-600/40 transition-all transform active:scale-95"
             >
+              <ShoppingBag className="w-4 h-4" />
               Order Now
             </Link>
           </div>
@@ -289,6 +318,8 @@ export default function Reorder() {
           </div>
         )}
       </main>
+
+      <FloatingHomeDock hasBottomNav />
     </div>
   )
 }

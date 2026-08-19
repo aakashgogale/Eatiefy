@@ -139,6 +139,21 @@
     content-visibility: auto;
     contain-intrinsic-size: 1px 720px;
   }
+
+  .gpu-accelerated {
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    perspective: 1000px;
+    will-change: transform, opacity;
+  }
+
+  .smooth-tap {
+    transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.15s ease;
+  }
+  .smooth-tap:active {
+    transform: scale(0.96);
+    opacity: 0.92;
+  }
   
   @keyframes scroll {
     0% { transform: translateX(0); }
@@ -156,10 +171,10 @@
 @keyframes fade-down { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes shimmer { 100% { transform: translateX(100%); } }
 
-.animate-fade-in { animation: fade-in 0.6s ease-out; }
-.animate-fade-in-up { animation: fade-in-up 0.6s ease-out; }
-.animate-slide-in-left { animation: slide-in-left 0.8s ease-out; }
-.animate-fade-down { animation: fade-down 0.5s ease-out; }
+.animate-fade-in { animation: fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-fade-in-up { animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-slide-in-left { animation: slide-in-left 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-fade-down { animation: fade-down 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
 
 .leaflet-container { height: 100%; width: 100%; z-index: 1; }
 .custom-marker { background: transparent; border: none; }

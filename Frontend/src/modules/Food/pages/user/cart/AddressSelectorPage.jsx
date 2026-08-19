@@ -368,20 +368,47 @@ export default function AddressSelectorPage() {
     return () => { isMounted = false }
   }, [showAddressForm, GOOGLE_MAPS_API_KEY])
 
-  // Keep current address text in sync with live location
+  // Keep current address text in sync with live location and ensure human-readable address
   useEffect(() => {
-    if (location?.formattedAddress && location.formattedAddress !== "Select location") {
-      setCurrentAddress(location.formattedAddress)
-    } else if (location?.address && location.address !== "Select location") {
-      setCurrentAddress(location.address)
+    const isCoordinate = (str) => /^-?\d+\.\d+,\s*-?\d+\.\d+$/.test(String(str || "").trim())
+
+    const updateHumanReadableAddress = async (lat, lng) => {
+      try {
+        const { geocodeAPI } = await import("@food/api")
+        const res = await geocodeAPI.reverse(lat, lng)
+        const data = res?.data?.data
+        if (data?.results && data.results.length > 0) {
+          const first = data.results[0]
+          const formatted = first.formatted_address || ""
+          if (formatted && !isCoordinate(formatted)) {
+            let clean = formatted.replace(/, India$/, "").trim()
+            setCurrentAddress(clean)
+            return
+          }
+        }
+      } catch (err) {
+        console.warn("Reverse geocode sync error:", err)
+      }
     }
-  }, [location?.formattedAddress, location?.address])
+
+    if (location?.formattedAddress && location.formattedAddress !== "Select location" && !isCoordinate(location.formattedAddress)) {
+      let clean = location.formattedAddress.replace(/, India$/, "").trim()
+      setCurrentAddress(clean)
+    } else if (location?.address && location.address !== "Select location" && !isCoordinate(location.address)) {
+      let clean = location.address.replace(/, India$/, "").trim()
+      setCurrentAddress(clean)
+    } else if (location?.area || location?.city) {
+      setCurrentAddress([location.area, location.city].filter(Boolean).join(", "))
+    } else if (Number.isFinite(Number(location?.latitude)) && Number.isFinite(Number(location?.longitude))) {
+      updateHumanReadableAddress(Number(location.latitude), Number(location.longitude))
+    }
+  }, [location?.formattedAddress, location?.address, location?.area, location?.city, location?.latitude, location?.longitude])
 
   const handleUseCurrentLocation = async () => {
     if (isLocating) return
     setIsLocating(true)
     try {
-      toast.loading("Getting current location...", { id: "geo" })
+      toast.loading("Detecting your live location...", { id: "geo" })
       const loc = await requestLiveLocation()
       let resolvedLoc = loc
       if (!resolvedLoc || !Number.isFinite(Number(resolvedLoc?.latitude)) || !Number.isFinite(Number(resolvedLoc?.longitude))) {
@@ -393,11 +420,31 @@ export default function AddressSelectorPage() {
         return
       }
 
-      const formatted =
-        resolvedLoc.formattedAddress ||
-        resolvedLoc.address ||
-        [resolvedLoc.area, resolvedLoc.city, resolvedLoc.state].filter(Boolean).join(", ") ||
-        "Current Location"
+      const isCoordinate = (str) => /^-?\d+\.\d+,\s*-?\d+\.\d+$/.test(String(str || "").trim())
+      let formatted = resolvedLoc.formattedAddress || resolvedLoc.address || ""
+
+      // If formatted address is missing or is just coordinates, reverse geocode now
+      if (!formatted || isCoordinate(formatted) || formatted === "Select location") {
+        try {
+          const { geocodeAPI } = await import("@food/api")
+          const geoRes = await geocodeAPI.reverse(resolvedLoc.latitude, resolvedLoc.longitude)
+          const data = geoRes?.data?.data
+          if (data?.results && data.results.length > 0) {
+            const first = data.results[0]
+            if (first.formatted_address && !isCoordinate(first.formatted_address)) {
+              formatted = first.formatted_address.replace(/, India$/, "").trim()
+              resolvedLoc.formattedAddress = formatted
+              resolvedLoc.address = formatted
+            }
+          }
+        } catch {
+          // fallback to area or city
+        }
+      }
+
+      if (!formatted || isCoordinate(formatted)) {
+        formatted = [resolvedLoc.area, resolvedLoc.city, resolvedLoc.state].filter(Boolean).join(", ") || "Current Location"
+      }
 
       setCurrentAddress(formatted)
 
@@ -1065,7 +1112,15 @@ export default function AddressSelectorPage() {
             </div>
             <div className="text-left flex-1 min-w-0">
               <p className="font-bold text-[#EB590E]">Use Current Location</p>
-              <p className="text-xs text-gray-500 line-clamp-1 truncate">{isLocating ? "Getting current GPS location..." : (currentAddress || "Enable GPS for accuracy")}</p>
+              <p className="text-xs text-gray-500 line-clamp-1 truncate">
+                {isLocating
+                  ? "Getting current GPS location..."
+                  : currentAddress && !/^-?\d+\.\d+,\s*-?\d+\.\d+$/.test(currentAddress)
+                    ? currentAddress
+                    : location?.area || location?.city
+                      ? [location.area, location.city].filter(Boolean).join(", ")
+                      : "Tap to detect your live location"}
+              </p>
             </div>
             <ChevronRight className="h-5 w-5 text-gray-400 flex-shrink-0" />
           </button>

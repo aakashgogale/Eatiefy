@@ -101,16 +101,16 @@ export default function FoodFilterBar({
         {/* Main Filter Icon Button */}
         <button
           onClick={handleFilterClick}
-          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm ${
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm active:scale-95 ${
             countActiveFilters > 0
-              ? "bg-[#659116] text-white border-[#659116]"
+              ? "bg-[#24963F] text-white border-[#24963F]"
               : "bg-white dark:bg-[#1a1a1a] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
           }`}
         >
           <SlidersHorizontal className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.2]" />
           <span>Filter</span>
           {countActiveFilters > 0 && (
-            <span className="ml-0.5 bg-white text-[#659116] text-[10px] font-black rounded-full w-4 h-4 flex items-center justify-center">
+            <span className="ml-0.5 bg-white text-[#24963F] text-[10px] font-black rounded-full w-4 h-4 flex items-center justify-center">
               {countActiveFilters}
             </span>
           )}
@@ -120,9 +120,9 @@ export default function FoodFilterBar({
         <button
           ref={sortButtonRef}
           onClick={handleOpenSort}
-          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm ${
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm active:scale-95 ${
             isSortActive
-              ? "bg-white dark:bg-[#1a1a1a] text-[#659116] border-[#659116] dark:border-emerald-600"
+              ? "bg-white dark:bg-[#1a1a1a] text-[#24963F] border-[#24963F] dark:border-emerald-600 font-extrabold"
               : "bg-white dark:bg-[#1a1a1a] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
           }`}
         >
@@ -135,7 +135,7 @@ export default function FoodFilterBar({
               }}
               className="p-0.5 hover:opacity-75"
             >
-              <X className="w-3.5 h-3.5 text-[#659116]" />
+              <X className="w-3.5 h-3.5 text-[#24963F]" />
             </span>
           ) : (
             <ChevronDown className={`w-3.5 h-3.5 text-gray-500 transition-transform duration-200 ${isSortOpen ? "rotate-180" : ""}`} />
@@ -146,17 +146,17 @@ export default function FoodFilterBar({
         {onStore99Toggle && (
           <button
             onClick={onStore99Toggle}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm ${
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm active:scale-95 ${
               store99Filter
-                ? "bg-white dark:bg-[#1a1a1a] text-[#659116] border-[#659116]"
+                ? "bg-white dark:bg-[#1a1a1a] text-[#24963F] border-[#24963F] font-extrabold"
                 : "bg-white dark:bg-[#1a1a1a] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
             }`}
           >
-            <span className="bg-[#659116] text-white text-[10px] font-black px-1.5 py-0.2 rounded-md">
+            <span className="bg-[#24963F] text-white text-[10px] font-black px-1.5 py-0.2 rounded-md">
               99
             </span>
             <span>{storeLabel}</span>
-            {store99Filter && <X className="w-3.5 h-3.5 text-[#659116] ml-0.5" />}
+            {store99Filter && <X className="w-3.5 h-3.5 text-[#24963F] ml-0.5" />}
           </button>
         )}
 
@@ -164,15 +164,15 @@ export default function FoodFilterBar({
         {onOffersToggle && (
           <button
             onClick={onOffersToggle}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm ${
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm active:scale-95 ${
               hasOffers
-                ? "bg-white dark:bg-[#1a1a1a] text-[#659116] border-[#659116]"
+                ? "bg-white dark:bg-[#1a1a1a] text-[#24963F] border-[#24963F] font-extrabold"
                 : "bg-white dark:bg-[#1a1a1a] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
             }`}
           >
-            <BadgePercent className="w-3.5 h-3.5 text-[#659116]" />
+            <BadgePercent className="w-3.5 h-3.5 text-[#24963F]" />
             <span>Offers</span>
-            {hasOffers && <X className="w-3.5 h-3.5 text-[#659116] ml-0.5" />}
+            {hasOffers && <X className="w-3.5 h-3.5 text-[#24963F] ml-0.5" />}
           </button>
         )}
 
@@ -180,15 +180,15 @@ export default function FoodFilterBar({
         {onRating4PlusToggle && (
           <button
             onClick={onRating4PlusToggle}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm ${
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm active:scale-95 ${
               rating4Plus
-                ? "bg-white dark:bg-[#1a1a1a] text-[#659116] border-[#659116]"
+                ? "bg-white dark:bg-[#1a1a1a] text-[#24963F] border-[#24963F] font-extrabold"
                 : "bg-white dark:bg-[#1a1a1a] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
             }`}
           >
-            <Star className="w-3.5 h-3.5 fill-[#659116] text-[#659116]" />
+            <Star className="w-3.5 h-3.5 fill-[#24963F] text-[#24963F]" />
             <span>Ratings 4.0+</span>
-            {rating4Plus && <X className="w-3.5 h-3.5 text-[#659116] ml-0.5" />}
+            {rating4Plus && <X className="w-3.5 h-3.5 text-[#24963F] ml-0.5" />}
           </button>
         )}
 
@@ -196,15 +196,15 @@ export default function FoodFilterBar({
         {onUnder30MinsToggle && (
           <button
             onClick={onUnder30MinsToggle}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm ${
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm active:scale-95 ${
               under30Mins
-                ? "bg-white dark:bg-[#1a1a1a] text-[#659116] border-[#659116]"
+                ? "bg-white dark:bg-[#1a1a1a] text-[#24963F] border-[#24963F] font-extrabold"
                 : "bg-white dark:bg-[#1a1a1a] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
             }`}
           >
-            <Timer className="w-3.5 h-3.5 text-[#659116]" />
+            <Timer className="w-3.5 h-3.5 text-[#24963F]" />
             <span>Under 30 mins</span>
-            {under30Mins && <X className="w-3.5 h-3.5 text-[#659116] ml-0.5" />}
+            {under30Mins && <X className="w-3.5 h-3.5 text-[#24963F] ml-0.5" />}
           </button>
         )}
 
@@ -212,14 +212,14 @@ export default function FoodFilterBar({
         {onVegToggle && (
           <button
             onClick={onVegToggle}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm ${
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm active:scale-95 ${
               isVeg
-                ? "bg-white dark:bg-[#1a1a1a] text-emerald-600 dark:text-emerald-400 border-emerald-500 font-bold"
+                ? "bg-white dark:bg-[#1a1a1a] text-[#16A34A] border-[#16A34A] font-extrabold"
                 : "bg-white dark:bg-[#1a1a1a] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
             }`}
           >
             <span>Pure Veg</span>
-            {isVeg && <X className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 ml-0.5" />}
+            {isVeg && <X className="w-3.5 h-3.5 text-[#16A34A] ml-0.5" />}
           </button>
         )}
 
@@ -227,9 +227,9 @@ export default function FoodFilterBar({
         {onNonVegToggle && (
           <button
             onClick={onNonVegToggle}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm ${
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm active:scale-95 ${
               isNonVeg
-                ? "bg-white dark:bg-[#1a1a1a] text-red-600 dark:text-red-400 border-red-500 font-bold"
+                ? "bg-white dark:bg-[#1a1a1a] text-red-600 dark:text-red-400 border-red-500 font-extrabold"
                 : "bg-white dark:bg-[#1a1a1a] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
             }`}
           >
@@ -239,7 +239,7 @@ export default function FoodFilterBar({
         )}
       </div>
 
-      {/* Floating Dropdown Menu (Anchored directly under Sort By button like Image 2) */}
+      {/* Floating Dropdown Menu (Anchored directly under Sort By button) */}
       {isSortOpen &&
         typeof document !== "undefined" &&
         createPortal(
@@ -269,7 +269,7 @@ export default function FoodFilterBar({
                     }}
                     className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-all ${
                       isSelected
-                        ? "text-[#659116] bg-emerald-50/60 dark:bg-emerald-950/40 font-bold"
+                        ? "text-[#24963F] bg-emerald-50/60 dark:bg-emerald-950/40 font-bold"
                         : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/60"
                     }`}
                   >
@@ -278,12 +278,12 @@ export default function FoodFilterBar({
                     <div
                       className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors shrink-0 ${
                         isSelected
-                          ? "border-[#659116]"
+                          ? "border-[#24963F]"
                           : "border-gray-300 dark:border-gray-600"
                       }`}
                     >
                       {isSelected && (
-                        <div className="w-2 h-2 rounded-full bg-[#659116]" />
+                        <div className="w-2 h-2 rounded-full bg-[#24963F]" />
                       )}
                     </div>
                   </button>

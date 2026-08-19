@@ -10,39 +10,118 @@ const toFinite = (v) => {
 };
 
 /**
+ * Helper to fetch reverse geocode from OpenStreetMap / BigDataCloud fallback
+ */
+const fetchFallbackReverseGeocode = async (lat, lng) => {
+    try {
+        const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`;
+        const res = await fetch(url, {
+            headers: {
+                'User-Agent': 'EatiefyFoodApp/1.0 (contact@eatiefy.com)',
+                'Accept-Language': 'en-IN,en;q=0.9',
+            },
+        });
+        if (!res.ok) return null;
+        const json = await res.json();
+        if (!json || !json.display_name) return null;
+
+        const addr = json.address || {};
+        const area = addr.suburb || addr.neighbourhood || addr.residential || addr.road || addr.village || '';
+        const city = addr.city || addr.town || addr.municipality || addr.county || addr.district || 'Indore';
+        const state = addr.state || 'Madhya Pradesh';
+        const country = addr.country || 'India';
+        const postalCode = addr.postcode || '';
+
+        const addressComponents = [
+            { long_name: area, short_name: area, types: ['sublocality', 'sublocality_level_1'] },
+            { long_name: city, short_name: city, types: ['locality'] },
+            { long_name: state, short_name: state, types: ['administrative_area_level_1'] },
+            { long_name: country, short_name: country, types: ['country'] },
+        ];
+        if (postalCode) {
+            addressComponents.push({ long_name: postalCode, short_name: postalCode, types: ['postal_code'] });
+        }
+
+        return {
+            status: 'OK',
+            results: [
+                {
+                    formatted_address: json.display_name,
+                    address_components: addressComponents,
+                    place_id: String(json.place_id || 'osm-reverse'),
+                    geometry: {
+                        location: { lat, lng }
+                    }
+                }
+            ]
+        };
+    } catch {
+        return null;
+    }
+};
+
+/**
  * Proxy Google Geocoding so the API key never appears in the browser Network tab.
  * GET /food/geocode/reverse?lat=&lng=&result_type=
  */
 export const reverseGeocodePublicController = async (req, res, next) => {
     try {
-        const apiKey = getGoogleMapsServerKey();
-        if (!apiKey) {
-            return res.status(503).json({
-                success: false,
-                message: 'Google Maps API key is not configured on the server',
-            });
-        }
-
         const lat = toFinite(req.query.lat);
         const lng = toFinite(req.query.lng);
         if (lat === null || lng === null) {
             return res.status(400).json({ success: false, message: 'lat and lng are required' });
         }
 
-        const params = new URLSearchParams({
-            latlng: `${lat},${lng}`,
-            key: apiKey,
-            language: 'en',
-            region: 'in',
-        });
+        const apiKey = getGoogleMapsServerKey();
+        let data = null;
 
-        const resultType = sanitize(req.query.result_type);
-        if (resultType) params.set('result_type', resultType);
+        if (apiKey) {
+            try {
+                const params = new URLSearchParams({
+                    latlng: `${lat},${lng}`,
+                    key: apiKey,
+                    language: 'en',
+                    region: 'in',
+                });
 
-        const response = await fetch(
-            `https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`
-        );
-        const data = await response.json();
+                const resultType = sanitize(req.query.result_type);
+                if (resultType) params.set('result_type', resultType);
+
+                const response = await fetch(
+                    `https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`
+                );
+                const googleData = await response.json();
+                if (googleData?.status === 'OK' && googleData?.results?.length > 0) {
+                    data = googleData;
+                }
+            } catch (googleErr) {
+                console.warn('Google reverse geocode error, falling back:', googleErr?.message);
+            }
+        }
+
+        // Fallback to OSM / Nominatim if Google did not return OK
+        if (!data || data.status !== 'OK') {
+            const fallbackData = await fetchFallbackReverseGeocode(lat, lng);
+            if (fallbackData) {
+                data = fallbackData;
+            }
+        }
+
+        if (!data || !data.results || data.results.length === 0) {
+            return res.status(200).json({
+                success: true,
+                message: 'Reverse geocode completed with coordinates',
+                data: {
+                    status: 'OK',
+                    results: [
+                        {
+                            formatted_address: `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+                            address_components: [],
+                        }
+                    ]
+                }
+            });
+        }
 
         return res.status(200).json({
             success: true,

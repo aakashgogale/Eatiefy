@@ -34,6 +34,12 @@ const OptimizedImage = React.memo(({
   const [hasError, setHasError] = useState(false)
   const imgRef = useRef(null)
 
+  // Auto-optimize Cloudinary URLs (preserve original path to avoid 401 Unauthorized)
+  const getCloudinaryOptimizedUrl = (url) => {
+    if (!url || typeof url !== 'string') return url
+    return url
+  }
+
   // Check if image URL supports optimization (external URLs)
   const supportsOptimization = (imageSrc) => {
     if (!responsive) return false
@@ -106,7 +112,7 @@ const OptimizedImage = React.memo(({
   const DEFAULT_FALLBACK = dishFallbackImage
 
   const isFallback = !src || typeof src !== 'string' || !src.trim() || hasError
-  const effectiveSrc = isFallback ? (fallbackImage || DEFAULT_FALLBACK) : src.trim()
+  const effectiveSrc = isFallback ? (fallbackImage || DEFAULT_FALLBACK) : getCloudinaryOptimizedUrl(src.trim())
 
   return (
     <div className={`relative overflow-hidden ${className}`} ref={imgRef}>

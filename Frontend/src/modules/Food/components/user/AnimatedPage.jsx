@@ -8,11 +8,11 @@ export default function AnimatedPage({ children, className = "" }) {
     const container = containerRef.current
     if (!container) return
 
-    // Keep entrance animation lightweight and remove transform afterwards.
-    // Persistent transform breaks descendants that use position: fixed.
+    // Lightweight entrance transition using Apple-standard cubic-bezier
     container.style.opacity = '0'
-    container.style.transition = 'opacity 220ms ease, transform 220ms ease'
-    container.style.transform = 'translateY(20px)'
+    container.style.willChange = 'opacity, transform'
+    container.style.transition = 'opacity 240ms cubic-bezier(0.16, 1, 0.3, 1), transform 240ms cubic-bezier(0.16, 1, 0.3, 1)'
+    container.style.transform = 'translateY(12px)'
 
     // Trigger animation on next frame
     requestAnimationFrame(() => {
@@ -23,7 +23,8 @@ export default function AnimatedPage({ children, className = "" }) {
     const cleanupTimer = window.setTimeout(() => {
       container.style.transform = ''
       container.style.transition = ''
-    }, 260)
+      container.style.willChange = ''
+    }, 280)
 
     return () => {
       window.clearTimeout(cleanupTimer)

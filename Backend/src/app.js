@@ -99,6 +99,17 @@ app.use((req, _res, next) => {
 });
 app.use(xssClean());
 
+// Cache-Control headers for high-frequency public read endpoints (sub-100ms repeat loads)
+app.use((req, res, next) => {
+    if (req.method === 'GET') {
+        const url = req.originalUrl || req.url;
+        if (url.includes('/hero-banners') || url.includes('/public-categories') || url.includes('/categories/public')) {
+            res.set('Cache-Control', 'public, max-age=120, stale-while-revalidate=300');
+        }
+    }
+    next();
+});
+
 // Global rate limiting for API routes
 app.use('/api', apiRateLimiter);
 
