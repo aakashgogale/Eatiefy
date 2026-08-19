@@ -233,6 +233,9 @@ router.delete('/restaurants/:id', adminController.deleteRestaurant);
 
 // ----- Restaurant Commission -----
 router.get('/restaurant-commissions/bootstrap', adminController.getRestaurantCommissionBootstrap);
+router.get('/restaurant-commissions/global', adminController.getGlobalRestaurantCommission);
+router.put('/restaurant-commissions/global', adminController.updateGlobalRestaurantCommission);
+router.post('/restaurant-commissions/global', adminController.updateGlobalRestaurantCommission);
 router.get('/restaurant-commissions', adminController.getRestaurantCommissions);
 router.post('/restaurant-commissions', adminController.createRestaurantCommission);
 router.get('/restaurant-commissions/:id', adminController.getRestaurantCommissionById);

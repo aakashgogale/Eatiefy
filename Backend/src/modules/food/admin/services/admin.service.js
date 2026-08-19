@@ -19,6 +19,7 @@ import { DeliveryTargetEligibility } from '../models/deliveryTargetEligibility.m
 import { FoodEarningAddon } from '../models/earningAddon.model.js';
 import { FoodEarningAddonHistory } from '../models/earningAddonHistory.model.js';
 import { FoodRestaurantCommission } from '../models/restaurantCommission.model.js';
+import { FoodSystemConfig } from '../models/systemConfig.model.js';
 import { FoodDeliveryCommissionRule } from '../models/deliveryCommissionRule.model.js';
 import { FoodFeeSettings } from '../models/feeSettings.model.js';
 import { FeedbackExperience } from '../models/feedbackExperience.model.js';
@@ -35,6 +36,7 @@ import { FoodRestaurantSupportTicket } from '../../restaurant/models/supportTick
 import { FoodOrder } from '../../orders/models/order.model.js';
 import { isCancelledOrder, CANCELLED_ORDER_STATUSES } from '../../orders/services/order.helpers.js';
 import { FoodTransaction } from '../../orders/models/foodTransaction.model.js';
+import { invalidateRestaurantCommissionCache } from '../../orders/services/foodTransaction.service.js';
 import { FoodRestaurantWithdrawal } from '../../restaurant/models/foodRestaurantWithdrawal.model.js';
 import { FoodDeliveryWithdrawal } from '../../delivery/models/foodDeliveryWithdrawal.model.js';
 import { FoodDeliveryWallet } from '../../delivery/models/deliveryWallet.model.js';
@@ -2006,16 +2008,22 @@ export async function getRestaurantCommissions(query = {}) {
         FoodRestaurantCommission.countDocuments({})
     ]);
 
-    const commissions = list.map((c, index) => ({
-        _id: c._id,
-        sl: skip + index + 1,
-        restaurantId: c.restaurantId?._id ? String(c.restaurantId._id) : String(c.restaurantId),
-        restaurantName: c.restaurantId?.restaurantName || '',
-        restaurant: c.restaurantId?._id ? { _id: c.restaurantId._id, name: c.restaurantId.restaurantName } : null,
-        defaultCommission: c.defaultCommission || { type: 'percentage', value: 0 },
-        notes: c.notes || '',
-        status: c.status !== false
-    }));
+    const commissions = list.map((c, index) => {
+        const rawRestId = c.restaurantId?._id ? String(c.restaurantId._id) : (c.restaurantId ? String(c.restaurantId) : '');
+        const displayRestId = rawRestId ? `REST${rawRestId.slice(-6).padStart(6, '0')}` : '-';
+        const restName = c.restaurantId?.restaurantName || c.restaurantId?.name || (rawRestId ? `Restaurant (${displayRestId})` : '-');
+        return {
+            _id: c._id,
+            sl: skip + index + 1,
+            restaurantId: displayRestId,
+            rawRestaurantId: rawRestId,
+            restaurantName: restName,
+            restaurant: c.restaurantId?._id ? { _id: c.restaurantId._id, name: restName } : null,
+            defaultCommission: c.defaultCommission || { type: 'percentage', value: 0 },
+            notes: c.notes || '',
+            status: c.status !== false
+        };
+    });
 
     return {
         commissions,
@@ -2028,14 +2036,70 @@ export async function getRestaurantCommissions(query = {}) {
     };
 }
 
+// ----- Global Restaurant Commission -----
+export const GLOBAL_COMMISSION_CONFIG_KEY = 'global_restaurant_commission';
+
+export async function getGlobalRestaurantCommission() {
+    const doc = await FoodSystemConfig.findOne({ key: GLOBAL_COMMISSION_CONFIG_KEY }).lean();
+    if (!doc || !doc.value) {
+        return {
+            enabled: false,
+            type: 'percentage',
+            value: 0,
+            notes: ''
+        };
+    }
+    return {
+        enabled: doc.value.enabled !== false,
+        type: doc.value.type === 'amount' ? 'amount' : 'percentage',
+        value: Number(doc.value.value ?? 0),
+        notes: doc.value.notes ? String(doc.value.notes) : ''
+    };
+}
+
+export async function updateGlobalRestaurantCommission(body, adminUser = null) {
+    const payload = {
+        enabled: body.enabled !== false,
+        type: body.type === 'amount' ? 'amount' : 'percentage',
+        value: Math.max(0, Number(body.value ?? 0)),
+        notes: body.notes ? String(body.notes).trim() : ''
+    };
+
+    const doc = await FoodSystemConfig.findOneAndUpdate(
+        { key: GLOBAL_COMMISSION_CONFIG_KEY },
+        {
+            $set: {
+                key: GLOBAL_COMMISSION_CONFIG_KEY,
+                value: payload,
+                description: 'Global default restaurant commission applied per order',
+                updatedBy: {
+                    role: adminUser?.role || 'ADMIN',
+                    adminId: adminUser?._id,
+                    at: new Date()
+                }
+            }
+        },
+        { upsert: true, new: true }
+    ).lean();
+
+    invalidateRestaurantCommissionCache();
+    return {
+        enabled: doc.value.enabled !== false,
+        type: doc.value.type === 'amount' ? 'amount' : 'percentage',
+        value: Number(doc.value.value ?? 0),
+        notes: doc.value.notes ? String(doc.value.notes) : ''
+    };
+}
+
 export async function getRestaurantCommissionBootstrap() {
-    const [commissionsData, restaurantsData] = await Promise.all([
+    const [commissionsData, restaurantsData, globalCommission] = await Promise.all([
         getRestaurantCommissions({ page: 1, limit: 200 }),
-        getRestaurants({ status: 'approved', limit: 1000, page: 1 })
+        getRestaurants({ status: 'approved', limit: 1000, page: 1 }),
+        getGlobalRestaurantCommission()
     ]);
 
     const commissionByRestaurantId = new Set(
-        (commissionsData.commissions || []).map((c) => String(c.restaurantId))
+        (commissionsData.commissions || []).map((c) => String(c.rawRestaurantId || c.restaurantId))
     );
 
     const restaurants = (restaurantsData.restaurants || []).map((r) => ({
@@ -2046,20 +2110,24 @@ export async function getRestaurantCommissionBootstrap() {
         hasCommissionSetup: commissionByRestaurantId.has(String(r._id))
     }));
 
-    return { commissions: commissionsData.commissions || [], restaurants };
+    return { commissions: commissionsData.commissions || [], restaurants, globalCommission };
 }
 
 export async function getRestaurantCommissionById(id) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     const doc = await FoodRestaurantCommission.findById(id)
-        .populate({ path: 'restaurantId', select: 'restaurantName' })
+        .populate({ path: 'restaurantId', select: 'restaurantName name' })
         .lean();
     if (!doc) return null;
+    const rawRestId = doc.restaurantId?._id ? String(doc.restaurantId._id) : (doc.restaurantId ? String(doc.restaurantId) : '');
+    const displayRestId = rawRestId ? `REST${rawRestId.slice(-6).padStart(6, '0')}` : '-';
+    const restName = doc.restaurantId?.restaurantName || doc.restaurantId?.name || (rawRestId ? `Restaurant (${displayRestId})` : '-');
     return {
         _id: doc._id,
-        restaurantId: doc.restaurantId?._id ? String(doc.restaurantId._id) : String(doc.restaurantId),
-        restaurant: doc.restaurantId?._id ? { _id: doc.restaurantId._id, name: doc.restaurantId.restaurantName } : null,
-        restaurantName: doc.restaurantId?.restaurantName || '',
+        restaurantId: displayRestId,
+        rawRestaurantId: rawRestId,
+        restaurant: doc.restaurantId?._id ? { _id: doc.restaurantId._id, name: restName, restaurantId: displayRestId } : null,
+        restaurantName: restName,
         defaultCommission: doc.defaultCommission || { type: 'percentage', value: 0 },
         notes: doc.notes || '',
         status: doc.status !== false
@@ -2077,6 +2145,7 @@ export async function createRestaurantCommission(body) {
         notes: body.notes || '',
         status: true
     });
+    invalidateRestaurantCommissionCache();
     return created.toObject();
 }
 
@@ -2087,12 +2156,14 @@ export async function updateRestaurantCommission(id, body) {
         { $set: { defaultCommission: body.defaultCommission, notes: body.notes || '' } },
         { new: true }
     ).lean();
+    invalidateRestaurantCommissionCache();
     return updated;
 }
 
 export async function deleteRestaurantCommission(id) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     const deleted = await FoodRestaurantCommission.findByIdAndDelete(id).lean();
+    invalidateRestaurantCommissionCache();
     return deleted ? { id } : null;
 }
 
@@ -2102,6 +2173,7 @@ export async function toggleRestaurantCommissionStatus(id) {
     if (!doc) return null;
     doc.status = !Boolean(doc.status);
     await doc.save();
+    invalidateRestaurantCommissionCache();
     return doc.toObject();
 }
 
@@ -2745,9 +2817,10 @@ export async function getRestaurantAnalytics(restaurantId) {
         ],
     };
 
-    const [restaurant, commissionDoc, orders, txRows, orderStatsRows, relevantOffers] = await Promise.all([
+    const [restaurant, commissionDoc, globalComm, orders, txRows, orderStatsRows, relevantOffers] = await Promise.all([
         FoodRestaurant.findById(rId).lean(),
         FoodRestaurantCommission.findOne({ restaurantId: rId, status: { $ne: false } }).lean(),
+        getGlobalRestaurantCommission(),
         FoodOrder.find(restaurantOrderMatch).lean(),
         FoodTransaction.find({ restaurantId: rId })
             .populate('orderId', 'orderStatus deliveryState createdAt pricing')
@@ -2944,8 +3017,9 @@ export async function getRestaurantAnalytics(restaurantId) {
     const repeatCustomers = Object.values(customerOrderCounts).filter(count => count > 1).length;
 
     // 5) Restaurant commission percent
-    const commissionType = commissionDoc?.defaultCommission?.type || 'percentage';
-    const commissionValue = Number(commissionDoc?.defaultCommission?.value || 0) || 0;
+    const effectiveCommissionRule = commissionDoc?.defaultCommission || (globalComm?.enabled ? globalComm : null);
+    const commissionType = effectiveCommissionRule?.type || 'percentage';
+    const commissionValue = Number(effectiveCommissionRule?.value || 0) || 0;
     const completedSubtotal = sum(completedMoneyRows, (row) => getPricing(row)?.subtotal);
     const computedCommissionPercent =
         commissionType === 'percentage'

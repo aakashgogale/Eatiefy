@@ -5,7 +5,7 @@ import { validateCategoryListQuery, validateCategoryRejectDto, validateCategoryU
 import { validateCreateOfferDto, validateUpdateOfferCartVisibilityDto } from '../validators/offer.validator.js';
 import { validateAddDeliveryBonusDto } from '../validators/deliveryBonus.validator.js';
 import { validateCheckCompletionsDto, validateEarningAddonHistoryActionDto, validateEarningAddonUpsertDto, validateToggleEarningAddonStatusDto } from '../validators/earningAddon.validator.js';
-import { validateDeliveryCommissionRuleDto, validateOptionalStatusDto, validateRestaurantCommissionUpsertDto } from '../validators/commission.validator.js';
+import { validateDeliveryCommissionRuleDto, validateOptionalStatusDto, validateRestaurantCommissionUpsertDto, validateGlobalRestaurantCommissionDto } from '../validators/commission.validator.js';
 import { validateFeeSettingsUpsertDto } from '../validators/feeSettings.validator.js';
 import { validateDeliveryEmergencyHelpUpsertDto } from '../validators/deliveryEmergencyHelp.validator.js';
 import { validateReferralSettingsUpsertDto } from '../validators/referralSettings.validator.js';
@@ -1014,6 +1014,25 @@ export async function checkEarningAddonCompletions(req, res, next) {
 }
 
 // ----- Restaurant Commission (admin) -----
+export async function getGlobalRestaurantCommission(req, res, next) {
+    try {
+        const data = await adminService.getGlobalRestaurantCommission();
+        res.status(200).json({ success: true, message: 'Global restaurant commission fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function updateGlobalRestaurantCommission(req, res, next) {
+    try {
+        const body = validateGlobalRestaurantCommissionDto(req.body || {});
+        const data = await adminService.updateGlobalRestaurantCommission(body, req.user);
+        res.status(200).json({ success: true, message: 'Global restaurant commission updated successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
 export async function getRestaurantCommissions(req, res, next) {
     try {
         const data = await adminService.getRestaurantCommissions(req.query || {});

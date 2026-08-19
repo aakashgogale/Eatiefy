@@ -1,11 +1,24 @@
 import { FoodTransaction } from '../models/foodTransaction.model.js';
 import { FoodRestaurantCommission } from '../../admin/models/restaurantCommission.model.js';
+import { FoodSystemConfig } from '../../admin/models/systemConfig.model.js';
 import { resolveDiscountSplitByCoupon } from '../../shared/discountSplit.util.js';
 import mongoose from 'mongoose';
 
 const RESTAURANT_COMMISSION_CACHE_MS = 60 * 1000;
+const GLOBAL_COMMISSION_CONFIG_KEY = 'global_restaurant_commission';
+
 let restaurantCommissionRulesCache = null;
 let restaurantCommissionRulesLoadedAt = 0;
+
+let globalCommissionCache = null;
+let globalCommissionLoadedAt = 0;
+
+export function invalidateRestaurantCommissionCache() {
+  restaurantCommissionRulesCache = null;
+  restaurantCommissionRulesLoadedAt = 0;
+  globalCommissionCache = null;
+  globalCommissionLoadedAt = 0;
+}
 
 async function getActiveRestaurantCommissionRules() {
   const now = Date.now();
@@ -22,6 +35,42 @@ async function getActiveRestaurantCommissionRules() {
   restaurantCommissionRulesCache = list || [];
   restaurantCommissionRulesLoadedAt = now;
   return restaurantCommissionRulesCache;
+}
+
+async function getActiveGlobalCommission() {
+  const now = Date.now();
+  if (
+    globalCommissionCache !== null &&
+    now - globalCommissionLoadedAt < RESTAURANT_COMMISSION_CACHE_MS
+  ) {
+    return globalCommissionCache;
+  }
+
+  try {
+    const doc = await FoodSystemConfig.findOne({ key: GLOBAL_COMMISSION_CONFIG_KEY }).lean();
+    if (doc && doc.value) {
+      globalCommissionCache = {
+        enabled: doc.value.enabled !== false,
+        type: doc.value.type === 'amount' ? 'amount' : 'percentage',
+        value: Number(doc.value.value ?? 0),
+      };
+    } else {
+      globalCommissionCache = {
+        enabled: false,
+        type: 'percentage',
+        value: 0,
+      };
+    }
+  } catch (err) {
+    globalCommissionCache = {
+      enabled: false,
+      type: 'percentage',
+      value: 0,
+    };
+  }
+
+  globalCommissionLoadedAt = now;
+  return globalCommissionCache;
 }
 
 export function computeRestaurantCommissionAmount(baseAmount, rule) {
@@ -53,32 +102,36 @@ export async function getRestaurantCommissionSnapshot(orderDoc) {
   const restaurantIdRaw =
     orderDoc?.restaurantId?._id ?? orderDoc?.restaurantId ?? null;
 
-  if (!restaurantIdRaw) {
-    return {
-      commissionAmount: 0,
-      commissionType: 'percentage',
-      commissionValue: 0,
-      baseAmount,
-    };
+  if (restaurantIdRaw) {
+    const rules = await getActiveRestaurantCommissionRules();
+    const rule =
+      rules.find((r) => String(r.restaurantId) === String(restaurantIdRaw)) ||
+      // Fallback: accept legacy docs where restaurantId may be stored under `restaurant` / `restaurant_id`
+      rules.find((r) => String(r.restaurant || r.restaurant_id || '') === String(restaurantIdRaw)) ||
+      null;
+
+    if (rule && rule.status !== false) {
+      return computeRestaurantCommissionAmount(baseAmount, rule);
+    }
   }
 
-  const rules = await getActiveRestaurantCommissionRules();
-  const rule =
-    rules.find((r) => String(r.restaurantId) === String(restaurantIdRaw)) ||
-    // Fallback: accept legacy docs where restaurantId may be stored under `restaurant` / `restaurant_id`
-    rules.find((r) => String(r.restaurant || r.restaurant_id || '') === String(restaurantIdRaw)) ||
-    null;
-
-  if (!rule) {
-    return {
-      commissionAmount: 0,
-      commissionType: 'percentage',
-      commissionValue: 0,
-      baseAmount,
-    };
+  // Fallback to Global Restaurant Commission
+  const globalComm = await getActiveGlobalCommission();
+  if (globalComm?.enabled && Number(globalComm.value) > 0) {
+    return computeRestaurantCommissionAmount(baseAmount, {
+      defaultCommission: {
+        type: globalComm.type || 'percentage',
+        value: globalComm.value,
+      },
+    });
   }
 
-  return computeRestaurantCommissionAmount(baseAmount, rule);
+  return {
+    commissionAmount: 0,
+    commissionType: globalComm?.type || 'percentage',
+    commissionValue: 0,
+    baseAmount,
+  };
 }
 
 /**

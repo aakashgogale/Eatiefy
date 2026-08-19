@@ -38,6 +38,36 @@ export const validateRestaurantCommissionUpsertDto = (body) => {
     };
 };
 
+const globalRestaurantCommissionSchema = z.object({
+    enabled: z.boolean().default(true),
+    type: z.enum(['percentage', 'amount']).default('percentage'),
+    value: z.number().min(0, 'Commission value must be 0 or greater'),
+    notes: z.string().optional().or(z.literal(''))
+});
+
+export const validateGlobalRestaurantCommissionDto = (body) => {
+    const normalized = {
+        enabled: body?.enabled !== false && body?.enabled !== 'false',
+        type: body?.type === 'amount' ? 'amount' : 'percentage',
+        value: Number(body?.value ?? 0),
+        notes: body?.notes != null ? String(body.notes) : ''
+    };
+
+    const result = globalRestaurantCommissionSchema.safeParse(normalized);
+    if (!result.success) {
+        throw new ValidationError(result.error.errors[0].message);
+    }
+    if (result.data.type === 'percentage' && (result.data.value < 0 || result.data.value > 100)) {
+        throw new ValidationError('Percentage must be between 0-100');
+    }
+    return {
+        enabled: result.data.enabled,
+        type: result.data.type,
+        value: result.data.value,
+        notes: result.data.notes ? result.data.notes.trim() : ''
+    };
+};
+
 const toggleBoolSchema = z.object({
     status: z.boolean().optional()
 });

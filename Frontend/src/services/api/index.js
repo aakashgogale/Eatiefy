@@ -1070,6 +1070,14 @@ export const adminAPI = {
     apiClient.get("/food/admin/restaurant-commissions/bootstrap", {
       contextModule: "admin",
     }),
+  getGlobalRestaurantCommission: () =>
+    apiClient.get("/food/admin/restaurant-commissions/global", {
+      contextModule: "admin",
+    }),
+  updateGlobalRestaurantCommission: (body) =>
+    apiClient.put("/food/admin/restaurant-commissions/global", body ?? {}, {
+      contextModule: "admin",
+    }),
   getRestaurantCommissions: (params = {}) =>
     apiClient.get("/food/admin/restaurant-commissions", {
       params,
