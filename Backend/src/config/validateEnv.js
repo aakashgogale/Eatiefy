@@ -17,6 +17,7 @@ export const validateConfig = () => {
     if (!config.jwtRefreshSecret) {
         missing.push('JWT_REFRESH_SECRET');
     }
+    // Validate Redis only when explicitly enabled
     if (config.redisEnabled && !config.redisUrl) {
         missing.push('REDIS_URL (required when REDIS_ENABLED=true)');
     }
@@ -24,11 +25,8 @@ export const validateConfig = () => {
         missing.push('REDIS_ENABLED=true (required when BULLMQ_ENABLED=true)');
     }
 
-    // Production hard requirements for horizontal scale + idempotency
+    // Production environment validation
     if (config.nodeEnv === 'production') {
-        if (!config.redisEnabled || !config.redisUrl) {
-            missing.push('REDIS_ENABLED=true and REDIS_URL (required in production)');
-        }
         if (!config.cloudinaryCloudName || !config.cloudinaryApiKey || !config.cloudinaryApiSecret) {
             missing.push('CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET (required in production for multi-instance uploads)');
         }

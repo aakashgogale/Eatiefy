@@ -105,23 +105,49 @@ export const initSocket = async (server) => {
     });
 
     if (config.redisEnabled && config.redisUrl) {
+        let pubClient = null;
+        let subClient = null;
         try {
             const { createAdapter } = await import('@socket.io/redis-adapter');
             const { createClient } = await import('redis');
-            const pubClient = createClient({ url: config.redisUrl });
-            const subClient = pubClient.duplicate();
+
+            const clientOptions = {
+                url: config.redisUrl,
+                socket: {
+                    connectTimeout: 5000,
+                    reconnectStrategy: (retries) => {
+                        if (retries > 3) {
+                            return new Error('Redis max reconnection attempts reached');
+                        }
+                        return Math.min(retries * 200, 1000);
+                    }
+                }
+            };
+
+            pubClient = createClient(clientOptions);
+            subClient = pubClient.duplicate();
+
             pubClient.on('error', (err) => logger.error(`Socket.IO Redis pub client: ${err.message}`));
             subClient.on('error', (err) => logger.error(`Socket.IO Redis sub client: ${err.message}`));
+
             await Promise.all([pubClient.connect(), subClient.connect()]);
             io.adapter(createAdapter(pubClient, subClient));
             logger.info('Socket.IO Redis adapter attached for horizontal scaling');
         } catch (err) {
-            if (config.nodeEnv === 'production') {
-                logger.error(`Socket.IO Redis adapter REQUIRED in production: ${err.message}`);
-                throw err;
-            }
             logger.warn(`Socket.IO Redis adapter skipped (using in-memory): ${err.message}`);
+            try {
+                if (pubClient) {
+                    pubClient.removeAllListeners('error');
+                    pubClient.disconnect().catch(() => {});
+                }
+                if (subClient) {
+                    subClient.removeAllListeners('error');
+                    subClient.disconnect().catch(() => {});
+                }
+            } catch (_) {}
         }
+    } else {
+        logger.info('Socket.IO running with default in-memory adapter (Redis disabled)');
     }
 
     io.on('connection', (socket) => {

@@ -10,7 +10,7 @@ const sanitizeUploadBaseUrl = (value) => String(value || '')
 
 export const config = {
     // Basic server config
-    port: process.env.PORT || 5000,
+    port: Number(process.env.PORT) || 10000,
     host: process.env.HOST || '0.0.0.0',
     socketPort: process.env.SOCKET_PORT || 5001,
     socketHost: process.env.SOCKET_HOST || process.env.HOST || '0.0.0.0',
@@ -71,10 +71,9 @@ export const config = {
     uploadPath: process.env.UPLOAD_PATH || process.env.UPLOAD_STORAGE_ROOT || 'uploads',
 
     // Redis
-    // Auto-enable when REDIS_URL is set (SOP sets URL but often omits REDIS_ENABLED=true)
-    redisEnabled: process.env.REDIS_ENABLED === 'true'
-        || (!!process.env.REDIS_URL && process.env.REDIS_ENABLED !== 'false'),
-    redisUrl: process.env.REDIS_URL,
+    // Strictly require REDIS_ENABLED=true AND a valid non-empty REDIS_URL
+    redisEnabled: process.env.REDIS_ENABLED === 'true' && Boolean(process.env.REDIS_URL && String(process.env.REDIS_URL).trim()),
+    redisUrl: process.env.REDIS_URL ? String(process.env.REDIS_URL).trim() : '',
 
     // BullMQ
     bullmqEnabled: process.env.BULLMQ_ENABLED === 'true',
