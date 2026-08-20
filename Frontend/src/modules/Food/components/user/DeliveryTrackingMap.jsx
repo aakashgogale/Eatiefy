@@ -216,25 +216,29 @@ const DeliveryTrackingMap = ({
   const tripStatus = order?.status || order?.orderStatus || 'pending';
   const isOrderPickedUp = ['picked_up', 'out_for_delivery', 'delivered'].includes(tripStatus.toLowerCase());
 
-  // 2. Pro Camera: Intelligent Frame Management (Stable Bounds)
-  // Fit map to frame journey stably
+  // 2. Intelligent Camera & Bounds: Frame Restaurant & Customer Journey
   useEffect(() => {
     if (!map || !isLoaded) return;
     const bounds = new window.google.maps.LatLngBounds();
     if (restaurantCoords) bounds.extend(restaurantCoords);
     if (customerCoords) bounds.extend(customerCoords);
 
+    // If order is out for delivery, also ensure moving rider is in view
+    if (isOrderPickedUp && displayRiderLocation) {
+      bounds.extend(displayRiderLocation);
+    }
+
     map.fitBounds(bounds, {
-      top: 150, 
-      bottom: window.innerHeight * 0.65, // Add massive bottom padding to keep markers above the bottom sheet!
-      left: 60, 
-      right: 60 
+      top: 90, 
+      bottom: Math.min(window.innerHeight * 0.48, 380), 
+      left: 45, 
+      right: 45 
     });
     
-    debugLog(`[Camera] Framing full journey with stable bounds`);
-  }, [map, restaurantCoords, customerCoords, isLoaded]);
+    debugLog(`[Camera] Framing Restaurant <-> Customer delivery journey`);
+  }, [map, restaurantCoords, customerCoords, isOrderPickedUp, displayRiderLocation, isLoaded]);
 
-  // 3. Directions Management
+  // 3. Directions Management (Always Customer-Centric: Restaurant -> Customer or Rider -> Customer)
   const directionsCallback = useCallback((result, status) => {
     if (status === 'OK' && result) {
       setDirections(result);
@@ -256,25 +260,34 @@ const DeliveryTrackingMap = ({
     return Date.now() - lastDirectionsAt > 15000;
   }, [directions, lastDirectionsAt]);
 
+  // For User App: Route is ALWAYS to Customer (either from Restaurant before pickup, or from Rider after pickup)
   const directionsServiceOptions = useMemo(() => {
-    if (!riderLocation) return null;
-    const dest = isOrderPickedUp ? customerCoords : restaurantCoords;
-    if (!dest) return null;
-    return {
-      origin: riderLocation,
-      destination: dest,
-      travelMode: 'DRIVING'
-    };
-  }, [riderLocation?.lat, riderLocation?.lng, isOrderPickedUp, restaurantCoords?.lat, restaurantCoords?.lng, customerCoords?.lat, customerCoords?.lng]);
+    if (!customerCoords) return null;
+    
+    if (isOrderPickedUp && riderLocation) {
+      return {
+        origin: riderLocation,
+        destination: customerCoords,
+        travelMode: 'DRIVING'
+      };
+    }
+
+    return null;
+  }, [riderLocation?.lat, riderLocation?.lng, isOrderPickedUp, customerCoords?.lat, customerCoords?.lng]);
 
   const center = useMemo(() => {
-    // Highly stable center: use restaurant or customer as anchor, not the moving rider
-    if (isOrderPickedUp) return customerCoords || { lat: 0, lng: 0 };
-    return restaurantCoords || { lat: 0, lng: 0 };
-  }, [isOrderPickedUp, restaurantCoords, customerCoords]);
+    if (customerCoords && restaurantCoords) {
+      return {
+        lat: (restaurantCoords.lat + customerCoords.lat) / 2,
+        lng: (restaurantCoords.lng + customerCoords.lng) / 2
+      };
+    }
+    return restaurantCoords || customerCoords || { lat: 0, lng: 0 };
+  }, [restaurantCoords, customerCoords]);
 
-  const zoom = useMemo(() => 15, []);
+  const zoom = useMemo(() => 14, []);
 
+  // Main Persistent Delivery Route: Restaurant -> Customer
   const baselineDirectionsServiceOptions = useMemo(() => {
     if (!restaurantCoords || !customerCoords) return null;
     return {
@@ -285,6 +298,9 @@ const DeliveryTrackingMap = ({
   }, [restaurantCoords?.lat, restaurantCoords?.lng, customerCoords?.lat, customerCoords?.lng]);
 
   if (!isLoaded) return <div className="w-full h-full bg-gray-100 animate-pulse" />;
+
+  // Rider position: When waiting at restaurant, anchor at restaurant; when picked up, follow live rider
+  const effectiveRiderPos = isOrderPickedUp ? displayRiderLocation : (restaurantCoords || displayRiderLocation);
 
   return (
     <div className="relative w-full h-full overflow-hidden">
@@ -305,73 +321,74 @@ const DeliveryTrackingMap = ({
           gestureHandling: 'greedy'
         }}
       >
-        {/* 1. PERSISTENT BASELINE (Full journey: Restaurant -> Customer) */}
+        {/* 1. PERSISTENT RESTAURANT -> CUSTOMER DELIVERY ROUTE */}
         {!baselineDirections && baselineDirectionsServiceOptions && (
            <DirectionsService
              options={baselineDirectionsServiceOptions}
              callback={(r, s) => { 
-                debugLog('?? Baseline Directions Status:', s);
-
+                debugLog('Baseline Directions Status:', s);
                 if (s === 'OK' && r) {
-                    const points = r.routes[0]?.overview_path?.length || 0;
-                    debugLog(`? Baseline directions SET with ${points} points`);
                     setBaselineDirections(r); 
-                } else if (s !== 'OK') {
-                  console.error('[DeliveryTrackingMap] DirectionsService failed:', s);
+                    if (!isOrderPickedUp) {
+                      const durationText = r?.routes?.[0]?.legs?.[0]?.duration?.text;
+                      if (durationText) {
+                        setCurrentEta(durationText);
+                        if (onEtaUpdate) onEtaUpdate(durationText);
+                      }
+                    }
                 }
              }}
            />
         )}
 
-        {/* 1. PERSISTENT BASELINE (Full journey: Restaurant -> Customer) */}
+        {/* 1. RESTAURANT -> CUSTOMER DELIVERY POLYLINE */}
         {baselineDirections && (
           <Polyline
             path={baselineDirections.routes[0].overview_path}
             options={{
               strokeColor: '#3b82f6', 
-              strokeOpacity: 1,
-              strokeWeight: 4,
+              strokeOpacity: isOrderPickedUp ? 0.45 : 1,
+              strokeWeight: isOrderPickedUp ? 3.5 : 4.5,
               zIndex: 5
             }}
           />
         )}
 
-        {/* 2. LIVE RIDER LEG (From Rider's App: Current Rider Pos -> Target) */}
-        {cloudPolyline && window.google?.maps?.geometry?.encoding && (
+        {/* 2. LIVE RIDER LEG (When order is out for delivery: Rider -> Customer) */}
+        {isOrderPickedUp && cloudPolyline && window.google?.maps?.geometry?.encoding && (
           <Polyline
             path={(() => {
               const decoded = window.google.maps.geometry.encoding.decodePath(
                 typeof cloudPolyline === 'string' ? cloudPolyline : (cloudPolyline.points || '')
               );
-              debugLog(`?? Decoded Cloud Polyline with ${decoded?.length || 0} points`);
               return decoded;
             })()}
             options={{
-              strokeColor: '#3b82f6',
-              strokeWeight: 4,
+              strokeColor: '#2563eb',
+              strokeWeight: 5,
               strokeOpacity: 1,
               zIndex: 10
             }}
           />
         )}
 
-        {/* 2. LIVE RIDER LEG (Rider -> Target) */}
-        {!cloudPolyline && directionsServiceOptions && (
+        {/* 2. LIVE RIDER LEG VIA DIRECTIONS SERVICE (When picked up) */}
+        {isOrderPickedUp && !cloudPolyline && directionsServiceOptions && (
           <DirectionsService
             options={directionsServiceOptions}
             callback={shouldUpdateRoute ? directionsCallback : undefined}
           />
         )}
 
-        {directions && !cloudPolyline && (
+        {isOrderPickedUp && directions && !cloudPolyline && (
           <DirectionsRenderer
             directions={directions}
             options={{
               suppressMarkers: true,
               preserveViewport: true,
               polylineOptions: {
-                strokeColor: '#3b82f6',
-                strokeWeight: 4,
+                strokeColor: '#2563eb',
+                strokeWeight: 5,
                 strokeOpacity: 1,
                 zIndex: 10
               }
@@ -380,49 +397,51 @@ const DeliveryTrackingMap = ({
         )}
 
         {/* RESTAURANT PIN */}
-        <OverlayView
-          position={restaurantCoords}
-          mapPaneName={OverlayView.MARKER_LAYER}
-        >
-          <div className="relative flex flex-col items-center justify-center pointer-events-none -translate-x-1/2 -translate-y-1/2">
-             {!isOrderPickedUp && (
-               <div className="absolute -top-12 z-50 bg-[#1e1e1e] text-white rounded-full flex items-center px-1.5 py-1.5 shadow-lg border border-black/10 gap-2">
+        {restaurantCoords && (
+          <OverlayView
+            position={restaurantCoords}
+            mapPaneName={OverlayView.MARKER_LAYER}
+          >
+            <div className="relative flex flex-col items-center justify-center pointer-events-none -translate-x-1/2 -translate-y-1/2">
+               <div className="absolute -top-12 z-50 bg-[#1e1e1e] text-white rounded-full flex items-center px-2 py-1 shadow-lg border border-black/10 gap-1.5">
                  <img 
                    src={order?.restaurantLogo || order?.restaurantId?.logo || order?.restaurantId?.profileImage || `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(RESTAURANT_PIN_SVG)}`} 
-                   className="w-6 h-6 rounded-full object-cover bg-white" 
+                   className="w-5 h-5 rounded-full object-cover bg-white" 
                    onError={(e) => { e.target.src = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(RESTAURANT_PIN_SVG)}`; }}
                  />
-                 <span className="text-xs font-semibold pr-2">Pickup</span>
-                 <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-[#1e1e1e] rotate-45" />
+                 <span className="text-[11px] font-bold pr-1">{order?.restaurantName || order?.restaurantId?.name || "Restaurant"}</span>
+                 <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-[#1e1e1e] rotate-45" />
                </div>
-             )}
-             <div className="w-4 h-4 bg-white border-[4px] border-black rounded-full shadow-md z-10" />
-          </div>
-        </OverlayView>
+               <div className="w-4 h-4 bg-orange-500 border-[3px] border-white rounded-full shadow-md z-10" />
+            </div>
+          </OverlayView>
+        )}
 
-        {/* CUSTOMER PIN */}
-        <OverlayView
-          position={customerCoords}
-          mapPaneName={OverlayView.MARKER_LAYER}
-        >
-          <div className="relative flex flex-col items-center justify-center pointer-events-none -translate-x-1/2 -translate-y-1/2">
-             <div className="absolute -top-12 z-50 bg-[#1e1e1e] text-white rounded-full flex items-center px-1.5 py-1.5 shadow-lg border border-black/10 gap-2">
-               <img 
-                 src={order?.customerImage || order?.userId?.profileImage || order?.userId?.avatar || `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(CUSTOMER_PIN_SVG)}`} 
-                 className="w-6 h-6 rounded-full object-cover bg-white" 
-                 onError={(e) => { e.target.src = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(CUSTOMER_PIN_SVG)}`; }}
-               />
-               <span className="text-xs font-semibold pr-2">You</span>
-               <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-[#1e1e1e] rotate-45" />
-             </div>
-             <div className="w-4 h-4 bg-white border-[4px] border-black rounded-full shadow-md z-10" />
-          </div>
-        </OverlayView>
-
-        {/* PRO RIDER */}
-        {displayRiderLocation && (
+        {/* CUSTOMER PIN (You / Home) */}
+        {customerCoords && (
           <OverlayView
-            position={displayRiderLocation}
+            position={customerCoords}
+            mapPaneName={OverlayView.MARKER_LAYER}
+          >
+            <div className="relative flex flex-col items-center justify-center pointer-events-none -translate-x-1/2 -translate-y-1/2">
+               <div className="absolute -top-12 z-50 bg-[#1e1e1e] text-white rounded-full flex items-center px-2 py-1 shadow-lg border border-black/10 gap-1.5">
+                 <img 
+                   src={order?.customerImage || order?.userId?.profileImage || order?.userId?.avatar || `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(CUSTOMER_PIN_SVG)}`} 
+                   className="w-5 h-5 rounded-full object-cover bg-white" 
+                   onError={(e) => { e.target.src = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(CUSTOMER_PIN_SVG)}`; }}
+                 />
+                 <span className="text-[11px] font-bold pr-1">You</span>
+                 <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-[#1e1e1e] rotate-45" />
+               </div>
+               <div className="w-4 h-4 bg-emerald-500 border-[3px] border-white rounded-full shadow-md z-10" />
+            </div>
+          </OverlayView>
+        )}
+
+        {/* RIDER ON MAP (At Restaurant when preparing / moving towards user when picked up) */}
+        {effectiveRiderPos && isOrderPickedUp && (
+          <OverlayView
+            position={effectiveRiderPos}
             mapPaneName={OverlayView.MARKER_LAYER}
           >
             <div 
@@ -437,26 +456,19 @@ const DeliveryTrackingMap = ({
                 </div>
               )}
 
-              {/* Delivery Boy Avatar */}
-              {deliveryBoyData?.avatar && (
-                <div className="absolute -top-20 z-50 w-12 h-12 rounded-full border-[3px] border-white shadow-lg overflow-hidden bg-white">
-                  <img src={deliveryBoyData.avatar} alt="Rider" className="w-full h-full object-cover" />
-                </div>
-              )}
-
               {/* Pulsing Ring */}
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0">
                 <motion.div 
                   animate={{ scale: [1, 2.5], opacity: [0.6, 0] }}
                   transition={{ duration: 2, repeat: Infinity }}
-                  className="w-16 h-16 rounded-full border-4 border-slate-500/30"
+                  className="w-16 h-16 rounded-full border-4 border-blue-500/30"
                 />
               </div>
 
               {/* Rotating Bike */}
               <div 
                 style={{
-                  transform: `rotate(${displayRiderLocation.heading || 0}deg)`,
+                  transform: `rotate(${effectiveRiderPos.heading || 0}deg)`,
                   transition: 'transform 0.1s linear',
                 }}
                 className="relative w-16 h-16 flex items-center justify-center z-10"
@@ -474,8 +486,6 @@ const DeliveryTrackingMap = ({
           </OverlayView>
         )}
       </GoogleMap>
-
-
     </div>
   );
 };

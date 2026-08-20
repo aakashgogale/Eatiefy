@@ -8,6 +8,8 @@ import {
   Phone,
   User,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   MapPin,
   Home as HomeIcon,
   MessageSquare,
@@ -459,6 +461,7 @@ export default function OrderTracking() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [showCancelDialog, setShowCancelDialog] = useState(false)
   const [showOrderDetails, setShowOrderDetails] = useState(false)
+  const [isSheetCollapsed, setIsSheetCollapsed] = useState(false)
   const [cancellationReason, setCancellationReason] = useState("")
   const [isCancelling, setIsCancelling] = useState(false)
   const [isInstructionsModalOpen, setIsInstructionsModalOpen] = useState(false)
@@ -1768,16 +1771,61 @@ export default function OrderTracking() {
         </div>
       )}
 
-      {/* Bottom Sheet */}
-      <div className="absolute bottom-0 left-0 right-0 z-40 bg-gray-50/95 dark:bg-zinc-950/95 backdrop-blur-xl rounded-t-[2.5rem] shadow-[0_-20px_50px_rgba(0,0,0,0.15)] flex flex-col"
-           style={{ maxHeight: '65vh' }}>
-        {/* Drag Handle */}
-        <div className="w-full flex justify-center py-4 shrink-0">
-          <div className="w-12 h-1.5 bg-gray-300 dark:bg-zinc-700 rounded-full" />
+      {/* Collapsible Bottom Sheet */}
+      <motion.div 
+        initial={false}
+        animate={{ 
+          height: isSheetCollapsed ? '88px' : '42vh',
+          maxHeight: isSheetCollapsed ? '88px' : '65vh'
+        }}
+        transition={{ type: "spring", damping: 26, stiffness: 280 }}
+        className="absolute bottom-0 left-0 right-0 z-40 bg-gray-50/95 dark:bg-zinc-950/95 backdrop-blur-xl rounded-t-[2.5rem] shadow-[0_-20px_50px_rgba(0,0,0,0.18)] flex flex-col overflow-hidden border-t border-white/50 dark:border-zinc-800"
+      >
+        {/* Interactive Drag & Tap Handle */}
+        <div 
+          onClick={() => setIsSheetCollapsed(prev => !prev)}
+          className="w-full flex flex-col items-center pt-3 pb-1.5 cursor-pointer select-none active:opacity-70 transition-opacity shrink-0 group hover:bg-gray-100/50 dark:hover:bg-zinc-900/50"
+        >
+          <div className="w-12 h-1.5 bg-gray-300 group-hover:bg-gray-400 dark:bg-zinc-700 rounded-full transition-colors mb-1" />
+          <div className="flex items-center gap-1 text-[11px] font-semibold text-gray-500 dark:text-gray-400">
+            <span>{isSheetCollapsed ? "Tap to view order details" : "Tap to minimize for full map"}</span>
+            {isSheetCollapsed ? (
+              <ChevronUp className="w-3.5 h-3.5 text-gray-500" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
+            )}
+          </div>
         </div>
+
+        {/* Collapsed Compact State Summary Banner */}
+        {isSheetCollapsed && (
+          <div 
+            onClick={() => setIsSheetCollapsed(false)}
+            className="px-5 pb-3 flex items-center justify-between cursor-pointer active:scale-[0.99] transition-transform"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span
+                className="w-2.5 h-2.5 rounded-full shrink-0 animate-pulse"
+                style={{ backgroundColor: themeColor }}
+              />
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-gray-900 dark:text-white truncate">
+                  {currentStatus.subtitle || currentStatus.title || "Tracking Order"}
+                </p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">
+                  {currentEta ? `ETA: ~${currentEta}` : (restaurantDisplayName || "Live on map")}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 px-2.5 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full text-[11px] font-bold shrink-0">
+              <span>Expand</span>
+              <ChevronUp className="w-3.5 h-3.5" />
+            </div>
+          </div>
+        )}
         
         {/* Scrollable Area */}
-        <div className="overflow-y-auto px-4 md:px-6 lg:px-8 pb-8 space-y-4">
+        <div className={`overflow-y-auto px-4 md:px-6 lg:px-8 pb-8 space-y-4 flex-1 ${isSheetCollapsed ? 'hidden' : 'block'}`}>
         
         {/* Main Status Card */}
         {isDeliveredOrder ? (
@@ -2200,7 +2248,7 @@ export default function OrderTracking() {
           )}
         </div>
       </div>
-      </div>
+    </motion.div>
 
       {/* Cancel Order Dialog */}
       <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>

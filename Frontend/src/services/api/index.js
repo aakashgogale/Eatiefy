@@ -2690,8 +2690,20 @@ export const uploadAPI = {
     formData.append("folder", folder);
     formData.append("file", uploadFile);
 
+    let contextModule = options.contextModule;
+    if (!contextModule) {
+      if (folder.includes("delivery") || (typeof window !== "undefined" && window.location.pathname.includes("/delivery"))) {
+        contextModule = "delivery";
+      } else if (folder.includes("restaurant") || (typeof window !== "undefined" && window.location.pathname.includes("/restaurant"))) {
+        contextModule = "restaurant";
+      } else if (folder.includes("admin") || (typeof window !== "undefined" && window.location.pathname.includes("/admin"))) {
+        contextModule = "admin";
+      }
+    }
+
     const response = await apiClient.post("/uploads/image", formData, {
       params: { folder },
+      contextModule,
       headers: { "Content-Type": "multipart/form-data" },
     });
 

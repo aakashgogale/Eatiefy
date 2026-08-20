@@ -42,15 +42,21 @@ export const PickupActionModal = ({
 
     setIsUploadingBill(true);
     try {
-      const res = await uploadAPI.uploadMedia(file, { folder: 'eatiefy/delivery/bills' });
-      if (res?.data?.success && res?.data?.data) {
-        setBillImageUrl(res.data.data.url || res.data.data.secure_url);
+      const res = await uploadAPI.uploadMedia(file, { 
+        folder: 'eatiefy/delivery/bills',
+        contextModule: 'delivery'
+      });
+      const data = res?.data?.data || res?.data;
+      const uploadedUrl = data?.url || data?.secure_url || data?.imageUrl;
+      if (uploadedUrl) {
+        setBillImageUrl(uploadedUrl);
         setBillImageUploaded(true);
-        // toast.success('Bill image uploaded!');
+        toast.success('Bill image uploaded successfully!');
       } else {
         throw new Error('Upload failed');
       }
     } catch (err) {
+      console.error('Bill upload error:', err);
       toast.error('Failed to upload bill image');
       setBillImageUploaded(false);
       setBillImageUrl(null);

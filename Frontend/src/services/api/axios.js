@@ -146,24 +146,36 @@ function getModuleFromUrl(url = "") {
     normalized.startsWith("/food/landing")
   ) return "admin";
   
-  // Delivery detection - Catch all delivery-specific functional and auth routes
+  // Delivery detection - Catch all delivery-specific functional, upload and auth routes
   if (
     normalized.includes("/food/delivery") || 
     normalized.includes("/auth/delivery") || 
-    normalized.includes("/delivery/")
+    normalized.includes("/delivery/") ||
+    normalized.includes("delivery")
   ) return "delivery";
   
   // Restaurant detection - Catch all restaurant-specific functional and auth routes
   if (
     normalized.includes("/food/restaurant/") || 
     normalized.includes("/auth/restaurant") || 
-    normalized.includes("/restaurant/")
+    normalized.includes("/restaurant/") ||
+    normalized.includes("restaurant")
   ) {
     // Exception: /food/restaurants (plural) is usually a public user app route
     if (normalized.includes("/food/restaurants") && !normalized.includes("/food/restaurant/")) {
        return "user";
     }
     return "restaurant";
+  }
+
+  // Uploads route fallback detection based on location pathname
+  if (normalized.includes("/uploads")) {
+    if (typeof window !== "undefined") {
+      const loc = window.location.pathname.toLowerCase();
+      if (loc.includes("/delivery")) return "delivery";
+      if (loc.includes("/restaurant")) return "restaurant";
+      if (loc.includes("/admin")) return "admin";
+    }
   }
   
   return "user";
@@ -182,10 +194,39 @@ function getAccessToken(config) {
     const moduleToken = localStorage.getItem(key);
     if (moduleToken) return moduleToken;
     
-    // 2. Fallback to generic token only for non-admin modules
+    // 2. Active location fallback
+    if (typeof window !== "undefined") {
+      const currentPath = window.location.pathname.toLowerCase();
+      if (currentPath.includes("/delivery")) {
+        const delToken = localStorage.getItem("delivery_accessToken");
+        if (delToken) return delToken;
+      }
+      if (currentPath.includes("/restaurant")) {
+        const restToken = localStorage.getItem("restaurant_accessToken");
+        if (restToken) return restToken;
+      }
+      if (currentPath.includes("/admin")) {
+        const admToken = localStorage.getItem("admin_accessToken");
+        if (admToken) return admToken;
+      }
+    }
+
+    // 3. Fallback to generic token only for non-admin modules
     if (module !== "admin") {
       return localStorage.getItem("accessToken") || null;
     }
+
+    // 4. Utility endpoints fallback (like /uploads)
+    const rawUrl = typeof config?.url === "string" ? config.url.toLowerCase() : "";
+    if (rawUrl.includes("/uploads")) {
+      return localStorage.getItem("delivery_accessToken") ||
+             localStorage.getItem("restaurant_accessToken") ||
+             localStorage.getItem("admin_accessToken") ||
+             localStorage.getItem("user_accessToken") ||
+             localStorage.getItem("accessToken") ||
+             null;
+    }
+
     return null;
   } catch {
     return null;
