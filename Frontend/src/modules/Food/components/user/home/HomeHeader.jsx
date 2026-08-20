@@ -4,12 +4,26 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, ChevronDown, Search, Mic, Bell, CheckCircle2, Tag, Gift, AlertCircle, Clock, BellOff, X, ChevronRight, ShoppingBag, Menu, Wallet } from 'lucide-react';
 import { Badge } from "@food/components/ui/badge";
 import { Avatar, AvatarFallback } from "@food/components/ui/avatar";
+import { API_BASE_URL } from "@food/api/config";
 import foodIcon from "@food/assets/category-icons/food.webp";
 import quickIcon from "@food/assets/category-icons/quick.webp";
 import taxiIcon from "@food/assets/category-icons/taxi.webp";
 import hotelIcon from "@food/assets/category-icons/hotel.webp";
 import useNotificationInbox from "@food/hooks/useNotificationInbox";
 import { useSearchOverlay } from "../UserLayout";
+
+const BACKEND_ORIGIN = (API_BASE_URL || "").replace(/\/api\/?$/, "");
+
+const resolveImageUrl = (url) => {
+  if (!url || typeof url !== "string") return "";
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("data:")) {
+    return trimmed;
+  }
+  const cleanPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return `${BACKEND_ORIGIN}${cleanPath}`;
+};
 
 const ICON_MAP = {
   CheckCircle2,
@@ -244,7 +258,8 @@ export default function HomeHeader({
   const validBanners = useMemo(() => {
     if (!Array.isArray(topBanners) || topBanners.length === 0) return [];
     return topBanners.filter((b) => {
-      const img = String(b?.image || b?.imageUrl || b?.videoUrl || b?.url || '').toLowerCase();
+      const raw = b?.image || b?.imageUrl || b?.videoUrl || b?.url;
+      const img = String(resolveImageUrl(raw) || '').toLowerCase();
       if (!img) return false;
       if (img.includes('delivered') || img.includes('app-store') || img.includes('google-play')) return false;
       return true;
@@ -385,7 +400,7 @@ export default function HomeHeader({
       return;
     }
 
-    const currentMedia = activeBanner?.image || activeBanner?.imageUrl || activeBanner?.videoUrl || activeBanner?.url || '';
+    const currentMedia = resolveImageUrl(activeBanner?.image || activeBanner?.imageUrl || activeBanner?.videoUrl || activeBanner?.url || '');
     const isCurrentVideo = Boolean(
       String(currentMedia).match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || 
       activeBanner?.mediaType === 'video'
@@ -459,7 +474,8 @@ export default function HomeHeader({
               onTransitionEnd={handleTransitionEnd}
             >
               {extendedBanners.map((banner, idx) => {
-                const mediaUrl = banner?.image || banner?.imageUrl || banner?.videoUrl || banner?.url;
+                const rawUrl = banner?.image || banner?.imageUrl || banner?.videoUrl || banner?.url;
+                const mediaUrl = resolveImageUrl(rawUrl);
                 const isVideo = Boolean(String(mediaUrl).match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || banner?.mediaType === 'video');
                 const isCurrent = validBanners.length > 1 ? idx === trackIndex : idx === 0;
 
