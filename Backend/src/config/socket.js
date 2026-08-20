@@ -1,4 +1,5 @@
 import { Server } from 'socket.io';
+import mongoose from 'mongoose';
 import { config } from './env.js';
 import { isOriginAllowed } from './cors.js';
 import { logger } from '../utils/logger.js';
@@ -224,9 +225,17 @@ export const initSocket = async (server) => {
 
             try {
                 const { FoodOrder } = await import('../modules/food/orders/models/order.model.js');
-                const order = await FoodOrder.findById(orderId)
-                    .select('userId restaurantId dispatch.deliveryPartnerId')
-                    .lean();
+                let order = null;
+                if (mongoose.Types.ObjectId.isValid(orderId)) {
+                    order = await FoodOrder.findById(orderId)
+                        .select('userId restaurantId dispatch.deliveryPartnerId orderId')
+                        .lean();
+                }
+                if (!order) {
+                    order = await FoodOrder.findOne({ orderId: String(orderId) })
+                        .select('userId restaurantId dispatch.deliveryPartnerId orderId')
+                        .lean();
+                }
                 if (!order) {
                     socket.emit('tracking-room-error', { orderId: String(orderId), error: 'NOT_FOUND' });
                     return;
@@ -245,10 +254,13 @@ export const initSocket = async (server) => {
                     return;
                 }
 
-                const room = roomNames.tracking(orderId);
-                socket.join(room);
-                logger.info(`Socket ${socket.id} (${role}:${userId}) joined tracking room ${room}`);
-                socket.emit('tracking-room-joined', { room, orderId: String(orderId) });
+                // Join tracking room for Mongo _id, string orderId, and the raw requested orderId
+                if (order._id) socket.join(roomNames.tracking(order._id));
+                if (order.orderId) socket.join(roomNames.tracking(order.orderId));
+                socket.join(roomNames.tracking(orderId));
+
+                logger.info(`Socket ${socket.id} (${role}:${userId}) joined tracking rooms for ${order._id}`);
+                socket.emit('tracking-room-joined', { room: roomNames.tracking(order._id), orderId: String(orderId) });
             } catch (err) {
                 logger.error(`join-tracking failed: ${err.message}`);
                 socket.emit('tracking-room-error', { orderId: String(orderId), error: 'INTERNAL' });
@@ -272,11 +284,20 @@ export const initSocket = async (server) => {
             const accuracy = Number.isFinite(Number(data.accuracy)) ? Number(data.accuracy) : null;
 
             // Authorization: partner may only update location for their assigned order
+            let order = null;
             try {
                 const { FoodOrder } = await import('../modules/food/orders/models/order.model.js');
-                const order = await FoodOrder.findById(data.orderId)
-                    .select('dispatch.deliveryPartnerId dispatch.status')
-                    .lean();
+                if (mongoose.Types.ObjectId.isValid(data.orderId)) {
+                    order = await FoodOrder.findById(data.orderId)
+                        .select('dispatch.deliveryPartnerId dispatch.status userId restaurantId orderId')
+                        .lean();
+                }
+                if (!order) {
+                    order = await FoodOrder.findOne({ orderId: String(data.orderId) })
+                        .select('dispatch.deliveryPartnerId dispatch.status userId restaurantId orderId')
+                        .lean();
+                }
+
                 const allowed = canDeliveryPartnerUpdateOrderLocation({
                     role: 'DELIVERY_PARTNER',
                     partnerId: userId,
@@ -296,23 +317,27 @@ export const initSocket = async (server) => {
                 return;
             }
 
-            // Throttle: max one broadcast per 2s per orderId
+            // Throttle: max one broadcast per 1s per orderId for smooth 60fps ride
             const now = Date.now();
             const lastTS = _lastLocationBroadcast[data.orderId] || 0;
-            if (now - lastTS < 2000) return;
+            if (now - lastTS < 1000) return;
             _lastLocationBroadcast[data.orderId] = now;
 
             const payload = {
                 orderId: String(data.orderId),
+                orderMongoId: order?._id ? String(order._id) : undefined,
                 deliveryPartnerId: String(userId),
                 lat,
                 lng,
-                boy_lat: lat, // Add boy_lat/lng for compatibility
+                boy_lat: lat,
                 boy_lng: lng,
-                riderLocation: [lat, lng], // Add array format for safety
+                riderLocation: [lat, lng],
                 heading,
                 speed,
                 accuracy,
+                status: data.status || 'on_the_way',
+                polyline: data.polyline || undefined,
+                eta: data.eta || undefined,
                 timestamp: now
             };
 
@@ -325,17 +350,18 @@ export const initSocket = async (server) => {
                 status: data.status || 'on_the_way',
             });
 
-            // Broadcast to tracking room (all users watching this order)
-            const trackingRoom = roomNames.tracking(data.orderId);
-            socket.to(trackingRoom).emit('location-update', payload);
+            // Broadcast to tracking rooms for mongo ID, string ID, and raw parameter
+            if (order?._id) socket.to(roomNames.tracking(order._id)).emit('location-update', payload);
+            if (order?.orderId) socket.to(roomNames.tracking(order.orderId)).emit('location-update', payload);
+            socket.to(roomNames.tracking(data.orderId)).emit('location-update', payload);
 
-            // Also emit to the specific user room if userId is provided
-            if (data.userId) {
-                socket.to(roomNames.user(data.userId)).emit('location-update', payload);
+            // Also emit to the specific user and restaurant room
+            if (order?.userId || data.userId) {
+                socket.to(roomNames.user(order?.userId || data.userId)).emit('location-update', payload);
             }
 
-            if (data.restaurantId) {
-                socket.to(roomNames.restaurant(data.restaurantId)).emit('location-update', payload);
+            if (order?.restaurantId || data.restaurantId) {
+                socket.to(roomNames.restaurant(order?.restaurantId || data.restaurantId)).emit('location-update', payload);
             }
 
             // ─── Scalable Persistence (BullMQ + Redis "Hot" Buffering) ───

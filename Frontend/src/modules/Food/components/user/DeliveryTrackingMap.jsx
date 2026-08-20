@@ -79,11 +79,17 @@ const DeliveryTrackingMap = ({
   });
 
   const trackingIds = useMemo(() => {
-    const ids = [orderId, ...(Array.isArray(orderTrackingIds) ? orderTrackingIds : [])]
+    const ids = [
+      orderId,
+      order?._id,
+      order?.orderId,
+      order?.orderMongoId,
+      ...(Array.isArray(orderTrackingIds) ? orderTrackingIds : [])
+    ]
       .map(id => String(id || '').trim())
       .filter(Boolean);
     return [...new Set(ids)];
-  }, [orderId, orderTrackingIds]);
+  }, [orderId, order?._id, order?.orderId, order?.orderMongoId, orderTrackingIds]);
 
   const backendUrl = useMemo(() => {
     return (API_BASE_URL || '').replace(/\/api\/v1\/?$/i, '').replace(/\/api\/?$/i, '');
@@ -121,11 +127,17 @@ const DeliveryTrackingMap = ({
       const lat = Number(data?.lat ?? data?.boy_lat);
       const lng = Number(data?.lng ?? data?.boy_lng);
       if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        setRiderLocation(prev => ({
+        const nextPos = {
           lat,
           lng,
-          heading: Number(data?.heading ?? data?.bearing ?? prev?.heading ?? 0)
-        }));
+          heading: Number(data?.heading ?? data?.bearing ?? 0)
+        };
+        interpStateRef.current = {
+          lastPos: smoothLocation || riderLocation || nextPos,
+          nextPos: nextPos,
+          startTime: Date.now()
+        };
+        setRiderLocation(nextPos);
       }
 
       // Sync Cloud Polyline and ETA to eliminate Directions API usage on user side
@@ -143,7 +155,7 @@ const DeliveryTrackingMap = ({
     // B. SOCKET.IO REALTIME
     const token = localStorage.getItem('user_accessToken') || localStorage.getItem('accessToken') || '';
     socketRef.current = io(backendUrl, {
-      transports: ['websocket'],
+      transports: ['websocket', 'polling'],
       auth: { token }
     });
 
@@ -152,16 +164,16 @@ const DeliveryTrackingMap = ({
     });
 
     socketRef.current.on('location-update', (data) => {
-      // Ensure data belongs to one of our tracked orders
-      const matchedId = trackingIds.find(id => String(id) === String(data.orderId));
-      if (data && matchedId && typeof data.lat === 'number') {
+      if (!data) return;
+      const matchedId = trackingIds.find(id => String(id) === String(data.orderId) || String(id) === String(data.orderMongoId));
+      if ((matchedId || trackingIds.length > 0) && typeof data.lat === 'number' && typeof data.lng === 'number') {
         const nextPos = {
           lat: data.lat,
           lng: data.lng,
-          heading: data.heading || data.bearing || 0
+          heading: Number(data.heading || data.bearing || 0)
         };
         
-        // Trigger Smooth Interpolation
+        // Trigger Smooth 60 FPS Interpolation
         interpStateRef.current = {
            lastPos: smoothLocation || riderLocation || nextPos,
            nextPos: nextPos,
@@ -169,6 +181,14 @@ const DeliveryTrackingMap = ({
         };
         
         setRiderLocation(nextPos);
+
+        if (data.polyline) {
+          setCloudPolyline(data.polyline);
+        }
+        if (data.eta) {
+          setCurrentEta(data.eta);
+          if (onEtaUpdate) onEtaUpdate(data.eta);
+        }
       }
     });
 
@@ -184,7 +204,7 @@ const DeliveryTrackingMap = ({
     const update = () => {
       const { lastPos, nextPos, startTime } = interpStateRef.current;
       if (lastPos && nextPos) {
-        const duration = 5000; // Expected update interval (match rider app throttle)
+        const duration = 1200; // 1.2s smooth interpolation interval matching GPS broadcast
         const elapsed = Date.now() - startTime;
         const progress = Math.min(elapsed / duration, 1);
         
@@ -192,16 +212,15 @@ const DeliveryTrackingMap = ({
         const lat = lastPos.lat + (nextPos.lat - lastPos.lat) * progress;
         const lng = lastPos.lng + (nextPos.lng - lastPos.lng) * progress;
         
-        // Heading interpolation (shortest path)
+        // Heading interpolation (shortest circular angle)
         let lastHead = lastPos.heading || 0;
         let nextHead = nextPos.heading || 0;
-        if (Math.abs(nextHead - lastHead) > 180) {
-          if (nextHead > lastHead) lastHead += 360;
-          else nextHead += 360;
-        }
-        const heading = lastHead + (nextHead - lastHead) * progress;
+        let diff = (nextHead - lastHead) % 360;
+        if (diff > 180) diff -= 360;
+        if (diff < -180) diff += 360;
+        const heading = (lastHead + diff * progress + 360) % 360;
 
-        setSmoothLocation({ lat, lng, heading: heading % 360 });
+        setSmoothLocation({ lat, lng, heading });
       }
       frame = requestAnimationFrame(update);
     };
@@ -209,12 +228,12 @@ const DeliveryTrackingMap = ({
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  // Use smooth location for sync if available
-  // Use smooth location for sync if available, fallback to restaurant if rider hasn't started sending coords yet
+  // Use smooth location for sync if available, fallback to restaurant
   const displayRiderLocation = smoothLocation || riderLocation || restaurantCoords;
 
-  const tripStatus = order?.status || order?.orderStatus || 'pending';
-  const isOrderPickedUp = ['picked_up', 'out_for_delivery', 'delivered'].includes(tripStatus.toLowerCase());
+  const tripStatus = String(order?.status || order?.orderStatus || '').toLowerCase();
+  const isOrderPickedUp = ['picked_up', 'out_for_delivery', 'on_way', 'en_route_to_delivery', 'reached_drop', 'at_drop', 'delivered'].includes(tripStatus);
+  const isRiderAssigned = Boolean(order?.deliveryPartnerId || order?.dispatch?.deliveryPartnerId || order?.deliveryPartner || riderLocation);
 
   // 2. Intelligent Camera & Bounds: Frame Restaurant & Customer Journey
   useEffect(() => {
@@ -438,45 +457,48 @@ const DeliveryTrackingMap = ({
           </OverlayView>
         )}
 
-        {/* RIDER ON MAP (At Restaurant when preparing / moving towards user when picked up) */}
-        {effectiveRiderPos && isOrderPickedUp && (
+        {/* RIDER ON MAP (Live 60 FPS Moving Bike) */}
+        {effectiveRiderPos && (isOrderPickedUp || isRiderAssigned) && (
           <OverlayView
             position={effectiveRiderPos}
             mapPaneName={OverlayView.MARKER_LAYER}
           >
             <div 
               style={{ transition: 'transform 0.1s linear' }}
-              className="relative flex flex-col items-center justify-center pointer-events-none -translate-x-1/2 -translate-y-1/2"
+              className="relative flex flex-col items-center justify-center pointer-events-none -translate-x-1/2 -translate-y-1/2 z-40"
             >
-              {/* Floating ETA Badge */}
-              {currentEta && (
-                <div className="absolute -top-8 z-50 whitespace-nowrap bg-[#1e1e1e] text-white text-[10px] font-bold px-2 py-1 rounded-md shadow-lg flex items-center gap-1">
-                  <span>{currentEta.replace('mins', 'min')}</span>
-                  <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-[#1e1e1e] rotate-45"></div>
-                </div>
-              )}
+              {/* Floating Status / ETA Badge */}
+              <div className="absolute -top-8 z-50 whitespace-nowrap bg-[#1e1e1e] text-white text-[10px] font-bold px-2.5 py-1 rounded-md shadow-xl flex items-center gap-1.5 border border-white/10">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>
+                  {isOrderPickedUp 
+                    ? (currentEta ? currentEta.replace('mins', 'min') : 'On the way')
+                    : 'Rider assigned'}
+                </span>
+                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-[#1e1e1e] rotate-45 border-r border-b border-white/10"></div>
+              </div>
 
-              {/* Pulsing Ring */}
+              {/* Glowing Pulsing Radar Ring */}
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0">
                 <motion.div 
-                  animate={{ scale: [1, 2.5], opacity: [0.6, 0] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                  className="w-16 h-16 rounded-full border-4 border-blue-500/30"
+                  animate={{ scale: [1, 2.8], opacity: [0.7, 0] }}
+                  transition={{ duration: 1.8, repeat: Infinity, ease: "easeOut" }}
+                  className="w-14 h-14 rounded-full border-4 border-blue-500/40 bg-blue-500/10"
                 />
               </div>
 
-              {/* Rotating Bike */}
+              {/* Live Rotating Bike Marker */}
               <div 
                 style={{
                   transform: `rotate(${effectiveRiderPos.heading || 0}deg)`,
-                  transition: 'transform 0.1s linear',
+                  transition: 'transform 0.2s ease-out',
                 }}
                 className="relative w-16 h-16 flex items-center justify-center z-10"
               >
                 <img 
                   src={mapRiderIcon} 
                   alt="Rider" 
-                  className="w-[150%] h-[150%] max-w-none object-contain drop-shadow-xl"
+                  className="w-[160%] h-[160%] max-w-none object-contain drop-shadow-2xl select-none"
                   onError={(e) => {
                     e.target.src = bikeLogo;
                   }}
