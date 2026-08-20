@@ -45,8 +45,9 @@ export function SearchBarRow({
   vegModeOption = "all",
 }) {
   return (
-    <div className="flex items-center gap-2.5 w-full">
+    <div className="flex items-center gap-2.5 w-full" data-interactive="true" onTouchStart={(e) => e.stopPropagation()}>
       <div 
+        data-interactive="true"
         className={`relative z-[60] flex-1 rounded-[1.5rem] flex items-center px-4 border cursor-pointer active:scale-[0.98] group pointer-events-auto transition-all duration-200 ${
           isCompact
             ? "py-1.5 bg-white/95 dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-800 shadow-sm"
@@ -57,6 +58,7 @@ export function SearchBarRow({
           e.stopPropagation();
           if (handleSearchFocus) handleSearchFocus();
         }}
+        onTouchStart={(e) => e.stopPropagation()}
         role="button"
         tabIndex={0}
         onKeyDown={(e) => {
@@ -67,12 +69,12 @@ export function SearchBarRow({
         }}
       >
         <Search className={`h-5 w-5 mr-3 transition-colors duration-300 ${isCompact ? "text-gray-400 group-hover:text-[#E23744]" : "text-white/80 group-hover:text-white"}`} strokeWidth={2.5} />
-        <div className="flex-1 overflow-hidden relative h-5">
+        <div className="flex-1 overflow-hidden relative h-5 pointer-events-none">
           <input
             type="text"
             readOnly
             aria-label="Search"
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer pointer-events-none"
           />
           <AnimatePresence mode="wait">
             <motion.span
@@ -88,6 +90,7 @@ export function SearchBarRow({
           </AnimatePresence>
         </div>
         <div 
+          data-interactive="true"
           className={`p-1.5 rounded-full ml-2 transition-all flex items-center justify-center ${isCompact ? "bg-[#E23744]/10 border border-[#E23744]/20" : "bg-white/20 border border-white/30 hover:bg-white/30"}`}
           onClick={(e) => {
             e.stopPropagation();
@@ -103,8 +106,9 @@ export function SearchBarRow({
       </div>
 
       {showVegToggle && (
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+        <div className="flex items-center gap-1.5 flex-shrink-0" data-interactive="true" onTouchStart={(e) => e.stopPropagation()}>
           <div 
+            data-interactive="true"
             className={`flex flex-col items-center justify-center h-[46px] rounded-full border cursor-pointer active:scale-95 transition-all duration-200 flex-shrink-0 shadow-md ${
               vegModeOption === "non-veg" ? 'w-[58px]' : 'w-[52px]'
             } ${
@@ -114,7 +118,11 @@ export function SearchBarRow({
                     : 'bg-emerald-950/40 border-emerald-400/60')
                 : 'bg-black/25 backdrop-blur-md border-white/20'
             }`}
-            onClick={() => handleVegModeChange && handleVegModeChange(!isVegMode)}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleVegModeChange && handleVegModeChange(!isVegMode);
+            }}
+            onTouchStart={(e) => e.stopPropagation()}
             ref={vegModeToggleRef}
           >
             <span className="text-[7.5px] font-black uppercase tracking-wider leading-none mb-1 text-white text-center">
@@ -310,6 +318,9 @@ export default function HomeHeader({
 
   // Touch Swipe Handlers for Smooth Mobile Gesture
   const handleTouchStart = (event) => {
+    if (event.target.closest('button, a, input, [data-interactive="true"]')) {
+      return;
+    }
     const touch = event.touches[0];
     touchStartXRef.current = touch.clientX;
     touchStartYRef.current = touch.clientY;
@@ -428,6 +439,9 @@ export default function HomeHeader({
   }, [validBanners.length, activeBanner, handleNextSlide]);
 
   const handleBannerRedirect = useCallback((e) => {
+    if (e?.target?.closest('button, a, input, [data-interactive="true"]')) {
+      return;
+    }
     const rawLink = activeBanner?.ctaLink || activeBanner?.link;
     if (!rawLink) return;
     if (e) e.stopPropagation();
@@ -465,7 +479,7 @@ export default function HomeHeader({
       >
         {/* Full-Cover Background Banner Media (Infinite Circular Loop Sliding Track) */}
         {extendedBanners.length > 0 && (
-          <div className="absolute inset-0 z-0 overflow-hidden">
+          <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
             <div 
               className={`flex h-full w-full ${(!isTransitionEnabled || isSwiping) ? 'transition-none' : 'transition-transform duration-600 ease-out'}`}
               style={{
@@ -535,10 +549,20 @@ export default function HomeHeader({
           <div className="flex items-center justify-between gap-3 min-w-0 pointer-events-auto">
             {/* Location Selector */}
             <div 
-              className="flex items-center gap-2 cursor-pointer group min-w-0 flex-1"
+              data-interactive="true"
+              className="flex items-center gap-2 cursor-pointer group min-w-0 flex-1 z-30 select-none"
               onClick={(e) => {
+                e.preventDefault();
                 e.stopPropagation();
-                handleLocationClick(e);
+                if (handleLocationClick) handleLocationClick(e);
+              }}
+              onTouchStart={(e) => {
+                e.stopPropagation();
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (handleLocationClick) handleLocationClick(e);
               }}
             >
               <div className="bg-white/25 p-2 rounded-full border border-white/30 backdrop-blur-md shadow-sm flex-shrink-0">
@@ -558,7 +582,13 @@ export default function HomeHeader({
             </div>
             
             {/* Top Right Action Badges */}
-            <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+            <div 
+              data-interactive="true" 
+              className="flex items-center gap-2 flex-shrink-0 z-30" 
+              onClick={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()}
+            >
               {/* Wallet Button */}
               <Link
                 to="/food/user/wallet"
