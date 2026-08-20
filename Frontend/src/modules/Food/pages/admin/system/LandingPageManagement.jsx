@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react"
-import { Upload, Trash2, Image as ImageIcon, Loader2, AlertCircle, CheckCircle2, ArrowUp, ArrowDown, Layout, Tag, UtensilsCrossed, ChefHat, Megaphone, Search } from "lucide-react"
+import { Upload, Trash2, Image as ImageIcon, Loader2, AlertCircle, CheckCircle2, ArrowUp, ArrowDown, Layout, Tag, UtensilsCrossed, ChefHat, Megaphone, Search, Link as LinkIcon, ExternalLink, Edit3, Film } from "lucide-react"
 import api from "@food/api"
 import { adminAPI } from "@food/api"
 import { getModuleToken } from "@food/utils/auth"
@@ -93,6 +93,74 @@ export default function LandingPageManagement() {
   const [selectedRestaurantIds, setSelectedRestaurantIds] = useState([])
   const [restaurantSearchQuery, setRestaurantSearchQuery] = useState("")
   const [linkingRestaurants, setLinkingRestaurants] = useState(false)
+
+  // Link / Target Redirect Modal for All Banners (Images & Videos)
+  const [linkModalOpen, setLinkModalOpen] = useState(false)
+  const [editingBannerData, setEditingBannerData] = useState({
+    id: null,
+    type: 'hero', // 'top' | 'hero' | 'under250' | 'dining'
+    title: '',
+    ctaLink: '',
+    ctaText: '',
+    imageUrl: '',
+    isVideo: false,
+  })
+  const [savingLink, setSavingLink] = useState(false)
+
+  const handleOpenLinkModal = (banner, type = 'hero') => {
+    const mediaUrl = banner.image || banner.imageUrl;
+    const isVideo = Boolean(mediaUrl?.match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || banner.mediaType === 'video');
+    setEditingBannerData({
+      id: banner._id,
+      type,
+      title: banner.title || '',
+      ctaLink: banner.ctaLink || banner.link || '',
+      ctaText: banner.ctaText || '',
+      imageUrl: mediaUrl || '',
+      isVideo,
+    });
+    setLinkModalOpen(true);
+  };
+
+  const handleSaveBannerLink = async () => {
+    if (!editingBannerData.id) return;
+    try {
+      setSavingLink(true);
+      setError(null);
+      let endpoint = '';
+      if (editingBannerData.type === 'top') {
+        endpoint = `/food/top-banners/${editingBannerData.id}/link`;
+      } else if (editingBannerData.type === 'hero') {
+        endpoint = `/food/hero-banners/${editingBannerData.id}/link`;
+      } else if (editingBannerData.type === 'under250') {
+        endpoint = `/food/hero-banners/under-250/${editingBannerData.id}/link`;
+      } else if (editingBannerData.type === 'dining') {
+        endpoint = `/food/hero-banners/dining/${editingBannerData.id}/link`;
+      }
+
+      if (endpoint) {
+        const res = await api.patch(endpoint, {
+          ctaLink: editingBannerData.ctaLink,
+          title: editingBannerData.title,
+          ctaText: editingBannerData.ctaText,
+        }, getAuthConfig());
+
+        if (res.data?.success) {
+          setSuccess('Redirect link updated successfully!');
+          setLinkModalOpen(false);
+          if (editingBannerData.type === 'top') await fetchTopBanners();
+          if (editingBannerData.type === 'hero') await fetchBanners();
+          if (editingBannerData.type === 'under250') await fetchUnder250Banners();
+          if (editingBannerData.type === 'dining') await fetchDiningBanners();
+          setTimeout(() => setSuccess(null), 3000);
+        }
+      }
+    } catch (err) {
+      setErrorSafely(err.response?.data?.message || 'Failed to update redirect link');
+    } finally {
+      setSavingLink(false);
+    }
+  };
 
   // Helper function to filter out token-related errors
   const setErrorSafely = (errorMessage) => {
@@ -1489,7 +1557,7 @@ export default function LandingPageManagement() {
               </div>
             </div>
 
-            {/* Banners List */}
+            {/* Top Banners List */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
               <h2 className="text-lg font-bold text-slate-900 mb-4">Top Banner List ({topBanners.length})</h2>
               {topBannersLoading ? (
@@ -1507,34 +1575,57 @@ export default function LandingPageManagement() {
                     const mediaUrl = banner.image || banner.imageUrl;
                     const isVideo = Boolean(mediaUrl?.match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || banner.mediaType === 'video');
                     return (
-                      <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
-                        <div className="relative aspect-video bg-slate-100">
-                          {isVideo ? (
-                            <video 
-                              src={mediaUrl} 
-                              autoPlay 
-                              loop 
-                              muted 
-                              playsInline 
-                              className="w-full h-full object-cover" 
-                            />
-                          ) : (
-                            <img src={mediaUrl} alt={`Top Banner ${index + 1}`} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
-                          )}
-                          <div className="absolute top-2 right-2 flex items-center gap-1">
-                            {isVideo && (
-                              <span className="px-2 py-1 rounded text-xs font-bold bg-purple-600 text-white">
-                                VIDEO
-                              </span>
+                      <div key={banner._id} className="border border-slate-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow flex flex-col justify-between bg-white">
+                        <div>
+                          <div className="relative aspect-video bg-slate-100">
+                            {isVideo ? (
+                              <video 
+                                src={mediaUrl} 
+                                autoPlay 
+                                loop 
+                                muted 
+                                playsInline 
+                                className="w-full h-full object-cover" 
+                              />
+                            ) : (
+                              <img src={mediaUrl} alt={`Top Banner ${index + 1}`} className="w-full h-full object-cover" loading="lazy" decoding="async" />
                             )}
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                              {banner.isActive ? 'Active' : 'Inactive'}
-                            </span>
+                            <div className="absolute top-2 right-2 flex items-center gap-1">
+                              {isVideo && (
+                                <span className="px-2 py-1 rounded text-xs font-bold bg-purple-600 text-white flex items-center gap-1 shadow-xs">
+                                  <Film className="w-3 h-3" /> VIDEO
+                                </span>
+                              )}
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                                {banner.isActive ? 'Active' : 'Inactive'}
+                              </span>
+                            </div>
+                            <div className="absolute top-2 left-2">
+                              <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {banner.order}</span>
+                            </div>
                           </div>
-                          <div className="absolute top-2 left-2">
-                            <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {banner.order}</span>
+
+                          {/* Link Redirection Banner Info */}
+                          <div className="p-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              <LinkIcon className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                              <span className="text-xs font-medium text-slate-700 truncate" title={banner.ctaLink || banner.link || "No redirect link set"}>
+                                {banner.ctaLink || banner.link ? (
+                                  <span className="text-blue-700 font-mono">{banner.ctaLink || banner.link}</span>
+                                ) : (
+                                  <span className="text-slate-400 italic">No link set (Click to redirect)</span>
+                                )}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => handleOpenLinkModal(banner, 'top')}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors shrink-0"
+                            >
+                              <Edit3 className="w-3 h-3" /> Edit Link
+                            </button>
                           </div>
                         </div>
+
                         <div className="p-4 bg-white">
                           <div className="flex items-center justify-between gap-2 flex-wrap">
                             <div className="flex items-center gap-1">
@@ -1554,23 +1645,6 @@ export default function LandingPageManagement() {
                               </button>
                             </div>
                           </div>
-                          {banner.linkedRestaurants && banner.linkedRestaurants.length > 0 && (
-                            <div className="mt-2 pt-2 border-t border-slate-200">
-                              <p className="text-xs text-slate-600 mb-1">Linked Restaurants ({banner.linkedRestaurants.length}):</p>
-                              <div className="flex flex-wrap gap-1">
-                                {banner.linkedRestaurants.slice(0, 3).map((restaurant) => (
-                                  <span key={restaurant._id || restaurant} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">
-                                    {restaurant.name || 'Restaurant'}
-                                  </span>
-                                ))}
-                                {banner.linkedRestaurants.length > 3 && (
-                                  <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
-                                    +{banner.linkedRestaurants.length - 3} more
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       </div>
                     );
@@ -1582,7 +1656,6 @@ export default function LandingPageManagement() {
         )}
 
         {/* Hero Banners Tab */}
-
         {activeTab === 'banners' && (
           <>
             {/* Upload Section */}
@@ -1663,85 +1736,97 @@ export default function LandingPageManagement() {
                     const mediaUrl = banner.imageUrl || banner.image;
                     const isVideo = Boolean(mediaUrl?.match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || banner.mediaType === 'video');
                     return (
-                      <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
-                        <div className="relative aspect-video bg-slate-100">
-                          {isVideo ? (
-                            <video 
-                              src={mediaUrl} 
-                              autoPlay 
-                              loop 
-                              muted 
-                              playsInline 
-                              className="w-full h-full object-cover" 
-                            />
-                          ) : (
-                            <img src={mediaUrl} alt={`Hero Banner ${index + 1}`} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
-                          )}
-                          <div className="absolute top-2 right-2 flex items-center gap-1">
-                            {isVideo && (
-                              <span className="px-2 py-1 rounded text-xs font-bold bg-purple-600 text-white">
-                                VIDEO
-                              </span>
+                      <div key={banner._id} className="border border-slate-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow flex flex-col justify-between bg-white">
+                        <div>
+                          <div className="relative aspect-video bg-slate-100">
+                            {isVideo ? (
+                              <video 
+                                src={mediaUrl} 
+                                autoPlay 
+                                loop 
+                                muted 
+                                playsInline 
+                                className="w-full h-full object-cover" 
+                              />
+                            ) : (
+                              <img src={mediaUrl} alt={`Hero Banner ${index + 1}`} className="w-full h-full object-cover" loading="lazy" decoding="async" />
                             )}
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                              {banner.isActive ? 'Active' : 'Inactive'}
-                            </span>
-                          </div>
-                          <div className="absolute top-2 left-2">
-                            <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {banner.order}</span>
-                          </div>
-                        </div>
-                      <div className="p-4 bg-white">
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <div className="flex items-center gap-1">
-                            <button onClick={() => handleBannerOrderChange(banner._id, 'up')} disabled={index === 0} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
-                              <ArrowUp className="w-4 h-4 text-slate-600" />
-                            </button>
-                            <button onClick={() => handleBannerOrderChange(banner._id, 'down')} disabled={index === banners.length - 1} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
-                              <ArrowDown className="w-4 h-4 text-slate-600" />
-                            </button>
-                          </div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {/* <button
-                              onClick={() => {
-                                setSelectedBannerId(banner._id)
-                                setSelectedRestaurantIds(banner.linkedRestaurants?.map(r => r._id || r) || [])
-                                setShowRestaurantModal(true)
-                              }}
-                              className="px-3 py-1.5 rounded text-sm font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 flex items-center gap-1"
-                            >
-                              <Megaphone className="w-4 h-4" />
-                              Advertise
-                            </button> */}
-                            <button onClick={() => handleToggleBannerStatus(banner._id, banner.isActive)} className={`px-3 py-1.5 rounded text-sm font-medium ${banner.isActive ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
-                              {banner.isActive ? 'Deactivate' : 'Activate'}
-                            </button>
-                            <button onClick={() => handleDeleteBanner(banner._id)} disabled={bannersDeleting === banner._id} className="p-1.5 rounded hover:bg-red-100 text-red-600 disabled:opacity-50">
-                              {bannersDeleting === banner._id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                            </button>
-                          </div>
-                        </div>
-                        {banner.linkedRestaurants && banner.linkedRestaurants.length > 0 && (
-                          <div className="mt-2 pt-2 border-t border-slate-200">
-                            <p className="text-xs text-slate-600 mb-1">Linked Restaurants ({banner.linkedRestaurants.length}):</p>
-                            <div className="flex flex-wrap gap-1">
-                              {banner.linkedRestaurants.slice(0, 3).map((restaurant) => (
-                                <span key={restaurant._id || restaurant} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">
-                                  {restaurant.name || 'Restaurant'}
-                                </span>
-                              ))}
-                              {banner.linkedRestaurants.length > 3 && (
-                                <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
-                                  +{banner.linkedRestaurants.length - 3} more
+                            <div className="absolute top-2 right-2 flex items-center gap-1">
+                              {isVideo && (
+                                <span className="px-2 py-1 rounded text-xs font-bold bg-purple-600 text-white flex items-center gap-1 shadow-xs">
+                                  <Film className="w-3 h-3" /> VIDEO
                                 </span>
                               )}
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                                {banner.isActive ? 'Active' : 'Inactive'}
+                              </span>
+                            </div>
+                            <div className="absolute top-2 left-2">
+                              <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {banner.order}</span>
                             </div>
                           </div>
-                        )}
+
+                          {/* Link Redirection Banner Info */}
+                          <div className="p-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              <LinkIcon className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                              <span className="text-xs font-medium text-slate-700 truncate" title={banner.ctaLink || banner.link || "No redirect link set"}>
+                                {banner.ctaLink || banner.link ? (
+                                  <span className="text-blue-700 font-mono">{banner.ctaLink || banner.link}</span>
+                                ) : (
+                                  <span className="text-slate-400 italic">No link set (Click to redirect)</span>
+                                )}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => handleOpenLinkModal(banner, 'hero')}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors shrink-0"
+                            >
+                              <Edit3 className="w-3 h-3" /> Edit Link
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="p-4 bg-white">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => handleBannerOrderChange(banner._id, 'up')} disabled={index === 0} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
+                                <ArrowUp className="w-4 h-4 text-slate-600" />
+                              </button>
+                              <button onClick={() => handleBannerOrderChange(banner._id, 'down')} disabled={index === banners.length - 1} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
+                                <ArrowDown className="w-4 h-4 text-slate-600" />
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <button onClick={() => handleToggleBannerStatus(banner._id, banner.isActive)} className={`px-3 py-1.5 rounded text-sm font-medium ${banner.isActive ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
+                                {banner.isActive ? 'Deactivate' : 'Activate'}
+                              </button>
+                              <button onClick={() => handleDeleteBanner(banner._id)} disabled={bannersDeleting === banner._id} className="p-1.5 rounded hover:bg-red-100 text-red-600 disabled:opacity-50">
+                                {bannersDeleting === banner._id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                              </button>
+                            </div>
+                          </div>
+                          {banner.linkedRestaurants && banner.linkedRestaurants.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-slate-200">
+                              <p className="text-xs text-slate-600 mb-1">Linked Restaurants ({banner.linkedRestaurants.length}):</p>
+                              <div className="flex flex-wrap gap-1">
+                                {banner.linkedRestaurants.slice(0, 3).map((restaurant) => (
+                                  <span key={restaurant._id || restaurant} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">
+                                    {restaurant.name || 'Restaurant'}
+                                  </span>
+                                ))}
+                                {banner.linkedRestaurants.length > 3 && (
+                                  <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
+                                    +{banner.linkedRestaurants.length - 3} more
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1769,7 +1854,7 @@ export default function LandingPageManagement() {
                 <input
                   ref={under250BannersFileInputRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/*,video/*,.mp4,.webm,.mov,.m4v,.avi"
                   multiple
                   onChange={handleUnder250BannerFileSelect}
                   className="hidden"
@@ -1779,7 +1864,7 @@ export default function LandingPageManagement() {
                   <div className="flex flex-col items-center gap-3">
                     <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
                     <p className="text-blue-600 font-medium">
-                      Uploading image {under250BannersUploadProgress.current} of {under250BannersUploadProgress.total}...
+                      Uploading media {under250BannersUploadProgress.current} of {under250BannersUploadProgress.total}...
                     </p>
                     {under250BannersUploadProgress.total > 0 && (
                       <div className="w-full max-w-xs">
@@ -1805,7 +1890,7 @@ export default function LandingPageManagement() {
                       </button>
                       <span className="text-slate-600"> or drag and drop</span>
                     </div>
-                    <p className="text-xs text-slate-500">PNG, JPG, WEBP up to 5MB each (Max 5 images at once)</p>
+                    <p className="text-xs text-slate-500">PNG, JPG, WEBP, MP4, WEBM up to 50MB (Max 5 files at once)</p>
                   </div>
                 )}
               </div>
@@ -1825,39 +1910,82 @@ export default function LandingPageManagement() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {under250Banners.map((banner, index) => (
-                    <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
-                      <div className="relative aspect-video bg-slate-100">
-                        <img src={banner.imageUrl} alt={`Eatiefy 99 Banner ${index + 1}`} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
-                        <div className="absolute top-2 right-2">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                            {banner.isActive ? 'Active' : 'Inactive'}
-                          </span>
-                        </div>
-                        <div className="absolute top-2 left-2">
-                          <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {banner.order}</span>
-                        </div>
-                      </div>
-                      <div className="p-4 bg-white">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1">
-                            <button onClick={() => handleUnder250BannerOrderChange(banner._id, 'up')} disabled={index === 0} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
-                              <ArrowUp className="w-4 h-4 text-slate-600" />
-                            </button>
-                            <button onClick={() => handleUnder250BannerOrderChange(banner._id, 'down')} disabled={index === under250Banners.length - 1} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
-                              <ArrowDown className="w-4 h-4 text-slate-600" />
+                  {under250Banners.map((banner, index) => {
+                    const mediaUrl = banner.imageUrl || banner.image;
+                    const isVideo = Boolean(mediaUrl?.match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || banner.mediaType === 'video');
+                    return (
+                      <div key={banner._id} className="border border-slate-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow flex flex-col justify-between bg-white">
+                        <div>
+                          <div className="relative aspect-video bg-slate-100">
+                            {isVideo ? (
+                              <video 
+                                src={mediaUrl} 
+                                autoPlay 
+                                loop 
+                                muted 
+                                playsInline 
+                                className="w-full h-full object-cover" 
+                              />
+                            ) : (
+                              <img src={mediaUrl} alt={`Eatiefy 99 Banner ${index + 1}`} className="w-full h-full object-cover" loading="lazy" decoding="async" />
+                            )}
+                            <div className="absolute top-2 right-2 flex items-center gap-1">
+                              {isVideo && (
+                                <span className="px-2 py-1 rounded text-xs font-bold bg-purple-600 text-white flex items-center gap-1 shadow-xs">
+                                  <Film className="w-3 h-3" /> VIDEO
+                                </span>
+                              )}
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                                {banner.isActive ? 'Active' : 'Inactive'}
+                              </span>
+                            </div>
+                            <div className="absolute top-2 left-2">
+                              <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {banner.order}</span>
+                            </div>
+                          </div>
+
+                          {/* Link Redirection Banner Info */}
+                          <div className="p-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              <LinkIcon className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                              <span className="text-xs font-medium text-slate-700 truncate" title={banner.ctaLink || banner.link || "No redirect link set"}>
+                                {banner.ctaLink || banner.link ? (
+                                  <span className="text-blue-700 font-mono">{banner.ctaLink || banner.link}</span>
+                                ) : (
+                                  <span className="text-slate-400 italic">No link set (Click to redirect)</span>
+                                )}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => handleOpenLinkModal(banner, 'under250')}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors shrink-0"
+                            >
+                              <Edit3 className="w-3 h-3" /> Edit Link
                             </button>
                           </div>
-                          <button onClick={() => handleToggleUnder250BannerStatus(banner._id, banner.isActive)} className={`px-3 py-1.5 rounded text-sm font-medium ${banner.isActive ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
-                            {banner.isActive ? 'Deactivate' : 'Activate'}
-                          </button>
-                          <button onClick={() => handleDeleteUnder250Banner(banner._id)} disabled={under250BannersDeleting === banner._id} className="p-1.5 rounded hover:bg-red-100 text-red-600 disabled:opacity-50">
-                            {under250BannersDeleting === banner._id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                          </button>
+                        </div>
+
+                        <div className="p-4 bg-white">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => handleUnder250BannerOrderChange(banner._id, 'up')} disabled={index === 0} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
+                                <ArrowUp className="w-4 h-4 text-slate-600" />
+                              </button>
+                              <button onClick={() => handleUnder250BannerOrderChange(banner._id, 'down')} disabled={index === under250Banners.length - 1} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
+                                <ArrowDown className="w-4 h-4 text-slate-600" />
+                              </button>
+                            </div>
+                            <button onClick={() => handleToggleUnder250BannerStatus(banner._id, banner.isActive)} className={`px-3 py-1.5 rounded text-sm font-medium ${banner.isActive ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
+                              {banner.isActive ? 'Deactivate' : 'Activate'}
+                            </button>
+                            <button onClick={() => handleDeleteUnder250Banner(banner._id)} disabled={under250BannersDeleting === banner._id} className="p-1.5 rounded hover:bg-red-100 text-red-600 disabled:opacity-50">
+                              {under250BannersDeleting === banner._id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1885,7 +2013,7 @@ export default function LandingPageManagement() {
                 <input
                   ref={diningBannersFileInputRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/*,video/*,.mp4,.webm,.mov,.m4v,.avi"
                   multiple
                   onChange={handleDiningBannerFileSelect}
                   className="hidden"
@@ -1895,7 +2023,7 @@ export default function LandingPageManagement() {
                   <div className="flex flex-col items-center gap-3">
                     <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
                     <p className="text-blue-600 font-medium">
-                      Uploading image {diningBannersUploadProgress.current} of {diningBannersUploadProgress.total}...
+                      Uploading media {diningBannersUploadProgress.current} of {diningBannersUploadProgress.total}...
                     </p>
                     {diningBannersUploadProgress.total > 0 && (
                       <div className="w-full max-w-xs">
@@ -1921,7 +2049,7 @@ export default function LandingPageManagement() {
                       </button>
                       <span className="text-slate-600"> or drag and drop</span>
                     </div>
-                    <p className="text-xs text-slate-500">PNG, JPG, WEBP up to 5MB each (Max 5 images at once)</p>
+                    <p className="text-xs text-slate-500">PNG, JPG, WEBP, MP4, WEBM up to 50MB (Max 5 files at once)</p>
                   </div>
                 )}
               </div>
@@ -1941,39 +2069,82 @@ export default function LandingPageManagement() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {diningBanners.map((banner, index) => (
-                    <div key={banner._id} className="border border-slate-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
-                      <div className="relative aspect-video bg-slate-100">
-                        <img src={banner.imageUrl} alt={`Dining Banner ${index + 1}`} className="w-full h-full object-cover"  loading="lazy" decoding="async" />
-                        <div className="absolute top-2 right-2">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                            {banner.isActive ? 'Active' : 'Inactive'}
-                          </span>
-                        </div>
-                        <div className="absolute top-2 left-2">
-                          <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {banner.order}</span>
-                        </div>
-                      </div>
-                      <div className="p-4 bg-white">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1">
-                            <button onClick={() => handleDiningBannerOrderChange(banner._id, 'up')} disabled={index === 0} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
-                              <ArrowUp className="w-4 h-4 text-slate-600" />
-                            </button>
-                            <button onClick={() => handleDiningBannerOrderChange(banner._id, 'down')} disabled={index === diningBanners.length - 1} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
-                              <ArrowDown className="w-4 h-4 text-slate-600" />
+                  {diningBanners.map((banner, index) => {
+                    const mediaUrl = banner.imageUrl || banner.image;
+                    const isVideo = Boolean(mediaUrl?.match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || banner.mediaType === 'video');
+                    return (
+                      <div key={banner._id} className="border border-slate-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow flex flex-col justify-between bg-white">
+                        <div>
+                          <div className="relative aspect-video bg-slate-100">
+                            {isVideo ? (
+                              <video 
+                                src={mediaUrl} 
+                                autoPlay 
+                                loop 
+                                muted 
+                                playsInline 
+                                className="w-full h-full object-cover" 
+                              />
+                            ) : (
+                              <img src={mediaUrl} alt={`Dining Banner ${index + 1}`} className="w-full h-full object-cover" loading="lazy" decoding="async" />
+                            )}
+                            <div className="absolute top-2 right-2 flex items-center gap-1">
+                              {isVideo && (
+                                <span className="px-2 py-1 rounded text-xs font-bold bg-purple-600 text-white flex items-center gap-1 shadow-xs">
+                                  <Film className="w-3 h-3" /> VIDEO
+                                </span>
+                              )}
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                                {banner.isActive ? 'Active' : 'Inactive'}
+                              </span>
+                            </div>
+                            <div className="absolute top-2 left-2">
+                              <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {banner.order}</span>
+                            </div>
+                          </div>
+
+                          {/* Link Redirection Banner Info */}
+                          <div className="p-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              <LinkIcon className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                              <span className="text-xs font-medium text-slate-700 truncate" title={banner.ctaLink || banner.link || "No redirect link set"}>
+                                {banner.ctaLink || banner.link ? (
+                                  <span className="text-blue-700 font-mono">{banner.ctaLink || banner.link}</span>
+                                ) : (
+                                  <span className="text-slate-400 italic">No link set (Click to redirect)</span>
+                                )}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => handleOpenLinkModal(banner, 'dining')}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors shrink-0"
+                            >
+                              <Edit3 className="w-3 h-3" /> Edit Link
                             </button>
                           </div>
-                          <button onClick={() => handleToggleDiningBannerStatus(banner._id, banner.isActive)} className={`px-3 py-1.5 rounded text-sm font-medium ${banner.isActive ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
-                            {banner.isActive ? 'Deactivate' : 'Activate'}
-                          </button>
-                          <button onClick={() => handleDeleteDiningBanner(banner._id)} disabled={diningBannersDeleting === banner._id} className="p-1.5 rounded hover:bg-red-100 text-red-600 disabled:opacity-50">
-                            {diningBannersDeleting === banner._id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                          </button>
+                        </div>
+
+                        <div className="p-4 bg-white">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => handleDiningBannerOrderChange(banner._id, 'up')} disabled={index === 0} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
+                                <ArrowUp className="w-4 h-4 text-slate-600" />
+                              </button>
+                              <button onClick={() => handleDiningBannerOrderChange(banner._id, 'down')} disabled={index === diningBanners.length - 1} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
+                                <ArrowDown className="w-4 h-4 text-slate-600" />
+                              </button>
+                            </div>
+                            <button onClick={() => handleToggleDiningBannerStatus(banner._id, banner.isActive)} className={`px-3 py-1.5 rounded text-sm font-medium ${banner.isActive ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
+                              {banner.isActive ? 'Deactivate' : 'Activate'}
+                            </button>
+                            <button onClick={() => handleDeleteDiningBanner(banner._id)} disabled={diningBannersDeleting === banner._id} className="p-1.5 rounded hover:bg-red-100 text-red-600 disabled:opacity-50">
+                              {diningBannersDeleting === banner._id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -2443,6 +2614,145 @@ export default function LandingPageManagement() {
                   </Button>
                 </div>
               </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Link / Redirect URL Configuration Modal */}
+        <Dialog open={linkModalOpen} onOpenChange={setLinkModalOpen}>
+          <DialogContent className="max-w-md p-0 overflow-hidden rounded-2xl bg-white shadow-2xl border border-slate-200">
+            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-5 text-white">
+              <DialogHeader>
+                <DialogTitle className="text-lg font-bold text-white flex items-center gap-2">
+                  <LinkIcon className="w-5 h-5 text-blue-200" />
+                  Configure Banner Redirect Link
+                </DialogTitle>
+                <DialogDescription className="text-blue-100 text-xs mt-1">
+                  Choose where consumers will be redirected when they click this banner image or video.
+                </DialogDescription>
+              </DialogHeader>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* Media Preview */}
+              {editingBannerData.imageUrl && (
+                <div className="relative aspect-video rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shadow-inner">
+                  {editingBannerData.isVideo ? (
+                    <video 
+                      src={editingBannerData.imageUrl} 
+                      autoPlay 
+                      loop 
+                      muted 
+                      playsInline 
+                      className="w-full h-full object-cover" 
+                    />
+                  ) : (
+                    <img 
+                      src={editingBannerData.imageUrl} 
+                      alt="Banner Preview" 
+                      className="w-full h-full object-cover" 
+                    />
+                  )}
+                  {editingBannerData.isVideo && (
+                    <span className="absolute top-2 right-2 px-2 py-0.5 rounded text-[10px] font-bold bg-purple-600 text-white flex items-center gap-1 shadow-sm">
+                      <Film className="w-3 h-3" /> VIDEO
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Title / Caption */}
+              <div className="space-y-1.5">
+                <Label htmlFor="banner-title-input" className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Banner Title (Optional)
+                </Label>
+                <Input
+                  id="banner-title-input"
+                  value={editingBannerData.title}
+                  onChange={(e) => setEditingBannerData((prev) => ({ ...prev, title: e.target.value }))}
+                  placeholder="e.g. 50% Off Mega Sale"
+                  className="rounded-xl border-slate-200"
+                />
+              </div>
+
+              {/* Redirect Link Input */}
+              <div className="space-y-1.5">
+                <Label htmlFor="banner-cta-link-input" className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center justify-between">
+                  <span>Redirect Route / URL</span>
+                  <span className="text-[10px] text-slate-400 normal-case font-normal">Internal path or external URL</span>
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="banner-cta-link-input"
+                    value={editingBannerData.ctaLink}
+                    onChange={(e) => setEditingBannerData((prev) => ({ ...prev, ctaLink: e.target.value }))}
+                    placeholder="e.g. /food/restaurants or https://example.com"
+                    className="rounded-xl border-slate-200 font-mono text-xs pl-8"
+                  />
+                  <ExternalLink className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                </div>
+              </div>
+
+              {/* Quick Route Preset Chips */}
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Quick In-App Route Presets:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { label: "🍽️ All Restaurants", path: "/food/restaurants" },
+                    { label: "🏷️ Categories", path: "/food/categories" },
+                    { label: "💰 Eatiefy 99", path: "/food/under-250" },
+                    { label: "🥂 Dining Out", path: "/food/dining" },
+                    { label: "🎁 Hot Offers", path: "/food/offers" },
+                    { label: "⭐ Gourmet", path: "/food/gourmet" },
+                  ].map((preset) => (
+                    <button
+                      key={preset.path}
+                      type="button"
+                      onClick={() => setEditingBannerData((prev) => ({ ...prev, ctaLink: preset.path }))}
+                      className="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 border border-slate-200 transition-colors"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                  {editingBannerData.ctaLink && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingBannerData((prev) => ({ ...prev, ctaLink: "" }))}
+                      className="px-2.5 py-1 rounded-lg text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 transition-colors"
+                    >
+                      Clear Link
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-2.5 p-4 bg-slate-50 border-t border-slate-200">
+              <Button
+                variant="outline"
+                onClick={() => setLinkModalOpen(false)}
+                className="rounded-xl border-slate-200 text-xs font-semibold"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveBannerLink}
+                disabled={savingLink}
+                className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-5 shadow-sm"
+              >
+                {savingLink ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                    Save Redirect Link
+                  </>
+                )}
+              </Button>
             </div>
           </DialogContent>
         </Dialog>

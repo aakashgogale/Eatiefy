@@ -9,13 +9,24 @@ import { ValidationError } from '../core/auth/errors.js';
 import { FoodBusinessSettings } from '../modules/food/admin/models/businessSettings.model.js';
 
 // ─── Cloudinary SDK Configuration ────────────────────────────────────────────
-if (config.cloudinaryCloudName && config.cloudinaryApiKey && config.cloudinaryApiSecret) {
-    cloudinary.config({
-        cloud_name: config.cloudinaryCloudName,
-        api_key: config.cloudinaryApiKey,
-        api_secret: config.cloudinaryApiSecret,
-    });
-}
+export const getCloudinaryConfig = () => {
+    const cloudName = String(config.cloudinaryCloudName || '').trim();
+    const apiKey = String(config.cloudinaryApiKey || '').trim();
+    const apiSecret = String(config.cloudinaryApiSecret || '').trim();
+
+    if (cloudName && apiKey && apiSecret) {
+        cloudinary.config({
+            cloud_name: cloudName,
+            api_key: apiKey,
+            api_secret: apiSecret,
+        });
+        return { cloudName, apiKey, apiSecret };
+    }
+    return null;
+};
+
+// Initial config check
+getCloudinaryConfig();
 
 let cachedMode = null;
 let lastFetchTime = 0;
@@ -40,25 +51,27 @@ export const invalidateStorageModeCache = () => {
     lastFetchTime = 0;
 };
 
-const uploadToCloudinary = (buffer, folder) => {
-    if (!config.cloudinaryCloudName || !config.cloudinaryApiKey || !config.cloudinaryApiSecret) {
+const uploadToCloudinary = (buffer, folder, isVideo = false) => {
+    const creds = getCloudinaryConfig();
+    if (!creds) {
         throw new ValidationError('Cloudinary credentials are not configured in environment.');
     }
     return new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
             {
                 folder,
-                resource_type: 'image',
+                resource_type: isVideo ? 'video' : 'auto',
             },
             (error, result) => {
                 if (error) return reject(new ValidationError(`Cloudinary Upload Error: ${error.message}`));
                 resolve({
-                    url: result.secure_url,
-                    secure_url: result.secure_url,
+                    url: result.secure_url || result.url,
+                    secure_url: result.secure_url || result.url,
                     public_id: result.public_id,
                     path: result.public_id,
                     filename: result.public_id,
-                    mimeType: result.format ? `image/${result.format}` : 'image/jpeg',
+                    mimeType: result.format ? `${isVideo ? 'video' : 'image'}/${result.format}` : (isVideo ? 'video/mp4' : 'image/jpeg'),
+                    mediaType: isVideo ? 'video' : 'image',
                     size: result.bytes || buffer.length
                 });
             }
@@ -258,8 +271,20 @@ export const saveImageFile = async (file, folder) => {
     }
 
     const safeFolder = sanitizeUploadFolder(folder);
+    const creds = getCloudinaryConfig();
+    let mode = await getImageStorageMode();
 
-    // If Video File: Save directly to storage
+    // In production, use Cloudinary if credentials are configured
+    if (config.nodeEnv === 'production' && creds) {
+        mode = 'cloudinary';
+    }
+
+    // Route to Cloudinary (for both images and videos) if mode is cloudinary and credentials exist
+    if (mode === 'cloudinary' && creds) {
+        return uploadToCloudinary(file.buffer, safeFolder, isVideo);
+    }
+
+    // If Video File on local server storage
     if (isVideo) {
         const ext = path.extname(file.originalname || '.mp4') || '.mp4';
         const filename = buildFilename(ext);
@@ -279,16 +304,6 @@ export const saveImageFile = async (file, folder) => {
             mediaType: 'video',
             size: file.buffer.length
         };
-    }
-
-    // Check active image storage mode (Cloudinary vs Server)
-    // Production always uses Cloudinary so all instances share object storage.
-    let mode = await getImageStorageMode();
-    if (config.nodeEnv === 'production') {
-        mode = 'cloudinary';
-    }
-    if (mode === 'cloudinary') {
-        return uploadToCloudinary(file.buffer, safeFolder);
     }
 
     // Local server storage for images

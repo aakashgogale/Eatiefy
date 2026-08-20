@@ -177,9 +177,27 @@ export default function AdminLayout() {
           return true; // Already has back button, stop
         }
 
-        // Enforce flex layout and alignment on container
-        container.style.display = "flex";
-        container.style.alignItems = "center";
+        // Create the vanilla button element
+        const btn = document.createElement("button");
+        btn.className = "global-back-btn group order-first flex items-center justify-center p-2 rounded-lg bg-white/60 backdrop-blur-md border border-slate-200 hover:bg-white text-slate-700 hover:text-slate-900 transition-all duration-200 shadow-sm active:scale-95 cursor-pointer mr-3 shrink-0";
+        btn.title = "Go Back";
+        btn.onclick = handleBackClick;
+        btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-left w-4 h-4 transition-transform duration-200 group-hover:-translate-x-0.5"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>`;
+
+        // Only enforce flex row layout on container if it does not have multi-line text blocks
+        const computed = window.getComputedStyle(container);
+        if (computed.display !== "flex") {
+          // If container contains paragraphs or multiple block children, don't force flex-row which collapses them
+          if (container.querySelector("p, .space-y-1, .space-y-2, .space-y-3, .space-y-4")) {
+            const parentFlex = container.parentElement;
+            if (parentFlex && (window.getComputedStyle(parentFlex).display === "flex" || parentFlex.className.includes("flex"))) {
+              parentFlex.insertBefore(btn, container);
+              return true;
+            }
+          }
+          container.style.display = "flex";
+          container.style.alignItems = "center";
+        }
         
         // Ensure flex layout handles children spacing
         Array.from(container.children).forEach(child => {
@@ -187,13 +205,6 @@ export default function AdminLayout() {
             child.style.marginRight = "0px";
           }
         });
-
-        // Create the vanilla button element
-        const btn = document.createElement("button");
-        btn.className = "global-back-btn group order-first flex items-center justify-center p-2 rounded-lg bg-white/60 backdrop-blur-md border border-slate-200 hover:bg-white text-slate-700 hover:text-slate-900 transition-all duration-200 shadow-sm active:scale-95 cursor-pointer mr-3 shrink-0";
-        btn.title = "Go Back";
-        btn.onclick = handleBackClick;
-        btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-left w-4 h-4 transition-transform duration-200 group-hover:-translate-x-0.5"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>`;
 
         // Insert at the beginning of the container
         container.insertBefore(btn, container.firstChild);

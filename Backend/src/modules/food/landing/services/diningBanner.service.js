@@ -73,3 +73,18 @@ export const toggleDiningBannerStatus = async (id, isActive) => {
     ).lean();
     return updated;
 };
+
+export const updateDiningBannerLink = async (id, data = {}) => {
+    const update = {};
+    if (data.ctaLink !== undefined) update.ctaLink = String(data.ctaLink || '').trim();
+    if (data.title !== undefined) update.title = String(data.title || '').trim();
+    if (data.ctaText !== undefined) update.ctaText = String(data.ctaText || '').trim();
+    if (data.diningType !== undefined) update.diningType = data.diningType;
+
+    const updated = await FoodDiningBanner.findByIdAndUpdate(
+        id,
+        update,
+        { new: true }
+    ).lean();
+    return updated;
+};

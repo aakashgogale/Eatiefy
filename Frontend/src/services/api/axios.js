@@ -48,7 +48,11 @@ const ADMIN_PERMISSION_PATH_MAP = [
   { prefix: "/food/admin/withdrawals", section: "transaction_management" },
   { prefix: "/food/admin/reports", section: "report_management" },
   { prefix: "/food/admin/feedback-experiences", section: "report_management" },
+  { prefix: "/food/top-banners", section: "banner_management" },
   { prefix: "/food/hero-banners", section: "banner_management" },
+  { prefix: "/food/explore-icons", section: "banner_management" },
+  { prefix: "/food/home-promotion-banners", section: "banner_management" },
+  { prefix: "/food/landing", section: "banner_management" },
   { prefix: "/food/admin/contact-messages", section: "support_management" },
   { prefix: "/food/admin/safety-emergency-reports", section: "support_management" },
   { prefix: "/food/admin/feature-settings", section: "system_settings" },
@@ -74,6 +78,7 @@ const normalizePath = (url) => {
 
 const resolveAdminSectionByApiPath = (url, method = "GET") => {
   const path = normalizePath(url).toLowerCase();
+  if (path.endsWith("/public")) return null;
   const normalizedMethod = String(method || "GET").toUpperCase();
   if (path === "/food/admin/zones" && normalizedMethod === "GET") {
     return "restaurant_management";
@@ -122,13 +127,23 @@ function getModuleFromUrl(url = "") {
   
   const normalized = u.toLowerCase();
   
+  // Public exceptions
+  if (normalized.endsWith("/public") || normalized.includes("/public/")) {
+    return "user";
+  }
+
   // Admin detection
   if (
     normalized.includes("/admin/") || 
     normalized.includes("/food/admin/") || 
     normalized.includes("/food/auth/admin") || 
     normalized.includes("/auth/admin") || 
-    normalized.includes("admin/login")
+    normalized.includes("admin/login") ||
+    normalized.startsWith("/food/top-banners") ||
+    normalized.startsWith("/food/hero-banners") ||
+    normalized.startsWith("/food/explore-icons") ||
+    normalized.startsWith("/food/home-promotion-banners") ||
+    normalized.startsWith("/food/landing")
   ) return "admin";
   
   // Delivery detection - Catch all delivery-specific functional and auth routes

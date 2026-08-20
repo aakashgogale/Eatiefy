@@ -7,28 +7,32 @@ import {
     uploadHeroBannersController,
     deleteHeroBannerController,
     updateHeroBannerOrderController,
-    toggleHeroBannerStatusController
+    toggleHeroBannerStatusController,
+    updateHeroBannerLinkController
 } from '../controllers/heroBanner.controller.js';
 import {
     listTopBannersController,
     uploadTopBannersController,
     deleteTopBannerController,
     updateTopBannerOrderController,
-    toggleTopBannerStatusController
+    toggleTopBannerStatusController,
+    updateTopBannerLinkController
 } from '../controllers/topBanner.controller.js';
 import {
     listUnder250BannersController,
     uploadUnder250BannersController,
     deleteUnder250BannerController,
     updateUnder250BannerOrderController,
-    toggleUnder250BannerStatusController
+    toggleUnder250BannerStatusController,
+    updateUnder250BannerLinkController
 } from '../controllers/under250Banner.controller.js';
 import {
     listDiningBannersController,
     uploadDiningBannersController,
     deleteDiningBannerController,
     updateDiningBannerOrderController,
-    toggleDiningBannerStatusController
+    toggleDiningBannerStatusController,
+    updateDiningBannerLinkController
 } from '../controllers/diningBanner.controller.js';
 import {
     listHomePromotionBannersController,
@@ -98,24 +102,32 @@ router.post('/hero-banners/multiple', ...requireAdmin, upload.array('files'), up
 router.delete('/hero-banners/:id', ...requireAdmin, deleteHeroBannerController);
 router.patch('/hero-banners/:id/order', ...requireAdmin, updateHeroBannerOrderController);
 router.patch('/hero-banners/:id/status', ...requireAdmin, toggleHeroBannerStatusController);
+router.patch('/hero-banners/:id/link', ...requireAdmin, updateHeroBannerLinkController);
+router.patch('/hero-banners/:id', ...requireAdmin, updateHeroBannerLinkController);
 
 router.get('/top-banners', ...requireAdmin, listTopBannersController);
 router.post('/top-banners/multiple', ...requireAdmin, upload.array('files'), uploadTopBannersController);
 router.delete('/top-banners/:id', ...requireAdmin, deleteTopBannerController);
 router.patch('/top-banners/:id/order', ...requireAdmin, updateTopBannerOrderController);
 router.patch('/top-banners/:id/status', ...requireAdmin, toggleTopBannerStatusController);
+router.patch('/top-banners/:id/link', ...requireAdmin, updateTopBannerLinkController);
+router.patch('/top-banners/:id', ...requireAdmin, updateTopBannerLinkController);
 
 router.get('/hero-banners/under-250', ...requireAdmin, listUnder250BannersController);
 router.post('/hero-banners/under-250/multiple', ...requireAdmin, upload.array('files'), uploadUnder250BannersController);
 router.delete('/hero-banners/under-250/:id', ...requireAdmin, deleteUnder250BannerController);
 router.patch('/hero-banners/under-250/:id/order', ...requireAdmin, updateUnder250BannerOrderController);
 router.patch('/hero-banners/under-250/:id/status', ...requireAdmin, toggleUnder250BannerStatusController);
+router.patch('/hero-banners/under-250/:id/link', ...requireAdmin, updateUnder250BannerLinkController);
+router.patch('/hero-banners/under-250/:id', ...requireAdmin, updateUnder250BannerLinkController);
 
 router.get('/hero-banners/dining', ...requireAdmin, listDiningBannersController);
 router.post('/hero-banners/dining/multiple', ...requireAdmin, upload.array('files'), uploadDiningBannersController);
 router.delete('/hero-banners/dining/:id', ...requireAdmin, deleteDiningBannerController);
 router.patch('/hero-banners/dining/:id/order', ...requireAdmin, updateDiningBannerOrderController);
 router.patch('/hero-banners/dining/:id/status', ...requireAdmin, toggleDiningBannerStatusController);
+router.patch('/hero-banners/dining/:id/link', ...requireAdmin, updateDiningBannerLinkController);
+router.patch('/hero-banners/dining/:id', ...requireAdmin, updateDiningBannerLinkController);
 
 router.get('/hero-banners/home-promotion', ...requireAdmin, listHomePromotionBannersController);
 router.post('/hero-banners/home-promotion', ...requireAdmin, upload.single('file'), createHomePromotionBannerController);

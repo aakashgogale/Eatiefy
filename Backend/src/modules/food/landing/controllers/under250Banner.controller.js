@@ -3,7 +3,8 @@ import {
     createUnder250BannersFromFiles,
     deleteUnder250Banner,
     updateUnder250BannerOrder,
-    toggleUnder250BannerStatus
+    toggleUnder250BannerStatus,
+    updateUnder250BannerLink
 } from '../services/under250Banner.service.js';
 import { sendResponse } from '../../../../utils/response.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
@@ -82,4 +83,21 @@ export const toggleUnder250BannerStatusController = async (req, res, next) => {
         next(error);
     }
 };
+
+export const updateUnder250BannerLinkController = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        if (!id) {
+            throw new ValidationError('Banner id is required');
+        }
+        const updated = await updateUnder250BannerLink(id, req.body);
+        if (!updated) {
+            return sendResponse(res, 404, 'Under 250 banner not found');
+        }
+        return sendResponse(res, 200, 'Under 250 banner link updated successfully', updated);
+    } catch (error) {
+        next(error);
+    }
+};
+
 

@@ -73,3 +73,17 @@ export const toggleUnder250BannerStatus = async (id, isActive) => {
     ).lean();
     return updated;
 };
+
+export const updateUnder250BannerLink = async (id, data = {}) => {
+    const update = {};
+    if (data.ctaLink !== undefined) update.ctaLink = String(data.ctaLink || '').trim();
+    if (data.title !== undefined) update.title = String(data.title || '').trim();
+    if (data.ctaText !== undefined) update.ctaText = String(data.ctaText || '').trim();
+
+    const updated = await FoodUnder250Banner.findByIdAndUpdate(
+        id,
+        update,
+        { new: true }
+    ).lean();
+    return updated;
+};

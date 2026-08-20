@@ -73,3 +73,18 @@ export const toggleHeroBannerStatus = async (id, isActive) => {
     ).lean();
     return updated;
 };
+
+export const updateHeroBannerLink = async (id, data = {}) => {
+    const update = {};
+    if (data.ctaLink !== undefined) update.ctaLink = String(data.ctaLink || '').trim();
+    if (data.title !== undefined) update.title = String(data.title || '').trim();
+    if (data.ctaText !== undefined) update.ctaText = String(data.ctaText || '').trim();
+    if (data.linkedRestaurantIds !== undefined) update.linkedRestaurantIds = data.linkedRestaurantIds;
+
+    const updated = await FoodHeroBanner.findByIdAndUpdate(
+        id,
+        update,
+        { new: true }
+    ).lean();
+    return updated;
+};

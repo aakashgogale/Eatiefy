@@ -3365,7 +3365,20 @@ export default function Home() {
               const ctaLink = bannerData?.ctaLink || bannerData?.link || bannerData?.targetLink;
               if (ctaLink) {
                 captureScrollBeforeRestaurantNav();
-                navigate(ctaLink);
+                let target = String(ctaLink).trim();
+                if (target.startsWith('http://') || target.startsWith('https://')) {
+                  try {
+                    const urlObj = new URL(target);
+                    target = urlObj.pathname + urlObj.search + urlObj.hash;
+                  } catch {}
+                }
+                if (!target.startsWith('/')) {
+                  target = `/${target}`;
+                }
+                if (!target.startsWith('/food') && !target.startsWith('/admin') && !target.startsWith('/restaurant')) {
+                  target = `/food${target}`;
+                }
+                navigate(target);
                 return;
               }
               const linkedRestaurants = bannerData?.linkedRestaurants || [];
@@ -3373,7 +3386,7 @@ export default function Home() {
                 const firstRestaurant = linkedRestaurants[0];
                 const restaurantSlug = firstRestaurant.slug || firstRestaurant.restaurantId || firstRestaurant._id;
                 captureScrollBeforeRestaurantNav();
-                navigate(`/restaurants/${restaurantSlug}`);
+                navigate(`/food/restaurants/${restaurantSlug}`);
               }
             }}
             aria-label={`Open hero banner ${currentBannerIndex + 1}`}

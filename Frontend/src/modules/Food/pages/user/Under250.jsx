@@ -418,6 +418,7 @@ export default function Under250() {
   })
   const [categories, setCategories] = useState([])
   const [bannerImages, setBannerImages] = useState([])
+  const [rawBanners, setRawBanners] = useState([])
   const [loadingBanner, setLoadingBanner] = useState(true)
   const [currentBannerIndex, setCurrentBannerIndex] = useState(0)
   const [isTransitioning, setIsTransitioning] = useState(true)
@@ -640,6 +641,7 @@ export default function Under250() {
         if (cancelled) return
         const data = res?.data?.data
         const list = Array.isArray(data?.banners) ? data.banners : (Array.isArray(data) ? data : [])
+        setRawBanners(list)
         const images = list
           .map((banner) => resolveBannerUrl(banner?.imageUrl || banner?.url || banner))
           .filter(Boolean)
@@ -1323,21 +1325,59 @@ export default function Under250() {
               style={{ transform: `translateX(-${currentBannerIndex * 100}%)` }}
               onTransitionEnd={handleTransitionEnd}
             >
-              {extendedBanners.map((bannerSrc, index) => (
-                <div key={`${bannerSrc}-${index}`} className="relative h-full w-full shrink-0">
-                  <img
-                    src={bannerSrc}
-                    alt={`Eatiefy 99 Banner ${(index % displayBanners.length) + 1}`}
-                    className="w-full h-full object-cover"
-                    loading="eager"
-                    decoding="async"
-                    onError={(e) => {
-                      e.currentTarget.onerror = null
-                      e.currentTarget.src = eatiefyPromoBanner1
+              {extendedBanners.map((bannerSrc, index) => {
+                const activeIndex = index % Math.max(1, displayBanners.length);
+                const rawBanner = rawBanners[activeIndex];
+                const redirectLink = rawBanner?.ctaLink || rawBanner?.link;
+                const isVideo = Boolean(bannerSrc?.match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i));
+
+                return (
+                  <div 
+                    key={`${bannerSrc}-${index}`} 
+                    className={`relative h-full w-full shrink-0 ${redirectLink ? 'cursor-pointer' : ''}`}
+                    onClick={() => {
+                      if (!redirectLink) return;
+                      let target = String(redirectLink).trim();
+                      if (target.startsWith('http://') || target.startsWith('https://')) {
+                        try {
+                          const urlObj = new URL(target);
+                          target = urlObj.pathname + urlObj.search + urlObj.hash;
+                        } catch {}
+                      }
+                      if (!target.startsWith('/')) {
+                        target = `/${target}`;
+                      }
+                      if (!target.startsWith('/food') && !target.startsWith('/admin') && !target.startsWith('/restaurant')) {
+                        target = `/food${target}`;
+                      }
+                      navigate(target);
                     }}
-                  />
-                </div>
-              ))}
+                  >
+                    {isVideo ? (
+                      <video 
+                        src={bannerSrc} 
+                        autoPlay 
+                        loop 
+                        muted 
+                        playsInline 
+                        className="w-full h-full object-cover" 
+                      />
+                    ) : (
+                      <img
+                        src={bannerSrc}
+                        alt={`Eatiefy 99 Banner ${activeIndex + 1}`}
+                        className="w-full h-full object-cover"
+                        loading="eager"
+                        decoding="async"
+                        onError={(e) => {
+                          e.currentTarget.onerror = null
+                          e.currentTarget.src = eatiefyPromoBanner1
+                        }}
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 

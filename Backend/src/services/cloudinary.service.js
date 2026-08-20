@@ -1,27 +1,21 @@
 import { v2 as cloudinary } from 'cloudinary';
-import { saveImageBuffer } from './storage.service.js';
+import { saveImageBuffer, getCloudinaryConfig } from './storage.service.js';
 import { config } from '../config/env.js';
 
 // ─── Cloudinary SDK Configuration ────────────────────────────────────────────
-// Only configured when credentials are present (mode = 'cloudinary')
-if (config.cloudinaryCloudName && config.cloudinaryApiKey && config.cloudinaryApiSecret) {
-    cloudinary.config({
-        cloud_name: config.cloudinaryCloudName,
-        api_key: config.cloudinaryApiKey,
-        api_secret: config.cloudinaryApiSecret,
-    });
-}
+getCloudinaryConfig();
 
 /**
  * Upload buffer directly to Cloudinary SDK.
  * Returns a Cloudinary UploadApiResponse-compatible object.
  */
-const uploadToCloudinary = (buffer, folder) =>
-    new Promise((resolve, reject) => {
+const uploadToCloudinary = (buffer, folder, isVideo = false) => {
+    getCloudinaryConfig();
+    return new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
             {
                 folder,
-                resource_type: 'image',
+                resource_type: isVideo ? 'video' : 'auto',
             },
             (error, result) => {
                 if (error) return reject(error);
@@ -30,6 +24,7 @@ const uploadToCloudinary = (buffer, folder) =>
         );
         stream.end(buffer);
     });
+};
 
 // ─── Legacy aliases (kept for backward-compat — always use server storage) ──
 

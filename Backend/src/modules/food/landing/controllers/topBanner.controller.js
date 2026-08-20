@@ -104,3 +104,26 @@ export const toggleTopBannerStatusController = async (req, res) => {
         res.status(500).json({ success: false, message: 'Failed to update status', error: error.message });
     }
 };
+
+export const updateTopBannerLinkController = async (req, res) => {
+    try {
+        const { ctaLink, title, ctaText } = req.body;
+        const updateData = {};
+        if (ctaLink !== undefined) updateData.ctaLink = String(ctaLink || '').trim();
+        if (title !== undefined) updateData.title = String(title || '').trim();
+        if (ctaText !== undefined) updateData.ctaText = String(ctaText || '').trim();
+
+        const banner = await TopBanner.findByIdAndUpdate(
+            req.params.id,
+            updateData,
+            { new: true }
+        );
+        if (!banner) {
+            return res.status(404).json({ success: false, message: 'Banner not found' });
+        }
+        res.status(200).json({ success: true, message: 'Redirect link updated successfully', data: { banner } });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Failed to update redirect link', error: error.message });
+    }
+};
+

@@ -3,7 +3,8 @@ import {
     createDiningBannersFromFiles,
     deleteDiningBanner,
     updateDiningBannerOrder,
-    toggleDiningBannerStatus
+    toggleDiningBannerStatus,
+    updateDiningBannerLink
 } from '../services/diningBanner.service.js';
 import { sendResponse } from '../../../../utils/response.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
@@ -82,4 +83,21 @@ export const toggleDiningBannerStatusController = async (req, res, next) => {
         next(error);
     }
 };
+
+export const updateDiningBannerLinkController = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        if (!id) {
+            throw new ValidationError('Banner id is required');
+        }
+        const updated = await updateDiningBannerLink(id, req.body);
+        if (!updated) {
+            return sendResponse(res, 404, 'Dining banner not found');
+        }
+        return sendResponse(res, 200, 'Dining banner link updated successfully', updated);
+    } catch (error) {
+        next(error);
+    }
+};
+
 

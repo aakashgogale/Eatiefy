@@ -15,6 +15,18 @@ const topBannerSchema = new mongoose.Schema({
     isActive: {
         type: Boolean,
         default: true,
+    },
+    title: {
+        type: String,
+        default: '',
+    },
+    ctaText: {
+        type: String,
+        default: '',
+    },
+    ctaLink: {
+        type: String,
+        default: '',
     }
 }, {
     timestamps: true

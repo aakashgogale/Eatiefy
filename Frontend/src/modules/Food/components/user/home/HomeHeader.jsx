@@ -228,35 +228,121 @@ export default function HomeHeader({
     });
   };
 
-  const [currentSlide, setCurrentSlide] = useState(0);
+  const [trackIndex, setTrackIndex] = useState(1);
+  const [isTransitionEnabled, setIsTransitionEnabled] = useState(true);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const notificationsHistoryPushedRef = useRef(false);
+  
+  // Horizontal Swipe & Drag State
+  const [dragOffset, setDragOffset] = useState(0);
+  const [isSwiping, setIsSwiping] = useState(false);
   const touchStartXRef = useRef(0);
-  const touchEndXRef = useRef(0);
+  const touchStartYRef = useRef(0);
+  const touchCurrentXRef = useRef(0);
+  const isHorizontalScrollRef = useRef(null);
 
+  const validBanners = useMemo(() => {
+    if (!Array.isArray(topBanners) || topBanners.length === 0) return [];
+    return topBanners.filter((b) => {
+      const img = String(b?.image || b?.imageUrl || b?.videoUrl || b?.url || '').toLowerCase();
+      if (!img) return false;
+      if (img.includes('delivered') || img.includes('app-store') || img.includes('google-play')) return false;
+      return true;
+    });
+  }, [topBanners]);
 
+  // Extended banners array with seamless clone buffers for genuine infinite circular loop
+  const extendedBanners = useMemo(() => {
+    if (validBanners.length <= 1) return validBanners;
+    const first = validBanners[0];
+    const last = validBanners[validBanners.length - 1];
+    return [last, ...validBanners, first];
+  }, [validBanners]);
 
+  // Normalized active index (0 to validBanners.length - 1)
+  const activeBannerIndex = useMemo(() => {
+    if (validBanners.length <= 1) return 0;
+    return (trackIndex - 1 + validBanners.length) % validBanners.length;
+  }, [trackIndex, validBanners.length]);
+
+  const activeBanner = validBanners[activeBannerIndex] || null;
+
+  const handleNextSlide = useCallback(() => {
+    if (validBanners.length <= 1) return;
+    setIsTransitionEnabled(true);
+    setTrackIndex((prev) => prev + 1);
+  }, [validBanners.length]);
+
+  const handlePrevSlide = useCallback(() => {
+    if (validBanners.length <= 1) return;
+    setIsTransitionEnabled(true);
+    setTrackIndex((prev) => prev - 1);
+  }, [validBanners.length]);
+
+  // Handle transition end for silent instant snapping at loop boundaries
+  const handleTransitionEnd = () => {
+    if (validBanners.length <= 1) return;
+    if (trackIndex >= validBanners.length + 1) {
+      // Reached right clone (first banner), snap silently to real index 1
+      setIsTransitionEnabled(false);
+      setTrackIndex(1);
+    } else if (trackIndex <= 0) {
+      // Reached left clone (last banner), snap silently to real index N
+      setIsTransitionEnabled(false);
+      setTrackIndex(validBanners.length);
+    }
+  };
+
+  // Touch Swipe Handlers for Smooth Mobile Gesture
   const handleTouchStart = (event) => {
-    touchStartXRef.current = event.touches[0]?.clientX || 0;
-    touchEndXRef.current = touchStartXRef.current;
+    const touch = event.touches[0];
+    touchStartXRef.current = touch.clientX;
+    touchStartYRef.current = touch.clientY;
+    touchCurrentXRef.current = touch.clientX;
+    isHorizontalScrollRef.current = null;
+    setIsSwiping(true);
+    setIsTransitionEnabled(false);
   };
 
   const handleTouchMove = (event) => {
-    touchEndXRef.current = event.touches[0]?.clientX || touchEndXRef.current;
+    if (!isSwiping || validBanners.length <= 1) return;
+    const touch = event.touches[0];
+    const diffX = touch.clientX - touchStartXRef.current;
+    const diffY = touch.clientY - touchStartYRef.current;
+
+    // Detect gesture direction
+    if (isHorizontalScrollRef.current === null) {
+      if (Math.abs(diffX) > 8 || Math.abs(diffY) > 8) {
+        isHorizontalScrollRef.current = Math.abs(diffX) > Math.abs(diffY);
+      }
+    }
+
+    if (isHorizontalScrollRef.current) {
+      touchCurrentXRef.current = touch.clientX;
+      setDragOffset(diffX);
+    }
   };
 
   const handleTouchEnd = () => {
-    const deltaX = touchStartXRef.current - touchEndXRef.current;
+    if (!isSwiping) return;
+    const diffX = touchCurrentXRef.current - touchStartXRef.current;
     const minSwipeDistance = 45;
 
-    if (Math.abs(deltaX) < minSwipeDistance) return;
+    setIsSwiping(false);
+    setDragOffset(0);
+    isHorizontalScrollRef.current = null;
 
-    if (deltaX > 0) {
-      setCurrentSlide((prev) => (prev + 1) % (displayBanners.length || 1));
-      return;
+    if (diffX < -minSwipeDistance) {
+      handleNextSlide();
+    } else if (diffX > minSwipeDistance) {
+      handlePrevSlide();
+    } else {
+      setIsTransitionEnabled(true);
+      if (Math.abs(diffX) < 10) {
+        // Tap gesture on banner
+        handleBannerRedirect();
+      }
     }
-
-    setCurrentSlide((prev) => (prev - 1 + (displayBanners.length || 1)) % (displayBanners.length || 1));
   };
 
   useEffect(() => {
@@ -292,46 +378,26 @@ export default function HomeHeader({
     setIsNotificationsOpen(false);
   };
 
-  const activeBanner = useMemo(() => {
-    if (!Array.isArray(topBanners) || topBanners.length === 0) return null;
-    const banner = topBanners[currentSlide % topBanners.length] || topBanners[0];
-    const img = String(banner?.image || banner?.imageUrl || banner?.videoUrl || '').toLowerCase();
-    if (img.includes('delivered') || img.includes('app-store') || img.includes('google-play')) {
-      return null;
-    }
-    return banner;
-  }, [topBanners, currentSlide]);
-
-  const activeBannerImage = activeBanner?.image || activeBanner?.imageUrl || activeBanner?.videoUrl || activeBanner?.url || null;
-
-  const handleNextSlide = useCallback(() => {
-    const slideCount = Array.isArray(topBanners) ? topBanners.length : 0;
-    if (slideCount <= 1) return;
-    setCurrentSlide((prev) => (prev + 1) % slideCount);
-  }, [topBanners]);
-
+  // Auto-play infinite circular slide timer
   useEffect(() => {
-    const slideCount = Array.isArray(topBanners) ? topBanners.length : 0;
-
-    if (slideCount <= 1) {
-      setCurrentSlide(0);
+    if (validBanners.length <= 1) {
+      setTrackIndex(1);
       return;
     }
 
+    const currentMedia = activeBanner?.image || activeBanner?.imageUrl || activeBanner?.videoUrl || activeBanner?.url || '';
     const isCurrentVideo = Boolean(
-      String(activeBannerImage).match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || 
+      String(currentMedia).match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || 
       activeBanner?.mediaType === 'video'
     );
 
-    // If current slide is a video, DO NOT run interval timer — wait for video onEnded event!
-    if (isCurrentVideo) {
-      return;
-    }
+    // If current banner is video, interval is paused; video onEnded will slide to next
+    if (isCurrentVideo) return;
 
     const timer = setInterval(() => {
       if (typeof document !== "undefined" && document.hidden) return;
       handleNextSlide();
-    }, 5000);
+    }, 4500);
 
     const handleVisibilityChange = () => {
       if (typeof document !== "undefined" && !document.hidden) {
@@ -344,56 +410,120 @@ export default function HomeHeader({
       clearInterval(timer);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [topBanners, activeBannerImage, activeBanner, handleNextSlide]);
+  }, [validBanners.length, activeBanner, handleNextSlide]);
+
+  const handleBannerRedirect = useCallback((e) => {
+    const rawLink = activeBanner?.ctaLink || activeBanner?.link;
+    if (!rawLink) return;
+    if (e) e.stopPropagation();
+
+    let target = String(rawLink).trim();
+    if (target.startsWith('http://') || target.startsWith('https://')) {
+      try {
+        const urlObj = new URL(target);
+        target = urlObj.pathname + urlObj.search + urlObj.hash;
+      } catch {
+        // keep
+      }
+    }
+
+    if (!target.startsWith('/')) {
+      target = `/${target}`;
+    }
+    if (!target.startsWith('/food') && !target.startsWith('/admin') && !target.startsWith('/restaurant')) {
+      target = `/food${target}`;
+    }
+
+    navigate(target);
+  }, [activeBanner, navigate]);
 
   return (
     <>
       {/* Top Header Section with Full-Cover Background Banner Support */}
       <div 
         ref={headerRef}
-        className="relative w-full bg-[#E23744] dark:bg-[#C52332] rounded-b-[2.8rem] sm:rounded-b-[4rem] shadow-xl transition-all overflow-hidden"
+        className={`relative w-full bg-[#E23744] dark:bg-[#C52332] rounded-b-[2.8rem] sm:rounded-b-[4rem] shadow-xl transition-all overflow-hidden ${(activeBanner?.ctaLink || activeBanner?.link) ? 'cursor-pointer' : ''}`}
+        onClick={handleBannerRedirect}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        {/* Full-Cover Background Banner Media (Image or Video) */}
-        {activeBannerImage && (
+        {/* Full-Cover Background Banner Media (Infinite Circular Loop Sliding Track) */}
+        {extendedBanners.length > 0 && (
           <div className="absolute inset-0 z-0 overflow-hidden">
-            {Boolean(String(activeBannerImage).match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || activeBanner?.mediaType === 'video') ? (
-              <video 
-                key={activeBannerImage}
-                src={activeBannerImage} 
-                autoPlay 
-                muted 
-                playsInline 
-                preload="auto"
-                onEnded={handleNextSlide}
-                className="w-full h-full object-cover transition-opacity duration-700 ease-in-out brightness-105 contrast-105" 
-              />
-            ) : (
-              <img 
-                src={activeBannerImage} 
-                alt={activeBanner?.title || "Header Banner"} 
-                className="w-full h-full object-cover transition-opacity duration-700 ease-in-out brightness-105 contrast-105" 
-                loading="eager"
-                fetchPriority="high"
-                decoding="async"
-              />
-            )}
-            {/* Subtle Gradient Overlay for Clean Icon Contrast without Dimming Video */}
+            <div 
+              className={`flex h-full w-full ${(!isTransitionEnabled || isSwiping) ? 'transition-none' : 'transition-transform duration-600 ease-out'}`}
+              style={{
+                transform: `translateX(calc(-${(validBanners.length > 1 ? trackIndex : 0) * 100}% + ${dragOffset}px))`
+              }}
+              onTransitionEnd={handleTransitionEnd}
+            >
+              {extendedBanners.map((banner, idx) => {
+                const mediaUrl = banner?.image || banner?.imageUrl || banner?.videoUrl || banner?.url;
+                const isVideo = Boolean(String(mediaUrl).match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || banner?.mediaType === 'video');
+                const isCurrent = validBanners.length > 1 ? idx === trackIndex : idx === 0;
+
+                return (
+                  <div 
+                    key={`${banner._id || idx}-${idx}`}
+                    className="relative h-full w-full flex-shrink-0 select-none overflow-hidden"
+                  >
+                    {isVideo ? (
+                      <video 
+                        src={mediaUrl}
+                        autoPlay
+                        muted
+                        playsInline
+                        preload={isCurrent ? "auto" : "none"}
+                        onEnded={handleNextSlide}
+                        className="w-full h-full object-cover brightness-105 contrast-105"
+                      />
+                    ) : (
+                      <img 
+                        src={mediaUrl} 
+                        alt={banner?.title || `Banner ${idx + 1}`}
+                        className="w-full h-full object-cover brightness-105 contrast-105 pointer-events-none"
+                        loading={idx <= 1 ? "eager" : "lazy"}
+                        decoding="async"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {/* Subtle Gradient Overlay for Clean Contrast */}
             <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/20 z-10 pointer-events-none" />
           </div>
         )}
 
+        {/* Circular Way Loop Indicator Dots */}
+        {validBanners.length > 1 && (
+          <div className="absolute bottom-[90px] sm:bottom-[96px] left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 pointer-events-none">
+            {validBanners.map((_, dotIdx) => (
+              <div 
+                key={dotIdx} 
+                className={`transition-all duration-300 rounded-full ${
+                  dotIdx === activeBannerIndex 
+                    ? 'w-5 h-1.5 bg-white shadow-md' 
+                    : 'w-1.5 h-1.5 bg-white/50'
+                }`}
+              />
+            ))}
+          </div>
+        )}
+
         {/* Header Floating Content Container */}
-        <div className="relative z-20 flex flex-col justify-between min-h-[320px] sm:min-h-[400px] md:min-h-[460px] lg:min-h-[520px] pb-6 pt-5 px-4 max-w-md sm:max-w-xl md:max-w-6xl lg:max-w-7xl mx-auto w-full">
+        <div className="relative z-20 flex flex-col justify-between min-h-[320px] sm:min-h-[400px] md:min-h-[460px] lg:min-h-[520px] pb-6 pt-5 px-4 max-w-md sm:max-w-xl md:max-w-6xl lg:max-w-7xl mx-auto w-full pointer-events-none">
           
           {/* Top Row: Location & Action Badges */}
-          <div className="flex items-center justify-between gap-3 min-w-0">
+          <div className="flex items-center justify-between gap-3 min-w-0 pointer-events-auto">
             {/* Location Selector */}
             <div 
               className="flex items-center gap-2 cursor-pointer group min-w-0 flex-1"
-              onClick={handleLocationClick}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleLocationClick(e);
+              }}
             >
               <div className="bg-white/25 p-2 rounded-full border border-white/30 backdrop-blur-md shadow-sm flex-shrink-0">
                 <MapPin className="h-4.5 w-4.5 text-white" />
@@ -412,7 +542,7 @@ export default function HomeHeader({
             </div>
             
             {/* Top Right Action Badges */}
-            <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
               {/* Wallet Button */}
               <Link
                 to="/food/user/wallet"
@@ -431,9 +561,9 @@ export default function HomeHeader({
             </div>
           </div>
 
-          {/* Middle Row: Banner Offer Title (If present in Admin Banner Data) */}
-          <div className="my-auto pt-2 pb-1 min-h-[36px] flex items-center">
-            {activeBanner?.title && (
+          {/* Middle Row: Banner Title (Clean without any extra buttons) */}
+          <div className="my-auto pt-2 pb-1 min-h-[36px] flex items-center pointer-events-none">
+            {activeBanner?.title ? (
               <div className="max-w-[80%] z-20">
                 <span className="bg-amber-400 text-black text-[9.5px] sm:text-xs font-black px-2 py-0.5 rounded shadow-md tracking-wider uppercase mb-1 inline-block">
                   SPECIAL OFFER
@@ -442,11 +572,11 @@ export default function HomeHeader({
                   {activeBanner.title}
                 </h2>
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* Bottom Floating Search Bar & Veg Toggle Row */}
-          <div className="w-full pt-1">
+          <div className="w-full pt-1 pointer-events-auto" onClick={(e) => e.stopPropagation()}>
             <SearchBarRow
               handleSearchFocus={handleSearchFocus}
               placeholderIndex={placeholderIndex}
@@ -458,21 +588,6 @@ export default function HomeHeader({
               vegModeOption={vegModeOption}
             />
           </div>
-
-          {/* Carousel Dots (If multiple admin banners) */}
-          {Array.isArray(topBanners) && topBanners.length > 1 && (
-            <div className="flex justify-center items-center gap-1.5 pt-2 z-30">
-              {topBanners.map((_, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  aria-label={`Go to banner ${i + 1}`}
-                  onClick={() => setCurrentSlide(i)}
-                  className={`h-1.5 rounded-full transition-all duration-300 ${i === currentSlide ? 'bg-white w-5 shadow-sm' : 'bg-white/50 w-1.5'}`}
-                />
-              ))}
-            </div>
-          )}
 
         </div>
 

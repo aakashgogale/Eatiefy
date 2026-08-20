@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { usePublicAppConfig } from "@food/context/PublicAppConfigContext";
 
 const PromotionBannerCarousel = ({ zoneId: propZoneId }) => {
+  const navigate = useNavigate();
   const { promoBanners } = usePublicAppConfig() || {};
   const [banners, setBanners] = useState(() => (Array.isArray(promoBanners) ? promoBanners : []));
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -52,45 +54,72 @@ const PromotionBannerCarousel = ({ zoneId: propZoneId }) => {
     startAutoSlide();
   };
 
-  // If loading and zoneId exists, show skeleton briefly. Otherwise if no banners, return null cleanly.
-  if (loading && zoneId) {
-    return (
-      <div className="px-4 py-2 max-w-7xl mx-auto w-full">
-        <div className="w-full h-36 sm:h-40 md:h-48 rounded-[24px] bg-gray-100 dark:bg-gray-800 animate-pulse" />
-      </div>
-    );
-  }
+  const handleBannerClick = (banner) => {
+    const rawLink = banner.ctaLink || banner.link || banner.targetLink;
+    if (!rawLink) return;
+
+    let target = String(rawLink).trim();
+    if (target.startsWith('http://') || target.startsWith('https://')) {
+      try {
+        const urlObj = new URL(target);
+        target = urlObj.pathname + urlObj.search + urlObj.hash;
+      } catch {
+        // keep
+      }
+    }
+
+    if (!target.startsWith('/')) {
+      target = `/${target}`;
+    }
+    if (!target.startsWith('/food') && !target.startsWith('/admin') && !target.startsWith('/restaurant')) {
+      target = `/food${target}`;
+    }
+
+    navigate(target);
+  };
 
   if (!banners.length) return null;
 
   return (
     <div className="px-4 py-4 relative group max-w-md sm:max-w-xl md:max-w-6xl lg:max-w-7xl mx-auto w-full">
       <div className="relative overflow-hidden rounded-[24px] shadow-lg aspect-[18/8] sm:aspect-[24/9] md:aspect-[24/8] lg:aspect-[24/7] max-h-[160px] sm:max-h-[165px] md:max-h-[280px] lg:max-h-[360px]">
-        {banners.map((banner, index) => (
-          <div
-            key={banner._id?.$oid || banner._id || index}
-            className="absolute inset-0 transition-opacity duration-700 ease-in-out"
-            style={{
-              opacity: currentIndex === index ? 1 : 0,
-              zIndex: currentIndex === index ? 2 : 1,
-              pointerEvents: currentIndex === index ? "auto" : "none",
-            }}
-          >
-            <a 
-              href={banner.ctaLink || "#"} 
-              className="block w-full h-full"
-              onClick={(e) => {
-                if (!banner.ctaLink) e.preventDefault();
+        {banners.map((banner, index) => {
+          const mediaUrl = banner.imageUrl || banner.image;
+          const isVideo = Boolean(mediaUrl?.match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || banner.mediaType === 'video');
+          const hasLink = Boolean(banner.ctaLink || banner.link || banner.targetLink);
+
+          return (
+            <div
+              key={banner._id?.$oid || banner._id || index}
+              className={`absolute inset-0 transition-opacity duration-700 ease-in-out ${hasLink ? 'cursor-pointer' : ''}`}
+              style={{
+                opacity: currentIndex === index ? 1 : 0,
+                zIndex: currentIndex === index ? 2 : 1,
+                pointerEvents: currentIndex === index ? "auto" : "none",
               }}
+              onClick={() => handleBannerClick(banner)}
             >
-              <img 
-                src={banner.imageUrl} 
-                alt={banner.title || "Promotion"} 
-                className="w-full h-full object-cover"
-               loading="lazy" decoding="async" />
-            </a>
-          </div>
-        ))}
+              {isVideo ? (
+                <video 
+                  src={mediaUrl} 
+                  autoPlay 
+                  loop 
+                  muted 
+                  playsInline 
+                  className="w-full h-full object-cover" 
+                />
+              ) : (
+                <img 
+                  src={mediaUrl} 
+                  alt={banner.title || "Promotion"} 
+                  className="w-full h-full object-cover"
+                  loading="lazy" 
+                  decoding="async" 
+                />
+              )}
+            </div>
+          );
+        })}
 
         {/* Navigation Arrows - Visible on Hover */}
         {banners.length > 1 && (

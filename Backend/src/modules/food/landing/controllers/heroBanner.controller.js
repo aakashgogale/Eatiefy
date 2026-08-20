@@ -3,7 +3,8 @@ import {
     createHeroBannersFromFiles,
     deleteHeroBanner,
     updateHeroBannerOrder,
-    toggleHeroBannerStatus
+    toggleHeroBannerStatus,
+    updateHeroBannerLink
 } from '../services/heroBanner.service.js';
 import { sendResponse } from '../../../../utils/response.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
@@ -77,4 +78,21 @@ export const toggleHeroBannerStatusController = async (req, res, next) => {
         next(error);
     }
 };
+
+export const updateHeroBannerLinkController = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        if (!id) {
+            throw new ValidationError('Banner id is required');
+        }
+        const updated = await updateHeroBannerLink(id, req.body);
+        if (!updated) {
+            return sendResponse(res, 404, 'Hero banner not found');
+        }
+        return sendResponse(res, 200, 'Hero banner link updated successfully', updated);
+    } catch (error) {
+        next(error);
+    }
+};
+
 

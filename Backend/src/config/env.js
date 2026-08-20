@@ -84,9 +84,9 @@ export const config = {
 
     // Storage (local VPS — legacy Cloudinary env vars no longer required)
     // Cloudinary — only used when imageStorageMode is 'cloudinary'
-    cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME || '',
-    cloudinaryApiKey: process.env.CLOUDINARY_API_KEY || '',
-    cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET || '',
+    cloudinaryCloudName: String(process.env.CLOUDINARY_CLOUD_NAME || '').trim(),
+    cloudinaryApiKey: String(process.env.CLOUDINARY_API_KEY || '').trim(),
+    cloudinaryApiSecret: String(process.env.CLOUDINARY_API_SECRET || '').trim(),
 
     // Firebase / FCM
     firebaseProjectId: process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID,

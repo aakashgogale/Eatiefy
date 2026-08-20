@@ -552,36 +552,48 @@ export default function SubscriptionHistory() {
     <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
       <div className="max-w-7xl mx-auto space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">Subscription Billing</h1>
-            <p className="text-sm text-slate-600 mt-1">
-              Calendar-month postpaid billing — invoices auto-generated from each restaurant's monthly GMV.
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-sm shadow-blue-500/20">
+              <ReceiptText className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900">Subscription Billing</h1>
+              <p className="text-xs text-slate-500 sm:text-sm mt-0.5">
+                Calendar-month postpaid billing — invoices auto-generated from each restaurant's monthly GMV.
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href="/admin/food/restaurants/subscription-settings"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-50 hover:text-slate-900 shadow-xs transition-colors"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
+              Settings
+            </a>
             <button
               type="button"
               onClick={handleRunBilling}
               disabled={runningBilling}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 shadow-xs shadow-blue-500/20 transition-colors"
             >
-              <PlayCircle className="w-4 h-4" />
+              <PlayCircle className="w-3.5 h-3.5" />
               {runningBilling ? "Running..." : "Run Billing"}
             </button>
             <button
               type="button"
               onClick={handleExport}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm hover:bg-slate-100"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-50 shadow-xs transition-colors"
             >
-              <Download className="w-4 h-4" />
+              <Download className="w-3.5 h-3.5" />
               Export CSV
             </button>
             <button
               type="button"
               onClick={refreshAll}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm hover:bg-slate-100"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-50 shadow-xs transition-colors"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="w-3.5 h-3.5" />
               Refresh
             </button>
           </div>

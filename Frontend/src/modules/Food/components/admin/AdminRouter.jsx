@@ -33,10 +33,15 @@ const RestaurantComplaints = lazy(() => import("@food/pages/admin/restaurant/Res
 const RestaurantReviews = lazy(() => import("@food/pages/admin/restaurant/RestaurantReviews"));
 const RestaurantsBulkImport = lazy(() => import("@food/pages/admin/restaurant/RestaurantsBulkImport"));
 const RestaurantsBulkExport = lazy(() => import("@food/pages/admin/restaurant/RestaurantsBulkExport"));
+const RestaurantSettings = lazy(() => import("@food/pages/admin/restaurant/RestaurantSettings"));
+const SubscriptionSettings = lazy(() => import("@food/pages/admin/restaurant/SubscriptionSettings"));
+const SubscriptionHistory = lazy(() => import("@food/pages/admin/restaurant/SubscriptionHistory"));
+const UnregisteredRestaurants = lazy(() => import("@food/pages/admin/restaurant/UnregisteredRestaurants"));
 // Food Management
 const FoodsList = lazy(() => import("@food/pages/admin/foods/FoodsList"));
 const PricingManagement = lazy(() => import("@food/pages/admin/pricing/PricingManagement"));
 const AddonsList = lazy(() => import("@food/pages/admin/addons/AddonsList"));
+const UserCarts = lazy(() => import("@food/pages/admin/orders/UserCarts"));
 // Promotions Management
 const BasicCampaign = lazy(() => import("@food/pages/admin/campaigns/BasicCampaign"));
 const FoodCampaign = lazy(() => import("@food/pages/admin/campaigns/FoodCampaign"));
@@ -69,14 +74,22 @@ const DeliveryWithdrawal = lazy(() => import("@food/pages/admin/DeliveryWithdraw
 const DeliveryBoyWallet = lazy(() => import("@food/pages/admin/DeliveryBoyWallet"));
 const DeliveryEmergencyHelp = lazy(() => import("@food/pages/admin/DeliveryEmergencyHelp"));
 const DeliverySupportTickets = lazy(() => import("@food/pages/admin/DeliverySupportTickets"));
+const OrderReassignmentRequests = lazy(() => import("@food/pages/admin/OrderReassignmentRequests"));
 const JoinRequest = lazy(() => import("@food/pages/admin/delivery-partners/JoinRequest"));
 const AddDeliveryman = lazy(() => import("@food/pages/admin/delivery-partners/AddDeliveryman"));
 const DeliverymanList = lazy(() => import("@food/pages/admin/delivery-partners/DeliverymanList"));
 const DeliverymanReviews = lazy(() => import("@food/pages/admin/delivery-partners/DeliverymanReviews"));
 const DeliverymanBonus = lazy(() => import("@food/pages/admin/delivery-partners/DeliverymanBonus"));
+const DeliveryLiveTracking = lazy(() => import("@food/pages/admin/delivery-partners/DeliveryLiveTracking"));
+const TargetBonusRules = lazy(() => import("@food/pages/admin/delivery-partners/TargetBonusRules"));
+const EligibleBonuses = lazy(() => import("@food/pages/admin/delivery-partners/EligibleBonuses"));
 const EarningAddon = lazy(() => import("@food/pages/admin/delivery-partners/EarningAddon"));
 const EarningAddonHistory = lazy(() => import("@food/pages/admin/delivery-partners/EarningAddonHistory"));
 const DeliveryEarnings = lazy(() => import("@food/pages/admin/delivery-partners/DeliveryEarnings"));
+// Referral & Super Powers
+const ReferralSettings = lazy(() => import("@food/pages/admin/referral-settings/ReferralSettings"));
+const FeatureSettings = lazy(() => import("@food/pages/admin/settings/FeatureSettings"));
+const PowerScanning = lazy(() => import("@food/pages/admin/settings/PowerScanning"));
 // Disbursement Management
 // Report Management
 const TransactionReport = lazy(() => import("@food/pages/admin/reports/TransactionReport"));
@@ -134,7 +147,6 @@ const DiningList = lazy(() => import("@food/pages/admin/system/DiningList"));
 const DiningRequests = lazy(() => import("@food/pages/admin/system/DiningRequests"));
 const CustomizationSettings = lazy(() => import("@food/pages/admin/system/CustomizationSettings"));
 const ArchivedAccounts = lazy(() => import("@food/pages/admin/system/ArchivedAccounts"));
-const RestaurantSettings = lazy(() => import("@food/pages/admin/restaurant/RestaurantSettings"));
 const EditRestaurant = lazy(() => import("@food/pages/admin/restaurant/EditRestaurant"));
 const AdminLogin = lazy(() => import("@food/pages/admin/auth/AdminLogin"));
 const AdminSignup = lazy(() => import("@food/pages/admin/auth/AdminSignup"));
@@ -182,6 +194,7 @@ export default function AdminRouter() {
             <Route path="orders/payment-failed" element={<OrdersPage statusKey="payment-failed" />} />
             <Route path="orders/refunded" element={<OrdersPage statusKey="refunded" />} />
             <Route path="orders/offline-payments" element={<OrdersPage statusKey="offline-payments" />} />
+            <Route path="orders/user-carts" element={<UserCarts />} />
             <Route path="order-detect-delivery" element={<OrderDetectDelivery />} />
             <Route path="order-refunds/new" element={<NewRefundRequests />} />
 
@@ -197,6 +210,7 @@ export default function AdminRouter() {
             <Route path="restaurants/add" element={<AddRestaurant />} />
             <Route path="restaurants/edit/:id" element={<EditRestaurant />} />
             <Route path="restaurants/joining-request" element={<JoiningRequest />} />
+            <Route path="restaurants/unregistered" element={<UnregisteredRestaurants />} />
             <Route path="restaurants/top-restaurants" element={<TopRestaurants />} />
             <Route path="restaurants/commission" element={<RestaurantCommission />} />
             <Route path="restaurants/complaints" element={<RestaurantComplaints />} />
@@ -204,12 +218,13 @@ export default function AdminRouter() {
             <Route path="restaurants/bulk-import" element={<RestaurantsBulkImport />} />
             <Route path="restaurants/bulk-export" element={<RestaurantsBulkExport />} />
             <Route path="restaurants/settings" element={<RestaurantSettings />} />
+            <Route path="restaurants/subscription-settings" element={<SubscriptionSettings />} />
+            <Route path="restaurants/subscription-history" element={<SubscriptionHistory />} />
 
             {/* FOOD & CATEGORY MANAGEMENT */}
             <Route path="categories" element={<Category />} />
             <Route path="fee-settings" element={<FeeSettings />} />
-            {/* TODO: Referral feature temporarily disabled. Uncomment to re-enable in future. */}
-            {/* <Route path="referral-settings" element={<ReferralSettings />} /> */}
+            <Route path="referral-settings" element={<ReferralSettings />} />
             <Route path="foods" element={<FoodsList />} />
             <Route path="food/list" element={<FoodsList />} />
             <Route path="pricing" element={<PricingManagement />} />
@@ -246,14 +261,22 @@ export default function AdminRouter() {
             <Route path="delivery-boy-wallet" element={<DeliveryBoyWallet />} />
             <Route path="delivery-emergency-help" element={<DeliveryEmergencyHelp />} />
             <Route path="delivery-support-tickets" element={<DeliverySupportTickets />} />
+            <Route path="delivery-order-reassignment-requests" element={<OrderReassignmentRequests />} />
             <Route path="delivery-partners" element={<DeliverymanList />} />
             <Route path="delivery-partners/add" element={<AddDeliveryman />} />
             <Route path="delivery-partners/join-request" element={<JoinRequest />} />
+            <Route path="delivery-partners/live-tracking" element={<DeliveryLiveTracking />} />
             <Route path="delivery-partners/reviews" element={<DeliverymanReviews />} />
             <Route path="delivery-partners/bonus" element={<DeliverymanBonus />} />
+            <Route path="delivery-partners/target-bonus-rules" element={<TargetBonusRules />} />
+            <Route path="delivery-partners/eligible-bonuses" element={<EligibleBonuses />} />
             <Route path="delivery-partners/earning-addon" element={<EarningAddon />} />
             <Route path="delivery-partners/earning-addon-history" element={<EarningAddonHistory />} />
             <Route path="delivery-partners/earnings" element={<DeliveryEarnings />} />
+
+            {/* SUPER POWERS */}
+            <Route path="feature-settings" element={<FeatureSettings />} />
+            <Route path="power-scanning" element={<PowerScanning />} />
 
 
             {/* REPORTS & SETTINGS */}

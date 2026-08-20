@@ -195,7 +195,7 @@ export default function Dining() {
         const heroBanners = Array.isArray(bannerResponse?.data?.data?.banners)
           ? bannerResponse.data.data.banners
               .map((banner, index) => {
-                const imageUrl = String(banner?.imageUrl || "").trim()
+                const imageUrl = String(banner?.imageUrl || banner?.image || "").trim()
                 if (!imageUrl) return null
 
                 return {
@@ -203,6 +203,8 @@ export default function Dining() {
                   imageUrl,
                   tagline: String(banner?.title || banner?.tagline || "").trim(),
                   promoCode: String(banner?.ctaText || banner?.promoCode || "").trim(),
+                  ctaLink: String(banner?.ctaLink || banner?.link || "").trim(),
+                  isVideo: Boolean(imageUrl.match(/\.(mp4|webm|mov|m4v|avi)(\?.*)?$/i) || banner?.mediaType === 'video'),
                 }
               })
               .filter(Boolean)
@@ -601,30 +603,63 @@ export default function Dining() {
                 style={{ transform: `translateX(-${currentBannerIndex * 100}%)` }}
               >
                 {diningHeroBanners.map((banner, index) => (
-                  <div key={banner.id} className="relative h-full w-full shrink-0">
-                    <OptimizedImage
-                      src={banner.imageUrl}
-                      alt={`Dining Banner ${index + 1}`}
-                      className="w-full h-full"
-                      objectFit="cover"
-                      priority={index === 0}
-                      sizes="100vw"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/25 to-transparent" />
-                    <div className="absolute inset-x-0 bottom-0 p-4 sm:p-5 md:p-6 lg:p-8">
-                      <div className="max-w-[75%] rounded-2xl bg-black/20 px-3 py-3 text-white backdrop-blur-sm sm:px-4 md:px-5">
-                        {banner.promoCode && (
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-white/85 sm:text-xs">
-                            {banner.promoCode}
-                          </p>
-                        )}
-                        {banner.tagline && (
-                          <h2 className="mt-2 text-lg font-bold leading-tight sm:text-2xl md:text-3xl">
-                            {banner.tagline}
-                          </h2>
-                        )}
+                  <div 
+                    key={banner.id} 
+                    className={`relative h-full w-full shrink-0 ${banner.ctaLink ? 'cursor-pointer' : ''}`}
+                    onClick={() => {
+                      if (!banner.ctaLink) return;
+                      let target = String(banner.ctaLink).trim();
+                      if (target.startsWith('http://') || target.startsWith('https://')) {
+                        try {
+                          const urlObj = new URL(target);
+                          target = urlObj.pathname + urlObj.search + urlObj.hash;
+                        } catch {}
+                      }
+                      if (!target.startsWith('/')) {
+                        target = `/${target}`;
+                      }
+                      if (!target.startsWith('/food') && !target.startsWith('/admin') && !target.startsWith('/restaurant')) {
+                        target = `/food${target}`;
+                      }
+                      navigate(target);
+                    }}
+                  >
+                    {banner.isVideo ? (
+                      <video 
+                        src={banner.imageUrl} 
+                        autoPlay 
+                        loop 
+                        muted 
+                        playsInline 
+                        className="w-full h-full object-cover" 
+                      />
+                    ) : (
+                      <OptimizedImage
+                        src={banner.imageUrl}
+                        alt={`Dining Banner ${index + 1}`}
+                        className="w-full h-full"
+                        objectFit="cover"
+                        priority={index === 0}
+                        sizes="100vw"
+                      />
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/25 to-transparent pointer-events-none" />
+                    {(banner.promoCode || banner.tagline) && (
+                      <div className="absolute inset-x-0 bottom-0 p-4 sm:p-5 md:p-6 lg:p-8 pointer-events-none">
+                        <div className="max-w-[75%] rounded-2xl bg-black/20 px-3 py-3 text-white backdrop-blur-sm sm:px-4 md:px-5">
+                          {banner.promoCode && (
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-white/85 sm:text-xs">
+                              {banner.promoCode}
+                            </p>
+                          )}
+                          {banner.tagline && (
+                            <h2 className="mt-2 text-lg font-bold leading-tight sm:text-2xl md:text-3xl">
+                              {banner.tagline}
+                            </h2>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 ))}
               </div>
