@@ -20,22 +20,32 @@ const toObjectIdArray = (values) =>
         )
     ).map((value) => new mongoose.Types.ObjectId(value));
 
-async function syncRestaurantDiningSettings(restaurantId, diningDoc) {
+async function syncRestaurantDiningSettings(restaurantId, diningDoc, extraUpdates = {}) {
     const primaryCategory = diningDoc?.primaryCategoryId
         ? await FoodDiningCategory.findById(diningDoc.primaryCategoryId).select('slug').lean()
         : null;
 
+    const setObj = {
+        'diningSettings.isEnabled': Boolean(diningDoc?.isEnabled),
+        'diningSettings.maxGuests': Math.max(1, Number(diningDoc?.maxGuests) || 6),
+        'diningSettings.diningType': primaryCategory?.slug || 'family-dining'
+    };
+
+    if (extraUpdates.coverImage) {
+        setObj.coverImage = extraUpdates.coverImage;
+        setObj.coverImages = [{ url: extraUpdates.coverImage }, extraUpdates.coverImage];
+        setObj['diningSettings.coverImage'] = extraUpdates.coverImage;
+    }
+    if (extraUpdates.costForTwo !== undefined) {
+        setObj.costForTwo = extraUpdates.costForTwo;
+    }
+    if (extraUpdates.offer !== undefined) {
+        setObj.offer = extraUpdates.offer;
+    }
+
     await FoodRestaurant.findByIdAndUpdate(
         restaurantId,
-        {
-            $set: {
-                diningSettings: {
-                    isEnabled: Boolean(diningDoc?.isEnabled),
-                    maxGuests: Math.max(1, Number(diningDoc?.maxGuests) || 6),
-                    diningType: primaryCategory?.slug || 'family-dining'
-                }
-            }
-        },
+        { $set: setObj },
         { new: false }
     );
 }
@@ -362,7 +372,11 @@ export async function updateDiningRestaurant(restaurantId, body = {}) {
 
     await diningDoc.save();
     await syncCategoryRestaurantLinks(restaurant._id, validCategoryIds);
-    await syncRestaurantDiningSettings(restaurant._id, diningDoc);
+    await syncRestaurantDiningSettings(restaurant._id, diningDoc, {
+        coverImage: body.coverImage || body.imageUrl || body.image,
+        costForTwo: body.costForTwo,
+        offer: body.offer,
+    });
 
     const categoryLookupIds = diningDoc.categoryIds || [];
     const categories = categoryLookupIds.length
@@ -389,21 +403,13 @@ export async function listDiningRestaurantsPublic(query = {}) {
     const categoryValue = String(query.category || '').trim();
     const cityValue = String(query.city || '').trim();
 
-    // 1. Build the base filter for FoodRestaurant
+    // 1. Base filter: strictly only dining-enabled and approved restaurants
     const restaurantFilter = {
         'diningSettings.isEnabled': true,
         status: 'approved'
     };
 
-    // 2. Apply city filter if provided
-    if (cityValue) {
-        restaurantFilter.$or = [
-            { city: { $regex: cityValue, $options: 'i' } },
-            { 'location.city': { $regex: cityValue, $options: 'i' } }
-        ];
-    }
-
-    // 3. Apply category filter if provided
+    // 2. Category filter if provided
     if (categoryValue) {
         const category = await FoodDiningCategory.findOne({
             $or: [
@@ -412,18 +418,39 @@ export async function listDiningRestaurantsPublic(query = {}) {
             ].filter(Boolean)
         }).lean();
 
-        if (!category) {
-            return [];
+        if (category) {
+            restaurantFilter._id = { $in: category.restaurantIds || [] };
         }
-        restaurantFilter._id = { $in: category.restaurantIds || [] };
     }
 
-    // 4. Fetch restaurants (hard-capped)
+    // 3. City/location filter if provided
+    if (cityValue) {
+        restaurantFilter.$or = [
+            { city: { $regex: cityValue, $options: 'i' } },
+            { 'location.city': { $regex: cityValue, $options: 'i' } },
+            { area: { $regex: cityValue, $options: 'i' } },
+            { 'location.area': { $regex: cityValue, $options: 'i' } },
+            { 'location.formattedAddress': { $regex: cityValue, $options: 'i' } }
+        ];
+    }
+
+    // 4. Fetch restaurants
     const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 100);
-    const restaurants = await FoodRestaurant.find(restaurantFilter)
+    let restaurants = await FoodRestaurant.find(restaurantFilter)
+        .sort({ rating: -1, updatedAt: -1 })
         .select('restaurantName restaurantNameNormalized ownerName ownerPhone profileImage coverImages menuImages cuisines location area city status rating diningSettings estimatedDeliveryTime estimatedDeliveryTimeMinutes featuredDish featuredPrice offer openingTime closingTime openDays isAcceptingOrders costForTwo pureVegRestaurant')
         .limit(limit)
         .lean();
+
+    // Fallback if strict location yielded 0 results
+    if (restaurants.length === 0 && cityValue) {
+        delete restaurantFilter.$or;
+        restaurants = await FoodRestaurant.find(restaurantFilter)
+            .sort({ rating: -1, updatedAt: -1 })
+            .select('restaurantName restaurantNameNormalized ownerName ownerPhone profileImage coverImages menuImages cuisines location area city status rating diningSettings estimatedDeliveryTime estimatedDeliveryTimeMinutes featuredDish featuredPrice offer openingTime closingTime openDays isAcceptingOrders costForTwo pureVegRestaurant')
+            .limit(limit)
+            .lean();
+    }
 
     if (restaurants.length === 0) {
         return [];
@@ -431,11 +458,11 @@ export async function listDiningRestaurantsPublic(query = {}) {
 
     const restaurantIds = restaurants.map(r => r._id);
 
-    // 5. Fetch dining metadata from FoodDiningRestaurant for these restaurants
+    // 5. Fetch dining metadata from FoodDiningRestaurant
     const diningMetadata = await FoodDiningRestaurant.find({
         restaurantId: { $in: restaurantIds }
     })
-    .select('restaurantId categoryIds maxGuests pureVegRestaurant')
+    .select('restaurantId categoryIds maxGuests pureVegRestaurant primaryCategoryId')
     .populate('categoryIds', 'name slug imageUrl')
     .limit(limit)
     .lean();
@@ -456,8 +483,199 @@ export async function listDiningRestaurantsPublic(query = {}) {
                 isEnabled: true,
                 maxGuests: Math.max(1, Number(meta?.maxGuests || r.diningSettings?.maxGuests) || 6),
                 pureVegRestaurant: r.pureVegRestaurant === true || meta?.pureVegRestaurant === true,
-                diningType: meta?.categoryIds?.[0]?.slug || r.diningSettings?.diningType || 'family-dining'
+                diningType: meta?.categoryIds?.[0]?.slug || r.diningSettings?.diningType || 'family-dining',
+                costForTwo: r.diningSettings?.costForTwo || r.costForTwo || '₹600 for two',
+                offer: r.diningSettings?.offer || r.offer || '',
+                coverImage: r.diningSettings?.coverImage || r.coverImages?.[0]?.url || r.profileImage || '',
             }
         };
     });
+}
+
+export async function listDiningRequestsAdmin(query = {}) {
+    const filter = {
+        'diningSettings.requestStatus': 'pending'
+    };
+
+    const requests = await FoodRestaurant.find(filter)
+        .sort({ 'diningSettings.requestedAt': -1, updatedAt: -1 })
+        .select('restaurantName ownerName ownerPhone ownerEmail profileImage coverImages location area city rating diningSettings cuisines costForTwo offer pureVegRestaurant')
+        .lean();
+
+    return requests;
+}
+
+export async function approveDiningRequestAdmin(restaurantId, body = {}) {
+    if (!mongoose.Types.ObjectId.isValid(restaurantId)) return null;
+
+    const restaurant = await FoodRestaurant.findById(restaurantId);
+    if (!restaurant) return null;
+
+    const currentDiningSettings = restaurant.diningSettings || {};
+
+    const maxGuests = Math.max(1, parseInt(body.maxGuests ?? currentDiningSettings.maxGuests ?? 6, 10) || 6);
+    const diningType = String(body.diningType ?? currentDiningSettings.diningType ?? 'family-dining').trim() || 'family-dining';
+    const costForTwo = String(body.costForTwo ?? currentDiningSettings.costForTwo ?? '').trim();
+    const offer = String(body.offer ?? currentDiningSettings.offer ?? '').trim();
+    const coverImage = String(body.coverImage ?? currentDiningSettings.coverImage ?? '').trim();
+    const coverImages = Array.isArray(body.coverImages) && body.coverImages.length > 0
+        ? body.coverImages
+        : (coverImage ? [{ url: coverImage }] : (currentDiningSettings.coverImages || []));
+
+    // 1. Update Restaurant Document
+    restaurant.diningSettings = {
+        ...currentDiningSettings,
+        isEnabled: true,
+        isApproved: true,
+        requestStatus: 'approved',
+        reviewedAt: new Date(),
+        rejectionReason: '',
+        maxGuests,
+        diningType,
+        costForTwo,
+        offer,
+        coverImage,
+        coverImages
+    };
+
+    if (costForTwo) restaurant.costForTwo = costForTwo;
+    if (offer) restaurant.offer = offer;
+
+    await restaurant.save();
+
+    // 2. Sync to FoodDiningRestaurant
+    try {
+        let diningDoc = await FoodDiningRestaurant.findOne({ restaurantId });
+        if (!diningDoc) {
+            diningDoc = new FoodDiningRestaurant({
+                restaurantId,
+                pureVegRestaurant: restaurant.pureVegRestaurant === true
+            });
+        }
+        diningDoc.isEnabled = true;
+        diningDoc.maxGuests = maxGuests;
+        diningDoc.pureVegRestaurant = restaurant.pureVegRestaurant === true;
+
+        // Try to link primary category by slug
+        if (diningType) {
+            const category = await FoodDiningCategory.findOne({ slug: diningType.toLowerCase() }).select('_id').lean();
+            if (category) {
+                diningDoc.primaryCategoryId = category._id;
+                diningDoc.categoryIds = [category._id];
+                await syncCategoryRestaurantLinks(restaurantId, [category._id]);
+            }
+        }
+        await diningDoc.save();
+    } catch (syncErr) {
+        console.warn('[DINING_APPROVE_SYNC_WARN]', syncErr?.message);
+    }
+
+    // 3. Notify Restaurant Owner
+    try {
+        const { FoodNotification } = await import('../../../../core/notifications/models/notification.model.js');
+        const { getIO, rooms } = await import('../../../../config/socket.js');
+        const { notifyOwnerSafely } = await import('../../../../core/notifications/firebase.service.js');
+        const io = getIO();
+
+        if (io) {
+            io.to(rooms.restaurant(restaurantId)).emit('dining_request_approved', {
+                restaurantId,
+                restaurantName: restaurant.restaurantName,
+                diningSettings: restaurant.diningSettings
+            });
+        }
+
+        await FoodNotification.create({
+            ownerType: 'RESTAURANT',
+            ownerId: restaurant._id,
+            title: 'Dining Activation Approved! 🎉',
+            message: `Congratulations! Your dining feature has been approved by admin and is now LIVE for table bookings.`,
+            link: '/food/restaurant/dining-reservations',
+            category: 'dining',
+            source: 'ADMIN_BROADCAST',
+            metadata: {
+                restaurantId,
+                approvedAt: new Date()
+            }
+        });
+
+        await notifyOwnerSafely({
+            ownerType: 'RESTAURANT',
+            ownerId: restaurantId,
+            payload: {
+                title: 'Dining Approved! 🎉',
+                body: 'Your restaurant is now active and live on Eatiefy Dining for table reservations.',
+                data: {
+                    type: 'dining_activation_approved',
+                    restaurantId: String(restaurantId)
+                }
+            }
+        });
+    } catch (notifErr) {
+        console.warn('[DINING_NOTIF_WARN]', notifErr?.message);
+    }
+
+    return restaurant;
+}
+
+export async function rejectDiningRequestAdmin(restaurantId, reason = '') {
+    if (!mongoose.Types.ObjectId.isValid(restaurantId)) return null;
+
+    const restaurant = await FoodRestaurant.findById(restaurantId);
+    if (!restaurant) return null;
+
+    const currentDiningSettings = restaurant.diningSettings || {};
+
+    restaurant.diningSettings = {
+        ...currentDiningSettings,
+        isEnabled: false,
+        isApproved: false,
+        requestStatus: 'rejected',
+        rejectionReason: String(reason || '').trim(),
+        reviewedAt: new Date()
+    };
+
+    await restaurant.save();
+
+    // Disable in FoodDiningRestaurant
+    try {
+        await FoodDiningRestaurant.findOneAndUpdate(
+            { restaurantId },
+            { $set: { isEnabled: false } }
+        );
+    } catch {}
+
+    // Notify Restaurant
+    try {
+        const { FoodNotification } = await import('../../../../core/notifications/models/notification.model.js');
+        const { getIO, rooms } = await import('../../../../config/socket.js');
+        const io = getIO();
+
+        if (io) {
+            io.to(rooms.restaurant(restaurantId)).emit('dining_request_rejected', {
+                restaurantId,
+                reason,
+                diningSettings: restaurant.diningSettings
+            });
+        }
+
+        await FoodNotification.create({
+            ownerType: 'RESTAURANT',
+            ownerId: restaurant._id,
+            title: 'Dining Activation Update',
+            message: `Your dining activation request was not approved: ${reason || 'Please update your details and re-apply.'}`,
+            link: '/food/restaurant/dining-reservations',
+            category: 'dining',
+            source: 'ADMIN_BROADCAST',
+            metadata: {
+                restaurantId,
+                reason,
+                rejectedAt: new Date()
+            }
+        });
+    } catch (notifErr) {
+        console.warn('[DINING_NOTIF_WARN]', notifErr?.message);
+    }
+
+    return restaurant;
 }

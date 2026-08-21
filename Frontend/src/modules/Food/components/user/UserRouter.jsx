@@ -90,30 +90,37 @@ const Wallet = lazy(() => import("@food/pages/user/Wallet"))
 
 // Complaints
 const SubmitComplaint = lazy(() => import("@food/pages/user/complaints/SubmitComplaint"))
+import { isFeatureEnabled } from "@food/services/publicAppConfig"
 
 export default function UserRouter() {
+  const diningEnabled = isFeatureEnabled("dining_control", true)
+
   return (
     <Suspense fallback={<Loader />}>
       <Routes>
         <Route element={<UserLayout />}>
           {/* Home & Discovery */}
           <Route path="" element={<Home />} />
-          <Route path="dining" element={<Dining />} />
-          <Route path="dining/restaurants" element={<DiningRestaurants />} />
-          <Route path="dining/:category" element={<DiningCategory />} />
-          <Route path="dining/explore/upto50" element={<DiningExplore50 />} />
-          <Route path="dining/explore/near-rated" element={<DiningExploreNear />} />
-          <Route path="dining/coffee" element={<Coffee />} />
-          <Route path="dining/:diningType/:slug" element={<DiningRestaurantDetails />} />
-          <Route path="dining/book/:slug" element={<TableBooking />} />
-          <Route path="dining/book-confirmation" element={<TableBookingConfirmation />} />
-          <Route path="dining/book-success" element={<TableBookingSuccess />} />
+          <Route path="dining" element={diningEnabled ? <Dining /> : <Navigate to="/food/user" replace />} />
+          <Route path="dining/restaurants" element={diningEnabled ? <DiningRestaurants /> : <Navigate to="/food/user" replace />} />
+          <Route path="dining/:category" element={diningEnabled ? <DiningCategory /> : <Navigate to="/food/user" replace />} />
+          <Route path="dining/explore/upto50" element={diningEnabled ? <DiningExplore50 /> : <Navigate to="/food/user" replace />} />
+          <Route path="dining/explore/near-rated" element={diningEnabled ? <DiningExploreNear /> : <Navigate to="/food/user" replace />} />
+          <Route path="dining/coffee" element={diningEnabled ? <Coffee /> : <Navigate to="/food/user" replace />} />
+          <Route path="dining/:diningType/:slug" element={diningEnabled ? <DiningRestaurantDetails /> : <Navigate to="/food/user" replace />} />
+          <Route path="dining/book/:slug" element={diningEnabled ? <TableBooking /> : <Navigate to="/food/user" replace />} />
+          <Route path="dining/book-confirmation" element={diningEnabled ? <TableBookingConfirmation /> : <Navigate to="/food/user" replace />} />
+          <Route path="dining/book-success" element={diningEnabled ? <TableBookingSuccess /> : <Navigate to="/food/user" replace />} />
           <Route
             path="bookings"
             element={
-              <ProtectedRoute requiredRole="user" loginPath="/food/user/auth/login">
-                <MyBookings />
-              </ProtectedRoute>
+              diningEnabled ? (
+                <ProtectedRoute requiredRole="user" loginPath="/food/user/auth/login">
+                  <MyBookings />
+                </ProtectedRoute>
+              ) : (
+                <Navigate to="/food/user" replace />
+              )
             }
           />
           <Route path="under-250" element={<Under250 />} />

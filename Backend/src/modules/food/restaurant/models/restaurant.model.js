@@ -260,8 +260,22 @@ const restaurantSchema = new mongoose.Schema(
     totalRatings: { type: Number, default: 0, min: 0 },
     diningSettings: {
       isEnabled: { type: Boolean, default: false },
+      isApproved: { type: Boolean, default: false },
+      requestStatus: {
+        type: String,
+        enum: ["none", "pending", "approved", "rejected"],
+        default: "none",
+      },
+      requestedAt: { type: Date, default: null },
+      reviewedAt: { type: Date, default: null },
+      rejectionReason: { type: String, default: "" },
+      notes: { type: String, default: "" },
       maxGuests: { type: Number, default: 6 },
       diningType: { type: String, default: "family-dining" },
+      costForTwo: { type: String, default: "" },
+      offer: { type: String, default: "" },
+      coverImage: { type: String, default: "" },
+      coverImages: { type: Array, default: [] },
     },
     menu: {
       sections: { type: Array, default: [] },

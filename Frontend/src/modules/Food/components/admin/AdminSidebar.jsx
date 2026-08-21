@@ -58,6 +58,7 @@ import { filterSidebarMenuByPermissions } from "@food/utils/subAdminPermissions"
 import { getCurrentUser } from "@food/utils/auth"
 import { adminAPI } from "@food/api"
 import { dispatchAdminNotificationsUpdated } from "@food/hooks/useAdminNotifications"
+import { isFeatureEnabled } from "@food/services/publicAppConfig"
 import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -432,13 +433,30 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
   // expandedSections state is initialized above in getInitialStates consolidation
 
 
+  const [featureVersion, setFeatureVersion] = useState(0)
+
+  useEffect(() => {
+    const handleFeatureUpdate = () => {
+      setFeatureVersion((v) => v + 1)
+    }
+    window.addEventListener("adminFeatureSettingUpdated", handleFeatureUpdate)
+    return () => window.removeEventListener("adminFeatureSettingUpdated", handleFeatureUpdate)
+  }, [])
+
   // Permission-filtered base menu (full ADMIN sees all; SUB_ADMIN sees allowed only)
   // Do NOT depend on location.pathname — remounting menu on every route break expandable submenus.
   const adminUser = getCurrentUser("admin")
   const permissionSyncKey = `${adminUser?.role || ""}:${JSON.stringify(adminUser?.permissions || {})}`
   const permissionMenuData = useMemo(() => {
-    return filterSidebarMenuByPermissions(adminSidebarMenu, getCurrentUser("admin"))
-  }, [permissionSyncKey])
+    const baseMenu = filterSidebarMenuByPermissions(adminSidebarMenu, getCurrentUser("admin"))
+    const diningEnabled = isFeatureEnabled("dining_control", true)
+    return baseMenu.filter((item) => {
+      if (item.type === "section" && item.label === "DINING MANAGEMENT" && !diningEnabled) {
+        return false
+      }
+      return true
+    })
+  }, [permissionSyncKey, featureVersion])
 
   // Filter menu items based on search query
   const filteredMenuData = useMemo(() => {

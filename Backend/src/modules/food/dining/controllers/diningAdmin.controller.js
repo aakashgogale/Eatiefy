@@ -75,3 +75,45 @@ export async function updateDiningRestaurant(req, res, next) {
         next(error);
     }
 }
+
+export async function getDiningRequests(req, res, next) {
+    try {
+        const requests = await diningService.listDiningRequestsAdmin(req.query || {});
+        res.status(200).json({ success: true, message: 'Dining activation requests fetched successfully', data: requests });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function approveDiningRequest(req, res, next) {
+    try {
+        const { restaurantId } = req.params;
+        if (!mongoose.Types.ObjectId.isValid(restaurantId)) {
+            return res.status(400).json({ success: false, message: 'Invalid restaurant id' });
+        }
+        const restaurant = await diningService.approveDiningRequestAdmin(restaurantId, req.body || {});
+        if (!restaurant) {
+            return res.status(404).json({ success: false, message: 'Restaurant not found' });
+        }
+        res.status(200).json({ success: true, message: 'Dining activation request approved successfully', data: { restaurant } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function rejectDiningRequest(req, res, next) {
+    try {
+        const { restaurantId } = req.params;
+        if (!mongoose.Types.ObjectId.isValid(restaurantId)) {
+            return res.status(400).json({ success: false, message: 'Invalid restaurant id' });
+        }
+        const reason = req.body?.reason || req.body?.rejectionReason || '';
+        const restaurant = await diningService.rejectDiningRequestAdmin(restaurantId, reason);
+        if (!restaurant) {
+            return res.status(404).json({ success: false, message: 'Restaurant not found' });
+        }
+        res.status(200).json({ success: true, message: 'Dining activation request rejected', data: { restaurant } });
+    } catch (error) {
+        next(error);
+    }
+}

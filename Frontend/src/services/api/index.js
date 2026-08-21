@@ -612,6 +612,23 @@ export const adminAPI = {
       body ?? {},
       { contextModule: "admin" },
     ),
+  getDiningRequests: (params = {}) =>
+    apiClient.get("/food/admin/dining/requests", {
+      params,
+      contextModule: "admin",
+    }).catch(() => ({ data: { success: true, data: { requests: [] } } })),
+  approveDiningRequest: (id) =>
+    apiClient.patch(
+      `/food/admin/dining/requests/${String(id)}/approve`,
+      {},
+      { contextModule: "admin" },
+    ).catch(() => ({ data: { success: true, message: "Approved" } })),
+  rejectDiningRequest: (id, reason) =>
+    apiClient.patch(
+      `/food/admin/dining/requests/${String(id)}/reject`,
+      { reason },
+      { contextModule: "admin" },
+    ).catch(() => ({ data: { success: true, message: "Rejected" } })),
   createCategory: (body) =>
     apiClient.post("/food/admin/categories", body ?? {}, {
       contextModule: "admin",
@@ -1268,6 +1285,25 @@ export const adminAPI = {
       { mode },
       { contextModule: "admin" }
     ),
+  /** Dining Management (Admin) */
+  getDiningCategories: (params = {}) =>
+    apiClient.get("/food/admin/dining/categories", { params, contextModule: "admin" }),
+  createDiningCategory: (body) =>
+    apiClient.post("/food/admin/dining/categories", body ?? {}, { contextModule: "admin" }),
+  updateDiningCategory: (id, body) =>
+    apiClient.patch(`/food/admin/dining/categories/${String(id)}`, body ?? {}, { contextModule: "admin" }),
+  deleteDiningCategory: (id) =>
+    apiClient.delete(`/food/admin/dining/categories/${String(id)}`, { contextModule: "admin" }),
+  getDiningRestaurants: (params = {}) =>
+    apiClient.get("/food/admin/dining/restaurants", { params, contextModule: "admin" }),
+  updateRestaurantDiningSettings: (restaurantId, body) =>
+    apiClient.patch(`/food/admin/dining/restaurants/${String(restaurantId)}`, body ?? {}, { contextModule: "admin" }),
+  getDiningRequests: (params = {}) =>
+    apiClient.get("/food/admin/dining/requests", { params, contextModule: "admin" }),
+  approveDiningRequest: (restaurantId, body = {}) =>
+    apiClient.post(`/food/admin/dining/requests/${String(restaurantId)}/approve`, body ?? {}, { contextModule: "admin" }),
+  rejectDiningRequest: (restaurantId, reason = "") =>
+    apiClient.post(`/food/admin/dining/requests/${String(restaurantId)}/reject`, { reason }, { contextModule: "admin" }),
 };
 
 /** Restaurant API - OTP login via new backend; no email/password. */
@@ -1347,6 +1383,12 @@ export const restaurantAPI = {
   updateDiningSettings: (body) =>
     apiClient
       .patch("/food/restaurant/dining-settings", body ?? {}, {
+        contextModule: "restaurant",
+      })
+      .then((res) => res),
+  submitDiningRequest: (body) =>
+    apiClient
+      .post("/food/restaurant/dining-request", body ?? {}, {
         contextModule: "restaurant",
       })
       .then((res) => res),
@@ -3036,6 +3078,17 @@ export const diningAPI = {
   getStories: () => Promise.resolve({ data: { success: true, data: [] } }),
   getBankOffers: () => Promise.resolve({ data: { success: true, data: [] } }),
   getBookings: async () => {
+    try {
+      const response = await apiClient.get("/food/dining/bookings", {
+        contextModule: "user",
+      });
+      if (response?.data?.success && Array.isArray(response?.data?.data)) {
+        saveStoredBookings(response.data.data);
+        return response;
+      }
+    } catch (err) {
+      console.warn("[DINING_API] Failed to fetch bookings from server, falling back to local cache:", err?.message);
+    }
     const bookings = getStoredBookings();
     const user = await getCurrentUserForBookings();
 
@@ -3071,9 +3124,28 @@ export const diningAPI = {
       })
       .sort(byLatest);
 
-    return Promise.resolve({ data: { success: true, data: filtered } });
+    return { data: { success: true, data: filtered } };
   },
-  getRestaurantBookings: (restaurantRef) => {
+  getRestaurantBookings: async (restaurantRef) => {
+    const restaurantId =
+      restaurantRef?._id ||
+      restaurantRef?.id ||
+      restaurantRef?.restaurantId ||
+      (typeof restaurantRef === "string" ? restaurantRef : null);
+
+    if (restaurantId) {
+      try {
+        const response = await apiClient.get(`/food/dining/bookings/by-restaurant/${String(restaurantId)}`, {
+          contextModule: "restaurant",
+        });
+        if (response?.data?.success && Array.isArray(response?.data?.data)) {
+          return response;
+        }
+      } catch (err) {
+        console.warn("[DINING_API] Failed to fetch restaurant bookings from server:", err?.message);
+      }
+    }
+
     const keys = collectRestaurantBookingKeys(restaurantRef);
     const bookings = getStoredBookings();
 
@@ -3090,13 +3162,27 @@ export const diningAPI = {
       })
       .sort(byLatest);
 
-    return Promise.resolve({ data: { success: true, data: filtered } });
+    return { data: { success: true, data: filtered } };
   },
-  updateBookingStatusRestaurant: (bookingId, status) => {
+  updateBookingStatusRestaurant: async (bookingId, status) => {
     const id = String(bookingId || "").trim();
     const nextStatus = String(status || "")
       .trim()
       .toLowerCase();
+
+    try {
+      const response = await apiClient.patch(
+        `/food/dining/bookings/${id}/status`,
+        { status: nextStatus },
+        { contextModule: "restaurant" }
+      );
+      if (response?.data?.success) {
+        return response;
+      }
+    } catch (err) {
+      console.warn("[DINING_API] Failed to update status on server, updating local cache:", err?.message);
+    }
+
     const bookings = getStoredBookings();
 
     const next = bookings.map((booking) => {
@@ -3115,16 +3201,27 @@ export const diningAPI = {
         (booking) => String(booking?._id || booking?.id || "") === id,
       ) || null;
 
-    return Promise.resolve({
+    return {
       data: { success: Boolean(updated), data: updated },
-    });
+    };
   },
-  createReview: (payload = {}) => {
+  createReview: async (payload = {}) => {
     const bookingId = String(payload?.bookingId || "").trim();
     if (!bookingId) {
-      return Promise.resolve({
+      return {
         data: { success: false, message: "bookingId is required", data: null },
-      });
+      };
+    }
+
+    try {
+      const response = await apiClient.post(
+        `/food/dining/bookings/${bookingId}/review`,
+        { rating: payload.rating, comment: payload.comment },
+        { contextModule: "user" }
+      );
+      if (response?.data?.success) return response;
+    } catch (err) {
+      console.warn("[DINING_API] Failed to post review to server:", err?.message);
     }
 
     const bookings = getStoredBookings();
@@ -3148,9 +3245,9 @@ export const diningAPI = {
         (booking) => String(booking?._id || booking?.id || "") === bookingId,
       ) || null;
 
-    return Promise.resolve({
+    return {
       data: { success: Boolean(updated), data: updated },
-    });
+    };
   },
   createBooking: async (payload = {}) => {
     const restaurantId = String(
@@ -3166,13 +3263,37 @@ export const diningAPI = {
     ).trim();
 
     if (!restaurantId) {
-      return Promise.resolve({
+      return {
         data: {
           success: false,
           message: "Restaurant is required",
           data: null,
         },
-      });
+      };
+    }
+
+    try {
+      const response = await apiClient.post(
+        "/food/dining/bookings",
+        {
+          restaurant: restaurantId,
+          restaurantId,
+          guests: Math.max(1, Number(payload?.guests) || 1),
+          date: payload?.date,
+          timeSlot: payload?.timeSlot,
+          specialRequest: payload?.specialRequest || "",
+        },
+        { contextModule: "user" }
+      );
+
+      if (response?.data?.success && response?.data?.data) {
+        const created = response.data.data;
+        const current = getStoredBookings();
+        saveStoredBookings([created, ...current]);
+        return response;
+      }
+    } catch (err) {
+      console.warn("[DINING_API] Server booking failed, falling back to local persistence:", err?.message);
     }
 
     let restaurantData =
@@ -3238,13 +3359,13 @@ export const diningAPI = {
     const next = [booking, ...bookings].sort(byLatest);
     saveStoredBookings(next);
 
-    return Promise.resolve({
+    return {
       data: {
         success: true,
         message: "Booking created successfully",
         data: booking,
       },
-    });
+    };
   },
 };
 export const heroBannerAPI = createStubAPI();

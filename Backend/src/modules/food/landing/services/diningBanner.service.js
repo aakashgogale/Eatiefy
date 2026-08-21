@@ -80,6 +80,8 @@ export const updateDiningBannerLink = async (id, data = {}) => {
     if (data.title !== undefined) update.title = String(data.title || '').trim();
     if (data.ctaText !== undefined) update.ctaText = String(data.ctaText || '').trim();
     if (data.diningType !== undefined) update.diningType = data.diningType;
+    if (data.imageUrl !== undefined) update.imageUrl = String(data.imageUrl || '').trim();
+    if (data.publicId !== undefined) update.publicId = String(data.publicId || '').trim();
 
     const updated = await FoodDiningBanner.findByIdAndUpdate(
         id,

@@ -18,6 +18,16 @@ const diningBookingSchema = new mongoose.Schema(
             ref: 'FoodUser',
             required: true
         },
+        customerName: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        customerPhone: {
+            type: String,
+            default: '',
+            trim: true
+        },
         guests: {
             type: Number,
             required: true,

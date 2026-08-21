@@ -6,6 +6,7 @@ import {
     updateRestaurantProfile,
     updateRestaurantAcceptingOrders,
     updateCurrentRestaurantDiningSettings,
+    submitDiningActivationRequest,
     uploadRestaurantProfileImage,
     uploadRestaurantMenuImage,
     uploadRestaurantCoverImages,
@@ -108,6 +109,16 @@ export const updateCurrentRestaurantDiningSettingsController = async (req, res, 
         const restaurantId = req.user?.userId;
         const restaurant = await updateCurrentRestaurantDiningSettings(restaurantId, req.body || {});
         return sendResponse(res, 200, 'Dining settings updated successfully', { restaurant });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const submitDiningActivationRequestController = async (req, res, next) => {
+    try {
+        const restaurantId = req.user?.userId;
+        const restaurant = await submitDiningActivationRequest(restaurantId, req.body || {});
+        return sendResponse(res, 200, 'Dining activation request submitted successfully', { restaurant });
     } catch (error) {
         next(error);
     }

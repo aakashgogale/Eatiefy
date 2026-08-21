@@ -38,6 +38,7 @@ import { logoutRestaurantSession } from "@food/utils/restaurantLogout"
 import BottomNavOrders from "@food/components/restaurant/BottomNavOrders"
 import DeleteAccountModal from "@food/components/DeleteAccountModal"
 import { toast } from "sonner"
+import { isFeatureEnabled } from "@food/services/publicAppConfig"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -662,10 +663,11 @@ export default function ExploreMore() {
   }, [profileOpen, scheduleOffOpen, dateTimePickerOpen, successPopupOpen, existingScheduleOpen, searchOpen, logoutConfirmOpen, deleteModalOpen])
 
   // Section data
+  const diningEnabled = isFeatureEnabled("dining_control", true)
   const manageOutletItems = [
     { id: 1, label: "Outlet info", icon: Info, route: "/food/restaurant/outlet-info" },
     { id: 2, label: "Outlet timings", icon: Clock, route: "/food/restaurant/outlet-timings" },
-    // { id: 3, label: "Dining Reservations", icon: Calendar, route: "/food/restaurant/reservations" }, // Hidden from UI for now
+    ...(diningEnabled ? [{ id: 3, label: "Dining Reservations", icon: Calendar, route: "/food/restaurant/reservations" }] : []),
     { id: 4, label: "Menu categories", icon: Settings, route: "/food/restaurant/menu-categories" },
     { id: "coupons-nav", label: "Offers & Coupons", icon: FileCheck, route: "/food/restaurant/coupon" },
   ]

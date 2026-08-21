@@ -93,6 +93,16 @@ export default function DiningReservations() {
     const [savingDiningSettings, setSavingDiningSettings] = useState(false)
     const [diningSettingsMessage, setDiningSettingsMessage] = useState("")
     const [diningSettingsError, setDiningSettingsError] = useState("")
+    const [isApplyModalOpen, setIsApplyModalOpen] = useState(false)
+    const [submittingApply, setSubmittingApply] = useState(false)
+    const [applyForm, setApplyForm] = useState({
+        coverImage: "",
+        costForTwo: "",
+        offer: "",
+        diningType: "family-dining",
+        maxGuests: 6,
+        notes: "",
+    })
 
     const syncRestaurantMediaState = (restaurantData) => {
         setRestaurant(restaurantData || null)
@@ -103,6 +113,32 @@ export default function DiningReservations() {
         setMenuPhotos(getMenuImages(restaurantData))
         setDiningEnabled(Boolean(restaurantData?.diningSettings?.isEnabled))
         setMaxGuestsLimit(Math.max(1, parseInt(restaurantData?.diningSettings?.maxGuests, 10) || 6))
+        setApplyForm({
+            coverImage: restaurantData?.diningSettings?.coverImage || coverImages[0]?.url || "",
+            costForTwo: restaurantData?.diningSettings?.costForTwo || restaurantData?.costForTwo || "",
+            offer: restaurantData?.diningSettings?.offer || restaurantData?.offer || "",
+            diningType: restaurantData?.diningSettings?.diningType || "family-dining",
+            maxGuests: restaurantData?.diningSettings?.maxGuests || 6,
+            notes: restaurantData?.diningSettings?.notes || "",
+        })
+    }
+
+    const handleApplySubmit = async (e) => {
+        if (e) e.preventDefault()
+        setSubmittingApply(true)
+        try {
+            const response = await restaurantAPI.submitDiningRequest(applyForm)
+            const updated = getRestaurantFromResponse(response)
+            if (updated) {
+                syncRestaurantMediaState(updated)
+            }
+            setIsApplyModalOpen(false)
+            toast.success("Dining activation request submitted for Admin review! 🍽️")
+        } catch (err) {
+            toast.error(err?.response?.data?.message || "Failed to submit dining request")
+        } finally {
+            setSubmittingApply(false)
+        }
     }
 
     useEffect(() => {
@@ -422,6 +458,77 @@ export default function DiningReservations() {
             </div>
 
             <div className="max-w-7xl mx-auto p-6">
+                {/* 1. Dining Application Status Banners */}
+                {restaurant?.diningSettings?.requestStatus === "pending" && (
+                    <div className="mb-6 rounded-3xl bg-gradient-to-r from-amber-500 to-orange-500 text-white p-6 shadow-lg shadow-orange-500/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center text-white flex-shrink-0">
+                                <Clock4 className="w-6 h-6" />
+                            </div>
+                            <div>
+                                <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-white/25 text-white tracking-wider mb-1">
+                                    Application Pending
+                                </span>
+                                <h3 className="text-base font-bold">Dining Activation Request is Under Review ⏳</h3>
+                                <p className="text-xs text-orange-100 mt-0.5">
+                                    Your dining application has been submitted to Eatiefy Admin. Once approved, your restaurant will automatically appear on the customer Dining app.
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => setIsApplyModalOpen(true)}
+                            className="px-5 py-2.5 text-xs font-bold text-[#EB590E] bg-white hover:bg-orange-50 rounded-xl transition-all shadow-sm active:scale-95 whitespace-nowrap"
+                        >
+                            Edit Proposal
+                        </button>
+                    </div>
+                )}
+
+                {restaurant?.diningSettings?.requestStatus === "rejected" && (
+                    <div className="mb-6 rounded-3xl bg-rose-50 border border-rose-200 p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-600 flex-shrink-0">
+                                <Info className="w-6 h-6" />
+                            </div>
+                            <div>
+                                <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-rose-100 text-rose-700 tracking-wider mb-1">
+                                    Action Required
+                                </span>
+                                <h3 className="text-base font-bold text-rose-900">Dining Activation Not Approved</h3>
+                                <p className="text-xs text-rose-700 mt-0.5">
+                                    {restaurant?.diningSettings?.rejectionReason ? `Reason: "${restaurant.diningSettings.rejectionReason}"` : "Please update your details with high-quality photos and re-apply."}
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => setIsApplyModalOpen(true)}
+                            className="px-5 py-2.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-all shadow-sm active:scale-95 whitespace-nowrap"
+                        >
+                            Re-Apply Now
+                        </button>
+                    </div>
+                )}
+
+                {(!restaurant?.diningSettings?.requestStatus || restaurant?.diningSettings?.requestStatus === "none") && !restaurant?.diningSettings?.isEnabled && (
+                    <div className="mb-6 rounded-3xl bg-gradient-to-r from-[#EB590E] to-[#FF8C38] text-white p-6 shadow-lg shadow-orange-500/15 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div>
+                            <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-white/20 text-white tracking-wider mb-1.5">
+                                Boost Your Orders
+                            </span>
+                            <h3 className="text-lg font-bold">Activate Eatiefy Dining for Table Bookings</h3>
+                            <p className="text-xs text-orange-100 mt-1 max-w-xl">
+                                Allow thousands of local food lovers to discover your restaurant ambience, view your menu, and book dining tables seamlessly.
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => setIsApplyModalOpen(true)}
+                            className="px-5 py-2.5 text-xs font-bold text-[#EB590E] bg-white hover:bg-orange-50 rounded-xl transition-all shadow-sm active:scale-95 whitespace-nowrap"
+                        >
+                            Apply for Dining Feature
+                        </button>
+                    </div>
+                )}
+
                 {/* Stats */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
                     <motion.div
@@ -988,6 +1095,141 @@ export default function DiningReservations() {
                     </div>
                 )}
             </div>
+
+            {/* Apply for Dining Feature Modal */}
+            {isApplyModalOpen && (
+                <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 flex flex-col max-h-[90vh]">
+                        {/* Modal Header */}
+                        <div className="px-6 py-4 bg-gradient-to-r from-orange-50 to-amber-50 border-b border-orange-100 flex items-center justify-between flex-shrink-0">
+                            <div>
+                                <h3 className="text-base font-bold text-slate-900">Apply for Dining Activation 🍽️</h3>
+                                <p className="text-xs text-slate-500">Submit dining details for Eatiefy Admin verification</p>
+                            </div>
+                            <button
+                                onClick={() => setIsApplyModalOpen(false)}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-white rounded-xl transition-colors"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <form onSubmit={handleApplySubmit} className="p-6 space-y-4 overflow-y-auto flex-1">
+                            {/* Ambience Cover Image URL / Preview */}
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1.5">Ambience Cover Photo</label>
+                                <div className="flex gap-3 items-center">
+                                    <div className="w-24 h-16 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden flex-shrink-0">
+                                        <img
+                                            src={applyForm.coverImage || restaurantPhoto || "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400"}
+                                            alt="Cover preview"
+                                            className="w-full h-full object-cover"
+                                        />
+                                    </div>
+                                    <div className="flex-1 space-y-1">
+                                        <input
+                                            type="text"
+                                            placeholder="Paste image URL (or upload below)"
+                                            value={applyForm.coverImage}
+                                            onChange={(e) => setApplyForm(prev => ({ ...prev, coverImage: e.target.value }))}
+                                            className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                        />
+                                        <p className="text-[10px] text-slate-400">High-resolution ambience photo attracts 3x more bookings.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Cost For Two & Offer Badge */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Cost for Two (₹)</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. ₹600 for two"
+                                        value={applyForm.costForTwo}
+                                        onChange={(e) => setApplyForm(prev => ({ ...prev, costForTwo: e.target.value }))}
+                                        className="w-full text-xs px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                        required
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Offer Badge (Optional)</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Flat 20% OFF"
+                                        value={applyForm.offer}
+                                        onChange={(e) => setApplyForm(prev => ({ ...prev, offer: e.target.value }))}
+                                        className="w-full text-xs px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Dining Type & Max Guests */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Dining Category</label>
+                                    <select
+                                        value={applyForm.diningType}
+                                        onChange={(e) => setApplyForm(prev => ({ ...prev, diningType: e.target.value }))}
+                                        className="w-full text-xs px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white"
+                                    >
+                                        <option value="family-dining">Family Dining</option>
+                                        <option value="fine-dining">Fine Dining</option>
+                                        <option value="luxury-dining">Luxury Dining</option>
+                                        <option value="cafe-bistro">Cafe & Bistro</option>
+                                        <option value="rooftop">Rooftop Lounge</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Max Table Guests</label>
+                                    <select
+                                        value={applyForm.maxGuests}
+                                        onChange={(e) => setApplyForm(prev => ({ ...prev, maxGuests: parseInt(e.target.value, 10) || 6 }))}
+                                        className="w-full text-xs px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white"
+                                    >
+                                        {[2, 4, 6, 8, 10, 12, 16, 20].map(n => (
+                                            <option key={n} value={n}>{n} Guests</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Proposal / Remarks for Admin */}
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1.5">Special Proposal / Notes for Admin</label>
+                                <textarea
+                                    rows={2.5}
+                                    placeholder="Tell admin about your seating capacity, special dining experience, or rooftop setup..."
+                                    value={applyForm.notes}
+                                    onChange={(e) => setApplyForm(prev => ({ ...prev, notes: e.target.value }))}
+                                    className="w-full text-xs p-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                />
+                            </div>
+
+                            {/* Modal Footer Buttons */}
+                            <div className="pt-3 flex items-center justify-end gap-2.5 border-t border-slate-100">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsApplyModalOpen(false)}
+                                    className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={submittingApply}
+                                    className="px-6 py-2.5 text-xs font-bold text-white bg-[#EB590E] hover:bg-[#D44D0A] rounded-xl transition-all shadow-md shadow-orange-500/20 disabled:opacity-50 flex items-center gap-1.5"
+                                >
+                                    {submittingApply ? "Submitting..." : "Submit Application"}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

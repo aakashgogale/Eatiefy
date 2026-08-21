@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { NavLink, useNavigate, useLocation } from "react-router-dom"
 import DynamicLogo from "@food/components/DynamicLogo"
 import {
@@ -26,10 +26,12 @@ import {
   Compass,
   Wallet,
   CreditCard,
+  Calendar,
 } from "lucide-react"
 import { restaurantAPI } from "@food/api"
 import { getCompanyName, getModuleLogoUrl, getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
 import { logoutRestaurantSession } from "@food/utils/restaurantLogout"
+import { isFeatureEnabled } from "@food/services/publicAppConfig"
 
 const BASE = "/food/restaurant"
 
@@ -56,6 +58,7 @@ const sections = [
     items: [
       { name: "Outlet info", path: `${BASE}/outlet-info`, icon: Info },
       { name: "Outlet timings", path: `${BASE}/outlet-timings`, icon: Clock },
+      { name: "Dining & Tables", path: `${BASE}/reservations`, icon: Calendar },
       { name: "Menu categories", path: `${BASE}/menu-categories`, icon: LayoutGrid },
       { name: "Offers & Coupons", path: `${BASE}/coupon`, icon: FileCheck },
     ],
@@ -230,6 +233,17 @@ export default function DesktopSidebar() {
     }
   }
 
+  const diningEnabled = isFeatureEnabled("dining_control", true)
+  const visibleSections = useMemo(() => {
+    return sections.map((section) => ({
+      ...section,
+      items: section.items.filter((item) => {
+        if (item.path.includes("/reservations") && !diningEnabled) return false
+        return true
+      }),
+    })).filter((section) => section.items.length > 0)
+  }, [diningEnabled])
+
   return (
     <aside className="hidden md:flex flex-col w-64 h-screen fixed left-0 top-0 bg-white border-r border-gray-100 shadow-[2px_0_10px_rgba(0,0,0,0.02)] z-50">
       <div className="p-5">
@@ -253,7 +267,7 @@ export default function DesktopSidebar() {
         className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pb-4 space-y-6 custom-scrollbar"
         style={{ overscrollBehavior: "contain" }}
       >
-        {sections.map((section) => (
+        {visibleSections.map((section) => (
           <div key={section.title}>
             <h3 className="text-[11px] font-bold text-gray-400 mb-2 uppercase tracking-wider px-2">
               {section.title}

@@ -91,9 +91,13 @@ export function PublicAppConfigProvider({ children }) {
     };
 
     window.addEventListener("businessSettingsUpdated", handleSettingsUpdate);
+    window.addEventListener("adminFeatureSettingUpdated", handleSettingsUpdate);
+    window.addEventListener("storage", handleSettingsUpdate);
     return () => {
       cancelled = true;
       window.removeEventListener("businessSettingsUpdated", handleSettingsUpdate);
+      window.removeEventListener("adminFeatureSettingUpdated", handleSettingsUpdate);
+      window.removeEventListener("storage", handleSettingsUpdate);
     };
   }, [refreshCore]);
 

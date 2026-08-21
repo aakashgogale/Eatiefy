@@ -196,6 +196,25 @@ export const useUserNotifications = () => {
     socketRef.current.on('dining_booking_update', (payload) => {
       debugLog('🍽️ Dining booking update:', payload);
       window.dispatchEvent(new CustomEvent('diningBookingStatusUpdate', { detail: payload }));
+      const status = String(payload?.status || '').toLowerCase();
+      const restName = payload?.booking?.restaurant?.restaurantName || payload?.booking?.restaurant?.name || 'Restaurant';
+      if (status === 'confirmed' || status === 'accepted') {
+        toast.success(`Table Confirmed at ${restName}! 🎉`, {
+          description: `Your table reservation for ${payload?.booking?.guests || ''} guest(s) on ${payload?.booking?.timeSlot || ''} is confirmed!`,
+          duration: 10000,
+        });
+      } else if (status === 'cancelled' || status === 'rejected') {
+        toast.error(`Table Reservation Update`, {
+          description: `Your booking request at ${restName} could not be confirmed.`,
+          duration: 8000,
+        });
+      }
+    });
+
+    socketRef.current.on('feature_settings_updated', (payload) => {
+      debugLog('⚙️ Feature settings updated:', payload);
+      window.dispatchEvent(new CustomEvent('adminFeatureSettingUpdated', { detail: payload }));
+      window.dispatchEvent(new CustomEvent('businessSettingsUpdated', { detail: payload }));
     });
 
     socketRef.current.on('admin_notification', (payload) => {

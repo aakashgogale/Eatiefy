@@ -1220,7 +1220,84 @@ export const updateCurrentRestaurantDiningSettings = async (restaurantId, body =
     }
 
     return toRestaurantProfile(doc);
+};
 
+export const submitDiningActivationRequest = async (restaurantId, body = {}) => {
+    if (!restaurantId) {
+        throw new ValidationError('Invalid restaurant id');
+    }
+
+    const currentRestaurant = await FoodRestaurant.findById(restaurantId).lean();
+    if (!currentRestaurant) {
+        throw new ValidationError('Restaurant not found');
+    }
+
+    const currentDiningSettings = currentRestaurant.diningSettings || {};
+
+    const maxGuests = Math.max(1, parseInt(body.maxGuests ?? currentDiningSettings.maxGuests ?? 6, 10) || 6);
+    const diningType = String(body.diningType ?? currentDiningSettings.diningType ?? 'family-dining').trim() || 'family-dining';
+    const costForTwo = String(body.costForTwo ?? currentDiningSettings.costForTwo ?? '').trim();
+    const offer = String(body.offer ?? currentDiningSettings.offer ?? '').trim();
+    const coverImage = String(body.coverImage ?? currentDiningSettings.coverImage ?? '').trim();
+    const coverImages = Array.isArray(body.coverImages) && body.coverImages.length > 0
+        ? body.coverImages
+        : (coverImage ? [{ url: coverImage }] : (currentDiningSettings.coverImages || []));
+    const notes = String(body.notes || '').trim();
+
+    const doc = await FoodRestaurant.findByIdAndUpdate(
+        restaurantId,
+        {
+            $set: {
+                'diningSettings.requestStatus': 'pending',
+                'diningSettings.isApproved': false,
+                'diningSettings.isEnabled': false,
+                'diningSettings.requestedAt': new Date(),
+                'diningSettings.rejectionReason': '',
+                'diningSettings.maxGuests': maxGuests,
+                'diningSettings.diningType': diningType,
+                'diningSettings.costForTwo': costForTwo,
+                'diningSettings.offer': offer,
+                'diningSettings.coverImage': coverImage,
+                'diningSettings.coverImages': coverImages,
+                'diningSettings.notes': notes,
+            }
+        },
+        { new: true, runValidators: true }
+    ).lean();
+
+    // Notify Admins
+    try {
+        const { FoodNotification } = await import('../../../../core/notifications/models/notification.model.js');
+        const { getIO, rooms } = await import('../../../../config/socket.js');
+        const io = getIO();
+
+        if (io) {
+            io.to(rooms.admin()).emit('new_dining_request', {
+                restaurantId,
+                restaurantName: currentRestaurant.restaurantName,
+                diningSettings: doc.diningSettings
+            });
+        }
+
+        await FoodNotification.create({
+            ownerType: 'ADMIN',
+            ownerId: currentRestaurant.ownerId || restaurantId,
+            title: 'New Dining Activation Request 🍽️',
+            message: `${currentRestaurant.restaurantName} has applied to activate Dining feature. Review and approve now.`,
+            link: '/food/admin/dining',
+            category: 'dining',
+            source: 'ADMIN_BROADCAST',
+            metadata: {
+                restaurantId,
+                restaurantName: currentRestaurant.restaurantName,
+                requestedAt: new Date()
+            }
+        });
+    } catch (notifErr) {
+        logger.warn(`Admin notification failed for dining request ${restaurantId}: ${notifErr?.message}`);
+    }
+
+    return toRestaurantProfile(doc);
 };
 
 export const updateRestaurantProfile = async (restaurantId, body = {}) => {

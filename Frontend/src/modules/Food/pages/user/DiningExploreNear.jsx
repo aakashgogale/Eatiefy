@@ -10,95 +10,10 @@ import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { useLocation as useLocationHook } from "@food/hooks/useLocation"
 import { useProfile } from "@food/context/ProfileContext"
 import { FaLocationDot } from "react-icons/fa6"
-// Using placeholder for near and top rated banner
-const nearAndTopRated = "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=400&h=200&fit=crop"
+import { diningAPI } from "@food/api"
+import { resolveMediaUrl } from "@food/utils/common"
 
-const popularRestaurants = [
-  {
-    id: 1,
-    name: "IRIS",
-    rating: 4.3,
-    location: "Press Complex, Indore",
-    distance: "2.9 km",
-    cuisine: "Continental",
-    price: "₹1500 for two",
-    image: "",
-    offer: "Flat 30% OFF + 3 more",
-    deliveryTime: "30-35 mins",
-    featuredDish: "Pasta",
-    featuredPrice: 450,
-  },
-  {
-    id: 2,
-    name: "Skyline Rooftop",
-    rating: 4.5,
-    location: "MG Road, Indore",
-    distance: "3.2 km",
-    cuisine: "Multi-cuisine",
-    price: "₹2000 for two",
-    image: "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&h=600&fit=crop",
-    offer: "Flat 25% OFF + 2 more",
-    deliveryTime: "35-40 mins",
-    featuredDish: "Grilled Chicken",
-    featuredPrice: 550,
-  },
-  {
-    id: 3,
-    name: "The Grand Bistro",
-    rating: 4.7,
-    location: "Vijay Nagar, Indore",
-    distance: "1.8 km",
-    cuisine: "Continental",
-    price: "₹1800 for two",
-    image: "https://images.unsplash.com/photo-1551218808-94e220e084d2?w=800&h=600&fit=crop",
-    offer: "Flat 35% OFF + 4 more",
-    deliveryTime: "25-30 mins",
-    featuredDish: "Risotto",
-    featuredPrice: 650,
-  },
-  {
-    id: 4,
-    name: "Coastal Kitchen",
-    rating: 4.4,
-    location: "Palasia, Indore",
-    distance: "2.1 km",
-    cuisine: "Seafood",
-    price: "₹1600 for two",
-    image: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&h=600&fit=crop",
-    offer: "Flat 20% OFF + 2 more",
-    deliveryTime: "28-33 mins",
-    featuredDish: "Fish Curry",
-    featuredPrice: 480,
-  },
-  {
-    id: 5,
-    name: "Garden Terrace",
-    rating: 4.6,
-    location: "Scheme 54, Indore",
-    distance: "4.5 km",
-    cuisine: "North Indian",
-    price: "₹1200 for two",
-    image: "https://images.unsplash.com/photo-1579584425555-c3ce17fd4351?w=800&h=600&fit=crop",
-    offer: "Flat 30% OFF + 3 more",
-    deliveryTime: "40-45 mins",
-    featuredDish: "Butter Chicken",
-    featuredPrice: 380,
-  },
-  {
-    id: 6,
-    name: "Midnight Lounge",
-    rating: 4.2,
-    location: "Bhawarkua, Indore",
-    distance: "3.8 km",
-    cuisine: "Continental",
-    price: "₹2200 for two",
-    image: "",
-    offer: "Flat 25% OFF + 2 more",
-    deliveryTime: "35-40 mins",
-    featuredDish: "Steak",
-    featuredPrice: 750,
-  },
-]
+const nearAndTopRated = "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=400&h=200&fit=crop"
 
 export default function DiningExploreNear() {
   const navigate = useNavigate()
@@ -109,14 +24,63 @@ export default function DiningExploreNear() {
   const [activeFilterTab, setActiveFilterTab] = useState('sort')
   const [sortBy, setSortBy] = useState(null)
   const [selectedCuisine, setSelectedCuisine] = useState(null)
+  const [restaurants, setRestaurants] = useState([])
+  const [loadingRestaurants, setLoadingRestaurants] = useState(true)
   const filterSectionRefs = useRef({})
   const rightContentRef = useRef(null)
   const { openSearch, closeSearch, setSearchValue } = useSearchOverlay()
   const { openLocationSelector } = useLocationSelector()
-  const { location, loading } = useLocationHook()
+  const { location } = useLocationHook()
   const { addFavorite, removeFavorite, isFavorite } = useProfile()
   const cityName = location?.city || "Select"
   const stateName = location?.state || "Location"
+
+  useEffect(() => {
+    const fetchRestaurants = async () => {
+      try {
+        setLoadingRestaurants(true)
+        const response = await diningAPI.getRestaurants(location?.city ? { city: location.city } : {})
+        const list = response?.data?.success ? (response.data.data || []) : []
+        const mapped = list.map((r, index) => {
+          const rawImage = String(
+            r?.diningSettings?.coverImage ||
+            r?.coverImages?.[0]?.url ||
+            r?.coverImages?.[0] ||
+            r?.coverImage ||
+            r?.profileImage?.url ||
+            r?.profileImage ||
+            ""
+          ).trim()
+          const image = rawImage ? resolveMediaUrl(rawImage) : "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800"
+          const rawRating = Number(r?.rating || r?.avgRating || 4.2)
+          const displayRating = Number.isFinite(rawRating) && rawRating > 0 ? (rawRating > 5 ? rawRating / 20 : rawRating) : 4.2
+
+          return {
+            ...r,
+            id: r?._id || r?.id || `rest-${index}`,
+            name: r?.restaurantName || r?.name || "Restaurant",
+            slug: r?.restaurantNameNormalized || String(r?.restaurantName || "").toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+            rating: parseFloat(displayRating.toFixed(1)),
+            location: r?.location?.area || r?.address?.area || r?.area || "Nearby",
+            distance: "1.5 km",
+            cuisine: Array.isArray(r?.cuisines) && r.cuisines.length > 0 ? r.cuisines.join(", ") : (r?.cuisine || "Multi-cuisine"),
+            price: r?.diningSettings?.costForTwo || r?.costForTwo || "₹600 for two",
+            image,
+            offer: r?.diningSettings?.offer || r?.offer || "Top Rated",
+            deliveryTime: r?.estimatedDeliveryTime || "25-30 mins",
+            featuredDish: r?.featuredDish || "Special Menu",
+            featuredPrice: r?.featuredPrice || 350,
+          }
+        })
+        setRestaurants(mapped)
+      } catch (err) {
+        setRestaurants([])
+      } finally {
+        setLoadingRestaurants(false)
+      }
+    }
+    fetchRestaurants()
+  }, [location?.city])
 
   const toggleFilter = (filterId) => {
     setActiveFilters(prev => {
@@ -131,29 +95,38 @@ export default function DiningExploreNear() {
   }
 
   const filteredRestaurants = useMemo(() => {
-    let filtered = [...popularRestaurants]
+    let filtered = [...restaurants]
+
+    if (heroSearch.trim()) {
+      const term = heroSearch.toLowerCase().trim()
+      filtered = filtered.filter(r => 
+        r.name.toLowerCase().includes(term) ||
+        r.cuisine.toLowerCase().includes(term) ||
+        r.location.toLowerCase().includes(term)
+      )
+    }
 
     if (activeFilters.has('delivery-under-30')) {
       filtered = filtered.filter(r => {
-        const timeMatch = r.deliveryTime.match(/(\d+)/)
+        const timeMatch = r.deliveryTime?.match(/(\d+)/)
         return timeMatch && parseInt(timeMatch[1]) <= 30
       })
     }
     if (activeFilters.has('delivery-under-45')) {
       filtered = filtered.filter(r => {
-        const timeMatch = r.deliveryTime.match(/(\d+)/)
+        const timeMatch = r.deliveryTime?.match(/(\d+)/)
         return timeMatch && parseInt(timeMatch[1]) <= 45
       })
     }
     if (activeFilters.has('distance-under-1km')) {
       filtered = filtered.filter(r => {
-        const distMatch = r.distance.match(/(\d+\.?\d*)/)
+        const distMatch = r.distance?.match(/(\d+\.?\d*)/)
         return distMatch && parseFloat(distMatch[1]) <= 1.0
       })
     }
     if (activeFilters.has('distance-under-2km')) {
       filtered = filtered.filter(r => {
-        const distMatch = r.distance.match(/(\d+\.?\d*)/)
+        const distMatch = r.distance?.match(/(\d+\.?\d*)/)
         return distMatch && parseFloat(distMatch[1]) <= 2.0
       })
     }
@@ -180,7 +153,7 @@ export default function DiningExploreNear() {
     }
 
     return filtered
-  }, [activeFilters, selectedCuisine, sortBy])
+  }, [restaurants, heroSearch, activeFilters, selectedCuisine, sortBy])
 
   const handleLocationClick = useCallback(() => {
     openLocationSelector()

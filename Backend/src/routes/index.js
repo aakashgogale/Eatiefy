@@ -3,6 +3,7 @@ import authRoutes from '../core/auth/auth.routes.js';
 import deliveryRoutes from '../modules/food/delivery/routes/delivery.routes.js';
 import restaurantRoutes from '../modules/food/restaurant/routes/restaurant.routes.js';
 import landingRoutes from '../modules/food/landing/routes/landing.routes.js';
+import diningBookingRoutes from '../modules/food/dining/routes/diningBooking.routes.js';
 import { getPublicDiningCategories, getPublicDiningRestaurants } from '../modules/food/dining/controllers/diningPublic.controller.js';
 import uploadRoutes from '../modules/uploads/routes/upload.routes.js';
 import restaurantAdminRoutes from '../modules/food/admin/routes/admin.routes.js';
@@ -46,6 +47,8 @@ router.use('/v1/food', landingRoutes);
 router.use('/v1/food/search', searchRoutes);
 router.get('/v1/food/dining/categories/public', getPublicDiningCategories);
 router.get('/v1/food/dining/restaurants/public', getPublicDiningRestaurants);
+router.use('/v1/food/dining/bookings', diningBookingRoutes);
+router.use('/v1/food/user/dining/bookings', diningBookingRoutes);
 router.use('/v1/uploads', uploadRoutes);
 
 // Public settings first so clients can detect / exit maintenance without auth

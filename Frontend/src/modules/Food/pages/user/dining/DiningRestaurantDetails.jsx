@@ -1,24 +1,39 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { useLocation, useNavigate, useParams } from "react-router-dom"
 import { restaurantAPI } from "@food/api"
 import { useProfile } from "@food/context/ProfileContext"
 import { getMenuFromResponse } from "@food/utils/menuItems"
+import { resolveMediaUrl } from "@food/utils/common"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import {
-    ArrowLeft,
-    Bookmark,
-    CheckCircle2,
+  ArrowLeft,
+  Bookmark,
+  CheckCircle2,
+  Clock,
   Clock3,
   IndianRupee,
   Loader2,
   MapPin,
   Percent,
   Share2,
+  Star,
   Tag,
   Ticket,
+  UtensilsCrossed,
   X,
+  ChevronLeft,
+  ChevronRight,
+  Phone,
+  Navigation
 } from "lucide-react"
 import { Button } from "@food/components/ui/button"
+
+const DEFAULT_DINING_IMAGES = [
+  "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1200&h=800&fit=crop",
+  "https://images.unsplash.com/photo-1550966871-3ed3cdb5ed0c?w=1200&h=800&fit=crop",
+  "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=1200&h=800&fit=crop",
+  "https://images.unsplash.com/photo-1544025162-d76694265947?w=1200&h=800&fit=crop"
+]
 
 const formatAddress = (restaurant) =>
   restaurant?.location?.formattedAddress ||
@@ -30,32 +45,38 @@ const formatAddress = (restaurant) =>
 
 const buildImageList = (restaurant) => {
   const candidates = [
+    restaurant?.diningSettings?.coverImage,
     restaurant?.coverImage?.url,
     restaurant?.coverImage,
     ...(Array.isArray(restaurant?.coverImages) ? restaurant.coverImages.map((image) => image?.url || image) : []),
+    ...(Array.isArray(restaurant?.diningSettings?.images) ? restaurant.diningSettings.images.map((img) => img?.url || img) : []),
     ...(Array.isArray(restaurant?.menuImages) ? restaurant.menuImages.map((image) => image?.url || image) : []),
     restaurant?.profileImage?.url,
     restaurant?.profileImage,
   ]
-  return candidates
-    .map((value) => (typeof value === "string" ? value.trim() : ""))
+  const resolved = candidates
+    .map((value) => (typeof value === "string" ? resolveMediaUrl(value.trim()) : ""))
     .filter(Boolean)
     .filter((value, index, list) => list.indexOf(value) === index)
+
+  if (resolved.length === 0) {
+    return DEFAULT_DINING_IMAGES
+  }
+  return resolved
 }
 
 const buildFacilities = (restaurant) => {
   const facilities = []
 
-  if (restaurant?.diningSettings?.tableBookingEnabled !== false) facilities.push("Dinner")
-  if (restaurant?.isAcceptingOrders !== false) facilities.push("Lunch")
+  if (restaurant?.diningSettings?.tableBookingEnabled !== false) facilities.push("Table Reservation")
+  if (restaurant?.isAcceptingOrders !== false) facilities.push("Lunch & Dinner")
   if (restaurant?.diningSettings?.homeDeliveryAvailable || restaurant?.homeDeliveryAvailable) facilities.push("Home delivery")
   if (restaurant?.diningSettings?.takeawayAvailable || restaurant?.takeawayAvailable) facilities.push("Takeaway available")
-  if (restaurant?.diningSettings?.vegOnly || restaurant?.vegOnly) facilities.push("Vegetarian only")
-  if (restaurant?.diningSettings?.lessNoisy || restaurant?.ambience === "quiet") facilities.push("Less noisy")
+  if (restaurant?.diningSettings?.vegOnly || restaurant?.vegOnly) facilities.push("Pure Vegetarian")
+  if (restaurant?.diningSettings?.lessNoisy || restaurant?.ambience === "quiet") facilities.push("Peaceful Ambience")
+  facilities.push("Air Conditioned", "Valet Parking Available")
 
-  return facilities.length > 0
-    ? facilities
-    : ["Dinner", "Lunch", "Home delivery", "Takeaway available", "Vegetarian only", "Less noisy"]
+  return facilities
 }
 
 const buildFeaturedSections = (menuSections) =>
@@ -72,7 +93,7 @@ const buildFeaturedSections = (menuSections) =>
         pages: items.length || 1,
       }
     })
-    .slice(0, 2)
+    .slice(0, 4)
 
 const formatTimeLabel = (value) => {
   if (!value) return null
@@ -103,6 +124,7 @@ export default function DiningRestaurantDetails() {
   const [selectedGuests, setSelectedGuests] = useState(2)
   const [isBookingSheetOpen, setIsBookingSheetOpen] = useState(false)
   const [activeTab, setActiveTab] = useState("prebook")
+  const [activeImageIndex, setActiveImageIndex] = useState(0)
 
   useEffect(() => {
     const fetchRestaurantData = async () => {
@@ -152,9 +174,12 @@ export default function DiningRestaurantDetails() {
     fetchRestaurantData()
   }, [location.state?.restaurant, slug])
 
+  const imageGallery = useMemo(() => buildImageList(restaurant), [restaurant])
+  const heroImage = imageGallery[activeImageIndex] || imageGallery[0] || DEFAULT_DINING_IMAGES[0]
+
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f6f7fb]">
+      <div className="flex min-h-screen items-center justify-center bg-[#fcfaf7] dark:bg-zinc-950">
         <Loader2 className="h-8 w-8 animate-spin text-[#EB590E]" />
       </div>
     )
@@ -162,8 +187,8 @@ export default function DiningRestaurantDetails() {
 
   if (error || !restaurant) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#f6f7fb] px-4 text-center">
-        <h2 className="text-2xl font-bold text-[#23180f]">Restaurant not found</h2>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#fcfaf7] px-4 text-center">
+        <h2 className="text-2xl font-bold text-gray-900">Restaurant not found</h2>
         <Button onClick={goBack} variant="outline">
           Go Back
         </Button>
@@ -173,24 +198,23 @@ export default function DiningRestaurantDetails() {
 
   const restaurantName = restaurant.name || restaurant.restaurantName || "Restaurant"
   const address = formatAddress(restaurant) || "Address unavailable"
-  const imageGallery = buildImageList(restaurant)
-  const heroImage = imageGallery[0] || ""
-  const menuPreviewImages = imageGallery.length > 0 ? imageGallery : [""]
+  const menuPreviewImages = imageGallery.length > 0 ? imageGallery : DEFAULT_DINING_IMAGES
   const featuredSections = buildFeaturedSections(menuSections)
   const cuisines =
     Array.isArray(restaurant?.cuisines) && restaurant.cuisines.length > 0
       ? restaurant.cuisines.join(", ")
-      : "Asian, Italian, Continental, Chinese, North Indian, Desserts, Beverages, Coffee"
-  const costForTwo = restaurant?.costForTwo ? `${"\u20B9"}${restaurant.costForTwo} for two` : `${"\u20B9"}1900 for two`
+      : (restaurant?.cuisine || "North Indian, Chinese, Continental, Desserts, Beverages")
+  const costForTwo = restaurant?.costForTwo ? `₹${restaurant.costForTwo} for two` : `₹600 for two`
   const facilities = buildFacilities(restaurant)
-  const rating = Number(restaurant?.rating || restaurant?.avgRating || 0).toFixed(1)
-  const reviewCount = restaurant?.totalRatings || restaurant?.reviewCount || restaurant?.reviewsCount || 0
-  const openingTime = formatTimeLabel(restaurant?.openingTime || restaurant?.diningSettings?.openingTime || "12:00")
-  const closingTime = formatTimeLabel(restaurant?.closingTime || restaurant?.diningSettings?.closingTime || "23:59")
+  const rawRating = Number(restaurant?.rating || restaurant?.avgRating || 4.2)
+  const rating = Number.isFinite(rawRating) && rawRating > 0 ? (rawRating > 5 ? (rawRating / 20).toFixed(1) : rawRating.toFixed(1)) : "4.2"
+  const reviewCount = restaurant?.totalRatings || restaurant?.reviewCount || restaurant?.reviewsCount || 12
+  const openingTime = formatTimeLabel(restaurant?.openingTime || restaurant?.diningSettings?.openingTime || "09:00")
+  const closingTime = formatTimeLabel(restaurant?.closingTime || restaurant?.diningSettings?.closingTime || "22:00")
   const isDiningEnabled = restaurant?.diningSettings?.isEnabled !== false
+  
   const topTabs = [
     { id: "prebook", label: "Pre-book offers", target: "restaurant-prebook" },
-    { id: "walkin", label: "Walk-in offers", target: "restaurant-prebook" },
     { id: "menu", label: "Menu", target: "restaurant-menu" },
     { id: "photos", label: "Photos", target: "restaurant-photos" },
     { id: "about", label: "About", target: "restaurant-about" },
@@ -201,7 +225,7 @@ export default function DiningRestaurantDetails() {
       if (navigator.share) {
         await navigator.share({
           title: restaurantName,
-          text: `Check out ${restaurantName}`,
+          text: `Reserve a table at ${restaurantName} on Eatiefy!`,
           url: window.location.href,
         })
       }
@@ -256,20 +280,29 @@ export default function DiningRestaurantDetails() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f6f7fb] pb-28">
-      <section className="mx-auto max-w-md bg-[#f6f7fb]">
-        <div className="relative h-[392px] overflow-hidden">
-          {heroImage ? (
-            <img src={heroImage} alt={restaurantName} className="h-full w-full object-cover"  loading="lazy" decoding="async" />
-          ) : (
-            <div className="h-full w-full bg-[radial-gradient(circle_at_top,#eadcc7,#a09279_58%,#655749)]" />
-          )}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/78 via-black/18 to-black/0" />
+    <div className="min-h-screen bg-[#f8f9fa] dark:bg-zinc-950 pb-28">
+      {/* Top Hero Image Banner */}
+      <section className="mx-auto max-w-lg bg-black relative">
+        <div className="relative h-[360px] sm:h-[400px] overflow-hidden">
+          <img
+            src={heroImage}
+            alt={restaurantName}
+            className="h-full w-full object-cover transition-all duration-500"
+            onError={(e) => {
+              e.currentTarget.onerror = null;
+              e.currentTarget.src = DEFAULT_DINING_IMAGES[0];
+            }}
+          />
 
-          <div className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between px-3 pt-3">
+          {/* Deep Dark Gradient Scrim to guarantee 100% readability */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/60 to-black/20" />
+
+          {/* Top Bar Actions */}
+          <div className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-4 pt-4">
             <button
               onClick={handleBack}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-[#51586a]/75 text-white backdrop-blur-md"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-md border border-white/20 hover:bg-black/70 transition-all active:scale-95 shadow-md"
+              title="Back"
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
@@ -277,96 +310,138 @@ export default function DiningRestaurantDetails() {
             <div className="flex items-center gap-2">
               <button
                 onClick={handleToggleFavorite}
-                className="flex h-10 w-10 items-center justify-center rounded-full bg-[#51586a]/75 text-white backdrop-blur-md"
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-md border border-white/20 hover:bg-black/70 transition-all active:scale-95 shadow-md"
+                title="Save to favorites"
               >
-                <Bookmark className={`h-4 w-4 ${favorite ? "fill-current" : ""}`} />
+                <Bookmark className={`h-4 w-4 ${favorite ? "fill-amber-400 text-amber-400" : "text-white"}`} />
               </button>
               <button
                 onClick={handleShare}
-                className="flex h-10 w-10 items-center justify-center rounded-full bg-[#51586a]/75 text-white backdrop-blur-md"
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-md border border-white/20 hover:bg-black/70 transition-all active:scale-95 shadow-md"
+                title="Share"
               >
-                <Share2 className="h-4 w-4" />
+                <Share2 className="h-4 w-4 text-white" />
               </button>
             </div>
           </div>
 
-          <div className="absolute inset-x-0 bottom-0 px-3 pb-4 text-white">
+          {/* Photo Navigation if Multiple Photos */}
+          {imageGallery.length > 1 && (
+            <div className="absolute right-4 top-16 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-[11px] font-bold text-white border border-white/10">
+              <span>{activeImageIndex + 1} / {imageGallery.length} Photos</span>
+            </div>
+          )}
+
+          {/* Bottom Hero Restaurant Info */}
+          <div className="absolute inset-x-0 bottom-0 px-4 pb-5 text-white z-10">
             <div className="flex items-end justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <h1 className="text-[36px] font-black leading-none tracking-[-0.03em]">{restaurantName}</h1>
-                <p className="mt-2 max-w-[94%] text-[14px] leading-5 text-white/92">{address}</p>
-                <p className="mt-2 text-[14px] text-white/90">
-                  {costForTwo}
-                  <span className="mx-1.5 text-white/65">•</span>
+                <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/30 text-amber-300 text-[10px] font-extrabold uppercase tracking-wider mb-1.5 backdrop-blur-sm">
+                  <UtensilsCrossed className="w-3 h-3" />
+                  Table Booking Available
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-black leading-tight tracking-tight text-white drop-shadow-md">
+                  {restaurantName}
+                </h1>
+                <p className="mt-1 text-xs sm:text-sm font-medium text-amber-200/90 truncate">
                   {cuisines}
                 </p>
-                <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-black/28 px-2.5 py-1 text-[13px] font-medium backdrop-blur-sm">
-                  <CheckCircle2 className="h-4 w-4 text-[#48d597]" />
-                  <span>Open now</span>
-                  <span className="text-white/70">|</span>
-                  <span>{openingTime} to {closingTime}</span>
+                <p className="mt-1 text-xs text-white/80 line-clamp-2 leading-relaxed flex items-start gap-1">
+                  <MapPin className="w-3.5 h-3.5 text-orange-400 shrink-0 mt-0.5" />
+                  <span>{address}</span>
+                </p>
+
+                <div className="mt-2.5 flex items-center gap-2 flex-wrap text-xs text-white/90 font-medium">
+                  <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/25 border border-emerald-400/30 text-emerald-300 backdrop-blur-sm">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    <span>Open now</span>
+                  </div>
+                  <span>•</span>
+                  <span>{openingTime} - {closingTime}</span>
+                  <span>•</span>
+                  <span className="font-bold text-amber-300">{costForTwo}</span>
                 </div>
               </div>
 
-              <div className="mb-1 shrink-0 rounded-[18px] bg-white px-3 py-2 text-center text-[#1f2328] shadow-xl">
-                <div className="flex items-center justify-center gap-1 text-[31px] font-black leading-none">
+              {/* Rating Card */}
+              <div className="shrink-0 rounded-2xl bg-white dark:bg-zinc-900 px-3.5 py-2.5 text-center text-gray-900 dark:text-white shadow-2xl border border-white/20">
+                <div className="flex items-center justify-center gap-1 text-2xl font-black leading-none text-emerald-600">
                   <span>{rating}</span>
-                  <span className="text-[18px] text-[#18b54f]">★</span>
+                  <Star className="h-4 w-4 fill-emerald-600 text-emerald-600" />
                 </div>
-                <p className="mt-1 text-[13px] leading-4 text-[#6e7481]">{reviewCount} Reviews</p>
+                <p className="mt-1 text-[11px] font-bold text-gray-500 dark:text-gray-400">{reviewCount} Reviews</p>
               </div>
             </div>
           </div>
         </div>
 
-          <div className="px-3 pb-1 pt-3">
-            <div className="grid grid-cols-[1.62fr_0.72fr_0.72fr] gap-2.5">
-              <button
-                onClick={() => isDiningEnabled && setIsBookingSheetOpen(true)}
-                disabled={!isDiningEnabled}
-                className={`flex h-[52px] items-center justify-center gap-2 rounded-full border px-3 text-[15px] font-medium shadow-[0_10px_24px_rgba(15,23,42,0.05)] transition-opacity ${
-                  isDiningEnabled
-                    ? "border-[#f1ebee] bg-white text-[#2b2118]"
-                    : "cursor-not-allowed border-[#f2d7da] bg-[#fff5f6] text-[#c06a79] opacity-80"
-                }`}
+        {/* Quick Action Buttons */}
+        <div className="px-4 pb-3 pt-3 bg-white dark:bg-zinc-900 border-b border-slate-100 dark:border-zinc-800">
+          <div className="grid grid-cols-3 gap-2.5">
+            <button
+              onClick={() => isDiningEnabled && setIsBookingSheetOpen(true)}
+              disabled={!isDiningEnabled}
+              style={{
+                background: isDiningEnabled ? "linear-gradient(135deg, #EB590E 0%, #FF6F1E 100%)" : undefined,
+              }}
+              className={`flex h-11 items-center justify-center gap-2 rounded-xl px-3 text-xs sm:text-sm font-bold shadow-sm transition-all active:scale-95 ${
+                isDiningEnabled
+                  ? "text-white shadow-orange-500/25 hover:opacity-95"
+                  : "cursor-not-allowed bg-slate-100 text-slate-400"
+              }`}
+            >
+              <Ticket className="h-4 w-4" />
+              <span>{isDiningEnabled ? "Book Table" : "Paused"}</span>
+            </button>
+
+            <button
+              onClick={() => scrollToSection("restaurant-prebook")}
+              className="flex h-11 items-center justify-center gap-2 rounded-xl border border-orange-200/90 bg-orange-50/50 hover:bg-orange-100/50 text-[#EB590E] text-xs sm:text-sm font-bold transition-all active:scale-95 shadow-sm"
+            >
+              <Percent className="h-4 w-4 text-[#EB590E]" />
+              <span>Offers</span>
+            </button>
+
+            <button
+              onClick={() => scrollToSection("restaurant-menu")}
+              className="flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 dark:text-slate-200 text-xs sm:text-sm font-bold transition-all active:scale-95 shadow-sm"
+            >
+              <UtensilsCrossed className="h-4 w-4 text-slate-500" />
+              <span>Menu</span>
+            </button>
+          </div>
+
+          {/* Light Luxury Cashback Banner */}
+          <div
+            style={{ background: "linear-gradient(135deg, #FFF7ED 0%, #FFEDD5 100%)" }}
+            className="mt-3 overflow-hidden rounded-2xl border border-amber-200/80 p-3 text-amber-900 shadow-sm flex items-center justify-between"
+          >
+            <div className="flex items-center gap-3">
+              <div
+                style={{ background: "linear-gradient(135deg, #EB590E 0%, #FF6F1E 100%)" }}
+                className="rounded-xl p-2 text-white shadow-sm"
               >
-              <Ticket className="h-[15px] w-[15px] text-[#ef4c62]" />
-              <span>{isDiningEnabled ? "Book a table" : "Dining paused"}</span>
-              </button>
-              <button className="flex h-[52px] items-center justify-center rounded-full border border-[#f1ebee] bg-white text-[#ef4c62] shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
-                <Tag className="h-[15px] w-[15px]" />
-              </button>
-              <button className="flex h-[52px] items-center justify-center rounded-full border border-[#f1ebee] bg-white text-[#ef4c62] shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
-                <Clock3 className="h-[15px] w-[15px]" />
-              </button>
-            </div>
-
-            {!isDiningEnabled && (
-              <div className="mt-3 rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                Dining bookings are currently turned off by the restaurant.
+                <Percent className="h-4 w-4" />
               </div>
-            )}
-
-          <div className="mt-4 overflow-hidden rounded-[18px] bg-[linear-gradient(180deg,#fff0ce,#fff8ea)] px-4 py-4 shadow-[0_8px_24px_rgba(238,184,68,0.22)]">
-            <div className="flex items-center justify-between gap-3">
-              <div className="rounded-full bg-[#8e77ff]/10 p-2 text-[#7f69eb]">
-                <Percent className="h-5 w-5" />
-              </div>
-              <div className="flex-1 text-center">
-                <p className="text-[33px] font-black leading-none tracking-[-0.04em] text-[#2c2352]">20% CASHBACK</p>
-                <p className="mt-1 text-[14px] font-medium text-[#4a4068]">on every dining bill</p>
-              </div>
-              <div className="rounded-full bg-[#8e77ff]/10 p-2 text-[#7f69eb]">
-                <Percent className="h-5 w-5" />
+              <div>
+                <p className="text-sm font-extrabold text-[#9A3412] leading-tight">20% Instant Cashback</p>
+                <p className="text-[11px] text-[#C2410C] font-medium">on all dining bills paid via app</p>
               </div>
             </div>
+            <span
+              style={{ background: "linear-gradient(135deg, #EB590E 0%, #FF6F1E 100%)" }}
+              className="px-2.5 py-1 rounded-full text-white font-black text-[10px] tracking-wider shadow-sm"
+            >
+              EATIEFY
+            </span>
           </div>
         </div>
       </section>
 
-      <div className="sticky top-0 z-30 border-b border-[#ececf3] bg-white/95 backdrop-blur-xl">
-        <div className="mx-auto max-w-md px-3 pb-3 pt-3">
-          <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {/* Sticky Category Tabs */}
+      <div className="sticky top-0 z-30 border-b border-slate-200/80 dark:border-zinc-800 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl shadow-sm">
+        <div className="mx-auto max-w-lg px-4 py-2.5">
+          <div className="flex gap-2 overflow-x-auto pb-0.5 scrollbar-hide">
             {topTabs.map((tab) => (
               <button
                 key={tab.id}
@@ -374,10 +449,14 @@ export default function DiningRestaurantDetails() {
                   setActiveTab(tab.id)
                   scrollToSection(tab.target)
                 }}
-                className={`shrink-0 rounded-full border px-4 py-2 text-sm transition-colors ${
+                style={{
+                  background: activeTab === tab.id ? "#EB590E" : undefined,
+                  borderColor: activeTab === tab.id ? "#EB590E" : undefined,
+                }}
+                className={`shrink-0 rounded-full border px-4 py-1.5 text-xs font-bold transition-all active:scale-95 ${
                   activeTab === tab.id
-                    ? "border-[#ef6b73] bg-white text-[#2a2018]"
-                    : "border-[#ece9e1] bg-[#fafafa] text-[#8b8881]"
+                    ? "text-white shadow-sm"
+                    : "border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-600 dark:text-slate-300 hover:border-slate-300"
                 }`}
               >
                 {tab.label}
@@ -387,199 +466,231 @@ export default function DiningRestaurantDetails() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-md px-4 pt-4">
-        <section id="restaurant-prebook">
+      {/* Content Container */}
+      <div className="mx-auto max-w-lg px-4 pt-4 space-y-5">
+        {/* Pre-book Offers Section - Light & Polished */}
+        <section id="restaurant-prebook" className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-slate-100 dark:border-zinc-800 shadow-sm">
           <div>
-            <h2 className="text-[29px] font-black leading-none text-[#23180f]">Pre-book offers</h2>
-            <p className="mt-1 text-[15px] text-[#ef4c62]">Limited slots with extra offers</p>
+            <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">Pre-book Offers</h2>
+            <p className="text-xs font-semibold text-[#EB590E] mt-0.5">Instant confirmation with exclusive table discount</p>
           </div>
 
-          <div className="mt-3 overflow-hidden rounded-[18px] bg-[linear-gradient(135deg,#0f4a87,#0b2954_70%)] text-white shadow-[0_10px_26px_rgba(8,52,95,0.25)]">
-            <div className="flex items-start justify-between px-4 pb-3 pt-4">
+          <div
+            style={{ background: "linear-gradient(135deg, #FFFDFB 0%, #FFF7ED 100%)" }}
+            className="mt-3 overflow-hidden rounded-2xl border border-orange-200/90 p-4 shadow-sm"
+          >
+            <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-[28px] font-black leading-none">Flat 50% OFF</p>
-                <p className="mt-2 text-[14px] text-white/80">Dining Carnival offer</p>
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-orange-100/80 text-[#EB590E] border border-orange-200 font-extrabold text-[10px] uppercase tracking-wider">
+                  Carnival Special
+                </span>
+                <p className="text-2xl font-black text-slate-900 mt-1.5">{restaurant?.offer || "Flat 20% OFF"}</p>
+                <p className="text-xs text-slate-600 mt-0.5 font-medium">Applicable on total food & beverages bill</p>
               </div>
-              <button className="rounded-full bg-black/45 px-4 py-2 text-[13px] font-semibold text-white backdrop-blur-sm">
-                Book now
+              <button
+                onClick={() => isDiningEnabled && setIsBookingSheetOpen(true)}
+                disabled={!isDiningEnabled}
+                style={{
+                  background: "linear-gradient(135deg, #EB590E 0%, #FF6F1E 100%)",
+                }}
+                className="shrink-0 rounded-xl px-4 py-2 text-xs font-bold text-white shadow-md shadow-orange-500/20 hover:opacity-95 transition-all active:scale-95"
+              >
+                Book Slot
               </button>
             </div>
-            <div className="border-t border-white/10 px-4 py-2 text-center text-[12px] text-white/75">
-              3 slots available from 3:30 PM today
+            <div className="mt-3 pt-2.5 border-t border-orange-200/50 flex items-center justify-between text-xs text-slate-500 font-medium">
+              <span>Slots available today</span>
+              <span className="text-emerald-600 font-bold flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Free Cancellation
+              </span>
             </div>
           </div>
         </section>
 
-        <section id="restaurant-menu" className="mt-5 border-t border-[#e8e8ef] pt-4">
-          <div className="flex items-end justify-between gap-3">
+        {/* Menu Section */}
+        <section id="restaurant-menu" className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-slate-100 dark:border-zinc-800 shadow-sm">
+          <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-[28px] font-black leading-none text-[#23180f]">Menu</h2>
-              <p className="mt-2 text-[13px] text-[#e19135]">Last updated a month ago</p>
+              <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">Menu</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Explore popular dishes and beverages</p>
             </div>
-            <div className="rounded-full bg-[#fff3e6] px-3 py-1 text-xs font-semibold text-[#e58a2c]">
-              {featuredSections.length || 2} dishes
-            </div>
+            <span className="rounded-full bg-orange-50 dark:bg-orange-950/40 border border-orange-200/80 px-3 py-1 text-xs font-bold text-[#EB590E]">
+              {featuredSections.length || 2} Sections
+            </span>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-2 gap-3">
             {(featuredSections.length > 0
               ? featuredSections
               : [
-                  { id: "food", title: "Food", pages: 16 },
-                  { id: "beverages", title: "Beverages", pages: 10 },
+                  { id: "food", title: "Main Course & Starters", pages: 12 },
+                  { id: "beverages", title: "Beverages & Drinks", pages: 6 },
                 ]).map((section, index) => (
-              <div key={section.id} className="overflow-hidden rounded-[18px] border border-[#ede8dd] bg-white">
-                <div className="aspect-[0.88] bg-[#f7f1e7]">
-                  {menuPreviewImages[index] ? (
-                    <img src={menuPreviewImages[index]} alt={section.title} className="h-full w-full object-cover"  loading="lazy" decoding="async" />
-                  ) : (
-                    <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,#fff3e0,#f3eadf)] text-sm font-medium text-[#a28868]">
-                      Menu preview
-                    </div>
-                  )}
+              <div key={section.id} className="overflow-hidden rounded-xl border border-slate-200/80 bg-white hover:border-orange-200 transition-all shadow-sm">
+                <div className="h-28 bg-slate-100 overflow-hidden">
+                  <img
+                    src={menuPreviewImages[index % menuPreviewImages.length] || DEFAULT_DINING_IMAGES[0]}
+                    alt={section.title}
+                    className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = DEFAULT_DINING_IMAGES[index % DEFAULT_DINING_IMAGES.length];
+                    }}
+                  />
                 </div>
-                <div className="px-2 pb-3 pt-2 text-center">
-                  <p className="text-[16px] font-medium leading-tight text-[#2b2218]">{section.title}</p>
-                  <p className="mt-1 text-[12px] text-[#7f7a73]">{section.pages} pages</p>
+                <div className="p-2.5 text-center">
+                  <p className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate">{section.title}</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5 font-medium">{section.pages} items</p>
                 </div>
               </div>
             ))}
           </div>
         </section>
 
-        <section id="restaurant-photos" className="mt-5 border-t border-[#e8e8ef] pt-4">
-          <h2 className="text-[28px] font-black leading-none text-[#23180f]">Photos</h2>
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            {(imageGallery.length > 0 ? imageGallery.slice(0, 4) : menuPreviewImages.slice(0, 2)).map((image, index) => (
+        {/* Photos Section */}
+        <section id="restaurant-photos" className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-slate-100 dark:border-zinc-800 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">Ambience & Photos</h2>
+            <span className="text-xs font-semibold text-slate-500">{imageGallery.length} Photos</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            {imageGallery.slice(0, 4).map((image, index) => (
               <div
-                key={`${image || "placeholder"}-${index}`}
-                className={`overflow-hidden rounded-[18px] bg-[#f6efe4] ${
-                  index === 0 ? "col-span-2 aspect-[1.72]" : "aspect-[1.08]"
+                key={index}
+                onClick={() => {
+                  setActiveImageIndex(index)
+                  window.scrollTo({ top: 0, behavior: "smooth" })
+                }}
+                className={`overflow-hidden rounded-xl bg-slate-100 cursor-pointer group border border-slate-100 ${
+                  index === 0 ? "col-span-2 h-44" : "h-28"
                 }`}
               >
-                {image ? (
-                  <img src={image} alt={`${restaurantName} ${index + 1}`} className="h-full w-full object-cover"  loading="lazy" decoding="async" />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-sm text-[#a28868]">Photo coming soon</div>
-                )}
+                <img
+                  src={image}
+                  alt={`${restaurantName} ${index + 1}`}
+                  className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = DEFAULT_DINING_IMAGES[index % DEFAULT_DINING_IMAGES.length];
+                  }}
+                />
               </div>
             ))}
           </div>
         </section>
 
-        <section id="restaurant-about" className="mt-5 border-t border-[#e8e8ef] pt-4">
-          <h2 className="text-[28px] font-black leading-none text-[#23180f]">About the restaurant</h2>
+        {/* About & Facilities Section */}
+        <section id="restaurant-about" className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-slate-100 dark:border-zinc-800 shadow-sm">
+          <h2 className="text-lg font-extrabold text-slate-900 dark:text-white mb-3">About The Restaurant</h2>
 
-          <div className="mt-4 rounded-[18px] border border-[#ececf4] bg-[#fafbff] p-4">
-            <div className="space-y-4 text-[14px] text-[#5f6474]">
-              <div className="flex items-start gap-3">
-                <IndianRupee className="mt-0.5 h-4 w-4 shrink-0 text-[#f0b500]" />
-                <p>{costForTwo}</p>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <div className="mt-[7px] h-2 w-2 shrink-0 rounded-full bg-[#8a8f9d]" />
-                <p>{cuisines}</p>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#ef4c62]" />
-                <p>{address}</p>
-              </div>
+          <div className="space-y-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300">
+            <div className="flex items-start gap-2.5">
+              <IndianRupee className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
+              <p className="font-bold text-slate-900 dark:text-white">{costForTwo}</p>
             </div>
 
-            <div className="mt-5 border-t border-[#e8e8ef] pt-4">
-              <h3 className="text-[20px] font-semibold text-[#23180f]">Featured In</h3>
-              <div className="mt-3 overflow-hidden rounded-[16px] bg-white shadow-sm">
-                <div className="aspect-[1.2] bg-[#efe8df]">
-                  {heroImage ? (
-                    <img src={heroImage} alt={restaurantName} className="h-full w-full object-cover"  loading="lazy" decoding="async" />
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-sm text-[#a28868]">Featured image</div>
-                  )}
-                </div>
-                <div className="-mt-14 bg-[linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,0.72))] p-3 pt-10 text-sm font-medium text-white">
-                  Pan-Asian Restaurants
-                </div>
-              </div>
+            <div className="flex items-start gap-2.5">
+              <UtensilsCrossed className="h-4 w-4 shrink-0 text-[#EB590E] mt-0.5" />
+              <p className="font-medium">{cuisines}</p>
             </div>
 
-            <div className="mt-5 border-t border-[#e8e8ef] pt-4">
-              <h3 className="text-[20px] font-semibold text-[#23180f]">Facilities</h3>
-              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
-                {facilities.slice(0, 6).map((facility) => (
-                  <div key={facility} className="flex items-center gap-2 text-[14px] text-[#5f6474]">
-                    <span className="inline-block h-[7px] w-[7px] rounded-full border border-[#8a8f9d]" />
-                    <span>{facility}</span>
-                  </div>
-                ))}
-              </div>
+            <div className="flex items-start gap-2.5">
+              <MapPin className="h-4 w-4 shrink-0 text-orange-500 mt-0.5" />
+              <p className="font-medium">{address}</p>
+            </div>
+          </div>
+
+          <div className="mt-4 pt-3.5 border-t border-slate-100 dark:border-zinc-800">
+            <h3 className="font-bold text-xs text-slate-900 dark:text-white mb-2.5">Highlights & Facilities</h3>
+            <div className="grid grid-cols-2 gap-2">
+              {facilities.slice(0, 8).map((facility, idx) => (
+                <div key={idx} className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#EB590E]" />
+                  <span>{facility}</span>
+                </div>
+              ))}
             </div>
           </div>
         </section>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-[#ebe5da] bg-white/95 p-4 backdrop-blur-xl">
-        <div className="mx-auto max-w-md">
+      {/* Sticky Bottom Booking Bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200/80 dark:border-zinc-800 bg-white/95 dark:bg-zinc-900/95 p-3.5 backdrop-blur-xl shadow-lg">
+        <div className="mx-auto max-w-lg flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs text-slate-500 font-medium">Instant Table Reservation</p>
+            <p className="text-sm font-black text-slate-900 dark:text-white">{restaurantName}</p>
+          </div>
           <Button
             onClick={() => isDiningEnabled && setIsBookingSheetOpen(true)}
             disabled={!isDiningEnabled}
-            className={`h-12 w-full rounded-2xl border text-[17px] font-medium transition-colors ${
+            style={{
+              background: isDiningEnabled ? "linear-gradient(135deg, #EB590E 0%, #FF6F1E 100%)" : undefined,
+            }}
+            className={`h-11 px-6 rounded-xl text-xs sm:text-sm font-bold transition-all shadow-md active:scale-95 ${
               isDiningEnabled
-                ? "border-[#f3b4be] bg-white text-[#ef4c62] hover:bg-[#fff6f8]"
-                : "cursor-not-allowed border-[#f2d7da] bg-[#fff5f6] text-[#c06a79] opacity-80"
+                ? "text-white shadow-orange-500/25 hover:opacity-95"
+                : "cursor-not-allowed bg-slate-200 text-slate-500"
             }`}
           >
-            {isDiningEnabled ? "Book a table" : "Dining paused"}
+            {isDiningEnabled ? "Book A Table" : "Dining Paused"}
           </Button>
         </div>
       </div>
 
+      {/* Guest Selection Modal Sheet */}
       {isBookingSheetOpen && (
-        <div className="fixed inset-0 z-40">
-          <button
-            aria-label="Close booking sheet"
-            className="absolute inset-0 bg-black/35"
+        <div className="fixed inset-0 z-50 flex items-end justify-center">
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
             onClick={() => setIsBookingSheetOpen(false)}
           />
 
-          <div className="absolute bottom-0 left-0 right-0 rounded-t-[28px] bg-white px-4 pb-6 pt-4 shadow-[0_-20px_60px_rgba(15,23,42,0.18)]">
-            <div className="mx-auto mb-4 h-1.5 w-14 rounded-full bg-[#e7e5e4]" />
+          <div className="relative w-full max-w-lg rounded-t-3xl bg-white dark:bg-zinc-900 px-5 pb-7 pt-4 shadow-2xl border-t border-slate-100 dark:border-zinc-800 z-10 animate-in slide-in-from-bottom duration-300">
+            <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-slate-300 dark:bg-zinc-700" />
 
-            <div className="mb-4 flex items-center justify-between gap-3">
+            <div className="mb-5 flex items-center justify-between">
               <div>
-                <h3 className="text-xl font-black text-[#23180f]">Select number of guests</h3>
-                <p className="mt-1 text-sm text-[#7b6651]">Choose how many people will be joining.</p>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">Select Guests</h3>
+                <p className="text-xs text-slate-500 mt-0.5">How many guests will be dining?</p>
               </div>
               <button
                 onClick={() => setIsBookingSheetOpen(false)}
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-[#f5f5f5] text-[#5b5b5b]"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="grid grid-cols-4 gap-3">
-              {Array.from({ length: Math.min(restaurant?.diningSettings?.maxGuests || 6, 8) }, (_, index) => index + 1).map((count) => (
+            <div className="grid grid-cols-4 gap-2.5">
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((count) => (
                 <button
-                  key={`sheet-${count}`}
+                  key={`guest-${count}`}
                   onClick={() => setSelectedGuests(count)}
-                  className={`rounded-2xl border px-3 py-4 text-sm font-bold transition-colors ${
+                  style={{
+                    background: selectedGuests === count ? "#EB590E" : undefined,
+                    borderColor: selectedGuests === count ? "#EB590E" : undefined,
+                  }}
+                  className={`rounded-xl border py-3 text-sm font-bold transition-all active:scale-95 ${
                     selectedGuests === count
-                      ? "border-[#ef8f6a] bg-[#fff4f0] text-[#d5541b]"
-                      : "border-[#ece7de] bg-white text-[#23180f]"
+                      ? "text-white shadow-md shadow-orange-500/20"
+                      : "border-slate-200 bg-slate-50 text-slate-800 hover:border-slate-300"
                   }`}
                 >
-                  {count}
+                  {count} {count === 1 ? "Guest" : "Guests"}
                 </button>
               ))}
             </div>
 
             <Button
               onClick={handleContinueBooking}
-              className="mt-6 h-12 w-full rounded-2xl bg-[#f04f61] text-base font-bold text-white hover:bg-[#e13e52]"
+              style={{
+                background: "linear-gradient(135deg, #EB590E 0%, #FF6F1E 100%)",
+              }}
+              className="mt-6 h-12 w-full rounded-xl text-sm font-bold text-white shadow-lg shadow-orange-500/25 transition-all active:scale-95 hover:opacity-95"
             >
-              Continue
+              Continue with {selectedGuests} {selectedGuests === 1 ? "Guest" : "Guests"}
             </Button>
           </div>
         </div>

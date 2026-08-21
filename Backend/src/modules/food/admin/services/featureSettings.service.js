@@ -4,7 +4,8 @@ export const FEATURE_KEYS = {
     RESTAURANT_SUBSCRIPTION: 'restaurant_subscription',
     COD_CONTROL: 'cod_control',
     ADMIN_ACCESS_SECTION: 'admin_access_section',
-    ROOT_LANDING_AND_UNREGISTERED_CONTROL: 'root_landing_and_unregistered_control'
+    ROOT_LANDING_AND_UNREGISTERED_CONTROL: 'root_landing_and_unregistered_control',
+    DINING_CONTROL: 'dining_control'
 };
 
 const DEFAULT_FEATURES = [
@@ -30,6 +31,12 @@ const DEFAULT_FEATURES = [
         key: FEATURE_KEYS.ROOT_LANDING_AND_UNREGISTERED_CONTROL,
         name: 'Root Landing & Unregistered Restaurants',
         description: 'Controls root URL behavior and Unregistered Restaurants visibility. When disabled, root redirects to /food/user and Unregistered Restaurants is hidden.',
+        isEnabled: true
+    },
+    {
+        key: FEATURE_KEYS.DINING_CONTROL,
+        name: 'Dining & Table Booking',
+        description: 'Controls the Dining section in User App (Dining tab, restaurant dine-in profiles, table bookings), Restaurant panel reservations management, and Admin dining features.',
         isEnabled: true
     }
 ];
@@ -62,7 +69,7 @@ export async function updateFeatureSetting(key, payload = {}) {
     const updated = await FoodFeatureSetting.findOneAndUpdate(
         { key: String(key || '').trim() },
         { $set: { isEnabled: nextEnabled } },
-        { new: true }
+        { new: true, upsert: true }
     ).lean();
 
     return updated

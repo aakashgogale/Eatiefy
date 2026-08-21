@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import * as adminService from '../services/admin.service.js';
 import * as featureSettingsService from '../services/featureSettings.service.js';
+import { getIO } from '../../../../config/socket.js';
 import { validateCategoryListQuery, validateCategoryRejectDto, validateCategoryUpsertDto } from '../validators/category.validator.js';
 import { validateCreateOfferDto, validateUpdateOfferCartVisibilityDto } from '../validators/offer.validator.js';
 import { validateAddDeliveryBonusDto } from '../validators/deliveryBonus.validator.js';
@@ -1807,6 +1808,20 @@ export async function updateFeatureSetting(req, res, next) {
         if (!data) {
             return res.status(404).json({ success: false, message: 'Feature not found' });
         }
+
+        try {
+            const io = getIO();
+            if (io) {
+                io.emit('feature_settings_updated', {
+                    key: data.key,
+                    isEnabled: Boolean(data.isEnabled),
+                    feature: data
+                });
+            }
+        } catch (socketErr) {
+            console.warn('[FEATURE_SOCKET_WARN] Failed to broadcast feature update:', socketErr?.message);
+        }
+
         res.status(200).json({ success: true, message: 'Feature setting updated successfully', data });
     } catch (error) {
         next(error);

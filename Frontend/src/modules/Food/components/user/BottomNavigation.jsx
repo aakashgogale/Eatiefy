@@ -1,20 +1,53 @@
+import { useState, useEffect } from "react"
 import { Link, useLocation } from "react-router-dom"
-import { Tag, User, Soup, ShoppingCart, History } from "lucide-react"
+import { Tag, User, Soup, ShoppingCart, History, UtensilsCrossed } from "lucide-react"
 import { clearHomeScrollState } from "@food/utils/homeScrollRestore"
+import { isFeatureEnabled } from "@food/services/publicAppConfig"
+import { usePublicAppConfigOptional } from "@food/context/PublicAppConfigContext"
 
 export default function BottomNavigation() {
   const location = useLocation()
   const pathname = location.pathname
+  const publicConfig = usePublicAppConfigOptional()
+  const [featureVersion, setFeatureVersion] = useState(0)
+
+  useEffect(() => {
+    const handleFeatureUpdate = () => {
+      setFeatureVersion((v) => v + 1)
+    }
+    window.addEventListener("adminFeatureSettingUpdated", handleFeatureUpdate)
+    window.addEventListener("businessSettingsUpdated", handleFeatureUpdate)
+    window.addEventListener("storage", handleFeatureUpdate)
+    return () => {
+      window.removeEventListener("adminFeatureSettingUpdated", handleFeatureUpdate)
+      window.removeEventListener("businessSettingsUpdated", handleFeatureUpdate)
+      window.removeEventListener("storage", handleFeatureUpdate)
+    }
+  }, [])
+
+  // Resolve dynamic feature flag from context, local cache, or config
+  const getDiningEnabled = () => {
+    try {
+      const local = localStorage.getItem("food_feature_dining_control")
+      if (local != null) return local === "true"
+    } catch {}
+    const diningFeature = (publicConfig?.featureSettings || []).find((f) => f.key === "dining_control")
+    if (diningFeature != null) return Boolean(diningFeature.isEnabled)
+    return isFeatureEnabled("dining_control", false)
+  }
+  const diningEnabled = getDiningEnabled()
 
   // Check active routes - support both /user/* and /* paths
   const isCart = pathname === "/food/cart" || pathname.startsWith("/food/user/cart")
   const isUnder250 = pathname === "/food/under-250" || pathname.startsWith("/food/user/under-250")
   const isReorder = pathname === "/food/reorder" || pathname.startsWith("/food/user/reorder")
+  const isDining = pathname === "/food/dining" || pathname.startsWith("/food/user/dining") || pathname.startsWith("/food/dining")
   const isProfile = pathname.startsWith("/food/profile") || pathname.startsWith("/food/user/profile")
   const isDelivery =
     !isCart &&
     !isUnder250 &&
     !isReorder &&
+    !isDining &&
     !isProfile &&
     (pathname === "/food" ||
       pathname === "/food/" ||
@@ -23,6 +56,7 @@ export default function BottomNavigation() {
         !pathname.includes("/cart") &&
         !pathname.includes("/under-250") &&
         !pathname.includes("/reorder") &&
+        !pathname.includes("/dining") &&
         !pathname.includes("/profile")))
 
   const activeColor = "var(--module-theme-color, #E2AD4B)"
@@ -109,6 +143,25 @@ export default function BottomNavigation() {
             Reorder
           </span>
         </Link>
+
+        {/* Dining Tab (Dynamic from Admin Toggle) */}
+        {diningEnabled && (
+          <Link
+            to="/food/user/dining"
+            className={`flex flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1 transition-all duration-300 relative rounded-full ${isDining
+                ? ""
+                : "text-gray-500 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-800/50"
+              }`}
+            style={isDining ? { color: activeColor, backgroundColor: activeBg } : undefined}
+          >
+            <div className="relative">
+              <UtensilsCrossed className={`h-5 w-5 transition-transform duration-300 ${isDining ? "scale-110" : "text-gray-500 dark:text-gray-400"}`} strokeWidth={isDining ? 2.5 : 2} style={isDining ? { color: activeColor, fill: activeFill } : undefined} />
+            </div>
+            <span className={`text-[10px] sm:text-xs font-semibold tracking-wide transition-all ${isDining ? "" : "text-gray-500 dark:text-gray-400 opacity-80"}`}>
+              Dining
+            </span>
+          </Link>
+        )}
 
       </div>
     </div>

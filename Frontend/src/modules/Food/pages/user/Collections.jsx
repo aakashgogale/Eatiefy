@@ -20,9 +20,12 @@ const gradientColors = [
   "bg-gradient-to-br from-amber-400 to-orange-600",
 ]
 
+import { isFeatureEnabled } from "@food/services/publicAppConfig"
+
 export default function Collections() {
   const navigate = useNavigate()
   const goBack = useAppBackNavigation()
+  const diningEnabled = isFeatureEnabled("dining_control", true)
   const [activeTab, setActiveTab] = useState("delivery")
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [newCollectionName, setNewCollectionName] = useState("")
@@ -37,7 +40,8 @@ export default function Collections() {
     { id: "bookmarks", name: "Bookmarks", dishes: 0, restaurants: 0, isDefault: true }
   ])
 
-  const currentCollections = activeTab === "delivery" ? deliveryCollections : diningCollections
+  const effectiveTab = diningEnabled ? activeTab : "delivery"
+  const currentCollections = effectiveTab === "delivery" ? deliveryCollections : diningCollections
   const setCurrentCollections = activeTab === "delivery" ? setDeliveryCollections : setDiningCollections
 
   const handleCreateCollection = () => {
@@ -81,30 +85,32 @@ export default function Collections() {
       </div>
 
       {/* Tabs */}
-      <div className="sticky top-0 bg-white dark:bg-[#1a1a1a] z-10 border-b dark:border-gray-800">
-        <div className="flex">
-          <button
-            onClick={() => setActiveTab("delivery")}
-            className={`flex-1 py-4 text-center font-semibold transition-colors relative ${activeTab === "delivery" ? "text-gray-900 dark:text-gray-100" : "text-gray-400 dark:text-gray-500"
-              }`}
-          >
-            Delivery
-            {activeTab === "delivery" && (
-              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-20 h-1 bg-[#EB590E] rounded-full" />
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab("dining")}
-            className={`flex-1 py-4 text-center font-semibold transition-colors relative ${activeTab === "dining" ? "text-gray-900 dark:text-gray-100" : "text-gray-400 dark:text-gray-500"
-              }`}
-          >
-            Dining
-            {activeTab === "dining" && (
-              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-20 h-1 bg-[#EB590E] rounded-full" />
-            )}
-          </button>
+      {diningEnabled && (
+        <div className="sticky top-0 bg-white dark:bg-[#1a1a1a] z-10 border-b dark:border-gray-800">
+          <div className="flex">
+            <button
+              onClick={() => setActiveTab("delivery")}
+              className={`flex-1 py-4 text-center font-semibold transition-colors relative ${activeTab === "delivery" ? "text-gray-900 dark:text-gray-100" : "text-gray-400 dark:text-gray-500"
+                }`}
+            >
+              Delivery
+              {activeTab === "delivery" && (
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-20 h-1 bg-[#EB590E] rounded-full" />
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab("dining")}
+              className={`flex-1 py-4 text-center font-semibold transition-colors relative ${activeTab === "dining" ? "text-gray-900 dark:text-gray-100" : "text-gray-400 dark:text-gray-500"
+                }`}
+            >
+              Dining
+              {activeTab === "dining" && (
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-20 h-1 bg-[#EB590E] rounded-full" />
+              )}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Content */}
       <div className="px-4 sm:px-6 md:px-8 lg:px-10 py-6 md:py-8 lg:py-10">

@@ -1,4 +1,4 @@
-import { useCallback } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { Star, ArrowLeft } from "lucide-react"
 import { Button } from "@food/components/ui/button"
@@ -7,106 +7,63 @@ import { useLocationSelector } from "@food/components/user/UserLayout"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { useLocation as useLocationHook } from "@food/hooks/useLocation"
 import { FaLocationDot } from "react-icons/fa6"
-// Using placeholder for coffee banner
+import { diningAPI } from "@food/api"
+import { resolveMediaUrl } from "@food/utils/common"
+
 const coffeeBanner = "https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=1200&h=400&fit=crop"
-// Using placeholder for starbucks logo
-const starbucksLogo = "https://images.unsplash.com/photo-1511920170033-f8396924c348?w=200&h=200&fit=crop"
-
-const starbucksStores = [
-  {
-    id: 1,
-    name: "Starbucks",
-    rating: 4.4,
-    location: "YN Road, Indore",
-    distance: "1.3 km",
-    price: "₹900 for two",
-    offer: "Flat 25% OFF",
-    logo: starbucksLogo
-  },
-  {
-    id: 2,
-    name: "Starbucks",
-    rating: 2.8,
-    location: "YN Road, Indore",
-    distance: "1.3 km",
-    price: "₹600 for two",
-    offer: null,
-    logo: starbucksLogo
-  },
-  {
-    id: 3,
-    name: "Starbucks",
-    rating: 4.5,
-    location: "MG Road, Indore",
-    distance: "2.1 km",
-    price: "₹850 for two",
-    offer: "Flat 20% OFF",
-    logo: starbucksLogo
-  },
-  {
-    id: 4,
-    name: "Starbucks",
-    rating: 4.2,
-    location: "Vijay Nagar, Indore",
-    distance: "0.9 km",
-    price: "₹950 for two",
-    offer: "Flat 30% OFF",
-    logo: starbucksLogo
-  },
-]
-
-const cafeCoffeeDayStores = [
-  {
-    id: 5,
-    name: "Cafe Coffee Day",
-    rating: 4.3,
-    location: "Palasia, Indore",
-    distance: "1.5 km",
-    price: "₹500 for two",
-    offer: "Flat 15% OFF",
-    logo: null
-  },
-  {
-    id: 6,
-    name: "Cafe Coffee Day",
-    rating: 4.1,
-    location: "Scheme 54, Indore",
-    distance: "2.3 km",
-    price: "₹450 for two",
-    offer: null,
-    logo: null
-  },
-]
-
-const blueTokaiStores = [
-  {
-    id: 7,
-    name: "Blue Tokai",
-    rating: 4.6,
-    location: "Bhawarkua, Indore",
-    distance: "1.8 km",
-    price: "₹700 for two",
-    offer: "Buy 1 Get 1 Free",
-    logo: null
-  },
-  {
-    id: 8,
-    name: "Blue Tokai",
-    rating: 4.4,
-    location: "Press Complex, Indore",
-    distance: "2.5 km",
-    price: "₹650 for two",
-    offer: "Flat 20% OFF",
-    logo: null
-  },
-]
 
 export default function Coffee() {
   const navigate = useNavigate()
   const goBack = useAppBackNavigation()
   const { openLocationSelector } = useLocationSelector()
   const { location } = useLocationHook()
+  const [stores, setStores] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
   const cityName = location?.city || "Select"
+
+  useEffect(() => {
+    const fetchCoffeeStores = async () => {
+      try {
+        setIsLoading(true)
+        const response = await diningAPI.getRestaurants(
+          location?.city ? { category: 'cafe-bistro', city: location.city } : { category: 'cafe-bistro' }
+        )
+        const list = response?.data?.success ? (response.data.data || []) : []
+        const mapped = list.map((r, index) => {
+          const rawImage = String(
+            r?.diningSettings?.coverImage ||
+            r?.coverImages?.[0]?.url ||
+            r?.coverImages?.[0] ||
+            r?.coverImage ||
+            r?.profileImage?.url ||
+            r?.profileImage ||
+            ""
+          ).trim()
+          const logo = rawImage ? resolveMediaUrl(rawImage) : "https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=400"
+          const rawRating = Number(r?.rating || r?.avgRating || 4.2)
+          const displayRating = Number.isFinite(rawRating) && rawRating > 0 ? (rawRating > 5 ? rawRating / 20 : rawRating) : 4.2
+
+          return {
+            id: r?._id || r?.id || `store-${index}`,
+            name: r?.restaurantName || r?.name || "Cafe & Coffee",
+            slug: r?.restaurantNameNormalized || String(r?.restaurantName || "").toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+            rating: parseFloat(displayRating.toFixed(1)),
+            location: r?.location?.area || r?.address?.area || r?.area || "Nearby",
+            distance: "1.2 km",
+            price: r?.diningSettings?.costForTwo || r?.costForTwo || "₹450 for two",
+            offer: r?.diningSettings?.offer || r?.offer || "Flat 15% OFF",
+            logo,
+          }
+        })
+        setStores(mapped)
+      } catch (err) {
+        setStores([])
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    fetchCoffeeStores()
+  }, [location?.city])
 
   const handleLocationClick = useCallback(() => {
     openLocationSelector()
@@ -251,16 +208,22 @@ export default function Coffee() {
           {/* Header Section */}
           <div className="mb-6">
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
-              Starbucks Coffee
+              Cafe & Coffee Dining
             </h1>
             <p className="text-sm sm:text-base text-gray-500">
-              Cafe, Coffee, Beverages
+              Handcrafted coffee, beverages & dining outlets
             </p>
             <div className="h-px bg-gray-200 mt-4"></div>
           </div>
 
-          {/* Multiple Store Lists */}
-          {renderStoreList(starbucksStores, "DINING OUTLETS NEAR YOU")}
+          {/* Dynamic Store List */}
+          {isLoading ? (
+            <div className="py-12 text-center text-sm text-gray-400">Loading cafes...</div>
+          ) : stores.length > 0 ? (
+            renderStoreList(stores, "DINING OUTLETS NEAR YOU")
+          ) : (
+            <div className="py-12 text-center text-sm text-gray-400">No cafes available right now.</div>
+          )}
         </div>
       </div>
     </AnimatedPage>

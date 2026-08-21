@@ -106,21 +106,21 @@ export default function TableBookingSuccess() {
                         <div className="space-y-1">
                             <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Date</p>
                             <div className="flex items-center gap-2 font-bold text-gray-800">
-                                <Calendar className="w-4 h-4 text-red-500" />
+                                <Calendar className="w-4 h-4 text-[#EB590E]" />
                                 <span>{formattedDate}</span>
                             </div>
                         </div>
                         <div className="space-y-1">
                             <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Time</p>
                             <div className="flex items-center gap-2 font-bold text-gray-800">
-                                <Clock className="w-4 h-4 text-red-500" />
+                                <Clock className="w-4 h-4 text-[#EB590E]" />
                                 <span>{booking.timeSlot}</span>
                             </div>
                         </div>
                         <div className="space-y-1">
                             <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Guests</p>
                             <div className="flex items-center gap-2 font-bold text-gray-800">
-                                <Users className="w-4 h-4 text-red-500" />
+                                <Users className="w-4 h-4 text-[#EB590E]" />
                                 <span>{booking.guests} People</span>
                             </div>
                         </div>
@@ -132,10 +132,10 @@ export default function TableBookingSuccess() {
                         </div>
                     </div>
 
-                    <div className="flex items-center justify-between text-indigo-600">
+                    <div className="flex items-center justify-between text-orange-600">
                         <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></div>
-                            <span className="font-bold text-sm">10% Cashback with Tastizo Pay</span>
+                            <div className="w-2 h-2 rounded-full bg-orange-600 animate-pulse"></div>
+                            <span className="font-bold text-sm">Instant Cashback with Eatiefy Pay</span>
                         </div>
                         <Share2 className="w-5 h-5 cursor-pointer hover:scale-110 transition-transform" />
                     </div>
@@ -150,7 +150,10 @@ export default function TableBookingSuccess() {
             >
                 <Button
                     onClick={() => navigate("/food/user/bookings")}
-                    className="w-full h-14 bg-red-500 hover:bg-red-600 text-white font-bold text-lg rounded-2xl shadow-xl shadow-red-100 flex items-center justify-center gap-2"
+                    style={{
+                        background: "linear-gradient(135deg, #EB590E 0%, #FF6F1E 50%, #DF4A00 100%)",
+                    }}
+                    className="w-full h-14 text-white font-bold text-lg rounded-2xl shadow-xl shadow-orange-500/25 flex items-center justify-center gap-2 hover:opacity-95"
                 >
                     <List className="w-5 h-5" />
                     View My Bookings
@@ -158,14 +161,14 @@ export default function TableBookingSuccess() {
                 <Button
                     onClick={() => navigate("/food/user")}
                     variant="outline"
-                    className="w-full h-14 bg-white border-2 border-slate-100 text-slate-600 font-bold text-lg rounded-2xl hover:bg-slate-50 flex items-center justify-center gap-2"
+                    className="w-full h-14 bg-white border-2 border-slate-200 text-slate-700 font-bold text-lg rounded-2xl hover:bg-slate-50 flex items-center justify-center gap-2"
                 >
                     <Home className="w-5 h-5" />
                     Go to Home
                 </Button>
             </motion.div>
 
-            <p className="mt-8 text-[10px] font-bold text-slate-300 uppercase tracking-widest px-10 text-center">
+            <p className="mt-8 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-10 text-center">
                 Show this ticket at the restaurant for a smooth entry
             </p>
         </AnimatedPage>

@@ -417,6 +417,9 @@ router.patch('/dining/categories/:id', diningAdminController.updateDiningCategor
 router.delete('/dining/categories/:id', diningAdminController.deleteDiningCategory);
 router.get('/dining/restaurants', diningAdminController.getDiningRestaurants);
 router.patch('/dining/restaurants/:restaurantId', diningAdminController.updateDiningRestaurant);
+router.get('/dining/requests', diningAdminController.getDiningRequests);
+router.post('/dining/requests/:restaurantId/approve', diningAdminController.approveDiningRequest);
+router.post('/dining/requests/:restaurantId/reject', diningAdminController.rejectDiningRequest);
 
 // ----- Orders -----
 router.get(

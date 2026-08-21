@@ -2,6 +2,9 @@ import mongoose from 'mongoose';
 import { FoodDiningBooking } from '../models/diningBooking.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
+import { FoodNotification } from '../../../../core/notifications/models/notification.model.js';
+import { getIO, rooms } from '../../../../config/socket.js';
+import { notifyOwnerSafely } from '../../../../core/notifications/firebase.service.js';
 
 // Format database booking document into the exact JSON shape required by the frontend
 function formatBooking(bookingDoc) {
@@ -49,16 +52,16 @@ function formatBooking(bookingDoc) {
         userObj = {
             _id: u._id,
             id: u._id,
-            name: u.name || 'Guest',
-            phone: u.phone || '',
+            name: booking.customerName || u.name || 'Guest',
+            phone: booking.customerPhone || u.phone || '',
             email: u.email || ''
         };
     } else if (booking.userId) {
         userObj = {
             _id: booking.userId,
             id: booking.userId,
-            name: 'Guest',
-            phone: '',
+            name: booking.customerName || 'Guest',
+            phone: booking.customerPhone || '',
             email: ''
         };
     }
@@ -71,6 +74,8 @@ function formatBooking(bookingDoc) {
         restaurant: restaurantObj,
         userId: booking.userId?._id || booking.userId,
         user: userObj,
+        customerName: booking.customerName || userObj?.name || '',
+        customerPhone: booking.customerPhone || userObj?.phone || '',
         guests: booking.guests,
         date: booking.date,
         timeSlot: booking.timeSlot,
@@ -101,6 +106,8 @@ export async function createBooking(userId, payload) {
         bookingId,
         restaurantId,
         userId,
+        customerName: String(payload.customerName || payload.name || '').trim(),
+        customerPhone: String(payload.customerPhone || payload.phone || '').trim(),
         guests: Math.max(1, Number(payload.guests) || 1),
         date: new Date(payload.date),
         timeSlot: String(payload.timeSlot || '').trim(),
@@ -115,7 +122,73 @@ export async function createBooking(userId, payload) {
         .populate('restaurantId')
         .populate('userId');
 
-    return formatBooking(populated);
+    const result = formatBooking(populated);
+
+    const formattedDate = new Date(payload.date).toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        weekday: 'short'
+    });
+
+    // Real-time socket event & audible alert to restaurant
+    try {
+        const io = getIO();
+        if (io) {
+            io.to(rooms.restaurant(restaurantId)).emit('new_dining_booking', result);
+            io.to(rooms.restaurant(restaurantId)).emit('play_notification_sound', {
+                type: 'dining_booking',
+                bookingId: result.bookingId,
+                title: 'New Table Reservation',
+                message: `New booking for ${result.guests} guest(s) on ${formattedDate} at ${result.timeSlot}`
+            });
+            io.to(rooms.admin()).emit('new_dining_booking', result);
+        }
+    } catch (socketErr) {
+        console.warn('[DINING_SOCKET_WARN] Failed to emit new_dining_booking:', socketErr?.message);
+    }
+
+    // Create In-App Notification for Restaurant
+    try {
+        await FoodNotification.create({
+            ownerType: 'RESTAURANT',
+            ownerId: restaurantId,
+            title: 'New Table Booking Request 🍽️',
+            message: `Booking #${bookingId} received for ${result.guests} guest(s) on ${formattedDate} at ${result.timeSlot}.`,
+            link: '/food/restaurant/dining-reservations',
+            category: 'dining',
+            source: 'DINING_BOOKING',
+            metadata: {
+                bookingId: newBooking._id,
+                customBookingId: bookingId,
+                guests: result.guests,
+                timeSlot: result.timeSlot
+            }
+        });
+    } catch (notifErr) {
+        console.warn('[DINING_NOTIF_WARN] Failed to create restaurant notification:', notifErr?.message);
+    }
+
+    // Send push notification to restaurant owner if tokens exist
+    try {
+        if (restaurant.fcmTokenMobile || restaurant.fcmTokens?.length) {
+            await notifyOwnerSafely({
+                ownerType: 'RESTAURANT',
+                ownerId: restaurantId,
+                payload: {
+                    title: 'New Table Booking 🍽️',
+                    body: `New booking request for ${result.guests} guest(s) at ${result.timeSlot} on ${formattedDate}.`,
+                    data: {
+                        type: 'dining_booking',
+                        bookingId: String(newBooking._id)
+                    }
+                }
+            });
+        }
+    } catch (pushErr) {
+        console.warn('[DINING_PUSH_WARN] Failed to send push to restaurant:', pushErr?.message);
+    }
+
+    return result;
 }
 
 export async function listUserBookings(userId) {
@@ -176,14 +249,109 @@ export async function updateBookingStatus(bookingId, status, restaurantId) {
         throw new Error('Unauthorized status update for this restaurant');
     }
 
-    booking.status = String(status || '').trim().toLowerCase();
+    const normalizedStatus = String(status || '').trim().toLowerCase();
+    booking.status = normalizedStatus;
     await booking.save();
 
     const populated = await FoodDiningBooking.findById(booking._id)
         .populate('restaurantId')
         .populate('userId');
 
-    return formatBooking(populated);
+    const result = formatBooking(populated);
+    const restName = populated?.restaurantId?.restaurantName || populated?.restaurantId?.name || 'Restaurant';
+    const formattedDate = new Date(populated.date).toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        weekday: 'short'
+    });
+
+    const isConfirmed = normalizedStatus === 'confirmed' || normalizedStatus === 'accepted';
+    const isCancelled = normalizedStatus === 'cancelled' || normalizedStatus === 'rejected';
+
+    const notifTitle = isConfirmed
+        ? 'Table Reservation Confirmed! 🎉'
+        : isCancelled
+        ? 'Table Reservation Update'
+        : `Booking Status: ${normalizedStatus.toUpperCase()}`;
+
+    const notifMessage = isConfirmed
+        ? `Your table reservation for ${populated.guests} guest(s) at ${restName} on ${formattedDate} at ${populated.timeSlot} is CONFIRMED! Please reach 15 minutes before your time.`
+        : isCancelled
+        ? `Your table reservation request at ${restName} on ${formattedDate} could not be confirmed.`
+        : `Your table reservation status is now ${normalizedStatus}.`;
+
+    // Real-time socket event to user
+    try {
+        const io = getIO();
+        if (io && booking.userId) {
+            const targetUserId = String(booking.userId?._id || booking.userId);
+            io.to(rooms.user(targetUserId)).emit('dining_booking_update', {
+                bookingId: booking._id,
+                status: booking.status,
+                restaurantId: booking.restaurantId,
+                booking: result
+            });
+
+            io.to(rooms.user(targetUserId)).emit('play_notification_sound', {
+                type: 'dining_booking_status',
+                bookingId: result.bookingId,
+                title: notifTitle,
+                message: notifMessage
+            });
+        }
+    } catch (socketErr) {
+        console.warn('[DINING_SOCKET_WARN] Failed to emit dining_booking_update:', socketErr?.message);
+    }
+
+    // In-app Notification for User
+    try {
+        const targetUserId = booking.userId?._id || booking.userId;
+        if (targetUserId) {
+            await FoodNotification.create({
+                ownerType: 'USER',
+                ownerId: targetUserId,
+                title: notifTitle,
+                message: notifMessage,
+                link: '/food/user/bookings',
+                category: 'dining',
+                source: 'DINING_BOOKING',
+                metadata: {
+                    bookingId: booking._id,
+                    customBookingId: booking.bookingId,
+                    status: normalizedStatus,
+                    restaurantName: restName,
+                    guests: populated.guests,
+                    timeSlot: populated.timeSlot
+                }
+            });
+        }
+    } catch (notifErr) {
+        console.warn('[DINING_NOTIF_WARN] Failed to create user notification:', notifErr?.message);
+    }
+
+    // Push Notification to user
+    try {
+        const targetUserId = booking.userId?._id || booking.userId;
+        if (targetUserId) {
+            await notifyOwnerSafely({
+                ownerType: 'USER',
+                ownerId: targetUserId,
+                payload: {
+                    title: notifTitle,
+                    body: notifMessage,
+                    data: {
+                        type: 'dining_booking_status',
+                        bookingId: String(booking._id),
+                        status: normalizedStatus
+                    }
+                }
+            });
+        }
+    } catch (pushErr) {
+        console.warn('[DINING_PUSH_WARN] Failed to send push to user:', pushErr?.message);
+    }
+
+    return result;
 }
 
 export async function submitBookingReview(bookingId, userId, rating, comment) {

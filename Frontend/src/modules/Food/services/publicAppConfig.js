@@ -257,6 +257,10 @@ export const getFeatureSettingByKey = (key, fallback = null) => {
 };
 
 export const isFeatureEnabled = (key, fallback = true) => {
+  try {
+    const local = typeof window !== "undefined" ? localStorage.getItem(`food_feature_${key}`) : null;
+    if (local != null) return local === "true";
+  } catch {}
   const feature = getFeatureSettingByKey(key, null);
   if (!feature) return fallback;
   const value = feature.isEnabled;
