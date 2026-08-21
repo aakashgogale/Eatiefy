@@ -422,10 +422,8 @@ export default function DiningReservations() {
         [bookings]
     )
 
-    if (loading) return <Loader />
-
     return (
-        <div className="min-h-screen bg-slate-50 pb-20">
+        <div className="h-full overflow-y-auto bg-slate-50 pb-20 custom-scrollbar">
             {/* Header */}
             <div className="bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-slate-100">
                 <div className="max-w-7xl mx-auto px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
