@@ -94,15 +94,29 @@ function formatBooking(bookingDoc) {
 }
 
 export async function createBooking(userId, payload) {
-    const restaurantId = payload.restaurant || payload.restaurantId;
-    if (!restaurantId || !mongoose.Types.ObjectId.isValid(restaurantId)) {
+    const rawRestaurantId = payload.restaurant || payload.restaurantId || payload.restaurantRef?._id || payload.restaurantRef?.id;
+    if (!rawRestaurantId) {
         throw new Error('Valid Restaurant ID is required');
     }
 
-    const restaurant = await FoodRestaurant.findById(restaurantId).lean();
+    let restaurant = null;
+    if (mongoose.Types.ObjectId.isValid(rawRestaurantId)) {
+        restaurant = await FoodRestaurant.findById(rawRestaurantId).lean();
+    }
+    if (!restaurant) {
+        restaurant = await FoodRestaurant.findOne({
+            $or: [
+                { slug: String(rawRestaurantId) },
+                { restaurantName: new RegExp(`^${rawRestaurantId}$`, 'i') },
+                { name: new RegExp(`^${rawRestaurantId}$`, 'i') }
+            ]
+        }).lean();
+    }
     if (!restaurant) {
         throw new Error('Restaurant not found');
     }
+
+    const restaurantId = restaurant._id;
 
     // Calculate dynamic booking and cover charges based on restaurant's dining settings
     const guests = Math.max(1, Number(payload.guests) || 1);
@@ -155,8 +169,10 @@ export async function createBooking(userId, payload) {
     try {
         const io = getIO();
         if (io) {
-            io.to(rooms.restaurant(restaurantId)).emit('new_dining_booking', result);
-            io.to(rooms.restaurant(restaurantId)).emit('play_notification_sound', {
+            const restIdStr = String(restaurantId);
+            io.to(rooms.restaurant(restIdStr)).emit('new_dining_booking', result);
+            io.to(restIdStr).emit('new_dining_booking', result);
+            io.to(rooms.restaurant(restIdStr)).emit('play_notification_sound', {
                 type: 'dining_booking',
                 bookingId: result.bookingId,
                 title: 'New Table Reservation',

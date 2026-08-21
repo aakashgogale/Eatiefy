@@ -70,8 +70,11 @@ const getBookerPhone = (booking) =>
     ).trim()
 
 
+import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications"
+
 export default function DiningReservations() {
     const navigate = useNavigate()
+    const { newReservation } = useRestaurantNotifications()
     const [bookings, setBookings] = useState([])
     const [loading, setLoading] = useState(true)
     const [restaurant, setRestaurant] = useState(null)
@@ -159,34 +162,58 @@ export default function DiningReservations() {
         }
     }
 
+    // Real-time socket event listener for incoming reservations
     useEffect(() => {
-        const fetchAll = async () => {
+        if (newReservation) {
+            setBookings((prev) => {
+                const id = String(newReservation._id || newReservation.id || newReservation.bookingId || "")
+                const exists = prev.some((b) => String(b._id || b.id || b.bookingId || "") === id)
+                if (exists) {
+                    return prev.map((b) => String(b._id || b.id || b.bookingId || "") === id ? { ...b, ...newReservation } : b)
+                }
+                return [newReservation, ...prev]
+            })
+            toast.info(`🔔 New Table Reservation #${newReservation.bookingId || ""} received!`, {
+                duration: 5000,
+            })
+        }
+    }, [newReservation])
+
+    // Initial load + Real-time auto background polling (every 6s)
+    useEffect(() => {
+        let isMounted = true
+
+        const fetchAll = async (isBackground = false) => {
             try {
-                // First get the current restaurant
                 const resResponse = await restaurantAPI.getCurrentRestaurant()
                 if (resResponse.data.success) {
                     const resData = getRestaurantFromResponse(resResponse)
-
                     const restaurantId = resData?._id || resData?.id
 
-                    if (restaurantId) {
-                        syncRestaurantMediaState(resData)
-                        // Then get its bookings
+                    if (restaurantId && isMounted) {
+                        if (!isBackground) syncRestaurantMediaState(resData)
                         const bookingsResponse = await diningAPI.getRestaurantBookings(resData)
-                        if (bookingsResponse.data.success) {
+                        if (bookingsResponse.data.success && isMounted) {
                             setBookings(Array.isArray(bookingsResponse.data.data) ? bookingsResponse.data.data : [])
                         }
-                    } else {
-                        debugError("Restaurant ID not found in response:", resData)
                     }
                 }
             } catch (error) {
-                debugError("Error fetching reservations:", error)
+                if (!isBackground) debugError("Error fetching reservations:", error)
             } finally {
-                setLoading(false)
+                if (isMounted && !isBackground) setLoading(false)
             }
         }
-        fetchAll()
+
+        fetchAll(false)
+        const pollInterval = setInterval(() => {
+            fetchAll(true)
+        }, 6000)
+
+        return () => {
+            isMounted = false
+            clearInterval(pollInterval)
+        }
     }, [])
 
     const handleRestaurantPhotoUpload = async (event) => {
