@@ -33,13 +33,6 @@ export class RedisRateLimitStore {
         const resetTime = new Date(Date.now() + this.windowMs);
 
         if (!redis) {
-            if (config.nodeEnv === 'production') {
-                logger.error('Rate limit Redis unavailable in production');
-                // Fail closed: treat as over-limit so we do not silently open the floodgates
-                const err = new Error('Rate limit store unavailable');
-                err.code = 'RATE_LIMIT_STORE_UNAVAILABLE';
-                throw err;
-            }
             return this.incrementLocal(key, resetTime);
         }
 
@@ -55,10 +48,6 @@ export class RedisRateLimitStore {
                 : resetTime;
             return { totalHits, resetTime: effectiveReset };
         } catch (error) {
-            if (config.nodeEnv === 'production') {
-                logger.error(`Rate limit Redis increment failed in production: ${error.message}`);
-                throw error;
-            }
             logger.warn(`Rate limit Redis increment failed, using memory fallback: ${error.message}`);
             return this.incrementLocal(key, resetTime);
         }
