@@ -121,7 +121,7 @@ export default function TableBooking() {
     return Number.isNaN(initial.getTime()) ? new Date() : initial
   })
   const [selectedSlot, setSelectedSlot] = useState(location.state?.selectedTime || null)
-  const [selectedMealPeriod, setSelectedMealPeriod] = useState("lunch")
+  const [selectedMealPeriod, setSelectedMealPeriod] = useState("all")
 
   useEffect(() => {
     const fetchRestaurant = async () => {
@@ -168,17 +168,17 @@ export default function TableBooking() {
   const allSlots = useMemo(() => {
     const generated = buildSlots(selectedDayTiming)
     if (generated.length > 0) return generated
-    // Fallback slots if restaurant timings are not parsed
     return [
-      "12:00 PM", "12:30 PM", "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM", "3:00 PM", "4:30 PM",
-      "7:00 PM", "7:30 PM", "8:00 PM", "8:30 PM", "9:00 PM", "9:30 PM", "10:00 PM"
+      "11:00 AM", "11:30 AM", "12:00 PM", "12:30 PM", "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM", 
+      "3:00 PM", "3:30 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "7:30 PM", "8:00 PM", 
+      "8:30 PM", "9:00 PM", "9:30 PM", "10:00 PM", "10:30 PM", "11:00 PM"
     ]
   }, [selectedDayTiming])
 
-  const filteredSlots = useMemo(
-    () => allSlots.filter((slot) => getMealPeriod(slot) === selectedMealPeriod),
-    [allSlots, selectedMealPeriod]
-  )
+  const filteredSlots = useMemo(() => {
+    if (selectedMealPeriod === "all") return allSlots
+    return allSlots.filter((slot) => getMealPeriod(slot) === selectedMealPeriod)
+  }, [allSlots, selectedMealPeriod])
 
   useEffect(() => {
     if (!selectedSlot && filteredSlots.length > 0) {
@@ -195,19 +195,6 @@ export default function TableBooking() {
       setSelectedSlot(null)
     }
   }, [filteredSlots, selectedSlot])
-
-  useEffect(() => {
-    if (allSlots.length === 0) return
-    const hasLunch = allSlots.some((slot) => getMealPeriod(slot) === "lunch")
-    const hasDinner = allSlots.some((slot) => getMealPeriod(slot) === "dinner")
-
-    if (selectedMealPeriod === "lunch" && !hasLunch && hasDinner) {
-      setSelectedMealPeriod("dinner")
-    }
-    if (selectedMealPeriod === "dinner" && !hasDinner && hasLunch) {
-      setSelectedMealPeriod("lunch")
-    }
-  }, [allSlots, selectedMealPeriod])
 
   if (loading) return <Loader />
   if (!restaurant) return <div className="p-6 text-center">Restaurant not found</div>
@@ -387,10 +374,11 @@ export default function TableBooking() {
           <h3 className="text-sm font-bold text-[#1E293B]">Select time of day</h3>
 
           {/* Meal Period Toggle Pills */}
-          <div className="mt-3.5 flex gap-2">
+          <div className="mt-3.5 flex flex-wrap gap-2">
             {[
-              { id: "lunch", label: "Lunch" },
-              { id: "dinner", label: "Dinner" },
+              { id: "all", label: "All Slots (Anytime)" },
+              { id: "lunch", label: "Lunch (12 - 4 PM)" },
+              { id: "dinner", label: "Dinner (7 - 11 PM)" },
             ].map((period) => {
               const isActive = selectedMealPeriod === period.id
               return (
@@ -402,12 +390,12 @@ export default function TableBooking() {
                       ? {
                           borderColor: "#EB590E",
                           color: "#EB590E",
-                          backgroundColor: "#FFFFFF",
+                          backgroundColor: "#FFF7ED",
                           borderWidth: "1.5px",
                         }
                       : undefined
                   }
-                  className={`rounded-full px-5 py-2 text-xs font-bold transition-all active:scale-95 ${
+                  className={`rounded-full px-4 py-2 text-xs font-bold transition-all active:scale-95 ${
                     isActive
                       ? "shadow-sm font-black"
                       : "border border-slate-200 bg-[#F8FAFC] text-slate-600 hover:border-slate-300"

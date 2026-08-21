@@ -954,40 +954,6 @@ export default function DiningReservations() {
                             </div>
                         </div>
 
-                        {/* Meal Periods Toggles */}
-                        <div className="pt-2">
-                            <label className="text-xs font-bold text-slate-700 block mb-2">Available Meal Periods</label>
-                            <div className="flex flex-wrap gap-2">
-                                {[
-                                    { id: "breakfast", label: "🍳 Breakfast (8 AM - 11 AM)" },
-                                    { id: "lunch", label: "🍲 Lunch (12 PM - 4 PM)" },
-                                    { id: "dinner", label: "🍷 Dinner (7 PM - 11 PM)" },
-                                ].map((period) => {
-                                    const isChecked = mealPeriods.includes(period.id)
-                                    return (
-                                        <button
-                                            key={period.id}
-                                            type="button"
-                                            onClick={() => {
-                                                if (isChecked) {
-                                                    setMealPeriods(mealPeriods.filter((p) => p !== period.id))
-                                                } else {
-                                                    setMealPeriods([...mealPeriods, period.id])
-                                                }
-                                            }}
-                                            className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
-                                                isChecked
-                                                    ? "bg-slate-900 text-white border-slate-900 shadow-sm"
-                                                    : "bg-slate-50 text-slate-600 border-slate-200 hover:border-slate-300"
-                                            }`}
-                                        >
-                                            {period.label}
-                                        </button>
-                                    )
-                                })}
-                            </div>
-                        </div>
-
                         {(diningSettingsMessage || diningSettingsError) && (
                             <div className={`rounded-xl border px-4 py-3 text-xs font-semibold ${
                                 diningSettingsError

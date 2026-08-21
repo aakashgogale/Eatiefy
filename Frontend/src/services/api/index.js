@@ -3278,9 +3278,11 @@ export const diningAPI = {
         {
           restaurant: restaurantId,
           restaurantId,
+          customerName: String(payload?.customerName || payload?.name || "").trim(),
+          customerPhone: String(payload?.customerPhone || payload?.phone || "").trim(),
           guests: Math.max(1, Number(payload?.guests) || 1),
           date: payload?.date,
-          timeSlot: payload?.timeSlot,
+          timeSlot: String(payload?.timeSlot || "").trim(),
           specialRequest: payload?.specialRequest || "",
         },
         { contextModule: "user" }
@@ -3293,7 +3295,8 @@ export const diningAPI = {
         return response;
       }
     } catch (err) {
-      console.warn("[DINING_API] Server booking failed, falling back to local persistence:", err?.message);
+      console.warn("[DINING_API] Server booking failed:", err?.message);
+      throw err;
     }
 
     let restaurantData =
