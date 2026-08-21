@@ -796,6 +796,7 @@ export default function DiningList() {
                                     <p className="text-xs text-slate-500">Allow users to book tables at this restaurant</p>
                                 </div>
                                 <button
+                                    type="button"
                                     onClick={() => setEditingRestaurant(prev => ({
                                         ...prev,
                                         diningSettings: { ...prev.diningSettings, isEnabled: !prev.diningSettings?.isEnabled }
@@ -805,6 +806,84 @@ export default function DiningList() {
                                     <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition duration-200 ease-in-out ${editingRestaurant.diningSettings?.isEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                                 </button>
                             </div>
+
+                            {/* Pricing Model Selection */}
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-bold text-slate-700">Reservation Pricing Model</label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {[
+                                        { id: "free", label: "Free (₹0)", desc: "Standard free booking" },
+                                        { id: "fixed_fee", label: "Fixed Fee", desc: "Token booking fee" },
+                                        { id: "cover_charge", label: "Cover Charge", desc: "Per person fee" },
+                                    ].map(model => {
+                                        const isSelected = (editingRestaurant.diningSettings?.pricingModel || editingRestaurant.pricingModel || "free") === model.id
+                                        return (
+                                            <button
+                                                key={model.id}
+                                                type="button"
+                                                onClick={() => setEditingRestaurant(prev => ({
+                                                    ...prev,
+                                                    pricingModel: model.id,
+                                                    diningSettings: { ...prev.diningSettings, pricingModel: model.id }
+                                                }))}
+                                                className={`p-2.5 rounded-xl text-left border transition-all ${
+                                                    isSelected
+                                                        ? "border-[#EB590E] bg-orange-50/60 ring-1 ring-[#EB590E]"
+                                                        : "border-slate-200 bg-white hover:border-slate-300"
+                                                }`}
+                                            >
+                                                <p className={`text-xs font-bold ${isSelected ? "text-[#EB590E]" : "text-slate-800"}`}>{model.label}</p>
+                                                <p className="text-[10px] text-slate-400 mt-0.5">{model.desc}</p>
+                                            </button>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Dynamic Fee Inputs based on Pricing Model */}
+                            {(editingRestaurant.diningSettings?.pricingModel === "fixed_fee" || editingRestaurant.pricingModel === "fixed_fee") && (
+                                <div className="space-y-1.5 bg-amber-50/50 p-3 rounded-xl border border-amber-200/60">
+                                    <label className="text-xs font-bold text-amber-900">Fixed Booking Fee (₹ per reservation)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        placeholder="e.g. 100"
+                                        value={editingRestaurant.diningSettings?.bookingFee ?? editingRestaurant.bookingFee ?? ""}
+                                        onChange={(e) => {
+                                            const val = Math.max(0, parseInt(e.target.value) || 0)
+                                            setEditingRestaurant(prev => ({
+                                                ...prev,
+                                                bookingFee: val,
+                                                diningSettings: { ...prev.diningSettings, bookingFee: val }
+                                            }))
+                                        }}
+                                        className="w-full px-3.5 py-2 text-xs border border-amber-200 bg-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 font-bold text-slate-800"
+                                    />
+                                    <p className="text-[10px] text-amber-700">Charged once to confirm the table reservation.</p>
+                                </div>
+                            )}
+
+                            {(editingRestaurant.diningSettings?.pricingModel === "cover_charge" || editingRestaurant.pricingModel === "cover_charge") && (
+                                <div className="space-y-1.5 bg-amber-50/50 p-3 rounded-xl border border-amber-200/60">
+                                    <label className="text-xs font-bold text-amber-900">Cover Charge (₹ per guest)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        placeholder="e.g. 500"
+                                        value={editingRestaurant.diningSettings?.coverChargePerPerson ?? editingRestaurant.coverChargePerPerson ?? ""}
+                                        onChange={(e) => {
+                                            const val = Math.max(0, parseInt(e.target.value) || 0)
+                                            setEditingRestaurant(prev => ({
+                                                ...prev,
+                                                coverChargePerPerson: val,
+                                                diningSettings: { ...prev.diningSettings, coverChargePerPerson: val }
+                                            }))
+                                        }}
+                                        className="w-full px-3.5 py-2 text-xs border border-amber-200 bg-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 font-bold text-slate-800"
+                                    />
+                                    <p className="text-[10px] text-amber-700">Adjusted against customer's final food & beverage bill.</p>
+                                </div>
+                            )}
 
                             {/* Offer & Cost */}
                             <div className="grid grid-cols-2 gap-3">
@@ -842,6 +921,10 @@ export default function DiningList() {
                                 onClick={async () => {
                                     try {
                                         setLoading(true)
+                                        const pModel = editingRestaurant.diningSettings?.pricingModel || editingRestaurant.pricingModel || "free"
+                                        const bFee = editingRestaurant.diningSettings?.bookingFee ?? editingRestaurant.bookingFee ?? 0
+                                        const cCharge = editingRestaurant.diningSettings?.coverChargePerPerson ?? editingRestaurant.coverChargePerPerson ?? 0
+
                                         await adminAPI.updateRestaurantDiningSettings(editingRestaurant._id, {
                                             isEnabled: editingRestaurant.diningSettings?.isEnabled === true,
                                             maxGuests: editingRestaurant.diningSettings?.maxGuests || 6,
@@ -850,8 +933,24 @@ export default function DiningList() {
                                             coverImage: editingRestaurant.coverImage,
                                             costForTwo: editingRestaurant.costForTwo,
                                             offer: editingRestaurant.offer,
+                                            pricingModel: pModel,
+                                            bookingFee: bFee,
+                                            coverChargePerPerson: cCharge,
                                         })
-                                        setRestaurants(prev => prev.map(r => r._id === editingRestaurant._id ? { ...r, ...editingRestaurant } : r))
+                                        setRestaurants(prev => prev.map(r => r._id === editingRestaurant._id ? {
+                                            ...r,
+                                            ...editingRestaurant,
+                                            pricingModel: pModel,
+                                            bookingFee: bFee,
+                                            coverChargePerPerson: cCharge,
+                                            diningSettings: {
+                                                ...r.diningSettings,
+                                                ...editingRestaurant.diningSettings,
+                                                pricingModel: pModel,
+                                                bookingFee: bFee,
+                                                coverChargePerPerson: cCharge,
+                                            }
+                                        } : r))
                                         setIsEditModalOpen(false)
                                     } catch (err) {
                                         debugError("Update failed", err)

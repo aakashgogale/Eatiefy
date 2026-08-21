@@ -38,9 +38,20 @@ async function syncRestaurantDiningSettings(restaurantId, diningDoc, extraUpdate
     }
     if (extraUpdates.costForTwo !== undefined) {
         setObj.costForTwo = extraUpdates.costForTwo;
+        setObj['diningSettings.costForTwo'] = extraUpdates.costForTwo;
     }
     if (extraUpdates.offer !== undefined) {
         setObj.offer = extraUpdates.offer;
+        setObj['diningSettings.offer'] = extraUpdates.offer;
+    }
+    if (extraUpdates.pricingModel !== undefined) {
+        setObj['diningSettings.pricingModel'] = extraUpdates.pricingModel;
+    }
+    if (extraUpdates.bookingFee !== undefined) {
+        setObj['diningSettings.bookingFee'] = Number(extraUpdates.bookingFee) || 0;
+    }
+    if (extraUpdates.coverChargePerPerson !== undefined) {
+        setObj['diningSettings.coverChargePerPerson'] = Number(extraUpdates.coverChargePerPerson) || 0;
     }
 
     await FoodRestaurant.findByIdAndUpdate(
@@ -143,9 +154,15 @@ function mapDiningRestaurant(restaurant, diningDoc, categoriesById) {
         primaryCategoryId: primaryCategory?._id || null,
         diningSettings: {
             isEnabled: Boolean(diningDoc?.isEnabled),
-            maxGuests: Math.max(1, Number(diningDoc?.maxGuests) || 6),
+            maxGuests: Math.max(1, Number(diningDoc?.maxGuests || restaurant?.diningSettings?.maxGuests) || 6),
             pureVegRestaurant: diningDoc?.pureVegRestaurant === true || restaurant?.pureVegRestaurant === true,
-            diningType: primaryCategory?.slug || restaurant?.diningSettings?.diningType || ''
+            diningType: primaryCategory?.slug || restaurant?.diningSettings?.diningType || '',
+            pricingModel: restaurant?.diningSettings?.pricingModel || 'free',
+            bookingFee: Number(restaurant?.diningSettings?.bookingFee || 0),
+            coverChargePerPerson: Number(restaurant?.diningSettings?.coverChargePerPerson || 0),
+            costForTwo: restaurant?.diningSettings?.costForTwo || restaurant?.costForTwo || '',
+            offer: restaurant?.diningSettings?.offer || restaurant?.offer || '',
+            coverImage: restaurant?.diningSettings?.coverImage || ''
         }
     };
 }
@@ -376,6 +393,9 @@ export async function updateDiningRestaurant(restaurantId, body = {}) {
         coverImage: body.coverImage || body.imageUrl || body.image,
         costForTwo: body.costForTwo,
         offer: body.offer,
+        pricingModel: body.pricingModel,
+        bookingFee: body.bookingFee,
+        coverChargePerPerson: body.coverChargePerPerson
     });
 
     const categoryLookupIds = diningDoc.categoryIds || [];
@@ -522,6 +542,19 @@ export async function approveDiningRequestAdmin(restaurantId, body = {}) {
         ? body.coverImages
         : (coverImage ? [{ url: coverImage }] : (currentDiningSettings.coverImages || []));
 
+    const pricingModel = ['free', 'fixed_fee', 'cover_charge'].includes(body.pricingModel)
+        ? body.pricingModel
+        : (currentDiningSettings.pricingModel || 'free');
+    const bookingFee = body.bookingFee !== undefined
+        ? Math.max(0, Number(body.bookingFee) || 0)
+        : Number(currentDiningSettings.bookingFee || 0);
+    const coverChargePerPerson = body.coverChargePerPerson !== undefined
+        ? Math.max(0, Number(body.coverChargePerPerson) || 0)
+        : Number(currentDiningSettings.coverChargePerPerson || 0);
+    const mealPeriods = Array.isArray(body.mealPeriods) && body.mealPeriods.length > 0
+        ? body.mealPeriods
+        : (currentDiningSettings.mealPeriods || ['lunch', 'dinner']);
+
     // 1. Update Restaurant Document
     restaurant.diningSettings = {
         ...currentDiningSettings,
@@ -532,6 +565,10 @@ export async function approveDiningRequestAdmin(restaurantId, body = {}) {
         rejectionReason: '',
         maxGuests,
         diningType,
+        pricingModel,
+        bookingFee,
+        coverChargePerPerson,
+        mealPeriods,
         costForTwo,
         offer,
         coverImage,

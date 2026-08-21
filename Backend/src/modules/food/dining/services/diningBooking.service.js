@@ -80,6 +80,12 @@ function formatBooking(bookingDoc) {
         date: booking.date,
         timeSlot: booking.timeSlot,
         specialRequest: booking.specialRequest || '',
+        pricingModel: booking.pricingModel || 'free',
+        bookingFee: Number(booking.bookingFee || 0),
+        coverChargePerPerson: Number(booking.coverChargePerPerson || 0),
+        totalAmount: Number(booking.totalAmount || 0),
+        costForTwo: booking.costForTwo || '',
+        offer: booking.offer || '',
         status: booking.status || 'pending',
         review: booking.review || null,
         createdAt: booking.createdAt,
@@ -98,6 +104,15 @@ export async function createBooking(userId, payload) {
         throw new Error('Restaurant not found');
     }
 
+    // Calculate dynamic booking and cover charges based on restaurant's dining settings
+    const guests = Math.max(1, Number(payload.guests) || 1);
+    const pricingModel = restaurant?.diningSettings?.pricingModel || 'free';
+    const bookingFee = pricingModel === 'fixed_fee' ? Number(restaurant?.diningSettings?.bookingFee || 0) : 0;
+    const coverChargePerPerson = pricingModel === 'cover_charge' ? Number(restaurant?.diningSettings?.coverChargePerPerson || 0) : 0;
+    const totalAmount = pricingModel === 'fixed_fee'
+        ? bookingFee
+        : (pricingModel === 'cover_charge' ? coverChargePerPerson * guests : 0);
+
     // Generate unique display-friendly booking ID: TB + 8 digits
     const uniqueDigits = Math.floor(10000000 + Math.random() * 90000000);
     const bookingId = `TB${uniqueDigits}`;
@@ -108,10 +123,16 @@ export async function createBooking(userId, payload) {
         userId,
         customerName: String(payload.customerName || payload.name || '').trim(),
         customerPhone: String(payload.customerPhone || payload.phone || '').trim(),
-        guests: Math.max(1, Number(payload.guests) || 1),
+        guests,
         date: new Date(payload.date),
         timeSlot: String(payload.timeSlot || '').trim(),
         specialRequest: String(payload.specialRequest || '').trim(),
+        pricingModel,
+        bookingFee,
+        coverChargePerPerson,
+        totalAmount,
+        costForTwo: String(restaurant?.diningSettings?.costForTwo || restaurant?.costForTwo || ''),
+        offer: String(restaurant?.diningSettings?.offer || restaurant?.offer || ''),
         status: 'pending'
     });
 

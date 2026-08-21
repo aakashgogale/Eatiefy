@@ -1131,15 +1131,40 @@ export const updateCurrentRestaurantDiningSettings = async (restaurantId, body =
     const diningType =
         String(body.diningType ?? currentDiningSettings.diningType ?? 'family-dining').trim() ||
         'family-dining';
+    const pricingModel = ['free', 'fixed_fee', 'cover_charge'].includes(body.pricingModel)
+        ? body.pricingModel
+        : (currentDiningSettings.pricingModel || 'free');
+    const bookingFee = body.bookingFee !== undefined
+        ? Math.max(0, Number(body.bookingFee) || 0)
+        : Number(currentDiningSettings.bookingFee || 0);
+    const coverChargePerPerson = body.coverChargePerPerson !== undefined
+        ? Math.max(0, Number(body.coverChargePerPerson) || 0)
+        : Number(currentDiningSettings.coverChargePerPerson || 0);
+    const costForTwo = body.costForTwo !== undefined
+        ? String(body.costForTwo).trim()
+        : String(currentDiningSettings.costForTwo || '').trim();
+    const offer = body.offer !== undefined
+        ? String(body.offer).trim()
+        : String(currentDiningSettings.offer || '').trim();
+    const mealPeriods = Array.isArray(body.mealPeriods) && body.mealPeriods.length > 0
+        ? body.mealPeriods
+        : (currentDiningSettings.mealPeriods || ['lunch', 'dinner']);
 
     const doc = await FoodRestaurant.findByIdAndUpdate(
         restaurantId,
         {
             $set: {
                 diningSettings: {
+                    ...currentDiningSettings,
                     isEnabled: parseBoolean(body.isEnabled, currentDiningSettings.isEnabled),
                     maxGuests,
-                    diningType
+                    diningType,
+                    pricingModel,
+                    bookingFee,
+                    coverChargePerPerson,
+                    costForTwo,
+                    offer,
+                    mealPeriods,
                 }
             }
         },
@@ -1244,6 +1269,19 @@ export const submitDiningActivationRequest = async (restaurantId, body = {}) => 
         : (coverImage ? [{ url: coverImage }] : (currentDiningSettings.coverImages || []));
     const notes = String(body.notes || '').trim();
 
+    const pricingModel = ['free', 'fixed_fee', 'cover_charge'].includes(body.pricingModel)
+        ? body.pricingModel
+        : (currentDiningSettings.pricingModel || 'free');
+    const bookingFee = body.bookingFee !== undefined
+        ? Math.max(0, Number(body.bookingFee) || 0)
+        : Number(currentDiningSettings.bookingFee || 0);
+    const coverChargePerPerson = body.coverChargePerPerson !== undefined
+        ? Math.max(0, Number(body.coverChargePerPerson) || 0)
+        : Number(currentDiningSettings.coverChargePerPerson || 0);
+    const mealPeriods = Array.isArray(body.mealPeriods) && body.mealPeriods.length > 0
+        ? body.mealPeriods
+        : (currentDiningSettings.mealPeriods || ['lunch', 'dinner']);
+
     const doc = await FoodRestaurant.findByIdAndUpdate(
         restaurantId,
         {
@@ -1255,6 +1293,10 @@ export const submitDiningActivationRequest = async (restaurantId, body = {}) => 
                 'diningSettings.rejectionReason': '',
                 'diningSettings.maxGuests': maxGuests,
                 'diningSettings.diningType': diningType,
+                'diningSettings.pricingModel': pricingModel,
+                'diningSettings.bookingFee': bookingFee,
+                'diningSettings.coverChargePerPerson': coverChargePerPerson,
+                'diningSettings.mealPeriods': mealPeriods,
                 'diningSettings.costForTwo': costForTwo,
                 'diningSettings.offer': offer,
                 'diningSettings.coverImage': coverImage,

@@ -90,6 +90,12 @@ export default function DiningReservations() {
     const [showMediaPanel, setShowMediaPanel] = useState(false)
     const [diningEnabled, setDiningEnabled] = useState(false)
     const [maxGuestsLimit, setMaxGuestsLimit] = useState(6)
+    const [pricingModel, setPricingModel] = useState("free")
+    const [bookingFee, setBookingFee] = useState(0)
+    const [coverChargePerPerson, setCoverChargePerPerson] = useState(0)
+    const [costForTwo, setCostForTwo] = useState("")
+    const [offerBadge, setOfferBadge] = useState("")
+    const [mealPeriods, setMealPeriods] = useState(["breakfast", "lunch", "dinner"])
     const [savingDiningSettings, setSavingDiningSettings] = useState(false)
     const [diningSettingsMessage, setDiningSettingsMessage] = useState("")
     const [diningSettingsError, setDiningSettingsError] = useState("")
@@ -100,6 +106,9 @@ export default function DiningReservations() {
         costForTwo: "",
         offer: "",
         diningType: "family-dining",
+        pricingModel: "free",
+        bookingFee: 0,
+        coverChargePerPerson: 0,
         maxGuests: 6,
         notes: "",
     })
@@ -113,11 +122,20 @@ export default function DiningReservations() {
         setMenuPhotos(getMenuImages(restaurantData))
         setDiningEnabled(Boolean(restaurantData?.diningSettings?.isEnabled))
         setMaxGuestsLimit(Math.max(1, parseInt(restaurantData?.diningSettings?.maxGuests, 10) || 6))
+        setPricingModel(restaurantData?.diningSettings?.pricingModel || "free")
+        setBookingFee(Number(restaurantData?.diningSettings?.bookingFee || 0))
+        setCoverChargePerPerson(Number(restaurantData?.diningSettings?.coverChargePerPerson || 0))
+        setCostForTwo(restaurantData?.diningSettings?.costForTwo || restaurantData?.costForTwo || "")
+        setOfferBadge(restaurantData?.diningSettings?.offer || restaurantData?.offer || "")
+        setMealPeriods(Array.isArray(restaurantData?.diningSettings?.mealPeriods) && restaurantData.diningSettings.mealPeriods.length > 0 ? restaurantData.diningSettings.mealPeriods : ["breakfast", "lunch", "dinner"])
         setApplyForm({
             coverImage: restaurantData?.diningSettings?.coverImage || coverImages[0]?.url || "",
             costForTwo: restaurantData?.diningSettings?.costForTwo || restaurantData?.costForTwo || "",
             offer: restaurantData?.diningSettings?.offer || restaurantData?.offer || "",
             diningType: restaurantData?.diningSettings?.diningType || "family-dining",
+            pricingModel: restaurantData?.diningSettings?.pricingModel || "free",
+            bookingFee: Number(restaurantData?.diningSettings?.bookingFee || 0),
+            coverChargePerPerson: Number(restaurantData?.diningSettings?.coverChargePerPerson || 0),
             maxGuests: restaurantData?.diningSettings?.maxGuests || 6,
             notes: restaurantData?.diningSettings?.notes || "",
         })
@@ -295,6 +313,12 @@ export default function DiningReservations() {
             ...(restaurant?.diningSettings || {}),
             isEnabled: Boolean(diningEnabled),
             maxGuests: nextMaxGuests,
+            pricingModel: pricingModel || "free",
+            bookingFee: Math.max(0, Number(bookingFee) || 0),
+            coverChargePerPerson: Math.max(0, Number(coverChargePerPerson) || 0),
+            costForTwo: String(costForTwo || "").trim(),
+            offer: String(offerBadge || "").trim(),
+            mealPeriods: Array.isArray(mealPeriods) && mealPeriods.length > 0 ? mealPeriods : ["breakfast", "lunch", "dinner"],
             diningType: restaurant?.diningSettings?.diningType || "family-dining",
         }
 
@@ -310,8 +334,8 @@ export default function DiningReservations() {
                 syncRestaurantMediaState(updatedRestaurant)
             }
 
-            setDiningSettingsMessage("Dining settings saved successfully.")
-            toast.success("Dining settings updated")
+            setDiningSettingsMessage("Dining and pricing settings saved successfully.")
+            toast.success("Dining & pricing settings updated")
         } catch (error) {
             debugError("Error saving dining settings:", error)
             setDiningSettingsError(error?.response?.data?.message || "Failed to save dining settings.")
@@ -747,64 +771,204 @@ export default function DiningReservations() {
                 )}
 
                 {activeSection === "reservations" && (
-                    <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div className="mb-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-slate-100 pb-5">
                             <div className="max-w-xl">
-                                <p className="text-xs font-bold uppercase tracking-[0.22em] text-slate-400">Dining Controls</p>
-                                <h2 className="mt-1 text-lg font-black text-slate-900">Manage dining availability and booking limit</h2>
-                                <p className="mt-1 text-sm text-slate-500">
-                                    These settings update the same dining profile the guest booking flow reads, so restaurant changes are reflected on the user side too.
+                                <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#EB590E]">Dining & Table Management</p>
+                                <h2 className="mt-1 text-lg font-black text-slate-900">Manage Pricing, Availability & Table Settings</h2>
+                                <p className="mt-1 text-xs text-slate-500">
+                                    Set your table booking pricing model, cover charges, average cost for two, and guest limits directly.
                                 </p>
                             </div>
 
                             <div className="flex flex-wrap items-center gap-3">
                                 <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
-                                    <span className={`h-2.5 w-2.5 rounded-full ${diningEnabled ? "bg-emerald-500" : "bg-rose-500"}`} />
-                                    <span className="text-sm font-semibold text-slate-700">
-                                        {diningEnabled ? "Dining enabled" : "Dining paused"}
+                                    <span className={`h-2.5 w-2.5 rounded-full ${diningEnabled ? "bg-emerald-500 animate-pulse" : "bg-rose-500"}`} />
+                                    <span className="text-xs font-bold text-slate-700">
+                                        {diningEnabled ? "Dining LIVE" : "Dining PAUSED"}
                                     </span>
                                 </div>
 
                                 <div className="inline-flex items-center gap-3 rounded-full border border-slate-200 bg-white px-4 py-2">
-                                    <span className="text-sm font-medium text-slate-700">Turn dining on/off</span>
+                                    <span className="text-xs font-semibold text-slate-700">Accept Bookings</span>
                                     <button
                                         type="button"
                                         onClick={() => setDiningEnabled((prev) => !prev)}
-                                        className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${diningEnabled ? "bg-emerald-600" : "bg-slate-300"}`}
+                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${diningEnabled ? "bg-emerald-600" : "bg-slate-300"}`}
                                         aria-pressed={diningEnabled}
                                     >
-                                        <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform duration-200 ${diningEnabled ? "translate-x-6" : "translate-x-1"}`} />
+                                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${diningEnabled ? "translate-x-6" : "translate-x-1"}`} />
                                     </button>
-                                </div>
-
-                                <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2">
-                                    <span className="text-sm font-medium text-slate-700">Customer limit</span>
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        max="20"
-                                        value={maxGuestsLimit}
-                                        onChange={(e) => setMaxGuestsLimit(e.target.value)}
-                                        className="w-20 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-center text-sm font-semibold text-slate-900 outline-none focus:border-blue-500"
-                                    />
                                 </div>
 
                                 <button
                                     type="button"
                                     onClick={handleSaveDiningSettings}
                                     disabled={savingDiningSettings}
-                                    className="rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                                    className="rounded-full bg-[#EB590E] px-6 py-2 text-xs font-bold text-white transition-all hover:bg-[#D44D0A] shadow-md shadow-orange-500/20 disabled:cursor-not-allowed disabled:opacity-60"
                                 >
-                                    {savingDiningSettings ? "Saving..." : "Save settings"}
+                                    {savingDiningSettings ? "Saving Changes..." : "Save Settings"}
                                 </button>
                             </div>
                         </div>
 
+                        {/* Pricing Model Selector */}
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-slate-700 flex items-center gap-2">
+                                <span>1. Select Table Booking Pricing Model</span>
+                                <span className="text-[11px] font-normal text-slate-400">(Choose how guests reserve tables at your restaurant)</span>
+                            </label>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                {[
+                                    {
+                                        id: "free",
+                                        title: "Free Table Reservation",
+                                        badge: "Standard (₹0)",
+                                        desc: "Guests reserve table for free. They pay directly at your restaurant after dining.",
+                                    },
+                                    {
+                                        id: "fixed_fee",
+                                        title: "Fixed Booking Fee",
+                                        badge: "Flat Token",
+                                        desc: "Charge a nominal fixed reservation fee (e.g. ₹100) to confirm booking.",
+                                    },
+                                    {
+                                        id: "cover_charge",
+                                        title: "Per-Person Cover Charge",
+                                        badge: "Bill Deductible",
+                                        desc: "Charge per guest (e.g. ₹500/person). Adjusted against food bill on arrival.",
+                                    },
+                                ].map((model) => {
+                                    const isSelected = pricingModel === model.id
+                                    return (
+                                        <button
+                                            key={model.id}
+                                            type="button"
+                                            onClick={() => setPricingModel(model.id)}
+                                            className={`p-3.5 rounded-2xl text-left border transition-all ${
+                                                isSelected
+                                                    ? "border-[#EB590E] bg-orange-50/70 ring-2 ring-orange-400/30"
+                                                    : "border-slate-200 bg-white hover:border-slate-300"
+                                            }`}
+                                        >
+                                            <div className="flex items-center justify-between mb-1">
+                                                <span className={`text-xs font-bold ${isSelected ? "text-[#EB590E]" : "text-slate-900"}`}>{model.title}</span>
+                                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase ${isSelected ? "bg-[#EB590E] text-white" : "bg-slate-100 text-slate-500"}`}>{model.badge}</span>
+                                            </div>
+                                            <p className="text-[11px] text-slate-500 leading-snug">{model.desc}</p>
+                                        </button>
+                                    )
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Dynamic Fee Inputs & Capacity Grid */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-1">
+                            {pricingModel === "fixed_fee" && (
+                                <div className="space-y-1 bg-amber-50/60 p-3 rounded-2xl border border-amber-200">
+                                    <label className="text-[11px] font-bold text-amber-900">Fixed Fee (₹ per reservation)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        placeholder="100"
+                                        value={bookingFee}
+                                        onChange={(e) => setBookingFee(Math.max(0, parseInt(e.target.value) || 0))}
+                                        className="w-full text-xs font-bold px-3 py-2 border border-amber-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-orange-500 text-slate-900"
+                                    />
+                                </div>
+                            )}
+
+                            {pricingModel === "cover_charge" && (
+                                <div className="space-y-1 bg-amber-50/60 p-3 rounded-2xl border border-amber-200">
+                                    <label className="text-[11px] font-bold text-amber-900">Cover Charge (₹ per guest)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        placeholder="500"
+                                        value={coverChargePerPerson}
+                                        onChange={(e) => setCoverChargePerPerson(Math.max(0, parseInt(e.target.value) || 0))}
+                                        className="w-full text-xs font-bold px-3 py-2 border border-amber-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-orange-500 text-slate-900"
+                                    />
+                                </div>
+                            )}
+
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-bold text-slate-700">Cost for Two (₹)</label>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. ₹800 for two"
+                                    value={costForTwo}
+                                    onChange={(e) => setCostForTwo(e.target.value)}
+                                    className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                />
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-bold text-slate-700">Dining Offer Badge</label>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. Flat 20% OFF"
+                                    value={offerBadge}
+                                    onChange={(e) => setOfferBadge(e.target.value)}
+                                    className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                />
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-bold text-slate-700">Max Table Capacity (Guests)</label>
+                                <select
+                                    value={maxGuestsLimit}
+                                    onChange={(e) => setMaxGuestsLimit(Math.max(1, parseInt(e.target.value, 10) || 6))}
+                                    className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white"
+                                >
+                                    {[2, 4, 6, 8, 10, 12, 16, 20].map((n) => (
+                                        <option key={n} value={n}>{n} Guests Max</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Meal Periods Toggles */}
+                        <div className="pt-2">
+                            <label className="text-xs font-bold text-slate-700 block mb-2">Available Meal Periods</label>
+                            <div className="flex flex-wrap gap-2">
+                                {[
+                                    { id: "breakfast", label: "🍳 Breakfast (8 AM - 11 AM)" },
+                                    { id: "lunch", label: "🍲 Lunch (12 PM - 4 PM)" },
+                                    { id: "dinner", label: "🍷 Dinner (7 PM - 11 PM)" },
+                                ].map((period) => {
+                                    const isChecked = mealPeriods.includes(period.id)
+                                    return (
+                                        <button
+                                            key={period.id}
+                                            type="button"
+                                            onClick={() => {
+                                                if (isChecked) {
+                                                    setMealPeriods(mealPeriods.filter((p) => p !== period.id))
+                                                } else {
+                                                    setMealPeriods([...mealPeriods, period.id])
+                                                }
+                                            }}
+                                            className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                                                isChecked
+                                                    ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                                                    : "bg-slate-50 text-slate-600 border-slate-200 hover:border-slate-300"
+                                            }`}
+                                        >
+                                            {period.label}
+                                        </button>
+                                    )
+                                })}
+                            </div>
+                        </div>
+
                         {(diningSettingsMessage || diningSettingsError) && (
-                            <div className={`mt-4 rounded-xl border px-4 py-3 text-sm font-medium ${diningSettingsError
-                                ? "border-rose-200 bg-rose-50 text-rose-700"
-                                : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                }`}>
+                            <div className={`rounded-xl border px-4 py-3 text-xs font-semibold ${
+                                diningSettingsError
+                                    ? "border-rose-200 bg-rose-50 text-rose-700"
+                                    : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            }`}>
                                 {diningSettingsError || diningSettingsMessage}
                             </div>
                         )}
@@ -1164,6 +1328,61 @@ export default function DiningReservations() {
                                         className="w-full text-xs px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500"
                                     />
                                 </div>
+                            </div>
+
+                            {/* Pricing Model & Fees */}
+                            <div className="space-y-2">
+                                <label className="block text-xs font-bold text-slate-700">Reservation Pricing Model</label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {[
+                                        { id: "free", label: "Free (₹0)", desc: "Free reservation" },
+                                        { id: "fixed_fee", label: "Fixed Fee", desc: "Token booking fee" },
+                                        { id: "cover_charge", label: "Cover Charge", desc: "Per guest charge" },
+                                    ].map((model) => {
+                                        const isSelected = (applyForm.pricingModel || "free") === model.id
+                                        return (
+                                            <button
+                                                key={model.id}
+                                                type="button"
+                                                onClick={() => setApplyForm(prev => ({ ...prev, pricingModel: model.id }))}
+                                                className={`p-2.5 rounded-xl text-left border transition-all ${
+                                                    isSelected
+                                                        ? "border-[#EB590E] bg-orange-50 ring-1 ring-[#EB590E]"
+                                                        : "border-slate-200 bg-white"
+                                                }`}
+                                            >
+                                                <p className={`text-xs font-bold ${isSelected ? "text-[#EB590E]" : "text-slate-800"}`}>{model.label}</p>
+                                                <p className="text-[10px] text-slate-400 mt-0.5">{model.desc}</p>
+                                            </button>
+                                        )
+                                    })}
+                                </div>
+
+                                {applyForm.pricingModel === "fixed_fee" && (
+                                    <div className="pt-1">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            placeholder="Fixed Booking Fee (e.g. ₹100)"
+                                            value={applyForm.bookingFee || ""}
+                                            onChange={(e) => setApplyForm(prev => ({ ...prev, bookingFee: Math.max(0, parseInt(e.target.value) || 0) }))}
+                                            className="w-full text-xs px-3 py-2 border border-amber-200 bg-amber-50/50 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 font-bold"
+                                        />
+                                    </div>
+                                )}
+
+                                {applyForm.pricingModel === "cover_charge" && (
+                                    <div className="pt-1">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            placeholder="Cover Charge per person (e.g. ₹500)"
+                                            value={applyForm.coverChargePerPerson || ""}
+                                            onChange={(e) => setApplyForm(prev => ({ ...prev, coverChargePerPerson: Math.max(0, parseInt(e.target.value) || 0) }))}
+                                            className="w-full text-xs px-3 py-2 border border-amber-200 bg-amber-50/50 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 font-bold"
+                                        />
+                                    </div>
+                                )}
                             </div>
 
                             {/* Dining Type & Max Guests */}

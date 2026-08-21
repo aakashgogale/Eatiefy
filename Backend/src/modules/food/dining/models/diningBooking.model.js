@@ -47,6 +47,31 @@ const diningBookingSchema = new mongoose.Schema(
             default: '',
             trim: true
         },
+        pricingModel: {
+            type: String,
+            enum: ['free', 'fixed_fee', 'cover_charge'],
+            default: 'free'
+        },
+        bookingFee: {
+            type: Number,
+            default: 0
+        },
+        coverChargePerPerson: {
+            type: Number,
+            default: 0
+        },
+        totalAmount: {
+            type: Number,
+            default: 0
+        },
+        costForTwo: {
+            type: String,
+            default: ''
+        },
+        offer: {
+            type: String,
+            default: ''
+        },
         status: {
             type: String,
             enum: ['pending', 'accepted', 'confirmed', 'checked-in', 'completed', 'cancelled', 'rejected'],

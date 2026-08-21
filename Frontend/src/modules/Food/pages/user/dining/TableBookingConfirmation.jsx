@@ -374,7 +374,66 @@ export default function TableBookingConfirmation() {
           </div>
         </div>
 
-        {/* 4. Your Details Card (Editable) */}
+        {/* 4. Pricing & Bill Summary */}
+        <div className="pt-2">
+          <div className="flex items-center gap-4 mb-3">
+            <div className="h-px bg-slate-200 flex-1"></div>
+            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">
+              Bill & Reservation Charges
+            </span>
+            <div className="h-px bg-slate-200 flex-1"></div>
+          </div>
+
+          <div className="bg-white rounded-3xl p-5 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-slate-100/90 space-y-3">
+            {restaurant?.diningSettings?.pricingModel === "fixed_fee" ? (
+              <>
+                <div className="flex justify-between items-center text-xs text-slate-600">
+                  <span>Table Reservation Fee</span>
+                  <span className="font-bold text-slate-900">₹{restaurant?.diningSettings?.bookingFee || 100}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs text-slate-600">
+                  <span>Pay at Restaurant (Food Bill)</span>
+                  <span className="font-semibold text-slate-500">{restaurant?.diningSettings?.costForTwo || restaurant?.costForTwo || "₹600 for two"}</span>
+                </div>
+                <div className="pt-2 border-t border-dashed border-slate-200 flex justify-between items-center">
+                  <span className="text-xs font-black text-slate-900">Total Due for Booking</span>
+                  <span className="text-sm font-black text-[#EB590E]">₹{restaurant?.diningSettings?.bookingFee || 100}</span>
+                </div>
+              </>
+            ) : restaurant?.diningSettings?.pricingModel === "cover_charge" ? (
+              <>
+                <div className="flex justify-between items-center text-xs text-slate-600">
+                  <span>Cover Charge (₹{restaurant?.diningSettings?.coverChargePerPerson || 500} × {guests} Guests)</span>
+                  <span className="font-bold text-slate-900">₹{(restaurant?.diningSettings?.coverChargePerPerson || 500) * guests}</span>
+                </div>
+                <p className="text-[11px] text-emerald-600 font-semibold bg-emerald-50 p-2 rounded-xl border border-emerald-100">
+                  ✓ 100% cover charge is adjusted against your final food & drinks bill at the restaurant.
+                </p>
+                <div className="pt-2 border-t border-dashed border-slate-200 flex justify-between items-center">
+                  <span className="text-xs font-black text-slate-900">Total Cover Amount</span>
+                  <span className="text-sm font-black text-[#EB590E]">₹{(restaurant?.diningSettings?.coverChargePerPerson || 500) * guests}</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex justify-between items-center text-xs text-slate-600">
+                  <span>Table Reservation Fee</span>
+                  <span className="font-bold text-emerald-600 uppercase">FREE (₹0)</span>
+                </div>
+                <div className="flex justify-between items-center text-xs text-slate-600">
+                  <span>Estimated Cost</span>
+                  <span className="font-semibold text-slate-500">{restaurant?.diningSettings?.costForTwo || restaurant?.costForTwo || "₹600 for two"}</span>
+                </div>
+                <div className="pt-2 border-t border-dashed border-slate-200 flex justify-between items-center">
+                  <span className="text-xs font-black text-slate-900">Total Payable Now</span>
+                  <span className="text-sm font-black text-emerald-600">₹0 (Free Booking)</span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* 5. Your Details Card (Editable) */}
         <div className="pt-2">
           <div className="flex items-center gap-4 mb-3">
             <div className="h-px bg-slate-200 flex-1"></div>
