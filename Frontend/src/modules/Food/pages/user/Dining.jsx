@@ -498,6 +498,32 @@ export default function Dining() {
     openSearch()
   }, [heroSearch, openSearch, setSearchValue])
 
+  if (loading) {
+    return (
+      <div className="min-h-[85vh] flex flex-col items-center justify-center p-6 bg-[#fcfaf7] dark:bg-[#0c0c0c]">
+        <div className="relative flex flex-col items-center">
+          {/* Glowing Ring with Utensils Icon */}
+          <div className="relative w-20 h-20 flex items-center justify-center">
+            <div className="absolute inset-0 rounded-full border-4 border-orange-100 dark:border-orange-950/40" />
+            <div className="absolute inset-0 rounded-full border-4 border-[#EB590E] border-t-transparent animate-spin" />
+            <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-[#EB590E] to-[#FF8C38] flex items-center justify-center text-white shadow-lg shadow-orange-500/30">
+              <UtensilsCrossed className="w-6 h-6 animate-pulse" />
+            </div>
+          </div>
+
+          <div className="mt-5 text-center">
+            <p className="text-base font-black text-slate-900 dark:text-white tracking-tight">
+              Eatiefy Dining
+            </p>
+            <p className="text-xs font-semibold text-slate-400 mt-1">
+              Loading restaurants & table reservations...
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <AnimatedPage className="bg-[#fcfaf7] dark:bg-[#0c0c0c] pb-[140px] overflow-visible min-h-screen">
       <style>{`
