@@ -274,14 +274,21 @@ export const adminLogin = async (email, password) => {
   const accessToken = signAccessToken(payload);
   const refreshToken = signRefreshToken(payload);
 
-  const ttlMs = ms(config.jwtRefreshExpiresIn || "7d");
+  let ttlMs = ms(String(config.jwtRefreshExpiresIn || "30d").trim());
+  if (!Number.isFinite(ttlMs) || ttlMs <= 0) {
+    ttlMs = 30 * 24 * 60 * 60 * 1000;
+  }
   const expiresAt = new Date(Date.now() + ttlMs);
 
-  await FoodRefreshToken.create({
-    userId: admin._id,
-    token: refreshToken,
-    expiresAt,
-  });
+  try {
+    await FoodRefreshToken.create({
+      userId: admin._id,
+      token: refreshToken,
+      expiresAt,
+    });
+  } catch (refreshErr) {
+    logger.warn(`Could not save FoodRefreshToken: ${refreshErr?.message}`);
+  }
 
   const userObj = admin.toObject();
   delete userObj.password;
