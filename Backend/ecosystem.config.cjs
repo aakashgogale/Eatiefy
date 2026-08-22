@@ -10,9 +10,7 @@
  * - API never crashes if Redis blips (queues degrade gracefully)
  * - Workers wait for Redis, then exit 0 (not 1) so PM2 doesn't hard crash-loop
  */
-module.exports = {
-  apps: [
-    {
+const api = {
       name: 'eatiefy-api',
       script: 'server.js',
       cwd: __dirname,
@@ -23,7 +21,9 @@ module.exports = {
         NODE_ENV: 'production',
         USE_DEFAULT_OTP: 'false',
       },
-    },
+    };
+
+const workers = [
     {
       name: 'eatiefy-worker-order',
       script: 'src/queues/workers/order.worker.js',
@@ -74,5 +74,11 @@ module.exports = {
       restart_delay: 5000,
       env: { NODE_ENV: 'production', USE_DEFAULT_OTP: 'false' },
     },
+];
+
+module.exports = {
+  apps: [
+    api,
+    ...workers,
   ],
 };
