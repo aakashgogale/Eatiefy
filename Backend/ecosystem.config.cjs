@@ -1,5 +1,5 @@
 /**
- * PM2 ecosystem for Ometto API + BullMQ workers.
+ * PM2 ecosystem for Eatiefy API + BullMQ workers.
  *
  * Usage (on live server, from Backend folder):
  *   pm2 start ecosystem.config.cjs
@@ -13,7 +13,7 @@
 module.exports = {
   apps: [
     {
-      name: 'ometto',
+      name: 'eatiefy-api',
       script: 'server.js',
       cwd: __dirname,
       instances: 1,
@@ -21,57 +21,58 @@ module.exports = {
       max_memory_restart: '512M',
       env: {
         NODE_ENV: 'production',
+        USE_DEFAULT_OTP: 'false',
       },
     },
     {
-      name: 'ometto-worker-order',
+      name: 'eatiefy-worker-order',
       script: 'src/queues/workers/order.worker.js',
       cwd: __dirname,
       instances: 1,
       exec_mode: 'fork',
       max_memory_restart: '256M',
       restart_delay: 5000,
-      env: { NODE_ENV: 'production' },
+      env: { NODE_ENV: 'production', USE_DEFAULT_OTP: 'false' },
     },
     {
-      name: 'ometto-worker-payment',
+      name: 'eatiefy-worker-payment',
       script: 'src/queues/workers/payment.worker.js',
       cwd: __dirname,
       instances: 1,
       exec_mode: 'fork',
       max_memory_restart: '256M',
       restart_delay: 5000,
-      env: { NODE_ENV: 'production' },
+      env: { NODE_ENV: 'production', USE_DEFAULT_OTP: 'false' },
     },
     {
-      name: 'ometto-worker-notification',
+      name: 'eatiefy-worker-notification',
       script: 'src/queues/workers/notification.worker.js',
       cwd: __dirname,
       instances: 1,
       exec_mode: 'fork',
       max_memory_restart: '256M',
       restart_delay: 5000,
-      env: { NODE_ENV: 'production' },
+      env: { NODE_ENV: 'production', USE_DEFAULT_OTP: 'false' },
     },
     {
-      name: 'ometto-worker-tracking',
+      name: 'eatiefy-worker-tracking',
       script: 'src/queues/workers/tracking.worker.js',
       cwd: __dirname,
       instances: 1,
       exec_mode: 'fork',
       max_memory_restart: '256M',
       restart_delay: 5000,
-      env: { NODE_ENV: 'production' },
+      env: { NODE_ENV: 'production', USE_DEFAULT_OTP: 'false' },
     },
     {
-      name: 'ometto-worker-otp',
+      name: 'eatiefy-worker-otp',
       script: 'src/queues/workers/otp.worker.js',
       cwd: __dirname,
       instances: 1,
       exec_mode: 'fork',
       max_memory_restart: '256M',
       restart_delay: 5000,
-      env: { NODE_ENV: 'production' },
+      env: { NODE_ENV: 'production', USE_DEFAULT_OTP: 'false' },
     },
   ],
 };
