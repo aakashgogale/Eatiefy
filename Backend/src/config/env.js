@@ -12,7 +12,7 @@ export const config = {
     // Basic server config
     port: Number(process.env.PORT) || 10000,
     host: process.env.HOST || '0.0.0.0',
-    socketPort: process.env.SOCKET_PORT || 5001,
+    socketPort: process.env.SOCKET_PORT || 5010,
     socketHost: process.env.SOCKET_HOST || process.env.HOST || '0.0.0.0',
     nodeEnv: process.env.NODE_ENV || 'development',
 
