@@ -2114,18 +2114,18 @@ export function useLocation() {
 
       let pos
       try {
-        // Fast path: network/wifi location + accept a recent fix
-        pos = await getPosition({
-          enableHighAccuracy: false,
-          timeout: 6000,
-          maximumAge: 30000,
-        })
-      } catch {
-        // Fallback: true GPS if low-accuracy fails
+        // Primary: High accuracy (Wi-Fi triangulation & GPS) for exact location
         pos = await getPosition({
           enableHighAccuracy: true,
           timeout: 10000,
           maximumAge: 0,
+        })
+      } catch {
+        // Fallback: network/IP-based if high accuracy times out
+        pos = await getPosition({
+          enableHighAccuracy: false,
+          timeout: 6000,
+          maximumAge: 30000,
         })
       }
 

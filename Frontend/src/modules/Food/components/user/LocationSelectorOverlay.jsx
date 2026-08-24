@@ -1422,9 +1422,9 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
               // Don't log timeout errors repeatedly
             },
             {
-              enableHighAccuracy: false, // Less strict for better compatibility
-              timeout: 30000, // Longer timeout (30 seconds)
-              maximumAge: 60000 // Allow cached location up to 1 minute old
+              enableHighAccuracy: true, // High accuracy for precise location (Wi-Fi triangulation & GPS)
+              timeout: 15000, // 15 seconds timeout
+              maximumAge: 0 // Fresh location
             }
           )
           debugLog("? watchPosition started, ID:", watchPositionIdRef.current)
@@ -1457,7 +1457,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
             debugWarn("?? Location error (code:", error.code + "):", error.message)
           }
 
-          // Even if initial location fails, try watchPosition with less strict options
+          // Even if initial location fails, try watchPosition with high accuracy
           watchPositionIdRef.current = navigator.geolocation.watchPosition(
             (position) => {
               const { latitude, longitude, heading, accuracy } = position.coords
@@ -1493,17 +1493,17 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
               // Don't log other errors repeatedly
             },
             {
-              enableHighAccuracy: false, // Less strict for better compatibility
-              timeout: 30000, // Longer timeout
-              maximumAge: 60000 // Allow cached location up to 1 minute old
+              enableHighAccuracy: true,
+              timeout: 15000,
+              maximumAge: 5000
             }
           )
           debugLog("? watchPosition started (fallback), ID:", watchPositionIdRef.current)
         },
         {
-          enableHighAccuracy: false, // Less strict for better compatibility
-          timeout: 30000, // Longer timeout (30 seconds)
-          maximumAge: 60000 // Allow cached location up to 1 minute old
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 0
         }
       )
     }, 500) // Small delay to ensure map is ready
