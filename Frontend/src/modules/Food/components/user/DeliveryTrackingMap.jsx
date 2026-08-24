@@ -2,10 +2,8 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { 
   GoogleMap, 
   useJsApiLoader, 
-  Marker, 
   OverlayView, 
   DirectionsService, 
-  DirectionsRenderer,
   Polyline
 } from '@react-google-maps/api';
 import io from 'socket.io-client';
@@ -13,8 +11,7 @@ import { API_BASE_URL } from '@food/api/config';
 import bikeLogo from '@food/assets/deliveryboy-3d.jpeg';
 import mapRiderIcon from '@food/assets/MapRider.png';
 import { subscribeOrderTracking } from '@food/realtimeTracking';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Navigation, Info, Circle } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 const LIBRARIES = ['geometry', 'places'];
 
@@ -64,9 +61,7 @@ const DeliveryTrackingMap = ({
 }) => {
   const [map, setMap] = useState(null);
   const [riderLocation, setRiderLocation] = useState(null);
-  const [directions, setDirections] = useState(null);
   const [baselineDirections, setBaselineDirections] = useState(null);
-  const [lastDirectionsAt, setLastDirectionsAt] = useState(0);
   const [currentEta, setCurrentEta] = useState(null);
   const [cloudPolyline, setCloudPolyline] = useState(null);
   const [smoothLocation, setSmoothLocation] = useState(null);
@@ -235,64 +230,31 @@ const DeliveryTrackingMap = ({
   const isOrderPickedUp = ['picked_up', 'out_for_delivery', 'on_way', 'en_route_to_delivery', 'reached_drop', 'at_drop', 'delivered'].includes(tripStatus);
   const isRiderAssigned = Boolean(order?.deliveryPartnerId || order?.dispatch?.deliveryPartnerId || order?.deliveryPartner || riderLocation);
 
-  // 2. Intelligent Camera & Bounds: Frame Restaurant & Customer Journey
+  // 2. Intelligent Camera & Bounds: Frame Restaurant & Customer Journey ONCE or when coords change
+  const boundsKey = `${restaurantCoords?.lat}_${restaurantCoords?.lng}_${customerCoords?.lat}_${customerCoords?.lng}`;
+  const lastBoundsKeyRef = useRef('');
+
   useEffect(() => {
-    if (!map || !isLoaded) return;
-    const bounds = new window.google.maps.LatLngBounds();
-    if (restaurantCoords) bounds.extend(restaurantCoords);
-    if (customerCoords) bounds.extend(customerCoords);
+    if (!map || !isLoaded || !restaurantCoords || !customerCoords) return;
+    if (lastBoundsKeyRef.current === boundsKey) return;
+    lastBoundsKeyRef.current = boundsKey;
 
-    // If order is out for delivery, also ensure moving rider is in view
-    if (isOrderPickedUp && displayRiderLocation) {
-      bounds.extend(displayRiderLocation);
+    try {
+      const bounds = new window.google.maps.LatLngBounds();
+      if (restaurantCoords) bounds.extend(restaurantCoords);
+      if (customerCoords) bounds.extend(customerCoords);
+
+      map.fitBounds(bounds, {
+        top: 90, 
+        bottom: Math.min(window.innerHeight * 0.48, 380), 
+        left: 45, 
+        right: 45 
+      });
+      debugLog(`[Camera] Framed Restaurant <-> Customer delivery journey`);
+    } catch (e) {
+      debugLog('Error fitting bounds:', e);
     }
-
-    map.fitBounds(bounds, {
-      top: 90, 
-      bottom: Math.min(window.innerHeight * 0.48, 380), 
-      left: 45, 
-      right: 45 
-    });
-    
-    debugLog(`[Camera] Framing Restaurant <-> Customer delivery journey`);
-  }, [map, restaurantCoords, customerCoords, isOrderPickedUp, displayRiderLocation, isLoaded]);
-
-  // 3. Directions Management (Always Customer-Centric: Restaurant -> Customer or Rider -> Customer)
-  const directionsCallback = useCallback((result, status) => {
-    if (status === 'OK' && result) {
-      setDirections(result);
-      setLastDirectionsAt(Date.now());
-      
-      // Extract ETA from directions
-      const durationText = result?.routes?.[0]?.legs?.[0]?.duration?.text;
-      if (durationText) {
-        setCurrentEta(durationText);
-        if (onEtaUpdate) {
-          onEtaUpdate(durationText);
-        }
-      }
-    }
-  }, [onEtaUpdate]);
-
-  const shouldUpdateRoute = useMemo(() => {
-    if (!directions) return true;
-    return Date.now() - lastDirectionsAt > 15000;
-  }, [directions, lastDirectionsAt]);
-
-  // For User App: Route is ALWAYS to Customer (either from Restaurant before pickup, or from Rider after pickup)
-  const directionsServiceOptions = useMemo(() => {
-    if (!customerCoords) return null;
-    
-    if (isOrderPickedUp && riderLocation) {
-      return {
-        origin: riderLocation,
-        destination: customerCoords,
-        travelMode: 'DRIVING'
-      };
-    }
-
-    return null;
-  }, [riderLocation?.lat, riderLocation?.lng, isOrderPickedUp, customerCoords?.lat, customerCoords?.lng]);
+  }, [map, isLoaded, restaurantCoords, customerCoords, boundsKey]);
 
   const center = useMemo(() => {
     if (customerCoords && restaurantCoords) {
@@ -387,30 +349,6 @@ const DeliveryTrackingMap = ({
               strokeWeight: 5,
               strokeOpacity: 1,
               zIndex: 10
-            }}
-          />
-        )}
-
-        {/* 2. LIVE RIDER LEG VIA DIRECTIONS SERVICE (When picked up) */}
-        {isOrderPickedUp && !cloudPolyline && directionsServiceOptions && (
-          <DirectionsService
-            options={directionsServiceOptions}
-            callback={shouldUpdateRoute ? directionsCallback : undefined}
-          />
-        )}
-
-        {isOrderPickedUp && directions && !cloudPolyline && (
-          <DirectionsRenderer
-            directions={directions}
-            options={{
-              suppressMarkers: true,
-              preserveViewport: true,
-              polylineOptions: {
-                strokeColor: '#2563eb',
-                strokeWeight: 5,
-                strokeOpacity: 1,
-                zIndex: 10
-              }
             }}
           />
         )}

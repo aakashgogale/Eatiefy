@@ -406,6 +406,18 @@ apiClient.interceptors.request.use(
       }
     }
 
+    if (
+      import.meta.env?.DEV ||
+      (typeof window !== "undefined" &&
+        (window.location.hostname === "localhost" ||
+          window.location.hostname === "127.0.0.1" ||
+          window.location.hostname === "0.0.0.0" ||
+          window.location.hostname.endsWith(".local")))
+    ) {
+      config.headers["x-eatify-client"] = "local-dev";
+      config.headers["x-eatiefy-client"] = "local-dev";
+    }
+
     const token = getAccessToken(config);
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;

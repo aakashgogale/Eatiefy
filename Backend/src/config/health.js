@@ -21,7 +21,7 @@ export const healthCheck = async () => {
     const mongoOk = mongoState === 1;
 
     let redisOk = null;
-    if (config.redisEnabled || config.nodeEnv === 'production') {
+    if (config.redisEnabled) {
         const client = getRedisClient();
         redisOk = client ? 'ok' : 'unavailable';
         if (client) {
@@ -36,7 +36,7 @@ export const healthCheck = async () => {
         redisOk = 'disabled';
     }
 
-    const redisRequired = config.nodeEnv === 'production' || config.redisEnabled;
+    const redisRequired = config.redisEnabled;
     const redisHealthy = redisOk === 'ok' || (!redisRequired && redisOk === 'disabled');
     const ready = mongoOk && redisHealthy;
 

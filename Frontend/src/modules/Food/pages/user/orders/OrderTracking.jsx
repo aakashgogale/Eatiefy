@@ -1328,6 +1328,9 @@ export default function OrderTracking() {
   }
 
   const currentStatus = statusConfig[orderStatus] || statusConfig.placed
+  const currentEta = typeof estimatedTime === 'number' && estimatedTime > 0
+    ? `${estimatedTime} mins`
+    : (estimatedTime ? String(estimatedTime) : null)
   const isDeliveredOrder =
     orderStatus === "delivered" ||
     order?.status === "delivered" ||

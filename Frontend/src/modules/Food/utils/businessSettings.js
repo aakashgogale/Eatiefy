@@ -448,15 +448,14 @@ const resolveLogoByModule = (settings, moduleName = "user") => {
 };
 
 const resolveFaviconByModule = (settings, moduleName = "user") => {
-  if (!settings || typeof settings !== "object") return "";
   const moduleKey = String(moduleName || "").trim().toLowerCase();
   if (moduleKey === "restaurant") {
-    return settings.restaurantFavicon?.url || settings.favicon?.url || "";
+    return settings?.restaurantFavicon?.url || settings?.favicon?.url || "/restaurant-partner-logo.webp";
   }
   if (moduleKey === "delivery") {
-    return settings.deliveryFavicon?.url || settings.favicon?.url || "";
+    return settings?.deliveryFavicon?.url || settings?.favicon?.url || "/delivery-partner-logo.webp";
   }
-  return settings.favicon?.url || "";
+  return settings?.favicon?.url || "/user-app-logo.webp";
 };
 
 /**

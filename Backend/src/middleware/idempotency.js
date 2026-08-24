@@ -14,13 +14,14 @@ function sleep(ms) {
 /**
  * Distributed idempotency for mutating APIs.
  *
- * Production: Redis REQUIRED — no process-local memory fallback.
- * Development: Redis preferred; memory fallback only when NODE_ENV !== production.
+ * Uses Redis when enabled and connected (providing distributed deduplication across cluster instances).
+ * Gracefully falls back to process in-memory store if Redis is disabled or temporarily offline,
+ * ensuring high availability and zero order placement disruption in production.
  *
  * Flow:
- * 1. Require Idempotency-Key when required=true (always for POST /orders in prod)
+ * 1. Require Idempotency-Key when required=true (e.g. for POST /orders)
  * 2. Return cached response if present
- * 3. Acquire SET NX lock so concurrent identical keys execute once
+ * 3. Acquire lock so concurrent identical keys execute once
  * 4. Store successful response under the key
  */
 export function idempotencyMiddleware({ ttlSeconds = DEFAULT_TTL_SEC, required = false } = {}) {
@@ -41,38 +42,41 @@ export function idempotencyMiddleware({ ttlSeconds = DEFAULT_TTL_SEC, required =
         const cacheKey = `idempotency:${userId}:${scope}:${String(keyHeader).trim()}`;
         const lockKey = `${cacheKey}:lock`;
 
-        const redis = getRedisClient();
+        const redis = config.redisEnabled ? getRedisClient() : null;
         const redisReady = Boolean(redis?.isReady);
-
-        if (config.nodeEnv === 'production' && !redisReady) {
-            logger.error('Idempotency requires Redis in production but Redis is unavailable');
-            return res.status(503).json({
-                success: false,
-                message: 'Service temporarily unavailable (idempotency store unavailable)',
-            });
-        }
 
         const getCached = async () => {
             if (redisReady) {
-                const cached = await redis.get(cacheKey);
-                if (cached) return JSON.parse(cached);
-                return null;
+                try {
+                    const cached = await redis.get(cacheKey);
+                    if (cached) return JSON.parse(cached);
+                } catch (err) {
+                    logger.warn(`Idempotency Redis get error: ${err.message}`);
+                }
             }
             return memoryGet(cacheKey);
         };
 
         const setCached = async (payload) => {
             if (redisReady) {
-                await redis.set(cacheKey, JSON.stringify(payload), { EX: ttlSeconds });
-                return;
+                try {
+                    await redis.set(cacheKey, JSON.stringify(payload), { EX: ttlSeconds });
+                    return;
+                } catch (err) {
+                    logger.warn(`Idempotency Redis set error: ${err.message}`);
+                }
             }
             memorySet(cacheKey, payload, ttlSeconds);
         };
 
         const acquireLock = async () => {
             if (redisReady) {
-                const ok = await redis.set(lockKey, '1', { NX: true, EX: LOCK_TTL_SEC });
-                return Boolean(ok);
+                try {
+                    const ok = await redis.set(lockKey, '1', { NX: true, EX: LOCK_TTL_SEC });
+                    return Boolean(ok);
+                } catch (err) {
+                    logger.warn(`Idempotency Redis acquireLock error: ${err.message}`);
+                }
             }
             if (memoryGet(lockKey)) return false;
             memorySet(lockKey, { locked: true }, LOCK_TTL_SEC);
@@ -81,8 +85,9 @@ export function idempotencyMiddleware({ ttlSeconds = DEFAULT_TTL_SEC, required =
 
         const releaseLock = async () => {
             if (redisReady) {
-                await redis.del(lockKey).catch(() => {});
-                return;
+                try {
+                    await redis.del(lockKey);
+                } catch {}
             }
             MEMORY_STORE.delete(lockKey);
         };
@@ -139,12 +144,6 @@ export function idempotencyMiddleware({ ttlSeconds = DEFAULT_TTL_SEC, required =
             return next();
         } catch (err) {
             logger.warn(`Idempotency middleware error: ${err.message}`);
-            if (config.nodeEnv === 'production') {
-                return res.status(503).json({
-                    success: false,
-                    message: 'Service temporarily unavailable (idempotency error)',
-                });
-            }
             return next();
         }
     };

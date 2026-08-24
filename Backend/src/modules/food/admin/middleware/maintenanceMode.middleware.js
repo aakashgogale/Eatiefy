@@ -7,16 +7,32 @@ const ADMIN_ROLES = new Set(['ADMIN', 'SUB_ADMIN']);
 
 const ALWAYS_ALLOW_PREFIXES = [
   '/v1/health',
-  '/v1/food/public/customization-settings',
+  '/health',
+  '/live',
+  '/ready',
+  '/metrics',
+  '/v1/food/public',
+  '/v1/food/admin/customization-settings/public',
+  '/v1/food/admin/restaurant-settings/public',
+  '/v1/food/admin/business-settings/public',
+  '/v1/food/admin/power-scanning/public',
+  '/v1/food/admin/restaurant-subscription-settings/public',
+  '/v1/food/admin/feature-settings/public',
+  '/v1/food/admin/fee-settings/public',
   '/v1/food/admin',
   '/v1/admin',
   '/v1/payments/webhook',
   '/v1/food/auth',
   '/v1/auth',
+  '/v1/fcm-tokens',
+  '/fcm-tokens',
 ];
 
 const LOCAL_HOST_RE =
   /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$/i;
+
+const LOCAL_IP_RE =
+  /^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1|localhost)$/i;
 
 function hostFromUrlLike(value) {
   try {
@@ -43,8 +59,11 @@ function isLocalDevClient(req) {
   if (refererHost && LOCAL_HOST_RE.test(refererHost)) return true;
 
   // Optional explicit marker from local axios (harmless if spoofed; Origin is primary)
-  const marker = String(req.headers['x-eatify-client'] || req.headers['x-eatiefy-client'] || req.headers['x-ometto-client'] || '').toLowerCase();
+  const marker = String(req.headers['x-eatify-client'] || req.headers['x-eatiefy-client'] || '').toLowerCase();
   if (marker === 'local-dev') return true;
+
+  const clientIp = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || '';
+  if (LOCAL_IP_RE.test(clientIp)) return true;
 
   return false;
 }

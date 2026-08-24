@@ -17,6 +17,7 @@ import { corsOptions } from './config/cors.js';
 import { metricsMiddleware } from './middleware/metrics.js';
 import { authMiddleware } from './core/auth/auth.middleware.js';
 import { requireRoles } from './core/roles/role.middleware.js';
+import { maintenanceModeMiddleware } from './modules/food/admin/middleware/maintenanceMode.middleware.js';
 
 const app = express();
 
@@ -112,6 +113,9 @@ app.use((req, res, next) => {
 
 // Global rate limiting for API routes
 app.use('/api', apiRateLimiter);
+
+// Maintenance Mode Gate
+app.use('/api', maintenanceModeMiddleware);
 
 // API Routes
 app.use('/api', routes);
