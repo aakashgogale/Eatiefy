@@ -94,8 +94,8 @@ export default function DiningReservations() {
     const [diningEnabled, setDiningEnabled] = useState(false)
     const [maxGuestsLimit, setMaxGuestsLimit] = useState(6)
     const [pricingModel, setPricingModel] = useState("free")
-    const [bookingFee, setBookingFee] = useState(0)
-    const [coverChargePerPerson, setCoverChargePerPerson] = useState(0)
+    const [bookingFee, setBookingFee] = useState("")
+    const [coverChargePerPerson, setCoverChargePerPerson] = useState("")
     const [costForTwo, setCostForTwo] = useState("")
     const [offerBadge, setOfferBadge] = useState("")
     const [mealPeriods, setMealPeriods] = useState(["breakfast", "lunch", "dinner"])
@@ -110,8 +110,8 @@ export default function DiningReservations() {
         offer: "",
         diningType: "family-dining",
         pricingModel: "free",
-        bookingFee: 0,
-        coverChargePerPerson: 0,
+        bookingFee: "",
+        coverChargePerPerson: "",
         maxGuests: 6,
         notes: "",
     })
@@ -126,8 +126,8 @@ export default function DiningReservations() {
         setDiningEnabled(Boolean(restaurantData?.diningSettings?.isEnabled))
         setMaxGuestsLimit(Math.max(1, parseInt(restaurantData?.diningSettings?.maxGuests, 10) || 6))
         setPricingModel(restaurantData?.diningSettings?.pricingModel || "free")
-        setBookingFee(Number(restaurantData?.diningSettings?.bookingFee || 0))
-        setCoverChargePerPerson(Number(restaurantData?.diningSettings?.coverChargePerPerson || 0))
+        setBookingFee(restaurantData?.diningSettings?.bookingFee ?? "")
+        setCoverChargePerPerson(restaurantData?.diningSettings?.coverChargePerPerson ?? "")
         setCostForTwo(restaurantData?.diningSettings?.costForTwo || restaurantData?.costForTwo || "")
         setOfferBadge(restaurantData?.diningSettings?.offer || restaurantData?.offer || "")
         setMealPeriods(Array.isArray(restaurantData?.diningSettings?.mealPeriods) && restaurantData.diningSettings.mealPeriods.length > 0 ? restaurantData.diningSettings.mealPeriods : ["breakfast", "lunch", "dinner"])
@@ -137,8 +137,8 @@ export default function DiningReservations() {
             offer: restaurantData?.diningSettings?.offer || restaurantData?.offer || "",
             diningType: restaurantData?.diningSettings?.diningType || "family-dining",
             pricingModel: restaurantData?.diningSettings?.pricingModel || "free",
-            bookingFee: Number(restaurantData?.diningSettings?.bookingFee || 0),
-            coverChargePerPerson: Number(restaurantData?.diningSettings?.coverChargePerPerson || 0),
+            bookingFee: restaurantData?.diningSettings?.bookingFee ?? "",
+            coverChargePerPerson: restaurantData?.diningSettings?.coverChargePerPerson ?? "",
             maxGuests: restaurantData?.diningSettings?.maxGuests || 6,
             notes: restaurantData?.diningSettings?.notes || "",
         })
@@ -898,7 +898,7 @@ export default function DiningReservations() {
                                         min="0"
                                         placeholder="100"
                                         value={bookingFee}
-                                        onChange={(e) => setBookingFee(Math.max(0, parseInt(e.target.value) || 0))}
+                                        onChange={(e) => setBookingFee(e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value, 10) || 0))}
                                         className="w-full text-xs font-bold px-3 py-2 border border-amber-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-orange-500 text-slate-900"
                                     />
                                 </div>
@@ -912,7 +912,7 @@ export default function DiningReservations() {
                                         min="0"
                                         placeholder="500"
                                         value={coverChargePerPerson}
-                                        onChange={(e) => setCoverChargePerPerson(Math.max(0, parseInt(e.target.value) || 0))}
+                                        onChange={(e) => setCoverChargePerPerson(e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value, 10) || 0))}
                                         className="w-full text-xs font-bold px-3 py-2 border border-amber-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-orange-500 text-slate-900"
                                     />
                                 </div>
@@ -1355,8 +1355,8 @@ export default function DiningReservations() {
                                             type="number"
                                             min="0"
                                             placeholder="Fixed Booking Fee (e.g. ₹100)"
-                                            value={applyForm.bookingFee || ""}
-                                            onChange={(e) => setApplyForm(prev => ({ ...prev, bookingFee: Math.max(0, parseInt(e.target.value) || 0) }))}
+                                            value={applyForm.bookingFee ?? ""}
+                                            onChange={(e) => setApplyForm(prev => ({ ...prev, bookingFee: e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value, 10) || 0) }))}
                                             className="w-full text-xs px-3 py-2 border border-amber-200 bg-amber-50/50 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 font-bold"
                                         />
                                     </div>
@@ -1368,8 +1368,8 @@ export default function DiningReservations() {
                                             type="number"
                                             min="0"
                                             placeholder="Cover Charge per person (e.g. ₹500)"
-                                            value={applyForm.coverChargePerPerson || ""}
-                                            onChange={(e) => setApplyForm(prev => ({ ...prev, coverChargePerPerson: Math.max(0, parseInt(e.target.value) || 0) }))}
+                                            value={applyForm.coverChargePerPerson ?? ""}
+                                            onChange={(e) => setApplyForm(prev => ({ ...prev, coverChargePerPerson: e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value, 10) || 0) }))}
                                             className="w-full text-xs px-3 py-2 border border-amber-200 bg-amber-50/50 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 font-bold"
                                         />
                                     </div>

@@ -9,6 +9,11 @@ import {
   shouldSkipDuplicateOsNotification,
 } from '@food/utils/firebaseMessaging';
 import { normalizeRestaurantOrderView } from '@food/utils/restaurantOrderPricing';
+import {
+  sendNativeNotificationBridge,
+  playSynthesizedChime,
+  initializeAudioUnlock,
+} from '@/shared/utils/iosAudioBridge';
 
 const alertSound = '/assets/media/restaurant_alert.mp3';
 const debugLog = (...args) => {};
@@ -266,47 +271,51 @@ const stopGlobalAlertLoop = () => {
 const playGlobalNotificationSound = async (orderData = {}) => {
   try {
     if (globalIsMuted || isOrderMuted(orderData)) return;
+
+    // Trigger Native iOS/Flutter Bridge
+    void sendNativeNotificationBridge('playNotificationSound', {
+      orderId: orderData?.orderId || orderData?._id || '',
+      title: 'New restaurant order',
+    }).catch(() => {});
+
     void triggerWebViewNativeNotification(orderData).catch(() => {});
+
     if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
       try {
         navigator.vibrate([200, 100, 200, 100, 300]);
       } catch (_) {}
     }
 
+    let played = false;
+
     if (!globalAudio && typeof window !== 'undefined') {
-      globalAudio = new Audio();
+      globalAudio = new Audio(resolveAudioSource(alertSound));
       globalAudio.preload = 'auto';
       globalAudio.volume = 1;
-      preloadAudio().then(src => {
-        if (globalAudio) {
-          globalAudio.src = src;
-        }
-      });
     }
 
     if (globalAudio) {
       globalAudio.muted = false;
       globalAudio.volume = 1;
       globalAudio.currentTime = 0;
-      globalAudio.play().catch(error => {
-        if (!error.message?.includes("user didn't interact") && !error.name?.includes('NotAllowedError')) {
-          try {
-            if (globalFallbackAudio) {
-              globalFallbackAudio.pause();
-              globalFallbackAudio = null;
-            }
-            globalFallbackAudio = new Audio(resolveAudioSource(alertSound));
-            globalFallbackAudio.volume = 1;
-            globalFallbackAudio.muted = false;
-            globalFallbackAudio.play().catch(() => {});
-          } catch (fallbackError) {
-            // ignore
-          }
-        }
-      });
+      globalAudio.play()
+        .then(() => {
+          played = true;
+        })
+        .catch(() => {
+          // iOS WebKit blocked audio element -> synthesize alarm tone immediately!
+          playSynthesizedChime();
+        });
     }
+
+    // Safety fallback: if audio not playing within 150ms on mobile, synthesize chime
+    setTimeout(() => {
+      if (!played && !globalIsMuted && !isOrderMuted(orderData)) {
+        playSynthesizedChime();
+      }
+    }, 150);
   } catch (error) {
-    // ignore
+    playSynthesizedChime();
   }
 };
 

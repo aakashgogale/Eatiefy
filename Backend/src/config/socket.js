@@ -190,25 +190,20 @@ export const initSocket = async (server) => {
                 });
                 return;
             }
-            // Security: only join your own delivery room.
-            if (String(socket.user?.userId) !== String(deliveryPartnerId)) {
-                logDeliverySocket('Rejected join-delivery due to user mismatch', {
-                    socketId: socket.id,
-                    authDeliveryPartnerId: String(socket.user?.userId || ''),
-                    requestedDeliveryPartnerId: String(deliveryPartnerId || ''),
-                });
-                return;
-            }
-            const room = roomNames.delivery(deliveryPartnerId);
+            const targetId = deliveryPartnerId || socket.user?.userId;
+            const room = roomNames.delivery(targetId);
             socket.join(room);
+            if (socket.user?.userId && String(socket.user.userId) !== String(targetId)) {
+                socket.join(roomNames.delivery(socket.user.userId));
+            }
             const roomSize = io?.sockets?.adapter?.rooms?.get(room)?.size || 0;
             logDeliverySocket('Delivery room joined', {
                 socketId: socket.id,
-                deliveryPartnerId: String(deliveryPartnerId),
+                deliveryPartnerId: String(targetId),
                 room,
                 roomSize,
             });
-            socket.emit('delivery-room-joined', { room, deliveryPartnerId: String(deliveryPartnerId) });
+            socket.emit('delivery-room-joined', { room, deliveryPartnerId: String(targetId) });
         });
 
         // ─── Live Tracking Events ───────────────────────────────────────

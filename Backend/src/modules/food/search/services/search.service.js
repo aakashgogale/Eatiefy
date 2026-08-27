@@ -23,7 +23,8 @@ const RESTAURANT_SEARCH_SELECT = [
     'location',
     'zoneId',
     'area',
-    'city'
+    'city',
+    'diningSettings'
 ].join(' ');
 
 const FOOD_MATCH_SELECT = '_id restaurantId name image';
@@ -127,13 +128,34 @@ export const searchUnified = async (query = {}, options = {}) => {
         }
     }
 
-    // 3. Search Matching
-    if (regex) {
+    // 3. Search Matching with Typo & Multi-Token Tolerance
+    if (term) {
+        const regexList = [];
+        try {
+            regexList.push(new RegExp(escapeRegex(term), 'i'));
+        } catch {}
+
+        // CamelCase & whitespace split
+        const camelSplit = term.replace(/([a-z])([A-Z])/g, '$1 $2');
+        const tokens = camelSplit.split(/[\s_-]+/).filter(t => t.length >= 2);
+
+        tokens.forEach(t => {
+            try {
+                regexList.push(new RegExp(escapeRegex(t), 'i'));
+                // Vowel typo tolerance (a, e, i interchange e.g. balence vs balance)
+                const fuzzy = escapeRegex(t).replace(/[aeiou]/gi, '[aeiou]');
+                regexList.push(new RegExp(fuzzy, 'i'));
+            } catch {}
+        });
+
         const matchedRestaurants = await FoodRestaurant.find({
             ...restaurantFilter,
             $or: [
-                { restaurantName: { $regex: regex } },
-                { cuisines: { $regex: regex } }
+                { restaurantName: { $in: regexList } },
+                { restaurantNameNormalized: { $in: regexList } },
+                { cuisines: { $in: regexList } },
+                { area: { $in: regexList } },
+                { city: { $in: regexList } }
             ]
         })
             .select(RESTAURANT_SEARCH_SELECT)
@@ -150,7 +172,10 @@ export const searchUnified = async (query = {}, options = {}) => {
 
         const matchedFoods = await FoodItem.find({
             ...foodFilters,
-            name: { $regex: regex }
+            $or: [
+                { name: { $in: regexList } },
+                { description: { $in: regexList } }
+            ]
         })
             .select(FOOD_MATCH_SELECT)
             .sort({ createdAt: -1 })

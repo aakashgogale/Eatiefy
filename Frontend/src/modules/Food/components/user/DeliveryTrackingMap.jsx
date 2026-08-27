@@ -10,10 +10,37 @@ import io from 'socket.io-client';
 import { API_BASE_URL } from '@food/api/config';
 import bikeLogo from '@food/assets/deliveryboy-3d.jpeg';
 import mapRiderIcon from '@food/assets/MapRider.png';
-import { subscribeOrderTracking } from '@food/realtimeTracking';
+import { subscribeOrderTracking, subscribeDeliveryLocation } from '@food/realtimeTracking';
 import { motion } from 'framer-motion';
 
 const LIBRARIES = ['geometry', 'places'];
+
+function computeBearing(fromLat, fromLng, toLat, toLng) {
+  const fromLatRad = (fromLat * Math.PI) / 180;
+  const fromLngRad = (fromLng * Math.PI) / 180;
+  const toLatRad = (toLat * Math.PI) / 180;
+  const toLngRad = (toLng * Math.PI) / 180;
+  const dLng = toLngRad - fromLngRad;
+  const y = Math.sin(dLng) * Math.cos(toLatRad);
+  const x =
+    Math.cos(fromLatRad) * Math.sin(toLatRad) -
+    Math.sin(fromLatRad) * Math.cos(toLatRad) * Math.cos(dLng);
+  const brng = (Math.atan2(y, x) * 180) / Math.PI;
+  return (brng + 360) % 360;
+}
+
+function computeDistanceMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371e3;
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
 
 const RIDER_BIKE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 60 60">
   <circle cx="30" cy="30" r="28" fill="white" stroke="#ff8100" stroke-width="4" />
@@ -66,7 +93,11 @@ const DeliveryTrackingMap = ({
   const [cloudPolyline, setCloudPolyline] = useState(null);
   const [smoothLocation, setSmoothLocation] = useState(null);
   const socketRef = useRef(null);
-  const interpStateRef = useRef({ lastPos: null, nextPos: null, startTime: 0 });
+
+  // High-frequency animation and packet tracking refs (no effect re-triggers)
+  const currentSmoothPosRef = useRef(null);
+  const interpStateRef = useRef({ startPos: null, targetPos: null, startTime: 0, duration: 1500 });
+  const lastPacketTimeRef = useRef(0);
 
   const { isLoaded } = useJsApiLoader({
     googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
@@ -84,7 +115,19 @@ const DeliveryTrackingMap = ({
       .map(id => String(id || '').trim())
       .filter(Boolean);
     return [...new Set(ids)];
-  }, [orderId, order?._id, order?.orderId, order?.orderMongoId, orderTrackingIds]);
+  }, [orderId, order?._id, order?.orderId, order?.orderMongoId, JSON.stringify(orderTrackingIds)]);
+
+  const trackingIdsKey = trackingIds.join(',');
+
+  const deliveryPartnerId = useMemo(() => {
+    return String(
+      order?.deliveryPartnerId ||
+      order?.dispatch?.deliveryPartnerId ||
+      order?.deliveryPartner?._id ||
+      order?.deliveryPartner?.id ||
+      ''
+    ).trim();
+  }, [order?.deliveryPartnerId, order?.dispatch?.deliveryPartnerId, order?.deliveryPartner?._id, order?.deliveryPartner?.id]);
 
   const backendUrl = useMemo(() => {
     return (API_BASE_URL || '').replace(/\/api\/v1\/?$/i, '').replace(/\/api\/?$/i, '');
@@ -92,13 +135,13 @@ const DeliveryTrackingMap = ({
 
   // 1. Initial State from Order Payload
   useEffect(() => {
-    let loc = order?.deliveryState?.currentLocation || 
-              order?.tracking?.location || 
-              order?.deliveryPartner?.location ||
-              order?.dispatch?.currentLocation ||
-              order?.dispatch?.location;
+    const loc = order?.deliveryState?.currentLocation || 
+                order?.tracking?.location || 
+                order?.deliveryPartner?.location ||
+                order?.dispatch?.currentLocation ||
+                order?.dispatch?.location;
 
-    if (loc && !riderLocation) {
+    if (loc && !currentSmoothPosRef.current) {
       const lat = typeof loc.lat === 'number' ? loc.lat : 
                   (Array.isArray(loc.coordinates) ? Number(loc.coordinates[1]) : 
                   (typeof loc.latitude === 'number' ? loc.latitude : null));
@@ -108,119 +151,158 @@ const DeliveryTrackingMap = ({
                   (typeof loc.longitude === 'number' ? loc.longitude : null));
 
       if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        setRiderLocation({ lat, lng, heading: loc.bearing || loc.heading || 0 });
+        const initial = { lat, lng, heading: loc.bearing || loc.heading || 0 };
+        currentSmoothPosRef.current = initial;
+        setRiderLocation(initial);
+        setSmoothLocation(initial);
       }
     }
-  }, [order, riderLocation]);
+  }, [order]);
 
-  // 2. Core Data Sync (Socket + Firebase)
+  // Handler for all incoming rider position packets (Socket / Firebase / CustomEvent)
+  const handleNewRiderPosition = useCallback((data) => {
+    const lat = Number(data?.lat ?? data?.boy_lat ?? data?.latitude);
+    const lng = Number(data?.lng ?? data?.boy_lng ?? data?.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+    const rawHeading = Number(data?.heading ?? data?.bearing);
+    const now = Date.now();
+    const currentRendered = currentSmoothPosRef.current;
+
+    let computedHeading = Number.isFinite(rawHeading) && rawHeading !== 0 ? rawHeading : null;
+    if (computedHeading == null && currentRendered) {
+      const dist = computeDistanceMeters(currentRendered.lat, currentRendered.lng, lat, lng);
+      if (dist > 1.5) {
+        computedHeading = computeBearing(currentRendered.lat, currentRendered.lng, lat, lng);
+      } else {
+        computedHeading = currentRendered.heading || 0;
+      }
+    }
+
+    const newTarget = {
+      lat,
+      lng,
+      heading: computedHeading ?? 0,
+    };
+
+    const startPos = currentRendered || newTarget;
+    const timeSinceLastUpdate = lastPacketTimeRef.current ? (now - lastPacketTimeRef.current) : 1500;
+    lastPacketTimeRef.current = now;
+
+    // Dynamic duration: smoothly match packet frequency (capped between 800ms and 2500ms)
+    const duration = Math.min(Math.max(timeSinceLastUpdate, 800), 2500);
+
+    interpStateRef.current = {
+      startPos,
+      targetPos: newTarget,
+      startTime: now,
+      duration,
+    };
+
+    setRiderLocation(newTarget);
+
+    if (data?.polyline) {
+      setCloudPolyline(data.polyline);
+    }
+    if (data?.eta) {
+      setCurrentEta(data.eta);
+      if (onEtaUpdate) onEtaUpdate(data.eta);
+    }
+  }, [onEtaUpdate]);
+
+  // 2. Core Realtime Sync (Stable Socket.IO + Firebase Realtime DB)
   useEffect(() => {
     if (!trackingIds.length) return;
 
-    // A. FIREBASE FALLBACK
-    const unsubs = trackingIds.map(id => subscribeOrderTracking(id, (data) => {
-      const lat = Number(data?.lat ?? data?.boy_lat);
-      const lng = Number(data?.lng ?? data?.boy_lng);
-      if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        const nextPos = {
-          lat,
-          lng,
-          heading: Number(data?.heading ?? data?.bearing ?? 0)
-        };
-        interpStateRef.current = {
-          lastPos: smoothLocation || riderLocation || nextPos,
-          nextPos: nextPos,
-          startTime: Date.now()
-        };
-        setRiderLocation(nextPos);
-      }
-
-      // Sync Cloud Polyline and ETA to eliminate Directions API usage on user side
-      if (data?.polyline) {
-        debugLog('?? Received Cloud Polyline for live path');
-        setCloudPolyline(data.polyline);
-      }
-      if (data?.eta) {
-        debugLog('?? Received real-time ETA:', data.eta);
-        setCurrentEta(data.eta);
-        if (onEtaUpdate) onEtaUpdate(data.eta);
-      }
-    }));
-
-    // B. SOCKET.IO REALTIME
-    const token = localStorage.getItem('user_accessToken') || localStorage.getItem('accessToken') || '';
-    socketRef.current = io(backendUrl, {
-      transports: ['websocket', 'polling'],
-      auth: { token }
+    // A. Firebase Realtime Listeners
+    const unsubs = [];
+    trackingIds.forEach((id) => {
+      unsubs.push(subscribeOrderTracking(id, (data) => {
+        handleNewRiderPosition(data);
+      }));
     });
 
-    socketRef.current.on('connect', () => {
-      trackingIds.forEach(id => socketRef.current.emit('join-tracking', id));
-    });
+    if (deliveryPartnerId) {
+      unsubs.push(subscribeDeliveryLocation(deliveryPartnerId, (data) => {
+        handleNewRiderPosition(data);
+      }));
+    }
 
-    socketRef.current.on('location-update', (data) => {
+    // B. Custom window event from global user notifications socket
+    const handleGlobalLocation = (e) => {
+      const data = e?.detail;
       if (!data) return;
-      const matchedId = trackingIds.find(id => String(id) === String(data.orderId) || String(id) === String(data.orderMongoId));
-      if ((matchedId || trackingIds.length > 0) && typeof data.lat === 'number' && typeof data.lng === 'number') {
-        const nextPos = {
-          lat: data.lat,
-          lng: data.lng,
-          heading: Number(data.heading || data.bearing || 0)
-        };
-        
-        // Trigger Smooth 60 FPS Interpolation
-        interpStateRef.current = {
-           lastPos: smoothLocation || riderLocation || nextPos,
-           nextPos: nextPos,
-           startTime: Date.now()
-        };
-        
-        setRiderLocation(nextPos);
-
-        if (data.polyline) {
-          setCloudPolyline(data.polyline);
-        }
-        if (data.eta) {
-          setCurrentEta(data.eta);
-          if (onEtaUpdate) onEtaUpdate(data.eta);
-        }
+      const isMatching = trackingIds.some(
+        (id) => String(id) === String(data.orderId) || String(id) === String(data.orderMongoId)
+      );
+      if (isMatching || !data.orderId) {
+        handleNewRiderPosition(data);
       }
+    };
+    window.addEventListener('riderLocationUpdate', handleGlobalLocation);
+
+    // C. Dedicated Socket.IO Connection with Auto-reconnect & join
+    const token = localStorage.getItem('user_accessToken') || localStorage.getItem('accessToken') || '';
+    const socket = io(backendUrl, {
+      transports: ['websocket', 'polling'],
+      auth: { token },
+      reconnection: true,
+      reconnectionDelay: 1000,
+    });
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      debugLog('🟢 Tracking Socket connected, joining rooms for:', trackingIds);
+      trackingIds.forEach((id) => socket.emit('join-tracking', id));
+    });
+
+    socket.on('location-update', (data) => {
+      if (!data) return;
+      handleNewRiderPosition(data);
     });
 
     return () => {
-      unsubs.forEach(u => u?.());
-      socketRef.current?.disconnect();
+      unsubs.forEach((u) => u?.());
+      window.removeEventListener('riderLocationUpdate', handleGlobalLocation);
+      socket.disconnect();
+      socketRef.current = null;
     };
-  }, [trackingIds, backendUrl, smoothLocation, riderLocation]);
+  }, [trackingIdsKey, deliveryPartnerId, backendUrl, handleNewRiderPosition]);
 
-  // 3. Smooth Animation Loop (60 FPS Glide)
+  // 3. Smooth 60 FPS Gliding Animation Loop (Continuous LERP + EaseOut)
   useEffect(() => {
-    let frame;
+    let frameId;
     const update = () => {
-      const { lastPos, nextPos, startTime } = interpStateRef.current;
-      if (lastPos && nextPos) {
-        const duration = 1200; // 1.2s smooth interpolation interval matching GPS broadcast
-        const elapsed = Date.now() - startTime;
-        const progress = Math.min(elapsed / duration, 1);
+      const { startPos, targetPos, startTime, duration } = interpStateRef.current;
+      if (startPos && targetPos) {
+        const now = Date.now();
+        const elapsed = now - startTime;
+        const rawProgress = Math.min(elapsed / (duration || 1500), 1);
         
-        // Linear Interpolation (LERP)
-        const lat = lastPos.lat + (nextPos.lat - lastPos.lat) * progress;
-        const lng = lastPos.lng + (nextPos.lng - lastPos.lng) * progress;
-        
-        // Heading interpolation (shortest circular angle)
-        let lastHead = lastPos.heading || 0;
-        let nextHead = nextPos.heading || 0;
-        let diff = (nextHead - lastHead) % 360;
+        // Quadratic easeOut curve for silky deceleration
+        const easeProgress = 1 - Math.pow(1 - rawProgress, 2);
+
+        // Position interpolation
+        const lat = startPos.lat + (targetPos.lat - startPos.lat) * easeProgress;
+        const lng = startPos.lng + (targetPos.lng - startPos.lng) * easeProgress;
+
+        // Heading interpolation (shortest circular distance)
+        let startHead = startPos.heading || 0;
+        let targetHead = targetPos.heading || 0;
+        let diff = (targetHead - startHead) % 360;
         if (diff > 180) diff -= 360;
         if (diff < -180) diff += 360;
-        const heading = (lastHead + diff * progress + 360) % 360;
+        const heading = (startHead + diff * easeProgress + 360) % 360;
 
-        setSmoothLocation({ lat, lng, heading });
+        const currentPos = { lat, lng, heading };
+        currentSmoothPosRef.current = currentPos;
+        setSmoothLocation(currentPos);
       }
-      frame = requestAnimationFrame(update);
+      frameId = requestAnimationFrame(update);
     };
-    frame = requestAnimationFrame(update);
-    return () => cancelAnimationFrame(frame);
+
+    frameId = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(frameId);
   }, []);
 
   // Use smooth location for sync if available, fallback to restaurant

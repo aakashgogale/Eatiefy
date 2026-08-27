@@ -338,6 +338,8 @@ export const saveImageBuffer = async (buffer, folder, options = {}) => {
     );
 };
 
+export const uploadToStorage = saveImageBuffer;
+
 export const deleteStoredFile = async (relativePath) => {
     const safePath = String(relativePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
     if (!safePath) return false;

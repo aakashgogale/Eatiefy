@@ -848,9 +848,9 @@ export default function DiningList() {
                                         type="number"
                                         min="0"
                                         placeholder="e.g. 100"
-                                        value={editingRestaurant.diningSettings?.bookingFee ?? editingRestaurant.bookingFee ?? ""}
+                                        value={editingRestaurant.diningSettings?.bookingFee || editingRestaurant.bookingFee || ""}
                                         onChange={(e) => {
-                                            const val = Math.max(0, parseInt(e.target.value) || 0)
+                                            const val = e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value, 10) || 0)
                                             setEditingRestaurant(prev => ({
                                                 ...prev,
                                                 bookingFee: val,
@@ -870,9 +870,9 @@ export default function DiningList() {
                                         type="number"
                                         min="0"
                                         placeholder="e.g. 500"
-                                        value={editingRestaurant.diningSettings?.coverChargePerPerson ?? editingRestaurant.coverChargePerPerson ?? ""}
+                                        value={editingRestaurant.diningSettings?.coverChargePerPerson || editingRestaurant.coverChargePerPerson || ""}
                                         onChange={(e) => {
-                                            const val = Math.max(0, parseInt(e.target.value) || 0)
+                                            const val = e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value, 10) || 0)
                                             setEditingRestaurant(prev => ({
                                                 ...prev,
                                                 coverChargePerPerson: val,
@@ -903,7 +903,7 @@ export default function DiningList() {
                                         type="number"
                                         placeholder="600"
                                         value={editingRestaurant.costForTwo || ""}
-                                        onChange={(e) => setEditingRestaurant(prev => ({ ...prev, costForTwo: parseInt(e.target.value) || 0 }))}
+                                        onChange={(e) => setEditingRestaurant(prev => ({ ...prev, costForTwo: e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value, 10) || 0) }))}
                                         className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
                                     />
                                 </div>

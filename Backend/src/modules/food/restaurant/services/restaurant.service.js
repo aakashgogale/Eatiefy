@@ -1,6 +1,6 @@
 import { FoodRestaurant } from '../models/restaurant.model.js';
 import { uploadImageBuffer } from '../../../../services/cloudinary.service.js';
-import { normalizeMediaUrlForStorage } from '../../../../services/storage.service.js';
+import { normalizeMediaUrlForStorage, uploadToStorage } from '../../../../services/storage.service.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
 import mongoose from 'mongoose';
 import { FoodZone } from '../../admin/models/zone.model.js';
@@ -611,8 +611,8 @@ export const uploadRestaurantAttachment = async (file, folderType = 'profile') =
     else if (folderType === 'menu') folder += '/menu';
     else folder += '/others';
 
-    const url = await uploadImageBuffer(file.buffer, folder);
-    return { url };
+    const result = await uploadToStorage(file.buffer, folder);
+    return { url: result.url || result.secure_url };
 };
 
 const computeOnboardingFeeWithGst = (baseFee) => {
@@ -2080,6 +2080,7 @@ export const listApprovedRestaurants = async (query = {}) => {
         rating: 1,
         totalRatings: 1,
         isAcceptingOrders: 1,
+        isActive: 1,
         status: 1,
         pureVegRestaurant: 1,
         createdAt: 1,
@@ -2217,7 +2218,10 @@ export const listApprovedRestaurants = async (query = {}) => {
         closingTime: r.closingTime || null,
         openDays: Array.isArray(r.openDays) ? r.openDays : [],
         // Keep menuImages as an array for fallbacks; allow both string and {url} on client.
-        menuImages: Array.isArray(r.menuImages) ? r.menuImages : []
+        menuImages: Array.isArray(r.menuImages) ? r.menuImages : [],
+        isActive: r.isActive !== false,
+        isAcceptingOrders: r.isAcceptingOrders !== false,
+        status: r.status || 'approved',
     }));
 
     const restaurantIds = restaurants.map(r => r._id);

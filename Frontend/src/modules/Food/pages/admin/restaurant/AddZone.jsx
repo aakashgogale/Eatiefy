@@ -32,6 +32,7 @@ export default function AddZone() {
     country: "India",
     zoneName: "",
     unit: "kilometer",
+    isActive: true,
   })
   
   const [coordinates, setCoordinates] = useState([])
@@ -98,23 +99,19 @@ export default function AddZone() {
       debugLog("Drawing existing polygon in edit mode, coordinates:", coordinates.length)
       setTimeout(() => {
         if (mapInstanceRef.current && window.google) {
-          setIsDrawing(false)
           drawExistingPolygon(window.google, mapInstanceRef.current, coordinates)
         }
       }, 500)
     }
-  }, [isEditMode, coordinates.length, mapLoading])
+  }, [isEditMode, coordinates, mapLoading])
 
 
   const fetchExistingZones = async () => {
     try {
-      const response = await adminAPI.getZones({ limit: 1000 })
+      const response = await adminAPI.getZones()
       if (response.data?.success && response.data.data?.zones) {
-        // Filter out the current zone if in edit mode
-        const zones = isEditMode && id 
-          ? response.data.data.zones.filter(zone => zone._id !== id)
-          : response.data.data.zones
-        setExistingZones(zones)
+        const otherZones = response.data.data.zones.filter(z => (z._id || z.id) !== id)
+        setExistingZones(otherZones)
       }
     } catch (error) {
       debugError("Error fetching existing zones:", error)
@@ -132,6 +129,7 @@ export default function AddZone() {
           country: zoneData.country || "India",
           zoneName: zoneData.name || zoneData.zoneName || "",
           unit: zoneData.unit || "kilometer",
+          isActive: zoneData.isActive !== false,
         })
         
         if (zoneData.coordinates && zoneData.coordinates.length > 0) {
@@ -650,7 +648,7 @@ export default function AddZone() {
         country: formData.country,
         unit: formData.unit || "kilometer",
         coordinates: validCoordinates,
-        isActive: true
+        isActive: formData.isActive !== false
       }
 
       debugLog("Sending zone data:", zoneData)
@@ -732,7 +730,7 @@ export default function AddZone() {
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">
                     Country <span className="text-red-500">*</span>
@@ -774,6 +772,30 @@ export default function AddZone() {
                     <option value="kilometer">Kilometers (km)</option>
                     <option value="miles">Miles (mi)</option>
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    Zone Status
+                  </label>
+                  <div className="flex items-center justify-between h-[50px] px-4 rounded-xl border border-slate-300 bg-white">
+                    <span className={`text-sm font-semibold ${formData.isActive ? "text-emerald-700" : "text-slate-500"}`}>
+                      {formData.isActive ? "Active" : "Deactivated"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleInputChange("isActive", !formData.isActive)}
+                      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        formData.isActive ? "bg-emerald-500" : "bg-slate-300"
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                          formData.isActive ? "translate-x-5" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

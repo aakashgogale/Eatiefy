@@ -349,25 +349,24 @@ export default function HomeHeader({
     }
   };
 
-  const handleTouchEnd = () => {
+  const handleTouchEnd = (event) => {
     if (!isSwiping) return;
-    const diffX = touchCurrentXRef.current - touchStartXRef.current;
+    const touch = event.changedTouches?.[0];
+    const currentX = touch ? touch.clientX : touchCurrentXRef.current;
+    const diffX = currentX - touchStartXRef.current;
     const minSwipeDistance = 45;
 
     setIsSwiping(false);
     setDragOffset(0);
+    const wasHorizontal = isHorizontalScrollRef.current;
     isHorizontalScrollRef.current = null;
 
-    if (diffX < -minSwipeDistance) {
+    if (wasHorizontal && diffX < -minSwipeDistance) {
       handleNextSlide();
-    } else if (diffX > minSwipeDistance) {
+    } else if (wasHorizontal && diffX > minSwipeDistance) {
       handlePrevSlide();
     } else {
       setIsTransitionEnabled(true);
-      if (Math.abs(diffX) < 10) {
-        // Tap gesture on banner
-        handleBannerRedirect();
-      }
     }
   };
 
@@ -444,7 +443,10 @@ export default function HomeHeader({
     }
     const rawLink = activeBanner?.ctaLink || activeBanner?.link;
     if (!rawLink) return;
-    if (e) e.stopPropagation();
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
 
     let target = String(rawLink).trim();
     if (target.startsWith('http://') || target.startsWith('https://')) {
@@ -471,8 +473,7 @@ export default function HomeHeader({
       {/* Top Header Section with Full-Cover Background Banner Support */}
       <div 
         ref={headerRef}
-        className={`relative w-full bg-[#E23744] dark:bg-[#C52332] rounded-b-[2.8rem] sm:rounded-b-[4rem] shadow-xl transition-all overflow-hidden ${(activeBanner?.ctaLink || activeBanner?.link) ? 'cursor-pointer' : ''}`}
-        onClick={handleBannerRedirect}
+        className="relative w-full bg-[#E23744] dark:bg-[#C52332] rounded-b-[2.8rem] sm:rounded-b-[4rem] shadow-xl transition-all overflow-hidden"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -608,9 +609,12 @@ export default function HomeHeader({
           </div>
 
           {/* Middle Row: Banner Title (Clean without any extra buttons) */}
-          <div className="my-auto pt-2 pb-1 min-h-[36px] flex items-center pointer-events-none">
+          <div className="my-auto pt-2 pb-1 min-h-[36px] flex items-center">
             {activeBanner?.title ? (
-              <div className="max-w-[80%] z-20">
+              <div 
+                className={`max-w-[80%] z-20 pointer-events-auto ${(activeBanner?.ctaLink || activeBanner?.link) ? 'cursor-pointer active:scale-95 transition-transform' : ''}`}
+                onClick={handleBannerRedirect}
+              >
                 <span className="bg-amber-400 text-black text-[9.5px] sm:text-xs font-black px-2 py-0.5 rounded shadow-md tracking-wider uppercase mb-1 inline-block">
                   SPECIAL OFFER
                 </span>

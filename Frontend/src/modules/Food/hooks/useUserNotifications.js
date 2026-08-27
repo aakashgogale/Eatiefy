@@ -95,6 +95,12 @@ export const useUserNotifications = () => {
       // Backend auto-joins 'user:userId' room based on role/token in config/socket.js
     });
 
+    socketRef.current.on('location-update', (data) => {
+      if (typeof window !== 'undefined' && data) {
+        window.dispatchEvent(new CustomEvent('riderLocationUpdate', { detail: data }));
+      }
+    });
+
     socketRef.current.on('order_status_update', (data) => {
       debugLog('🔔 Order status update received:', data);
       

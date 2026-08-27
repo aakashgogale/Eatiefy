@@ -605,6 +605,8 @@ export default function RestaurantOnboarding() {
   }, [])
 
 
+  const uploadedUrlsRef = useRef({})
+
   const triggerBackgroundUpload = async (file, folder, fieldName, isArray = false, arrayIndex = -1) => {
     if (!file || !isUploadableFile(file)) return;
 
@@ -620,18 +622,42 @@ export default function RestaurantOnboarding() {
       const url = res.data?.data?.url
 
       if (url) {
+        uploadedUrlsRef.current[trackingKey] = url
+        try {
+          file._uploadedUrl = url
+          if (!file._previewUrl) {
+            file._previewUrl = URL.createObjectURL(file)
+          }
+        } catch {}
+
         if (fieldName === 'profileImage') {
-           setStep2(prev => ({ ...prev, profileImage: url }))
+           setStep2(prev => ({
+             ...prev,
+             profileImage: isUploadableFile(prev.profileImage) ? prev.profileImage : url
+           }))
         } else if (fieldName === 'panImage') {
-           setStep3(prev => ({ ...prev, panImage: url }))
+           setStep3(prev => ({
+             ...prev,
+             panImage: isUploadableFile(prev.panImage) ? prev.panImage : url
+           }))
         } else if (fieldName === 'gstImage') {
-           setStep3(prev => ({ ...prev, gstImage: url }))
+           setStep3(prev => ({
+             ...prev,
+             gstImage: isUploadableFile(prev.gstImage) ? prev.gstImage : url
+           }))
         } else if (fieldName === 'fssaiImage') {
-           setStep3(prev => ({ ...prev, fssaiImage: url }))
+           setStep3(prev => ({
+             ...prev,
+             fssaiImage: isUploadableFile(prev.fssaiImage) ? prev.fssaiImage : url
+           }))
         } else if (fieldName === 'menuImages' && isArray && arrayIndex >= 0) {
            setStep2(prev => {
              const next = [...prev.menuImages]
-             next[arrayIndex] = url
+             if (isUploadableFile(next[arrayIndex])) {
+               next[arrayIndex]._uploadedUrl = url
+             } else {
+               next[arrayIndex] = url
+             }
              return { ...prev, menuImages: next }
            })
         }
@@ -812,8 +838,7 @@ export default function RestaurantOnboarding() {
 
   const getPreviewImageUrl = (value) => {
     if (!value) return null
-    if (typeof value === "string") return resolveMediaUrl(value)
-    if (value?.url && typeof value.url === "string") return resolveMediaUrl(value.url)
+    if (value?._previewUrl) return value._previewUrl
 
     if (isUploadableFile(value)) {
       const cache = previewUrlCacheRef.current
@@ -827,6 +852,9 @@ export default function RestaurantOnboarding() {
         return null
       }
     }
+
+    if (typeof value === "string") return resolveMediaUrl(value)
+    if (value?.url && typeof value.url === "string") return resolveMediaUrl(value.url)
 
     return null
   }
@@ -1085,13 +1113,32 @@ export default function RestaurantOnboarding() {
           }
 
           if (localData.step2) {
-            const urlMenuImages = (localData.step2.menuImages || []).filter(
-              (img) => img?.url || typeof img === "string"
-            )
+            const localSavedMenu = Array.isArray(localData.step2.menuImages) ? localData.step2.menuImages : []
+            let mergedMenuImages = []
+            if (restoredMenuImages.length > 0) {
+              mergedMenuImages = restoredMenuImages.map((file, idx) => {
+                const saved = localSavedMenu[idx]
+                if (saved && typeof saved === "string") file._uploadedUrl = saved
+                else if (saved?.url) file._uploadedUrl = saved.url
+                return file
+              })
+            } else {
+              mergedMenuImages = localSavedMenu.filter(
+                (img) => img?.url || typeof img === "string"
+              )
+            }
+
+            if (restoredProfileImage && localData.step2.profileImage) {
+              if (typeof localData.step2.profileImage === "string") {
+                restoredProfileImage._uploadedUrl = localData.step2.profileImage
+              } else if (localData.step2.profileImage?.url) {
+                restoredProfileImage._uploadedUrl = localData.step2.profileImage.url
+              }
+            }
             
             setStep2((prev) => ({
               ...prev,
-              menuImages: [...urlMenuImages, ...restoredMenuImages],
+              menuImages: mergedMenuImages,
               profileImage:
                 restoredProfileImage ||
                 (typeof localData.step2.profileImage === "string" || localData.step2.profileImage?.url
@@ -1665,8 +1712,11 @@ export default function RestaurantOnboarding() {
     formData.append('openDays', (step2.openDays || []).join(','))
 
     const menuImages = step2.menuImages || []
-    const menuFiles = menuImages.filter((f) => isUploadableFile(f))
-    const menuUrls = menuImages.map((f) => (typeof f === 'string' ? f : (f?.url || null))).filter(Boolean)
+    const menuFiles = menuImages.filter((f) => isUploadableFile(f) && !f._uploadedUrl)
+    const menuUrls = menuImages
+      .map((f) => (typeof f === 'string' ? f : (f?._uploadedUrl || f?.url || null)))
+      .filter(Boolean)
+
     if (menuFiles.length === 0 && menuUrls.length === 0) {
       throw new Error('At least one menu image must be uploaded')
     }
@@ -1676,14 +1726,16 @@ export default function RestaurantOnboarding() {
     }
 
     if (!step2.profileImage) throw new Error('Restaurant profile image is required')
-    if (isUploadableFile(step2.profileImage)) formData.append('profileImage', step2.profileImage)
-    else formData.append('profileImage', typeof step2.profileImage === 'string' ? step2.profileImage : step2.profileImage.url)
+    const profileUrl = typeof step2.profileImage === 'string' ? step2.profileImage : (step2.profileImage._uploadedUrl || step2.profileImage.url)
+    if (profileUrl) formData.append('profileImage', profileUrl)
+    else if (isUploadableFile(step2.profileImage)) formData.append('profileImage', step2.profileImage)
 
     formData.append('panNumber', step3.panNumber || '')
     formData.append('nameOnPan', step3.nameOnPan || '')
     if (!step3.panImage) throw new Error('PAN image is required')
-    if (isUploadableFile(step3.panImage)) formData.append('panImage', step3.panImage)
-    else formData.append('panImage', typeof step3.panImage === 'string' ? step3.panImage : step3.panImage.url)
+    const panUrl = typeof step3.panImage === 'string' ? step3.panImage : (step3.panImage._uploadedUrl || step3.panImage.url)
+    if (panUrl) formData.append('panImage', panUrl)
+    else if (isUploadableFile(step3.panImage)) formData.append('panImage', step3.panImage)
 
     formData.append('gstRegistered', step3.gstRegistered ? 'true' : 'false')
     if (step3.gstRegistered) {
@@ -1691,15 +1743,17 @@ export default function RestaurantOnboarding() {
       formData.append('gstLegalName', step3.gstLegalName || '')
       formData.append('gstAddress', step3.gstAddress || '')
       if (!step3.gstImage) throw new Error('GST image is required when GST registered')
-      if (isUploadableFile(step3.gstImage)) formData.append('gstImage', step3.gstImage)
-      else formData.append('gstImage', typeof step3.gstImage === 'string' ? step3.gstImage : step3.gstImage.url)
+      const gstUrl = typeof step3.gstImage === 'string' ? step3.gstImage : (step3.gstImage._uploadedUrl || step3.gstImage.url)
+      if (gstUrl) formData.append('gstImage', gstUrl)
+      else if (isUploadableFile(step3.gstImage)) formData.append('gstImage', step3.gstImage)
     }
 
     formData.append('fssaiNumber', step3.fssaiNumber || '')
     formData.append('fssaiExpiry', step3.fssaiExpiry || '')
     if (!step3.fssaiImage) throw new Error('FSSAI image is required')
-    if (isUploadableFile(step3.fssaiImage)) formData.append('fssaiImage', step3.fssaiImage)
-    else formData.append('fssaiImage', typeof step3.fssaiImage === 'string' ? step3.fssaiImage : step3.fssaiImage.url)
+    const fssaiUrl = typeof step3.fssaiImage === 'string' ? step3.fssaiImage : (step3.fssaiImage._uploadedUrl || step3.fssaiImage.url)
+    if (fssaiUrl) formData.append('fssaiImage', fssaiUrl)
+    else if (isUploadableFile(step3.fssaiImage)) formData.append('fssaiImage', step3.fssaiImage)
 
     formData.append('accountNumber', step3.accountNumber || '')
     formData.append('ifscCode', (step3.ifscCode || '').toUpperCase())
@@ -2596,21 +2650,10 @@ export default function RestaurantOnboarding() {
           {!!step2.menuImages.length && (
             <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-3">
               {step2.menuImages.map((file, idx) => {
-                // Handle both File objects and URL objects
-                let imageUrl = null
-                let imageName = `Image ${idx + 1}`
-
-                if (isUploadableFile(file)) {
-                  imageUrl = getPreviewImageUrl(file)
-                  imageName = file.name || imageName
-                } else if (file?.url) {
-                  // If it's an object with url property (from backend)
-                  imageUrl = file.url
-                  imageName = file.name || `Image ${idx + 1}`
-                } else if (typeof file === 'string') {
-                  // If it's a direct URL string
-                  imageUrl = file
-                }
+                const imageUrl = getPreviewImageUrl(file)
+                const imageName =
+                  (isUploadableFile(file) && file.name) ||
+                  (typeof file === "string" ? file.split("/").pop() : file?.name || `Image ${idx + 1}`)
 
                 return (
                   <div
@@ -2640,7 +2683,21 @@ export default function RestaurantOnboarding() {
                         src={imageUrl}
                         alt={`Menu ${idx + 1}`}
                         className="w-full h-full object-cover"
-                       loading="lazy" decoding="async" />
+                        loading="lazy"
+                        decoding="async"
+                        onError={(e) => {
+                          if (isUploadableFile(file)) {
+                            try {
+                              const blobUrl = URL.createObjectURL(file)
+                              if (e.target.src !== blobUrl) {
+                                e.target.src = blobUrl
+                                return
+                              }
+                            } catch {}
+                          }
+                          e.target.style.display = "none"
+                        }}
+                      />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-[11px] text-gray-500 px-2 text-center">
                         Preview unavailable
@@ -2673,7 +2730,21 @@ export default function RestaurantOnboarding() {
                         src={imageSrc}
                         alt="Restaurant profile"
                         className="w-full h-full object-cover"
-                       loading="lazy" decoding="async" />
+                        loading="lazy"
+                        decoding="async"
+                        onError={(e) => {
+                          if (isUploadableFile(step2.profileImage)) {
+                            try {
+                              const blobUrl = URL.createObjectURL(step2.profileImage)
+                              if (e.target.src !== blobUrl) {
+                                e.target.src = blobUrl
+                                return
+                              }
+                            } catch {}
+                          }
+                          e.target.style.display = "none"
+                        }}
+                      />
                     ) : (
                       <ImageIcon className="w-6 h-6 text-gray-500" />
                     );
@@ -2876,7 +2947,21 @@ export default function RestaurantOnboarding() {
                   src={getPreviewImageUrl(step3.panImage)}
                   alt="PAN document"
                   className="h-full w-full object-contain bg-white"
-                 loading="lazy" decoding="async" />
+                  loading="lazy"
+                  decoding="async"
+                  onError={(e) => {
+                    if (isUploadableFile(step3.panImage)) {
+                      try {
+                        const blobUrl = URL.createObjectURL(step3.panImage)
+                        if (e.target.src !== blobUrl) {
+                          e.target.src = blobUrl
+                          return
+                        }
+                      } catch {}
+                    }
+                    e.target.style.display = "none"
+                  }}
+                />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">
                   Preview unavailable
@@ -2977,7 +3062,21 @@ export default function RestaurantOnboarding() {
                     src={getPreviewImageUrl(step3.gstImage)}
                     alt="GST document"
                     className="h-full w-full object-contain bg-white"
-                   loading="lazy" decoding="async" />
+                    loading="lazy"
+                    decoding="async"
+                    onError={(e) => {
+                      if (isUploadableFile(step3.gstImage)) {
+                        try {
+                          const blobUrl = URL.createObjectURL(step3.gstImage)
+                          if (e.target.src !== blobUrl) {
+                            e.target.src = blobUrl
+                            return
+                          }
+                        } catch {}
+                      }
+                      e.target.style.display = "none"
+                    }}
+                  />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">
                     Preview unavailable
@@ -3095,7 +3194,21 @@ export default function RestaurantOnboarding() {
                 src={getPreviewImageUrl(step3.fssaiImage)}
                 alt="FSSAI document"
                 className="h-full w-full object-contain bg-white"
-               loading="lazy" decoding="async" />
+                loading="lazy"
+                decoding="async"
+                onError={(e) => {
+                  if (isUploadableFile(step3.fssaiImage)) {
+                    try {
+                      const blobUrl = URL.createObjectURL(step3.fssaiImage)
+                      if (e.target.src !== blobUrl) {
+                        e.target.src = blobUrl
+                        return
+                      }
+                    } catch {}
+                  }
+                  e.target.style.display = "none"
+                }}
+              />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">
                 Preview unavailable

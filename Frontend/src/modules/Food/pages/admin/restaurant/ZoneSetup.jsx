@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { MapPin, Plus, Search, Edit, Trash2, Eye, Map, Bike } from "lucide-react"
+import { MapPin, Plus, Search, Edit, Trash2, Eye, Map, Bike, Power } from "lucide-react"
+import { toast } from "sonner"
 import { adminAPI } from "@food/api"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -12,6 +13,7 @@ export default function ZoneSetup() {
   const [zones, setZones] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
+  const [togglingZoneId, setTogglingZoneId] = useState(null)
 
   useEffect(() => {
     fetchZones()
@@ -29,6 +31,27 @@ export default function ZoneSetup() {
       setZones([])
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleToggleZoneStatus = async (zone) => {
+    const zoneId = zone._id || zone.id
+    const nextStatus = !zone.isActive
+
+    // Optimistic UI update
+    setZones(prev => prev.map(z => (z._id === zoneId || z.id === zoneId) ? { ...z, isActive: nextStatus } : z))
+    setTogglingZoneId(zoneId)
+
+    try {
+      await adminAPI.updateZone(zoneId, { isActive: nextStatus })
+      toast.success(`Zone "${zone.name || 'Zone'}" is now ${nextStatus ? 'Active' : 'Deactivated'}!`)
+    } catch (error) {
+      debugError("Error updating zone status:", error)
+      toast.error(error.response?.data?.message || "Failed to update zone status")
+      // Revert on error
+      setZones(prev => prev.map(z => (z._id === zoneId || z.id === zoneId) ? { ...z, isActive: zone.isActive } : z))
+    } finally {
+      setTogglingZoneId(null)
     }
   }
 
@@ -169,13 +192,30 @@ export default function ZoneSetup() {
                     <span className="text-slate-600">Unit:</span>
                     <span className="font-medium text-slate-900">{zone.unit || "km"}</span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Status:</span>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      zone.isActive ? "bg-green-100 text-green-800" : "bg-slate-100 text-slate-800"
-                    }`}>
-                      {zone.isActive ? "Active" : "Inactive"}
-                    </span>
+                  <div className="flex items-center justify-between py-1 border-t border-b border-slate-100 my-1">
+                    <span className="text-slate-600 font-medium">Status:</span>
+                    <div className="flex items-center gap-3">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                        zone.isActive ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+                      }`}>
+                        {zone.isActive ? "Active" : "Deactivated"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleZoneStatus(zone)}
+                        disabled={togglingZoneId === (zone._id || zone.id)}
+                        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                          zone.isActive ? "bg-emerald-500 hover:bg-emerald-600" : "bg-slate-300 hover:bg-slate-400"
+                        } ${togglingZoneId === (zone._id || zone.id) ? "opacity-50 cursor-not-allowed" : ""}`}
+                        title={zone.isActive ? "Click to Deactivate zone" : "Click to Activate zone"}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                            zone.isActive ? "translate-x-5" : "translate-x-0"
+                          }`}
+                        />
+                      </button>
+                    </div>
                   </div>
                   {zone.coordinates && zone.coordinates.length > 0 && (
                     <div className="flex items-center justify-between">

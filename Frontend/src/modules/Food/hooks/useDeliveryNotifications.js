@@ -15,6 +15,11 @@ import {
   isNativeAppWebView,
   shouldSkipDuplicateOsNotification,
 } from '@food/utils/firebaseMessaging';
+import {
+  sendNativeNotificationBridge,
+  playSynthesizedChime,
+  initializeAudioUnlock,
+} from '@/shared/utils/iosAudioBridge';
 import { toast } from 'sonner';
 
 const shouldLogDeliverySocket = () => {
@@ -151,31 +156,14 @@ const triggerWebViewNativeNotification = async (orderData = {}) => {
   };
 
   try {
-    if (
-      window.flutter_inappwebview &&
-      typeof window.flutter_inappwebview.callHandler === 'function'
-    ) {
-      const handlerNames = [
-        'playNotificationSound',
-        'triggerNotificationFeedback',
-        'onPushNotification',
-      ];
-
-      for (const handlerName of handlerNames) {
-        try {
-          await window.flutter_inappwebview.callHandler(handlerName, bridgePayload);
-          return true;
-        } catch {
-          // Try next handler name.
-        }
-      }
-    }
+    const sent = await sendNativeNotificationBridge('playNotificationSound', bridgePayload);
+    if (sent) return true;
   } catch {
     // Ignore bridge failures and fall back to browser/web audio.
   }
 
   return false;
-}
+};
 
 
 export const useDeliveryNotifications = () => {
@@ -475,13 +463,16 @@ export const useDeliveryNotifications = () => {
         if (p && typeof p.catch === 'function') {
           p.catch(async (error) => {
             debugWarn('HTML5 Audio play failed, running WebAudio synth fallback:', error);
+            playSynthesizedChime();
             await playSynthDeliveryBeep();
           });
         }
       } else {
+        playSynthesizedChime();
         void playSynthDeliveryBeep();
       }
     } catch (error) {
+      playSynthesizedChime();
       void playSynthDeliveryBeep();
     }
   }, [isOrderAlertMuted, playSynthDeliveryBeep]);

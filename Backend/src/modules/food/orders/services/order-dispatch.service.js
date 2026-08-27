@@ -90,7 +90,7 @@ async function listNearbyOnlineDeliveryPartners(
 ) {
   const rId = (restaurantId?._id || restaurantId).toString();
   const restaurant = await FoodRestaurant.findById(rId)
-    .select("location")
+    .select("location city area")
     .lean();
 
   if (!restaurant?.location?.coordinates?.length) {
@@ -101,41 +101,38 @@ async function listNearbyOnlineDeliveryPartners(
   const [rLng, rLat] = restaurant.location.coordinates;
   const allOnline = await FoodDeliveryPartner.find({
     availabilityStatus: "online",
+    status: { $nin: ['deactivated', 'rejected', 'blocked'] },
   })
-    .select("_id status lastLat lastLng lastLocationAt name")
+    .select("_id status lastLat lastLng lastLocationAt name phone userId")
     .lean();
 
   const scored = [];
-  const allowedStatuses = process.env.NODE_ENV === 'production' ? ['approved'] : ['approved', 'pending'];
-  // Allow online riders whose GPS was received (up to 24h during active session)
-  const STALE_GPS_MS = 24 * 60 * 60 * 1000;
 
   for (const p of allOnline) {
-    if (!allowedStatuses.includes(p.status)) continue;
+    let distanceKm = 2.5; // Default nearby proximity if GPS is initializing
 
-    const isStale = !p.lastLocationAt || (Date.now() - new Date(p.lastLocationAt).getTime()) > STALE_GPS_MS;
-    if (p.lastLat == null || p.lastLng == null || isStale) {
-      continue;
+    if (p.lastLat != null && p.lastLng != null && Number.isFinite(p.lastLat) && Number.isFinite(p.lastLng)) {
+      const d = haversineKm(rLat, rLng, p.lastLat, p.lastLng);
+      if (Number.isFinite(d)) {
+        if (d > maxKm) continue; // Outside current search radius
+        distanceKm = d;
+      }
     }
 
-    const d = haversineKm(rLat, rLng, p.lastLat, p.lastLng);
-    if (Number.isFinite(d) && d <= maxKm) {
-      scored.push({ partnerId: p._id, distanceKm: d, status: p.status });
-    }
+    scored.push({
+      partnerId: p._id,
+      userId: p.userId ? p.userId.toString() : p._id.toString(),
+      distanceKm,
+      status: p.status,
+      name: p.name,
+      phone: p.phone,
+    });
   }
 
   scored.sort((a, b) => a.distanceKm - b.distanceKm);
   const picked = scored.slice(0, Math.max(1, limit));
 
-  if (picked.length === 0) {
-    return { partners: [] };
-  }
-
-  const final = (config.env === 'production')
-    ? picked.filter(p => p.status === 'approved')
-    : picked;
-
-  return { partners: final };
+  return { partners: picked };
 }
 
 export async function getDispatchSettings() {
@@ -267,10 +264,17 @@ export async function tryAutoAssign(orderId, options = {}) {
         const basePayload = buildDeliverySocketPayload(order, order.restaurantId);
         const payload = await enrichPayloadWithTripRoadDistance(order, basePayload);
         for (const p of reofferEligible) {
-          const roomName = rooms.delivery(p.partnerId);
-          io.to(roomName).emit('new_order', { ...payload, pickupDistanceKm: p.distanceKm });
-          io.to(roomName).emit('new_order_available', { ...payload, pickupDistanceKm: p.distanceKm });
-          io.to(roomName).emit('play_notification_sound', { ...payload, orderId: order.order_id || order.orderId || order._id });
+          const room1 = rooms.delivery(p.partnerId);
+          io.to(room1).emit('new_order', { ...payload, pickupDistanceKm: p.distanceKm });
+          io.to(room1).emit('new_order_available', { ...payload, pickupDistanceKm: p.distanceKm });
+          io.to(room1).emit('play_notification_sound', { ...payload, orderId: order.order_id || order.orderId || order._id });
+
+          if (p.userId && p.userId !== p.partnerId.toString()) {
+            const room2 = rooms.delivery(p.userId);
+            io.to(room2).emit('new_order', { ...payload, pickupDistanceKm: p.distanceKm });
+            io.to(room2).emit('new_order_available', { ...payload, pickupDistanceKm: p.distanceKm });
+            io.to(room2).emit('play_notification_sound', { ...payload, orderId: order.order_id || order.orderId || order._id });
+          }
         }
       }
 
@@ -290,22 +294,31 @@ export async function tryAutoAssign(orderId, options = {}) {
     const payload = await enrichPayloadWithTripRoadDistance(order, basePayload);
 
     // BROADCAST: Notify all eligible riders
-    // tripDistanceKm = restaurant ↔ customer (road); pickupDistanceKm = rider → restaurant (ranking only)
     logger.info(`Broadcasting order ${order._id} to ${eligible.length} riders. tripDistanceKm=${payload.tripDistanceKm}`);
     for (const p of eligible) {
-      const roomName = rooms.delivery(p.partnerId);
       if (io) {
-        io.to(roomName).emit('new_order', { ...payload, pickupDistanceKm: p.distanceKm });
-        io.to(roomName).emit('new_order_available', { ...payload, pickupDistanceKm: p.distanceKm });
-        io.to(roomName).emit('play_notification_sound', { ...payload, orderId: order.order_id || order.orderId || order._id });
+        const room1 = rooms.delivery(p.partnerId);
+        io.to(room1).emit('new_order', { ...payload, pickupDistanceKm: p.distanceKm });
+        io.to(room1).emit('new_order_available', { ...payload, pickupDistanceKm: p.distanceKm });
+        io.to(room1).emit('play_notification_sound', { ...payload, orderId: order.order_id || order.orderId || order._id });
+
+        if (p.userId && p.userId !== p.partnerId.toString()) {
+          const room2 = rooms.delivery(p.userId);
+          io.to(room2).emit('new_order', { ...payload, pickupDistanceKm: p.distanceKm });
+          io.to(room2).emit('new_order_available', { ...payload, pickupDistanceKm: p.distanceKm });
+          io.to(room2).emit('play_notification_sound', { ...payload, orderId: order.order_id || order.orderId || order._id });
+        }
       }
     }
 
     // Batch Push Notifications
-    const pushTargets = eligible.map(p => ({
-      ownerType: 'DELIVERY_PARTNER',
-      ownerId: p.partnerId
-    }));
+    const pushTargets = [];
+    for (const p of eligible) {
+      pushTargets.push({ ownerType: 'DELIVERY_PARTNER', ownerId: p.partnerId });
+      if (p.userId && p.userId !== p.partnerId.toString()) {
+        pushTargets.push({ ownerType: 'DELIVERY_PARTNER', ownerId: p.userId });
+      }
+    }
 
     if (pushTargets.length > 0) {
       try {

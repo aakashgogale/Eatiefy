@@ -6,8 +6,6 @@ import { restaurantAPI, diningAPI, orderAPI } from "@food/api"
 import { API_BASE_URL } from "@food/api/config"
 import { toast } from "sonner"
 import { useDeliveryLocation } from "@food/context/DeliveryLocationContext"
-import { getUserRestaurantDistance, normalizeRestaurantLocation } from "@food/utils/geo"
-import { fetchDrivingDistanceKm, formatDistanceLabel } from "@food/utils/roadDistance"
 import {
   ArrowLeft,
   Search,
@@ -100,12 +98,6 @@ function RestaurantDetailsContent() {
   const { slug } = useParams()
   const navigate = useNavigate()
   const goBack = useAppBackNavigation()
-  // Drop sticky listing distance once — old 6.9 cache was locking details.
-  useEffect(() => {
-    try {
-      sessionStorage.removeItem("food_last_opened_restaurant_distance")
-    } catch (_) {}
-  }, [])
   const [searchParams] = useSearchParams()
   const showOnlyUnder250 = searchParams.get('under250') === 'true'
   const targetDishId = useMemo(() => String(searchParams.get('dish') || '').trim(), [searchParams])
@@ -442,21 +434,6 @@ function RestaurantDetailsContent() {
           const formattedAddress = formatRestaurantAddress(locationObj)
           debugLog('? Final Formatted Address:', formattedAddress)
 
-          // Same Haversine + coordinate parsing as delivery new-order.
-          const locationForDistance = normalizeRestaurantLocation(locationObj) || locationObj
-          const measured = getUserRestaurantDistance(userLocation?.deliveryAddress || userLocation, locationForDistance)
-          const calculatedDistance = measured?.label || null
-          if (calculatedDistance) {
-            debugLog('? Calculated distance from user to restaurant:', calculatedDistance, 'km:', measured.km)
-          } else {
-            debugWarn('? Cannot calculate distance - missing coordinates:', {
-              hasUserLocation: !!(userLocation?.latitude || userLocation?.coordinates),
-              hasRestaurantLocation: !!locationObj,
-              userLocation,
-              locationObj,
-            })
-          }
-
           // Resolve display category/cuisine with broad API compatibility
           const categoryFromArray = (list) => {
             if (!Array.isArray(list) || list.length === 0) return null
@@ -518,9 +495,8 @@ function RestaurantDetailsContent() {
             rating: actualRestaurant?.rating || apiRestaurant?.rating || actualRestaurant?.averageRating || apiRestaurant?.averageRating || 4.5,
             reviews: actualRestaurant?.totalRatings || apiRestaurant?.totalRatings || actualRestaurant?.reviewCount || apiRestaurant?.reviewCount || actualRestaurant?.reviews?.length || apiRestaurant?.reviews?.length || 0,
             deliveryTime: actualRestaurant?.estimatedDeliveryTime || apiRestaurant?.estimatedDeliveryTime || actualRestaurant?.deliveryTime || apiRestaurant?.deliveryTime || actualRestaurant?.avgDeliveryTime || apiRestaurant?.avgDeliveryTime || "25-30 mins",
-            distance: calculatedDistance || "—",
             location: formattedAddress,
-            locationObject: locationForDistance || locationObj, // Normalized location for distance recalculation
+            locationObject: locationObj,
             image: normalizedCoverImages?.[0]?.url
               || normalizedCoverImages?.[0]
               || normalizedProfileImage?.url
@@ -1021,71 +997,6 @@ function RestaurantDetailsContent() {
 
     fetchRestaurant()
   }, [slug, zoneId])
-
-  // Track previous distance label to avoid loops
-  const prevDistanceRef = useRef(null)
-
-  // Recalculate straight-line distance when user/restaurant location updates
-  useEffect(() => {
-    if (!restaurant?.locationObject || !userLocation) return
-    if (restaurant?.distanceSource === "road") return
-
-    const measured = getUserRestaurantDistance(
-      userLocation?.deliveryAddress || userLocation,
-      normalizeRestaurantLocation(restaurant.locationObject) || restaurant.locationObject,
-    )
-    if (!measured?.label) return
-
-    const calculatedDistance = measured.label
-    if (calculatedDistance === prevDistanceRef.current) return
-    prevDistanceRef.current = calculatedDistance
-
-    setRestaurant((prev) => {
-      if (!prev || prev.distance === calculatedDistance || prev.distanceSource === "road") return prev
-      return { ...prev, distance: calculatedDistance, distanceSource: "haversine" }
-    })
-  }, [
-    userLocation?.latitude,
-    userLocation?.longitude,
-    userLocation?.coordinates?.[0],
-    userLocation?.coordinates?.[1],
-    restaurant?.locationObject,
-    restaurant?.id,
-    restaurant?.distanceSource,
-  ])
-
-  // Prefer Google road distance (matches delivery Rest→User / tripDistanceKm).
-  useEffect(() => {
-    let cancelled = false
-    if (!restaurant?.locationObject || !userLocation) return undefined
-
-    const run = async () => {
-      const km = await fetchDrivingDistanceKm(
-        userLocation?.deliveryAddress || userLocation,
-        restaurant.locationObject,
-      )
-      if (cancelled || !Number.isFinite(Number(km))) return
-      const label = formatDistanceLabel(km)
-      if (!label) return
-      prevDistanceRef.current = label
-      setRestaurant((prev) => {
-        if (!prev || (prev.distance === label && prev.distanceSource === "road")) return prev
-        return { ...prev, distance: label, distanceSource: "road" }
-      })
-    }
-
-    run()
-    return () => {
-      cancelled = true
-    }
-  }, [
-    userLocation?.latitude,
-    userLocation?.longitude,
-    userLocation?.coordinates?.[0],
-    userLocation?.coordinates?.[1],
-    restaurant?.locationObject,
-    restaurant?.id,
-  ])
 
   // Sync quantities from cart on mount and when restaurant changes
   useEffect(() => {
@@ -2159,18 +2070,14 @@ function RestaurantDetailsContent() {
                   <Utensils className="h-3.5 w-3.5 shrink-0 text-gray-400" />
                   <span>{restaurant?.topCategory || restaurant?.cuisine || "Multi-cuisine"}</span>
                 </div>
-                <div className="mt-1.5 flex items-start gap-1.5 text-[13px] sm:text-sm text-gray-600 dark:text-gray-400">
-                  <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5 text-gray-400" />
-                  <span className="leading-relaxed line-clamp-2">
-                    {restaurant?.distance || "1.2 km"}
-                    {restaurant?.location && (
-                      <>
-                        <span className="mx-1.5 text-gray-300 dark:text-gray-600">·</span>
-                        {restaurant.location}
-                      </>
-                    )}
-                  </span>
-                </div>
+                {restaurant?.location && (
+                  <div className="mt-1.5 flex items-start gap-1.5 text-[13px] sm:text-sm text-gray-600 dark:text-gray-400">
+                    <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5 text-gray-400" />
+                    <span className="leading-relaxed line-clamp-2">
+                      {restaurant.location}
+                    </span>
+                  </div>
+                )}
               </div>
               <div className="flex flex-col items-end shrink-0">
                 <Badge
@@ -3323,10 +3230,6 @@ function RestaurantDetailsContent() {
                                 <div className="flex items-center gap-1">
                                   <Clock className="h-3.5 w-3.5" />
                                   <span>{outlet?.deliveryTime || "25-30 mins"}</span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <MapPin className="h-3.5 w-3.5" />
-                                  <span>{outlet?.distance || "1.2 km"}</span>
                                 </div>
                               </div>
                               <div className="flex flex-col items-end gap-0.5">

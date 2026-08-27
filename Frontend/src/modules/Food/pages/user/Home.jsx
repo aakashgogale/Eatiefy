@@ -85,15 +85,7 @@ import {
   useLocationSelector,
 } from "@food/components/user/UserLayout";
 import PageNavbar from "@food/components/user/PageNavbar";
-import {
-  getUserRestaurantDistance,
-  normalizeRestaurantLocation,
-} from "@food/utils/geo";
 import { optimizeCloudinaryUrl } from "@/shared/utils/mediaUrl";
-import {
-  fetchDrivingDistancesMatrix,
-  formatDistanceLabel,
-} from "@food/utils/roadDistance";
 
 const debugLog = (...args) => { };
 const debugWarn = (...args) => { };
@@ -789,9 +781,6 @@ const RestaurantCard = React.memo(({
             state={{}}
             onClick={() => {
               onNavigateAway?.();
-              try {
-                sessionStorage.removeItem("food_last_opened_restaurant_distance")
-              } catch (_) { }
             }}
             className="flex-grow"
           >
@@ -846,7 +835,7 @@ const RestaurantCard = React.memo(({
                   </div>
                 </div>
 
-                {/* Delivery Time & Distance */}
+                {/* Delivery Time */}
                 <div className="flex items-center gap-1 text-sm lg:text-base text-gray-500 mb-2 lg:mb-3 transition-opacity duration-300 opacity-70 group-hover:opacity-100">
                   <Clock
                     className="h-4 w-4 lg:h-5 lg:w-5 text-gray-500 dark:text-gray-400"
@@ -854,14 +843,6 @@ const RestaurantCard = React.memo(({
                   />
                   <span className="font-medium dark:text-gray-300 text-gray-700">
                     {restaurant.deliveryTime}
-                  </span>
-                  <span className="mx-1">|</span>
-                  <MapPin
-                    className="h-4 w-4 lg:h-5 lg:w-5 text-gray-500 dark:text-gray-400"
-                    strokeWidth={1.5}
-                  />
-                  <span className="font-medium dark:text-gray-300 text-gray-700">
-                    {restaurant.distance}
                   </span>
                 </div>
 
@@ -2510,28 +2491,6 @@ export default function Home() {
               const deliveryTime =
                 restaurant.estimatedDeliveryTime || "25-30 mins";
 
-              // Same Haversine + coordinate parsing as delivery new-order / cart fees.
-              let distance = "—";
-              let distanceInKm = null;
-
-              const restaurantLoc = normalizeRestaurantLocation(
-                restaurant.location || restaurant,
-              );
-              const measured = getUserRestaurantDistance(
-                effectiveLocation?.deliveryAddress || effectiveLocation,
-                restaurantLoc,
-              );
-              if (measured) {
-                distanceInKm = measured.km;
-                distance = measured.label;
-              } else if (Number.isFinite(Number(restaurant.distanceInKm))) {
-                distanceInKm = Number(restaurant.distanceInKm);
-                distance =
-                  distanceInKm >= 1
-                    ? `${distanceInKm.toFixed(1)} km`
-                    : `${Math.round(distanceInKm * 1000)} m`;
-              }
-
               // Get first cuisine or default
               const cuisine =
                 restaurant.cuisines && restaurant.cuisines.length > 0
@@ -2586,8 +2545,6 @@ export default function Home() {
                   (restaurant.estimatedDeliveryTimeMinutes
                     ? `${restaurant.estimatedDeliveryTimeMinutes} mins`
                     : deliveryTime),
-                distance: distance,
-                distanceInKm: distanceInKm, // Store numeric distance for sorting
                 image: image,
                 images: allImages, // Array of cover images for carousel (separate from menu images)
                 priceRange: restaurant.priceRange || "$$", // Use from API or default
@@ -2606,7 +2563,7 @@ export default function Home() {
                 slug: restaurant.slug,
                 restaurantId: restaurant.restaurantId,
                 pureVegRestaurant: restaurant.pureVegRestaurant === true,
-                location: restaurantLoc || restaurant.location, // Normalized for distance recalculation
+                location: restaurant.location,
                 isActive: restaurant.isActive !== false, // Default to true if not specified
                 isAcceptingOrders: restaurant.isAcceptingOrders !== false, // Default to true if not specified
                 openDays: Array.isArray(restaurant.openDays)
@@ -2646,12 +2603,8 @@ export default function Home() {
                 return (a.rating || 0) - (b.rating || 0);
               }
 
-              // Default: sort by distance
-              const aDistance =
-                a.distanceInKm !== null ? a.distanceInKm : Infinity;
-              const bDistance =
-                b.distanceInKm !== null ? b.distanceInKm : Infinity;
-              return aDistance - bDistance;
+              // Preserve API order (backend already sorts nearest-first when lat/lng provided)
+              return 0;
             });
           };
 
@@ -2744,63 +2697,6 @@ export default function Home() {
   }, [appliedFilters, fetchRestaurants]);
 
   // Recalculate distances when user location updates
-  useEffect(() => {
-    if (!effectiveLocation?.latitude || !effectiveLocation?.longitude) return;
-
-    setRestaurantsData((prevData) => {
-      if (!prevData || prevData.length === 0) return prevData;
-
-      let hasChanges = false;
-      const updatedRestaurants = prevData.map((restaurant) => {
-        if (!restaurant.location) return restaurant;
-        // Don't clobber Google road distance with Haversine.
-        if (restaurant.distanceSource === "road") return restaurant;
-
-        const measured = getUserRestaurantDistance(
-          effectiveLocation?.deliveryAddress || effectiveLocation,
-          normalizeRestaurantLocation(restaurant.location) || restaurant.location,
-        );
-        if (!measured) return restaurant;
-
-        const { km: distanceInKm, label: calculatedDistance } = measured;
-
-        if (
-          restaurant.distance !== calculatedDistance ||
-          restaurant.distanceInKm !== distanceInKm
-        ) {
-          hasChanges = true;
-          return {
-            ...restaurant,
-            distance: calculatedDistance,
-            distanceInKm: distanceInKm, // Preserve numeric distance for sorting
-            distanceSource: "haversine",
-            location:
-              normalizeRestaurantLocation(restaurant.location) ||
-              restaurant.location,
-          };
-        }
-        return restaurant;
-      });
-
-      return hasChanges ? updatedRestaurants : prevData;
-    });
-
-    debugLog(
-      "?? Recalculated distances for all restaurants based on user location",
-    );
-  }, [effectiveLocation?.latitude, effectiveLocation?.longitude]);
-
-  const restaurantsDistanceKey = useMemo(
-    () =>
-      (restaurantsData || [])
-        .map((restaurant) => String(restaurant.id || restaurant.mongoId || ""))
-        .filter(Boolean)
-        .join("|"),
-    [restaurantsData],
-  );
-
-  // Distances are already calculated by backend and Haversine geo-distance with zero network overhead
-
   // Menu categories are resolved from admin categories / landing config without N+1 menu network requests
   useEffect(() => {
     setLoadingMenuCategories(false);

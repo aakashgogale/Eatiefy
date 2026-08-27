@@ -389,6 +389,14 @@ export async function updateDiningRestaurant(restaurantId, body = {}) {
 
     await diningDoc.save();
     await syncCategoryRestaurantLinks(restaurant._id, validCategoryIds);
+
+    // If dining is enabled by admin, ensure restaurant status is approved
+    if (body.isEnabled === true) {
+        await FoodRestaurant.findByIdAndUpdate(restaurant._id, {
+            $set: { status: 'approved', isApproved: true, approvedAt: new Date() }
+        });
+    }
+
     await syncRestaurantDiningSettings(restaurant._id, diningDoc, {
         coverImage: body.coverImage || body.imageUrl || body.image,
         costForTwo: body.costForTwo,
@@ -423,10 +431,10 @@ export async function listDiningRestaurantsPublic(query = {}) {
     const categoryValue = String(query.category || '').trim();
     const cityValue = String(query.city || '').trim();
 
-    // 1. Base filter: strictly only dining-enabled and approved restaurants
+    // 1. Base filter: strictly only dining-enabled and approved/active restaurants
     const restaurantFilter = {
         'diningSettings.isEnabled': true,
-        status: 'approved'
+        status: { $in: ['approved', 'active'] }
     };
 
     // 2. Category filter if provided
@@ -507,6 +515,10 @@ export async function listDiningRestaurantsPublic(query = {}) {
                 costForTwo: r.diningSettings?.costForTwo || r.costForTwo || '₹600 for two',
                 offer: r.diningSettings?.offer || r.offer || '',
                 coverImage: r.diningSettings?.coverImage || r.coverImages?.[0]?.url || r.profileImage || '',
+                pricingModel: r.diningSettings?.pricingModel || 'free',
+                bookingFee: Number(r.diningSettings?.bookingFee || 0),
+                coverChargePerPerson: Number(r.diningSettings?.coverChargePerPerson || 0),
+                mealPeriods: Array.isArray(r.diningSettings?.mealPeriods) && r.diningSettings.mealPeriods.length > 0 ? r.diningSettings.mealPeriods : ['breakfast', 'lunch', 'dinner'],
             }
         };
     });
@@ -577,6 +589,11 @@ export async function approveDiningRequestAdmin(restaurantId, body = {}) {
 
     if (costForTwo) restaurant.costForTwo = costForTwo;
     if (offer) restaurant.offer = offer;
+
+    // Ensure restaurant is active and approved
+    restaurant.status = 'approved';
+    restaurant.isApproved = true;
+    restaurant.approvedAt = new Date();
 
     await restaurant.save();
 

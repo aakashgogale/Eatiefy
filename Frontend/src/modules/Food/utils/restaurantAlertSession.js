@@ -3,6 +3,11 @@
  * One looping Audio (or native loop) for all mounts — idempotent start/stop.
  */
 import alertSound from "@food/assets/audio/alert.mp3";
+import {
+  sendNativeNotificationBridge,
+  playSynthesizedChime,
+  initializeAudioUnlock,
+} from "@/shared/utils/iosAudioBridge";
 
 const pendingKeys = new Set();
 let audio = null;
@@ -71,7 +76,6 @@ function ensureAudio() {
     audio.volume = 1;
 
     audio.onerror = () => {
-      // Fallback to public audio files if first fails
       if (audio.src.includes("alert.mp3")) {
         audio.src = "/assets/media/restaurant_alert.mp3";
       } else if (audio.src.includes("restaurant_alert.mp3")) {
@@ -88,14 +92,9 @@ function isWebAudioPlaying() {
 }
 
 async function callNativeHandlers(handlerNames, payload = {}) {
-  if (!isFlutterWebView()) return false;
   for (const handlerName of handlerNames) {
-    try {
-      await window.flutter_inappwebview.callHandler(handlerName, payload);
-      return true;
-    } catch {
-      // try next
-    }
+    const sent = await sendNativeNotificationBridge(handlerName, payload);
+    if (sent) return true;
   }
   return false;
 }
@@ -155,10 +154,14 @@ async function playWebLoop() {
     }
     return true;
   } catch (err) {
-    // Browser autoplay policy might block play() until user interacts
+    // iOS WebKit autoplay policy caught -> Play synthesized Web Audio chime immediately!
+    playSynthesizedChime();
+
     const unlockOnGesture = () => {
       if (el && !muted && pendingKeys.size > 0) {
-        el.play().catch(() => {});
+        el.play().catch(() => {
+          playSynthesizedChime();
+        });
       }
       window.removeEventListener("pointerdown", unlockOnGesture);
       window.removeEventListener("keydown", unlockOnGesture);

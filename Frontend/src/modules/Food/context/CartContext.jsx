@@ -52,7 +52,7 @@ const CartContext = createContext(defaultCartContext)
 const normalizeCartData = (rawCart) => {
   if (!Array.isArray(rawCart)) return []
 
-  return rawCart
+  const mapped = rawCart
     .filter((item) => item && typeof item === "object")
     .map((item, index) => {
       const parsedQuantity = Number(item.quantity)
@@ -86,7 +86,7 @@ const normalizeCartData = (rawCart) => {
         item.menuItemId ||
         item.id ||
         item._id ||
-        `cart-item-${index}`
+        (item.name ? item.name.toLowerCase().trim().replace(/[^a-z0-9]/g, "-") : `cart-item-${index}`)
 
       const variantId = item.variantId || item.variant?._id || item.variant?.id || ""
       const variantName =
@@ -103,63 +103,79 @@ const normalizeCartData = (rawCart) => {
         item.cartLineId ||
         buildCartLineId(baseItemId, variantId)
 
-        const name = item.name || item.product?.name || "Item";
-        const nameLower = name.toLowerCase();
-        
-        // Strict cache sanitation: If it was wrongly cached as Veg previously, override it
-        let currentFoodType = item.foodType;
-        if (nameLower.includes("chicken") || nameLower.includes("salmon") || nameLower.includes("tart")) {
-          currentFoodType = "Non-Veg";
-        }
-        
-        const finalFoodType = currentFoodType || (item.isVeg === true ? "Veg" : "Non-Veg");
+      const name = item.name || item.product?.name || "Item"
+      const nameLower = name.toLowerCase()
 
-        return {
-          ...item,
-          id: lineItemId,
-          lineItemId,
-          itemId: String(baseItemId),
-          productId: String(baseItemId),
-          variantId: variantId ? String(variantId) : "",
-          variantName,
-          variantPrice: Number.isFinite(parsedVariantPrice) ? parsedVariantPrice : 0,
-          name: name,
-          quantity:
-            Number.isFinite(parsedQuantity) && parsedQuantity > 0
-              ? Math.floor(parsedQuantity)
-              : 1,
-          price: Number.isFinite(parsedPrice) ? parsedPrice : 0,
-          otherPrice: Number(item.otherPrice) > 0 ? Number(item.otherPrice) : 0,
-          foodType: finalFoodType,
-          isVeg: finalFoodType === "Veg",
+      // Strict cache sanitation: If it was wrongly cached as Veg previously, override it
+      let currentFoodType = item.foodType
+      if (nameLower.includes("chicken") || nameLower.includes("salmon") || nameLower.includes("tart")) {
+        currentFoodType = "Non-Veg"
+      }
+
+      const finalFoodType = currentFoodType || (item.isVeg === true ? "Veg" : "Non-Veg")
+
+      return {
+        ...item,
+        id: lineItemId,
+        lineItemId,
+        itemId: String(baseItemId),
+        productId: String(baseItemId),
+        variantId: variantId ? String(variantId) : "",
+        variantName,
+        variantPrice: Number.isFinite(parsedVariantPrice) ? parsedVariantPrice : 0,
+        name: name,
+        quantity:
+          Number.isFinite(parsedQuantity) && parsedQuantity > 0
+            ? Math.floor(parsedQuantity)
+            : 1,
+        price: Number.isFinite(parsedPrice) ? parsedPrice : 0,
+        otherPrice: Number(item.otherPrice) > 0 ? Number(item.otherPrice) : 0,
+        foodType: finalFoodType,
+        isVeg: finalFoodType === "Veg",
         restaurant: normalizedRestaurantName,
         restaurantId: normalizedRestaurantId,
         image: normalizedImage,
         imageUrl: normalizedImage,
       }
     })
+
+  // GROUP / DEDUPLICATE items by their lineItemId / item identity
+  const grouped = []
+  const map = new Map()
+
+  for (const item of mapped) {
+    const key = `${item.id}_${item.name?.toLowerCase()?.trim()}`
+    if (map.has(key)) {
+      const existing = map.get(key)
+      existing.quantity += item.quantity
+    } else {
+      const clone = { ...item }
+      map.set(key, clone)
+      grouped.push(clone)
+    }
+  }
+
+  return grouped
 }
 
 const resolveCartEntryId = (items, itemId, variantId = "") => {
   const normalizedItemId = String(itemId || "")
   const safeItems = Array.isArray(items) ? items : []
 
-  const directMatch = safeItems.find((item) => item.id === normalizedItemId)
+  const directMatch = safeItems.find((item) => item.id === normalizedItemId || item.lineItemId === normalizedItemId)
   if (directMatch) return directMatch.id
 
   const preferredId = buildCartLineId(normalizedItemId, variantId)
 
-  const exactMatch = safeItems.find((item) => item.id === preferredId)
+  const exactMatch = safeItems.find((item) => item.id === preferredId || item.lineItemId === preferredId)
   if (exactMatch) return exactMatch.id
 
-  if (!variantId) {
-    const legacyBaseMatch = safeItems.find(
-      (item) =>
-        String(item.itemId || item.productId || item.id || "") === normalizedItemId &&
-        !String(item.variantId || "").trim(),
-    )
-    if (legacyBaseMatch) return legacyBaseMatch.id
-  }
+  const baseMatch = safeItems.find(
+    (item) =>
+      String(item.itemId || item.productId || item.id || "") === normalizedItemId &&
+      String(item.variantId || "").trim() === String(variantId || "").trim(),
+  )
+  if (baseMatch) return baseMatch.id
 
   return preferredId
 }
@@ -185,13 +201,12 @@ export function CartProvider({ children }) {
   // Persist to localStorage whenever cart changes
   useEffect(() => {
     try {
-      // Only save if we have items or user is authenticated to avoid cluttering localStorage for every guest visitor
-      const isAuthenticated = localStorage.getItem("user_authenticated") === "true" || !!localStorage.getItem("user_accessToken");
+      const isAuthenticated = localStorage.getItem("user_authenticated") === "true" || !!localStorage.getItem("user_accessToken")
       if (cart.length > 0 || isAuthenticated) {
         localStorage.setItem("cart", JSON.stringify(normalizeCartData(cart)))
       }
     } catch {
-      // ignore storage errors (private mode, quota, etc.)
+      // ignore storage errors
     }
   }, [cart])
 
@@ -242,6 +257,7 @@ export function CartProvider({ children }) {
   }, [scheduleCartSync])
 
   const addToCart = (item, sourcePosition = null, options = {}) => {
+    if (!item) return { ok: false }
     const { forceReplace = false, quantity: requestedQuantity = 1 } = options
     const parsedQuantity = Number(requestedQuantity)
     const addQuantity =
@@ -253,8 +269,8 @@ export function CartProvider({ children }) {
     if (!forceReplace && safeCart.length > 0) {
       const firstItemRestaurantId = safeCart[0]?.restaurantId
       const firstItemRestaurantName = safeCart[0]?.restaurant
-      const newItemRestaurantId = item?.restaurantId
-      const newItemRestaurantName = item?.restaurant
+      const newItemRestaurantId = item?.restaurantId || item?.restaurant_id || item?.restaurant?._id
+      const newItemRestaurantName = item?.restaurant || item?.restaurantName || item?.restaurant?.name
       const normalizeName = (name) => (name ? String(name).trim().toLowerCase() : '')
 
       const firstRestaurantNameNormalized = normalizeName(firstItemRestaurantName)
@@ -283,99 +299,50 @@ export function CartProvider({ children }) {
       }
     }
 
-    if (!item?.restaurantId && !item?.restaurant) {
-      return {
-        ok: false,
-        error: 'Item is missing restaurant information. Please refresh the page.',
-        code: 'MISSING_RESTAURANT'
-      }
-    }
+    const normalizedNewItems = normalizeCartData([{ ...item, quantity: addQuantity }])
+    const normalizedNew = normalizedNewItems[0]
+    if (!normalizedNew) return { ok: false }
 
     setCart((prev) => {
       const safePrev = forceReplace ? [] : normalizeCartData(prev)
-      // CRITICAL: Validate restaurant consistency
-      // If cart already has items, ensure new item belongs to the same restaurant
-      if (!forceReplace && safePrev.length > 0) {
-        const firstItemRestaurantId = safePrev[0]?.restaurantId;
-        const firstItemRestaurantName = safePrev[0]?.restaurant;
-        const newItemRestaurantId = item?.restaurantId;
-        const newItemRestaurantName = item?.restaurant;
-        
-        // Normalize restaurant names for comparison (trim and case-insensitive)
-        const normalizeName = (name) => name ? name.trim().toLowerCase() : '';
-        const firstRestaurantNameNormalized = normalizeName(firstItemRestaurantName);
-        const newRestaurantNameNormalized = normalizeName(newItemRestaurantName);
-        
-        // Check restaurant name first (more reliable than IDs which can have different formats)
-        // If names match, allow it even if IDs differ (same restaurant, different ID format)
-        if (firstRestaurantNameNormalized && newRestaurantNameNormalized) {
-          if (firstRestaurantNameNormalized !== newRestaurantNameNormalized) {
-            debugError('❌ Cannot add item: Restaurant name mismatch!', {
-              cartRestaurantId: firstItemRestaurantId,
-              cartRestaurantName: firstItemRestaurantName,
-              newItemRestaurantId: newItemRestaurantId,
-              newItemRestaurantName: newItemRestaurantName
-            });
-            return safePrev;
-          }
-          // Names match - allow it (even if IDs differ, it's the same restaurant)
-        } else if (firstItemRestaurantId && newItemRestaurantId) {
-          // If names are not available, fallback to ID comparison
-          if (firstItemRestaurantId !== newItemRestaurantId) {
-            debugError('❌ Cannot add item: Cart contains items from different restaurant!', {
-              cartRestaurantId: firstItemRestaurantId,
-              cartRestaurantName: firstItemRestaurantName,
-              newItemRestaurantId: newItemRestaurantId,
-              newItemRestaurantName: newItemRestaurantName
-            });
-            return safePrev;
-          }
-        }
-      }
-      
-      const existing = safePrev.find((i) => i.id === item.id)
-      if (existing) {
-        // Set last add event for animation when incrementing existing item
+
+      const existingIndex = safePrev.findIndex((i) => {
+        if (i.id === normalizedNew.id || i.lineItemId === normalizedNew.id) return true
+        if (String(i.itemId) === String(normalizedNew.itemId) && String(i.variantId || "") === String(normalizedNew.variantId || "")) return true
+        if (i.name && normalizedNew.name && i.name.toLowerCase().trim() === normalizedNew.name.toLowerCase().trim() && String(i.variantId || "") === String(normalizedNew.variantId || "")) return true
+        return false
+      })
+
+      if (existingIndex !== -1) {
         if (sourcePosition) {
           setLastAddEvent({
             product: {
-              id: item.id,
-              name: item.name,
-              imageUrl: item.image || item.imageUrl,
+              id: normalizedNew.id,
+              name: normalizedNew.name,
+              imageUrl: normalizedNew.image || normalizedNew.imageUrl,
             },
             sourcePosition,
           })
-          // Clear after animation completes (increased delay)
           setTimeout(() => setLastAddEvent(null), 1500)
         }
-        return safePrev.map((i) =>
-          i.id === item.id ? { ...i, quantity: i.quantity + addQuantity } : i
+        return safePrev.map((i, idx) =>
+          idx === existingIndex ? { ...i, quantity: i.quantity + addQuantity } : i
         )
       }
-      
-      // Validate item has required restaurant info
-      if (!item.restaurantId && !item.restaurant) {
-        debugError('❌ Cannot add item: Missing restaurant information!', item);
-        return safePrev;
-      }
-      
-      const newItem = { ...item, quantity: addQuantity }
-      
-      // Set last add event for animation if sourcePosition is provided
+
       if (sourcePosition) {
         setLastAddEvent({
           product: {
-            id: item.id,
-            name: item.name,
-            imageUrl: item.image || item.imageUrl,
+            id: normalizedNew.id,
+            name: normalizedNew.name,
+            imageUrl: normalizedNew.image || normalizedNew.imageUrl,
           },
           sourcePosition,
         })
-        // Clear after animation completes (increased delay to allow full animation)
         setTimeout(() => setLastAddEvent(null), 1500)
       }
-      
-      return [...safePrev, newItem]
+
+      return [...safePrev, normalizedNew]
     })
 
     return { ok: true }
@@ -391,7 +358,7 @@ export function CartProvider({ children }) {
     const { item, sourcePosition, quantity } = cartReplacePrompt
     setCartReplacePrompt(null)
 
-    if (!item?.restaurantId && !item?.restaurant) return
+    if (!item) return
 
     const parsedQuantity = Number(quantity)
     const addQuantity =
@@ -399,14 +366,17 @@ export function CartProvider({ children }) {
         ? Math.floor(parsedQuantity)
         : 1
 
-    setCart([{ ...item, quantity: addQuantity }])
+    const normalizedNew = normalizeCartData([{ ...item, quantity: addQuantity }])[0]
+    if (!normalizedNew) return
+
+    setCart([normalizedNew])
 
     if (sourcePosition) {
       setLastAddEvent({
         product: {
-          id: item.id,
-          name: item.name,
-          imageUrl: item.image || item.imageUrl,
+          id: normalizedNew.id,
+          name: normalizedNew.name,
+          imageUrl: normalizedNew.image || normalizedNew.imageUrl,
         },
         sourcePosition,
       })
@@ -418,9 +388,8 @@ export function CartProvider({ children }) {
     setCart((prev) => {
       const safePrev = normalizeCartData(prev)
       const resolvedItemId = resolveCartEntryId(safePrev, itemId)
-      const itemToRemove = safePrev.find((i) => i.id === resolvedItemId)
+      const itemToRemove = safePrev.find((i) => i.id === resolvedItemId || i.id === itemId || String(i.itemId) === String(itemId))
       if (itemToRemove && sourcePosition && productInfo) {
-        // Set last remove event for animation
         setLastRemoveEvent({
           product: {
             id: productInfo.id || itemToRemove.id,
@@ -429,56 +398,35 @@ export function CartProvider({ children }) {
           },
           sourcePosition,
         })
-        // Clear after animation completes
         setTimeout(() => setLastRemoveEvent(null), 1500)
       }
-      return safePrev.filter((i) => i.id !== resolvedItemId)
+      return safePrev.filter((i) => i.id !== resolvedItemId && i.id !== itemId && String(i.itemId) !== String(itemId))
     })
   }
 
   const updateQuantity = (itemId, quantity, sourcePosition = null, productInfo = null) => {
-    const safeCart = normalizeCartData(cart)
-    const resolvedItemId = resolveCartEntryId(safeCart, itemId)
-    if (quantity <= 0) {
-      setCart((prev) => {
-        const safePrev = normalizeCartData(prev)
-        const itemToRemove = safePrev.find((i) => i.id === resolvedItemId)
-        if (itemToRemove && sourcePosition && productInfo) {
-          // Set last remove event for animation
-          setLastRemoveEvent({
-            product: {
-              id: productInfo.id || itemToRemove.id,
-              name: productInfo.name || itemToRemove.name,
-              imageUrl: productInfo.imageUrl || productInfo.image || itemToRemove.image || itemToRemove.imageUrl,
-            },
-            sourcePosition,
-          })
-          // Clear after animation completes
-          setTimeout(() => setLastRemoveEvent(null), 1500)
-        }
-        return safePrev.filter((i) => i.id !== resolvedItemId)
-      })
+    const targetQty = Number(quantity)
+    const normalizedTargetQty = Number.isFinite(targetQty) ? Math.floor(targetQty) : 0
+
+    if (normalizedTargetQty <= 0) {
+      removeFromCart(itemId, sourcePosition, productInfo)
       return
     }
-    
-    // When quantity decreases (but not to 0), also trigger removal animation
+
     setCart((prev) => {
       const safePrev = normalizeCartData(prev)
-      const existingItem = safePrev.find((i) => i.id === resolvedItemId)
-      if (existingItem && quantity < existingItem.quantity && sourcePosition && productInfo) {
-        // Set last remove event for animation when decreasing quantity
-        setLastRemoveEvent({
-          product: {
-            id: productInfo.id || existingItem.id,
-            name: productInfo.name || existingItem.name,
-            imageUrl: productInfo.imageUrl || productInfo.image || existingItem.image || existingItem.imageUrl,
-          },
-          sourcePosition,
-        })
-        // Clear after animation completes
-        setTimeout(() => setLastRemoveEvent(null), 1500)
-      }
-      return safePrev.map((i) => (i.id === resolvedItemId ? { ...i, quantity } : i))
+      const resolved = resolveCartEntryId(safePrev, itemId)
+
+      const targetIndex = safePrev.findIndex((i) =>
+        i.id === resolved || i.id === itemId || String(i.itemId) === String(itemId) ||
+        (productInfo?.name && i.name.toLowerCase().trim() === productInfo.name.toLowerCase().trim())
+      )
+
+      if (targetIndex === -1) return safePrev
+
+      return safePrev.map((i, idx) =>
+        idx === targetIndex ? { ...i, quantity: normalizedTargetQty } : i
+      )
     })
   }
 

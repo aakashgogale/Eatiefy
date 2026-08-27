@@ -116,6 +116,9 @@
 @layer base {
   html {
     scroll-behavior: auto;
+    overscroll-behavior: none;
+    overscroll-behavior-y: none;
+    -webkit-overscroll-behavior: none;
   }
 
   * {
@@ -123,15 +126,27 @@
   }
   body {
     @apply bg-background text-foreground m-0 min-h-screen;
+    overscroll-behavior: none;
+    overscroll-behavior-y: none;
+    -webkit-overscroll-behavior: none;
+  }
+
+  #root {
+    min-height: 100vh;
+    min-height: 100dvh;
+    overscroll-behavior: none;
+    overscroll-behavior-y: none;
   }
 }
 
 @layer utilities {
-  .scrollbar-hide {
+  .scrollbar-hide,
+  .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
-  .scrollbar-hide::-webkit-scrollbar {
+  .scrollbar-hide::-webkit-scrollbar,
+  .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
 

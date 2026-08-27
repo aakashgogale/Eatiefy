@@ -120,14 +120,7 @@ export default function ProfessionalSearch() {
       })
       
       if (res.data?.success) {
-        // Grouping results into Restaurants and potential Dishes
-        const all = (res.data.data.restaurants || []).filter((row) => {
-          const restaurantZoneId = row?.zoneId || row?.zone?._id || row?.zone || null
-          if (zoneId && restaurantZoneId && String(restaurantZoneId) !== String(zoneId)) {
-            return false
-          }
-          return true
-        })
+        const all = res.data.data.restaurants || []
         setResults({
           restaurants: all.filter(r => r.matchType === 'restaurant' || !r.matchType),
           dishes: all.filter(r => r.matchType === 'food')
@@ -289,19 +282,18 @@ export default function ProfessionalSearch() {
         )}
 
         {/* Search Results */}
-        {(query || selectedCategoryId) && (results.restaurants.length > 0 || results.dishes.length > 0) && (
-          <div className={`space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300 ${loading ? 'opacity-60 transition-opacity' : 'opacity-100 transition-opacity'}`}>
-            
+        {(query || selectedCategoryId) && (
+          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
             {/* Dish Results Section */}
             {results.dishes.length > 0 && (
-              <section>
+              <section className={loading ? 'opacity-60 transition-opacity' : 'opacity-100 transition-opacity'}>
                 <div className="flex items-center gap-2 mb-4">
                    <div className="w-1 h-5 bg-orange-500 rounded-full" />
                    <h2 className="text-lg font-bold dark:text-white">Dishes from restaurants</h2>
                 </div>
                 <div className="grid gap-4">
                   {results.dishes.map((r) => (
-                    <Link to={`/user/restaurants/${r.slug || r._id}${r.matchedDishId ? `?dish=${r.matchedDishId}` : ''}`} key={r._id} className="flex gap-4 p-3 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-slate-100 dark:border-zinc-800 hover:shadow-md transition-shadow group">
+                    <Link to={`/food/user/restaurants/${r.slug || r._id}${r.matchedDishId ? `?dish=${r.matchedDishId}` : ''}`} key={r._id} className="flex gap-4 p-3 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-slate-100 dark:border-zinc-800 hover:shadow-md transition-shadow group">
                        <div className="w-24 h-24 rounded-xl overflow-hidden bg-slate-100 flex-shrink-0 relative">
                            <img 
                             src={getMediaUrl(r.matchedDishImage || r.profileImage || r.image || (Array.isArray(r.images) && r.images[0]))} 
@@ -338,14 +330,14 @@ export default function ProfessionalSearch() {
 
             {/* Restaurant Results Section */}
             {results.restaurants.length > 0 && (
-              <section>
+              <section className={loading ? 'opacity-60 transition-opacity' : 'opacity-100 transition-opacity'}>
                 <div className="flex items-center gap-2 mb-4">
                    <div className="w-1 h-5 bg-rose-500 rounded-full" />
                    <h2 className="text-lg font-bold dark:text-white">Restaurants</h2>
                 </div>
                 <div className="grid gap-6">
                   {results.restaurants.map((r) => (
-                    <Link to={`/user/restaurants/${r._id}`} key={r._id} className="block group">
+                    <Link to={`/food/user/restaurants/${r.slug || r._id}`} key={r._id} className="block group">
                       <div className="relative rounded-3xl overflow-hidden aspect-[16/9] mb-3 bg-slate-200">
                          <img 
                           src={getMediaUrl(r.profileImage || r.image || (Array.isArray(r.images) && r.images[0]))} 
@@ -402,7 +394,6 @@ export default function ProfessionalSearch() {
                  </Button>
               </div>
             )}
-
           </div>
         )}
       </div>

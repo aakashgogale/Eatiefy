@@ -28,8 +28,6 @@ import {
   normalizeRestaurantLocation,
 } from "@food/utils/geo"
 import {
-  fetchDrivingDistanceKm,
-  fetchDrivingDistancesMatrix,
   formatDistanceLabel,
 } from "@food/utils/roadDistance"
 import { computeDeliveryFeeGst, formatDeliveryFeeBreakdownSubtext, getDeliveryFeeTotal, resolveDeliveryFeeGst } from "@food/utils/deliveryFeeDisplay"
@@ -229,7 +227,6 @@ const buildEffectiveCartPricing = ({
   restaurantData = null,
   appliedCoupon = null,
   deliveryMode = "basic",
-  roadDistanceKm = null,
 }) => {
   const subtotal =
     pricing?.subtotal ||
@@ -239,7 +236,6 @@ const buildEffectiveCartPricing = ({
     feeSettings,
     restaurantData,
     defaultAddress,
-    distanceKmOverride: roadDistanceKm,
   })
 
   // When backend pricing is available, trust it so cart total matches payment amount.
@@ -424,9 +420,6 @@ export default function Cart() {
   const [loadingRestaurant, setLoadingRestaurant] = useState(false)
   const [pricing, setPricing] = useState(null)
   const [loadingPricing, setLoadingPricing] = useState(false)
-  // Same Google road Rest→User distance as Home / delivery (overrides Haversine 6.9).
-  const [roadDistanceKm, setRoadDistanceKm] = useState(null)
-  const [addressRoadKmById, setAddressRoadKmById] = useState({})
 
   // Addons state
   const [addons, setAddons] = useState([])
@@ -1324,9 +1317,13 @@ export default function Cart() {
       }
     }
 
-    calculatePricing()
+    const timer = setTimeout(() => {
+      calculatePricing()
+    }, 300)
+
     return () => {
       cancelled = true
+      clearTimeout(timer)
     }
   }, [cart, pricingAddress, appliedCoupon, couponCode, restaurantId, restaurantData, scheduledOrderAt, replaceCart, deliveryMode, loadingRestaurant, cartRestaurantAvailability.isOpen, hasSavedAddress])
 
@@ -1346,84 +1343,13 @@ export default function Cart() {
         restaurantData,
         appliedCoupon,
         deliveryMode,
-        roadDistanceKm:
-          Number.isFinite(Number(pricing?.distanceKm))
-            ? Number(pricing.distanceKm)
-            : Number.isFinite(Number(pricing?.roadDistanceKm))
-              ? Number(pricing.roadDistanceKm)
-              : roadDistanceKm,
       })
       sessionStorage.setItem("food_cart_pricing_snapshot", JSON.stringify(snapshot))
       window.dispatchEvent(new CustomEvent("food_cart_pricing_updated"))
     } catch {
       // ignore storage errors
     }
-  }, [cart, pricing, feeSettings, pricingAddress, restaurantData, appliedCoupon, deliveryMode, roadDistanceKm])
-
-  // Selected address Rest→User road distance (same source as Home / delivery).
-  useEffect(() => {
-    let cancelled = false
-    if (!restaurantData || !pricingAddress) {
-      setRoadDistanceKm(null)
-      return undefined
-    }
-
-    // Prefer backend pricing distance once available.
-    if (Number.isFinite(Number(pricing?.distanceKm)) || Number.isFinite(Number(pricing?.roadDistanceKm))) {
-      const fromPricing = Number(pricing?.distanceKm ?? pricing?.roadDistanceKm)
-      setRoadDistanceKm(fromPricing)
-      return undefined
-    }
-
-    const run = async () => {
-      try {
-        const km = await fetchDrivingDistanceKm(restaurantData, pricingAddress)
-        if (!cancelled && Number.isFinite(Number(km))) {
-          setRoadDistanceKm(Number(km))
-        }
-      } catch {
-        // Maps failures must never surface as unhandled rejections on cart.
-      }
-    }
-    run()
-    return () => {
-      cancelled = true
-    }
-  }, [
-    restaurantData,
-    pricingAddress,
-    pricing?.distanceKm,
-    pricing?.roadDistanceKm,
-  ])
-
-  // Address sheet labels: batch road distances for saved addresses.
-  useEffect(() => {
-    let cancelled = false
-    if (!restaurantData || !Array.isArray(addresses) || addresses.length === 0) {
-      setAddressRoadKmById({})
-      return undefined
-    }
-
-    const run = async () => {
-      try {
-        const kms = await fetchDrivingDistancesMatrix(restaurantData, addresses)
-        if (cancelled || !Array.isArray(kms)) return
-        const next = {}
-        addresses.forEach((address, index) => {
-          const id = getAddressId(address)
-          if (!id || !Number.isFinite(Number(kms[index]))) return
-          next[String(id)] = Number(kms[index])
-        })
-        setAddressRoadKmById(next)
-      } catch {
-        // ignore distance matrix failures
-      }
-    }
-    run()
-    return () => {
-      cancelled = true
-    }
-  }, [restaurantData, addresses])
+  }, [cart, pricing, feeSettings, pricingAddress, restaurantData, appliedCoupon, deliveryMode])
 
   // Fetch wallet balance
   useEffect(() => {
@@ -1507,14 +1433,8 @@ export default function Cart() {
         restaurantData,
         appliedCoupon,
         deliveryMode,
-        roadDistanceKm:
-          Number.isFinite(Number(pricing?.distanceKm))
-            ? Number(pricing.distanceKm)
-            : Number.isFinite(Number(pricing?.roadDistanceKm))
-              ? Number(pricing.roadDistanceKm)
-              : roadDistanceKm,
       }),
-    [cart, pricing, feeSettings, pricingAddress, restaurantData, appliedCoupon, deliveryMode, roadDistanceKm],
+    [cart, pricing, feeSettings, pricingAddress, restaurantData, appliedCoupon, deliveryMode],
   )
   const subtotal = effectivePricing.subtotal
   const deliveryFee = effectivePricing.deliveryFee
@@ -1529,9 +1449,7 @@ export default function Cart() {
       ? Number(pricing.distanceKm)
       : Number.isFinite(Number(pricing?.roadDistanceKm))
         ? Number(pricing.roadDistanceKm)
-        : Number.isFinite(Number(roadDistanceKm))
-          ? Number(roadDistanceKm)
-          : null
+        : null
   const hasDistanceDeliveryBreakdown =
     Number.isFinite(displayDistanceKm)
   const deliveryFeeBreakdownText = hasDistanceDeliveryBreakdown
@@ -1558,11 +1476,7 @@ export default function Cart() {
     : "Add delivery address"
 
   const formatAddressDistanceLabel = (address) => {
-    const addressId = getAddressId(address)
-    const cached = addressId ? addressRoadKmById[String(addressId)] : null
-    const km = Number.isFinite(Number(cached))
-      ? Number(cached)
-      : calculateDistanceKm(restaurantData, address)
+    const km = calculateDistanceKm(restaurantData, address)
     if (!Number.isFinite(km)) return null
     return formatDistanceLabel(km)
   }
@@ -2726,20 +2640,30 @@ export default function Cart() {
                           <div className="flex items-center gap-2 rounded-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#141414] px-2.5 py-1 shadow-sm">
                             <button
                               type="button"
-                              className="h-4 w-4 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
-                              onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                              className="h-5 w-5 flex items-center justify-center text-gray-600 dark:text-gray-300 hover:text-red-500 dark:hover:text-red-400 active:scale-90 transition-all"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                updateQuantity(item.id, (Number(item.quantity) || 1) - 1, null, item)
+                              }}
+                              aria-label="Decrease quantity"
                             >
-                              <Minus className="h-3 w-3" />
+                              <Minus className="h-3.5 w-3.5" />
                             </button>
-                            <span className="text-xs font-semibold text-gray-905 dark:text-white min-w-[14px] text-center tabular-nums">
+                            <span className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white min-w-[16px] text-center tabular-nums select-none">
                               {item.quantity}
                             </span>
                             <button
                               type="button"
-                              className="h-4 w-4 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
-                              onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                              className="h-5 w-5 flex items-center justify-center text-gray-600 dark:text-gray-300 hover:text-[#008543] dark:hover:text-emerald-400 active:scale-90 transition-all"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                updateQuantity(item.id, (Number(item.quantity) || 1) + 1, null, item)
+                              }}
+                              aria-label="Increase quantity"
                             >
-                              <Plus className="h-3 w-3" />
+                              <Plus className="h-3.5 w-3.5" />
                             </button>
                           </div>
                         </div>
@@ -3290,19 +3214,18 @@ export default function Cart() {
               disabled={
                 isPlacingOrder ||
                 loadingRestaurant ||
-                loadingPricing ||
                 !canPlaceOrder ||
                 (selectedPaymentMethod === "wallet" && walletBalance < total)
               }
-              className="shrink-0 min-w-[132px] px-5 rounded-full text-white font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+              className="shrink-0 min-w-[132px] px-5 py-3 rounded-full text-white font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transition-all shadow-md active:scale-95"
               style={{
-                backgroundColor: "var(--module-theme-color, #E2AD4B)",
-                boxShadow: "0 8px 20px rgba(var(--module-theme-rgb, 226,173,75), 0.28)",
+                backgroundColor: "var(--module-theme-color, #008543)",
+                boxShadow: "0 8px 20px rgba(0, 133, 67, 0.28)",
               }}
             >
               {isPlacingOrder
                 ? "Processing..."
-                : loadingRestaurant || loadingPricing
+                : loadingRestaurant
                   ? "Loading..."
                   : !canPlaceOrder
                     ? "Offline"

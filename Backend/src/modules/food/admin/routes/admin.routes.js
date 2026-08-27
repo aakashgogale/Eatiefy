@@ -419,7 +419,9 @@ router.get('/dining/restaurants', diningAdminController.getDiningRestaurants);
 router.patch('/dining/restaurants/:restaurantId', diningAdminController.updateDiningRestaurant);
 router.get('/dining/requests', diningAdminController.getDiningRequests);
 router.post('/dining/requests/:restaurantId/approve', diningAdminController.approveDiningRequest);
+router.patch('/dining/requests/:restaurantId/approve', diningAdminController.approveDiningRequest);
 router.post('/dining/requests/:restaurantId/reject', diningAdminController.rejectDiningRequest);
+router.patch('/dining/requests/:restaurantId/reject', diningAdminController.rejectDiningRequest);
 
 // ----- Orders -----
 router.get(
