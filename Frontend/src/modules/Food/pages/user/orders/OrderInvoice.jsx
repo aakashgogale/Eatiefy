@@ -1,52 +1,56 @@
 import { useParams, Link } from "react-router-dom"
-
-import { Download, ArrowLeft, FileText, Printer } from "lucide-react"
+import { Download, ArrowLeft, FileText, Printer, CheckCircle2 } from "lucide-react"
 import { useRef, useState, useEffect } from "react"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import ScrollReveal from "@food/components/user/ScrollReveal"
-import { Card, CardHeader, CardTitle, CardContent } from "@food/components/ui/card"
+import { Card, CardContent } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
 import { Badge } from "@food/components/ui/badge"
 import { useOrders } from "@food/context/OrdersContext"
 import { useCompanyName } from "@food/hooks/useCompanyName"
+import { orderAPI } from "@food/api"
+import { resolveMediaUrl } from "@food/utils/common"
 
 export default function OrderInvoice() {
-  const companyName = useCompanyName()
+  const companyName = useCompanyName() || "Eatiefy"
   const { orderId } = useParams()
   const { getOrderById } = useOrders()
-  const [order, setOrder] = useState(() => getOrderById(orderId))
+  const [order, setOrder] = useState(() => getOrderById?.(orderId) || null)
   const [loading, setLoading] = useState(!order)
   const [error, setError] = useState(null)
   const invoiceRef = useRef(null)
 
   useEffect(() => {
-    if (order) return
-
     const fetchOrder = async () => {
       try {
         setLoading(true)
         const response = await orderAPI.getOrderDetails(orderId)
-        if (response.data?.success && response.data.data?.order) {
+        if (response?.data?.success && response.data.data?.order) {
           setOrder(response.data.data.order)
+        } else if (response?.data?.order) {
+          setOrder(response.data.order)
         } else {
           setError("Order not found")
         }
       } catch (err) {
+        console.error("Failed to fetch invoice order details:", err)
         setError("Failed to load invoice details")
       } finally {
         setLoading(false)
       }
     }
 
-    fetchOrder()
+    if (!order) {
+      fetchOrder()
+    }
   }, [orderId, order])
 
   if (loading) {
     return (
-      <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a] p-4">
-        <div className="max-w-4xl mx-auto text-center py-20">
-          <div className="w-8 h-8 border-2 border-[#EB590E] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-muted-foreground">Generating invoice...</p>
+      <AnimatedPage className="min-h-screen bg-slate-50 dark:bg-zinc-950 p-4 flex items-center justify-center">
+        <div className="max-w-md mx-auto text-center py-20">
+          <div className="w-9 h-9 border-3 border-[#EB590E] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Generating invoice...</p>
         </div>
       </AnimatedPage>
     )
@@ -54,278 +58,250 @@ export default function OrderInvoice() {
 
   if (error || !order) {
     return (
-      <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a] p-4">
-        <div className="max-w-4xl mx-auto text-center py-20">
-          <h1 className="text-lg sm:text-xl md:text-2xl font-bold mb-4">{error || 'Order Not Found'}</h1>
-          <Link to="/user/orders">
-            <Button>Back to Orders</Button>
+      <AnimatedPage className="min-h-screen bg-slate-50 dark:bg-zinc-950 p-4 flex items-center justify-center">
+        <div className="max-w-md mx-auto text-center py-20">
+          <h1 className="text-xl font-bold mb-2 text-slate-900 dark:text-white">{error || 'Order Not Found'}</h1>
+          <p className="text-xs text-slate-500 mb-6">We could not locate the details for this invoice.</p>
+          <Link to="/food/user/orders">
+            <Button className="bg-[#EB590E] hover:bg-[#d44d08] text-white font-bold rounded-xl px-6">
+              Back to Orders
+            </Button>
           </Link>
         </div>
       </AnimatedPage>
     )
   }
 
+  const orderNumber = (order?.orderId || order?._id || order?.id || orderId || "").toString().toUpperCase().replace(/^#/, "")
+  const orderItems = Array.isArray(order?.items)
+    ? order.items
+    : Array.isArray(order?.orderItems)
+    ? order.orderItems
+    : Array.isArray(order?.foodItems)
+    ? order.foodItems
+    : []
+
+  const pricing = order?.pricing || {}
+  const subtotal = Number(pricing.subtotal || pricing.itemsPrice || order.subtotal || 0)
+  const deliveryFee = Number(pricing.deliveryFee || order.deliveryFee || 0)
+  const tax = Number(pricing.tax || pricing.gst || order.tax || 0)
+  const discount = Number(pricing.discount || order.discount || 0)
+  const total = Number(pricing.total || order.totalAmount || order.total || (subtotal + deliveryFee + tax - discount))
+
+  const restaurantName =
+    order?.restaurantName ||
+    order?.restaurantId?.restaurantName ||
+    order?.restaurantId?.name ||
+    order?.restaurant?.name ||
+    "Eatiefy Partner Restaurant"
+
+  const deliveryAddress =
+    order?.deliveryAddress?.formattedAddress ||
+    order?.address?.formattedAddress ||
+    order?.address?.street ||
+    order?.addressLine1 ||
+    "Delivered to Customer Location"
+
   const formatDate = (dateString) => {
-    const date = new Date(dateString)
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+    try {
+      const date = new Date(dateString || Date.now())
+      return date.toLocaleDateString('en-IN', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    } catch {
+      return "Delivered"
+    }
   }
 
   const handlePrint = () => {
-    const printWindow = window.open('', '_blank')
-    const printContent = invoiceRef.current.innerHTML
-
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Invoice - ${order.id}</title>
-          <style>
-            body {
-              font-family: Arial, sans-serif;
-              padding: 40px;
-              color: #333;
-            }
-            .invoice-header {
-              border-bottom: 2px solid #EB590E;
-              padding-bottom: 20px;
-              margin-bottom: 30px;
-            }
-            .invoice-title {
-              font-size: 32px;
-              font-weight: bold;
-              color: #EB590E;
-              margin-bottom: 10px;
-            }
-            .invoice-details {
-              display: grid;
-              grid-template-columns: 1fr 1fr;
-              gap: 20px;
-              margin: 30px 0;
-            }
-            .invoice-items {
-              margin: 30px 0;
-            }
-            table {
-              width: 100%;
-              border-collapse: collapse;
-              margin: 20px 0;
-            }
-            th, td {
-              padding: 12px;
-              text-align: left;
-              border-bottom: 1px solid #ddd;
-            }
-            th {
-              background-color: #fed7aa;
-              font-weight: bold;
-            }
-            .total-section {
-              margin-top: 30px;
-              text-align: right;
-            }
-            .total-row {
-              padding: 10px 0;
-              font-size: 18px;
-            }
-            .grand-total {
-              font-size: 24px;
-              font-weight: bold;
-              color: #EB590E;
-              border-top: 2px solid #EB590E;
-              padding-top: 10px;
-            }
-            @media print {
-              body { margin: 0; padding: 20px; }
-              .no-print { display: none; }
-            }
-          </style>
-        </head>
-        <body>
-          ${printContent}
-        </body>
-      </html>
-    `)
-    printWindow.document.close()
-    printWindow.focus()
-    setTimeout(() => {
-      printWindow.print()
-    }, 250)
+    window.print()
   }
 
   const handleDownloadPDF = () => {
-    handlePrint()
+    window.print()
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-gradient-to-b from-yellow-50/30 via-white to-orange-50/20 dark:from-[#0a0a0a] dark:via-[#1a1a1a] dark:to-[#0a0a0a] p-3 sm:p-4 md:p-6 lg:p-8">
-      <div className="max-w-6xl mx-auto space-y-4 sm:space-y-6 md:space-y-8">
+    <AnimatedPage className="min-h-screen bg-slate-50 dark:bg-zinc-950 text-gray-900 dark:text-white p-3 sm:p-4 md:p-6 lg:p-8">
+      <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6">
         <ScrollReveal>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
-            <div className="flex items-center gap-3 sm:gap-4">
-              <Link to={`/user/orders/${orderId}`}>
-                <Button variant="ghost" size="icon" className="rounded-full h-8 w-8 sm:h-10 sm:w-10">
-                  <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
+          <div className="flex items-center justify-between gap-3 sm:gap-4 mb-2 no-print">
+            <div className="flex items-center gap-3">
+              <Link to={`/food/user/orders/${orderId}/track`}>
+                <Button variant="ghost" size="icon" className="rounded-full h-9 w-9 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 shadow-xs">
+                  <ArrowLeft className="h-4 w-4" />
                 </Button>
               </Link>
               <div>
-                <h1 className="text-lg sm:text-xl md:text-2xl font-bold">Invoice</h1>
-                <p className="text-muted-foreground text-sm sm:text-base">Order {order.id}</p>
+                <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">Tax Invoice</h1>
+                <p className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">Order #{orderNumber.slice(-6)}</p>
               </div>
             </div>
-            <div className="flex gap-2 no-print">
+            <div className="flex gap-2">
               <Button
                 variant="outline"
                 onClick={handlePrint}
-                className="flex items-center gap-2 text-xs sm:text-sm h-9 sm:h-10"
+                className="flex items-center gap-1.5 text-xs sm:text-sm h-9 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800 rounded-xl"
               >
-                <Printer className="h-3 w-3 sm:h-4 sm:w-4" />
+                <Printer className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Print</span>
               </Button>
               <Button
                 onClick={handleDownloadPDF}
-                className="bg-[#EB590E] hover:bg-[#D94F0C] flex items-center gap-2 text-xs sm:text-sm h-9 sm:h-10"
+                className="bg-[#EB590E] hover:bg-[#D94F0C] flex items-center gap-1.5 text-xs sm:text-sm h-9 rounded-xl shadow-md text-white font-bold"
               >
-                <Download className="h-3 w-3 sm:h-4 sm:w-4 text-white" />
-                <span className="hidden sm:inline text-white">Download PDF</span>
-                <span className="sm:hidden text-white">PDF</span>
+                <Download className="h-3.5 w-3.5" />
+                <span>Download</span>
               </Button>
             </div>
           </div>
         </ScrollReveal>
 
-        <ScrollReveal delay={0.1}>
-          <Card ref={invoiceRef} className="dark:bg-[#1a1a1a] dark:border-gray-800">
-            <CardContent className="p-4 sm:p-6 md:p-8 lg:p-10">
-              {/* Invoice Header */}
-              <div className="invoice-header">
-                <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
-                  <FileText className="h-6 w-6 sm:h-8 sm:w-8 text-[#EB590E]" />
-                  <h2 className="invoice-title text-xl sm:text-2xl md:text-3xl text-[#EB590E] font-bold">INVOICE</h2>
-                </div>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0">
-                  <div>
-                    <p className="text-xs sm:text-sm text-muted-foreground">{companyName}</p>
-                    <p className="text-xs sm:text-sm text-muted-foreground">Food Delivery Platform</p>
+        <ScrollReveal delay={0.05}>
+          <Card ref={invoiceRef} className="bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800 rounded-3xl shadow-sm overflow-hidden print:shadow-none print:border-none">
+            <CardContent className="p-5 sm:p-8 md:p-10">
+              {/* Invoice Top Header */}
+              <div className="pb-6 border-b border-gray-200 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <FileText className="h-7 w-7 text-[#EB590E]" />
+                    <h2 className="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white tracking-tight">TAX INVOICE</h2>
                   </div>
-                  <Badge className="bg-[#EB590E] text-white text-sm sm:text-base md:text-lg px-3 sm:px-4 py-1.5 sm:py-2 w-fit">
-                    {order.status.toUpperCase()}
+                  <p className="text-xs sm:text-sm font-bold text-[#EB590E]">{companyName}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Online Food Ordering & Delivery</p>
+                </div>
+                <div className="sm:text-right">
+                  <Badge className="bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 px-3 py-1 text-xs font-bold uppercase rounded-full">
+                    {order?.status || 'DELIVERED'}
                   </Badge>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                    Invoice ID: <span className="font-bold text-gray-900 dark:text-white">INV-{orderNumber.slice(-8)}</span>
+                  </p>
                 </div>
               </div>
 
-              {/* Invoice Details */}
-              <div className="invoice-details grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 md:gap-8 mt-4 sm:mt-6">
+              {/* Order Info & Billed To Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 py-6 border-b border-gray-100 dark:border-zinc-800 text-xs sm:text-sm">
                 <div>
-                  <h3 className="font-bold mb-2 text-sm sm:text-base">Bill To:</h3>
-                  <p className="text-xs sm:text-sm">{order.address?.street}</p>
-                  {order.address?.additionalDetails && (
-                    <p className="text-xs sm:text-sm">{order.address.additionalDetails}</p>
-                  )}
-                  <p className="text-xs sm:text-sm">
-                    {order.address?.city}, {order.address?.state} {order.address?.zipCode}
-                  </p>
+                  <h3 className="font-bold text-gray-400 dark:text-gray-500 uppercase text-[10px] tracking-wider mb-2">Billed From</h3>
+                  <p className="font-bold text-gray-900 dark:text-white text-base">{restaurantName}</p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">{order?.restaurantAddress || 'Authorized Merchant Partner'}</p>
                 </div>
-                <div className="text-left sm:text-right">
-                  <h3 className="font-bold mb-2 text-sm sm:text-base">Invoice Details:</h3>
-                  <p className="text-xs sm:text-sm"><strong>Invoice #:</strong> {order.id}</p>
-                  <p className="text-xs sm:text-sm"><strong>Date:</strong> {formatDate(order.createdAt)}</p>
-                  <p className="text-xs sm:text-sm"><strong>Payment:</strong> {order.paymentMethod?.type?.toUpperCase() || "Card"}</p>
+                <div className="sm:text-right">
+                  <h3 className="font-bold text-gray-400 dark:text-gray-500 uppercase text-[10px] tracking-wider mb-2">Delivered & Billed To</h3>
+                  <p className="font-bold text-gray-900 dark:text-white">{order?.customerName || order?.userId?.name || 'Customer'}</p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5 leading-relaxed max-w-sm sm:ml-auto">
+                    {deliveryAddress}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1.5">
+                    <strong>Date:</strong> {formatDate(order?.createdAt || order?.deliveredAt)}
+                  </p>
                 </div>
               </div>
 
               {/* Items Table */}
-              <div className="invoice-items mt-4 sm:mt-6">
-                <h3 className="font-bold mb-3 sm:mb-4 text-sm sm:text-base">Order Items:</h3>
+              <div className="py-6 border-b border-gray-100 dark:border-zinc-800">
+                <h3 className="font-bold text-gray-900 dark:text-white text-sm mb-3">Order Items</h3>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs sm:text-sm">
                     <thead>
-                      <tr>
-                        <th className="px-2 sm:px-3 py-2 text-left">Item</th>
-                        <th className="px-2 sm:px-3 py-2 text-center hidden sm:table-cell">Quantity</th>
-                        <th className="px-2 sm:px-3 py-2 text-right hidden md:table-cell">Unit Price</th>
-                        <th className="px-2 sm:px-3 py-2 text-right">Total</th>
+                      <tr className="border-b border-gray-200 dark:border-zinc-800 text-gray-500 dark:text-gray-400">
+                        <th className="py-2.5 text-left font-semibold">Item</th>
+                        <th className="py-2.5 text-center font-semibold">Qty</th>
+                        <th className="py-2.5 text-right font-semibold">Price</th>
+                        <th className="py-2.5 text-right font-semibold">Total</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {order.items.map((item) => (
-                        <tr key={item.id} className="border-b">
-                          <td className="px-2 sm:px-3 py-2 sm:py-3">
-                            <div className="flex items-center gap-2 sm:gap-3">
-                              <img
-                                src={item.image}
-                                alt={item.name}
-                                className="w-8 h-8 sm:w-12 sm:h-12 object-cover rounded flex-shrink-0"
-                               loading="lazy" decoding="async" />
-                              <div className="min-w-0 flex-1">
-                                <span className="font-medium block">{item.name}</span>
-                                {item.variantName ? (
-                                  <span className="text-xs text-gray-500">{item.variantName}</span>
-                                ) : null}
-                                <span className="text-muted-foreground sm:hidden text-xs">
-                                  Qty: {item.quantity} � ${item.price.toFixed(2)}
-                                </span>
+                    <tbody className="divide-y divide-gray-100 dark:divide-zinc-800/60">
+                      {orderItems.map((item, idx) => {
+                        const itemPrice = Number(item?.price || 0)
+                        const itemQty = Number(item?.quantity || 1)
+                        const itemTotal = itemPrice * itemQty
+                        return (
+                          <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-zinc-800/30">
+                            <td className="py-3 text-left">
+                              <div className="flex items-center gap-2.5">
+                                <span className="font-semibold text-gray-900 dark:text-white">{item?.name || "Dish Item"}</span>
+                                {item?.variantName && (
+                                  <span className="text-[10px] bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-400 px-1.5 py-0.5 rounded">
+                                    {item.variantName}
+                                  </span>
+                                )}
                               </div>
-                            </div>
-                          </td>
-                          <td className="px-2 sm:px-3 py-2 sm:py-3 text-center hidden sm:table-cell">{item.quantity}</td>
-                          <td className="px-2 sm:px-3 py-2 sm:py-3 text-right hidden md:table-cell">${item.price.toFixed(2)}</td>
-                          <td className="px-2 sm:px-3 py-2 sm:py-3 text-right font-medium">${(item.price * item.quantity).toFixed(2)}</td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="py-3 text-center text-gray-600 dark:text-gray-400">{itemQty}</td>
+                            <td className="py-3 text-right text-gray-600 dark:text-gray-400">₹{itemPrice.toFixed(0)}</td>
+                            <td className="py-3 text-right font-bold text-gray-900 dark:text-white">₹{itemTotal.toFixed(0)}</td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
               </div>
 
-              {/* Total Section */}
-              <div className="total-section mt-4 sm:mt-6">
-                <div className="total-row flex justify-between text-xs sm:text-sm sm:text-base py-1 sm:py-2">
-                  <span>Subtotal:</span>
-                  <span>${order.subtotal.toFixed(2)}</span>
-                </div>
-                <div className="total-row flex justify-between text-xs sm:text-sm sm:text-base py-1 sm:py-2">
-                  <span>Delivery Fee:</span>
-                  <span>${order.deliveryFee.toFixed(2)}</span>
-                </div>
-                <div className="total-row flex justify-between text-xs sm:text-sm sm:text-base py-1 sm:py-2">
-                  <span>Tax:</span>
-                  <span>${order.tax.toFixed(2)}</span>
-                </div>
-                <div className="grand-total flex justify-between text-base sm:text-lg md:text-xl md:text-2xl pt-2 sm:pt-3 mt-2 sm:mt-3 border-t-2 border-[#EB590E]">
-                  <span>Total:</span>
-                  <span>${order.total.toFixed(2)}</span>
+              {/* Total Calculation Breakdown */}
+              <div className="pt-6">
+                <div className="max-w-xs ml-auto space-y-2 text-xs sm:text-sm">
+                  <div className="flex justify-between text-gray-600 dark:text-gray-400">
+                    <span>Item Subtotal:</span>
+                    <span className="font-medium text-gray-900 dark:text-white">₹{subtotal.toFixed(0)}</span>
+                  </div>
+                  {deliveryFee > 0 && (
+                    <div className="flex justify-between text-gray-600 dark:text-gray-400">
+                      <span>Delivery Partner Fee:</span>
+                      <span className="font-medium text-gray-900 dark:text-white">₹{deliveryFee.toFixed(0)}</span>
+                    </div>
+                  )}
+                  {tax > 0 && (
+                    <div className="flex justify-between text-gray-600 dark:text-gray-400">
+                      <span>Taxes & GST:</span>
+                      <span className="font-medium text-gray-900 dark:text-white">₹{tax.toFixed(0)}</span>
+                    </div>
+                  )}
+                  {discount > 0 && (
+                    <div className="flex justify-between text-emerald-600 font-semibold">
+                      <span>Coupon Discount:</span>
+                      <span>-₹{discount.toFixed(0)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-base sm:text-lg font-black pt-3 border-t-2 border-[#EB590E] text-gray-900 dark:text-white">
+                    <span>Total Amount:</span>
+                    <span className="text-[#EB590E]">₹{total.toFixed(0)}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px] text-gray-400 pt-1">
+                    <span>Payment Mode:</span>
+                    <span className="uppercase font-semibold text-gray-600 dark:text-gray-300">{order?.paymentMethod || 'ONLINE'}</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Footer */}
-              <div className="mt-6 sm:mt-8 pt-4 sm:pt-6 border-t text-center text-xs sm:text-sm text-muted-foreground">
-                <p>Thank you for your order!</p>
-                <p className="mt-1 sm:mt-2">For any queries, please contact our support team.</p>
+              {/* Footer Note */}
+              <div className="mt-8 pt-6 border-t border-gray-100 dark:border-zinc-800 text-center text-xs text-gray-400 space-y-1">
+                <p className="font-semibold text-gray-700 dark:text-gray-300">Thank you for dining with {companyName}!</p>
+                <p>This is a computer-generated tax invoice and does not require a physical signature.</p>
               </div>
             </CardContent>
           </Card>
         </ScrollReveal>
 
-        <ScrollReveal delay={0.2}>
-          <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 no-print">
-            <Link to={`/user/orders/${orderId}`} className="flex-1">
-              <Button variant="outline" className="w-full text-sm sm:text-base h-10 sm:h-11">
-                Track Order
-              </Button>
-            </Link>
-            <Link to="/user/orders" className="flex-1">
-              <Button variant="outline" className="w-full text-sm sm:text-base h-10 sm:h-11">
-                Back to Orders
-              </Button>
-            </Link>
-          </div>
-        </ScrollReveal>
+        {/* Bottom Navigation */}
+        <div className="flex gap-3 no-print pt-2">
+          <Link to={`/food/user/orders/${orderId}/track`} className="flex-1">
+            <Button variant="outline" className="w-full h-11 rounded-2xl border-gray-200 dark:border-zinc-800 text-gray-800 dark:text-white font-bold">
+              Track Order
+            </Button>
+          </Link>
+          <Link to="/food/user/orders" className="flex-1">
+            <Button className="w-full h-11 rounded-2xl bg-[#EB590E] hover:bg-[#d44d08] text-white font-bold">
+              All Orders
+            </Button>
+          </Link>
+        </div>
       </div>
     </AnimatedPage>
   )

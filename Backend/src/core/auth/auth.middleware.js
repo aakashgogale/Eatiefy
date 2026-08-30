@@ -1,6 +1,7 @@
 import { verifyAccessToken } from './token.util.js';
 import { sendError } from '../../utils/response.js';
 import { FoodUser } from '../users/user.model.js';
+import { FoodRestaurant } from '../../modules/food/restaurant/models/restaurant.model.js';
 
 export const requireAdmin = (req, res, next) => {
     if (req.user?.role !== 'ADMIN') {
@@ -30,6 +31,30 @@ export const authMiddleware = (req, res, next) => {
                 if (!doc || doc.isActive === false) {
                     return sendError(res, 401, 'User account is deactivated');
                 }
+                next();
+            }).catch(() => sendError(res, 401, 'Authentication failed'));
+            return;
+        }
+        if (decoded.role === 'RESTAURANT') {
+            // Enforce real-time approval and active status for restaurants.
+            FoodRestaurant.findById(decoded.userId).select('status isActive').lean().then((restaurant) => {
+                if (!restaurant) {
+                    return sendError(res, 401, 'Restaurant account not found');
+                }
+                if (restaurant.isActive === false) {
+                    return sendError(res, 403, 'Your restaurant account has been deactivated. Please contact support.');
+                }
+                const status = String(restaurant.status || 'pending').toLowerCase();
+                if (status === 'pending') {
+                    return sendError(res, 403, 'Your restaurant registration is pending admin approval. You will be able to access your account once the admin approves your registration.');
+                }
+                if (status === 'rejected') {
+                    return sendError(res, 403, 'Your restaurant registration has been rejected by the admin. Please contact support for more information.');
+                }
+                if (status !== 'approved') {
+                    return sendError(res, 403, 'Restaurant access not approved');
+                }
+                req.restaurant = restaurant;
                 next();
             }).catch(() => sendError(res, 401, 'Authentication failed'));
             return;

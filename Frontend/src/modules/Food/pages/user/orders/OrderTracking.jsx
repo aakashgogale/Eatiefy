@@ -25,8 +25,17 @@ import {
   Loader2,
   Star,
   Store,
-  FileText
+  FileText,
+  ShoppingBag,
+  Clock,
+  UtensilsCrossed,
+  Bike,
+  Flame,
+  Zap,
+  Package,
+  Smile
 } from "lucide-react"
+import { resolveMediaUrl } from "@food/utils/common"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Card, CardContent } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
@@ -1361,325 +1370,468 @@ export default function OrderTracking() {
   const themeRgb = "var(--module-theme-rgb, 235,89,14)"
 
   if (isDeliveredOrder) {
+    const displayOrderNumber = (
+      order?.orderId ||
+      order?.id ||
+      orderId?.slice(-6) ||
+      "ORDER"
+    ).toUpperCase().replace(/^#/, "");
+
+    const deliveredTimestamp = order?.deliveredAt || order?.updatedAt || Date.now();
+    const deliveredTimeOnly = (() => {
+      try {
+        const d = new Date(deliveredTimestamp);
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+      } catch {
+        return "2:35 PM";
+      }
+    })();
+
+    const deliveredFullDateFormatted = (() => {
+      try {
+        const d = new Date(deliveredTimestamp);
+        const today = new Date();
+        const isToday = d.toDateString() === today.toDateString();
+        const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+        return isToday ? `Today, ${timeStr}` : `${d.toLocaleDateString([], { day: 'numeric', month: 'short' })}, ${timeStr}`;
+      } catch {
+        return "Today, 2:35 PM";
+      }
+    })();
+
+    const riderDisplayName =
+      order?.deliveryPartner?.name ||
+      order?.deliveryPartnerId?.name ||
+      order?.rider?.name ||
+      order?.deliveryBoy?.name ||
+      "Delivery Partner";
+
+    const orderItems = Array.isArray(order?.items)
+      ? order.items
+      : Array.isArray(order?.orderItems)
+      ? order.orderItems
+      : Array.isArray(order?.foodItems)
+      ? order.foodItems
+      : [];
+
+    const orderTotalAmount =
+      order?.pricing?.total != null
+        ? Number(order.pricing.total).toFixed(0)
+        : order?.totalAmount != null
+        ? Number(order.totalAmount).toFixed(0)
+        : order?.finalAmount != null
+        ? Number(order.finalAmount).toFixed(0)
+        : "0";
+
+    const getItemEmoji = (name = "") => {
+      const n = String(name).toLowerCase();
+      if (n.includes("burger")) return "🍔";
+      if (n.includes("pizza")) return "🍕";
+      if (n.includes("fries") || n.includes("french")) return "🍟";
+      if (n.includes("coke") || n.includes("pepsi") || n.includes("beverage") || n.includes("drink") || n.includes("juice") || n.includes("soda")) return "🥤";
+      if (n.includes("coffee") || n.includes("tea") || n.includes("chai")) return "☕";
+      if (n.includes("biryani") || n.includes("rice") || n.includes("pulao")) return "🍚";
+      if (n.includes("roll") || n.includes("wrap") || n.includes("frankie")) return "🌯";
+      if (n.includes("sandwich")) return "🥪";
+      if (n.includes("noodle") || n.includes("chowmein") || n.includes("maggi") || n.includes("pasta")) return "🍜";
+      if (n.includes("dosa") || n.includes("idli") || n.includes("vada") || n.includes("sambar")) return "🥞";
+      if (n.includes("cake") || n.includes("pastry") || n.includes("dessert") || n.includes("sweet") || n.includes("ice cream") || n.includes("shake")) return "🍰";
+      if (n.includes("thali") || n.includes("meal") || n.includes("combo")) return "🍱";
+      if (n.includes("paneer") || n.includes("curry") || n.includes("dal") || n.includes("sabji") || n.includes("gravy")) return "🍲";
+      if (n.includes("momos") || n.includes("dimsum")) return "🥟";
+      if (n.includes("tandoori") || n.includes("tikka") || n.includes("kebab")) return "🍢";
+      return "🍽️";
+    };
+
+    const handleOrderAgain = () => {
+      const restId = order?.restaurantId?._id || order?.restaurantId || order?.restaurant?._id;
+      if (restId) {
+        navigate(`/food/user/restaurants/${restId}`);
+      } else {
+        navigate('/food/user');
+      }
+    };
+
     return (
-      <div className="min-h-screen w-full flex flex-col bg-slate-50 dark:bg-zinc-950 text-gray-900 dark:text-white relative overflow-y-auto pb-12">
-        {/* Top Navbar */}
-        <div className="sticky top-0 z-40 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-md px-4 py-3.5 border-b border-gray-100 dark:border-zinc-800 flex items-center justify-between shadow-xs">
-          <Link to="/user/orders" className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors">
-            <ArrowLeft className="w-5 h-5 text-gray-700 dark:text-gray-200" />
-          </Link>
+      <div className="min-h-screen w-full flex flex-col bg-slate-50/70 dark:bg-zinc-950 text-gray-900 dark:text-white relative overflow-y-auto pb-12">
+        {/* Top Header */}
+        <div className="sticky top-0 z-40 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md px-4 py-3.5 border-b border-gray-100 dark:border-zinc-800 flex items-center justify-between shadow-xs">
+          <button
+            type="button"
+            onClick={() => navigate('/food/user/orders')}
+            className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
+          >
+            <ArrowLeft className="w-5 h-5 text-gray-800 dark:text-gray-200" />
+          </button>
           <div className="text-center">
-            <h1 className="text-sm font-bold text-gray-900 dark:text-white">Order Details</h1>
-            <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">Order #{orderId?.slice(-6).toUpperCase()}</p>
+            <h1 className="text-base font-bold text-gray-900 dark:text-white">Order Details</h1>
+            <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Order #{displayOrderNumber}</p>
           </div>
           <div className="w-8" />
         </div>
 
-        {/* Full-width Celebration Hero Card */}
-        <div className="px-4 pt-4 pb-2">
+        {/* Content Body Container */}
+        <div className="px-4 py-4 space-y-4 max-w-lg mx-auto w-full">
+          {/* Mint Celebration Hero Card */}
           <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ duration: 0.35, ease: "easeOut" }}
-            className="bg-gradient-to-br from-emerald-500 via-green-600 to-teal-700 text-white rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden text-center"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            className="bg-[#f2faf3] dark:bg-emerald-950/25 border border-emerald-100/90 dark:border-emerald-900/40 rounded-3xl p-5 sm:p-6 relative overflow-hidden flex items-center gap-4 sm:gap-5 shadow-xs"
           >
-            {/* Ambient Background Sparkles & Glows */}
-            <div className="absolute -top-12 -right-12 w-40 h-40 bg-white/15 rounded-full blur-2xl pointer-events-none" />
-            <div className="absolute -bottom-12 -left-12 w-40 h-40 bg-white/15 rounded-full blur-2xl pointer-events-none" />
+            <div className="absolute top-3 right-3 text-2xl animate-bounce">🎉</div>
+            <div className="absolute top-6 left-3 text-xs opacity-50">✨</div>
+            <div className="absolute bottom-3 left-12 text-xs opacity-50">✨</div>
 
-            <div className="relative z-10 flex flex-col items-center">
-              <motion.div
-                initial={{ scale: 0, rotate: -30 }}
-                animate={{ scale: 1, rotate: 0 }}
-                transition={{ type: "spring", damping: 10, stiffness: 220, delay: 0.1 }}
-                className="w-20 h-20 bg-white rounded-full flex items-center justify-center shadow-2xl mb-4"
-              >
-                <CheckCircle2 className="w-12 h-12 text-emerald-600" />
-              </motion.div>
-
-              <div className="inline-flex items-center gap-1.5 bg-white/20 backdrop-blur-md px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-2">
-                <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
-                <span>Order Delivered</span>
+            {/* Concentric Circle Checkmark */}
+            <div className="relative shrink-0 flex items-center justify-center">
+              <div className="w-20 h-20 sm:w-22 sm:h-22 rounded-full bg-emerald-100/80 dark:bg-emerald-900/40 flex items-center justify-center">
+                <div className="w-14 h-14 sm:w-15 sm:h-15 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/25">
+                  <Check className="w-8 h-8 stroke-[3]" />
+                </div>
               </div>
-              <h2 className="text-2xl sm:text-3xl font-black tracking-tight">Delivered Successfully! 🎉</h2>
-              <p className="text-emerald-100 text-sm mt-1.5 max-w-sm mx-auto font-medium leading-relaxed">
-                We hope you loved your meal from <span className="text-white font-bold">{restaurantDisplayName}</span>!
+            </div>
+
+            {/* Right Text */}
+            <div className="min-w-0 flex-1">
+              <div className="inline-flex items-center gap-1 bg-emerald-100/90 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase mb-1.5">
+                <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                <span>DELIVERED</span>
+              </div>
+              <h2 className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white leading-tight">
+                Order Delivered! 🎉
+              </h2>
+              <p className="text-xs text-gray-600 dark:text-gray-300 mt-1 leading-relaxed">
+                Delivered successfully! Your order has been delivered safely.
               </p>
+              <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400 font-semibold mt-2">
+                <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Delivered at {deliveredTimeOnly}</span>
+              </div>
             </div>
           </motion.div>
-        </div>
 
-        {/* Content Body */}
-        <div className="px-4 space-y-4 max-w-lg mx-auto w-full mt-2">
-          {/* Rate Your Experience Card */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="bg-white dark:bg-zinc-900 rounded-3xl p-5 sm:p-6 shadow-sm border border-gray-100 dark:border-zinc-800"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="font-bold text-gray-900 dark:text-white text-base">Rate Your Experience</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Help us improve your future orders</p>
+          {/* Delivered Status & Partner Summary Card */}
+          <div className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-xs border border-gray-100 dark:border-zinc-800">
+            <div className="flex items-center gap-3.5 pb-4 border-b border-gray-100 dark:border-zinc-800">
+              <div className="w-11 h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center shrink-0">
+                <ShoppingBag className="w-5 h-5" />
               </div>
-              <span className="text-2xl">⭐</span>
+              <div>
+                <h3 className="font-bold text-gray-900 dark:text-white text-base">Delivered</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Order handed over successfully</p>
+              </div>
+            </div>
+
+            <div className="pt-4 space-y-3.5 text-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5 text-gray-500 dark:text-gray-400 text-xs sm:text-sm">
+                  <Store className="w-4 h-4 text-gray-400" />
+                  <span>Restaurant</span>
+                </div>
+                <span className="font-bold text-gray-900 dark:text-white text-xs sm:text-sm truncate max-w-[55%] text-right">
+                  {restaurantDisplayName}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5 text-gray-500 dark:text-gray-400 text-xs sm:text-sm">
+                  <User className="w-4 h-4 text-gray-400" />
+                  <span>Delivery Partner</span>
+                </div>
+                <span className="font-bold text-gray-900 dark:text-white text-xs sm:text-sm truncate max-w-[55%] text-right">
+                  {riderDisplayName}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5 text-gray-500 dark:text-gray-400 text-xs sm:text-sm">
+                  <Clock className="w-4 h-4 text-gray-400" />
+                  <span>Delivered At</span>
+                </div>
+                <span className="font-bold text-gray-900 dark:text-white text-xs sm:text-sm text-right">
+                  {deliveredFullDateFormatted}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Your Order Card */}
+          <div className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-xs border border-gray-100 dark:border-zinc-800">
+            <h3 className="font-bold text-gray-900 dark:text-white text-base mb-4">Your Order</h3>
+
+            <div className="space-y-3.5">
+              {orderItems.length > 0 ? (
+                orderItems.map((item, i) => {
+                  const itemImg = item?.image || item?.imageUrl || item?.foodItem?.image || item?.dish?.image;
+                  const emoji = getItemEmoji(item?.name || "");
+                  return (
+                    <div key={i} className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700/50 flex items-center justify-center shrink-0 overflow-hidden text-lg">
+                          {itemImg ? (
+                            <img
+                              src={resolveMediaUrl(itemImg)}
+                              alt={item?.name}
+                              className="w-full h-full object-cover"
+                              onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; }}
+                            />
+                          ) : (
+                            <span>{emoji}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+                            {item?.name || "Item"}
+                          </p>
+                          {item?.variantName && (
+                            <p className="text-[11px] text-gray-500 truncate">{item.variantName}</p>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 shrink-0">
+                        x {item?.quantity || 1}
+                      </span>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-xs text-gray-500 py-2">Order items recorded</div>
+              )}
+            </div>
+
+            <div className="border-t border-dashed border-gray-200 dark:border-zinc-700 my-4 pt-3.5 flex items-center justify-between">
+              <span className="text-sm font-bold text-gray-800 dark:text-gray-200">Total Paid</span>
+              <span className="text-lg font-black text-gray-900 dark:text-white">
+                ₹{orderTotalAmount}
+              </span>
+            </div>
+
+            {/* View Order Details Button */}
+            <button
+              type="button"
+              onClick={() => setShowOrderDetails(prev => !prev)}
+              className="w-full py-2.5 px-4 bg-slate-50 hover:bg-slate-100 dark:bg-zinc-800/80 dark:hover:bg-zinc-800 text-orange-600 dark:text-orange-400 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors"
+            >
+              <span>{showOrderDetails ? "Hide Order Details" : "View Order Details"}</span>
+              <ChevronRight className={`w-3.5 h-3.5 transition-transform ${showOrderDetails ? 'rotate-90' : ''}`} />
+            </button>
+
+            {/* Collapsible Order Breakdown */}
+            {showOrderDetails && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-4 pt-3 border-t border-gray-100 dark:border-zinc-800 space-y-2 text-xs text-gray-600 dark:text-gray-400"
+              >
+                <div className="flex justify-between">
+                  <span>Item Subtotal</span>
+                  <span>₹{order?.pricing?.subtotal || order?.pricing?.itemsPrice || orderTotalAmount}</span>
+                </div>
+                {Number(order?.pricing?.deliveryFee || 0) > 0 && (
+                  <div className="flex justify-between">
+                    <span>Delivery Fee</span>
+                    <span>₹{order.pricing.deliveryFee}</span>
+                  </div>
+                )}
+                {Number(order?.pricing?.tax || order?.pricing?.gst || 0) > 0 && (
+                  <div className="flex justify-between">
+                    <span>Taxes & Charges</span>
+                    <span>₹{order?.pricing?.tax || order?.pricing?.gst}</span>
+                  </div>
+                )}
+                {Number(order?.pricing?.discount || 0) > 0 && (
+                  <div className="flex justify-between text-emerald-600 font-medium">
+                    <span>Coupon Discount</span>
+                    <span>-₹{order.pricing.discount}</span>
+                  </div>
+                )}
+                <div className="flex justify-between pt-2 border-t border-gray-100 dark:border-zinc-800 font-bold text-gray-900 dark:text-white">
+                  <span>Payment Mode</span>
+                  <span className="uppercase">{order?.paymentMethod || order?.payment?.method || "Online"}</span>
+                </div>
+              </motion.div>
+            )}
+          </div>
+
+          {/* Feedback & Rating Section */}
+          <div className="space-y-3.5">
+            <div>
+              <h3 className="font-bold text-gray-900 dark:text-white text-base">How was your order?</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Your feedback helps us improve</p>
             </div>
 
             {ratingSubmitted ? (
-              <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl p-4 text-center">
-                <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-900/60 rounded-full flex items-center justify-center mx-auto mb-2 text-emerald-600 dark:text-emerald-300 font-bold">
+              <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-3xl p-5 text-center">
+                <div className="w-12 h-12 bg-emerald-100 dark:bg-emerald-900/60 rounded-full flex items-center justify-center mx-auto mb-2 text-emerald-600 dark:text-emerald-300 font-bold text-xl">
                   ✓
                 </div>
                 <h4 className="font-bold text-emerald-900 dark:text-emerald-200 text-sm">Thank you for your rating!</h4>
-                <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-0.5">Your feedback helps us serve you better.</p>
+                <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-1">Your feedback helps us serve you better.</p>
               </div>
             ) : (
               <div className="space-y-4">
-                {/* Food Rating */}
-                <div className="bg-gray-50 dark:bg-zinc-800/60 rounded-2xl p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-gray-700 dark:text-gray-300">Food Quality ({restaurantDisplayName})</span>
-                    <span className="text-xs font-bold text-orange-600 dark:text-orange-400">
-                      {restaurantRating === 5 ? "🤩 Amazing" : restaurantRating === 4 ? "😋 Delicious" : restaurantRating === 3 ? "👍 Good" : restaurantRating === 2 ? "😐 Average" : "👎 Bad"}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-center gap-3 py-1">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <button
-                        key={star}
-                        type="button"
-                        onClick={() => setRestaurantRating(star)}
-                        className="p-1 transition-transform hover:scale-125 active:scale-95"
-                      >
-                        <Star
-                          className={`w-8 h-8 ${
-                            star <= restaurantRating
-                              ? "text-amber-400 fill-amber-400 drop-shadow-sm"
-                              : "text-gray-300 dark:text-zinc-600"
-                          }`}
-                        />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Rider Rating */}
-                {order?.deliveryPartnerId && (
-                  <div className="bg-gray-50 dark:bg-zinc-800/60 rounded-2xl p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-bold text-gray-700 dark:text-gray-300">
-                        Delivery Partner ({order.deliveryPartner?.name || "Rider"})
-                      </span>
-                      <span className="text-xs font-bold text-blue-600 dark:text-blue-400">
-                        {deliveryRating === 5 ? "⚡ Super Fast" : deliveryRating === 4 ? "😊 Polite & On-time" : deliveryRating === 3 ? "👍 Good" : "😐 Average"}
-                      </span>
+                {/* 2 Side-by-Side Cards (Food Quality & Delivery Experience) */}
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Food Quality Card */}
+                  <div className="bg-white dark:bg-zinc-900 rounded-3xl p-4 sm:p-5 border border-gray-100 dark:border-zinc-800 shadow-xs flex flex-col items-center text-center">
+                    <div className="w-10 h-10 rounded-full bg-orange-50 dark:bg-orange-950/40 text-orange-500 flex items-center justify-center mb-2">
+                      <UtensilsCrossed className="w-5 h-5" />
                     </div>
-                    <div className="flex items-center justify-center gap-3 py-1">
+                    <h4 className="font-bold text-gray-900 dark:text-white text-xs sm:text-sm">Food Quality</h4>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate max-w-full mb-3">
+                      {restaurantDisplayName}
+                    </p>
+
+                    <div className="flex items-center justify-center gap-1 sm:gap-1.5 mb-2">
                       {[1, 2, 3, 4, 5].map((star) => (
                         <button
                           key={star}
                           type="button"
-                          onClick={() => setDeliveryRating(star)}
-                          className="p-1 transition-transform hover:scale-125 active:scale-95"
+                          onClick={() => setRestaurantRating(star)}
+                          className="p-0.5 transition-transform hover:scale-125 active:scale-95"
                         >
                           <Star
-                            className={`w-8 h-8 ${
-                              star <= deliveryRating
-                                ? "text-amber-400 fill-amber-400 drop-shadow-sm"
-                                : "text-gray-300 dark:text-zinc-600"
+                            className={`w-4 h-4 sm:w-5 sm:h-5 ${
+                              star <= restaurantRating
+                                ? "text-amber-400 fill-amber-400"
+                                : "text-gray-200 dark:text-zinc-700"
                             }`}
                           />
                         </button>
                       ))}
                     </div>
+                    <span className="text-[11px] font-bold text-orange-600 dark:text-orange-400 mt-0.5">
+                      {restaurantRating === 5 ? "🤩 Amazing" : restaurantRating === 4 ? "😋 Delicious" : restaurantRating === 3 ? "👍 Good" : restaurantRating === 2 ? "😐 Average" : "👎 Bad"}
+                    </span>
                   </div>
-                )}
 
-                {/* Quick Compliment Tags */}
+                  {/* Delivery Experience Card */}
+                  <div className="bg-white dark:bg-zinc-900 rounded-3xl p-4 sm:p-5 border border-gray-100 dark:border-zinc-800 shadow-xs flex flex-col items-center text-center">
+                    <div className="w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center mb-2">
+                      <Bike className="w-5 h-5" />
+                    </div>
+                    <h4 className="font-bold text-gray-900 dark:text-white text-xs sm:text-sm">Delivery Experience</h4>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate max-w-full mb-3">
+                      {riderDisplayName}
+                    </p>
+
+                    <div className="flex items-center justify-center gap-1 sm:gap-1.5 mb-2">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          type="button"
+                          onClick={() => setDeliveryRating(star)}
+                          className="p-0.5 transition-transform hover:scale-125 active:scale-95"
+                        >
+                          <Star
+                            className={`w-4 h-4 sm:w-5 sm:h-5 ${
+                              star <= deliveryRating
+                                ? "text-amber-400 fill-amber-400"
+                                : "text-gray-200 dark:text-zinc-700"
+                            }`}
+                          />
+                        </button>
+                      ))}
+                    </div>
+                    <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                      {deliveryRating === 5 ? "⚡ Super Fast" : deliveryRating === 4 ? "😊 Polite & On-time" : deliveryRating === 3 ? "👍 Good" : deliveryRating === 2 ? "😐 Average" : "👎 Poor"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* What did you like? Compliment tags */}
                 <div>
-                  <label className="text-xs font-bold text-gray-600 dark:text-gray-400 mb-2 block">What did you like?</label>
+                  <label className="text-xs font-bold text-gray-900 dark:text-white mb-2.5 block">
+                    What did you like?
+                  </label>
                   <div className="flex flex-wrap gap-2">
-                    {["🔥 Hot & Fresh", "⚡ Fast Delivery", "📦 Great Packaging", "😋 Tasty Food", "😊 Polite Rider"].map((chip) => {
-                      const isSelected = selectedCompliments.includes(chip);
+                    {[
+                      { label: "Hot & Fresh", icon: "🔥" },
+                      { label: "Fast Delivery", icon: "⚡" },
+                      { label: "Great Packaging", icon: "📦" },
+                      { label: "Tasty Food", icon: "😋" },
+                      { label: "Polite Rider", icon: "😊" }
+                    ].map((chip) => {
+                      const chipKey = `${chip.icon} ${chip.label}`;
+                      const isSelected = selectedCompliments.includes(chipKey);
                       return (
                         <button
-                          key={chip}
+                          key={chip.label}
                           type="button"
                           onClick={() => {
                             setSelectedCompliments(prev =>
-                              isSelected ? prev.filter(c => c !== chip) : [...prev, chip]
+                              isSelected ? prev.filter(c => c !== chipKey) : [...prev, chipKey]
                             );
                           }}
-                          className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
+                          className={`text-xs px-3.5 py-2 rounded-2xl font-semibold transition-all flex items-center gap-1.5 ${
                             isSelected
-                              ? "bg-orange-500 text-white shadow-sm"
-                              : "bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-zinc-700"
+                              ? "bg-orange-50 dark:bg-orange-950/40 border border-orange-500 text-orange-600 dark:text-orange-400 shadow-xs"
+                              : "bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50"
                           }`}
                         >
-                          {chip}
+                          <span>{chip.icon}</span>
+                          <span>{chip.label}</span>
                         </button>
                       );
                     })}
                   </div>
                 </div>
 
-                {/* Submit Rating Button */}
-                <Button
+                {/* Submit Feedback Button */}
+                <button
                   type="button"
                   onClick={handleRatingSubmit}
                   disabled={isSubmittingRating}
-                  className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold h-12 rounded-2xl shadow-md transition-all flex items-center justify-center gap-2"
+                  className="w-full bg-[#EB590E] hover:bg-[#d44d08] active:scale-[0.99] text-white font-bold h-12 rounded-2xl shadow-lg shadow-orange-500/25 transition-all flex items-center justify-center gap-2"
                 >
                   {isSubmittingRating ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" /> Submitting...
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Submitting...</span>
                     </>
                   ) : (
                     <>
-                      <Send className="w-4 h-4" /> Submit Feedback
+                      <Send className="w-4 h-4" />
+                      <span>Submit Feedback</span>
                     </>
                   )}
-                </Button>
+                </button>
               </div>
             )}
-          </motion.div>
+          </div>
 
-          {/* Quick Action CTAs */}
-          <div className="space-y-2.5">
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  const restId = order?.restaurantId?._id || order?.restaurantId || order?.restaurant?._id;
-                  if (restId) navigate(`/food/user/restaurants/${restId}`);
-                  else navigate('/food/user');
-                }}
-                className="flex items-center justify-center gap-2 py-3.5 px-4 bg-orange-600 hover:bg-orange-700 text-white rounded-2xl font-bold text-sm shadow-md transition-all active:scale-95"
-              >
-                <RotateCcw className="w-4 h-4" /> Order Again
-              </button>
-              
-              <Link
-                to={`/food/user/orders/${orderId}/invoice`}
-                className="flex items-center justify-center gap-2 py-3.5 px-4 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 hover:bg-gray-50 dark:hover:bg-zinc-800 text-gray-800 dark:text-white rounded-2xl font-bold text-sm transition-all active:scale-95 shadow-xs"
-              >
-                <Receipt className="w-4 h-4" /> View Invoice
-              </Link>
-            </div>
-
+          {/* Quick Actions (Order Again & View Invoice) */}
+          <div className="grid grid-cols-2 gap-3 pt-2">
             <button
               type="button"
-              onClick={() => navigate('/food/user')}
-              className="w-full flex items-center justify-center gap-2 py-3.5 bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-gray-800 dark:text-white rounded-2xl font-bold text-sm transition-all"
+              onClick={handleOrderAgain}
+              className="flex items-center justify-center gap-2 py-3.5 px-4 bg-white dark:bg-zinc-900 border border-orange-500 text-orange-600 dark:border-orange-400 dark:text-orange-400 rounded-2xl font-bold text-sm shadow-xs hover:bg-orange-50/50 active:scale-95 transition-all"
             >
-              <HomeIcon className="w-4 h-4" /> Back to Home
+              <RotateCcw className="w-4 h-4" />
+              <span>Order Again</span>
             </button>
+
+            <Link
+              to={`/food/user/orders/${orderId}/invoice`}
+              className="flex items-center justify-center gap-2 py-3.5 px-4 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 hover:bg-gray-50 dark:hover:bg-zinc-800 text-gray-800 dark:text-white rounded-2xl font-bold text-sm shadow-xs active:scale-95 transition-all"
+            >
+              <Receipt className="w-4 h-4" />
+              <span>View Invoice</span>
+            </Link>
           </div>
-
-          {/* Order Summary Card */}
-          <div className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-zinc-800">
-            <div className="flex items-center justify-between gap-4 mb-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-11 h-11 rounded-2xl bg-gray-100 dark:bg-zinc-800 overflow-hidden flex items-center justify-center shrink-0">
-                  <Store className="w-5 h-5 text-gray-400" />
-                </div>
-                <div className="min-w-0">
-                  <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate">{restaurantDisplayName}</h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{order?.restaurantAddress || 'Location'}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              {order?.items?.map((item, i) => {
-                const resolvedIsVeg = typeof item?.isVeg === "boolean"
-                  ? item.isVeg
-                  : ["veg", "vegetarian"].includes(String(item?.foodType || item?.category || item?.type || "").toLowerCase().trim());
-
-                return (
-                  <div key={i} className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-2 min-w-0">
-                      <div
-                        className={`w-3.5 h-3.5 mt-0.5 border flex items-center justify-center p-[1px] shrink-0 ${resolvedIsVeg ? "border-[#16a34a] bg-green-50/40 dark:bg-green-900/25" : "border-[#dc2626] bg-red-50/40 dark:bg-red-900/25"}`}
-                      >
-                        <div className={`w-full h-full rounded-full ${resolvedIsVeg ? "bg-[#16a34a]" : "bg-[#dc2626]"}`} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm text-gray-700 dark:text-gray-300 font-medium truncate">
-                          {(item?.quantity || 1)} x {item?.name || "Item"}
-                        </p>
-                        {item?.variantName ? (
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{item.variantName}</p>
-                        ) : null}
-                      </div>
-                    </div>
-                    <span className="text-sm font-bold text-gray-900 dark:text-white shrink-0">
-                      {"\u20B9"}{((item?.price || 0) * (item?.quantity || 1)).toFixed(0)}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-
-            {order?.pricing?.total != null && (
-              <div className="mt-4 pt-3 border-t border-gray-100 dark:border-zinc-800 flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-500 dark:text-gray-400">Total Bill Paid</span>
-                <span className="text-base font-black text-gray-900 dark:text-white">₹{order.pricing.total}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Delivery Address Card */}
-          <div className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-zinc-800">
-            <div className="flex items-start gap-3.5">
-              <div className="p-2.5 bg-blue-50 dark:bg-blue-900/20 rounded-2xl shrink-0">
-                <MapPin className="w-5 h-5 text-blue-500" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="font-bold text-gray-900 dark:text-white text-sm mb-0.5">Delivered to Home</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-                  {order?.address?.formattedAddress || 'Address'}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Delivery Partner Profile Card */}
-          {order?.deliveryPartnerId && (
-            <div className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-zinc-800">
-              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
-                Delivered By
-              </h3>
-              <div className="flex items-center gap-3.5">
-                <div className="relative shrink-0">
-                  <div className="w-12 h-12 rounded-2xl bg-gray-100 dark:bg-zinc-800 flex items-center justify-center border-2 border-white dark:border-zinc-800 overflow-hidden">
-                    {order.deliveryPartner?.avatar ? (
-                      <img src={order.deliveryPartner.avatar} alt="Rider" className="w-full h-full object-cover" />
-                    ) : (
-                      <User className="w-6 h-6 text-gray-400 dark:text-gray-500" />
-                    )}
-                  </div>
-                  <div className="absolute -bottom-1 -right-1 bg-green-500 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-zinc-900" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-gray-900 dark:text-white text-sm">{order.deliveryPartner?.name || 'Delivery Partner'}</h3>
-                  <div className="flex items-center gap-1 mt-0.5">
-                    <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
-                    <span className="text-xs font-bold text-gray-700 dark:text-gray-300">4.9 • Delivery Specialist</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Help & Complaints */}
-          <Link
-            to={`/user/complaints/submit/${complaintOrderId}`}
-            className="flex items-center justify-center gap-2 py-3 text-gray-500 dark:text-gray-400 text-xs font-semibold hover:text-red-500 dark:hover:text-red-400 transition-colors"
-          >
-            <CircleSlash className="w-3.5 h-3.5" /> Need help with this order? Raise a Complaint
-          </Link>
+          <div className="pt-2 text-center">
+            <Link
+              to={`/user/complaints/submit/${complaintOrderId}`}
+              className="inline-flex items-center justify-center gap-1.5 text-gray-500 dark:text-gray-400 text-xs font-semibold hover:text-red-500 dark:hover:text-red-400 transition-colors"
+            >
+              <CircleSlash className="w-3.5 h-3.5" />
+              <span>Need help with this order? Raise a Complaint</span>
+            </Link>
+          </div>
         </div>
       </div>
     );

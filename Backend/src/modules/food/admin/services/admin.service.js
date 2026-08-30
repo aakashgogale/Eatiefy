@@ -4343,6 +4343,12 @@ export async function approveRestaurant(id) {
 
     if (updated) {
         try {
+            const { invalidateCache } = await import('../../../../middleware/cache.js');
+            void invalidateCache('restaurants:*');
+            void invalidateCache('restaurant_detail:*');
+            void invalidateCache('restaurant_timings:*');
+        } catch (_) {}
+        try {
             const { notifyOwnersSafely } = await import('../../../../core/notifications/firebase.service.js');
             await notifyOwnersSafely(
                 [{ ownerType: 'RESTAURANT', ownerId: updated._id }],
@@ -4404,11 +4410,17 @@ export async function rejectRestaurant(id, reason) {
 
     if (updated) {
         try {
+            const { invalidateCache } = await import('../../../../middleware/cache.js');
+            void invalidateCache('restaurants:*');
+            void invalidateCache('restaurant_detail:*');
+            void invalidateCache('restaurant_timings:*');
+        } catch (_) {}
+        try {
             const { notifyOwnersSafely } = await import('../../../../core/notifications/firebase.service.js');
             await notifyOwnersSafely(
                 [{ ownerType: 'RESTAURANT', ownerId: updated._id }],
                 {
-                    title: 'Update on Registration ðŸ“‹',
+                    title: 'Update on Registration 📋',
                     body: `Your restaurant registration for "${updated.restaurantName}" has been rejected. Reason: ${reason || 'Incomplete documents'}.`,
                     image: 'https://i.ibb.co/5GzXz7r/Eatiefy-Brand-Image.png',
                     data: {

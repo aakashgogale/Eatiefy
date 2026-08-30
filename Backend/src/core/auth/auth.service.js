@@ -357,24 +357,25 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
     });
   }
 
-  // Allow login for previously-operational restaurants even if they are temporarily
-  // moved to "pending" due to profile-change review requests.
-  if (restaurant.status && restaurant.status !== "approved") {
-    if (restaurant.status === "pending") {
-      const hasHistoricalApproval = Boolean(restaurant.approvedAt);
-      const hasOperationalHistory = await FoodOrder.exists({
-        restaurantId: restaurant._id,
-      });
-
-      // New onboarding requests (no approval + no orders) must stay blocked.
-      if (!hasHistoricalApproval && !hasOperationalHistory) {
-        throw new AuthError("Your restaurant registration is pending approval.");
-      }
-    } else {
-      throw new AuthError(
-        "Your restaurant registration has been rejected. Please contact support.",
-      );
-    }
+  // Enforce admin approval status strictly
+  const restaurantStatus = String(restaurant.status || "pending").toLowerCase();
+  if (restaurantStatus === "pending") {
+    throw new AuthError(
+      "Your restaurant registration is pending admin approval. You will be able to access your account once the admin approves your registration."
+    );
+  }
+  if (restaurantStatus === "rejected") {
+    throw new AuthError(
+      "Your restaurant registration has been rejected by the admin. Please contact support for more information."
+    );
+  }
+  if (restaurantStatus !== "approved") {
+    throw new AuthError("Restaurant access not approved");
+  }
+  if (restaurant.isActive === false) {
+    throw new AuthError(
+      "Your restaurant account has been deactivated. Please contact support."
+    );
   }
 
   // Postpaid subscription model: no onboarding payment or subscription purchase
@@ -535,6 +536,21 @@ export const getProfile = async (userId, role) => {
       {
         const doc = await FoodRestaurant.findById(id).lean();
         if (!doc) break;
+
+        const rStatus = String(doc.status || "pending").toLowerCase();
+        if (rStatus === "pending") {
+          throw new AuthError(
+            "Your restaurant registration is pending admin approval. You will be able to access your account once the admin approves your registration."
+          );
+        }
+        if (rStatus === "rejected") {
+          throw new AuthError(
+            "Your restaurant registration has been rejected by the admin. Please contact support for more information."
+          );
+        }
+        if (rStatus !== "approved" || doc.isActive === false) {
+          throw new AuthError("Restaurant access not approved");
+        }
 
         const location =
           doc.addressLine1 ||
@@ -903,6 +919,31 @@ export const refreshAccessToken = async (token) => {
     const u = await FoodUser.findById(payload.userId).select("isActive").lean();
     if (!u || u.isActive === false) {
       throw new AuthError("User account is deactivated");
+    }
+  }
+
+  // If unapproved or deactivated restaurant, do not issue fresh access tokens
+  if (payload?.role === "RESTAURANT") {
+    const r = await FoodRestaurant.findById(payload.userId).select("status isActive").lean();
+    if (!r) {
+      throw new AuthError("Restaurant account not found");
+    }
+    if (r.isActive === false) {
+      throw new AuthError("Restaurant account is deactivated");
+    }
+    const rStatus = String(r.status || "pending").toLowerCase();
+    if (rStatus === "pending") {
+      throw new AuthError(
+        "Your restaurant registration is pending admin approval. You will be able to access your account once the admin approves your registration."
+      );
+    }
+    if (rStatus === "rejected") {
+      throw new AuthError(
+        "Your restaurant registration has been rejected by the admin. Please contact support for more information."
+      );
+    }
+    if (rStatus !== "approved") {
+      throw new AuthError("Restaurant access not approved");
     }
   }
 

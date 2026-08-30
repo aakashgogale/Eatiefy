@@ -891,6 +891,12 @@ export const registerRestaurant = async (payload, files) => {
             accountHolderName,
             accountType,
             menuImages,
+            // New registrations always require admin approval before login
+            status: 'pending',
+            isActive: true,
+            approvedAt: undefined,
+            rejectedAt: undefined,
+            rejectionReason: undefined,
             // Postpaid subscription model: monthly invoices from GMV at month end.
             ...onboardingFeeFields,
             ...images

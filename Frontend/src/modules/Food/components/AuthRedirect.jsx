@@ -1,24 +1,22 @@
 import { Navigate } from "react-router-dom"
-import { isModuleAuthenticated } from "@food/utils/auth"
+import { isModuleAuthenticated, clearModuleAuth } from "@food/utils/auth"
 
-function getRestaurantPendingRedirect() {
+function checkRestaurantApproval() {
   const userStr = localStorage.getItem("restaurant_user")
-  if (!userStr) return null
+  if (!userStr) return false
 
   try {
     const user = JSON.parse(userStr)
     const status = String(user?.status || "").toLowerCase()
-    if (status === "pending" || status === "rejected") {
-      return "/food/restaurant/pending-verification"
+    if (status !== "approved" || user?.isActive === false) {
+      clearModuleAuth("restaurant")
+      return false
     }
-    if (status === "banned" || status === "deleted") {
-      return "/food/restaurant/pending-verification"
-    }
+    return true
   } catch (e) {
-    // ignore
+    clearModuleAuth("restaurant")
+    return false
   }
-
-  return null
 }
 
 /**
@@ -37,14 +35,14 @@ export default function AuthRedirect({ children, module, redirectTo = null }) {
 
   if (isAuthenticated) {
     if (module === "restaurant") {
-      const pendingPath = getRestaurantPendingRedirect()
-      if (pendingPath) {
-        return <Navigate to={pendingPath} replace />
+      const isApproved = checkRestaurantApproval();
+      if (!isApproved) {
+        return <>{children}</>;
       }
     }
 
-    const homePath = redirectTo || moduleHomePages[module] || "/food"
-    return <Navigate to={homePath} replace />
+    const homePath = redirectTo || moduleHomePages[module] || "/food";
+    return <Navigate to={homePath} replace />;
   }
 
   return <>{children}</>
