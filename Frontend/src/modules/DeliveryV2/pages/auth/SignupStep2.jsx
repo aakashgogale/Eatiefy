@@ -49,41 +49,39 @@ const MAX_DOCUMENT_IMAGE_EDGE = 1600
 
 const loadImageFromFile = (file) =>
   new Promise((resolve, reject) => {
-    const objectUrl = URL.createObjectURL(file)
-    const image = new Image()
-    image.decoding = "async"
-    image.onload = () => {
-      URL.revokeObjectURL(objectUrl)
-      resolve(image)
+    try {
+      const objectUrl = URL.createObjectURL(file)
+      const image = new Image()
+      image.onload = () => {
+        URL.revokeObjectURL(objectUrl)
+        resolve(image)
+      }
+      image.onerror = () => {
+        URL.revokeObjectURL(objectUrl)
+        reject(new Error("Failed to load image"))
+      }
+      image.src = objectUrl
+    } catch (e) {
+      reject(e)
     }
-    image.onerror = () => {
-      URL.revokeObjectURL(objectUrl)
-      reject(new Error("Failed to load image"))
-    }
-    image.src = objectUrl
   })
 
 const canvasToBlob = (canvas, type, quality) =>
   new Promise((resolve) => {
-    canvas.toBlob(resolve, type, quality)
-  })
-
-const waitForPreviewReady = (src) =>
-  new Promise((resolve, reject) => {
-    if (!src) {
-      reject(new Error("Preview source is required"))
-      return
+    try {
+      canvas.toBlob(resolve, type, quality)
+    } catch {
+      resolve(null)
     }
-
-    const image = new Image()
-    image.decoding = "async"
-    image.onload = () => resolve(src)
-    image.onerror = () => reject(new Error("Failed to render preview"))
-    image.src = src
   })
 
 const optimizeDocumentImage = async (file) => {
-  if (!(file instanceof File) || !String(file.type || "").startsWith("image/")) {
+  if (!file) return file
+
+  const isImageMime = String(file.type || "").startsWith("image/")
+  const isImageName = /\.(jpg|jpeg|png|webp|heic|heif|jfif|bmp)$/i.test(String(file.name || ""))
+
+  if (!isImageMime && !isImageName) {
     return file
   }
 
@@ -138,7 +136,7 @@ const optimizeDocumentImage = async (file) => {
       lastModified: Date.now()
     })
   } catch (error) {
-    debugWarn("Failed to optimize document image", error)
+    debugWarn("Skipping image canvas compression (using original file):", error)
     return file
   }
 }
@@ -304,11 +302,15 @@ export default function SignupStep2() {
 
   const getPreviewSrc = (docType) => {
     const localFile = documents[docType]
-    if (localFile instanceof File) {
+    if (localFile instanceof File || localFile instanceof Blob) {
       if (!localFile._previewUrl) {
-        localFile._previewUrl = URL.createObjectURL(localFile)
+        try {
+          localFile._previewUrl = URL.createObjectURL(localFile)
+        } catch (e) {
+          debugWarn("Failed to create preview object URL:", e)
+        }
       }
-      return localFile._previewUrl
+      return localFile._previewUrl || null
     }
 
     const uploaded = uploadedDocs[docType]
@@ -327,14 +329,23 @@ export default function SignupStep2() {
 
     setUploading((prev) => ({ ...prev, [docType]: true }))
 
-    if (!file.type.startsWith("image/")) {
+    const isImageMime = String(file.type || "").startsWith("image/")
+    const isImageName = /\.(jpg|jpeg|png|webp|heic|heif|jfif|bmp)$/i.test(String(file.name || ""))
+
+    if (!isImageMime && !isImageName) {
       setUploading((prev) => ({ ...prev, [docType]: false }))
-      toast.error("Please select an image file")
+      toast.error("Please select a valid image file (JPG, PNG, WEBP)")
       return
     }
 
     try {
-      const normalizedFile = await optimizeDocumentImage(file)
+      // Ensure file has valid image mime type if missing
+      let validFile = file
+      if (!file.type || !file.type.startsWith("image/")) {
+        validFile = new File([file], file.name || `${docType}.jpg`, { type: "image/jpeg" })
+      }
+
+      const normalizedFile = await optimizeDocumentImage(validFile)
 
       if (normalizedFile.size > MAX_DOCUMENT_IMAGE_BYTES) {
         toast.error("Image size should be less than 5MB")
@@ -343,18 +354,21 @@ export default function SignupStep2() {
 
       const oldFile = documents[docType]
       if (oldFile instanceof File && oldFile._previewUrl && String(oldFile._previewUrl).startsWith("blob:")) {
-        URL.revokeObjectURL(oldFile._previewUrl)
+        try { URL.revokeObjectURL(oldFile._previewUrl) } catch {}
       }
 
-      normalizedFile._previewUrl = URL.createObjectURL(normalizedFile)
-      await waitForPreviewReady(normalizedFile._previewUrl)
+      try {
+        normalizedFile._previewUrl = URL.createObjectURL(normalizedFile)
+      } catch (e) {
+        debugWarn("Preview URL creation failed:", e)
+      }
 
       setDocument(docType, normalizedFile)
       setUploadedDocs((prev) => ({
         ...prev,
         [docType]: {
-          name: normalizedFile.name,
-          type: normalizedFile.type,
+          name: normalizedFile.name || `${docType}.jpg`,
+          type: normalizedFile.type || "image/jpeg",
           size: normalizedFile.size,
           file: true
         }
@@ -362,7 +376,22 @@ export default function SignupStep2() {
       toast.success(`${docType.replace(/([A-Z])/g, " $1").trim()} selected`)
     } catch (error) {
       debugError("Failed to process selected file:", error)
-      toast.error("Failed to process image")
+      // Fallback: save raw file directly
+      try {
+        setDocument(docType, file)
+        setUploadedDocs((prev) => ({
+          ...prev,
+          [docType]: {
+            name: file.name || `${docType}.jpg`,
+            type: file.type || "image/jpeg",
+            size: file.size || 0,
+            file: true
+          }
+        }))
+        toast.success(`${docType.replace(/([A-Z])/g, " $1").trim()} selected`)
+      } catch {
+        toast.error("Failed to process image. Please try another photo.")
+      }
     } finally {
       setUploading((prev) => ({ ...prev, [docType]: false }))
     }
@@ -629,11 +658,7 @@ export default function SignupStep2() {
 
   const isAnyUploading = documentTypes.some((docType) => Boolean(uploading[docType]))
   const hasAllDocuments = documentTypes.every((docType) => documents[docType])
-  const hasAllPreviews = documentTypes.every((docType) => {
-    if (!documents[docType]) return false
-    return Boolean(getPreviewSrc(docType))
-  })
-  const disableSubmit = isSubmitting || isAnyUploading || !hasAllDocuments || !hasAllPreviews
+  const disableSubmit = isSubmitting || isAnyUploading || !hasAllDocuments
 
   return (
     <div className="min-h-[100dvh] bg-gray-100 flex flex-col overflow-x-hidden overflow-y-auto overscroll-contain">

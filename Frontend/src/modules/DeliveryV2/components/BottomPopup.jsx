@@ -297,7 +297,7 @@ export default function BottomPopup({
             className="fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl z-[110] overflow-hidden flex flex-col"
             style={{
               maxHeight: isCollapsed ? "120px" : maxHeight,
-              touchAction: disableSwipeToClose ? 'auto' : 'none'
+              touchAction: 'pan-y'
             }}
           >
             {/* Top Drag Handle Bar - Always visible for dragging */}
@@ -363,7 +363,10 @@ export default function BottomPopup({
 
             {/* Content */}
             {!isCollapsed ? (
-              <div className="flex-1 overflow-y-auto px-4 py-4">
+              <div
+                className="flex-1 overflow-y-auto overscroll-contain px-4 py-4"
+                style={{ touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }}
+              >
                 {children}
               </div>
             ) : (

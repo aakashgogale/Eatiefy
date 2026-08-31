@@ -73,7 +73,7 @@ export const ProfileDocsV2 = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 font-poppins pb-20">
+    <div className="min-h-[100dvh] bg-gray-50 font-poppins overflow-x-hidden overflow-y-auto overscroll-contain pb-28">
        <div className="bg-white px-4 py-5 flex items-center gap-4 fixed top-0 w-full z-50 shadow-sm">
           <button onClick={goBack}><ArrowLeft className="w-6 h-6 shadow-sm p-1 rounded-full bg-gray-50 bg-opacity-70" /></button>
           <h1 className="text-xl font-black">Registration Docs</h1>

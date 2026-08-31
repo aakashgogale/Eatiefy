@@ -66,13 +66,27 @@ export const convertBase64ToFile = (
     throw new Error("Invalid base64 image data")
   }
 
-  let pureBase64 = base64Value
-  if (base64Value.includes(",")) {
-    pureBase64 = base64Value.split(",")[1]
+  let pureBase64 = base64Value.trim()
+  if (pureBase64.includes(",")) {
+    const parts = pureBase64.split(",")
+    pureBase64 = parts[1] || ""
+    const metaMatch = parts[0]?.match(/:(.*?);/)
+    if (metaMatch && metaMatch[1]) {
+      mimeType = metaMatch[1]
+    }
+  }
+
+  // Remove any whitespace, newlines, or carriage returns from base64
+  let cleanBase64 = pureBase64.replace(/[\r\n\s]/g, "")
+  // Normalize url-safe base64
+  cleanBase64 = cleanBase64.replace(/-/g, "+").replace(/_/g, "/")
+  // Pad with '=' if length is not a multiple of 4
+  while (cleanBase64.length % 4 !== 0) {
+    cleanBase64 += "="
   }
 
   try {
-    const byteCharacters = atob(pureBase64)
+    const byteCharacters = atob(cleanBase64)
     const byteNumbers = new Array(byteCharacters.length)
     for (let i = 0; i < byteCharacters.length; i += 1) {
       byteNumbers[i] = byteCharacters.charCodeAt(i)
@@ -87,9 +101,9 @@ export const convertBase64ToFile = (
         : mimeType.includes("webp")
           ? "webp"
           : "jpg"
-    const blob = new Blob([byteArray], { type: mimeType })
+    const blob = new Blob([byteArray], { type: mimeType || "image/jpeg" })
     const fileName = normalizedFileName || `${fileNamePrefix}-${Date.now()}.${extension}`
-    return new File([blob], fileName, { type: mimeType })
+    return new File([blob], fileName, { type: mimeType || "image/jpeg" })
   } catch (error) {
     console.error("Base64 conversion failed:", error)
     throw new Error("Failed to process image data")
