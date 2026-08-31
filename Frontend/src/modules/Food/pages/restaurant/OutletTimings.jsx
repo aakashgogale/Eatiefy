@@ -10,23 +10,18 @@ import { toast } from "sonner"
 const debugLog = (...args) => {}
 const debugError = (...args) => {}
 
-const stringToTime = (timeString) => {
-  if (!timeString || !timeString.includes(":")) {
-    return new Date(2000, 0, 1, 9, 0)
+const normalizeTimeValue = (value) => {
+  if (!value) return "09:00"
+  const raw = String(value).trim()
+  if (/^\d{2}:\d{2}$/.test(raw)) return raw
+  if (/^\d{1}:\d{2}$/.test(raw)) return `0${raw}`
+  
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    const hours = value.getHours().toString().padStart(2, "0")
+    const minutes = value.getMinutes().toString().padStart(2, "0")
+    return `${hours}:${minutes}`
   }
-  const [hours, minutes] = timeString.split(":").map(Number)
-  const validHours = Math.max(0, Math.min(23, isNaN(hours) ? 9 : hours))
-  const validMinutes = Math.max(0, Math.min(59, isNaN(minutes) ? 0 : minutes))
-  return new Date(2000, 0, 1, validHours, validMinutes)
-}
-
-const timeToString = (date) => {
-  if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
-    return "09:00"
-  }
-  const hours = date.getHours().toString().padStart(2, "0")
-  const minutes = date.getMinutes().toString().padStart(2, "0")
-  return `${hours}:${minutes}`
+  return "09:00"
 }
 
 const formatTime12Hour = (time24) => {
@@ -34,7 +29,7 @@ const formatTime12Hour = (time24) => {
   const [hours, minutes] = time24.split(":").map(Number)
   const period = hours >= 12 ? "PM" : "AM"
   const hours12 = hours % 12 || 12
-  const minutesStr = minutes.toString().padStart(2, "0")
+  const minutesStr = String(minutes || 0).padStart(2, "0")
   return `${hours12}:${minutesStr} ${period}`
 }
 
@@ -49,7 +44,7 @@ const getDefaultDays = () => ({
 })
 
 function DayTimePicker({ value, onChange }) {
-  let timeStr = typeof value === "string" ? value : (value instanceof Date ? timeToString(value) : "09:00")
+  let timeStr = typeof value === "string" ? value : (value instanceof Date ? normalizeTimeValue(value) : "09:00")
   if (!timeStr || !timeStr.includes(":")) timeStr = "09:00"
   
   const [h24Str, mStr] = timeStr.split(":")
@@ -67,7 +62,7 @@ function DayTimePicker({ value, onChange }) {
       if (hourNum !== 12) hourNum += 12
     }
     const hh = String(hourNum).padStart(2, "0")
-    const mm = String(newM || "00").padStart(2, "0")
+    const mm = String(newM != null ? newM : "00").padStart(2, "0")
     onChange(`${hh}:${mm}`)
   }
 
@@ -111,8 +106,8 @@ export default function OutletTimings() {
   const companyName = useCompanyName()
   const navigate = useNavigate()
   const [expandedDay, setExpandedDay] = useState("Monday")
-  const isInternalUpdate = useRef(false)
   const [days, setDays] = useState(getDefaultDays)
+  const [initialDaysJson, setInitialDaysJson] = useState("")
   const [loading, setLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
@@ -125,7 +120,10 @@ export default function OutletTimings() {
         const res = await restaurantAPI.getOutletTimings()
         const outletTimings = res?.data?.data?.outletTimings || res?.data?.outletTimings
         if (mounted && outletTimings && typeof outletTimings === "object") {
-          setDays({ ...getDefaultDays(), ...outletTimings })
+          const loadedDays = { ...getDefaultDays(), ...outletTimings }
+          setDays(loadedDays)
+          setInitialDaysJson(JSON.stringify(loadedDays))
+          setHasUnsavedChanges(false)
         }
       } catch (error) {
         debugError("Error loading outlet timings from backend:", error)
@@ -139,16 +137,15 @@ export default function OutletTimings() {
   }, [])
 
   useEffect(() => {
-    if (loading) return
-    setHasUnsavedChanges(true)
-  }, [days, loading])
+    if (loading || !initialDaysJson) return
+    setHasUnsavedChanges(JSON.stringify(days) !== initialDaysJson)
+  }, [days, loading, initialDaysJson])
 
   const toggleDay = (day) => {
     setExpandedDay(expandedDay === day ? null : day)
   }
 
   const toggleDayOpen = (day) => {
-    isInternalUpdate.current = true
     setDays((prev) => {
       const newOpen = !prev[day].isOpen
       return {
@@ -164,11 +161,29 @@ export default function OutletTimings() {
   }
 
   const handleSave = async () => {
+    // Validate opening & closing times for open days
+    for (const [day, val] of Object.entries(days)) {
+      if (val.isOpen) {
+        if (!val.openingTime || !val.closingTime) {
+          toast.error(`Please set both opening and closing times for ${day}`)
+          return
+        }
+        if (val.openingTime === val.closingTime) {
+          toast.error(`Opening and closing times cannot be identical for ${day}`)
+          return
+        }
+      }
+    }
+
     setIsSaving(true)
     try {
-      await restaurantAPI.saveOutletTimings(days)
-      window.dispatchEvent(new Event("outletTimingsUpdated"))
+      const res = await restaurantAPI.saveOutletTimings(days)
+      const updatedTimings = res?.data?.data?.outletTimings || res?.data?.outletTimings || days
+      const newDays = { ...getDefaultDays(), ...updatedTimings }
+      setDays(newDays)
+      setInitialDaysJson(JSON.stringify(newDays))
       setHasUnsavedChanges(false)
+      window.dispatchEvent(new Event("outletTimingsUpdated"))
       toast.success("Outlet timings saved successfully!")
     } catch (error) {
       toast.error(error?.response?.data?.message || "Failed to save timings. Please try again.")
@@ -178,18 +193,9 @@ export default function OutletTimings() {
   }
 
   const handleTimeChange = (day, timeType, newTime) => {
-    if (!newTime) {
-      return
-    }
-
-    isInternalUpdate.current = true
-    const timeString = timeToString(newTime)
-
-    if (!timeString || !timeString.includes(":")) {
-      return
-    }
-
-    debugLog(`Time changed for ${day} - ${timeType}: ${timeString}`)
+    if (!newTime) return
+    const timeString = normalizeTimeValue(newTime)
+    if (!timeString || !timeString.includes(":")) return
 
     setDays((prev) => ({
       ...prev,
