@@ -6,7 +6,7 @@ const openTransientImageInput = ({
   capture = undefined,
 }) => {
   if (typeof document === "undefined") {
-    throw new Error("Document is not available")
+    return
   }
 
   const input = document.createElement("input")
@@ -19,36 +19,42 @@ const openTransientImageInput = ({
 
   input.style.position = "fixed"
   input.style.left = "-9999px"
+  input.style.top = "-9999px"
   input.style.width = "1px"
   input.style.height = "1px"
   input.style.opacity = "0"
   input.style.pointerEvents = "none"
 
+  let handled = false
   const cleanup = () => {
-    input.onchange = null
-    input.oncancel = null
-    if (input.parentNode) {
-      input.parentNode.removeChild(input)
-    }
+    if (handled) return
+    handled = true
+    setTimeout(() => {
+      input.onchange = null
+      input.oncancel = null
+      if (input.parentNode) {
+        input.parentNode.removeChild(input)
+      }
+    }, 500)
   }
 
   input.onchange = (event) => {
     const file = event?.target?.files?.[0] || null
-    if (file) onSelectFile(file)
+    if (file && typeof onSelectFile === "function") {
+      onSelectFile(file)
+    }
     cleanup()
   }
 
   input.oncancel = cleanup
   document.body.appendChild(input)
 
-  if (typeof input.showPicker === "function") {
-    try {
+  try {
+    if (typeof input.showPicker === "function") {
       input.showPicker()
       return
-    } catch {
-      // Fall back to the standard click-based picker below.
     }
-  }
+  } catch {}
 
   input.click()
 }
@@ -122,7 +128,7 @@ export const openBrowserCameraFallback = (onSelectFile) => {
     })
   } catch (error) {
     console.error("Browser camera fallback failed:", error)
-    toast.error("Could not open camera")
+    openTransientImageInput({ onSelectFile, accept: "image/*" })
   }
 }
 
@@ -138,108 +144,148 @@ export const isFlutterBridgeAvailable = () => {
 }
 
 /**
- * Open camera via Flutter bridge or browser fallback
+ * Open camera via Flutter bridge or browser fallback.
+ * ALWAYS falls back seamlessly if bridge throws or fails.
  */
 export const openCamera = async ({ onSelectFile, fileNamePrefix = "camera-photo", quality = 0.8 }) => {
-  try {
-    if (!isFlutterBridgeAvailable()) {
-      openBrowserCameraFallback(onSelectFile)
-      return
-    }
+  if (typeof onSelectFile !== "function") return
 
-    const result = await window.flutter_inappwebview.callHandler("openCamera", {
+  const triggerCameraFallback = () => {
+    try {
+      openBrowserCameraFallback(onSelectFile)
+    } catch (e) {
+      openTransientImageInput({ onSelectFile, accept: "image/*" })
+    }
+  }
+
+  if (!isFlutterBridgeAvailable()) {
+    triggerCameraFallback()
+    return
+  }
+
+  try {
+    const bridgePromise = window.flutter_inappwebview.callHandler("openCamera", {
       source: "camera",
       accept: "image/*",
       multiple: false,
       quality: quality,
     })
 
-    const isSuccess = result?.success === true || Boolean(result?.base64 || result?.base64String || result?.data?.base64)
-    if (!result || !isSuccess) return
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 1500))
+    const result = await Promise.race([bridgePromise, timeoutPromise])
 
-    let selectedFile = null
-    const base64Value = result?.base64 || result?.base64String || result?.data?.base64
-    const mimeType = result?.mimeType || result?.type || result?.data?.mimeType || "image/jpeg"
-    const originalFileName = result?.fileName || result?.name || result?.data?.fileName || ""
+    const isSuccess =
+      result?.success === true ||
+      Boolean(result?.base64 || result?.base64String || result?.data?.base64)
 
-    if (base64Value) {
-      selectedFile = convertBase64ToFile(
-        base64Value,
-        mimeType,
-        fileNamePrefix,
-        originalFileName,
-      )
-    } else if (result.file instanceof File || result.file instanceof Blob) {
-      selectedFile = result.file
+    if (result && isSuccess) {
+      let selectedFile = null
+      const base64Value = result?.base64 || result?.base64String || result?.data?.base64
+      const mimeType = result?.mimeType || result?.type || result?.data?.mimeType || "image/jpeg"
+      const originalFileName = result?.fileName || result?.name || result?.data?.fileName || ""
+
+      if (base64Value) {
+        selectedFile = convertBase64ToFile(
+          base64Value,
+          mimeType,
+          fileNamePrefix,
+          originalFileName,
+        )
+      } else if (result.file instanceof File || result.file instanceof Blob) {
+        selectedFile = result.file
+      }
+
+      if (selectedFile) {
+        onSelectFile(selectedFile)
+        return
+      }
     }
 
-    if (!selectedFile || !String(selectedFile.type || "").startsWith("image/")) {
-      toast.error("Failed to capture image")
-      return
+    if (!result || result.success === false) {
+      triggerCameraFallback()
     }
-
-    onSelectFile(selectedFile)
   } catch (error) {
-    console.error("Camera capture failed:", error)
-    // Try fallback on bridge failure
-    openBrowserCameraFallback(onSelectFile)
+    console.warn("Camera bridge failed, falling back to browser camera:", error)
+    triggerCameraFallback()
   }
 }
 
 /**
- * Open gallery via Flutter bridge or browser fallback
+ * Open gallery via Flutter bridge or browser fallback.
+ * ALWAYS falls back seamlessly to standard file picker if bridge throws, cancels, or fails.
  */
-export const openGallery = async ({ onSelectFile, fileNamePrefix = "gallery-photo" }) => {
-  try {
-    if (isFlutterBridgeAvailable()) {
-      const result = await window.flutter_inappwebview.callHandler("openGallery", {
-        source: "gallery",
-        accept: "image/*",
-        multiple: false,
-      })
+export const openGallery = async ({
+  onSelectFile,
+  fileNamePrefix = "gallery-photo",
+  fallbackInputRef = null,
+}) => {
+  if (typeof onSelectFile !== "function") return
 
-      const isSuccess =
-        result?.success === true ||
-        Boolean(result?.base64 || result?.base64String || result?.data?.base64)
-
-      if (result && isSuccess) {
-        let selectedFile = null
-        const base64Value = result?.base64 || result?.base64String || result?.data?.base64
-        const mimeType = result?.mimeType || result?.type || result?.data?.mimeType || "image/jpeg"
-        const originalFileName = result?.fileName || result?.name || result?.data?.fileName || ""
-
-        if (base64Value) {
-          selectedFile = convertBase64ToFile(
-            base64Value,
-            mimeType,
-            fileNamePrefix,
-            originalFileName,
-          )
-        } else if (result.file instanceof File || result.file instanceof Blob) {
-          selectedFile = result.file
-        }
-
-        if (selectedFile && String(selectedFile.type || "").startsWith("image/")) {
-          onSelectFile(selectedFile)
-        }
-
-        // In Flutter app mode, do not fallback to browser picker.
-        // Browser picker can show camera/gallery chooser on some devices.
+  const triggerGalleryFallback = () => {
+    try {
+      if (fallbackInputRef?.current && typeof fallbackInputRef.current.click === "function") {
+        fallbackInputRef.current.click()
         return
       }
+      openTransientImageInput({
+        onSelectFile,
+        accept: "image/*",
+      })
+    } catch (e) {
+      openTransientImageInput({
+        onSelectFile,
+        accept: "image/*",
+      })
+    }
+  }
 
-      // Handler responded but no valid image selected (cancel/fail).
-      // Keep strict gallery-only behavior by not opening browser chooser.
-      return
+  if (!isFlutterBridgeAvailable()) {
+    triggerGalleryFallback()
+    return
+  }
+
+  try {
+    const bridgePromise = window.flutter_inappwebview.callHandler("openGallery", {
+      source: "gallery",
+      accept: "image/*",
+      multiple: false,
+    })
+
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 1500))
+    const result = await Promise.race([bridgePromise, timeoutPromise])
+
+    const isSuccess =
+      result?.success === true ||
+      Boolean(result?.base64 || result?.base64String || result?.data?.base64)
+
+    if (result && isSuccess) {
+      let selectedFile = null
+      const base64Value = result?.base64 || result?.base64String || result?.data?.base64
+      const mimeType = result?.mimeType || result?.type || result?.data?.mimeType || "image/jpeg"
+      const originalFileName = result?.fileName || result?.name || result?.data?.fileName || ""
+
+      if (base64Value) {
+        selectedFile = convertBase64ToFile(
+          base64Value,
+          mimeType,
+          fileNamePrefix,
+          originalFileName,
+        )
+      } else if (result.file instanceof File || result.file instanceof Blob) {
+        selectedFile = result.file
+      }
+
+      if (selectedFile) {
+        onSelectFile(selectedFile)
+        return
+      }
     }
 
-    // Fallback: browser picker is generally reliable across Android/iOS/Web.
-    openTransientImageInput({
-      onSelectFile,
-      accept: "image/*",
-    })
+    if (!result || result.success === false) {
+      triggerGalleryFallback()
+    }
   } catch (error) {
-    console.error("Gallery pick failed:", error)
-    toast.error("Failed to open gallery")
+    console.warn("Flutter gallery bridge failed, falling back to file picker:", error)
+    triggerGalleryFallback()
   }
 }

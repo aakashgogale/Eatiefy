@@ -28,27 +28,29 @@ export const ImageSourcePicker = ({
   const handleOpenCamera = async () => {
     try {
       onClose()
-      await openCamera({
-        onSelectFile: onFileSelect,
-        fileNamePrefix: fileNamePrefix
-      })
+      setTimeout(() => {
+        openCamera({
+          onSelectFile,
+          fileNamePrefix: fileNamePrefix
+        })
+      }, 50)
     } catch (error) {
       console.error("Camera error caught in ImageSourcePicker:", error)
-      // Silently fail - toast already shown in openCamera function
     }
   }
 
   const handlePickFromDevice = async () => {
     try {
       onClose()
-      await openGallery({
-        onSelectFile: onFileSelect,
-        fileNamePrefix,
-        fallbackInputRef: galleryInputRef || internalInputRef,
-      })
+      setTimeout(() => {
+        openGallery({
+          onSelectFile,
+          fileNamePrefix,
+          fallbackInputRef: galleryInputRef || internalInputRef,
+        })
+      }, 50)
     } catch (error) {
       console.error("Gallery error caught in ImageSourcePicker:", error)
-      // Silently fail - toast already shown if needed
     }
   }
 
