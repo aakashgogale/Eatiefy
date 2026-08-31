@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { ArrowLeft, Upload, X, Check, Camera, Image as ImageIcon, FileText } from "lucide-react"
 import { deliveryAPI } from "@food/api"
 import { toast } from "sonner"
-import { openCamera, openGallery } from "@food/utils/imageUploadUtils"
+import { openCamera, openGallery, convertBase64ToFile } from "@food/utils/imageUploadUtils"
 import { clearModuleAuth, isModuleAuthenticated } from "@food/utils/auth"
 import useDeliveryBackNavigation from "../../hooks/useDeliveryBackNavigation"
 import { useDeliveryOnboardingStore } from "../../store/useDeliveryOnboardingStore"
@@ -567,39 +567,59 @@ export default function SignupStep2() {
     }
     if (details.panNumber) formData.append("panNumber", details.panNumber)
     if (details.aadharNumber) formData.append("aadharNumber", details.aadharNumber)
-    formData.append("profilePhoto", documents.profilePhoto)
-    formData.append("aadharPhoto", documents.aadharPhoto)
-    formData.append("panPhoto", documents.panPhoto)
-    formData.append("drivingLicensePhoto", documents.drivingLicensePhoto)
 
-    // Try to get FCM token before registering
-    let fcmToken = null;
-    let platform = "web";
+    const appendDocumentFile = (fieldName, docValue) => {
+      if (!docValue) return
+      if (docValue instanceof File || docValue instanceof Blob) {
+        formData.append(fieldName, docValue, docValue.name || `${fieldName}.jpg`)
+      } else if (typeof docValue === 'string' && docValue.startsWith('data:')) {
+        try {
+          const converted = convertBase64ToFile(docValue, 'image/jpeg', fieldName)
+          formData.append(fieldName, converted, `${fieldName}.jpg`)
+        } catch {
+          formData.append(fieldName, docValue)
+        }
+      } else if (docValue?.file instanceof File || docValue?.file instanceof Blob) {
+        formData.append(fieldName, docValue.file, docValue.name || `${fieldName}.jpg`)
+      }
+    }
+
+    appendDocumentFile("profilePhoto", documents.profilePhoto)
+    appendDocumentFile("aadharPhoto", documents.aadharPhoto)
+    appendDocumentFile("panPhoto", documents.panPhoto)
+    appendDocumentFile("drivingLicensePhoto", documents.drivingLicensePhoto)
+
+    // Non-blocking FCM token retrieval (max 200ms timeout)
+    let fcmToken = null
+    let platform = "web"
     try {
       if (typeof window !== "undefined") {
         if (window.flutter_inappwebview) {
-          platform = "mobile";
-          const handlerNames = ["getFcmToken", "getFCMToken", "getPushToken", "getFirebaseToken"];
+          platform = "mobile"
+          const handlerNames = ["getFcmToken", "getFCMToken", "getPushToken", "getFirebaseToken"]
           for (const handlerName of handlerNames) {
             try {
-              const t = await window.flutter_inappwebview.callHandler(handlerName, { module: "delivery" });
+              const bridgePromise = window.flutter_inappwebview.callHandler(handlerName, { module: "delivery" })
+              const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 200))
+              const t = await Promise.race([bridgePromise, timeoutPromise])
               if (t && typeof t === "string" && t.length > 20) {
-                fcmToken = t.trim();
-                break;
+                fcmToken = t.trim()
+                break
               }
-            } catch (e) {}
+            } catch {}
           }
-        } else {
-          fcmToken = localStorage.getItem("fcm_web_registered_token_delivery") || null;
+        }
+        if (!fcmToken) {
+          fcmToken = localStorage.getItem("fcm_web_registered_token_delivery") || localStorage.getItem("delivery_fcm_token") || null
         }
       }
     } catch (e) {
-      debugWarn("Failed to get FCM token during signup", e);
+      debugWarn("Failed to get FCM token during signup", e)
     }
 
     if (fcmToken) {
-      formData.append("fcmToken", fcmToken);
-      formData.append("platform", platform);
+      formData.append("fcmToken", fcmToken)
+      formData.append("platform", platform)
     }
 
     const isCompleteProfile = sessionStorage.getItem("deliveryNeedsRegistration") === "true"
@@ -635,9 +655,11 @@ export default function SignupStep2() {
         })
         
         clearModuleAuth("delivery")
-        toast.success("Application submitted successfully! Please wait for admin approval or login with OTP.")
+        toast.success("Application submitted successfully! Please wait for admin approval.")
         navigateWithFallback("/food/delivery/login")
         return
+      } else {
+        throw new Error(response?.data?.message || "Registration failed")
       }
     } catch (error) {
       debugError("Error submitting registration:", error)
