@@ -162,6 +162,14 @@ let globalActiveOrder = null;
 
 // Audio player references
 let globalAudio = null;
+// Browsers only let an <audio> element play unprompted after it has played once
+// during a real user gesture. Until that has actually succeeded the alert is
+// silent, so the restaurant needs to know — this drives the "enable sound" state.
+let globalAudioUnlocked = false;
+
+/** 0.1 s of silence — enough for a real play() without any audible artefact. */
+const SILENT_AUDIO_DATA_URI =
+  'data:audio/mpeg;base64,//OExAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYaTBQ8jAAAAAAAAAAAAAAAAAAAA//OExAAAAAAAAAAAAAAAAAAAAAAA';
 let globalFallbackAudio = null;
 let globalAlertLoopTimer = null;
 let globalAlertLoopStartedAt = 0;
@@ -201,6 +209,9 @@ const lastBrowserNotificationAtByOrder = new Map();
 const subscribers = new Set();
 
 const updateGlobalState = (updates) => {
+  if ('soundReady' in updates) {
+    globalAudioUnlocked = updates.soundReady;
+  }
   if ('isMuted' in updates) {
     globalIsMuted = updates.isMuted;
     localStorage.setItem('restaurant_notifications_muted', globalIsMuted ? 'true' : 'false');
@@ -222,6 +233,7 @@ const updateGlobalState = (updates) => {
     try {
       callback({
         isMuted: globalIsMuted,
+        soundReady: globalAudioUnlocked,
         mutedOrderIds: globalMutedOrderIds,
         newOrder: globalNewOrder,
         newReservation: globalNewReservation,
@@ -498,6 +510,7 @@ const showBackgroundOrderNotification = async (orderData) => {
 export const useRestaurantNotifications = () => {
   const [localState, setLocalState] = useState({
     isMuted: globalIsMuted,
+    soundReady: globalAudioUnlocked,
     mutedOrderIds: globalMutedOrderIds,
     newOrder: globalNewOrder,
     newReservation: globalNewReservation,
@@ -860,84 +873,90 @@ export const useRestaurantNotifications = () => {
     };
   }, []);
 
-  // Track user interaction for audio unlocking
+  // Arm the alert sound on user interaction.
+  //
+  // Browsers block `HTMLAudioElement.play()` until that element has played once
+  // inside a user gesture — unlocking an AudioContext does NOT unlock it, they are
+  // separate permissions. The previous version listened with `{ once: true }` and
+  // removed the listeners even when the unlock failed, so a single failed attempt
+  // left the panel silent for the whole session with nothing on screen to say so.
+  //
+  // This keeps listening until the unlock is actually verified, then reports it
+  // through `soundReady` so the UI can prompt for the one tap browsers require.
   useEffect(() => {
-    const handleUserInteraction = async () => {
-      if (typeof window === 'undefined') return;
+    if (globalAudioUnlocked) return undefined;
 
-      try {
-        window.__userHasInteracted = true;
+    let disposed = false;
 
-        // Unlock WebAudio silently
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        if (AudioCtx) {
-          try {
-            const ctx = new AudioCtx();
-            if (ctx.state === 'suspended') {
-              await ctx.resume();
-            }
-            const buf = ctx.createBuffer(1, 1, 22050);
-            const srcNode = ctx.createBufferSource();
-            srcNode.buffer = buf;
-            srcNode.connect(ctx.destination);
-            srcNode.start(0);
-          } catch (_) {}
-        }
+    const markUnlocked = () => {
+      if (disposed || globalAudioUnlocked) return;
+      updateGlobalState({ soundReady: true });
+      detach();
 
-        // Unlock HTML5 Audio element specifically for iOS WebKit using a tiny silent audio clip
-        if (!globalAudio && typeof window !== 'undefined') {
-          globalAudio = new Audio();
-          globalAudio.preload = 'auto';
-          globalAudio.volume = 1;
-          // Silent MP3 base64 to safely unlock the Audio element without any "leaked" sound
-          globalAudio.src = 'data:audio/mpeg;base64,//OlkAAAAAAAAAAAAAAAAAAAAAAASWAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-        }
-        if (globalAudio) {
-          try {
-            const p = globalAudio.play();
-            if (p && typeof p.then === 'function') {
-              p.then(() => {
-                globalAudio.pause();
-                globalAudio.currentTime = 0;
-                // Once unlocked, switch to the actual alert sound so it's ready
-                preloadAudio().then(src => {
-                  if (globalAudio) globalAudio.src = src;
-                });
-              }).catch(() => {
-                // If it failed to play, still try to load the actual source
-                preloadAudio().then(src => {
-                  if (globalAudio) globalAudio.src = src;
-                });
-              });
-            }
-          } catch (_) {}
-        }
-
-        // If there's an active order pending that isn't muted, resume the alarm immediately!
-        if (globalActiveOrder && !globalIsMuted && !isOrderMuted(globalActiveOrder)) {
-          playGlobalNotificationSound(globalActiveOrder);
-          startGlobalAlertLoop(globalActiveOrder);
-        }
-      } catch (error) {
-        // ignore
+      // A pending order that arrived before the tap should start ringing now.
+      if (globalActiveOrder && !globalIsMuted && !isOrderMuted(globalActiveOrder)) {
+        playGlobalNotificationSound(globalActiveOrder);
+        startGlobalAlertLoop(globalActiveOrder);
       }
-
-      document.removeEventListener('click', handleUserInteraction);
-      document.removeEventListener('touchstart', handleUserInteraction);
-      document.removeEventListener('keydown', handleUserInteraction);
-      window.removeEventListener('pointerdown', handleUserInteraction);
     };
 
-    document.addEventListener('click', handleUserInteraction, { once: true });
-    document.addEventListener('touchstart', handleUserInteraction, { once: true });
-    document.addEventListener('keydown', handleUserInteraction, { once: true });
-    window.addEventListener('pointerdown', handleUserInteraction, { once: true, passive: true });
+    const handleUserInteraction = async () => {
+      if (disposed || typeof window === 'undefined') return;
+      window.__userHasInteracted = true;
+
+      // WebAudio, used by the synthesized fallback chime.
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          if (ctx.state === 'suspended') await ctx.resume();
+          const source = ctx.createBufferSource();
+          source.buffer = ctx.createBuffer(1, 1, 22050);
+          source.connect(ctx.destination);
+          source.start(0);
+        }
+      } catch {
+        /* the media element below is the one that matters */
+      }
+
+      // The media element itself. Played silently so nothing leaks audibly, but it
+      // must be a real play() inside this gesture for the browser to remember it.
+      try {
+        if (!globalAudio) {
+          globalAudio = new Audio();
+          globalAudio.preload = 'auto';
+        }
+        globalAudio.muted = true;
+        globalAudio.src = SILENT_AUDIO_DATA_URI;
+
+        await globalAudio.play();
+
+        globalAudio.pause();
+        globalAudio.currentTime = 0;
+        globalAudio.muted = false;
+        globalAudio.volume = 1;
+
+        // Swap in the real alert now that the element is unlocked.
+        const src = await preloadAudio();
+        if (globalAudio) globalAudio.src = src;
+
+        markUnlocked();
+      } catch {
+        // Gesture rejected (or arrived too early). Stay attached and try the next one.
+      }
+    };
+
+    const events = ['pointerdown', 'click', 'touchend', 'keydown'];
+    const detach = () => {
+      events.forEach((event) => document.removeEventListener(event, handleUserInteraction));
+    };
+    events.forEach((event) =>
+      document.addEventListener(event, handleUserInteraction, { passive: true }),
+    );
 
     return () => {
-      document.removeEventListener('click', handleUserInteraction);
-      document.removeEventListener('touchstart', handleUserInteraction);
-      document.removeEventListener('keydown', handleUserInteraction);
-      window.removeEventListener('pointerdown', handleUserInteraction);
+      disposed = true;
+      detach();
     };
   }, []);
 
@@ -1023,6 +1042,7 @@ export const useRestaurantNotifications = () => {
     clearNewReservation,
     isConnected: localState.isConnected,
     isMuted: localState.isMuted,
+    soundReady: localState.soundReady,
     setMuted,
     playNotificationSound: playGlobalNotificationSound,
     stopSound: stopGlobalAlertLoop,

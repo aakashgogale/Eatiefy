@@ -1588,10 +1588,15 @@ export async function updateOrderStatusRestaurant(
     console.error("[DEBUG] Error emitting status update to restaurant:", err);
   }
 
-  // Real-time: delivery request / ready notifications.
+  // Delivery dispatch + ready notifications.
+  //
+  // Dispatch is business logic, NOT a realtime concern: it must run whether or not
+  // this process happens to hold a Socket.IO server. Gating it on `io` meant that in
+  // any process without one (a worker, or an API whose socket init failed) accepting
+  // an order silently never reached a single delivery partner.
   try {
     const io = getIO();
-    if (io) {
+    {
       // On accept (confirmed, preparing, or ready_for_pickup) -> request delivery partners via central logic
       if (
         (String(orderStatus) === "preparing" || String(orderStatus) === "confirmed" || String(orderStatus) === "ready_for_pickup") && 
@@ -1621,7 +1626,7 @@ export async function updateOrderStatusRestaurant(
             if (String(orderStatus) === 'ready_for_pickup' && String(from) !== 'ready_for_pickup') {
                 console.log(`[DEBUG] Order ${order._id.toString()} changed to 'ready_for_pickup'.`);
                 const assignedId = order.dispatch?.deliveryPartnerId?.toString?.() || order.dispatch?.deliveryPartnerId;
-                if (assignedId) {
+                if (assignedId && io) {
                     console.log(`[DEBUG] Notifying assigned partner ${assignedId} that order is ready.`);
                     const restaurant = await FoodRestaurant.findById(order.restaurantId).select('restaurantName location addressLine1 area city state').lean();
                     const payload = buildDeliverySocketPayload(order, restaurant);

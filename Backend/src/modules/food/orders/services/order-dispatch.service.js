@@ -95,10 +95,23 @@ async function listNearbyOnlineDeliveryPartners(
 
   if (!restaurant?.location?.coordinates?.length) {
     // Without restaurant coords we cannot safely match riders by zone/proximity.
+    logger.error(
+      `[Dispatch] Restaurant ${rId} has no location.coordinates — no rider can be matched. ` +
+      `Fix the outlet pin in Zone setup.`,
+    );
     return { restaurant: null, partners: [] };
   }
 
   const [rLng, rLat] = restaurant.location.coordinates;
+
+  // Counted so an empty result can explain *why* it is empty. Without these a failed
+  // dispatch looks identical to a healthy one that simply found nobody, and the only
+  // way to tell them apart on a live server is to query Mongo by hand.
+  const [totalPartners, approvedPartners] = await Promise.all([
+    FoodDeliveryPartner.countDocuments({}),
+    FoodDeliveryPartner.countDocuments({ status: { $nin: ['deactivated', 'rejected', 'blocked'] } }),
+  ]);
+
   const allOnline = await FoodDeliveryPartner.find({
     availabilityStatus: "online",
     status: { $nin: ['deactivated', 'rejected', 'blocked'] },
@@ -106,6 +119,7 @@ async function listNearbyOnlineDeliveryPartners(
     .select("_id status lastLat lastLng lastLocationAt name phone userId")
     .lean();
 
+  let outOfRange = 0;
   const scored = [];
 
   for (const p of allOnline) {
@@ -114,7 +128,10 @@ async function listNearbyOnlineDeliveryPartners(
     if (p.lastLat != null && p.lastLng != null && Number.isFinite(p.lastLat) && Number.isFinite(p.lastLng)) {
       const d = haversineKm(rLat, rLng, p.lastLat, p.lastLng);
       if (Number.isFinite(d)) {
-        if (d > maxKm) continue; // Outside current search radius
+        if (d > maxKm) {
+          outOfRange += 1;
+          continue; // Outside current search radius
+        }
         distanceKm = d;
       }
     }
@@ -131,6 +148,22 @@ async function listNearbyOnlineDeliveryPartners(
 
   scored.sort((a, b) => a.distanceKm - b.distanceKm);
   const picked = scored.slice(0, Math.max(1, limit));
+
+  if (picked.length === 0) {
+    logger.warn(
+      `[Dispatch] No rider matched for restaurant ${rId} within ${maxKm}km. ` +
+      `partners_total=${totalPartners} approved=${approvedPartners} ` +
+      `online=${allOnline.length} out_of_range=${outOfRange}. ` +
+      (allOnline.length === 0
+        ? 'Cause: no partner has availabilityStatus="online" — riders must go online in the app.'
+        : 'Cause: every online rider is farther than the search radius.'),
+    );
+  } else {
+    logger.info(
+      `[Dispatch] Matched ${picked.length} rider(s) for restaurant ${rId} within ${maxKm}km ` +
+      `(online=${allOnline.length}, out_of_range=${outOfRange}).`,
+    );
+  }
 
   return { partners: picked };
 }
@@ -152,6 +185,47 @@ export async function updateDispatchSettings(dispatchMode, adminId) {
     { upsert: true, new: true },
   );
   return getDispatchSettings();
+}
+
+/**
+ * Schedules the next dispatch attempt.
+ *
+ * BullMQ is the durable path, but `addOrderJob` is a silent no-op when the queue is
+ * unavailable (Redis down, BULLMQ_ENABLED=false). Dispatch retries are the only
+ * thing that gets an order to a rider who comes online a minute later, so losing
+ * them strands the order forever. When the queue cannot take the job we fall back
+ * to an in-process timer: weaker than a queue — it does not survive a restart — but
+ * far better than dropping the retry entirely.
+ *
+ * @param {import('mongoose').Types.ObjectId|string} orderMongoId
+ * @param {number} nextAttempt
+ * @param {number} delayMs
+ */
+async function scheduleDispatchRetry(orderMongoId, nextAttempt, delayMs) {
+  const id = String(orderMongoId);
+  const payload = {
+    action: 'DISPATCH_TIMEOUT_CHECK',
+    orderMongoId: id,
+    orderId: id,
+    attempt: nextAttempt,
+  };
+
+  try {
+    const job = await addOrderJob(payload, { delay: delayMs });
+    if (job) return;
+  } catch (err) {
+    logger.error(`[Dispatch] Failed to queue retry for order ${id}: ${err.message}`);
+  }
+
+  logger.warn(
+    `[Dispatch] Queue unavailable — retrying order ${id} via in-process timer in ${delayMs}ms ` +
+    `(attempt ${nextAttempt}). Enable Redis + BULLMQ_ENABLED for retries that survive a restart.`,
+  );
+  setTimeout(() => {
+    tryAutoAssign(id, { attempt: nextAttempt }).catch((err) =>
+      logger.error(`[Dispatch] In-process retry failed for order ${id}: ${err.message}`),
+    );
+  }, delayMs).unref?.();
 }
 
 export async function tryAutoAssign(orderId, options = {}) {
@@ -279,12 +353,8 @@ export async function tryAutoAssign(orderId, options = {}) {
       }
 
       // Re-queue itself to keep trying
-      await addOrderJob({
-        action: 'DISPATCH_TIMEOUT_CHECK',
-        orderMongoId: order._id.toString(),
-        orderId: order._id.toString(),
-        attempt: attempt + 1
-      }, { delay: 30000 }); // Retry faster (30s) if no one found
+      // Retry faster (30s) when nobody was found at all.
+      await scheduleDispatchRetry(order._id, attempt + 1, 30000);
 
       return order;
     }
@@ -347,12 +417,7 @@ export async function tryAutoAssign(orderId, options = {}) {
     await order.save();
 
     // Re-check in 60s
-    await addOrderJob({
-      action: 'DISPATCH_TIMEOUT_CHECK',
-      orderMongoId: order._id.toString(),
-      orderId: order._id.toString(),
-      attempt: attempt + 1
-    }, { delay: 60000 });
+    await scheduleDispatchRetry(order._id, attempt + 1, 60000);
 
     return order;
   } finally {
