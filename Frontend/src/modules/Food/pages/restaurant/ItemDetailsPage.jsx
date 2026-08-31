@@ -400,11 +400,7 @@ export default function ItemDetailsPage() {
   }
 
   const handleCameraClick = () => {
-    if (isFlutterBridgeAvailable()) {
-      setIsPhotoPickerOpen(true)
-    } else {
-      fileInputRef.current?.click()
-    }
+    setIsPhotoPickerOpen(true)
   }
 
   const handleImageDelete = (index) => {

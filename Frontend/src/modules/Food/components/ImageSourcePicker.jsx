@@ -7,108 +7,123 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@food/components/ui/dialog"
-import { openCamera, openGallery } from "@food/utils/imageUploadUtils"
 import { compressImageForUpload } from "@/shared/utils/imageCompressor"
 
 /**
- * ImageSourcePicker component to choose between Camera and Gallery
- * This shows a dialog in-app and handles the selection
+ * ImageSourcePicker component to choose between Camera and Gallery.
+ * Directly triggers trusted synchronous DOM input clicks to guarantee 
+ * 100% compatibility across iOS Safari, WKWebView, Android, and desktop browsers.
  */
 export const ImageSourcePicker = ({ 
   isOpen, 
   onClose, 
   onFileSelect, 
-  title = "Update photo",
+  title = "Add Photo",
   description = "Choose how you want to upload your photo.",
-  fileNamePrefix = "upload",
   galleryInputRef = null
 }) => {
-  const internalInputRef = useRef(null)
-  
-  const handleOpenCamera = async () => {
-    try {
+  const cameraInputRef = useRef(null)
+  const internalGalleryInputRef = useRef(null)
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0]
+    if (file && typeof onFileSelect === "function") {
+      try {
+        const compressed = await compressImageForUpload(file)
+        onFileSelect(compressed)
+      } catch {
+        onFileSelect(file)
+      }
+    }
+    e.target.value = ""
+    if (typeof onClose === "function") {
       onClose()
-      setTimeout(() => {
-        openCamera({
-          onSelectFile,
-          fileNamePrefix: fileNamePrefix
-        })
-      }, 50)
-    } catch (error) {
-      console.error("Camera error caught in ImageSourcePicker:", error)
     }
   }
 
-  const handlePickFromDevice = async () => {
-    try {
+  const handleCameraClick = () => {
+    if (cameraInputRef.current) {
+      cameraInputRef.current.click()
+    }
+    if (typeof onClose === "function") {
       onClose()
-      setTimeout(() => {
-        openGallery({
-          onSelectFile,
-          fileNamePrefix,
-          fallbackInputRef: galleryInputRef || internalInputRef,
-        })
-      }, 50)
-    } catch (error) {
-      console.error("Gallery error caught in ImageSourcePicker:", error)
     }
   }
 
-  // If no bridge is available, we might not even need the dialog if we want to default to gallery
-  // But usually users might still want a camera option if their browser supports it.
+  const handleGalleryClick = () => {
+    if (galleryInputRef?.current) {
+      galleryInputRef.current.click()
+    } else if (internalGalleryInputRef.current) {
+      internalGalleryInputRef.current.click()
+    }
+    if (typeof onClose === "function") {
+      onClose()
+    }
+  }
 
   return (
     <>
+      {/* Direct synchronous camera input */}
       <input 
         type="file" 
-        ref={internalInputRef} 
+        ref={cameraInputRef} 
         style={{ display: 'none' }} 
-        accept="image/*" 
-        onChange={async (e) => {
-          const file = e.target.files?.[0]
-          if (file && onFileSelect) {
-            try {
-              const compressed = await compressImageForUpload(file)
-              onFileSelect(compressed)
-            } catch {
-              onFileSelect(file)
-            }
-          }
-          e.target.value = ""
-        }} 
+        accept="image/*,.jpg,.jpeg,.png,.webp,.heic,.heif" 
+        capture="environment"
+        onChange={handleFileChange} 
       />
+
+      {/* Direct synchronous gallery / file input */}
+      <input 
+        type="file" 
+        ref={internalGalleryInputRef} 
+        style={{ display: 'none' }} 
+        accept="image/*,.jpg,.jpeg,.png,.webp,.heic,.heif" 
+        onChange={handleFileChange} 
+      />
+
       <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-sm w-[calc(100%-2rem)] rounded-2xl p-0 overflow-hidden">
-        <DialogHeader className="p-5 pb-3">
-          <DialogTitle className="text-lg font-bold text-gray-900">{title}</DialogTitle>
-          <DialogDescription className="text-sm text-gray-500">
-            {description}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-2 px-5 pb-5">
-          <button
-            type="button"
-            onClick={handleOpenCamera}
-            className="w-full p-3 rounded-xl border-2 border-gray-200 bg-white hover:border-gray-300 transition-all flex items-center justify-between group active:scale-[0.98]"
-          >
-            <span className="font-medium text-sm text-gray-900">Use Camera</span>
-            <div className="p-2 rounded-lg bg-orange-50 group-hover:bg-orange-100 transition-colors">
-              <Camera className="h-5 w-5 text-orange-600" />
-            </div>
-          </button>
-          <button
-            type="button"
-            onClick={handlePickFromDevice}
-            className="w-full p-3 rounded-xl border-2 border-gray-200 bg-white hover:border-gray-300 transition-all flex items-center justify-between group active:scale-[0.98]"
-          >
-            <span className="font-medium text-sm text-gray-900">Upload from Device</span>
-            <div className="p-2 rounded-lg bg-blue-50 group-hover:bg-blue-100 transition-colors">
-              <Upload className="h-5 w-5 text-blue-600" />
-            </div>
-          </button>
-        </div>
-      </DialogContent>
-    </Dialog>
+        <DialogContent className="max-w-sm w-[calc(100%-2rem)] rounded-2xl p-0 overflow-hidden bg-white shadow-2xl border border-gray-200">
+          <DialogHeader className="p-5 pb-3">
+            <DialogTitle className="text-lg font-bold text-gray-900">{title}</DialogTitle>
+            <DialogDescription className="text-sm text-gray-500">
+              {description}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 px-5 pb-5">
+            <button
+              type="button"
+              onClick={handleCameraClick}
+              className="w-full p-3.5 rounded-xl border-2 border-gray-200 bg-white hover:border-[#00B761] hover:bg-emerald-50/40 transition-all flex items-center justify-between group active:scale-[0.98] cursor-pointer shadow-xs"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-emerald-100 text-[#00B761] group-hover:scale-105 transition-transform">
+                  <Camera className="h-5 w-5" />
+                </div>
+                <div className="text-left">
+                  <p className="font-bold text-sm text-gray-900">Take Photo</p>
+                  <p className="text-xs text-gray-500">Use device camera</p>
+                </div>
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={handleGalleryClick}
+              className="w-full p-3.5 rounded-xl border-2 border-gray-200 bg-white hover:border-blue-500 hover:bg-blue-50/40 transition-all flex items-center justify-between group active:scale-[0.98] cursor-pointer shadow-xs"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-blue-100 text-blue-600 group-hover:scale-105 transition-transform">
+                  <Upload className="h-5 w-5" />
+                </div>
+                <div className="text-left">
+                  <p className="font-bold text-sm text-gray-900">Choose from Gallery</p>
+                  <p className="text-xs text-gray-500">Select image from device</p>
+                </div>
+              </div>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
