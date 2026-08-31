@@ -2133,7 +2133,9 @@ export const deliveryAPI = {
         new Error("FormData with details and document files is required"),
       );
     }
-    return apiClient.post("/food/delivery/register", formData);
+    return apiClient.post("/food/delivery/register", formData, {
+      timeout: 120000,
+    });
   },
   /** GET /food/delivery/check-vehicle/:number - check if vehicle number is unique. */
   checkVehicleAvailability: (number) => apiClient.get(`/food/delivery/check-vehicle/${number}`),
@@ -2146,6 +2148,7 @@ export const deliveryAPI = {
     }
     return apiClient.patch("/food/delivery/profile", formData, {
       contextModule: "delivery",
+      timeout: 120000,
     });
   },
   /** PATCH /food/delivery/profile/details - JSON updates (vehicle number, etc). */
@@ -2160,6 +2163,7 @@ export const deliveryAPI = {
     }
     return apiClient.patch("/food/delivery/profile", formData, {
       contextModule: "delivery",
+      timeout: 120000,
     });
   },
   /** POST /food/delivery/profile/photo-base64 - Flutter in-app camera base64 upload. */

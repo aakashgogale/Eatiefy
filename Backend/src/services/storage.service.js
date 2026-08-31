@@ -86,6 +86,14 @@ const ALLOWED_MIME_TYPES = new Set([
     'image/png',
     'image/webp',
     'image/gif',
+    'image/heic',
+    'image/heif',
+    'image/jfif',
+    'image/pjpeg',
+    'image/x-png',
+    'image/bmp',
+    'image/svg+xml',
+    'application/octet-stream',
     'video/mp4',
     'video/webm',
     'video/quicktime',
@@ -194,7 +202,10 @@ const getWebpMaxWidth = () => {
  * GIF is kept as-is (animation). PNG with alpha uses lossless WebP.
  */
 export const optimizeImageForStorage = async (inputBuffer, mimeType) => {
-    const normalizedMime = String(mimeType || '').toLowerCase();
+    let normalizedMime = String(mimeType || 'image/jpeg').toLowerCase();
+    if (normalizedMime === 'application/octet-stream' || !normalizedMime.startsWith('image/')) {
+        normalizedMime = 'image/jpeg';
+    }
 
     if (normalizedMime === GIF_MIME) {
         return {
@@ -204,45 +215,50 @@ export const optimizeImageForStorage = async (inputBuffer, mimeType) => {
         };
     }
 
-    if (!['image/jpeg', 'image/jpg', 'image/png', WEBP_MIME].includes(normalizedMime)) {
-        throw new ValidationError('Unsupported image type');
-    }
+    try {
+        const maxWidth = getWebpMaxWidth();
+        const quality = getWebpQuality();
 
-    const maxWidth = getWebpMaxWidth();
-    const quality = getWebpQuality();
+        const metadata = await sharp(inputBuffer, { failOn: 'none' }).metadata();
+        const needsResize = Boolean(metadata.width && metadata.width > maxWidth);
 
-    const metadata = await sharp(inputBuffer, { failOn: 'none' }).metadata();
-    const needsResize = Boolean(metadata.width && metadata.width > maxWidth);
+        if (normalizedMime === WEBP_MIME && !needsResize) {
+            return {
+                buffer: inputBuffer,
+                mimeType: WEBP_MIME,
+                extension: '.webp'
+            };
+        }
 
-    if (normalizedMime === WEBP_MIME && !needsResize) {
+        let pipeline = sharp(inputBuffer, { failOn: 'none' }).rotate();
+
+        if (needsResize) {
+            pipeline = pipeline.resize({
+                width: maxWidth,
+                withoutEnlargement: true
+            });
+        }
+
+        const hasAlpha = Boolean(metadata.hasAlpha);
+        const webpOptions = hasAlpha
+            ? { lossless: true, effort: 4 }
+            : { quality, effort: 4, smartSubsample: true };
+
+        const outputBuffer = await pipeline.webp(webpOptions).toBuffer();
+
         return {
-            buffer: inputBuffer,
+            buffer: outputBuffer,
             mimeType: WEBP_MIME,
             extension: '.webp'
         };
+    } catch (err) {
+        // Safe fallback if sharp cannot transcode format
+        return {
+            buffer: inputBuffer,
+            mimeType: normalizedMime.includes('png') ? 'image/png' : 'image/jpeg',
+            extension: normalizedMime.includes('png') ? '.png' : '.jpg'
+        };
     }
-
-    let pipeline = sharp(inputBuffer, { failOn: 'none' }).rotate();
-
-    if (needsResize) {
-        pipeline = pipeline.resize({
-            width: maxWidth,
-            withoutEnlargement: true
-        });
-    }
-
-    const hasAlpha = Boolean(metadata.hasAlpha);
-    const webpOptions = hasAlpha
-        ? { lossless: true, effort: 4 }
-        : { quality, effort: 4, smartSubsample: true };
-
-    const outputBuffer = await pipeline.webp(webpOptions).toBuffer();
-
-    return {
-        buffer: outputBuffer,
-        mimeType: WEBP_MIME,
-        extension: '.webp'
-    };
 };
 
 /** Create upload root (and optional subfolder) if missing. */

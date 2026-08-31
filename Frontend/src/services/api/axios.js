@@ -418,9 +418,21 @@ apiClient.interceptors.request.use(
       config.headers["x-eatiefy-client"] = "local-dev";
     }
 
-    const token = getAccessToken(config);
+    const rawPath = String(config.url || "").toLowerCase();
+    const isPublicAuthRoute =
+      rawPath.includes("/register") ||
+      rawPath.includes("/login") ||
+      rawPath.includes("/send-otp") ||
+      rawPath.includes("/verify-otp") ||
+      rawPath.includes("/check-vehicle") ||
+      rawPath.includes("/check-duplicate") ||
+      rawPath.endsWith("/public");
+
+    const token = !isPublicAuthRoute ? getAccessToken(config) : null;
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    } else {
+      delete config.headers.Authorization;
     }
     return config;
   },

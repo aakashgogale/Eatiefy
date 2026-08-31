@@ -622,27 +622,10 @@ export default function SignupStep2() {
       formData.append("platform", platform)
     }
 
-    const isCompleteProfile = sessionStorage.getItem("deliveryNeedsRegistration") === "true"
-    const isAuthenticated = isModuleAuthenticated("delivery")
-
     setIsSubmitting(true)
 
     try {
-      let response
-      if (isAuthenticated && !isCompleteProfile) {
-        try {
-          response = await deliveryAPI.completeProfile(formData)
-        } catch (err) {
-          // If profile update fails due to unauthenticated / missing user in DB, fallback to register
-          if (err?.response?.status === 401 || err?.response?.status === 404 || err?.response?.status === 403) {
-            response = await deliveryAPI.register(formData)
-          } else {
-            throw err
-          }
-        }
-      } else {
-        response = await deliveryAPI.register(formData)
-      }
+      const response = await deliveryAPI.register(formData)
 
       if (response?.data?.success) {
         sessionStorage.removeItem("deliverySignupDetails")
