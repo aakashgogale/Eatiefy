@@ -44,6 +44,29 @@
   --sidebar-accent-foreground: oklch(0.3 0.08 60);
   --sidebar-border: oklch(0.9 0.02 85);
   --sidebar-ring: oklch(0.7 0.15 85);
+
+  /* Live order tracking map.
+     Google Maps cannot read Tailwind classes, so the map's palette lives here as
+     tokens and is resolved at runtime (see utils/mapTheme.js). Restyling the map
+     — or theming it per brand — means editing these values, nothing else. */
+  --map-surface: #f1f3f4;
+  --map-road: #ffffff;
+  --map-road-stroke: #e6e8ea;
+  --map-water: #d9e4ea;
+  --map-park: #e6efe4;
+  --map-label: #8a8f98;
+  --map-label-stroke: #ffffff;
+
+  --map-route: #eb590e;          /* rider -> customer, once picked up */
+  --map-route-casing: #ffffff;
+  --map-route-pending: #9aa1ac;  /* dashed restaurant -> customer, before pickup */
+
+  --map-restaurant: #eb590e;
+  --map-customer: #24963f;
+  --map-rider-pulse: #eb590e;
+
+  --map-badge: #1a1a1a;
+  --map-badge-foreground: #ffffff;
 }
 
 @theme inline {
@@ -111,6 +134,26 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  /* Tracking map — dark surface, same brand route colour. */
+  --map-surface: #16191b;
+  --map-road: #2a2f33;
+  --map-road-stroke: #202528;
+  --map-water: #12252b;
+  --map-park: #1b241d;
+  --map-label: #7c858c;
+  --map-label-stroke: #16191b;
+
+  --map-route: #ff6a1f;
+  --map-route-casing: #0f1113;
+  --map-route-pending: #6b7280;
+
+  --map-restaurant: #ff6a1f;
+  --map-customer: #33b357;
+  --map-rider-pulse: #ff6a1f;
+
+  --map-badge: #1f1f1f;
+  --map-badge-foreground: #ffffff;
 }
 
 @layer base {
