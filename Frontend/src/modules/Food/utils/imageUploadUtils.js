@@ -1,4 +1,31 @@
-import { toast } from "sonner"
+/**
+ * Records why a picker attempt took the path it did.
+ * The real exception is always surfaced here instead of being swallowed
+ * behind a generic toast, and the last few entries stay readable in a
+ * production build via window.__eatiefyImagePicker.
+ */
+export const logPickerDiagnostic = (stage, detail) => {
+  const entry = {
+    stage,
+    at: new Date().toISOString(),
+    detail:
+      detail instanceof Error
+        ? { name: detail.name, message: detail.message, stack: detail.stack }
+        : detail,
+  }
+
+  console.warn(`[image-picker] ${stage}`, entry.detail)
+
+  if (typeof window !== "undefined") {
+    if (!Array.isArray(window.__eatiefyImagePicker)) {
+      window.__eatiefyImagePicker = []
+    }
+    window.__eatiefyImagePicker.push(entry)
+    if (window.__eatiefyImagePicker.length > 20) {
+      window.__eatiefyImagePicker.shift()
+    }
+  }
+}
 
 const openTransientImageInput = ({
   onSelectFile,
@@ -150,16 +177,18 @@ export const isFlutterBridgeAvailable = () => {
 export const openCamera = async ({ onSelectFile, fileNamePrefix = "camera-photo", quality = 0.8 }) => {
   if (typeof onSelectFile !== "function") return
 
-  const triggerCameraFallback = () => {
+  const triggerCameraFallback = (reason) => {
+    logPickerDiagnostic("camera:fallback", { reason })
     try {
       openBrowserCameraFallback(onSelectFile)
     } catch (e) {
+      logPickerDiagnostic("camera:fallback-failed", e)
       openTransientImageInput({ onSelectFile, accept: "image/*" })
     }
   }
 
   if (!isFlutterBridgeAvailable()) {
-    triggerCameraFallback()
+    triggerCameraFallback("no-flutter-bridge")
     return
   }
 
@@ -201,12 +230,17 @@ export const openCamera = async ({ onSelectFile, fileNamePrefix = "camera-photo"
       }
     }
 
-    if (!result || result.success === false) {
-      triggerCameraFallback()
+    if (!result) {
+      triggerCameraFallback("bridge-timeout-or-no-handler")
+      return
+    }
+
+    if (result.success === false) {
+      triggerCameraFallback({ reason: "bridge-reported-failure", result })
     }
   } catch (error) {
-    console.warn("Camera bridge failed, falling back to browser camera:", error)
-    triggerCameraFallback()
+    logPickerDiagnostic("camera:bridge-threw", error)
+    triggerCameraFallback("bridge-threw")
   }
 }
 
@@ -221,7 +255,11 @@ export const openGallery = async ({
 }) => {
   if (typeof onSelectFile !== "function") return
 
-  const triggerGalleryFallback = () => {
+  const triggerGalleryFallback = (reason) => {
+    logPickerDiagnostic("gallery:fallback", {
+      reason,
+      usingFallbackInputRef: Boolean(fallbackInputRef?.current),
+    })
     try {
       if (fallbackInputRef?.current && typeof fallbackInputRef.current.click === "function") {
         fallbackInputRef.current.click()
@@ -232,6 +270,7 @@ export const openGallery = async ({
         accept: "image/*",
       })
     } catch (e) {
+      logPickerDiagnostic("gallery:fallback-input-click-failed", e)
       openTransientImageInput({
         onSelectFile,
         accept: "image/*",
@@ -240,7 +279,7 @@ export const openGallery = async ({
   }
 
   if (!isFlutterBridgeAvailable()) {
-    triggerGalleryFallback()
+    triggerGalleryFallback("no-flutter-bridge")
     return
   }
 
@@ -276,16 +315,26 @@ export const openGallery = async ({
       }
 
       if (selectedFile) {
+        logPickerDiagnostic("gallery:bridge-success", { mimeType, originalFileName })
         onSelectFile(selectedFile)
         return
       }
+
+      triggerGalleryFallback("bridge-success-without-usable-file")
+      return
     }
 
-    if (!result || result.success === false) {
-      triggerGalleryFallback()
+    if (!result) {
+      // Handler is not registered on the Flutter side, or never answered.
+      triggerGalleryFallback("bridge-timeout-or-no-handler")
+      return
+    }
+
+    if (result.success === false) {
+      triggerGalleryFallback({ reason: "bridge-reported-failure", result })
     }
   } catch (error) {
-    console.warn("Flutter gallery bridge failed, falling back to file picker:", error)
-    triggerGalleryFallback()
+    logPickerDiagnostic("gallery:bridge-threw", error)
+    triggerGalleryFallback("bridge-threw")
   }
 }
