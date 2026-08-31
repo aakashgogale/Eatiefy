@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import io from 'socket.io-client';
+import { createAppSocket, getSocketAuthToken } from '@food/api/socketClient';
 import { API_BASE_URL } from '@food/api/config';
 import { deliveryAPI } from '@food/api';
 const alertSound = '/assets/media/restaurant_alert.mp3';
@@ -971,103 +971,24 @@ export const useDeliveryNotifications = () => {
     fetchDeliveryPartnerId();
   }, []);
 
-  // Socket connection effect (no backend when API_BASE_URL is empty)
+  // Socket connection effect. URL + token resolution lives in socketClient.js.
   useEffect(() => {
-    if (!API_BASE_URL || !String(API_BASE_URL).trim()) {
+
+    const token = getSocketAuthToken('delivery');
+
+    socketRef.current = createAppSocket({
+      role: 'delivery',
+      token,
+      label: 'DeliveryNotifications',
+      socketOptions: { query: token ? { token } : undefined },
+    });
+
+    if (!socketRef.current) {
       setIsConnected(false);
       return;
     }
 
-    // IMPORTANT: Socket.IO server is on the origin (not /api/v1).
-    // Our API baseURL is typically like: http://localhost:5000/api/v1
-    // So for sockets we always connect to: http://localhost:5000
-    let backendUrl = API_BASE_URL;
-    try {
-      const base =
-        String(backendUrl).startsWith('http')
-          ? undefined
-          : (typeof window !== 'undefined' ? window.location.origin : undefined);
-      backendUrl = new URL(backendUrl, base).origin;
-    } catch {
-      // best-effort fallback: strip common API prefixes
-      backendUrl = String(backendUrl || "")
-        .replace(/\/api\/v\d+\/?$/i, "")
-        .replace(/\/api\/?$/i, "")
-        .replace(/\/+$/, "");
-
-      if ((!backendUrl || !backendUrl.startsWith('http')) && typeof window !== 'undefined') {
-        backendUrl = window.location.origin;
-      }
-    }
-    
-    // Backend uses default namespace; rooms handle role separation.
-    const socketUrl = `${backendUrl}`;
-    
-    debugLog('?? Attempting to connect to Delivery Socket.IO:', socketUrl);
-    debugLog('?? Backend URL:', backendUrl);
-    debugLog('?? API_BASE_URL:', API_BASE_URL);
-    debugLog('?? Delivery Partner ID:', deliveryPartnerId);
-    debugLog('?? Environment: (ui-only mode)');
-    
-    // Block localhost only in production builds. In dev, localhost is expected.
-    if (import.meta.env.PROD && backendUrl.includes('localhost')) {
-      debugError('? CRITICAL: Trying to connect Socket.IO to localhost in production!');
-      debugError('?? Current socketUrl:', socketUrl);
-      debugError('?? Current API_BASE_URL:', API_BASE_URL);
-      setIsConnected(false);
-      return;
-    }
-    
-    // Validate backend URL format
-    if (!backendUrl || !backendUrl.startsWith('http')) {
-      debugError('? CRITICAL: Invalid backend URL format:', backendUrl);
-      debugError('?? API_BASE_URL:', API_BASE_URL);
-      debugError('?? Expected format: https://your-domain.com or ');
-      return; // Don't try to connect with invalid URL
-    }
-    
-    // Validate socket URL format
-    try {
-      new URL(socketUrl); // This will throw if URL is invalid
-    } catch (urlError) {
-      debugError('? CRITICAL: Invalid Socket.IO URL:', socketUrl);
-      debugError('?? URL validation error:', urlError.message);
-      debugError('?? Backend URL:', backendUrl);
-      debugError('?? API_BASE_URL:', API_BASE_URL);
-      return; // Don't try to connect with invalid URL
-    }
-
-    const token = localStorage.getItem('delivery_accessToken') || localStorage.getItem('accessToken');
-    const tokenPreview = token ? `${String(token).slice(0, 12)}...` : null;
-    debugLog('Preparing socket auth payload', {
-      tokenPresent: Boolean(token),
-      tokenPreview,
-      deliveryPartnerId,
-      socketUrl,
-    });
-
-    socketRef.current = io(socketUrl, {
-      path: '/socket.io/',
-      transports: ['websocket', 'polling'], // WebSocket first for instant connection
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      reconnectionAttempts: Infinity,
-      timeout: 20000,
-      auth: {
-        token: token || ""
-      },
-      query: token ? { token } : undefined,
-    });
-
-    debugLog('Socket.IO client created', {
-      socketUrl,
-      path: '/socket.io/',
-      transports: ['polling', 'websocket'],
-      tokenPresent: Boolean(token),
-      tokenPreview,
-      deliveryPartnerId,
-    });
+    debugLog('Socket.IO client created', { tokenPresent: Boolean(token), deliveryPartnerId });
 
     socketRef.current.on('connect', () => {
       debugLog('Socket connected', {
@@ -1104,11 +1025,8 @@ export const useDeliveryNotifications = () => {
         description: error?.description,
         context: error?.context,
         data: error?.data,
-        socketUrl,
-        apiBaseUrl: API_BASE_URL,
         deliveryPartnerId,
         tokenPresent: Boolean(token),
-        tokenPreview,
         transport: socketRef.current?.io?.engine?.transport?.name || 'unknown',
       });
       setIsConnected(false);
@@ -1129,11 +1047,7 @@ export const useDeliveryNotifications = () => {
     });
 
     socketRef.current.on('reconnect_attempt', (attemptNumber) => {
-      debugWarn('Reconnection attempt', {
-        attemptNumber,
-        socketUrl,
-        deliveryPartnerId,
-      });
+      debugWarn('Reconnection attempt', { attemptNumber, deliveryPartnerId });
     });
 
     socketRef.current.on('reconnect', (attemptNumber) => {

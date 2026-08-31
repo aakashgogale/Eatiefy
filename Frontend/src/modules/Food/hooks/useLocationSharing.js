@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
-import io from 'socket.io-client';
-import { API_BASE_URL } from '@food/api/config';
+import { createAppSocket } from '@food/api/socketClient';
 import { writeDeliveryLocation, writeOrderTracking } from '@food/realtimeTracking';
 
 function calculateDistance(lat1, lng1, lat2, lng2) {
@@ -26,23 +25,21 @@ export const useLocationSharing = (orderId, enabled = false) => {
       '',
   );
 
-  const backendUrl = API_BASE_URL ? API_BASE_URL.replace('/api', '') : '';
-
   const startSharing = () => {
     if (!orderId || isSharingRef.current) return;
-    // Backend disconnected - new backend in progress. Do not open Socket.
-    if (!API_BASE_URL || !backendUrl || !backendUrl.startsWith('http')) return;
 
     if (!socketRef.current) {
-      socketRef.current = io(backendUrl, {
-        transports: ['websocket', 'polling'],
-        reconnection: true,
-        reconnectionDelay: 1000,
-        reconnectionAttempts: 5
+      socketRef.current = createAppSocket({
+        role: 'delivery',
+        label: 'LocationSharing',
+        socketOptions: { reconnectionAttempts: 5 },
       });
+      if (!socketRef.current) return;
 
+      // The server derives the partner from the JWT; join-delivery takes the
+      // partner id, not the order id.
       socketRef.current.on('connect', () => {
-        socketRef.current.emit('join-delivery', orderId);
+        socketRef.current?.emit('join-delivery', deliveryIdRef.current || undefined);
       });
     }
 

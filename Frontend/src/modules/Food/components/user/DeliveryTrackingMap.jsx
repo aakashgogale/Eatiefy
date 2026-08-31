@@ -6,8 +6,7 @@ import {
   DirectionsService, 
   Polyline
 } from '@react-google-maps/api';
-import io from 'socket.io-client';
-import { API_BASE_URL } from '@food/api/config';
+import { createAppSocket } from '@food/api/socketClient';
 import bikeLogo from '@food/assets/deliveryboy-3d.jpeg';
 import mapRiderIcon from '@food/assets/MapRider.png';
 import { subscribeOrderTracking, subscribeDeliveryLocation } from '@food/realtimeTracking';
@@ -129,10 +128,6 @@ const DeliveryTrackingMap = ({
     ).trim();
   }, [order?.deliveryPartnerId, order?.dispatch?.deliveryPartnerId, order?.deliveryPartner?._id, order?.deliveryPartner?.id]);
 
-  const backendUrl = useMemo(() => {
-    return (API_BASE_URL || '').replace(/\/api\/v1\/?$/i, '').replace(/\/api\/?$/i, '');
-  }, []);
-
   // 1. Initial State from Order Payload
   useEffect(() => {
     const loc = order?.deliveryState?.currentLocation || 
@@ -242,13 +237,13 @@ const DeliveryTrackingMap = ({
     window.addEventListener('riderLocationUpdate', handleGlobalLocation);
 
     // C. Dedicated Socket.IO Connection with Auto-reconnect & join
-    const token = localStorage.getItem('user_accessToken') || localStorage.getItem('accessToken') || '';
-    const socket = io(backendUrl, {
-      transports: ['websocket', 'polling'],
-      auth: { token },
-      reconnection: true,
-      reconnectionDelay: 1000,
-    });
+    const socket = createAppSocket({ role: 'user', label: 'DeliveryTrackingMap' });
+    if (!socket) {
+      return () => {
+        unsubs.forEach((u) => u?.());
+        window.removeEventListener('riderLocationUpdate', handleGlobalLocation);
+      };
+    }
     socketRef.current = socket;
 
     socket.on('connect', () => {
@@ -267,7 +262,7 @@ const DeliveryTrackingMap = ({
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [trackingIdsKey, deliveryPartnerId, backendUrl, handleNewRiderPosition]);
+  }, [trackingIdsKey, deliveryPartnerId, handleNewRiderPosition]);
 
   // 3. Smooth 60 FPS Gliding Animation Loop (Continuous LERP + EaseOut)
   useEffect(() => {

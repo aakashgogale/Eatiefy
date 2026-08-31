@@ -5,6 +5,7 @@ import { isOriginAllowed } from './cors.js';
 import { logger } from '../utils/logger.js';
 import { verifyAccessToken } from '../core/auth/token.util.js';
 import { getFirebaseDB } from './firebase.js';
+import { getSocketEmitter, warnEmitterDegradedOnce } from './socketEmitter.js';
 
 import { canDeliveryPartnerUpdateOrderLocation } from './socketAuthz.js';
 
@@ -489,14 +490,26 @@ export const initSocket = async (server) => {
 };
 
 /**
- * Returns the initialized Socket.IO instance.
- * @returns {Server | null}
+ * Returns something that can emit realtime events from the current process.
+ *
+ * - API process: the real Socket.IO server created by `initSocket`.
+ * - BullMQ worker process: the Redis-backed emitter from `socketEmitter.js`
+ *   (must be initialized via `initSocketEmitter()` during worker bootstrap).
+ *
+ * Both expose the same `.to(room).emit(event, payload)` surface, so every call
+ * site works unchanged. Returns null only when neither transport is available,
+ * in which case the caller's existing `if (io)` guard skips the emit.
+ *
+ * @returns {Server | import('@socket.io/redis-emitter').Emitter | null}
  */
 export const getIO = () => {
-    if (!io) {
-        logger.warn('Socket.IO not initialized');
-    }
-    return io;
+    if (io) return io;
+
+    const emitter = getSocketEmitter();
+    if (emitter) return emitter;
+
+    warnEmitterDegradedOnce();
+    return null;
 };
 
 export const rooms = roomNames;

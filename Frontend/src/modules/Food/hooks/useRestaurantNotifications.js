@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import io from 'socket.io-client';
+import { createAppSocket } from '@food/api/socketClient';
 import { toast } from 'sonner';
-import { API_BASE_URL } from '@food/api/config';
 import { restaurantAPI } from '@food/api';
 import { dispatchNotificationInboxRefresh } from '@food/hooks/useNotificationInbox';
 import {
@@ -575,10 +574,6 @@ export const useRestaurantNotifications = () => {
 
   // Handle socket connection and listeners globally
   useEffect(() => {
-    if (!API_BASE_URL || !String(API_BASE_URL).trim()) {
-      updateGlobalState({ socketConnected: false });
-      return;
-    }
     if (!restaurantId) {
       return;
     }
@@ -597,75 +592,26 @@ export const useRestaurantNotifications = () => {
 
     globalActiveRestaurantId = restaurantId;
 
-    let backendUrl = API_BASE_URL;
-    try {
-      const urlObj = new URL(backendUrl);
-      let pathname = urlObj.pathname.replace(/^\/api\/?$/, '');
-      backendUrl = `${urlObj.protocol}//${urlObj.hostname}${urlObj.port ? `:${urlObj.port}` : ''}${pathname}`;
-    } catch (e) {
-      backendUrl = backendUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '');
-      if (backendUrl.startsWith('https:') || backendUrl.startsWith('http:')) {
-        const protocolMatch = backendUrl.match(/^(https?):/i);
-        if (protocolMatch) {
-          const protocol = protocolMatch[1].toLowerCase();
-          const cleanPath = backendUrl.substring(protocol.length + 1).replace(/^\/+/, '');
-          backendUrl = `${protocol}://${cleanPath}`;
-        }
-      }
-    }
-    backendUrl = backendUrl.replace(/^(https?):\/+/gi, '$1://').replace(/\/+$/, '');
+    globalSocket = createAppSocket({
+      role: 'restaurant',
+      label: 'RestaurantNotifications',
+      socketOptions: { forceNew: false, autoConnect: true },
+    });
 
-    const frontendHostname = window.location.hostname;
-    const isLocalhost = frontendHostname === 'localhost' || frontendHostname === '127.0.0.1' || frontendHostname === '';
-    const isProductionBuild = import.meta.env.MODE === 'production' || import.meta.env.PROD;
-    const isProductionDeployment = !isLocalhost && (window.location.protocol === 'https:' || frontendHostname.includes('.'));
-    const backendIsLocalhost = backendUrl.includes('localhost') || backendUrl.includes('127.0.0.1');
-
-    if (backendIsLocalhost && (isProductionBuild || isProductionDeployment) && !isLocalhost) {
+    if (!globalSocket) {
       updateGlobalState({ socketConnected: false });
       return;
     }
 
-    let socketOrigin = backendUrl;
-    try {
-      socketOrigin = new URL(backendUrl).origin;
-    } catch {
-      socketOrigin = String(backendUrl || "").replace(/\/api\/v\d+\/?$/i, "").replace(/\/api\/?$/i, "").replace(/\/+$/, "");
-    }
-
-    const socketUrl = `${socketOrigin}`;
-
-    try {
-      new URL(socketUrl);
-    } catch {
+    globalSocket.on('connect_error', () => {
+      globalSocketConnected = false;
       updateGlobalState({ socketConnected: false });
-      return;
-    }
-
-    globalSocket = io(socketUrl, {
-      path: '/socket.io/',
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      reconnectionAttempts: Infinity,
-      timeout: 20000,
-      forceNew: false,
-      autoConnect: true,
-      auth: {
-        token: localStorage.getItem('restaurant_accessToken') || localStorage.getItem('accessToken')
-      }
     });
 
     globalSocket.on('connect', () => {
       globalSocketConnected = true;
       updateGlobalState({ socketConnected: true });
       globalSocket?.emit('join-restaurant', restaurantId);
-    });
-
-    globalSocket.on('connect_error', () => {
-      globalSocketConnected = false;
-      updateGlobalState({ socketConnected: false });
     });
 
     globalSocket.on('disconnect', (reason) => {

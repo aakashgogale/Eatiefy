@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useSearchParams } from "react-router-dom"
-import io from "socket.io-client"
+import { createAppSocket } from "@food/api/socketClient"
 import { FileText, Package } from "lucide-react"
 import { adminAPI } from "@food/api"
 import { API_BASE_URL } from "@food/api/config"
@@ -846,20 +846,10 @@ export default function OrdersPage({ statusKey = "all" }) {
   useEffect(() => {
     if (statusKey !== "all") return undefined
 
-    const backendUrl = API_BASE_URL.replace(/\/api\/?$/, "")
-    // Backend disconnected - do not open Socket.IO (new backend in progress)
-    if (!API_BASE_URL || !backendUrl || !backendUrl.startsWith("http")) {
+    const socket = createAppSocket({ role: "admin", label: "AdminOrders" })
+    if (!socket) {
       return undefined
     }
-
-    const socket = io(backendUrl, {
-      transports: ["websocket", "polling"],
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      timeout: 20000,
-    })
     socketRef.current = socket
 
     const handleIncomingRealtimeOrder = (payload = {}) => {

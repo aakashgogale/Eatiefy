@@ -9,6 +9,15 @@
  * - Start Redis BEFORE enabling REDIS_ENABLED / BULLMQ_ENABLED in .env
  * - API never crashes if Redis blips (queues degrade gracefully)
  * - Workers wait for Redis, then exit 0 (not 1) so PM2 doesn't hard crash-loop
+ *
+ * Realtime (Socket.IO):
+ * - Sockets are served by `eatiefy-api` itself (server.js calls initSocket).
+ *   Do NOT run `npm run start:socket` here — socket_server.js defaults to
+ *   SOCKET_PORT=5010, which collides with the API's PORT and causes EADDRINUSE.
+ * - Workers have no Socket.IO server, so they emit through the Redis emitter
+ *   (src/config/socketEmitter.js). That requires REDIS_ENABLED=true and the API
+ *   running the Redis adapter, otherwise realtime events raised inside jobs
+ *   (dispatch retries, acceptance timeouts) are dropped.
  */
 const api = {
       name: 'eatiefy-api',

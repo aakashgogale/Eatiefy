@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import io from 'socket.io-client';
+import { createAppSocket } from '@food/api/socketClient';
 import { toast } from 'sonner';
-import { API_BASE_URL } from '@food/api/config';
 import { userAPI } from '@food/api';
 import { dispatchNotificationInboxRefresh } from '@food/hooks/useNotificationInbox';
 import { isModuleAuthenticated } from '@food/utils/auth';
@@ -49,41 +48,16 @@ export const useUserNotifications = () => {
   }, []);
 
   useEffect(() => {
-    if (!API_BASE_URL || !String(API_BASE_URL).trim()) {
-      setIsConnected(false);
-      return;
-    }
     if (!userId) {
       return;
     }
 
-    // Normalize backend URL
-    let backendUrl = API_BASE_URL;
-    try {
-      backendUrl = new URL(backendUrl).origin;
-    } catch {
-      backendUrl = String(backendUrl || "")
-        .replace(/\/api\/v\d+\/?$/i, "")
-        .replace(/\/api\/?$/i, "")
-        .replace(/\/+$/, "");
+    socketRef.current = createAppSocket({ role: 'user', label: 'UserNotifications' });
+
+    if (!socketRef.current) {
+      setIsConnected(false);
+      return;
     }
-
-    const socketUrl = `${backendUrl}`;
-    
-    // Auth token
-    const token = localStorage.getItem('user_accessToken') || localStorage.getItem('accessToken');
-    if (!token) return;
-
-    debugLog('🔌 Connecting to User Socket.IO:', socketUrl);
-
-    socketRef.current = io(socketUrl, {
-      path: '/socket.io/',
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      auth: { token },
-      forceNew: false,
-      multiplex: true
-    });
 
     socketRef.current.on('connect', () => {
       debugLog('✅ User Socket connected, userId:', userId);
