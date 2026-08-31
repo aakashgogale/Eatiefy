@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react"
 import { locationAPI, userAPI } from "@food/api"
 import { useProfile } from "@food/context/ProfileContext"
 import apiClient from "@food/api/axios"
+import { acquireLocation, GEO_ERROR } from "@food/utils/liveLocation"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -86,26 +87,41 @@ const setGlobalLocationLoading = (isLoading) => {
 // then rely on localStorage/DB. Live watching is enabled only via explicit user action.
 const AUTO_START_LIVE_WATCH = false
 
-const SERVICE_CITIES = [
-  "Indore",
-  "Bhopal",
-  "Ujjain",
-  "Dewas",
-  "Mhow",
-  "Pithampur",
-  "Rau",
-]
+/**
+ * Cities the platform serves, supplied at runtime by the admin settings payload
+ * (`service_cities`). It exists only to prefer a metro name over a village name
+ * so city-filtered restaurant queries match — when it is empty, the geocoder's own
+ * answer is used unchanged, which is correct in any city.
+ * @returns {string[]}
+ */
+const getServiceCities = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem("eatify_customization_settings") || "{}")
+    const list = saved.service_cities
+    if (Array.isArray(list)) {
+      return list.map((c) => String(c || "").trim()).filter(Boolean)
+    }
+  } catch {
+    /* settings not cached yet */
+  }
+  return []
+}
 
 /**
- * Prefer metro/service city over village/locality (e.g. Dhabli → Indore)
- * so restaurant APIs filtered by city don't return empty lists.
+ * Prefer a served metro city over a village/locality name (e.g. a suburb resolving
+ * to its parent city) so restaurant APIs filtered by city don't return empty lists.
+ * With no configured service cities this returns the geocoded locality as-is.
  */
 export function resolveServiceCity({
   locality = "",
   adminArea2 = "",
   formattedAddress = "",
-  fallback = "Indore",
+  fallback = "",
 } = {}) {
+  const SERVICE_CITIES = getServiceCities()
+  if (SERVICE_CITIES.length === 0) {
+    return String(locality || "").trim() || String(adminArea2 || "").trim() || fallback
+  }
   const findKnown = (text) => {
     const match = String(text || "").match(
       new RegExp(`\\b(${SERVICE_CITIES.join("|")})\\b`, "i"),
@@ -233,7 +249,7 @@ const reverseGeocodeDirect = async (latitude, longitude) => {
             })?.name || ""
           : "",
         formattedAddress,
-        fallback: addrParts.length > 1 ? addrParts[addrParts.length - 2] : "Indore",
+        fallback: addrParts.length > 1 ? addrParts[addrParts.length - 2] : "",
       })
 
       // Keep village/locality as area when city was upgraded to metro name
@@ -275,17 +291,52 @@ const reverseGeocodeDirect = async (latitude, longitude) => {
   return run
 }
 
-// TEMPORARY DEFAULT: Indore (Vijay Nagar) - for App Store submission
-// Remove this constant and revert useLocation initial state when reverting
-const TEMPORARY_DEFAULT_INDORE_LOCATION = {
-  latitude: 22.7533,
-  longitude: 75.8937,
-  city: "Indore",
-  state: "Madhya Pradesh",
-  country: "India",
-  area: "Vijay Nagar",
-  address: "Vijay Nagar, Indore, Madhya Pradesh",
-  formattedAddress: "Vijay Nagar, Indore, Madhya Pradesh",
+/**
+ * Used when the coordinates are known but no address could be resolved. The
+ * coordinates are still correct and usable for distance and delivery; only the
+ * human-readable label is missing, and the UI prompts the user to pick it.
+ */
+const UNRESOLVED_ADDRESS = {
+  city: "",
+  state: "",
+  country: "",
+  area: "",
+  address: "Select location",
+  formattedAddress: "Select location",
+}
+
+/**
+ * "Default Location Mode" lets an admin bypass device permissions and pin every
+ * user to one place. The coordinates come from the admin settings payload
+ * (`default_location`) — nothing is baked into the app. When the mode is on but no
+ * coordinates are configured, we return null and the normal permission flow runs,
+ * because inventing a position would put every user in the wrong city.
+ * @returns {object|null}
+ */
+const readConfiguredDefaultLocation = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem("eatify_customization_settings") || "{}")
+    if (saved.default_location_enabled !== true) return null
+
+    const configured = saved.default_location || {}
+    const latitude = Number(configured.latitude ?? configured.lat)
+    const longitude = Number(configured.longitude ?? configured.lng)
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null
+
+    const formatted = configured.formattedAddress || configured.address || ""
+    return {
+      latitude,
+      longitude,
+      city: configured.city || "",
+      state: configured.state || "",
+      country: configured.country || "",
+      area: configured.area || "",
+      address: configured.address || formatted,
+      formattedAddress: formatted,
+    }
+  } catch {
+    return null
+  }
 }
 
 export const isPlaceholderLocation = (loc) => {
@@ -394,15 +445,10 @@ export function useLocation() {
     try {
       const cached = localStorage.getItem("userLocation")
       if (cached) return JSON.parse(cached)
-      
-      const savedSettings = localStorage.getItem("eatify_customization_settings")
-      const isEnabled = savedSettings ? JSON.parse(savedSettings).default_location_enabled === true : false
-      return isEnabled ? TEMPORARY_DEFAULT_INDORE_LOCATION : null
     } catch {
-      const savedSettings = localStorage.getItem("eatify_customization_settings")
-      const isEnabled = savedSettings ? JSON.parse(savedSettings).default_location_enabled === true : false
-      return isEnabled ? TEMPORARY_DEFAULT_INDORE_LOCATION : null
+      /* corrupt cache — fall through to the configured default */
     }
+    return readConfiguredDefaultLocation()
   })
   const [loading, setLoading] = useState(globalLocationLoading)
 
@@ -415,16 +461,18 @@ export function useLocation() {
           setIsDefaultLocationMode(enabled)
           
           if (!enabled) {
-            // If default location mode is disabled, check if the current userLocation is the default Indore one
+            // Default location mode was switched off: drop a stored copy of the
+            // configured default so the real permission flow runs again.
+            const previousDefault = JSON.parse(saved).default_location || {}
+            const defaultLat = Number(previousDefault.latitude ?? previousDefault.lat)
+            const defaultLng = Number(previousDefault.longitude ?? previousDefault.lng)
             const currentStored = localStorage.getItem("userLocation")
-            if (currentStored) {
+            if (currentStored && Number.isFinite(defaultLat) && Number.isFinite(defaultLng)) {
               const parsed = JSON.parse(currentStored)
-              if (parsed?.latitude === TEMPORARY_DEFAULT_INDORE_LOCATION.latitude && 
-                  parsed?.longitude === TEMPORARY_DEFAULT_INDORE_LOCATION.longitude) {
-                // Clear it so the original flow triggers location prompt
+              if (Number(parsed?.latitude) === defaultLat && Number(parsed?.longitude) === defaultLng) {
                 localStorage.removeItem("userLocation")
                 setLocation(null)
-                debugLog("?? Default location mode disabled. Cleared default Indore location from storage.")
+                debugLog("Default location mode disabled; cleared the seeded default location.")
               }
             }
           }
@@ -447,6 +495,10 @@ export function useLocation() {
 
   const [error, setError] = useState(null)
   const [permissionGranted, setPermissionGranted] = useState(false)
+  // Radius of the current fix in metres, and whether it is tight enough to trust.
+  // Consumers use this to decide whether to ask the user to confirm the pin.
+  const [accuracyMeters, setAccuracyMeters] = useState(null)
+  const [isPreciseLocation, setIsPreciseLocation] = useState(false)
 
   const watchIdRef = useRef(null)
   const updateTimerRef = useRef(null)
@@ -621,12 +673,13 @@ export function useLocation() {
       const country = getComponent(["country"])
       const pincode = getComponent(["postal_code"])
 
-      // Prefer Indore (etc.) over village locality like Dhabli so restaurant city filter works
+      // Prefer a served metro name over a village locality so the restaurant city
+      // filter matches; falls back to whatever the geocoder returned.
       const city = resolveServiceCity({
         locality,
         adminArea2,
         formattedAddress: result.formatted_address,
-        fallback: "Indore",
+        fallback: locality || adminArea2 || "",
       })
       
       // Determine area - prioritize sublocality/neighborhood for "Exact" feel
@@ -653,7 +706,7 @@ export function useLocation() {
       const displayAddress = addressParts.join(", ") || result.formatted_address.split(",")[0]
 
       const value = {
-        city: city || "Indore",
+        city: city || "",
         state: state,
         country: country,
         area: area,
@@ -1179,27 +1232,19 @@ export function useLocation() {
       return dbLocation
     }
 
-    // Helper function to get position with retry mechanism
-    const getPositionWithRetry = (options, retryCount = 0) => {
+    // Position acquisition is delegated to the converging engine in
+    // utils/liveLocation.js: it streams fixes and settles on the most accurate one
+    // instead of accepting whatever coarse reading arrives first.
+    const getPositionWithRetry = (options) => {
       return new Promise((resolve, reject) => {
-        const isRetry = retryCount > 0
-        debugLog(`?? Requesting location${isRetry ? ' (retry with lower accuracy)' : ' (high accuracy)'}...`)
-        debugLog(`?? Force fresh: ${forceFresh ? 'YES' : 'NO'}, maximumAge: ${options.maximumAge || (forceFresh ? 0 : 60000)}`)
+        debugLog(`Requesting location (converging). Force fresh: ${forceFresh ? "YES" : "NO"}`)
 
-        // Use cached location if available and not too old (faster response)
-        // If forceFresh is true, don't use cache (maximumAge: 0)
-        const cachedOptions = {
-          ...options,
-          maximumAge: forceFresh ? 0 : (options.maximumAge || 60000), // If forceFresh, get fresh location
-        }
-
-        navigator.geolocation.getCurrentPosition(
-          async (pos) => {
+        const onPosition = async (pos) => {
             try {
               const { latitude, longitude, accuracy } = pos.coords
               const timestamp = pos.timestamp || Date.now()
 
-              debugLog(`? Got location${isRetry ? ' (lower accuracy)' : ' (high accuracy)'}:`, {
+              debugLog(`Got location:`, {
                 latitude,
                 longitude,
                 accuracy: `${accuracy}m`,
@@ -1231,28 +1276,15 @@ export function useLocation() {
                   addr = await reverseGeocodeDirect(finalLat, finalLng)
                   debugLog("? Fallback geocoding successful:", addr)
 
-                  // Validate fallback result - if it still has placeholder values, don't use it
+                  // A placeholder means the address is unknown — say so. Substituting
+                  // a fixed city here would report a location the user is not at.
                   if (addr.city === "Current Location" || addr.address.includes(finalLat.toFixed(4))) {
-                    debugWarn("?? Fallback geocoding returned placeholder, will use Vijay Nagar default")
-                    addr = {
-                      city: "Indore",
-                      state: "Madhya Pradesh",
-                      country: "India",
-                      area: "Vijay Nagar",
-                      address: "Vijay Nagar, Indore, Madhya Pradesh",
-                      formattedAddress: "Vijay Nagar, Indore, Madhya Pradesh",
-                    }
+                    debugWarn("Fallback geocoding returned a placeholder; keeping coordinates without an address")
+                    addr = UNRESOLVED_ADDRESS
                   }
                 } catch (fallbackErr) {
-                  debugError("? All geocoding methods failed:", fallbackErr.message)
-                  addr = {
-                    city: "Indore",
-                    state: "Madhya Pradesh",
-                    country: "India",
-                    area: "Vijay Nagar",
-                    address: "Vijay Nagar, Indore, Madhya Pradesh",
-                    formattedAddress: "Vijay Nagar, Indore, Madhya Pradesh",
-                  }
+                  debugError("All geocoding methods failed:", fallbackErr.message)
+                  addr = UNRESOLVED_ADDRESS
                 }
               }
 
@@ -1386,22 +1418,13 @@ export function useLocation() {
               // Don't try to update DB with placeholder
               resolve(fallbackLoc)
             }
-          },
-          async (err) => {
-            // If timeout and we haven't retried yet, try with lower accuracy
-            if (err.code === 3 && retryCount === 0 && options.enableHighAccuracy) {
-              debugWarn("?? High accuracy timeout, retrying with lower accuracy...")
-              // Retry with lower accuracy - faster response (uses network-based location)
-              getPositionWithRetry({
-                enableHighAccuracy: false,
-                timeout: forceFresh ? 12000 : 8000,
-                maximumAge: forceFresh ? 0 : 300000,
-              }, 1).then(resolve).catch(reject)
-              return
-            }
+          }
+
+        const onFailure = async (err) => {
+            const isTimeout = err?.code === GEO_ERROR.TIMEOUT || err?.code === 3
 
             // Don't log timeout errors as errors - they're expected in some cases
-            if (err.code === 3) {
+            if (isTimeout) {
               debugWarn("?? Geolocation timeout (code 3) - using fallback location")
             } else {
               debugError("? Geolocation error:", err.code, err.message)
@@ -1440,7 +1463,7 @@ export function useLocation() {
                 debugLog("? Using fallback location:", fallback)
                 setLocation(fallback)
                 // Don't set error for timeout when we have fallback
-                if (err.code !== 3) {
+                if (!isTimeout) {
                   setError(err.message)
                 }
                 setPermissionGranted(true) // Still grant permission if we have location
@@ -1455,7 +1478,7 @@ export function useLocation() {
                   formattedAddress: "Select location"
                 }
                 setLocation(defaultLocation)
-                setError(err.code === 3 ? "Location request timed out. Please try again." : err.message)
+                setError(isTimeout ? "Location request timed out. Please try again." : err.message)
                 setPermissionGranted(false)
                 if (showLoading) setGlobalLocationLoading(false)
                 resolve(defaultLocation) // Always resolve with something
@@ -1463,24 +1486,42 @@ export function useLocation() {
             } catch (fallbackErr) {
               debugWarn("?? Fallback retrieval failed:", fallbackErr)
               setLocation(null)
-              setError(err.code === 3 ? "Location request timed out. Please try again." : err.message)
+              setError(isTimeout ? "Location request timed out. Please try again." : err.message)
               setPermissionGranted(false)
               if (showLoading) setLoading(false)
               resolve(null)
             }
-          },
-          options
-        )
+          }
+
+        acquireLocation(options)
+          .then((fix) => {
+            debugLog(`Fix settled: ${Math.round(fix.accuracy)}m in ${fix.elapsedMs}ms, precise=${fix.isPrecise}`)
+            setAccuracyMeters(fix.accuracy)
+            setIsPreciseLocation(fix.isPrecise)
+            return onPosition({
+              coords: {
+                latitude: fix.latitude,
+                longitude: fix.longitude,
+                accuracy: fix.accuracy,
+              },
+              timestamp: fix.timestamp,
+            })
+          })
+          .catch((err) => onFailure(err))
+          .catch((err) => reject(err))
       })
     }
 
-    // Try with high accuracy first
-    // If forceFresh is true, don't use cached location (maximumAge: 0)
-    // Otherwise, allow cached location for faster response
+    // An explicit tap ("use my current location") waits a little longer for a tight
+    // fix; a passive background read prefers speed and may reuse a recent one.
     return getPositionWithRetry({
-      enableHighAccuracy: true,
-      timeout: forceFresh ? 15000 : 10000,
       maximumAge: forceFresh ? 0 : 120000,
+      quickWaitMs: forceFresh ? 4000 : 2000,
+      maxWaitMs: forceFresh ? 15000 : 8000,
+      onProgress: (fix) => {
+        setAccuracyMeters(fix.accuracy)
+        setIsPreciseLocation(fix.isPrecise)
+      },
     })
   }
 
@@ -1860,17 +1901,18 @@ export function useLocation() {
         shouldForceRefresh = true
       }
     } else {
-      if (isDefaultLocationMode) {
-        // TEMPORARY: No stored location found - set default Indore in localStorage
-        // This ensures PageNavbar and other components see the default immediately.
+      const configuredDefault = readConfiguredDefaultLocation()
+      if (configuredDefault) {
+        // Admin-configured default location: seed it so the navbar has something to
+        // show immediately. Skipped entirely when no coordinates are configured.
         try {
-          localStorage.setItem("userLocation", JSON.stringify(TEMPORARY_DEFAULT_INDORE_LOCATION))
-          setLocation(TEMPORARY_DEFAULT_INDORE_LOCATION)
+          localStorage.setItem("userLocation", JSON.stringify(configuredDefault))
+          setLocation(configuredDefault)
           setLoading(false)
           hasInitialLocation = true
-          debugLog("?? TEMPORARY: Set default Indore location in localStorage")
+          debugLog("Applied admin-configured default location")
         } catch (e) {
-          debugError("Failed to set default Indore location:", e)
+          debugError("Failed to apply configured default location:", e)
         }
       }
     }
@@ -1910,15 +1952,13 @@ export function useLocation() {
             if (!currentLocation ||
               (currentLocation.formattedAddress === "Select location" &&
                 !currentLocation.latitude && !currentLocation.city)) {
-              if (isDefaultLocationMode) {
-                return TEMPORARY_DEFAULT_INDORE_LOCATION
-              } else {
-                return {
+              return (
+                readConfiguredDefaultLocation() || {
                   city: "Select location",
                   address: "Select location",
-                  formattedAddress: "Select location"
+                  formattedAddress: "Select location",
                 }
-              }
+              )
             }
             return currentLocation
           })
@@ -2107,32 +2147,21 @@ export function useLocation() {
         window.dispatchEvent(new CustomEvent("deliveryAddressModeUpdated"))
       } catch {}
 
-      const getPosition = (options) =>
-        new Promise((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, options)
-        })
+      // "Fast" path: settle as soon as the fix is usable rather than waiting for the
+      // tightest possible one, but still refine past the first coarse reading.
+      const fix = await acquireLocation({
+        maximumAge: 30000,
+        quickWaitMs: 1500,
+        maxWaitMs: 8000,
+        acceptableAccuracyM: 200,
+      })
 
-      let pos
-      try {
-        // Primary: High accuracy (Wi-Fi triangulation & GPS) for exact location
-        pos = await getPosition({
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0,
-        })
-      } catch {
-        // Fallback: network/IP-based if high accuracy times out
-        pos = await getPosition({
-          enableHighAccuracy: false,
-          timeout: 6000,
-          maximumAge: 30000,
-        })
-      }
-
-      const { latitude, longitude, accuracy } = pos.coords
+      const { latitude, longitude, accuracy } = fix
       if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
         throw new Error("Invalid coordinates")
       }
+      setAccuracyMeters(accuracy)
+      setIsPreciseLocation(fix.isPrecise)
 
       let addr
       try {
@@ -2146,7 +2175,7 @@ export function useLocation() {
         city: resolveServiceCity({
           locality: addr?.city || "",
           formattedAddress: addr?.formattedAddress || addr?.address || "",
-          fallback: addr?.city || "Indore",
+          fallback: addr?.city || "",
         }),
         latitude,
         longitude,
@@ -2262,6 +2291,8 @@ export function useLocation() {
     loading,
     error,
     permissionGranted,
+    accuracyMeters,
+    isPreciseLocation,
     requestLocation,
     requestLocationFast,
     startWatchingLocation,

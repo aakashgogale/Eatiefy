@@ -27,17 +27,21 @@ const fetchFallbackReverseGeocode = async (lat, lng) => {
 
         const addr = json.address || {};
         const area = addr.suburb || addr.neighbourhood || addr.residential || addr.road || addr.village || '';
-        const city = addr.city || addr.town || addr.municipality || addr.county || addr.district || 'Indore';
-        const state = addr.state || 'Madhya Pradesh';
-        const country = addr.country || 'India';
+        // Report what the provider actually returned. A default city here silently
+        // relocates every user whose address lacks that component.
+        const city = addr.city || addr.town || addr.municipality || addr.county || addr.district || '';
+        const state = addr.state || '';
+        const country = addr.country || '';
         const postalCode = addr.postcode || '';
 
         const addressComponents = [
-            { long_name: area, short_name: area, types: ['sublocality', 'sublocality_level_1'] },
-            { long_name: city, short_name: city, types: ['locality'] },
-            { long_name: state, short_name: state, types: ['administrative_area_level_1'] },
-            { long_name: country, short_name: country, types: ['country'] },
-        ];
+            { value: area, types: ['sublocality', 'sublocality_level_1'] },
+            { value: city, types: ['locality'] },
+            { value: state, types: ['administrative_area_level_1'] },
+            { value: country, types: ['country'] },
+        ]
+            .filter((c) => c.value)
+            .map((c) => ({ long_name: c.value, short_name: c.value, types: c.types }));
         if (postalCode) {
             addressComponents.push({ long_name: postalCode, short_name: postalCode, types: ['postal_code'] });
         }

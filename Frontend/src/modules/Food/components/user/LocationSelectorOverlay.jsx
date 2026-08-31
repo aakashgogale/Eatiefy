@@ -756,16 +756,11 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
       // Clear any cached location first to ensure fresh coordinates
       debugLog("?? Requesting fresh location (clearing cache and forcing fresh GPS)...")
 
-      // Increase timeout to 15 seconds to allow GPS to get accurate fix
-      // The getLocation function already has a 15-second timeout, so we match it
-      const locationPromise = requestLiveLocation()
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Location request is taking longer than expected. Please check your GPS settings.")), 20000)
-      )
-
+      // The acquisition engine enforces its own deadline and reports exactly why it
+      // failed, so no outer race is needed — one would only mask the real reason.
       let locationData
       try {
-        locationData = await Promise.race([locationPromise, timeoutPromise])
+        locationData = await requestLiveLocation()
 
         if (!locationData || (!locationData.latitude || !locationData.longitude)) {
           throw new Error("Invalid location data received")
@@ -926,17 +921,17 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
       })
     } catch (error) {
       // Handle permission denied or other errors
-      if (error.code === 1 || error.message?.includes("denied") || error.message?.includes("permission")) {
+      if (error.code === 1 || error.code === "PERMISSION_DENIED" || error.message?.includes("denied") || error.message?.includes("permission")) {
         toast.error("Location permission denied. Please enable location access in your browser settings.", {
           id: "location-request",
           duration: 4000,
         })
-      } else if (error.code === 2 || error.message?.includes("unavailable")) {
+      } else if (error.code === 2 || error.code === "POSITION_UNAVAILABLE" || error.message?.includes("unavailable")) {
         toast.error("Location unavailable. Please check your GPS settings.", {
           id: "location-request",
           duration: 3000,
         })
-      } else if (error.code === 3 || error.message?.includes("timeout")) {
+      } else if (error.code === 3 || error.code === "TIMEOUT" || error.message?.includes("timeout")) {
         toast.error("Location request timed out. Please try again.", {
           id: "location-request",
           duration: 3000,
@@ -1678,18 +1673,16 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
 
       toast.loading("Getting your fresh location...", { id: "current-location" })
 
-      // Use Promise.race to keep UI responsive, but don't fail too aggressively:
-      // geolocation + reverse geocode can legitimately take a few seconds on slow networks/devices.
-      const locationPromise = requestLiveLocation()
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Location timeout")), 20000)
-      )
-
       let locationData
       try {
-        locationData = await Promise.race([locationPromise, timeoutPromise])
+        locationData = await requestLiveLocation()
       } catch (raceError) {
-        toast.error("Could not get location. Please try again.", { id: "current-location" })
+        // Surface the actual reason (permission, HTTPS, GPS off) instead of a
+        // generic failure the user cannot act on.
+        toast.error(raceError?.message || "Could not get location. Please try again.", {
+          id: "current-location",
+          duration: 4000,
+        })
         return
       }
 

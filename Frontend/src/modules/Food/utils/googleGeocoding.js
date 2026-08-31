@@ -1,26 +1,15 @@
 import { geocodeAPI } from "@food/api"
+import { getCurrentCoordinates } from "@food/utils/liveLocation"
 
 /**
  * Read fresh GPS coordinates from the device (no cache).
+ * Delegates to the converging acquisition engine so a coarse Wi-Fi fix is never
+ * mistaken for the user's actual position.
+ * @param {object} [options] forwarded to `acquireLocation`
+ * @returns {Promise<{latitude:number, longitude:number, accuracy:number}>}
  */
-export function getFreshGpsCoordinates() {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error("Geolocation is not supported"))
-      return
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (pos) =>
-        resolve({
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
-        }),
-      (err) => reject(err),
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
-    )
-  })
+export function getFreshGpsCoordinates(options) {
+  return getCurrentCoordinates(options)
 }
 
 function getComponent(components, types, useShort = false) {
@@ -157,7 +146,7 @@ export function buildLocationFromGeocode(parsed, latitude, longitude, nearbyPlac
       : parsed.route || ""
 
   const area = parsed.area || ""
-  const city = parsed.city || "Indore"
+  const city = parsed.city || ""
   const pincode = parsed.pincode || ""
 
   let addressLine1 = placeName
@@ -174,7 +163,7 @@ export function buildLocationFromGeocode(parsed, latitude, longitude, nearbyPlac
     addressLine2,
     area,
     city,
-    state: parsed.state || "Madhya Pradesh",
+    state: parsed.state || "",
     pincode,
     landmark: placeName || "",
     latitude,
@@ -194,22 +183,14 @@ export function parseGoogleGeocodeResult(result, options = {}) {
   const neighborhood = getComponent(components, ["neighborhood"])
   const locality = getComponent(components, ["locality"])
   const adminArea2 = getComponent(components, ["administrative_area_level_2"])
-  const formattedAddressRaw = result?.formatted_address || ""
-  const knownCityMatch = String(formattedAddressRaw).match(
-    /\b(Indore|Bhopal|Ujjain|Dewas|Mhow|Pithampur|Rau)\b/i,
-  )
-  const city =
-    (knownCityMatch
-      ? knownCityMatch[1].replace(/^[a-z]/, (c) => c.toUpperCase())
-      : "") ||
-    (["indore", "bhopal", "ujjain", "dewas", "mhow", "pithampur", "rau"].includes(
-      String(locality).toLowerCase(),
-    )
-      ? locality
-      : "") ||
-    (adminArea2.match(/\b(Indore|Bhopal|Ujjain|Dewas)\b/i)?.[1] || "") ||
-    locality ||
-    adminArea2
+  const postalTown = getComponent(components, ["postal_town"])
+  const adminArea3 = getComponent(components, ["administrative_area_level_3"])
+  const adminArea1 = getComponent(components, ["administrative_area_level_1"])
+
+  // Google's own component hierarchy, most specific first. This resolves the city
+  // correctly anywhere in the world — no city list to keep in sync, and no default
+  // that silently reports the wrong city when a component is missing.
+  const city = locality || postalTown || adminArea3 || adminArea2 || adminArea1 || ""
   const state = getComponent(components, ["administrative_area_level_1"])
   const country = getComponent(components, ["country"])
   const pincode = getComponent(components, ["postal_code"])
