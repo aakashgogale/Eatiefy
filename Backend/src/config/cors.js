@@ -33,13 +33,24 @@ export const isOriginAllowed = (origin) => {
     // Allow non-browser requests (mobile apps, curl, server-to-server)
     if (!origin) return true;
 
-    // Allow all local dev origins (localhost on any port and 127.0.0.1 on any port)
+    const allowedOrigins = getCorsOrigins();
+    const normalizedOrigin = String(origin).trim().replace(/\/+$/, '').toLowerCase();
+
+    // Check exact match in configured allowed origins list
+    if (allowedOrigins.some((allowed) => String(allowed).trim().replace(/\/+$/, '').toLowerCase() === normalizedOrigin)) {
+        return true;
+    }
+
+    // Allow localhost, 127.0.0.1, eatiefy domains (*.eatiefy.com), and vercel previews (*.vercel.app)
     try {
         const urlObj = new URL(origin);
+        const hostname = urlObj.hostname.toLowerCase();
         if (
-            urlObj.hostname === 'localhost' ||
-            urlObj.hostname === '127.0.0.1' ||
-            urlObj.hostname.endsWith('.vercel.app')
+            hostname === 'localhost' ||
+            hostname === '127.0.0.1' ||
+            hostname === 'eatiefy.com' ||
+            hostname.endsWith('.eatiefy.com') ||
+            hostname.endsWith('.vercel.app')
         ) {
             return true;
         }
