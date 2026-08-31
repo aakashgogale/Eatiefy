@@ -42,29 +42,61 @@ export default function SignupStep1() {
   const [errors, setErrors] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [keyboardInset, setKeyboardInset] = useState(0)
+  const [isInputFocused, setIsInputFocused] = useState(false)
 
-  // Listen to mobile virtual keyboard via visualViewport
+  // Listen to mobile virtual keyboard and input focus events
   useEffect(() => {
-    if (typeof window === "undefined" || !window.visualViewport) return undefined
+    const handleFocusIn = (e) => {
+      const isInput = ["INPUT", "TEXTAREA", "SELECT"].includes(e.target?.tagName)
+      if (isInput) {
+        setIsInputFocused(true)
+        setTimeout(() => {
+          e.target?.scrollIntoView({ behavior: "smooth", block: "center" })
+        }, 320)
+      }
+    }
+
+    const handleFocusOut = () => {
+      setTimeout(() => {
+        const active = document.activeElement
+        const isStillInput = active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)
+        if (!isStillInput) {
+          setIsInputFocused(false)
+        }
+      }, 150)
+    }
+
     const updateKeyboardInset = () => {
+      if (typeof window === "undefined" || !window.visualViewport) return
       const viewport = window.visualViewport
       const inset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
       setKeyboardInset(inset > 0 ? inset : 0)
     }
-    updateKeyboardInset()
-    window.visualViewport.addEventListener("resize", updateKeyboardInset)
-    window.visualViewport.addEventListener("scroll", updateKeyboardInset)
+
+    window.addEventListener("focusin", handleFocusIn)
+    window.addEventListener("focusout", handleFocusOut)
+
+    if (typeof window !== "undefined" && window.visualViewport) {
+      updateKeyboardInset()
+      window.visualViewport.addEventListener("resize", updateKeyboardInset)
+      window.visualViewport.addEventListener("scroll", updateKeyboardInset)
+    }
+
     return () => {
-      window.visualViewport.removeEventListener("resize", updateKeyboardInset)
-      window.visualViewport.removeEventListener("scroll", updateKeyboardInset)
+      window.removeEventListener("focusin", handleFocusIn)
+      window.removeEventListener("focusout", handleFocusOut)
+      if (typeof window !== "undefined" && window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", updateKeyboardInset)
+        window.visualViewport.removeEventListener("scroll", updateKeyboardInset)
+      }
     }
   }, [])
 
   const handleInputFocus = (e) => {
-    // Delay scroll slightly to allow the mobile virtual keyboard to animate open
+    setIsInputFocused(true)
     setTimeout(() => {
       e?.target?.scrollIntoView({ behavior: "smooth", block: "center" })
-    }, 280)
+    }, 320)
   }
 
   const sanitizeLocationValue = (value) =>
@@ -309,7 +341,10 @@ export default function SignupStep1() {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-gray-100 flex flex-col overflow-x-hidden overflow-y-auto overscroll-contain">
+    <div
+      className="min-h-[100dvh] bg-gray-100 flex flex-col overflow-x-hidden overflow-y-auto overscroll-contain"
+      style={{ WebkitOverflowScrolling: "touch" }}
+    >
       {/* Sticky Header */}
       <div className="sticky top-0 z-30 bg-white px-4 py-3.5 flex items-center gap-4 border-b border-gray-200 shadow-2xs">
         <button
@@ -325,8 +360,15 @@ export default function SignupStep1() {
 
       {/* Content */}
       <div
-        className="flex-1 px-4 py-6 max-w-lg mx-auto w-full transition-all duration-200"
-        style={{ paddingBottom: keyboardInset ? `${keyboardInset + 90}px` : "100px" }}
+        className="flex-1 px-4 py-6 max-w-lg mx-auto w-full transition-all duration-300"
+        style={{
+          paddingBottom: isInputFocused
+            ? "420px"
+            : keyboardInset > 0
+              ? `${keyboardInset + 120}px`
+              : "140px",
+          minHeight: "100%"
+        }}
       >
         <div className="mb-6">
           <h2 className="text-xl font-bold text-gray-900 mb-1">Basic Details</h2>
@@ -565,6 +607,11 @@ export default function SignupStep1() {
               {isSubmitting ? "Saving..." : "Continue to Document Upload"}
             </button>
           </div>
+
+          {/* Extra Scroll Space when typing on mobile keyboard */}
+          {isInputFocused && (
+            <div className="h-44 w-full pointer-events-none" aria-hidden="true" />
+          )}
         </form>
       </div>
     </div>

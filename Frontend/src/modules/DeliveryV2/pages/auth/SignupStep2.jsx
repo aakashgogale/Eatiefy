@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
-import { ArrowLeft, Upload, X, Check, Camera, Image as ImageIcon } from "lucide-react"
+import { ArrowLeft, Upload, X, Check, Camera, Image as ImageIcon, FileText } from "lucide-react"
 import { deliveryAPI } from "@food/api"
 import { toast } from "sonner"
 import { openCamera, openGallery } from "@food/utils/imageUploadUtils"
@@ -235,26 +235,87 @@ export default function SignupStep2() {
     })
     return initial
   })
+  const [previews, setPreviews] = useState(() => {
+    const initial = {}
+    Object.keys(documents).forEach(key => {
+      const doc = documents[key]
+      if (doc instanceof File || doc instanceof Blob) {
+        try { initial[key] = URL.createObjectURL(doc) } catch {}
+      } else if (typeof doc === 'string') {
+        initial[key] = doc
+      }
+    })
+    return initial
+  })
   const [activePicker, setActivePicker] = useState(null) // { docType: string, title: string, ref: any }
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [uploading, setUploading] = useState({})
   const [keyboardInset, setKeyboardInset] = useState(0)
+  const [isInputFocused, setIsInputFocused] = useState(false)
   const documentTypes = ["profilePhoto", "aadharPhoto", "panPhoto", "drivingLicensePhoto"]
   const isMountedRef = useRef(true)
 
+  // Sync previews whenever documents change from external sources
   useEffect(() => {
-    if (typeof window === "undefined" || !window.visualViewport) return undefined
+    Object.keys(documents).forEach(key => {
+      const doc = documents[key]
+      if (doc && !previews[key]) {
+        if (doc instanceof File || doc instanceof Blob) {
+          try {
+            const url = URL.createObjectURL(doc)
+            setPreviews(prev => ({ ...prev, [key]: url }))
+          } catch {}
+        } else if (typeof doc === 'string') {
+          setPreviews(prev => ({ ...prev, [key]: doc }))
+        }
+      }
+    })
+  }, [documents])
+
+  useEffect(() => {
+    const handleFocusIn = (e) => {
+      const isInput = ["INPUT", "TEXTAREA", "SELECT"].includes(e.target?.tagName)
+      if (isInput) {
+        setIsInputFocused(true)
+        setTimeout(() => {
+          e.target?.scrollIntoView({ behavior: "smooth", block: "center" })
+        }, 320)
+      }
+    }
+
+    const handleFocusOut = () => {
+      setTimeout(() => {
+        const active = document.activeElement
+        const isStillInput = active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)
+        if (!isStillInput) {
+          setIsInputFocused(false)
+        }
+      }, 150)
+    }
+
     const updateKeyboardInset = () => {
+      if (typeof window === "undefined" || !window.visualViewport) return
       const viewport = window.visualViewport
       const inset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
       setKeyboardInset(inset > 0 ? inset : 0)
     }
-    updateKeyboardInset()
-    window.visualViewport.addEventListener("resize", updateKeyboardInset)
-    window.visualViewport.addEventListener("scroll", updateKeyboardInset)
+
+    window.addEventListener("focusin", handleFocusIn)
+    window.addEventListener("focusout", handleFocusOut)
+
+    if (typeof window !== "undefined" && window.visualViewport) {
+      updateKeyboardInset()
+      window.visualViewport.addEventListener("resize", updateKeyboardInset)
+      window.visualViewport.addEventListener("scroll", updateKeyboardInset)
+    }
+
     return () => {
-      window.visualViewport.removeEventListener("resize", updateKeyboardInset)
-      window.visualViewport.removeEventListener("scroll", updateKeyboardInset)
+      window.removeEventListener("focusin", handleFocusIn)
+      window.removeEventListener("focusout", handleFocusOut)
+      if (typeof window !== "undefined" && window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", updateKeyboardInset)
+        window.visualViewport.removeEventListener("scroll", updateKeyboardInset)
+      }
     }
   }, [])
 
@@ -301,6 +362,8 @@ export default function SignupStep2() {
   }
 
   const getPreviewSrc = (docType) => {
+    if (previews[docType]) return previews[docType]
+
     const localFile = documents[docType]
     if (localFile instanceof File || localFile instanceof Blob) {
       if (!localFile._previewUrl) {
@@ -345,6 +408,13 @@ export default function SignupStep2() {
         validFile = new File([file], file.name || `${docType}.jpg`, { type: "image/jpeg" })
       }
 
+      // Immediately generate and set preview URL so user sees instant feedback
+      let instantPreview = null
+      try {
+        instantPreview = URL.createObjectURL(validFile)
+        setPreviews(prev => ({ ...prev, [docType]: instantPreview }))
+      } catch {}
+
       const normalizedFile = await optimizeDocumentImage(validFile)
 
       if (normalizedFile.size > MAX_DOCUMENT_IMAGE_BYTES) {
@@ -357,10 +427,25 @@ export default function SignupStep2() {
         try { URL.revokeObjectURL(oldFile._previewUrl) } catch {}
       }
 
+      let optimizedPreview = instantPreview
       try {
-        normalizedFile._previewUrl = URL.createObjectURL(normalizedFile)
+        optimizedPreview = URL.createObjectURL(normalizedFile)
+        normalizedFile._previewUrl = optimizedPreview
+        setPreviews(prev => ({ ...prev, [docType]: optimizedPreview }))
       } catch (e) {
         debugWarn("Preview URL creation failed:", e)
+      }
+
+      // Read as DataURL for permanent display in WebViews
+      if (typeof FileReader !== "undefined") {
+        const reader = new FileReader()
+        reader.onload = (e) => {
+          const result = e.target?.result
+          if (result) {
+            setPreviews(prev => ({ ...prev, [docType]: result }))
+          }
+        }
+        reader.readAsDataURL(normalizedFile)
       }
 
       setDocument(docType, normalizedFile)
@@ -378,6 +463,12 @@ export default function SignupStep2() {
       debugError("Failed to process selected file:", error)
       // Fallback: save raw file directly
       try {
+        let rawPreview = null
+        try {
+          rawPreview = URL.createObjectURL(file)
+          setPreviews(prev => ({ ...prev, [docType]: rawPreview }))
+        } catch {}
+
         setDocument(docType, file)
         setUploadedDocs((prev) => ({
           ...prev,
@@ -414,9 +505,14 @@ export default function SignupStep2() {
   const handleRemove = (docType) => {
     const file = documents[docType]
     if (file instanceof File && file._previewUrl && String(file._previewUrl).startsWith("blob:")) {
-      URL.revokeObjectURL(file._previewUrl)
+      try { URL.revokeObjectURL(file._previewUrl) } catch {}
+    }
+    const currentPreview = previews[docType]
+    if (currentPreview && String(currentPreview).startsWith("blob:")) {
+      try { URL.revokeObjectURL(currentPreview) } catch {}
     }
     removeDocument(docType)
+    setPreviews(prev => ({ ...prev, [docType]: null }))
     setUploadedDocs(prev => ({
       ...prev,
       [docType]: null
@@ -507,36 +603,40 @@ export default function SignupStep2() {
     }
 
     const isCompleteProfile = sessionStorage.getItem("deliveryNeedsRegistration") === "true"
+    const isAuthenticated = isModuleAuthenticated("delivery")
 
     setIsSubmitting(true)
 
     try {
-      // New number (OTP ke baad pehli baar): DB me abhi partner nahi hai,
-      // is case me register hi call karna hai (no auth token needed).
-      const response = isCompleteProfile
-        ? await deliveryAPI.register(formData)
-        : await deliveryAPI.completeProfile(formData)
+      let response
+      if (isAuthenticated && !isCompleteProfile) {
+        try {
+          response = await deliveryAPI.completeProfile(formData)
+        } catch (err) {
+          // If profile update fails due to unauthenticated / missing user in DB, fallback to register
+          if (err?.response?.status === 401 || err?.response?.status === 404 || err?.response?.status === 403) {
+            response = await deliveryAPI.register(formData)
+          } else {
+            throw err
+          }
+        }
+      } else {
+        response = await deliveryAPI.register(formData)
+      }
 
       if (response?.data?.success) {
         sessionStorage.removeItem("deliverySignupDetails")
         sessionStorage.removeItem("deliverySignupDocs")
         sessionStorage.removeItem("deliveryAuthData")
+        sessionStorage.removeItem("deliveryNeedsRegistration")
         clearOnboardingState()
         void cleanupDeliveryOnboardingIndexedDb().catch((error) => {
           debugWarn("Failed to cleanup onboarding IndexedDB", error)
         })
-        if (isCompleteProfile) {
-          sessionStorage.removeItem("deliveryNeedsRegistration")
-          clearModuleAuth("delivery")
-          toast.success("Registration successful. Please login with OTP.")
-          navigateWithFallback("/food/delivery/login")
-        } else {
-          const targetPath = isModuleAuthenticated("delivery")
-            ? "/food/delivery"
-            : "/food/delivery/login"
-          toast.success("Profile submitted. Waiting for admin approval.")
-          navigateWithFallback(targetPath)
-        }
+        
+        clearModuleAuth("delivery")
+        toast.success("Application submitted successfully! Please wait for admin approval or login with OTP.")
+        navigateWithFallback("/food/delivery/login")
         return
       }
     } catch (error) {
@@ -551,65 +651,89 @@ export default function SignupStep2() {
   const DocumentUpload = ({ docType, label, required = true }) => {
     const uploaded = uploadedDocs[docType]
     const isUploading = Boolean(uploading[docType])
-    const previewSrc = getPreviewSrc(docType)
-    const hasPreview = Boolean(previewSrc)
+    const previewSrc = previews[docType] || getPreviewSrc(docType)
+    const hasDocument = Boolean(documents[docType] || uploaded || previewSrc)
     const controlsDisabled = isUploading || isSubmitting
 
     return (
-      <div className="bg-white rounded-lg p-4 border border-gray-200">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          {label} {required && <span className="text-red-500">*</span>}
-        </label>
+      <div className="bg-white rounded-2xl p-4 border border-gray-200 shadow-xs">
+        <div className="flex items-center justify-between mb-2.5">
+          <label className="block text-sm font-bold text-gray-800">
+            {label} {required && <span className="text-red-500">*</span>}
+          </label>
+          {hasDocument && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+              Selected
+            </span>
+          )}
+        </div>
 
-        {uploaded && hasPreview ? (
-          <div className="relative">
-            <img
-              src={previewSrc}
-              alt={label}
-              className="w-full h-48 object-cover rounded-lg"
-             loading="lazy" decoding="async" />
+        {hasDocument ? (
+          <div className="relative w-full h-52 bg-gray-900/5 rounded-xl overflow-hidden border border-gray-200 shadow-inner flex items-center justify-center group">
+            {previewSrc ? (
+              <img
+                src={previewSrc}
+                alt={label}
+                className="w-full h-full object-cover rounded-xl transition-transform duration-300 group-hover:scale-105"
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center p-4 text-center">
+                <FileText className="w-12 h-12 text-[#00B761] mb-2" />
+                <p className="text-sm font-semibold text-gray-800">{uploadedDocs[docType]?.name || "Document attached"}</p>
+                <span className="text-xs text-gray-500 mt-0.5">Ready for upload</span>
+              </div>
+            )}
+
+            {/* Remove / Replace Photo Button */}
             <button
               type="button"
               disabled={controlsDisabled}
               onClick={() => handleRemove(docType)}
-              className={`absolute top-2 right-2 text-white p-2 rounded-full transition-colors ${
-                controlsDisabled ? "bg-red-300 cursor-not-allowed" : "bg-red-500 hover:bg-red-600"
+              className={`absolute top-2.5 right-2.5 text-white p-2 rounded-full transition-all shadow-md z-10 ${
+                controlsDisabled
+                  ? "bg-red-300 cursor-not-allowed"
+                  : "bg-red-500 hover:bg-red-600 active:scale-90 cursor-pointer"
               }`}
+              aria-label="Remove document"
+              title="Remove document"
             >
               <X className="w-4 h-4" />
             </button>
-            <div className="absolute bottom-2 left-2 bg-green-500 text-white px-3 py-1 rounded-full flex items-center gap-1 text-sm">
-              <Check className="w-4 h-4" />
+
+            {/* Uploaded Badge Overlay */}
+            <div className="absolute bottom-2.5 left-2.5 bg-emerald-600 text-white px-3 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-bold shadow-md z-10 backdrop-blur-xs">
+              <Check className="w-3.5 h-3.5 stroke-[3]" />
               <span>Uploaded</span>
             </div>
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-300 rounded-lg hover:border-green-500 transition-colors px-4">
-            <div className="flex flex-col items-center justify-center pt-5 pb-3">
+          <div className="flex flex-col items-center justify-center w-full min-h-[190px] border-2 border-dashed border-gray-300 rounded-xl hover:border-[#00B761] transition-all px-4 py-5 bg-gray-50/50">
+            <div className="flex flex-col items-center justify-center mb-3">
               {isUploading ? (
                 <>
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500 mb-2"></div>
-                  <p className="text-sm text-gray-500">Preparing preview...</p>
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#00B761] mb-2" />
+                  <p className="text-xs font-medium text-gray-600">Processing photo...</p>
                 </>
               ) : (
                 <>
-                  <Upload className="w-8 h-8 text-gray-400 mb-2" />
-                  <p className="text-sm text-gray-500 mb-1">Upload document</p>
+                  <Upload className="w-8 h-8 text-gray-400 mb-1.5" />
+                  <p className="text-sm font-semibold text-gray-700 mb-0.5">Upload document</p>
                   <p className="text-xs text-gray-400">PNG, JPG up to 5MB</p>
                 </>
               )}
             </div>
 
             {!isUploading && (
-              <div className="w-full grid grid-cols-2 gap-2 pb-4">
+              <div className="w-full grid grid-cols-2 gap-2.5 mt-1">
                 <button
                   type="button"
                   disabled={controlsDisabled}
                   onClick={() => handleTakeCameraPhoto(docType, label)}
-                  className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-white text-xs font-bold transition-all ${
+                  className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-white text-xs font-bold transition-all shadow-xs ${
                     controlsDisabled
                       ? "bg-gray-400 cursor-not-allowed"
-                      : "bg-gray-900 cursor-pointer hover:bg-black active:scale-95"
+                      : "bg-gray-900 hover:bg-black active:scale-95 cursor-pointer"
                   }`}
                 >
                   <Camera className="w-4 h-4" />
@@ -619,10 +743,10 @@ export default function SignupStep2() {
                   type="button"
                   disabled={controlsDisabled}
                   onClick={() => handlePickFromGallery(docType)}
-                  className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-white text-xs font-bold transition-all ${
+                  className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-white text-xs font-bold transition-all shadow-xs ${
                     controlsDisabled
                       ? "bg-[#8fd8b6] cursor-not-allowed"
-                      : "bg-[#00B761] cursor-pointer hover:bg-[#00A055] active:scale-95"
+                      : "bg-[#00B761] hover:bg-[#00A055] active:scale-95 cursor-pointer"
                   }`}
                 >
                   <ImageIcon className="w-4 h-4" />
@@ -661,7 +785,10 @@ export default function SignupStep2() {
   const disableSubmit = isSubmitting || isAnyUploading || !hasAllDocuments
 
   return (
-    <div className="min-h-[100dvh] bg-gray-100 flex flex-col overflow-x-hidden overflow-y-auto overscroll-contain">
+    <div
+      className="min-h-[100dvh] bg-gray-100 flex flex-col overflow-x-hidden overflow-y-auto overscroll-contain"
+      style={{ WebkitOverflowScrolling: "touch" }}
+    >
       {/* Sticky Header */}
       <div className="sticky top-0 z-30 bg-white px-4 py-3.5 flex items-center gap-4 border-b border-gray-200 shadow-2xs">
         <button
@@ -677,8 +804,15 @@ export default function SignupStep2() {
 
       {/* Content */}
       <div
-        className="flex-1 px-4 py-6 max-w-lg mx-auto w-full transition-all duration-200"
-        style={{ paddingBottom: keyboardInset ? `${keyboardInset + 90}px` : "100px" }}
+        className="flex-1 px-4 py-6 max-w-lg mx-auto w-full transition-all duration-300"
+        style={{
+          paddingBottom: isInputFocused
+            ? "420px"
+            : keyboardInset > 0
+              ? `${keyboardInset + 120}px`
+              : "140px",
+          minHeight: "100%"
+        }}
       >
         <div className="mb-6">
           <h2 className="text-xl font-bold text-gray-900 mb-1">Document Verification</h2>
@@ -704,6 +838,11 @@ export default function SignupStep2() {
               {isSubmitting ? "Submitting..." : isAnyUploading ? "Preparing images..." : "Complete Signup"}
             </button>
           </div>
+
+          {/* Extra Scroll Space when typing on mobile keyboard */}
+          {isInputFocused && (
+            <div className="h-44 w-full pointer-events-none" aria-hidden="true" />
+          )}
         </form>
       </div>
     </div>
