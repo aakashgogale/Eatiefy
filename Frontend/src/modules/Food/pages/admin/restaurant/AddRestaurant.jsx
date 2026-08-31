@@ -917,33 +917,44 @@ export default function AddRestaurant() {
             />
           </div>
           <div>
-            <Label className="text-xs text-gray-700">Pure veg restaurant?*</Label>
+            <Label className="text-xs text-gray-700">Food preference / Restaurant type*</Label>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => setStep1({ ...step1, pureVegRestaurant: true })}
-                className={`px-3 py-1.5 text-xs rounded-full border ${
-                  step1.pureVegRestaurant === true
-                    ? "bg-green-600 text-white border-green-600"
-                    : "bg-white text-gray-700 border-gray-200"
+                onClick={() => setStep1({ ...step1, pureVegRestaurant: true, dietaryType: "veg" })}
+                className={`px-3.5 py-1.5 text-xs font-semibold rounded-full border transition-all ${
+                  step1.dietaryType === "veg" || (step1.pureVegRestaurant === true && !step1.dietaryType)
+                    ? "bg-green-600 text-white border-green-600 shadow-sm"
+                    : "bg-white text-gray-700 border-gray-200 hover:border-gray-300"
                 }`}
               >
-                Yes, Pure Veg
+                🟢 Yes, Pure Veg
               </button>
               <button
                 type="button"
-                onClick={() => setStep1({ ...step1, pureVegRestaurant: false })}
-                className={`px-3 py-1.5 text-xs rounded-full border ${
-                  step1.pureVegRestaurant === false
-                    ? "bg-gray-900 text-white border-gray-900"
-                    : "bg-white text-gray-700 border-gray-200"
+                onClick={() => setStep1({ ...step1, pureVegRestaurant: false, dietaryType: "non-veg" })}
+                className={`px-3.5 py-1.5 text-xs font-semibold rounded-full border transition-all ${
+                  step1.dietaryType === "non-veg"
+                    ? "bg-rose-600 text-white border-rose-600 shadow-sm"
+                    : "bg-white text-gray-700 border-gray-200 hover:border-gray-300"
                 }`}
               >
-                No, Mixed Menu
+                🔴 No, Pure Non-Veg
+              </button>
+              <button
+                type="button"
+                onClick={() => setStep1({ ...step1, pureVegRestaurant: false, dietaryType: "mixed" })}
+                className={`px-3.5 py-1.5 text-xs font-semibold rounded-full border transition-all ${
+                  step1.dietaryType === "mixed" || (step1.pureVegRestaurant === false && step1.dietaryType !== "non-veg")
+                    ? "bg-amber-500 text-white border-amber-500 shadow-sm"
+                    : "bg-white text-gray-700 border-gray-200 hover:border-gray-300"
+                }`}
+              >
+                🟡 No, Mixed Menu
               </button>
             </div>
             <p className="text-[11px] text-gray-500 mt-1">
-              This helps users filter restaurants by dietary preference.
+              Select whether the restaurant is Pure Veg, Pure Non-Veg, or serves a Mixed Menu (both).
             </p>
           </div>
         </div>

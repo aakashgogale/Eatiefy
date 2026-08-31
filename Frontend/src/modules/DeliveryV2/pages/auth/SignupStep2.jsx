@@ -240,8 +240,25 @@ export default function SignupStep2() {
   const [activePicker, setActivePicker] = useState(null) // { docType: string, title: string, ref: any }
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [uploading, setUploading] = useState({})
+  const [keyboardInset, setKeyboardInset] = useState(0)
   const documentTypes = ["profilePhoto", "aadharPhoto", "panPhoto", "drivingLicensePhoto"]
   const isMountedRef = useRef(true)
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.visualViewport) return undefined
+    const updateKeyboardInset = () => {
+      const viewport = window.visualViewport
+      const inset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
+      setKeyboardInset(inset > 0 ? inset : 0)
+    }
+    updateKeyboardInset()
+    window.visualViewport.addEventListener("resize", updateKeyboardInset)
+    window.visualViewport.addEventListener("scroll", updateKeyboardInset)
+    return () => {
+      window.visualViewport.removeEventListener("resize", updateKeyboardInset)
+      window.visualViewport.removeEventListener("scroll", updateKeyboardInset)
+    }
+  }, [])
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" })
@@ -619,22 +636,27 @@ export default function SignupStep2() {
   const disableSubmit = isSubmitting || isAnyUploading || !hasAllDocuments || !hasAllPreviews
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <div className="bg-white px-4 py-3 flex items-center gap-4 border-b border-gray-200">
+    <div className="min-h-[100dvh] bg-gray-100 flex flex-col overflow-x-hidden overflow-y-auto overscroll-contain">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-30 bg-white px-4 py-3.5 flex items-center gap-4 border-b border-gray-200 shadow-2xs">
         <button
           onClick={goBack}
-          className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+          type="button"
+          className="p-2 hover:bg-gray-100 active:bg-gray-200 rounded-full transition-colors"
+          aria-label="Go back"
         >
-          <ArrowLeft className="w-5 h-5" />
+          <ArrowLeft className="w-5 h-5 text-gray-800" />
         </button>
-        <h1 className="text-lg font-medium">Upload Documents</h1>
+        <h1 className="text-lg font-bold text-gray-900">Upload Documents</h1>
       </div>
 
       {/* Content */}
-      <div className="px-4 py-6">
+      <div
+        className="flex-1 px-4 py-6 max-w-lg mx-auto w-full transition-all duration-200"
+        style={{ paddingBottom: keyboardInset ? `${keyboardInset + 90}px` : "100px" }}
+      >
         <div className="mb-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Document Verification</h2>
+          <h2 className="text-xl font-bold text-gray-900 mb-1">Document Verification</h2>
           <p className="text-sm text-gray-600">Please upload clear photos of your documents</p>
         </div>
 
@@ -645,19 +667,20 @@ export default function SignupStep2() {
           <DocumentUpload docType="drivingLicensePhoto" label="Driving License Photo" required={true} />
 
           {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={disableSubmit}
-            className={`w-full py-4 rounded-lg font-bold text-white text-base transition-colors mt-6 ${disableSubmit
-              ? "bg-gray-400 cursor-not-allowed"
-              : "bg-[#00B761] hover:bg-[#00A055]"
-              }`}
-          >
-            {isSubmitting ? "Submitting..." : isAnyUploading ? "Preparing images..." : "Complete Signup"}
-          </button>
+          <div className="pt-2">
+            <button
+              type="submit"
+              disabled={disableSubmit}
+              className={`w-full py-4 rounded-xl font-bold text-white text-base shadow-lg transition-all active:scale-[0.98] ${disableSubmit
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-[#00B761] hover:bg-[#00A055] shadow-green-600/20"
+                }`}
+            >
+              {isSubmitting ? "Submitting..." : isAnyUploading ? "Preparing images..." : "Complete Signup"}
+            </button>
+          </div>
         </form>
       </div>
-
     </div>
   )
 }

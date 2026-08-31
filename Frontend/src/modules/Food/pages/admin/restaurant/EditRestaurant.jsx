@@ -433,29 +433,40 @@ export default function EditRestaurant() {
                   <Input value={detailsForm.name} onChange={(e) => setDetailsForm((p) => ({ ...p, name: e.target.value }))} />
                 </div>
                 <div>
-                  <Label>Pure Veg</Label>
-                  <div className="mt-2 flex items-center gap-2">
+                  <Label>Food preference / Type</Label>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setDetailsForm((p) => ({ ...p, pureVegRestaurant: true }))}
-                      className={`px-3 py-1.5 text-xs rounded-full border ${
-                        detailsForm.pureVegRestaurant === true
-                          ? "bg-green-600 text-white border-green-600"
-                          : "bg-white text-slate-700 border-slate-300"
+                      onClick={() => setDetailsForm((p) => ({ ...p, pureVegRestaurant: true, dietaryType: "veg" }))}
+                      className={`px-3.5 py-1.5 text-xs font-semibold rounded-full border transition-all ${
+                        detailsForm.dietaryType === "veg" || (detailsForm.pureVegRestaurant === true && !detailsForm.dietaryType)
+                          ? "bg-green-600 text-white border-green-600 shadow-sm"
+                          : "bg-white text-slate-700 border-slate-300 hover:border-slate-400"
                       }`}
                     >
-                      Yes
+                      🟢 Yes, Pure Veg
                     </button>
                     <button
                       type="button"
-                      onClick={() => setDetailsForm((p) => ({ ...p, pureVegRestaurant: false }))}
-                      className={`px-3 py-1.5 text-xs rounded-full border ${
-                        detailsForm.pureVegRestaurant === false
-                          ? "bg-slate-900 text-white border-slate-900"
-                          : "bg-white text-slate-700 border-slate-300"
+                      onClick={() => setDetailsForm((p) => ({ ...p, pureVegRestaurant: false, dietaryType: "non-veg" }))}
+                      className={`px-3.5 py-1.5 text-xs font-semibold rounded-full border transition-all ${
+                        detailsForm.dietaryType === "non-veg"
+                          ? "bg-rose-600 text-white border-rose-600 shadow-sm"
+                          : "bg-white text-slate-700 border-slate-300 hover:border-slate-400"
                       }`}
                     >
-                      No
+                      🔴 No, Pure Non-Veg
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDetailsForm((p) => ({ ...p, pureVegRestaurant: false, dietaryType: "mixed" }))}
+                      className={`px-3.5 py-1.5 text-xs font-semibold rounded-full border transition-all ${
+                        detailsForm.dietaryType === "mixed" || (detailsForm.pureVegRestaurant === false && detailsForm.dietaryType !== "non-veg")
+                          ? "bg-amber-500 text-white border-amber-500 shadow-sm"
+                          : "bg-white text-slate-700 border-slate-300 hover:border-slate-400"
+                      }`}
+                    >
+                      🟡 No, Mixed Menu
                     </button>
                   </div>
                 </div>

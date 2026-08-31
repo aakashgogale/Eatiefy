@@ -41,6 +41,31 @@ export default function SignupStep1() {
   })
   const [errors, setErrors] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [keyboardInset, setKeyboardInset] = useState(0)
+
+  // Listen to mobile virtual keyboard via visualViewport
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.visualViewport) return undefined
+    const updateKeyboardInset = () => {
+      const viewport = window.visualViewport
+      const inset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
+      setKeyboardInset(inset > 0 ? inset : 0)
+    }
+    updateKeyboardInset()
+    window.visualViewport.addEventListener("resize", updateKeyboardInset)
+    window.visualViewport.addEventListener("scroll", updateKeyboardInset)
+    return () => {
+      window.visualViewport.removeEventListener("resize", updateKeyboardInset)
+      window.visualViewport.removeEventListener("scroll", updateKeyboardInset)
+    }
+  }, [])
+
+  const handleInputFocus = (e) => {
+    // Delay scroll slightly to allow the mobile virtual keyboard to animate open
+    setTimeout(() => {
+      e?.target?.scrollIntoView({ behavior: "smooth", block: "center" })
+    }, 280)
+  }
 
   const sanitizeLocationValue = (value) =>
     value.replace(/[^A-Za-z\s.-]/g, "").replace(/\s{2,}/g, " ")
@@ -117,15 +142,20 @@ export default function SignupStep1() {
     const { name, value } = e.target
     let updatedValue = value
 
-    // Only apply length restrictions during typing to avoid Android keyboard panic
+    if (name === "name") {
+      updatedValue = value.replace(/[^A-Za-z\s]/g, "").slice(0, 60)
+    }
     if (name === "vehicleNumber") {
-      updatedValue = updatedValue.slice(0, 10)
+      updatedValue = updatedValue.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10)
     }
     if (name === "drivingLicenseNumber") {
-      updatedValue = updatedValue.slice(0, 16)
+      updatedValue = updatedValue.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16)
+    }
+    if (name === "panNumber") {
+      updatedValue = updatedValue.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10)
     }
     if (name === "aadharNumber") {
-      updatedValue = updatedValue.slice(0, 12)
+      updatedValue = value.replace(/\D/g, "").slice(0, 12)
     }
 
     setFormData(prev => ({
@@ -209,11 +239,44 @@ export default function SignupStep1() {
     setIsSubmitting(true)
 
     try {
-      // Check vehicle availability before proceeding
-      const vCheck = await deliveryAPI.checkVehicleAvailability(formData.vehicleNumber.trim())
-      if (vCheck?.data?.success && !vCheck.data.isAvailable) {
-        setErrors(prev => ({ ...prev, vehicleNumber: "This vehicle is already registered with another partner" }))
-        toast.error("Vehicle already registered")
+      // Check for duplicates before proceeding
+      const duplicates = []
+      
+      if (formData.panNumber) {
+        try {
+          const res = await deliveryAPI.checkDuplicate({ panNumber: formData.panNumber.trim().toUpperCase() })
+          if (res?.data?.exists) {
+            duplicates.push(`PAN number (${formData.panNumber}) is already registered`)
+          }
+        } catch (e) {
+          debugWarn("Error checking PAN duplicate:", e)
+        }
+      }
+
+      if (formData.aadharNumber) {
+        try {
+          const res = await deliveryAPI.checkDuplicate({ aadharNumber: formData.aadharNumber.replace(/\s/g, "") })
+          if (res?.data?.exists) {
+            duplicates.push(`Aadhar number is already registered`)
+          }
+        } catch (e) {
+          debugWarn("Error checking Aadhar duplicate:", e)
+        }
+      }
+
+      if (formData.drivingLicenseNumber) {
+        try {
+          const res = await deliveryAPI.checkDuplicate({ drivingLicenseNumber: formData.drivingLicenseNumber.trim().toUpperCase() })
+          if (res?.data?.exists) {
+            duplicates.push(`Driving license number is already registered`)
+          }
+        } catch (e) {
+          debugWarn("Error checking DL duplicate:", e)
+        }
+      }
+
+      if (duplicates.length > 0) {
+        duplicates.forEach(msg => toast.error(msg))
         setIsSubmitting(false)
         return
       }
@@ -246,22 +309,27 @@ export default function SignupStep1() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <div className="bg-white px-4 py-3 flex items-center gap-4 border-b border-gray-200">
+    <div className="min-h-[100dvh] bg-gray-100 flex flex-col overflow-x-hidden overflow-y-auto overscroll-contain">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-30 bg-white px-4 py-3.5 flex items-center gap-4 border-b border-gray-200 shadow-2xs">
         <button
           onClick={goBack}
-          className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+          type="button"
+          className="p-2 hover:bg-gray-100 active:bg-gray-200 rounded-full transition-colors"
+          aria-label="Go back"
         >
-          <ArrowLeft className="w-5 h-5" />
+          <ArrowLeft className="w-5 h-5 text-gray-800" />
         </button>
-        <h1 className="text-lg font-medium">Complete Your Profile</h1>
+        <h1 className="text-lg font-bold text-gray-900">Complete Your Profile</h1>
       </div>
 
       {/* Content */}
-      <div className="px-4 py-6">
+      <div
+        className="flex-1 px-4 py-6 max-w-lg mx-auto w-full transition-all duration-200"
+        style={{ paddingBottom: keyboardInset ? `${keyboardInset + 90}px` : "100px" }}
+      >
         <div className="mb-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Basic Details</h2>
+          <h2 className="text-xl font-bold text-gray-900 mb-1">Basic Details</h2>
           <p className="text-sm text-gray-600">Please provide your information to continue</p>
         </div>
 
@@ -277,8 +345,10 @@ export default function SignupStep1() {
               value={formData.name}
               onChange={handleChange}
               onBlur={handleBlur}
+              onFocus={handleInputFocus}
+              maxLength={60}
               inputMode="text"
-              className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.name ? "border-red-500" : "border-gray-300"
+              className={`w-full px-4 py-3 bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00B761] transition-colors ${errors.name ? "border-red-500" : "border-gray-300"
                 }`}
               placeholder="Enter your full name"
             />
@@ -296,11 +366,12 @@ export default function SignupStep1() {
               value={formData.email}
               onChange={handleChange}
               onBlur={handleBlur}
+              onFocus={handleInputFocus}
               autoCapitalize="none"
               autoCorrect="off"
               autoComplete="email"
               inputMode="email"
-              className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.email ? "border-red-500" : "border-gray-300"
+              className={`w-full px-4 py-3 bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00B761] transition-colors ${errors.email ? "border-red-500" : "border-gray-300"
                 }`}
               placeholder="Enter your email"
             />
@@ -317,10 +388,11 @@ export default function SignupStep1() {
               value={formData.address}
               onChange={handleChange}
               onBlur={handleBlur}
+              onFocus={handleInputFocus}
               rows={3}
-              className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.address ? "border-red-500" : "border-gray-300"
+              className={`w-full px-4 py-3 bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00B761] transition-colors ${errors.address ? "border-red-500" : "border-gray-300"
                 }`}
-              placeholder="Enter your address"
+              placeholder="Enter your full address"
             />
             {errors.address && <p className="text-red-500 text-sm mt-1">{errors.address}</p>}
           </div>
@@ -337,7 +409,8 @@ export default function SignupStep1() {
                 value={formData.city}
                 onChange={handleChange}
                 onBlur={handleBlur}
-                className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.city ? "border-red-500" : "border-gray-300"
+                onFocus={handleInputFocus}
+                className={`w-full px-4 py-3 bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00B761] transition-colors ${errors.city ? "border-red-500" : "border-gray-300"
                   }`}
                 placeholder="City"
               />
@@ -353,7 +426,8 @@ export default function SignupStep1() {
                 value={formData.state}
                 onChange={handleChange}
                 onBlur={handleBlur}
-                className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.state ? "border-red-500" : "border-gray-300"
+                onFocus={handleInputFocus}
+                className={`w-full px-4 py-3 bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00B761] transition-colors ${errors.state ? "border-red-500" : "border-gray-300"
                   }`}
                 placeholder="State"
               />
@@ -370,7 +444,8 @@ export default function SignupStep1() {
               name="vehicleType"
               value={formData.vehicleType}
               onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+              onFocus={handleInputFocus}
+              className="w-full px-4 py-3 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00B761]"
             >
               <option value="bike">Bike</option>
               <option value="scooter">Scooter</option>
@@ -390,7 +465,8 @@ export default function SignupStep1() {
               value={formData.vehicleName}
               onChange={handleChange}
               onBlur={handleBlur}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+              onFocus={handleInputFocus}
+              className="w-full px-4 py-3 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00B761]"
               placeholder="e.g., Honda Activa"
             />
           </div>
@@ -406,8 +482,9 @@ export default function SignupStep1() {
               value={formData.vehicleNumber}
               onChange={handleChange}
               onBlur={handleBlur}
+              onFocus={handleInputFocus}
               maxLength={10}
-              className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.vehicleNumber ? "border-red-500" : "border-gray-300"
+              className={`w-full px-4 py-3 bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00B761] uppercase transition-colors ${errors.vehicleNumber ? "border-red-500" : "border-gray-300"
                 }`}
               placeholder="e.g., MH12AB1234"
             />
@@ -425,8 +502,9 @@ export default function SignupStep1() {
               value={formData.drivingLicenseNumber}
               onChange={handleChange}
               onBlur={handleBlur}
+              onFocus={handleInputFocus}
               maxLength={16}
-              className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 uppercase ${errors.drivingLicenseNumber ? "border-red-500" : "border-gray-300"
+              className={`w-full px-4 py-3 bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00B761] uppercase transition-colors ${errors.drivingLicenseNumber ? "border-red-500" : "border-gray-300"
                 }`}
               placeholder="e.g., MH1220110012345"
             />
@@ -444,8 +522,9 @@ export default function SignupStep1() {
               value={formData.panNumber}
               onChange={handleChange}
               onBlur={handleBlur}
+              onFocus={handleInputFocus}
               maxLength={10}
-              className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 uppercase ${errors.panNumber ? "border-red-500" : "border-gray-300"
+              className={`w-full px-4 py-3 bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00B761] uppercase transition-colors ${errors.panNumber ? "border-red-500" : "border-gray-300"
                 }`}
               placeholder="ABCDE1234F"
             />
@@ -463,30 +542,31 @@ export default function SignupStep1() {
               value={formData.aadharNumber}
               onChange={handleChange}
               onBlur={handleBlur}
+              onFocus={handleInputFocus}
               maxLength={12}
               inputMode="numeric"
-              className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.aadharNumber ? "border-red-500" : "border-gray-300"
+              className={`w-full px-4 py-3 bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00B761] transition-colors ${errors.aadharNumber ? "border-red-500" : "border-gray-300"
                 }`}
-              placeholder="123456789012"
+              placeholder="12-digit Aadhar number"
             />
             {errors.aadharNumber && <p className="text-red-500 text-sm mt-1">{errors.aadharNumber}</p>}
           </div>
 
           {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className={`w-full py-4 rounded-lg font-bold text-white text-base transition-colors mt-6 ${isSubmitting
-              ? "bg-gray-400 cursor-not-allowed"
-              : "bg-[#00B761] hover:bg-[#00A055]"
-              }`}
-          >
-            {isSubmitting ? "Saving..." : "Continue"}
-          </button>
+          <div className="pt-2">
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className={`w-full py-4 rounded-xl font-bold text-white text-base shadow-lg transition-all active:scale-[0.98] ${isSubmitting
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-[#00B761] hover:bg-[#00A055] shadow-green-600/20"
+                }`}
+            >
+              {isSubmitting ? "Saving..." : "Continue to Document Upload"}
+            </button>
+          </div>
         </form>
       </div>
     </div>
   )
 }
-
-

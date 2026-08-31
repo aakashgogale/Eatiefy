@@ -14,9 +14,6 @@ import {
   SelectValue,
 } from "@food/components/ui/select"
 import { restaurantAPI, zoneAPI, uploadAPI, api } from "@food/api"
-import { MobileTimePicker } from "@mui/x-date-pickers/MobileTimePicker"
-import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
-import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
 import { determineStepToShow } from "@food/utils/onboardingUtils"
 import { toast } from "sonner"
 import { useCompanyName } from "@food/hooks/useCompanyName"
@@ -450,64 +447,149 @@ const parseLocalYMDDate = (value) => {
   return new Date(year, month - 1, day)
 }
 
-function TimeSelector({ label, value, onChange }) {
-  const timeValue = stringToTime(value)
+function TimeSelector({ label, value, onChange, isOpening = false }) {
+  const normalized = normalizeTimeValue(value) || ""
+  let parsedHour = isOpening ? "09" : "10"
+  let parsedMinute = "00"
+  let parsedPeriod = isOpening ? "AM" : "PM"
 
-  const handleTimeChange = (newValue) => {
-    if (!newValue) {
-      onChange("")
-      return
+  if (normalized && normalized.includes(":")) {
+    const [hStr, mStr] = normalized.split(":")
+    const hNum = parseInt(hStr, 10)
+    if (!Number.isNaN(hNum)) {
+      parsedPeriod = hNum >= 12 ? "PM" : "AM"
+      const h12 = hNum % 12 || 12
+      parsedHour = String(h12).padStart(2, "0")
+      parsedMinute = mStr ? String(mStr).padStart(2, "0") : "00"
     }
-    const timeString = timeToString(newValue)
-    onChange(timeString)
   }
 
+  const updateTime = (h, m, p) => {
+    let hourNum = parseInt(h, 10) || 12
+    if (p === "AM") {
+      if (hourNum === 12) hourNum = 0
+    } else if (p === "PM") {
+      if (hourNum !== 12) hourNum += 12
+    }
+    const hh = String(hourNum).padStart(2, "0")
+    const mm = String(m || "00").padStart(2, "0")
+    onChange(`${hh}:${mm}`)
+  }
+
+  const hoursList = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"))
+  const minutesList = ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"]
+
+  const presets = isOpening
+    ? ["08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM", "12:00 PM"]
+    : ["09:00 PM", "10:00 PM", "10:30 PM", "11:00 PM", "11:30 PM", "12:00 AM"]
+
   return (
-    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
-      <div className="mb-2 flex items-center gap-2">
-        <Clock className="h-4 w-4 text-[#E2AD4B]" />
-        <span className="text-sm font-medium text-gray-900">{label}</span>
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:border-[#E2AD4B]/50 hover:shadow-md">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#E2AD4B]/15 text-[#b88527]">
+            <Clock className="h-4 w-4" />
+          </div>
+          <span className="text-sm font-semibold text-gray-900">{label}</span>
+        </div>
+        {value ? (
+          <span className="rounded-full bg-[#E2AD4B]/15 px-2.5 py-0.5 text-xs font-bold text-[#966b1a]">
+            {formatTime12Hour(value)}
+          </span>
+        ) : (
+          <span className="text-xs text-gray-400 font-medium">Not set</span>
+        )}
       </div>
-      <MobileTimePicker ampm={true}
-        value={timeValue}
-        onChange={handleTimeChange}
-        onAccept={handleTimeChange}
-        slotProps={{
-          textField: {
-            variant: "outlined",
-            size: "small",
-            placeholder: "Select time",
-            inputProps: { readOnly: true },
-            sx: {
-              "& .MuiOutlinedInput-root": {
-                height: "36px",
-                fontSize: "12px",
-                backgroundColor: "white",
-                "& fieldset": {
-                  borderColor: "#e5e7eb",
-                },
-                "&:hover fieldset": {
-                  borderColor: "#d1d5db",
-                },
-                "&.Mui-focused fieldset": {
-                  borderColor: "#000",
-                },
-              },
-              "& .MuiInputBase-input": {
-                padding: "8px 12px",
-                fontSize: "12px",
-              },
-            },
-            onBlur: (event) => {
-              const normalized = normalizeTimeValue(event?.target?.value)
-              if (normalized) {
-                onChange(normalized)
-              }
-            },
-          },
-        }}
-        format="hh:mm a"
-      />
+
+      {/* Segmented Selectors */}
+      <div className="flex items-center gap-2">
+        <div className="flex-1">
+          <label className="mb-1 block text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Hour</label>
+          <select
+            value={parsedHour}
+            onChange={(e) => updateTime(e.target.value, parsedMinute, parsedPeriod)}
+            className="w-full rounded-xl border border-gray-200 bg-gray-50/80 px-2.5 py-2 text-sm font-semibold text-gray-900 outline-none transition-colors hover:border-gray-300 focus:border-[#E2AD4B] focus:bg-white focus:ring-2 focus:ring-[#E2AD4B]/20 cursor-pointer"
+          >
+            {hoursList.map((h) => (
+              <option key={h} value={h}>
+                {h}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <span className="mt-4 text-base font-bold text-gray-400">:</span>
+
+        <div className="flex-1">
+          <label className="mb-1 block text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Minute</label>
+          <select
+            value={minutesList.includes(parsedMinute) ? parsedMinute : "00"}
+            onChange={(e) => updateTime(parsedHour, e.target.value, parsedPeriod)}
+            className="w-full rounded-xl border border-gray-200 bg-gray-50/80 px-2.5 py-2 text-sm font-semibold text-gray-900 outline-none transition-colors hover:border-gray-300 focus:border-[#E2AD4B] focus:bg-white focus:ring-2 focus:ring-[#E2AD4B]/20 cursor-pointer"
+          >
+            {minutesList.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col">
+          <label className="mb-1 block text-[10px] font-semibold text-gray-500 uppercase tracking-wider">AM / PM</label>
+          <div className="flex rounded-xl border border-gray-200 bg-gray-100 p-0.5">
+            <button
+              type="button"
+              onClick={() => updateTime(parsedHour, parsedMinute, "AM")}
+              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-all cursor-pointer ${
+                parsedPeriod === "AM"
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-500 hover:text-gray-900"
+              }`}
+            >
+              AM
+            </button>
+            <button
+              type="button"
+              onClick={() => updateTime(parsedHour, parsedMinute, "PM")}
+              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-all cursor-pointer ${
+                parsedPeriod === "PM"
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-500 hover:text-gray-900"
+              }`}
+            >
+              PM
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Select Preset Chips */}
+      <div className="mt-3 pt-2.5 border-t border-gray-100">
+        <span className="text-[10px] font-medium text-gray-400">Quick presets:</span>
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {presets.map((preset) => {
+            const isPresetActive = formatTime12Hour(value).toUpperCase() === preset.toUpperCase()
+            return (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => {
+                  const norm = normalizeTimeValue(preset)
+                  if (norm) onChange(norm)
+                }}
+                className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all cursor-pointer ${
+                  isPresetActive
+                    ? "bg-[#E2AD4B] text-black shadow-xs font-bold"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900"
+                }`}
+              >
+                {preset}
+              </button>
+            )
+          })}
+        </div>
+      </div>
     </div>
   )
 }
@@ -1080,6 +1162,11 @@ export default function RestaurantOnboarding() {
                 typeof localData.step1.pureVegRestaurant === "boolean"
                   ? localData.step1.pureVegRestaurant
                   : null,
+              dietaryType: localData.step1.dietaryType || (
+                typeof localData.step1.pureVegRestaurant === "boolean"
+                  ? (localData.step1.pureVegRestaurant ? "veg" : "mixed")
+                  : null
+              ),
               ownerName: localData.step1.ownerName || "",
               ownerEmail: localData.step1.ownerEmail || "",
               ownerPhone: localData.step1.ownerPhone || "",
@@ -1303,6 +1390,16 @@ export default function RestaurantOnboarding() {
                   : typeof data.pureVegRestaurant === "boolean"
                   ? data.pureVegRestaurant
                   : null,
+              dietaryType:
+                prev.dietaryType ||
+                step1Data.dietaryType ||
+                (typeof prev.pureVegRestaurant === "boolean"
+                  ? (prev.pureVegRestaurant ? "veg" : "mixed")
+                  : typeof step1Data.pureVegRestaurant === "boolean"
+                  ? (step1Data.pureVegRestaurant ? "veg" : "mixed")
+                  : typeof data.pureVegRestaurant === "boolean"
+                  ? (data.pureVegRestaurant ? "veg" : "mixed")
+                  : null),
               ownerName: prev.ownerName || step1Data.ownerName || data.ownerName || "",
               ownerEmail: prev.ownerEmail || step1Data.ownerEmail || data.ownerEmail || data.email || "",
               ownerPhone: prev.ownerPhone || step1Data.ownerPhone || data.ownerPhone || data.phone || "",
@@ -1930,32 +2027,46 @@ export default function RestaurantOnboarding() {
             <Label className={ONBOARDING_LABEL}>Restaurant name*</Label>
             <Input
               value={step1.restaurantName || ""}
-              onChange={(e) => setStep1({ ...step1, restaurantName: e.target.value })}
+              onChange={(e) => setStep1({ ...step1, restaurantName: e.target.value.slice(0, 100) })}
+              maxLength={100}
               className={ONBOARDING_INPUT}
               placeholder="Customers will see this name"
               disabled={!isEditing}
             />
           </div>
           <div>
-            <Label className={ONBOARDING_LABEL}>Pure veg restaurant?*</Label>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Label className={ONBOARDING_LABEL}>Food preference / Restaurant type*</Label>
+            <div className="mt-2 flex flex-wrap items-center gap-2.5">
               <button
                 type="button"
-                onClick={() => isEditing && setStep1({ ...step1, pureVegRestaurant: true })}
-                className={chipClass(step1.pureVegRestaurant === true, !isEditing)}
+                onClick={() => isEditing && setStep1({ ...step1, pureVegRestaurant: true, dietaryType: "veg" })}
+                className={chipClass(
+                  step1.dietaryType === "veg" || (step1.pureVegRestaurant === true && !step1.dietaryType),
+                  !isEditing
+                )}
               >
-                Yes, Pure Veg
+                🟢 Yes, Pure Veg
               </button>
               <button
                 type="button"
-                onClick={() => isEditing && setStep1({ ...step1, pureVegRestaurant: false })}
-                className={chipClass(step1.pureVegRestaurant === false, !isEditing)}
+                onClick={() => isEditing && setStep1({ ...step1, pureVegRestaurant: false, dietaryType: "non-veg" })}
+                className={chipClass(step1.dietaryType === "non-veg", !isEditing)}
               >
-                No, Mixed Menu
+                🔴 No, Pure Non-Veg
+              </button>
+              <button
+                type="button"
+                onClick={() => isEditing && setStep1({ ...step1, pureVegRestaurant: false, dietaryType: "mixed" })}
+                className={chipClass(
+                  step1.dietaryType === "mixed" || (step1.pureVegRestaurant === false && step1.dietaryType !== "non-veg"),
+                  !isEditing
+                )}
+              >
+                🟡 No, Mixed Menu
               </button>
             </div>
             <p className={ONBOARDING_HINT}>
-              This helps users filter restaurants by dietary preference.
+              Choose "Yes, Pure Veg" for vegetarian-only restaurants, "No, Pure Non-Veg", or "No, Mixed Menu" if your restaurant serves both.
             </p>
           </div>
         </div>
@@ -1971,8 +2082,9 @@ export default function RestaurantOnboarding() {
             <Label className={ONBOARDING_LABEL}>Full name*</Label>
             <Input
               value={step1.ownerName || ""}
-              onChange={(e) => setStep1({ ...step1, ownerName: e.target.value })}
-              onBlur={(e) => setStep1({ ...step1, ownerName: e.target.value.replace(/[^A-Za-z ]/g, "") })}
+              onChange={(e) => setStep1({ ...step1, ownerName: e.target.value.replace(/[^A-Za-z ]/g, "").slice(0, 60) })}
+              onBlur={(e) => setStep1({ ...step1, ownerName: e.target.value.replace(/[^A-Za-z ]/g, "").trim() })}
+              maxLength={60}
               className={ONBOARDING_INPUT}
               placeholder="Owner full name"
               disabled={!isEditing}
@@ -2281,15 +2393,18 @@ export default function RestaurantOnboarding() {
             />
             <Input
               value={step1.location?.pincode || ""}
-              onChange={(e) =>
+              onChange={(e) => {
+                const val = e.target.value.replace(/\D/g, "").slice(0, 6)
                 setStep1({
                   ...step1,
-                  location: { ...step1.location, pincode: e.target.value },
+                  location: { ...step1.location, pincode: val },
                 })
-              }
+              }}
+              maxLength={6}
+              inputMode="numeric"
               readOnly={isAutoFilledLocationLocked}
               className={ONBOARDING_INPUT}
-              placeholder="Pincode"
+              placeholder="Pincode (6 digits)"
             />
           </div>
           <p className={ONBOARDING_HINT}>
@@ -2827,6 +2942,7 @@ export default function RestaurantOnboarding() {
             <TimeSelector
               label="Opening time"
               value={step2.openingTime || ""}
+              isOpening={true}
               onChange={(val) => {
                 const nextOpening = normalizeTimeValue(val) || ""
                 setStep2((prev) => ({ ...prev, openingTime: nextOpening }))
@@ -2835,6 +2951,7 @@ export default function RestaurantOnboarding() {
             <TimeSelector
               label="Closing time"
               value={step2.closingTime || ""}
+              isOpening={false}
               onChange={(val) => {
                 const nextClosing = normalizeTimeValue(val) || ""
                 setStep2((prev) => ({ ...prev, closingTime: nextClosing }))
@@ -2846,8 +2963,9 @@ export default function RestaurantOnboarding() {
             <Input
               value={step2.estimatedDeliveryTime || ""}
               onChange={(e) =>
-                setStep2((prev) => ({ ...prev, estimatedDeliveryTime: e.target.value }))
+                setStep2((prev) => ({ ...prev, estimatedDeliveryTime: e.target.value.slice(0, 30) }))
               }
+              maxLength={30}
               className="mt-1 bg-white text-sm"
               placeholder="e.g., 25-30 mins"
             />
@@ -2892,11 +3010,8 @@ export default function RestaurantOnboarding() {
             <Label className={ONBOARDING_LABEL}>PAN number</Label>
             <Input
               value={step3.panNumber || ""}
-              onChange={(e) => setStep3({ ...step3, panNumber: e.target.value })}
-              onBlur={(e) => {
-                const normalized = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10)
-                setStep3({ ...step3, panNumber: normalized })
-              }}
+              onChange={(e) => setStep3({ ...step3, panNumber: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10) })}
+              maxLength={10}
               className={`${ONBOARDING_INPUT} uppercase`}
               placeholder="ABCDE1234F"
             />
@@ -2905,8 +3020,9 @@ export default function RestaurantOnboarding() {
             <Label className={ONBOARDING_LABEL}>PAN Card Holder Name</Label>
             <Input
               value={step3.nameOnPan || ""}
-              onChange={(e) => setStep3({ ...step3, nameOnPan: e.target.value })}
-              onBlur={(e) => setStep3({ ...step3, nameOnPan: e.target.value.replace(/[^A-Za-z ]/g, "") })}
+              onChange={(e) => setStep3({ ...step3, nameOnPan: e.target.value.replace(/[^A-Za-z ]/g, "").slice(0, 70) })}
+              onBlur={(e) => setStep3({ ...step3, nameOnPan: e.target.value.replace(/[^A-Za-z ]/g, "").trim() })}
+              maxLength={70}
               className={ONBOARDING_INPUT}
               placeholder="Name as on PAN card"
             />
@@ -3011,21 +3127,24 @@ export default function RestaurantOnboarding() {
           <div className="space-y-3">
             <Input
               value={step3.gstNumber || ""}
-              onChange={(e) => setStep3({ ...step3, gstNumber: e.target.value })}
-              onBlur={(e) => setStep3({ ...step3, gstNumber: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 15) })}
+              onChange={(e) => setStep3({ ...step3, gstNumber: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 15) })}
+              maxLength={15}
               className={`${ONBOARDING_INPUT} uppercase`}
               placeholder="GST number (15 characters)"
             />
             <Input
               value={step3.gstLegalName || ""}
-              onChange={(e) => setStep3({ ...step3, gstLegalName: e.target.value })}
-              onBlur={(e) => setStep3({ ...step3, gstLegalName: e.target.value.replace(/[^A-Za-z ]/g, "") })}
+              onChange={(e) => setStep3({ ...step3, gstLegalName: e.target.value.slice(0, 100) })}
+              onBlur={(e) => setStep3({ ...step3, gstLegalName: e.target.value.trim() })}
+              maxLength={100}
               className={ONBOARDING_INPUT}
               placeholder="Legal name"
             />
             <Input
               value={step3.gstAddress || ""}
-              onChange={(e) => setStep3({ ...step3, gstAddress: e.target.value })}
+              onChange={(e) => setStep3({ ...step3, gstAddress: e.target.value.slice(0, 200) })}
+              onBlur={(e) => setStep3({ ...step3, gstAddress: e.target.value.trim() })}
+              maxLength={200}
               className={ONBOARDING_INPUT}
               placeholder="Registered address"
             />
@@ -3111,8 +3230,9 @@ export default function RestaurantOnboarding() {
             <Label className={ONBOARDING_LABEL}>FSSAI number</Label>
             <Input
               value={step3.fssaiNumber || ""}
-              onChange={(e) => setStep3({ ...step3, fssaiNumber: e.target.value })}
-              onBlur={(e) => setStep3({ ...step3, fssaiNumber: e.target.value.replace(/\D/g, "").slice(0, 14) })}
+              onChange={(e) => setStep3({ ...step3, fssaiNumber: e.target.value.replace(/\D/g, "").slice(0, 14) })}
+              maxLength={14}
+              inputMode="numeric"
               className={ONBOARDING_INPUT}
               placeholder="14-digit FSSAI license number"
             />
@@ -3239,16 +3359,18 @@ export default function RestaurantOnboarding() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input
             value={step3.accountNumber || ""}
-            onChange={(e) => setStep3({ ...step3, accountNumber: e.target.value })}
-            onBlur={(e) => setStep3({ ...step3, accountNumber: e.target.value.replace(/\D/g, "").slice(0, 18) })}
+            onChange={(e) => setStep3({ ...step3, accountNumber: e.target.value.replace(/\D/g, "").slice(0, 18) })}
+            maxLength={18}
+            inputMode="numeric"
             className="bg-white text-sm"
-            placeholder="Account number"
+            placeholder="Account number (9-18 digits)"
           />
           <div className="flex flex-col gap-1">
             <Input
               value={step3.confirmAccountNumber || ""}
-              onChange={(e) => setStep3({ ...step3, confirmAccountNumber: e.target.value })}
-              onBlur={(e) => setStep3({ ...step3, confirmAccountNumber: e.target.value.replace(/\D/g, "").slice(0, 18) })}
+              onChange={(e) => setStep3({ ...step3, confirmAccountNumber: e.target.value.replace(/\D/g, "").slice(0, 18) })}
+              maxLength={18}
+              inputMode="numeric"
               className={`bg-white text-sm transition-colors ${
                 step3.confirmAccountNumber && step3.accountNumber !== step3.confirmAccountNumber
                   ? "border-red-500 focus-visible:ring-red-500"
@@ -3266,10 +3388,10 @@ export default function RestaurantOnboarding() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input
             value={step3.ifscCode || ""}
-            onChange={(e) => setStep3({ ...step3, ifscCode: e.target.value })}
-            onBlur={(e) => setStep3({ ...step3, ifscCode: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 11) })}
+            onChange={(e) => setStep3({ ...step3, ifscCode: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 11) })}
+            maxLength={11}
             className="bg-white text-sm uppercase"
-            placeholder="IFSC code"
+            placeholder="IFSC code (11 characters)"
           />
           <Select
             value={step3.accountType || ""}
@@ -3286,8 +3408,9 @@ export default function RestaurantOnboarding() {
         </div>
         <Input
           value={step3.accountHolderName || ""}
-          onChange={(e) => setStep3({ ...step3, accountHolderName: e.target.value })}
-          onBlur={(e) => setStep3({ ...step3, accountHolderName: e.target.value.replace(/[^A-Za-z ]/g, "") })}
+          onChange={(e) => setStep3({ ...step3, accountHolderName: e.target.value.replace(/[^A-Za-z ]/g, "").slice(0, 70) })}
+          onBlur={(e) => setStep3({ ...step3, accountHolderName: e.target.value.replace(/[^A-Za-z ]/g, "").trim() })}
+          maxLength={70}
           className="bg-white text-sm"
           placeholder="Account holder name"
         />
@@ -3475,7 +3598,7 @@ export default function RestaurantOnboarding() {
   }
 
   return (
-    <LocalizationProvider dateAdapter={AdapterDateFns}>
+    <>
       {registrationProcessing && (
         <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm px-6 text-center">
           <div className="bg-white p-8 rounded-2xl shadow-2xl flex flex-col items-center gap-4 max-w-sm">
@@ -3525,6 +3648,6 @@ export default function RestaurantOnboarding() {
         fileNamePrefix={sourcePicker.fileNamePrefix}
         galleryInputRef={sourcePicker.fallbackInputRef}
       />
-    </LocalizationProvider>
+    </>
   )
 }

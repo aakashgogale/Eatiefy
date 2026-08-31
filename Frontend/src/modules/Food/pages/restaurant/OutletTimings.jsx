@@ -3,9 +3,6 @@ import { useNavigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { ArrowLeft, ChevronUp, ChevronDown, Clock } from "lucide-react"
 import { Switch } from "@food/components/ui/switch"
-import { MobileTimePicker } from "@mui/x-date-pickers/MobileTimePicker"
-import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
-import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { restaurantAPI } from "@food/api"
 import { toast } from "sonner"
@@ -51,42 +48,62 @@ const getDefaultDays = () => ({
   Sunday: { isOpen: true, openingTime: "09:00", closingTime: "22:00" },
 })
 
-const timePickerSx = {
-  "& .MuiOutlinedInput-root": {
-    height: "36px",
-    fontSize: "12px",
-    backgroundColor: "white",
-    "& fieldset": { borderColor: "#e5e7eb" },
-    "&:hover fieldset": { borderColor: "#d1d5db" },
-    "&.Mui-focused fieldset": { borderColor: "#000" },
-  },
-  "& .MuiInputBase-input": {
-    padding: "8px 12px",
-    fontSize: "12px",
-  },
-}
+function DayTimePicker({ value, onChange }) {
+  let timeStr = typeof value === "string" ? value : (value instanceof Date ? timeToString(value) : "09:00")
+  if (!timeStr || !timeStr.includes(":")) timeStr = "09:00"
+  
+  const [h24Str, mStr] = timeStr.split(":")
+  const h24 = parseInt(h24Str, 10) || 0
+  const period = h24 >= 12 ? "PM" : "AM"
+  const h12 = h24 % 12 || 12
+  const hour = String(h12).padStart(2, "0")
+  const minute = mStr ? String(mStr).padStart(2, "0") : "00"
 
-function DayTimePicker({ value, onChange, placeholder }) {
+  const updateTime = (newH, newM, newP) => {
+    let hourNum = parseInt(newH, 10) || 12
+    if (newP === "AM") {
+      if (hourNum === 12) hourNum = 0
+    } else if (newP === "PM") {
+      if (hourNum !== 12) hourNum += 12
+    }
+    const hh = String(hourNum).padStart(2, "0")
+    const mm = String(newM || "00").padStart(2, "0")
+    onChange(`${hh}:${mm}`)
+  }
+
+  const hours = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"))
+  const minutes = ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"]
+
   return (
-    <MobileTimePicker
-      value={stringToTime(value)}
-      onChange={(newValue) => {
-        if (newValue) onChange(newValue)
-      }}
-      onAccept={(newValue) => {
-        if (newValue) onChange(newValue)
-      }}
-      slotProps={{
-        textField: {
-          variant: "outlined",
-          size: "small",
-          placeholder,
-          inputProps: { readOnly: true },
-          sx: timePickerSx,
-        },
-      }}
-      format="hh:mm a"
-    />
+    <div className="inline-flex items-center gap-1 bg-white border border-gray-200 rounded-xl px-2.5 py-1.5 shadow-xs hover:border-gray-300 focus-within:border-gray-900 focus-within:ring-2 focus-within:ring-black/5 transition-all">
+      <Clock className="w-3.5 h-3.5 text-[#E2AD4B] mr-0.5 shrink-0" />
+      <select
+        value={hour}
+        onChange={(e) => updateTime(e.target.value, minute, period)}
+        className="bg-transparent text-xs font-semibold text-gray-800 outline-none cursor-pointer py-0.5"
+      >
+        {hours.map((h) => (
+          <option key={h} value={h}>{h}</option>
+        ))}
+      </select>
+      <span className="text-xs font-bold text-gray-400">:</span>
+      <select
+        value={minutes.includes(minute) ? minute : "00"}
+        onChange={(e) => updateTime(hour, e.target.value, period)}
+        className="bg-transparent text-xs font-semibold text-gray-800 outline-none cursor-pointer py-0.5"
+      >
+        {minutes.map((m) => (
+          <option key={m} value={m}>{m}</option>
+        ))}
+      </select>
+      <button
+        type="button"
+        onClick={() => updateTime(hour, minute, period === "AM" ? "PM" : "AM")}
+        className="ml-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200 transition-colors cursor-pointer"
+      >
+        {period}
+      </button>
+    </div>
   )
 }
 
@@ -194,8 +211,7 @@ export default function OutletTimings() {
   }
 
   return (
-    <LocalizationProvider dateAdapter={AdapterDateFns}>
-      <div className="min-h-screen bg-white overflow-x-hidden md:min-h-full md:h-full md:overflow-y-auto md:bg-slate-50 md:pb-10">
+    <div className="min-h-screen bg-white overflow-x-hidden md:min-h-full md:h-full md:overflow-y-auto md:bg-slate-50 md:pb-10">
         {/* Header */}
         <div className="bg-white/95 backdrop-blur border-b border-gray-200 px-4 py-3 sticky top-0 z-50 md:border-slate-200">
           <div className="flex items-center justify-between md:max-w-4xl md:mx-auto md:px-8 md:py-2">
@@ -435,6 +451,5 @@ export default function OutletTimings() {
           )}
         </div>
       </div>
-    </LocalizationProvider>
   )
 }
