@@ -10,20 +10,21 @@ import { toast } from "sonner"
 
 const BOOKING_DRAFT_KEY = "food_dining_booking_draft_v1"
 
+const isSameDay = (date1, date2) => {
+  if (!date1 || !date2) return false
+  return (
+    date1.getDate() === date2.getDate() &&
+    date1.getMonth() === date2.getMonth() &&
+    date1.getFullYear() === date2.getFullYear()
+  )
+}
+
 const buildDates = (count = 7) =>
   Array.from({ length: count }, (_, index) => {
     const date = new Date()
     date.setDate(date.getDate() + index)
     return date
   })
-
-const formatTimeValue = (value) => {
-  if (!value) return null
-  if (/[ap]m/i.test(value)) return value.toUpperCase()
-  const date = new Date(`2000-01-01T${String(value).padStart(5, "0")}`)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true })
-}
 
 const parseTimeToMinutes = (value) => {
   if (!value) return null
@@ -47,22 +48,38 @@ const parseTimeToMinutes = (value) => {
   return hour * 60 + minute
 }
 
+const formatMinutesTo12Hour = (totalMinutes) => {
+  const normalized = ((totalMinutes % 1440) + 1440) % 1440
+  const hours24 = Math.floor(normalized / 60)
+  const minutes = normalized % 60
+  const meridiem = hours24 >= 12 ? "PM" : "AM"
+  const hours12 = hours24 % 12 || 12
+  return `${hours12}:${String(minutes).padStart(2, "0")} ${meridiem}`
+}
+
 const getDayName = (date) => date.toLocaleDateString("en-US", { weekday: "long" })
 
-const buildSlots = (timing) => {
+const buildSlots = (timing, isToday = false) => {
   if (!timing || timing.isOpen === false) return []
   const opening = parseTimeToMinutes(timing.openingTime)
   const closing = parseTimeToMinutes(timing.closingTime)
   if (opening === null || closing === null) return []
 
+  // If closing is before opening (e.g. 11:00 AM to 01:00 AM next day)
+  const end = closing > opening ? closing : closing + 24 * 60
+
+  const now = new Date()
+  const currentMinutes = now.getHours() * 60 + now.getMinutes()
+  // 15-minute advance buffer for same-day bookings
+  const minAllowedMinutes = isToday ? currentMinutes + 15 : -1
+
   const slots = []
   let cursor = opening
-  const end = closing > opening ? closing : opening + 360
 
-  while (cursor <= end && slots.length < 20) {
-    const hours = Math.floor((cursor % (24 * 60)) / 60)
-    const minutes = cursor % 60
-    slots.push(formatTimeValue(`${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`))
+  while (cursor <= end && slots.length < 60) {
+    if (!isToday || cursor >= minAllowedMinutes) {
+      slots.push(formatMinutesTo12Hour(cursor))
+    }
     cursor += 30
   }
 
@@ -73,7 +90,7 @@ const buildFallbackTiming = (restaurant) => {
   const openingTime = String(
     restaurant?.openingTime ||
       restaurant?.diningSettings?.openingTime ||
-      "11:00",
+      "10:00",
   ).trim()
   const closingTime = String(
     restaurant?.closingTime ||
@@ -90,20 +107,14 @@ const buildFallbackTiming = (restaurant) => {
 
 const getMealPeriod = (slot) => {
   if (!slot) return "all"
-  const normalized = String(slot).toUpperCase()
-  const match = normalized.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/)
-  if (!match) return "all"
+  const minutes = parseTimeToMinutes(slot)
+  if (minutes === null) return "all"
 
-  let hour = Number(match[1])
-  const minute = Number(match[2])
-  const meridiem = match[3]
-
-  if (meridiem === "PM" && hour !== 12) hour += 12
-  if (meridiem === "AM" && hour === 12) hour = 0
-
-  const totalMinutes = hour * 60 + minute
-  if (totalMinutes < 16 * 60 + 30) return "lunch"
-  return "dinner"
+  // Lunch: 11:30 AM to 4:59 PM
+  if (minutes >= 11 * 60 + 30 && minutes < 17 * 60) return "lunch"
+  // Dinner: 5:00 PM onwards or late night
+  if (minutes >= 17 * 60 || minutes < 4 * 60) return "dinner"
+  return "other"
 }
 
 export default function TableBooking() {
@@ -157,41 +168,35 @@ export default function TableBooking() {
   }, [location.state?.restaurant, slug])
 
   const dates = useMemo(() => buildDates(7), [])
+
+  const isToday = useMemo(() => isSameDay(selectedDate, new Date()), [selectedDate])
+
   const selectedDayTiming = useMemo(() => {
     const fromOutletTimings = outletTimings?.[getDayName(selectedDate)] || null
-    if (fromOutletTimings && fromOutletTimings.isOpen !== false) {
+    if (fromOutletTimings && typeof fromOutletTimings === "object") {
       return fromOutletTimings
     }
     return buildFallbackTiming(restaurant)
   }, [outletTimings, selectedDate, restaurant])
 
   const allSlots = useMemo(() => {
-    const generated = buildSlots(selectedDayTiming)
-    if (generated.length > 0) return generated
-    return [
-      "11:00 AM", "11:30 AM", "12:00 PM", "12:30 PM", "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM", 
-      "3:00 PM", "3:30 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "7:30 PM", "8:00 PM", 
-      "8:30 PM", "9:00 PM", "9:30 PM", "10:00 PM", "10:30 PM", "11:00 PM"
-    ]
-  }, [selectedDayTiming])
+    return buildSlots(selectedDayTiming, isToday)
+  }, [selectedDayTiming, isToday])
 
   const filteredSlots = useMemo(() => {
     if (selectedMealPeriod === "all") return allSlots
-    return allSlots.filter((slot) => getMealPeriod(slot) === selectedMealPeriod)
+    return allSlots.filter((slot) => {
+      const period = getMealPeriod(slot)
+      return period === selectedMealPeriod
+    })
   }, [allSlots, selectedMealPeriod])
 
   useEffect(() => {
-    if (!selectedSlot && filteredSlots.length > 0) {
-      setSelectedSlot(filteredSlots[0])
-      return
-    }
-
-    if (selectedSlot && filteredSlots.length > 0 && !filteredSlots.includes(selectedSlot)) {
-      setSelectedSlot(filteredSlots[0])
-      return
-    }
-
-    if (filteredSlots.length === 0) {
+    if (filteredSlots.length > 0) {
+      if (!selectedSlot || !filteredSlots.includes(selectedSlot)) {
+        setSelectedSlot(filteredSlots[0])
+      }
+    } else {
       setSelectedSlot(null)
     }
   }, [filteredSlots, selectedSlot])
@@ -201,7 +206,14 @@ export default function TableBooking() {
 
   const isDiningEnabled = restaurant?.diningSettings?.isEnabled !== false
   const maxAllowedGuests = restaurant?.diningSettings?.maxGuests || 8
-  const canProceed = Boolean(isDiningEnabled && restaurant && selectedSlot && selectedDate && selectedGuests)
+  const canProceed = Boolean(
+    isDiningEnabled &&
+    restaurant &&
+    selectedSlot &&
+    selectedDate &&
+    selectedGuests &&
+    filteredSlots.includes(selectedSlot)
+  )
 
   const handleProceed = () => {
     if (!isDiningEnabled) {
@@ -279,7 +291,7 @@ export default function TableBooking() {
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-[#1E293B]">Select number of guests</h3>
             <span style={{ color: "#EB590E" }} className="text-xs font-extrabold">
-              {maxAllowedGuests > 0 ? `${maxAllowedGuests} left` : "Available"}
+              {maxAllowedGuests > 0 ? `Max ${maxAllowedGuests} Guests` : "Available"}
             </span>
           </div>
 
@@ -410,8 +422,19 @@ export default function TableBooking() {
           {/* Time Slots Grid */}
           <div className="mt-4 grid grid-cols-3 gap-2.5">
             {filteredSlots.length === 0 ? (
-              <div className="col-span-3 rounded-2xl border border-dashed border-slate-200 p-6 text-center text-xs font-medium text-slate-500">
-                No {selectedMealPeriod} slots available for the selected date.
+              <div className="col-span-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 p-6 text-center">
+                <p className="text-xs font-bold text-slate-700">
+                  {selectedDayTiming?.isOpen === false
+                    ? `Restaurant is closed on ${getDayName(selectedDate)}.`
+                    : isToday
+                    ? "No more upcoming slots available for today."
+                    : `No ${selectedMealPeriod !== "all" ? selectedMealPeriod : ""} slots available for this date.`}
+                </p>
+                <p className="mt-1 text-[11px] font-medium text-slate-500">
+                  {isToday
+                    ? "Please select tomorrow or another date to reserve your table."
+                    : "Please try selecting 'All Slots' or choose another date."}
+                </p>
               </div>
             ) : (
               filteredSlots.map((slot) => {
@@ -468,6 +491,8 @@ export default function TableBooking() {
           >
             {!isDiningEnabled
               ? "Dining paused"
+              : filteredSlots.length === 0
+              ? "No slots available"
               : canProceed
               ? "Proceed to confirmation"
               : "Select time to proceed"}
