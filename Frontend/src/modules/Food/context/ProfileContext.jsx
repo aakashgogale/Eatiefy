@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useMemo, useCallback } from "react"
 import { authAPI, userAPI } from "@food/api"
+import { EATIEFY_REFRESH_EVENT } from "@/shared/hooks/usePullToRefresh"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -227,9 +228,14 @@ export function ProfileProvider({ children }) {
     }
     
     window.addEventListener("userAuthChanged", handleAuthChange)
-    
+    // Profile and addresses live above the page boundary that pull-to-refresh
+    // remounts, so they have to refetch themselves or a refresh would leave a
+    // stale name and address list on an otherwise reloaded screen.
+    window.addEventListener(EATIEFY_REFRESH_EVENT, handleAuthChange)
+
     return () => {
       window.removeEventListener("userAuthChanged", handleAuthChange)
+      window.removeEventListener(EATIEFY_REFRESH_EVENT, handleAuthChange)
     }
   }, [])
 

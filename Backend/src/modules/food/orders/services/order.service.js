@@ -635,6 +635,10 @@ export async function createOrder(userId, dto) {
         scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
         riderEarning: Number(riderEarning) || 0,
         platformProfit: Number(platformProfit) || 0,
+        deliveryOtp: generateFourDigitDeliveryOtp(),
+        deliveryVerification: {
+          dropOtp: { required: true, verified: false },
+        },
         inventoryReserved: reserved.length > 0,
         inventoryReservation: reserved,
       });
@@ -1024,18 +1028,40 @@ export async function getOrderById(
   }
 
   if (userId) {
+    let secret = String(order.deliveryOtp || "").trim();
+    const isDelivered = order.orderStatus === "delivered";
+    const isCancelled = String(order.orderStatus || "").includes("cancelled");
+    const isVerified = Boolean(order.deliveryVerification?.dropOtp?.verified);
+
+    // If legacy order is missing deliveryOtp and still active, generate and persist one
+    if (!secret && !isVerified && !isDelivered && !isCancelled) {
+      secret = generateFourDigitDeliveryOtp();
+      FoodOrder.updateOne(
+        { _id: order._id },
+        {
+          $set: {
+            deliveryOtp: secret,
+            "deliveryVerification.dropOtp.required": true,
+            "deliveryVerification.dropOtp.verified": false,
+          },
+        }
+      ).catch((err) =>
+        logger.error(`Failed to persist auto-generated deliveryOtp: ${err.message}`)
+      );
+    }
+
     const drop = order.deliveryVerification?.dropOtp || {};
-    const secret = String(order.deliveryOtp || "").trim();
     const out = normalizeOrderForClient(order);
     delete out.deliveryOtp;
     out.deliveryVerification = {
       ...(order.deliveryVerification || {}),
       dropOtp: {
-        required: Boolean(drop.required),
-        verified: Boolean(drop.verified),
+        required: Boolean(drop.required ?? true),
+        verified: isVerified,
+        code: (!isVerified && !isDelivered && !isCancelled && secret) ? secret : undefined,
       },
     };
-    if (!drop.verified && secret) {
+    if (!isVerified && !isDelivered && !isCancelled && secret) {
       out.handoverOtp = secret;
     }
     return out;
@@ -1053,18 +1079,29 @@ export async function getDropOtpUser(orderId, userId) {
   }).select("+deliveryOtp");
   if (!order) throw new NotFoundError("Order not found");
 
-  const phase = order.deliveryState?.currentPhase;
-  const status = order.orderStatus;
-  const eligiblePhases = ["at_drop", "en_route_to_delivery"];
-  const isEligible = eligiblePhases.includes(phase) || status === "picked_up";
+  const isDelivered = order.orderStatus === "delivered";
+  const isCancelled = String(order.orderStatus || "").includes("cancelled");
+  const isVerified = Boolean(order.deliveryVerification?.dropOtp?.verified);
 
-  if (!isEligible) {
-    throw new ValidationError(
-      "Rider is still at the restaurant. Wait for them to pick up your order to see the OTP."
+  if (isDelivered || isVerified) {
+    return { otp: null, verified: true, message: "Order is already delivered" };
+  }
+  if (isCancelled) {
+    return { otp: null, verified: false, message: "Order is cancelled" };
+  }
+
+  let otp = String(order.deliveryOtp || "").trim();
+  if (!otp) {
+    otp = generateFourDigitDeliveryOtp();
+    order.deliveryOtp = otp;
+    if (!order.deliveryVerification) order.deliveryVerification = {};
+    order.deliveryVerification.dropOtp = { required: true, verified: false };
+    await order.save().catch((err) =>
+      logger.error(`Failed to save auto-generated OTP in getDropOtpUser: ${err.message}`)
     );
   }
 
-  return { otp: order.deliveryOtp };
+  return { otp, verified: false };
 }
 
 /**

@@ -242,11 +242,15 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
         $or: [
           {
             'dispatch.status': 'unassigned',
+            // 'rejected' belongs next to 'deassigned'. A rider who rejected an offer
+            // must stop being shown it: dispatch already excludes them from every
+            // re-offer, so leaving it in this list handed the same order straight back
+            // on the next poll and made rejecting look like it had done nothing.
             'dispatch.offeredTo': {
               $not: {
                 $elemMatch: {
                   partnerId,
-                  action: 'deassigned',
+                  action: { $in: ['deassigned', 'rejected'] },
                 },
               },
             },
@@ -626,36 +630,95 @@ export async function rejectOrderDelivery(orderId, deliveryPartnerId) {
   const order = await FoodOrder.findOne(identity)
     .select('+deliveryOtp +deliveryOtpAttempts +deliveryOtpLockedUntil');
   if (!order) throw new NotFoundError('Order not found');
-  if (order.dispatch.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) {
-    throw new ForbiddenError('Not your order');
+
+  // Resolve partner identity (could be FoodDeliveryPartner _id or User _id)
+  const partnerDoc = await FoodDeliveryPartner.findOne({
+    $or: [
+      { _id: mongoose.isValidObjectId(deliveryPartnerId) ? new mongoose.Types.ObjectId(deliveryPartnerId) : null },
+      { userId: mongoose.isValidObjectId(deliveryPartnerId) ? new mongoose.Types.ObjectId(deliveryPartnerId) : null },
+    ].filter(Boolean),
+  }).select('_id userId');
+
+  const partnerIdStr = partnerDoc ? partnerDoc._id.toString() : deliveryPartnerId?.toString();
+  const partnerUserIdStr = partnerDoc?.userId ? partnerDoc.userId.toString() : deliveryPartnerId?.toString();
+
+  // If order is already in a terminal status, no action needed
+  if (order.orderStatus === 'delivered' || TERMINAL_ORDER_STATUSES.includes(order.orderStatus)) {
+    return order.toObject();
   }
 
-  const offer = order.dispatch.offeredTo.find(
-    (item) =>
-      String(item.partnerId) === String(deliveryPartnerId) &&
-      item.action === 'offered',
-  );
-  if (offer) offer.action = 'rejected';
+  if (!order.dispatch) order.dispatch = { offeredTo: [] };
+  if (!Array.isArray(order.dispatch.offeredTo)) order.dispatch.offeredTo = [];
 
-  order.dispatch.status = 'unassigned';
-  order.dispatch.deliveryPartnerId = undefined;
-  order.dispatch.assignedAt = undefined;
-  order.dispatch.acceptedAt = undefined;
+  // Update offer action to 'rejected'
+  const matchedOffer = order.dispatch.offeredTo.find(
+    (item) =>
+      String(item.partnerId) === String(partnerIdStr) ||
+      String(item.partnerId) === String(partnerUserIdStr) ||
+      String(item.partnerId) === String(deliveryPartnerId)
+  );
+
+  if (matchedOffer) {
+    matchedOffer.action = 'rejected';
+    matchedOffer.at = new Date();
+  } else {
+    order.dispatch.offeredTo.push({
+      partnerId: partnerDoc?._id || new mongoose.Types.ObjectId(deliveryPartnerId),
+      at: new Date(),
+      action: 'rejected',
+    });
+  }
+
+  const isCurrentAssigned =
+    order.dispatch.deliveryPartnerId &&
+    (String(order.dispatch.deliveryPartnerId) === String(partnerIdStr) ||
+      String(order.dispatch.deliveryPartnerId) === String(partnerUserIdStr) ||
+      String(order.dispatch.deliveryPartnerId) === String(deliveryPartnerId));
+
+  if (isCurrentAssigned || order.dispatch.status !== 'accepted') {
+    order.dispatch.status = 'unassigned';
+    order.dispatch.deliveryPartnerId = undefined;
+    order.dispatch.assignedAt = undefined;
+    order.dispatch.acceptedAt = undefined;
+  }
+
+  // Release dispatch lock so next hunt can run immediately without lock timeouts
+  order.dispatch.dispatchingAt = undefined;
+
   pushStatusHistory(order, {
     byRole: 'DELIVERY_PARTNER',
-    byId: deliveryPartnerId,
-    from: 'assigned',
+    byId: partnerDoc?._id || deliveryPartnerId,
+    from: order.dispatch.status || 'assigned',
     to: 'unassigned',
-    note: 'Rejected',
+    note: 'Rejected by delivery partner',
   });
+
   await order.save();
+
+  try {
+    const io = getIO();
+    if (io) {
+      const payload = {
+        orderMongoId: order._id?.toString?.(),
+        orderId: order._id.toString(),
+        action: 'rejected',
+      };
+      io.to(rooms.delivery(deliveryPartnerId)).emit('order_rejected', payload);
+      if (partnerDoc?._id && partnerDoc._id.toString() !== deliveryPartnerId.toString()) {
+        io.to(rooms.delivery(partnerDoc._id)).emit('order_rejected', payload);
+      }
+    }
+  } catch (err) {
+    logger.warn(`Failed to emit order_rejected socket: ${err.message}`);
+  }
 
   enqueueOrderEvent('delivery_rejected', {
     orderMongoId: order._id?.toString?.(),
     orderId: order._id.toString(),
-    deliveryPartnerId,
+    deliveryPartnerId: partnerDoc?._id?.toString?.() || deliveryPartnerId.toString(),
   });
 
+  // Re-hunt immediately for next available delivery partner (excluding this rejected partner)
   void dispatchService
     .tryAutoAssign(order._id)
     .catch((error) =>

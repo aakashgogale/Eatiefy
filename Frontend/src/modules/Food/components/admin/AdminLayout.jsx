@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react"
 import AdminSidebar from "./AdminSidebar"
 import AdminNavbar from "./AdminNavbar"
 import { API_BASE_URL } from "@food/api/config"
+import { useRefreshKey } from "@/shared/hooks/usePullToRefresh"
 import { adminAPI } from "@food/api"
 import { getCurrentUser, getModuleToken, setAuthData, getModuleRefreshToken } from "@food/utils/auth"
 import {
@@ -17,6 +18,9 @@ const debugError = (...args) => {}
 
 
 export default function AdminLayout() {
+  // Pull-to-refresh remounts the page below, so it reloads its data while the
+  // sidebar, navbar and admin session stay exactly where they were.
+  const refreshKey = useRefreshKey()
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [userVersion, setUserVersion] = useState(0);
@@ -285,7 +289,7 @@ export default function AdminLayout() {
 
         {/* Page Content */}
         <main ref={mainRef} className="flex-1 min-h-0 w-full max-w-full overflow-x-hidden overflow-y-auto bg-neutral-100">
-          <Outlet />
+          <Outlet key={refreshKey} />
         </main>
       </div>
     </div>

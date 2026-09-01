@@ -4,6 +4,7 @@ import { ProfileProvider } from "@food/context/ProfileContext"
 import { DeliveryLocationProvider } from "@food/context/DeliveryLocationContext"
 import LocationPrompt from "./LocationPrompt"
 import { CartProvider } from "@food/context/CartContext"
+import { useRefreshKey } from "@/shared/hooks/usePullToRefresh"
 import AutoCouponController from "@food/components/user/AutoCouponController"
 import { OrdersProvider } from "@food/context/OrdersContext"
 const debugLog = (...args) => {}
@@ -253,6 +254,7 @@ export default function UserLayout() {
     normalizedPath === "" // Handle empty string case for root relative to /food
 
   const isUnder250 = normalizedPath === "/under-250" || normalizedPath === "/user/under-250"
+  const refreshKey = useRefreshKey()
 
   return (
     <div className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a] transition-colors duration-200">
@@ -269,8 +271,11 @@ export default function UserLayout() {
                   {showBottomNav && <DesktopNavbar showLogo={!isUnder250} />}
                 </div>
                 {/* <LocationPrompt /> */}
+                {/* Remounted on pull-to-refresh so the screen re-runs its own fetches.
+                    The key sits here, below the providers, so a refresh reloads the page
+                    data without throwing away the cart, session or location context. */}
                 <main className={showBottomNav ? "md:pt-40" : ""}>
-                  <Outlet />
+                  <Outlet key={refreshKey} />
                 </main>
                 {showBottomNav && <BottomNavigation />}
                 {showOnboarding && !location.pathname.includes("/auth/") && (

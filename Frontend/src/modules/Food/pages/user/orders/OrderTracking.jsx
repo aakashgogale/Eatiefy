@@ -618,6 +618,19 @@ export default function OrderTracking() {
   const [showConfirmation, setShowConfirmation] = useState(confirmed)
   const [orderStatus, setOrderStatus] = useState('placed')
   const [estimatedTime, setEstimatedTime] = useState(29)
+
+  const isDeliveredOrder =
+    orderStatus === "delivered" ||
+    order?.status === "delivered" ||
+    order?.orderStatus === "delivered" ||
+    Boolean(order?.deliveredAt)
+
+  const isCancelledOrder =
+    orderStatus === "cancelled" ||
+    order?.orderStatus === "cancelled" ||
+    isFoodOrderCancelledStatus(order?.status) ||
+    isFoodOrderCancelledStatus(order?.orderStatus)
+
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [showCancelDialog, setShowCancelDialog] = useState(false)
   const [showOrderDetails, setShowOrderDetails] = useState(false)
@@ -696,10 +709,16 @@ export default function OrderTracking() {
     }
   }
 
-  // Delivery handover OTP received via socket event.
+  // Delivery handover OTP received via socket event or loaded from local cache.
   // Kept separately so UI still renders even if the event arrives
   // before the order API poll populates `order` state.
-  const [socketDropOtpCode, setSocketDropOtpCode] = useState(null)
+  const [socketDropOtpCode, setSocketDropOtpCode] = useState(() => {
+    try {
+      return localStorage.getItem(`eatiefy_order_otp_${orderId}`) || null;
+    } catch {
+      return null;
+    }
+  });
 
 
   // Sync delivery instructions from order when loaded/refreshed
@@ -1025,10 +1044,57 @@ export default function OrderTracking() {
   };
 
   const customerDeliveryOtp = useMemo(() => {
-    const codeFromOrder = order?.deliveryVerification?.dropOtp?.code
+    const codeFromOrder = order?.deliveryVerification?.dropOtp?.code || order?.handoverOtp
     const code = codeFromOrder ?? socketDropOtpCode
-    return code ? String(code) : null
-  }, [order?.deliveryVerification?.dropOtp?.code, socketDropOtpCode])
+    return code ? String(code).trim() : null
+  }, [order?.deliveryVerification?.dropOtp?.code, order?.handoverOtp, socketDropOtpCode])
+
+  // Persist valid OTP in localStorage so it never disappears on refresh/re-mount
+  useEffect(() => {
+    if (customerDeliveryOtp && orderId && !isDeliveredOrder && !isCancelledOrder) {
+      try {
+        localStorage.setItem(`eatiefy_order_otp_${orderId}`, String(customerDeliveryOtp))
+        if (order?._id) localStorage.setItem(`eatiefy_order_otp_${order._id}`, String(customerDeliveryOtp))
+        if (order?.orderId) localStorage.setItem(`eatiefy_order_otp_${order.orderId}`, String(customerDeliveryOtp))
+      } catch (err) {
+        // ignore storage quota errors
+      }
+    }
+  }, [customerDeliveryOtp, orderId, order?._id, order?.orderId, isDeliveredOrder, isCancelledOrder])
+
+  // Clear persisted OTP once order is properly delivered or cancelled
+  useEffect(() => {
+    if (isDeliveredOrder || isCancelledOrder) {
+      try {
+        localStorage.removeItem(`eatiefy_order_otp_${orderId}`)
+        if (order?._id) localStorage.removeItem(`eatiefy_order_otp_${order._id}`)
+        if (order?.orderId) localStorage.removeItem(`eatiefy_order_otp_${order.orderId}`)
+      } catch (err) {
+        // ignore
+      }
+    }
+  }, [isDeliveredOrder, isCancelledOrder, orderId, order?._id, order?.orderId])
+
+  // Active OTP Fetcher: If order is active but OTP is not yet in state, fetch directly from drop-otp API
+  useEffect(() => {
+    if (!orderId || isDeliveredOrder || isCancelledOrder || customerDeliveryOtp) return
+    let isCancelled = false
+
+    const fetchDropOtp = async () => {
+      try {
+        const res = await orderAPI.getOrderDropOtp(orderId)
+        const otp = res?.data?.data?.otp || res?.data?.otp
+        if (!isCancelled && otp) {
+          setSocketDropOtpCode(String(otp))
+        }
+      } catch (err) {
+        // Non-blocking fallback
+      }
+    }
+
+    fetchDropOtp()
+    return () => { isCancelled = true }
+  }, [orderId, customerDeliveryOtp, isDeliveredOrder, isCancelledOrder])
 
   const handleCopyOtp = (e) => {
     if (e && e.stopPropagation) e.stopPropagation();
@@ -1513,14 +1579,6 @@ export default function OrderTracking() {
   const currentEta = typeof estimatedTime === 'number' && estimatedTime > 0
     ? `${estimatedTime} mins`
     : (estimatedTime ? String(estimatedTime) : null)
-  const isDeliveredOrder =
-    orderStatus === "delivered" ||
-    order?.status === "delivered" ||
-    Boolean(order?.deliveredAt)
-
-  const isCancelledOrder =
-    orderStatus === "cancelled" ||
-    isFoodOrderCancelledStatus(order?.status)
 
   const restaurantNameCandidates = [
     order?.restaurantName,
@@ -2090,6 +2148,19 @@ export default function OrderTracking() {
           </div>
 
           <div className="flex items-center gap-2">
+            {customerDeliveryOtp && !isDeliveredOrder && !isCancelledOrder && (
+              <button
+                type="button"
+                onClick={handleCopyOtp}
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/40 dark:hover:bg-blue-900/70 border border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300 rounded-xl text-xs font-black transition-all active:scale-95 shadow-2xs cursor-pointer"
+                title="Tap to copy Delivery OTP"
+              >
+                <Shield className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <span>OTP: {customerDeliveryOtp}</span>
+                <Copy className="w-3 h-3 opacity-70" />
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleRefresh}
@@ -2101,6 +2172,31 @@ export default function OrderTracking() {
           </div>
         </div>
       </motion.div>
+
+      {/* Floating Sticky Side Handover OTP Widget (Always Visible until Handover) */}
+      {customerDeliveryOtp && !isDeliveredOrder && !isCancelledOrder && (
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0, x: 20 }}
+          animate={{ scale: 1, opacity: 1, x: 0 }}
+          exit={{ scale: 0.9, opacity: 0, x: 20 }}
+          onClick={handleCopyOtp}
+          className="fixed top-18 right-3 sm:right-6 z-40 flex items-center gap-2.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white pl-3.5 pr-2.5 py-2 rounded-2xl shadow-xl shadow-blue-500/25 border-2 border-white/80 dark:border-zinc-800 backdrop-blur-md cursor-pointer hover:scale-105 active:scale-95 transition-all group select-none"
+          title="Tap to Copy Delivery OTP"
+        >
+          <div className="flex flex-col text-left">
+            <span className="text-[9px] uppercase font-black tracking-widest text-blue-200 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              DELIVERY OTP
+            </span>
+            <span className="text-base font-black tracking-[0.2em] leading-tight text-white drop-shadow-xs">
+              {customerDeliveryOtp}
+            </span>
+          </div>
+          <div className="p-1.5 bg-white/20 group-hover:bg-white/30 rounded-xl transition-colors ml-1">
+            <Copy className="w-3.5 h-3.5 text-white" />
+          </div>
+        </motion.div>
+      )}
 
       {/* Map Section */}
       {!isDeliveredOrder && orderStatus !== 'cancelled' && (
@@ -2120,7 +2216,7 @@ export default function OrderTracking() {
       {/* Floating Map Utility Bar on Top-Right */}
       {!isDeliveredOrder && orderStatus !== 'cancelled' && (
         <div className="absolute top-16 right-4 z-30 hidden sm:flex items-center gap-2">
-          {currentEta && (
+          {currentEta && !customerDeliveryOtp && (
             <div className="bg-white/90 dark:bg-zinc-900/90 backdrop-blur-md px-3.5 py-1.5 rounded-full shadow-lg border border-gray-100 dark:border-zinc-800 flex items-center gap-2 text-xs font-bold text-gray-800 dark:text-gray-200">
               <Clock className="w-3.5 h-3.5 text-[#EB590E]" />
               <span>ETA: ~{currentEta}</span>
@@ -2509,9 +2605,19 @@ export default function OrderTracking() {
                 <p className="text-xs font-bold text-gray-900 dark:text-white truncate">
                   {currentStatus.subtitle || currentStatus.title || "Tracking Order"}
                 </p>
-                <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
-                  {currentEta ? `ETA: ~${currentEta}` : (restaurantDisplayName || "Live on map")}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
+                    {currentEta ? `ETA: ~${currentEta}` : (restaurantDisplayName || "Live on map")}
+                  </p>
+                  {customerDeliveryOtp && (
+                    <span 
+                      onClick={handleCopyOtp}
+                      className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded-md text-[10px] font-black tracking-wider shadow-2xs"
+                    >
+                      OTP: {customerDeliveryOtp}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
             <div className="flex items-center gap-1 px-3 py-1.5 bg-[#EB590E] text-white rounded-full text-xs font-bold shrink-0 shadow-xs">

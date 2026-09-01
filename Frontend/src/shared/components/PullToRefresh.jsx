@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateFoodPages } from '@food/utils/foodPageCache';
+import { invalidatePublicApiCaches } from '@/services/api';
 import { EATIEFY_REFRESH_EVENT } from '../hooks/usePullToRefresh';
 
 const PULL_THRESHOLD = 65; // pixels to trigger refresh
@@ -64,7 +65,13 @@ export default function PullToRefresh({ children, onRefresh }) {
       );
     }
 
-    // 2. Invalidate Food Page caches & notify page subscribers
+    // 2. Drop cached API responses and page caches, in that order: screens remount on
+    // the event below and must not be answered from the very data being refreshed.
+    try {
+      invalidatePublicApiCaches();
+    } catch (e) {
+      console.warn('[PullToRefresh] API cache invalidation warning:', e);
+    }
     try {
       invalidateFoodPages({ clearCache: true });
     } catch (e) {

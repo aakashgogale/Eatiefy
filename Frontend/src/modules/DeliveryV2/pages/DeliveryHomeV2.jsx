@@ -1039,9 +1039,39 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                       if (typeof clearAllOffers === 'function') clearAllOffers();
                       setIncomingOrder(null);
                     }}
-                    onReject={() => {
-                      // Advance to next queued offer (if any) without killing the trip flow.
-                      clearNewOrder({ advance: true });
+                    onReject={async ({ reason } = {}) => {
+                      const rejectedOrder = incomingOrder;
+                      // A countdown that ran out only closes the card: the offer may still
+                      // be live, so it stays available to this rider and to recovery.
+                      if (reason !== 'manual') {
+                        clearNewOrder({ advance: true });
+                        setIncomingOrder(null);
+                        return;
+                      }
+
+                      const orderIdToReject =
+                        rejectedOrder?.orderMongoId ||
+                        rejectedOrder?._id ||
+                        rejectedOrder?.orderId ||
+                        rejectedOrder?.order_id;
+
+                      // Drop the card first so the rider is never stuck looking at an
+                      // order they already refused while the request is in flight.
+                      clearNewOrder(rejectedOrder || orderIdToReject);
+                      setIncomingOrder(null);
+
+                      if (!orderIdToReject) return;
+                      try {
+                        await deliveryAPI.rejectOrder(orderIdToReject);
+                      } catch (err) {
+                        // The rider was told it went; say so when it did not, otherwise
+                        // the order silently stays theirs until the dispatch timeout.
+                        console.warn('[DeliveryHomeV2] reject order failed:', err?.message || err);
+                        toast.error(
+                          err?.response?.data?.message ||
+                            'Could not reject the order. It will be reassigned automatically.',
+                        );
+                      }
                     }}
                     onMinimize={() => setIsModalMinimized(true)}
                   />

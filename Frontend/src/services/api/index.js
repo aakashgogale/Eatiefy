@@ -1940,6 +1940,23 @@ const publicRestaurantOutletTimingsCache = createInFlightCache({ ttlMs: 5 * 60 *
 const publicFoodsCache = createInFlightCache({ ttlMs: 3 * 60 * 1000 });
 const publicGenericGetCache = createInFlightCache({ ttlMs: 60 * 1000 }); // categories; server: 600s
 
+/**
+ * Drop every cached public response.
+ *
+ * The TTLs above are what make a pull-to-refresh feel broken: remounting a screen
+ * re-runs its fetches, but each one is answered from this cache for up to fifteen
+ * minutes, so the user sees the same data they just asked to reload. A refresh is an
+ * explicit "give me what the server has now", and this is what makes it mean that.
+ */
+export const invalidatePublicApiCaches = () => {
+  publicConfigCache.invalidate();
+  publicRestaurantsCache.invalidate();
+  publicRestaurantMenuCache.invalidate();
+  publicRestaurantOutletTimingsCache.invalidate();
+  publicFoodsCache.invalidate();
+  publicGenericGetCache.invalidate();
+};
+
 export const publicGetOnce = (url, config = {}) => {
   const safeUrl = typeof url === "string" ? url.trim() : "";
   const { noCache, params, ...axiosConfig } = config || {};
@@ -2923,8 +2940,9 @@ export const orderAPI = {
     apiClient.patch(`/food/orders/${String(orderId)}/instructions`, { instructions }, {
       contextModule: "user",
     }),
-  submitOrderRatings: (orderId, body = {}) =>
-    apiClient.patch(`/food/orders/${String(orderId)}/ratings`, body ?? {}, { contextModule: "user" }),
+  /** Fetch active order handover/drop OTP for user */
+  getOrderDropOtp: (orderId) =>
+    apiClient.get(`/food/orders/${String(orderId)}/drop-otp`, { contextModule: "user" }),
   /** Submit a complaint for an order (user). */
   submitComplaint: (payload) =>
     apiClient.post(

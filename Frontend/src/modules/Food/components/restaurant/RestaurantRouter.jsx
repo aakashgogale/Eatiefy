@@ -4,13 +4,19 @@ import ProtectedRoute from "@food/components/ProtectedRoute"
 import AuthRedirect from "@food/components/AuthRedirect"
 import Loader from "@food/components/Loader"
 import RestaurantLayout from "@food/components/restaurant/RestaurantLayout"
+import { useRefreshKey } from "@/shared/hooks/usePullToRefresh"
 import { applyModuleBranding, getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
 
-const LayoutWrapper = () => (
-  <RestaurantLayout>
-    <Outlet />
-  </RestaurantLayout>
-)
+const LayoutWrapper = () => {
+  // Pull-to-refresh remounts the page, not the layout, so the dashboard reloads its
+  // data while the shell and session stay put.
+  const refreshKey = useRefreshKey()
+  return (
+    <RestaurantLayout>
+      <Outlet key={refreshKey} />
+    </RestaurantLayout>
+  )
+}
 
 // Lazy Loading Components
 const AllOrdersPage = lazy(() => import("@food/pages/restaurant/AllOrdersPage"))

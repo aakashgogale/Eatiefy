@@ -19,7 +19,10 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize, swapGuard
 
   useEffect(() => {
     if (timeLeft <= 0) {
-      onReject();
+      // Running out of time is not a rejection — the rider may simply not have looked
+      // at the phone, and the offer can still be live. Only the button below tells the
+      // server "not me", which is what hands the order to another rider.
+      onReject?.({ reason: 'timeout' });
       return;
     }
     const timer = setInterval(() => setTimeLeft((t) => t - 1), 1000);
@@ -240,7 +243,7 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize, swapGuard
             color="var(--module-theme-color, #00B761)"
           />
           <button
-            onClick={onReject}
+            onClick={() => onReject?.({ reason: 'manual' })}
             className="w-full py-3 text-sm font-black uppercase tracking-widest text-gray-400 hover:text-red-500 transition-colors"
           >
             Reject Order

@@ -18,6 +18,7 @@ import {
   applyModulePowerScanning,
   setCachedSettings,
 } from "@food/utils/businessSettings";
+import { EATIEFY_REFRESH_EVENT } from "@/shared/hooks/usePullToRefresh";
 
 const PublicAppConfigContext = createContext(null);
 
@@ -93,11 +94,15 @@ export function PublicAppConfigProvider({ children }) {
     window.addEventListener("businessSettingsUpdated", handleSettingsUpdate);
     window.addEventListener("adminFeatureSettingUpdated", handleSettingsUpdate);
     window.addEventListener("storage", handleSettingsUpdate);
+    // Banners, explore icons and feature flags sit in a module-level store that
+    // outlives a page remount, so a refresh has to force those through as well.
+    window.addEventListener(EATIEFY_REFRESH_EVENT, handleSettingsUpdate);
     return () => {
       cancelled = true;
       window.removeEventListener("businessSettingsUpdated", handleSettingsUpdate);
       window.removeEventListener("adminFeatureSettingUpdated", handleSettingsUpdate);
       window.removeEventListener("storage", handleSettingsUpdate);
+      window.removeEventListener(EATIEFY_REFRESH_EVENT, handleSettingsUpdate);
     };
   }, [refreshCore]);
 

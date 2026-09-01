@@ -149,6 +149,9 @@ export function removeFoodPageCache(key) {
 
 export function clearFoodSessionCaches() {
   MEMORY.clear();
+  // Landing settings are held in their own module variable with a 30-minute TTL, so
+  // clearing only MEMORY left a refreshed page reading the old under-250 price limit.
+  landingSettingsMemory = null;
   if (typeof sessionStorage === "undefined") return;
   try {
     Object.keys(sessionStorage).forEach((key) => {

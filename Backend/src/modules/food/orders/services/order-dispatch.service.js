@@ -332,11 +332,18 @@ export async function tryAutoAssign(orderId, options = {}) {
   }
 
   try {
-    const offeredIds = (order.dispatch?.offeredTo || []).map(o => o.partnerId.toString());
-    const permanentlyExcludedIds = new Set(
+    const rejectedPartnerIds = new Set(
       (order.dispatch?.offeredTo || [])
-        .filter((offer) => offer.action === 'deassigned')
-        .map((offer) => offer.partnerId.toString())
+        .filter((offer) => offer.action === 'rejected' || offer.action === 'deassigned')
+        .map((offer) => offer.partnerId?.toString?.())
+        .filter(Boolean)
+    );
+
+    const currentlyOfferedIds = new Set(
+      (order.dispatch?.offeredTo || [])
+        .filter((offer) => offer.action === 'offered')
+        .map((offer) => offer.partnerId?.toString?.())
+        .filter(Boolean)
     );
     
     // RADIUS EXPANSION LOGIC
@@ -374,7 +381,8 @@ export async function tryAutoAssign(orderId, options = {}) {
 
     const eligible = partners.filter((partner) => {
       const partnerKey = partner.partnerId.toString();
-      if (offeredIds.includes(partnerKey)) return false;
+      if (rejectedPartnerIds.has(partnerKey)) return false;
+      if (currentlyOfferedIds.has(partnerKey)) return false;
       if (busyPartnerIds.has(partnerKey)) return false;
       return true;
     });
@@ -382,11 +390,11 @@ export async function tryAutoAssign(orderId, options = {}) {
     if (eligible.length === 0) {
       logger.info(`tryAutoAssign: No NEW eligible partners in ${maxKm}km for order ${order._id}. Restarting hunt...`);
       
-      // If we ran out of new eligible partners, we might want to re-offer to everyone (Phase 2 style)
+      // Re-offer to non-rejected online delivery partners (excluding those who explicitly rejected this order)
       const io = getIO();
       const reofferEligible = partners.filter((partner) => {
         const partnerKey = partner.partnerId.toString();
-        if (permanentlyExcludedIds.has(partnerKey)) return false;
+        if (rejectedPartnerIds.has(partnerKey)) return false;
         if (busyPartnerIds.has(partnerKey)) return false;
         return true;
       });
