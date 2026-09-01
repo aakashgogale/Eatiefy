@@ -1,6 +1,12 @@
 /**
  * Centralized public app configuration — banners, business settings, fees, features.
  * Loaded once per session (15 min TTL) and shared across all routes/components.
+ *
+ * All of it arrives in a single `/food/public/app-config` request. It used to be nine
+ * separate GETs fired before the home screen could paint; each one also cost a CORS
+ * preflight, so the shell opened with eighteen round trips before any content request.
+ * The per-endpoint URLs below are kept as a fallback for a backend that predates the
+ * aggregate route.
  */
 
 import {
@@ -8,6 +14,8 @@ import {
   invalidatePublicConfigCache,
 } from "@food/api";
 import { API_ENDPOINTS } from "@food/api/config";
+
+export const PUBLIC_APP_CONFIG_URL = "/food/public/app-config";
 
 export const PUBLIC_CONFIG_URLS = {
   BUSINESS: API_ENDPOINTS.ADMIN.BUSINESS_SETTINGS_PUBLIC,
@@ -32,16 +40,26 @@ const emptyStore = () => ({
   heroBanners: null,
   promoBanners: null,
   exploreIcons: null,
+  customization: null,
   landingByZone: new Map(),
   loadedAt: 0,
 });
 
 let store = emptyStore();
-let coreLoadPromise = null;
-let userContentLoadPromise = null;
+let aggregateLoadPromise = null;
+let aggregateFailed = false;
 
 const isFresh = () =>
   store.loadedAt > 0 && Date.now() - store.loadedAt < CONFIG_TTL_MS;
+
+/** The shell sends the stored zone so landing settings can ride along in the same call. */
+const readStoredZoneId = () => {
+  try {
+    return localStorage.getItem("userZoneId") || "";
+  } catch {
+    return "";
+  }
+};
 
 const parseBusinessSettings = (response) =>
   response?.data?.data || response?.data || null;
@@ -107,116 +125,145 @@ export const getPublicAppConfigSnapshot = () => ({
 export const invalidatePublicAppConfig = () => {
   invalidatePublicConfigCache();
   store = emptyStore();
-  coreLoadPromise = null;
-  userContentLoadPromise = null;
+  aggregateLoadPromise = null;
+  aggregateFailed = false;
+};
+
+const applyAggregate = (payload = {}) => {
+  const businessSettings = payload.businessSettings || null;
+  const powerScanning = payload.powerScanning || null;
+
+  if (businessSettings) {
+    store.businessSettings = powerScanning
+      ? { ...businessSettings, powerScanning }
+      : businessSettings;
+  } else if (powerScanning) {
+    store.businessSettings = { ...(store.businessSettings || {}), powerScanning };
+  }
+
+  store.powerScanning = powerScanning;
+  store.featureSettings = Array.isArray(payload.featureSettings) ? payload.featureSettings : [];
+  store.feeSettings = payload.feeSettings || null;
+  store.topBanners = Array.isArray(payload.topBanners) ? payload.topBanners : [];
+  store.heroBanners = Array.isArray(payload.heroBanners) ? payload.heroBanners : [];
+  store.promoBanners = Array.isArray(payload.promoBanners) ? payload.promoBanners : [];
+  store.exploreIcons = Array.isArray(payload.exploreIcons)
+    ? payload.exploreIcons.map((it) => ({
+        ...it,
+        imageUrl: it.imageUrl || it.iconUrl,
+        label: it.label || it.name,
+      }))
+    : [];
+  store.customization = payload.customization || null;
+
+  if (payload.landing) {
+    const zoneKey = String(payload.zoneId || "global");
+    store.landingByZone.set(zoneKey, {
+      exploreMoreHeading: payload.landing.exploreMoreHeading || "Explore More",
+      recommendedRestaurantIds: payload.landing.recommendedRestaurantIds || [],
+      recommendedRestaurants: payload.landing.recommendedRestaurants || [],
+    });
+  }
+
+  store.loadedAt = Date.now();
+};
+
+/** Pre-aggregate backends still answer the individual routes; keep working against them. */
+const loadFromLegacyEndpoints = async (force) => {
+  const options = force ? { noCache: true } : {};
+  const [businessRes, powerRes, featureRes, feeRes, topRes, heroRes, promoRes, exploreRes] =
+    await Promise.all([
+      publicConfigGetOnce(PUBLIC_CONFIG_URLS.BUSINESS, options).catch(() => null),
+      publicConfigGetOnce(PUBLIC_CONFIG_URLS.POWER_SCANNING, options).catch(() => null),
+      publicConfigGetOnce(PUBLIC_CONFIG_URLS.FEATURE, options).catch(() => null),
+      publicConfigGetOnce(PUBLIC_CONFIG_URLS.FEE, options).catch(() => null),
+      publicConfigGetOnce(PUBLIC_CONFIG_URLS.TOP_BANNERS, options).catch(() => null),
+      publicConfigGetOnce(PUBLIC_CONFIG_URLS.HERO_BANNERS, options).catch(() => null),
+      publicConfigGetOnce(PUBLIC_CONFIG_URLS.PROMO_BANNERS, options).catch(() => null),
+      publicConfigGetOnce(PUBLIC_CONFIG_URLS.EXPLORE_ICONS, options).catch(() => null),
+    ]);
+
+  applyAggregate({
+    businessSettings: parseBusinessSettings(businessRes),
+    powerScanning: parsePowerScanning(powerRes),
+    featureSettings: parseFeatureSettings(featureRes),
+    feeSettings: parseFeeSettings(feeRes),
+    topBanners: parseTopBanners(topRes),
+    heroBanners: parseHeroBanners(heroRes),
+    promoBanners: parseHeroBanners(promoRes),
+    exploreIcons: parseExploreIcons(exploreRes),
+  });
+};
+
+/**
+ * Everything the shell needs, in one request. Both entry points below funnel through
+ * here, so a page that wants core settings and a page that wants banners still share
+ * a single in-flight fetch instead of opening two waves of requests.
+ */
+const loadPublicAppConfig = async ({ force = false } = {}) => {
+  if (!force && isFresh() && store.businessSettings) {
+    return getPublicAppConfigSnapshot();
+  }
+
+  if (aggregateLoadPromise && !force) {
+    return aggregateLoadPromise;
+  }
+
+  aggregateLoadPromise = (async () => {
+    if (!aggregateFailed) {
+      try {
+        const zoneId = readStoredZoneId();
+        const response = await publicConfigGetOnce(PUBLIC_APP_CONFIG_URL, {
+          ...(zoneId ? { params: { zoneId } } : {}),
+          ...(force ? { noCache: true } : {}),
+        });
+        const payload = response?.data?.data || response?.data || null;
+        if (payload) {
+          applyAggregate(payload);
+          return getPublicAppConfigSnapshot();
+        }
+      } catch {
+        // Older backend, or the route is down — fall back and stop retrying it.
+        aggregateFailed = true;
+      }
+    }
+
+    // Isolate failures so one downed public endpoint cannot crash the cart/home shell.
+    await loadFromLegacyEndpoints(force);
+    return getPublicAppConfigSnapshot();
+  })();
+
+  try {
+    return await aggregateLoadPromise;
+  } finally {
+    aggregateLoadPromise = null;
+  }
 };
 
 /**
  * Core config used app-wide: business, theme, fees, feature flags.
  */
-export const loadCorePublicAppConfig = async ({ force = false } = {}) => {
-  if (!force && isFresh() && store.businessSettings) {
-    return getPublicAppConfigSnapshot();
-  }
-
-  if (coreLoadPromise && !force) {
-    return coreLoadPromise;
-  }
-
-  coreLoadPromise = (async () => {
-    // Isolate failures so one downed public endpoint cannot crash the cart/home shell.
-    const [businessRes, powerRes, featureRes, feeRes] = await Promise.all([
-      publicConfigGetOnce(PUBLIC_CONFIG_URLS.BUSINESS, force ? { noCache: true } : {}).catch(
-        () => null,
-      ),
-      publicConfigGetOnce(PUBLIC_CONFIG_URLS.POWER_SCANNING, force ? { noCache: true } : {}).catch(
-        () => null,
-      ),
-      publicConfigGetOnce(PUBLIC_CONFIG_URLS.FEATURE, force ? { noCache: true } : {}).catch(
-        () => null,
-      ),
-      publicConfigGetOnce(PUBLIC_CONFIG_URLS.FEE, force ? { noCache: true } : {}).catch(() => null),
-    ]);
-
-    const businessSettings = parseBusinessSettings(businessRes);
-    const powerScanning = parsePowerScanning(powerRes);
-    const featureSettings = parseFeatureSettings(featureRes);
-    const feeSettings = parseFeeSettings(feeRes);
-
-    if (businessSettings) {
-      store.businessSettings = powerScanning
-        ? { ...businessSettings, powerScanning }
-        : businessSettings;
-    } else if (powerScanning) {
-      store.businessSettings = {
-        ...(store.businessSettings || {}),
-        powerScanning,
-      };
-    }
-
-    store.powerScanning = powerScanning;
-    store.featureSettings = featureSettings;
-    store.feeSettings = feeSettings;
-    store.loadedAt = Date.now();
-
-    return getPublicAppConfigSnapshot();
-  })();
-
-  try {
-    return await coreLoadPromise;
-  } finally {
-    coreLoadPromise = null;
-  }
-};
+export const loadCorePublicAppConfig = (options) => loadPublicAppConfig(options);
 
 /**
  * User-home content: banners + explore icons (not zone-specific).
  */
-export const loadUserHomePublicConfig = async ({ force = false } = {}) => {
-  await loadCorePublicAppConfig({ force });
-
-  if (!force && store.topBanners && store.heroBanners && store.promoBanners && store.exploreIcons) {
-    return getPublicAppConfigSnapshot();
-  }
-
-  if (userContentLoadPromise && !force) {
-    return userContentLoadPromise;
-  }
-
-  userContentLoadPromise = (async () => {
-    const [topRes, heroRes, promoRes, exploreRes] = await Promise.all([
-      publicConfigGetOnce(PUBLIC_CONFIG_URLS.TOP_BANNERS, force ? { noCache: true } : {}).catch(
-        () => null,
-      ),
-      publicConfigGetOnce(PUBLIC_CONFIG_URLS.HERO_BANNERS, force ? { noCache: true } : {}).catch(
-        () => null,
-      ),
-      publicConfigGetOnce(PUBLIC_CONFIG_URLS.PROMO_BANNERS, force ? { noCache: true } : {}).catch(() => null),
-      publicConfigGetOnce(PUBLIC_CONFIG_URLS.EXPLORE_ICONS, force ? { noCache: true } : {})
-        .catch(() => null),
-    ]);
-
-    store.topBanners = parseTopBanners(topRes);
-    store.heroBanners = parseHeroBanners(heroRes);
-    store.promoBanners = parseHeroBanners(promoRes);
-    store.exploreIcons = parseExploreIcons(exploreRes);
-    store.loadedAt = Date.now();
-
-    return getPublicAppConfigSnapshot();
-  })();
-
-  try {
-    return await userContentLoadPromise;
-  } finally {
-    userContentLoadPromise = null;
-  }
-};
+export const loadUserHomePublicConfig = (options) => loadPublicAppConfig(options);
 
 export const loadLandingSettingsForZone = async (zoneId, { force = false } = {}) => {
   const zoneKey = String(zoneId || "global");
 
   if (!force && store.landingByZone.has(zoneKey)) {
     return store.landingByZone.get(zoneKey);
+  }
+
+  // The shell request already carries landing settings for the stored zone; wait on it
+  // rather than opening a second request for data that is already on its way.
+  if (!force && aggregateLoadPromise && zoneKey === String(readStoredZoneId() || "global")) {
+    await aggregateLoadPromise;
+    if (store.landingByZone.has(zoneKey)) {
+      return store.landingByZone.get(zoneKey);
+    }
   }
 
   const params = zoneId ? { zoneId: String(zoneId) } : {};
@@ -243,6 +290,8 @@ export const getCachedHeroBanners = () => store.heroBanners;
 export const getCachedPromoBanners = () => store.promoBanners;
 
 export const getCachedExploreIcons = () => store.exploreIcons;
+
+export const getCachedCustomizationSettings = () => store.customization;
 
 export const getCachedLandingSettings = (zoneId) => {
   const zoneKey = String(zoneId || "global");

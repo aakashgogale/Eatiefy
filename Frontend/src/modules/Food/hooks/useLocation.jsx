@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from "react"
 import { locationAPI, userAPI } from "@food/api"
 import { useProfile } from "@food/context/ProfileContext"
-import apiClient from "@food/api/axios"
 import { acquireLocation, GEO_ERROR } from "@food/utils/liveLocation"
+import {
+  getCachedCustomizationSettings,
+  loadCorePublicAppConfig,
+} from "@food/services/publicAppConfig"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -23,11 +26,12 @@ const loadCustomizationSettings = async () => {
     }
   } catch (e) {}
 
-  // Fetch in background to update
+  // These toggles ship inside the shared app-config request the shell already makes,
+  // so read them from there instead of spending a second call on the same data.
   customizationFetchPromise = (async () => {
     try {
-      const response = await apiClient.get("/food/public/customization-settings")
-      const settings = response?.data?.data || response?.data
+      await loadCorePublicAppConfig()
+      const settings = getCachedCustomizationSettings()
       if (settings) {
         globalCustomizationSettings = settings
         try {

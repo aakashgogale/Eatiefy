@@ -39,6 +39,8 @@ const debugLog = (...args) => { }
 const debugWarn = (...args) => { }
 const debugError = (...args) => { }
 const RUPEE_SYMBOL = "\u20B9"
+/** Price ceiling of the Eatiefy 99 promo; mirrors EATIEFY_MAX_PRICE on the backend. */
+const EATIEFY_MAX_PRICE = 99
 const UNDER_250_FILTERS_STORAGE_KEY = "food-under-250-filters"
 
 const resolveImageUrl = (url) => {
@@ -52,107 +54,6 @@ const resolveImageUrl = (url) => {
   return `${API_BASE_URL.replace(/\/api\/?$/, "")}${cleanPath}`
 }
 
-const CURATED_eatiefy_DISHES = [
-  {
-    name: "Special Veg Thali",
-    price: 99,
-    originalPrice: 199,
-    isVeg: true,
-    category: "Main Course",
-    sectionName: "Main Course",
-    image: cloudinaryImages.thali,
-    rating: 4.8,
-    description: "Paneer Butter Masala, Dal Tadka, 2 Butter Roti, Steamed Rice & Salad",
-  },
-  {
-    name: "Steam Cheese Momos (8 Pcs)",
-    price: 99,
-    originalPrice: 149,
-    isVeg: true,
-    category: "chinese",
-    sectionName: "chinese",
-    image: cloudinaryImages.momos,
-    rating: 4.7,
-    description: "Served hot with spicy red chutney and mayo",
-  },
-  {
-    name: "Classic Cheese Burger",
-    price: 99,
-    originalPrice: 139,
-    isVeg: true,
-    category: "Fast Food",
-    sectionName: "Fast Food",
-    image: cloudinaryImages.burger,
-    rating: 4.6,
-    description: "Crispy veg patty loaded with double cheese & secret sauce",
-  },
-  {
-    name: "Chilli Paneer Dry & Noodles",
-    price: 99,
-    originalPrice: 189,
-    isVeg: true,
-    category: "chinese",
-    sectionName: "chinese",
-    image: cloudinaryImages.noodles,
-    rating: 4.9,
-    description: "Wok-tossed Hakka noodles with spicy Chilli Paneer",
-  },
-  {
-    name: "Paneer Tikka Kathi Roll",
-    price: 99,
-    originalPrice: 159,
-    isVeg: true,
-    category: "Fast Food",
-    sectionName: "Fast Food",
-    image: cloudinaryImages.rolls,
-    rating: 4.7,
-    description: "Smoky tandoori paneer wrapped in flaky lachha paratha",
-  },
-  {
-    name: "Choco Lava Cake",
-    price: 99,
-    originalPrice: 129,
-    isVeg: true,
-    category: "Sweet",
-    sectionName: "Sweet",
-    image: cloudinaryImages.cake,
-    rating: 4.9,
-    description: "Warm gooey chocolate lava center cake",
-  },
-  {
-    name: "Chole Bhature Special (2 Pcs)",
-    price: 99,
-    originalPrice: 160,
-    isVeg: true,
-    category: "Main Course",
-    sectionName: "Main Course",
-    image: cloudinaryImages.chole_bhature,
-    rating: 4.8,
-    description: "Fluffy bhature served with rich Amritsari chole & pickle",
-  },
-  {
-    name: "Special Masala Dosa",
-    price: 99,
-    originalPrice: 149,
-    isVeg: true,
-    category: "South Indian",
-    sectionName: "South Indian",
-    image: cloudinaryImages.dosa,
-    rating: 4.6,
-    description: "Crispy golden dosa filled with spiced potato masala",
-  },
-  {
-    name: "Sponge Rasgulla (2 Pcs)",
-    price: 99,
-    originalPrice: 120,
-    isVeg: true,
-    category: "Sweet",
-    sectionName: "Sweet",
-    image: cloudinaryImages.rasgulla_clean,
-    rating: 4.8,
-    description: "Soft spongy rasgullas dipped in sweet syrup",
-  },
-]
 
 const getSanitizedUnder250Image = (item) => {
   const name = (item.name || "").toLowerCase()
@@ -438,9 +339,8 @@ export default function Under250() {
 
   const iseatiefyEligibleItem = useCallback((item = {}) => {
     if (!item || item?.isAvailable === false) return false
-    const rawPrice = String(item?.price ?? "")
     const numPrice = Number(item?.price)
-    return rawPrice.includes("99") || (!isNaN(numPrice) && numPrice > 0 && numPrice <= 99)
+    return Number.isFinite(numPrice) && numPrice > 0 && numPrice <= EATIEFY_MAX_PRICE
   }, [])
 
   const filterCandidateRestaurants = useCallback((restaurants = []) => {
@@ -448,7 +348,7 @@ export default function Under250() {
       const availability = getRestaurantAvailabilityStatus(restaurant, new Date())
       if (!availability.isOpen) return false
 
-      // Keep candidate set broad; final eligibility is menu-item based (price contains "99").
+      // Keep candidate set broad; final eligibility is menu-item based (price <= ₹99).
       return true
     })
   }, [])
@@ -821,21 +721,13 @@ export default function Under250() {
             if (!restaurantId) return null
 
             const restaurantFoods = foodsByRestaurantId.get(restaurantId) || []
-            const existingMenuItems = restaurantFoods.map((food) =>
-              buildeatiefyMenuItem(food, restaurant, restaurantId),
-            )
+            // Only this kitchen's own ₹99 items. Padding the row with stock dishes
+            // let users open something the restaurant cannot actually cook.
+            if (!restaurantFoods.length) return null
 
-            // Enrich with curated top ₹99 dishes to make every restaurant full and vibrant
-            const existingNames = new Set(existingMenuItems.map((item) => (item.name || "").toLowerCase()))
-            const extraDishes = CURATED_eatiefy_DISHES.filter((dish) => !existingNames.has(dish.name.toLowerCase()))
-              .map((dish, dIdx) => ({
-                ...dish,
-                id: `${restaurantId}-curated-${dIdx}`,
-                restaurantId,
-                restaurantName: restaurant?.name || restaurant?.restaurantName || "",
-              }))
-
-            const menuItems = [...existingMenuItems, ...extraDishes].slice(0, 8)
+            const menuItems = restaurantFoods
+              .map((food) => buildeatiefyMenuItem(food, restaurant, restaurantId))
+              .slice(0, 8)
 
             return buildeatiefyRestaurantRow(
               restaurant,

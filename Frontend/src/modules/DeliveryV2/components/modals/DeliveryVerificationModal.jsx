@@ -7,6 +7,7 @@ import {
 import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
 import { ActionSlider } from '@/modules/DeliveryV2/components/ui/ActionSlider';
+import { DELIVERY_OTP_LENGTH } from '@delivery/constants/otp';
 
 const Backdrop = ({ onClose }) => (
   <motion.div 
@@ -49,18 +50,20 @@ const DeliveryInstructionsPanel = ({ note, deliveryInstructions }) => {
 }
 
 const OtpModal = ({ order, onVerified, onClose }) => {
-  const [otp, setOtp] = useState(['', '', '', '']);
+  // Every length below comes from DELIVERY_OTP_LENGTH so the box count, the paste
+  // handler and the submit guard can never disagree with the server.
+  const [otp, setOtp] = useState(() => Array(DELIVERY_OTP_LENGTH).fill(''));
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [isOtpVerified, setIsOtpVerified] = useState(false);
-  const inputRefs = [useRef(), useRef(), useRef(), useRef()];
+  const inputRefs = useRef(Array.from({ length: DELIVERY_OTP_LENGTH }, () => ({ current: null })));
 
   useEffect(() => {
     const savedCode = order?.deliveryVerification?.dropOtp?.code;
-    if (savedCode && String(savedCode).length === 4) {
+    if (savedCode && String(savedCode).length === DELIVERY_OTP_LENGTH) {
       setOtp(String(savedCode).split(''));
     }
     const timer = setTimeout(() => {
-      inputRefs[0].current?.focus();
+      inputRefs.current[0]?.current?.focus();
     }, 500);
     return () => clearTimeout(timer);
   }, [order?.deliveryVerification?.dropOtp?.code]);
@@ -72,16 +75,20 @@ const OtpModal = ({ order, onVerified, onClose }) => {
     const newOtp = [...otp];
     newOtp[index] = value.substring(value.length - 1);
     setOtp(newOtp);
-    if (value && index < 3) inputRefs[index + 1].current?.focus();
+    if (value && index < DELIVERY_OTP_LENGTH - 1) {
+      inputRefs.current[index + 1]?.current?.focus();
+    }
   };
 
   const handleKeyDown = (index, e) => {
-    if (e.key === 'Backspace' && !otp[index] && index > 0) inputRefs[index - 1].current?.focus();
+    if (e.key === 'Backspace' && !otp[index] && index > 0) {
+      inputRefs.current[index - 1]?.current?.focus();
+    }
   };
 
   const verifyOtp = async () => {
     const otpString = otp.join('');
-    if (otpString.length < 4) return;
+    if (otpString.length < DELIVERY_OTP_LENGTH) return;
     setIsVerifyingOtp(true);
     try {
       const res = await deliveryAPI.verifyDropOtp(orderId, otpString);
@@ -146,8 +153,11 @@ const OtpModal = ({ order, onVerified, onClose }) => {
             {otp.map((digit, i) => (
               <input
                 key={i}
-                ref={inputRefs[i]}
-                type="number"
+                ref={inputRefs.current[i]}
+                type="tel"
+                inputMode="numeric"
+                maxLength={1}
+                autoComplete="one-time-code"
                 disabled={isOtpVerified}
                 value={digit}
                 onChange={(e) => handleOtpChange(i, e.target.value)}

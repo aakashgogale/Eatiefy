@@ -76,6 +76,7 @@ import { sendError } from '../../../../utils/response.js';
 import { getRestaurantFinanceController } from '../controllers/restaurantFinance.controller.js';
 
 import { cacheResponse, invalidateCache } from '../../../../middleware/cache.js';
+import { uploadRateLimiter } from '../../../../middleware/rateLimit.js';
 
 const router = express.Router();
 
@@ -97,7 +98,15 @@ const uploadFields = upload.fields([
 router.post('/register', uploadFields, registerRestaurantController);
 router.post('/onboarding-fee/order', createOnboardingFeeOrderController);
 router.post('/unregistered', registerUnregisteredRestaurantController);
-router.post('/upload-attachment', upload.single('file'), uploadRestaurantAttachmentController);
+// Onboarding uploads happen before a restaurant account exists, so this cannot
+// require a restaurant session — but leaving it fully open let anyone fill the disk.
+// Rate limiting per IP keeps it usable for genuine signups and useless for abuse.
+router.post(
+    '/upload-attachment',
+    uploadRateLimiter,
+    upload.single('file'),
+    uploadRestaurantAttachmentController,
+);
 
 // Public: approved restaurants list (for user app)
 router.get('/restaurants', cacheResponse(300, 'restaurants'), listApprovedRestaurantsController);
@@ -208,14 +217,10 @@ router.post('/feedback-experience', authMiddleware, requireRestaurant, feedbackE
 router.get('/restaurants/:id/addons', cacheResponse(600, 'restaurant_addons'), getPublicRestaurantAddonsController);
 
 // Foods (restaurant creates/updates items -> stored in food_items collection)
-router.post('/foods', authMiddleware, requireRestaurant, async (req, res, next) => {
-    await invalidateCache('restaurant_menu:*');
-    next();
-}, createRestaurantFoodController);
-router.patch('/foods/:id', authMiddleware, requireRestaurant, async (req, res, next) => {
-    await invalidateCache('restaurant_menu:*');
-    next();
-}, updateRestaurantFoodController);
+// Menu caches are invalidated inside the service, after the write lands — clearing
+// them here (before the handler) let a concurrent read repopulate the stale list.
+router.post('/foods', authMiddleware, requireRestaurant, createRestaurantFoodController);
+router.patch('/foods/:id', authMiddleware, requireRestaurant, updateRestaurantFoodController);
 
 // Bulk Menu Upload
 router.get('/bulk-upload/template', authMiddleware, requireRestaurant, downloadBulkMenuTemplateController);

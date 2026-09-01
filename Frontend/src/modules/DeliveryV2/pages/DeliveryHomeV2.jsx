@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { useProximityCheck } from '@/modules/DeliveryV2/hooks/useProximityCheck';
 import { useOrderManager } from '@/modules/DeliveryV2/hooks/useOrderManager';
+import { extractDeliveryOrderList } from '@/modules/DeliveryV2/utils/orderMapping';
 import { useDeliveryNotifications } from '@food/hooks/useDeliveryNotifications';
 import { writeDeliveryLocation, writeOrderTracking } from '@food/realtimeTracking';
 import { deliveryAPI } from '@food/api';
@@ -592,17 +593,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
         }
 
         const availableResponse = await deliveryAPI.getOrders({ limit: 20, page: 1 });
-        const availablePayload =
-          availableResponse?.data?.data ||
-          availableResponse?.data ||
-          {};
-        const availableOrders = Array.isArray(availablePayload?.docs)
-          ? availablePayload.docs
-          : Array.isArray(availablePayload?.items)
-            ? availablePayload.items
-            : Array.isArray(availablePayload)
-              ? availablePayload
-              : [];
+        const availableOrders = extractDeliveryOrderList(availableResponse);
 
         const nextIncomingOrder = availableOrders.find((order) => {
           const dispatchStatus = String(order?.dispatch?.status || '').toLowerCase();
@@ -1016,7 +1007,10 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
       </div>
 
       {/* OVERLAYS (Persistent if active) - Outside flex container to avoid clipping and z-index issues */}
-      {(currentTab === 'feed' || activeOrder) && (
+      {/* `incomingOrder` belongs in this gate: the offer ring is played by the socket
+          hook regardless of which tab is open, so without it a rider sitting on
+          Pocket/History/Profile heard the alert with no accept/reject card to act on. */}
+      {(currentTab === 'feed' || activeOrder || incomingOrder) && (
         <AnimatePresence>
           {!isModalMinimized && (
             <motion.div

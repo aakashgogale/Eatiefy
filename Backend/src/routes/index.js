@@ -16,6 +16,8 @@ import { authMiddleware } from '../core/auth/auth.middleware.js';
 import * as businessSettingsController from '../modules/food/admin/controllers/businessSettings.controller.js';
 import * as adminController from '../modules/food/admin/controllers/admin.controller.js';
 import * as systemConfigController from '../modules/food/admin/controllers/systemConfig.controller.js';
+import { getPublicAppConfigController } from '../modules/food/landing/controllers/publicAppConfig.controller.js';
+import { cacheResponse } from '../middleware/cache.js';
 import { requireRoles } from '../core/roles/role.middleware.js';
 import { getQueuesController } from '../controllers/admin.controller.js';
 import webhookRoutes from '../core/payments/routes/webhook.routes.js'; // ✅ NEW
@@ -50,6 +52,10 @@ router.get('/v1/food/dining/restaurants/public', getPublicDiningRestaurants);
 router.use('/v1/food/dining/bookings', diningBookingRoutes);
 router.use('/v1/food/user/dining/bookings', diningBookingRoutes);
 router.use('/v1/uploads', uploadRoutes);
+
+// Everything the app shell needs, in one request. The individual routes below stay
+// for the admin app and older clients; both paths share the same loaders.
+router.get('/v1/food/public/app-config', cacheResponse(120, 'public_app_config'), getPublicAppConfigController);
 
 // Public settings first so clients can detect / exit maintenance without auth
 router.get('/v1/food/public/customization-settings', systemConfigController.getCustomizationSettings);

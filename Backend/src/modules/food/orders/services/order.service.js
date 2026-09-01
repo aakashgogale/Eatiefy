@@ -303,7 +303,35 @@ async function applyCancellationRefund(order, { cancelledBy = 'system', refundAm
   return { attempted: false, processed: false, reason: `unsupported_method_${paymentMethod}`, method: paymentMethod };
 }
 
-async function expireUnacceptedOrders(filter = {}) {
+let lastAcceptanceSweepAt = 0;
+const ACCEPTANCE_SWEEP_INTERVAL_MS = 30_000;
+/** Cap per sweep so one pass can never turn into an unbounded write storm. */
+const ACCEPTANCE_SWEEP_LIMIT = 200;
+
+/**
+ * Cancels orders the restaurant never accepted within its acceptance window.
+ *
+ * This used to run on every order list and every order detail request with no
+ * throttle and no limit: a collection-wide scan plus a write, a refund and a socket
+ * emit per matched order, multiplied by every concurrent reader. At a hundred
+ * customers refreshing their orders that is a hundred simultaneous sweeps of the
+ * same rows. It is a background job wearing a read path's clothes.
+ *
+ * It now self-throttles, caps its batch, and is driven by a timer in server.js.
+ * Passing an explicit `filter` (single-order expiry) bypasses the throttle.
+ *
+ * @param {object} [filter] extra Mongo filter; when given, runs unthrottled
+ * @returns {Promise<number>} orders cancelled
+ */
+export async function expireUnacceptedOrders(filter = {}) {
+  const targeted = Object.keys(filter).length > 0;
+
+  if (!targeted) {
+    const nowMs = Date.now();
+    if (nowMs - lastAcceptanceSweepAt < ACCEPTANCE_SWEEP_INTERVAL_MS) return 0;
+    lastAcceptanceSweepAt = nowMs;
+  }
+
   const now = new Date();
   const baseFilter = {
     orderStatus: { $in: ["created", "confirmed"] },
@@ -311,7 +339,10 @@ async function expireUnacceptedOrders(filter = {}) {
     ...filter,
   };
 
-  const docs = await FoodOrder.find(baseFilter).select("_id orderStatus").lean();
+  const docs = await FoodOrder.find(baseFilter)
+    .select("_id orderStatus")
+    .limit(targeted ? 1 : ACCEPTANCE_SWEEP_LIMIT)
+    .lean();
   if (!docs.length) return 0;
 
   for (const doc of docs) {
@@ -843,7 +874,6 @@ export async function processDispatchTimeout(orderId, partnerId, options = {}) {
 // ----- User: list, get, cancel -----
 export async function listOrdersUser(userId, query) {
   await expireStalePendingPaymentOrders();
-  await expireUnacceptedOrders();
   const { page, limit, skip } = buildPaginationOptions(query);
   const filter = { 
     userId: new mongoose.Types.ObjectId(userId),
@@ -953,7 +983,6 @@ export async function getOrderById(
   orderId,
   { userId, restaurantId, deliveryPartnerId, admin } = {},
 ) {
-  await expireUnacceptedOrders();
   const identity = buildOrderIdentityFilter(orderId);
   if (!identity) throw new ValidationError("Order id required");
   const order = await FoodOrder.findOne(identity)

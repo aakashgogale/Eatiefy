@@ -60,7 +60,8 @@ function getCustomizationAllowlist() {
     return CUSTOMIZATION_TOGGLES.map(t => t.key);
 }
 
-export async function getCustomizationSettings(req, res) {
+/** Shared by the standalone route and the aggregated /public/app-config payload. */
+export async function loadCustomizationSettings() {
     const keys = getCustomizationAllowlist();
     const docs = await FoodSystemConfig.find({ key: { $in: keys } }).lean();
     const map = new Map(docs.map(d => [d.key, d]));
@@ -69,8 +70,11 @@ export async function getCustomizationSettings(req, res) {
     for (const t of CUSTOMIZATION_TOGGLES) {
         data[t.key] = resolveToggleValue(map.get(t.key) || null, t.defaultValue);
     }
+    return data;
+}
 
-    res.json({ success: true, data });
+export async function getCustomizationSettings(req, res) {
+    res.json({ success: true, data: await loadCustomizationSettings() });
 }
 
 export async function updateCustomizationSettings(req, res) {

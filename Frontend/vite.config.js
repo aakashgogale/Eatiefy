@@ -61,18 +61,23 @@ export default defineConfig({
               }
             }
           },
-          {
-            urlPattern: /\/api\/v1\/.*/i,
-            handler: 'StaleWhileRevalidate',
-            options: {
-              cacheName: 'api-cache',
-              expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 60 * 60 * 24
-              }
-            }
-          }
-        ]
+          // NOTE: API responses are deliberately NOT runtime-cached.
+          //
+          // This previously matched /api/v1/* with StaleWhileRevalidate for 24 hours.
+          // Almost every endpoint here is per-user and real-time — orders, cart,
+          // wallet, addresses, live tracking — so that cache did two bad things:
+          // it served data up to a day old before the network answer arrived (the UI
+          // showing stale or empty content while the API returned 200), and it kept
+          // one signed-in user's responses in a store the next user on the same
+          // device would read from.
+          //
+          // If offline support is wanted later it has to be per-endpoint, NetworkFirst,
+          // short-lived, and limited to genuinely public data — never authenticated
+          // responses.
+        ],
+        // Let API requests reach the network instead of being answered with index.html.
+        navigateFallbackDenylist: [/^\/api\//],
+        cleanupOutdatedCaches: true,
       }
     })
   ],

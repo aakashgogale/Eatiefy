@@ -12,34 +12,41 @@ import { sendResponse } from '../../../../utils/response.js';
 import mongoose from 'mongoose';
 
 /** Public hero banners for user home: active only, sorted, with linkedRestaurants populated for click-through */
+export const loadPublicHeroBanners = async () => {
+    const docs = await FoodHeroBanner.find({ isActive: true })
+        .sort({ sortOrder: 1, createdAt: -1 })
+        .populate({
+            path: 'linkedRestaurantIds',
+            select: '_id restaurantName slug area city rating cuisines profileImage pureVegRestaurant',
+            model: 'FoodRestaurant'
+        })
+        .lean();
+    return (docs || []).map((b) => {
+        const { linkedRestaurantIds, ...rest } = b;
+        return {
+            ...rest,
+            linkedRestaurants: Array.isArray(linkedRestaurantIds) ? linkedRestaurantIds : [],
+            imageUrl: b.imageUrl
+        };
+    });
+};
+
 export const getPublicHeroBannersController = async (req, res, next) => {
     try {
-        const docs = await FoodHeroBanner.find({ isActive: true })
-            .sort({ sortOrder: 1, createdAt: -1 })
-            .populate({
-                path: 'linkedRestaurantIds',
-                select: '_id restaurantName slug area city rating cuisines profileImage pureVegRestaurant',
-                model: 'FoodRestaurant'
-            })
-            .lean();
-        const banners = (docs || []).map((b) => {
-            const { linkedRestaurantIds, ...rest } = b;
-            return {
-                ...rest,
-                linkedRestaurants: Array.isArray(linkedRestaurantIds) ? linkedRestaurantIds : [],
-                imageUrl: b.imageUrl
-            };
-        });
+        const banners = await loadPublicHeroBanners();
         return sendResponse(res, 200, 'Hero banners fetched', { banners });
     } catch (error) {
         next(error);
     }
 };
 
+export const loadPublicTopBanners = async () =>
+    TopBanner.find({ isActive: true }).sort('order').lean();
+
 export const getPublicTopBannersController = async (req, res, next) => {
     try {
-        const docs = await TopBanner.find({ isActive: true }).sort('order').lean();
-        return sendResponse(res, 200, 'Top banners fetched', { banners: docs });
+        const banners = await loadPublicTopBanners();
+        return sendResponse(res, 200, 'Top banners fetched', { banners });
     } catch (error) {
         next(error);
     }
@@ -63,10 +70,14 @@ export const getPublicDiningBannersController = async (req, res, next) => {
     }
 };
 
+export const loadPublicExploreIcons = async () => {
+    const docs = await FoodExploreIcon.find({ isActive: true }).sort({ sortOrder: 1, createdAt: -1 }).lean();
+    return docs.map(({ targetPath, sortOrder, ...rest }) => ({ ...rest, link: targetPath, order: sortOrder }));
+};
+
 export const getPublicExploreIconsController = async (req, res, next) => {
     try {
-        const docs = await FoodExploreIcon.find({ isActive: true }).sort({ sortOrder: 1, createdAt: -1 }).lean();
-        const items = docs.map(({ targetPath, sortOrder, ...rest }) => ({ ...rest, link: targetPath, order: sortOrder }));
+        const items = await loadPublicExploreIcons();
         return sendResponse(res, 200, 'Explore icons fetched', { items });
     } catch (error) {
         next(error);
@@ -100,26 +111,29 @@ export const getPublicGourmetController = async (req, res, next) => {
     }
 };
 
+export const loadPublicLandingSettings = async (zoneId) => {
+    const settings = await getLandingSettings();
+    const ids = settings?.recommendedRestaurantIds || [];
+    let recommendedRestaurants = [];
+    if (Array.isArray(ids) && ids.length > 0) {
+        const query = { _id: { $in: ids }, status: 'approved' };
+        if (zoneId && mongoose.Types.ObjectId.isValid(zoneId)) {
+            query.zoneId = new mongoose.Types.ObjectId(zoneId);
+        }
+        recommendedRestaurants = await FoodRestaurant.find(query)
+            .select('restaurantName area city profileImage coverImages menuImages slug rating cuisines pureVegRestaurant zoneId')
+            .lean();
+    }
+    return {
+        ...settings,
+        recommendedRestaurantIds: undefined,
+        recommendedRestaurants
+    };
+};
+
 export const getPublicLandingSettingsController = async (req, res, next) => {
     try {
-        const { zoneId } = req.query;
-        const settings = await getLandingSettings();
-        const ids = settings?.recommendedRestaurantIds || [];
-        let recommendedRestaurants = [];
-        if (Array.isArray(ids) && ids.length > 0) {
-            const query = { _id: { $in: ids }, status: 'approved' };
-            if (zoneId && mongoose.Types.ObjectId.isValid(zoneId)) {
-                query.zoneId = new mongoose.Types.ObjectId(zoneId);
-            }
-            recommendedRestaurants = await FoodRestaurant.find(query)
-                .select('restaurantName area city profileImage coverImages menuImages slug rating cuisines pureVegRestaurant zoneId')
-                .lean();
-        }
-        const payload = {
-            ...settings,
-            recommendedRestaurantIds: undefined,
-            recommendedRestaurants
-        };
+        const payload = await loadPublicLandingSettings(req.query?.zoneId);
         return sendResponse(res, 200, 'Landing settings fetched', payload);
     } catch (error) {
         next(error);

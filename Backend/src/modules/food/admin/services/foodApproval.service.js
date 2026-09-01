@@ -115,8 +115,8 @@ export async function approveFoodItem(id) {
         await syncMenuItemApprovalStatus(updated.restaurantId, updated._id, 'approved', '');
         
         try {
-            const { invalidateCache } = await import('../../../../middleware/cache.js');
-            await invalidateCache(`restaurant_menu:${updated.restaurantId}`);
+            const { invalidateMenuCaches } = await import('../../../../middleware/cache.js');
+            await invalidateMenuCaches(updated.restaurantId);
         } catch (cacheErr) {
             console.error('Failed to invalidate cache after food approval:', cacheErr);
         }
@@ -160,8 +160,8 @@ export async function rejectFoodItem(id, reason) {
         await syncMenuItemApprovalStatus(updated.restaurantId, updated._id, 'rejected', r);
         
         try {
-            const { invalidateCache } = await import('../../../../middleware/cache.js');
-            await invalidateCache(`restaurant_menu:${updated.restaurantId}`);
+            const { invalidateMenuCaches } = await import('../../../../middleware/cache.js');
+            await invalidateMenuCaches(updated.restaurantId);
         } catch (cacheErr) {
             console.error('Failed to invalidate cache after food rejection:', cacheErr);
         }

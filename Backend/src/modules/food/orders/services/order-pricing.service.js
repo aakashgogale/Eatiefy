@@ -198,6 +198,10 @@ export function resolveUserDeliveryFee(feeSettings = {}, { subtotal = 0, distanc
 }
 
 export function calculateRiderEarning(feeSettings = {}, distanceKm) {
+  // `Number(null)` is 0, so a null distance used to look like a zero-kilometre trip
+  // and quietly paid the shortest band's base fare — while `undefined` paid nothing.
+  // An unknown distance is not a short trip; reject it explicitly.
+  if (distanceKm === null || distanceKm === undefined || distanceKm === '') return 0;
   const distance = Number(distanceKm);
   if (!Number.isFinite(distance) || distance < 0) return 0;
 

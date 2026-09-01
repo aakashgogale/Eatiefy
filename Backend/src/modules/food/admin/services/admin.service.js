@@ -8,6 +8,7 @@ import { FoodNotification } from '../../../../core/notifications/models/notifica
 import { sendNotificationToOwner } from '../../../../core/notifications/firebase.service.js';
 import { FoodRestaurantSubscriptionSettings } from '../models/restaurantSubscriptionSettings.model.js';
 import { FoodZone } from '../models/zone.model.js';
+import { detectZoneIdForPoint } from '../../utils/zoneGeo.js';
 import { invalidateActiveZonesCache } from '../../landing/controllers/zonePublic.controller.js';
 import { FoodCategory } from '../models/category.model.js';
 import { FoodItem } from '../models/food.model.js';
@@ -3356,15 +3357,21 @@ export async function updateRestaurantLocation(id, body = {}) {
     doc.pincode = pincode;
     doc.landmark = landmark;
 
-    if (body.zoneId !== undefined) {
-        const zoneId = String(body.zoneId || '').trim();
-        if (!zoneId) {
-            doc.zoneId = undefined;
-        } else if (!mongoose.Types.ObjectId.isValid(zoneId)) {
+    // A restaurant whose zone does not exist (or was deleted later) is invisible to
+    // every user, because every public listing filters on zoneId. So an explicit id is
+    // verified against the active zones, and otherwise the map pin decides the zone.
+    const requestedZoneId = body.zoneId !== undefined ? String(body.zoneId || '').trim() : '';
+    if (requestedZoneId) {
+        if (!mongoose.Types.ObjectId.isValid(requestedZoneId)) {
             throw new ValidationError('Invalid zoneId');
-        } else {
-            doc.zoneId = new mongoose.Types.ObjectId(zoneId);
         }
+        if (!(await FoodZone.exists({ _id: requestedZoneId, isActive: true }))) {
+            throw new ValidationError('Selected zone does not exist or is inactive');
+        }
+        doc.zoneId = new mongoose.Types.ObjectId(requestedZoneId);
+    } else if (latitude !== null && longitude !== null) {
+        const detectedZoneId = await detectZoneIdForPoint(latitude, longitude);
+        doc.zoneId = detectedZoneId ? new mongoose.Types.ObjectId(detectedZoneId) : undefined;
     }
 
     await doc.save();
@@ -4093,8 +4100,8 @@ export async function deleteFood(id) {
     const deleted = await FoodItem.findByIdAndDelete(id).lean();
     if (deleted?.restaurantId) {
         try {
-            const { invalidateCache } = await import('../../../../middleware/cache.js');
-            await invalidateCache(`restaurant_menu:${deleted.restaurantId}`);
+            const { invalidateMenuCaches } = await import('../../../../middleware/cache.js');
+            await invalidateMenuCaches(deleted.restaurantId);
         } catch (cacheErr) {
             console.error('Failed to invalidate cache after food delete:', cacheErr);
         }
@@ -4136,8 +4143,8 @@ export async function bulkDeleteFoods({ restaurantId, foodIds = [], selectAll = 
 
     if (result.deletedCount > 0) {
         try {
-            const { invalidateCache } = await import('../../../../middleware/cache.js');
-            await invalidateCache(`restaurant_menu:${restaurantId}`);
+            const { invalidateMenuCaches } = await import('../../../../middleware/cache.js');
+            await invalidateMenuCaches(restaurantId);
         } catch (cacheErr) {
             console.error('Failed to invalidate cache after bulk food delete:', cacheErr);
         }
@@ -4216,15 +4223,21 @@ export async function createRestaurantByAdmin(body) {
         approvedAt: new Date()
     };
 
-    if (body.zoneId !== undefined) {
-        const zoneId = String(body.zoneId || '').trim();
-        if (!zoneId) {
-            doc.zoneId = undefined;
-        } else if (!mongoose.Types.ObjectId.isValid(zoneId)) {
+    // A restaurant whose zone does not exist (or was deleted later) is invisible to
+    // every user, because every public listing filters on zoneId. So an explicit id is
+    // verified against the active zones, and otherwise the map pin decides the zone.
+    const requestedZoneId = body.zoneId !== undefined ? String(body.zoneId || '').trim() : '';
+    if (requestedZoneId) {
+        if (!mongoose.Types.ObjectId.isValid(requestedZoneId)) {
             throw new ValidationError('Invalid zoneId');
-        } else {
-            doc.zoneId = new mongoose.Types.ObjectId(zoneId);
         }
+        if (!(await FoodZone.exists({ _id: requestedZoneId, isActive: true }))) {
+            throw new ValidationError('Selected zone does not exist or is inactive');
+        }
+        doc.zoneId = new mongoose.Types.ObjectId(requestedZoneId);
+    } else if (latitude !== null && longitude !== null) {
+        const detectedZoneId = await detectZoneIdForPoint(latitude, longitude);
+        doc.zoneId = detectedZoneId ? new mongoose.Types.ObjectId(detectedZoneId) : undefined;
     }
 
     if (latitude !== null && longitude !== null) {
@@ -6369,8 +6382,8 @@ export async function bulkApproveFoodItems(restaurantId) {
     // 3. Invalidate Cache if restaurantId is provided
     if (restaurantId && mongoose.Types.ObjectId.isValid(restaurantId)) {
         try {
-            const { invalidateCache } = await import('../../../../middleware/cache.js');
-            await invalidateCache(`restaurant_menu:${restaurantId}`);
+            const { invalidateMenuCaches } = await import('../../../../middleware/cache.js');
+            await invalidateMenuCaches(restaurantId);
         } catch (cacheErr) {
             console.error('Failed to invalidate cache after bulk approval:', cacheErr);
         }

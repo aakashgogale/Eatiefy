@@ -1,3 +1,27 @@
+/**
+ * Pull the order array out of a delivery list response.
+ *
+ * `buildPaginatedResult` on the backend returns `{ data, meta }`, and `sendResponse`
+ * wraps that again, so an axios response carries the orders at `data.data.data`. The
+ * rider app used to look for `docs` / `items`, found neither, and silently treated
+ * every response as an empty list — which is why offer recovery after an app restart
+ * never had anything to show. The other shapes stay accepted so this keeps working
+ * against endpoints that answer differently.
+ */
+export const extractDeliveryOrderList = (response) => {
+  const body = response?.data ?? response;
+  const candidates = [
+    body?.data?.data,
+    body?.data?.docs,
+    body?.data?.items,
+    body?.data,
+    body?.docs,
+    body?.items,
+    body,
+  ];
+  return candidates.find(Array.isArray) || [];
+};
+
 export const getOrderLocation = (ref, keysLat, keysLng) => {
   if (!ref) return null;
   if (ref.location) {

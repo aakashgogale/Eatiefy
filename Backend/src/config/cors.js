@@ -72,5 +72,21 @@ export const corsOptions = {
             callback(new Error(`Not allowed by CORS: ${origin}`));
         }
     },
-    credentials: true
+    credentials: true,
+    // Without this the browser repeats the preflight OPTIONS before *every*
+    // credentialed request, doubling the request count and adding a round trip to
+    // each call. 24h is what we ask for; Chrome caps it at 2h, Firefox honours 24h.
+    maxAge: 86400,
+    // Every custom header the client actually sends must be listed, or the preflight
+    // fails and the real request is never made.
+    allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-Requested-With',
+        'Idempotency-Key',
+        'x-eatify-client',
+        'x-eatiefy-client',
+    ],
+    exposedHeaders: ['RateLimit-Limit', 'RateLimit-Remaining', 'Retry-After'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 };

@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { logger } from '../../../../utils/logger.js';
 import { FoodItem } from '../../admin/models/food.model.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import {
@@ -107,55 +108,30 @@ export async function enforceMinimumFoodItemPrices(items = [], restaurantId = nu
       }
     }
 
-    // Prefer cart pricing snapshot when base matches.
-    const snapshotBase = Number(item.basePrice);
-    const snapshotMarkup = Math.max(0, Number(item.markupAmount) || 0);
+    // The selling price is always the live, server-resolved one.
+    //
+    // This previously honoured a client-supplied "cart snapshot": if the posted
+    // basePrice matched the database, the client's own markupAmount was used as the
+    // selling price. Base was validated, the markup above it was not — so a crafted
+    // request could strip every admin pricing rule and buy at base price. The cart
+    // snapshot is display data; it has no authority over what the customer pays.
     const snapshotSelling = Number(item.price) || 0;
-    // Transition: older carts/orders may still have selling in otherPrice.
-    const snapshotOther = Number(item.otherPrice) || 0;
-    const hasCartAdminMarkup =
-      Number.isFinite(snapshotBase) &&
-      snapshotBase >= 0 &&
-      (item.pricingScope || item.appliedPricingType) &&
-      (snapshotMarkup > 0 ||
-        snapshotSelling > snapshotBase + 0.01 ||
-        snapshotOther > snapshotBase + 0.01);
-    const baseMatchesSnapshot =
-      Number.isFinite(snapshotBase) && Math.abs(snapshotBase - basePrice) < 0.01;
-    const useCartSnapshot = hasCartAdminMarkup && baseMatchesSnapshot;
-
-    if (useCartSnapshot) {
-      basePrice = snapshotBase;
-      appliedPricingType = item.appliedPricingType || appliedPricingType;
-      appliedPricingValue = item.appliedPricingValue ?? appliedPricingValue;
-      pricingScope = item.pricingScope || pricingScope;
-      pricingRule = item.pricingRule || pricingRule;
-    } else {
-      item.appliedPricingType = appliedPricingType;
-      item.appliedPricingValue = appliedPricingValue;
-      item.pricingScope = pricingScope;
-      item.pricingRule = pricingRule;
+    if (snapshotSelling > 0 && Math.abs(snapshotSelling - liveSellingPrice) > 0.01) {
+      logger.info(
+        `[Pricing] Cart snapshot for item ${item.foodId || item._id || ''} showed ` +
+        `${snapshotSelling}; charging live price ${liveSellingPrice}.`,
+      );
     }
+
+    item.appliedPricingType = appliedPricingType;
+    item.appliedPricingValue = appliedPricingValue;
+    item.pricingScope = pricingScope;
+    item.pricingRule = pricingRule;
 
     item.name = doc.name || item.name;
 
     let sellingPrice = liveSellingPrice;
     let markupAmount = liveMarkupAmount;
-    if (useCartSnapshot) {
-      if (snapshotMarkup > 0) {
-        markupAmount = snapshotMarkup;
-        sellingPrice = Math.round((basePrice + markupAmount) * 100) / 100;
-      } else if (snapshotSelling > basePrice + 0.01) {
-        sellingPrice = snapshotSelling;
-        markupAmount = Math.round((sellingPrice - basePrice) * 100) / 100;
-      } else if (snapshotOther > basePrice + 0.01) {
-        sellingPrice = snapshotOther;
-        markupAmount = Math.round((sellingPrice - basePrice) * 100) / 100;
-      } else {
-        sellingPrice = basePrice;
-        markupAmount = 0;
-      }
-    }
 
     const ruleType = String(item.appliedPricingType || appliedPricingType || '').toUpperCase();
     const isAdminMarkup =

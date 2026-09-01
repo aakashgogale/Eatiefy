@@ -6,7 +6,7 @@ const alertSound = '/assets/media/restaurant_alert.mp3';
 const originalSound = '/assets/media/restaurant_alert.mp3';
 import { dispatchNotificationInboxRefresh } from '@food/hooks/useNotificationInbox';
 import { useDeliveryStore, resolveOrderKey, ordersShareIdentity } from '@/modules/DeliveryV2/store/useDeliveryStore';
-import { mapOrderLocations } from '@/modules/DeliveryV2/utils/orderMapping';
+import { extractDeliveryOrderList, mapOrderLocations } from '@/modules/DeliveryV2/utils/orderMapping';
 import {
   isOrderWithinOfferRange,
   sanitizeOrderDispatchMetrics,
@@ -21,6 +21,12 @@ import {
   initializeAudioUnlock,
 } from '@/shared/utils/iosAudioBridge';
 import { toast } from 'sonner';
+
+/**
+ * Order states a delivery offer can legitimately be live in — the same set the
+ * backend dispatches on when a restaurant accepts or starts preparing an order.
+ */
+const RECOVERABLE_OFFER_STATUSES = ['confirmed', 'preparing', 'ready_for_pickup'];
 
 const shouldLogDeliverySocket = () => {
   if (typeof window === 'undefined') return import.meta.env.DEV;
@@ -668,19 +674,20 @@ export const useDeliveryNotifications = () => {
             availableResult.value?.data ??
             {}
           : {};
-      const availableOrders = Array.isArray(availablePayload?.docs)
-        ? availablePayload.docs
-        : Array.isArray(availablePayload?.items)
-          ? availablePayload.items
-          : Array.isArray(availablePayload)
-            ? availablePayload
-            : [];
+      const availableOrders =
+        availableResult.status === 'fulfilled'
+          ? extractDeliveryOrderList(availableResult.value)
+          : [];
 
       const recoverableOrder = availableOrders.find((order) => {
         const dispatchStatus = order?.dispatch?.status;
+        // 'confirmed' has to be here. Dispatch fires the moment a restaurant accepts an
+        // order, which is exactly the 'confirmed' state, so leaving it out meant a rider
+        // who reopened the app during a live offer was shown nothing to accept. This is
+        // deliberately the same set of statuses the backend offers on.
         const isEligibleStatus = ['unassigned', 'assigned'].includes(dispatchStatus) &&
-          ['preparing', 'ready_for_pickup'].includes(order?.orderStatus);
-          
+          RECOVERABLE_OFFER_STATUSES.includes(order?.orderStatus);
+
         if (!isEligibleStatus) return false;
         
         // Ignore stale test/bugged orders older than 2 hours to prevent sound playing repeatedly on login
@@ -704,9 +711,12 @@ export const useDeliveryNotifications = () => {
 
       if (recoverableOrder && !isProcessedOrder(recoverableOrder)) {
         debugLog('Recovered available delivery order after reconnect/focus:', recoverableOrder);
-        setNewOrder(recoverableOrder);
-        useDeliveryStore.getState().addNewOrder(recoverableOrder);
-        handleIncomingOrderAlert(recoverableOrder);
+        // Map like every other offer path does, so the restored card can show pickup
+        // distance and route instead of rendering with empty coordinates.
+        const restoredOffer = mapOrderLocations(recoverableOrder) || recoverableOrder;
+        setNewOrder(restoredOffer);
+        useDeliveryStore.getState().addNewOrder(restoredOffer);
+        handleIncomingOrderAlert(restoredOffer);
       }
     } catch (error) {
       debugWarn('Delivery recovery sync failed:', error?.message || error);
@@ -1286,14 +1296,72 @@ export const useDeliveryNotifications = () => {
         socketId: socketRef.current?.id,
       });
       socketRef.current.emit('resync');
-      void recoverDeliveryState();
     }
+
+    // Recover on every startup, connected or not. When the app was killed and is
+    // reopened from a push notification, the offer that woke the rider exists only on
+    // the server — waiting for a socket that may take seconds (or fail on a bad
+    // connection) is what left them staring at a home screen with no card to accept.
+    void recoverDeliveryState();
   }, [deliveryPartnerId, joinDeliveryRoomIfPossible, recoverDeliveryState]);
 
+  // Safety net: poll for offered orders.
+  //
+  // The restaurant panel has always had a polling fallback; the rider app did not.
+  // It refreshed only on connect, tab focus and visibility change, so a socket that
+  // was down — or a proxy that never upgraded the WebSocket — meant the rider simply
+  // never saw the order, with nothing on screen to suggest anything was wrong.
+  //
+  // Polls hard while the socket is down and slowly while it is up, so a dropped
+  // event still surfaces within a few seconds without adding steady load.
+  useEffect(() => {
+    if (!deliveryPartnerId) return undefined;
+
+    const DISCONNECTED_MS = 8000;
+    const CONNECTED_MS = 30000;
+    let timerId = null;
+    let stopped = false;
+
+    const schedule = () => {
+      if (stopped) return;
+      timerId = setTimeout(async () => {
+        if (stopped) return;
+        if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+          try {
+            await recoverDeliveryState();
+          } catch {
+            // Never let a failed poll kill the loop.
+          }
+        }
+        schedule();
+      }, isConnected ? CONNECTED_MS : DISCONNECTED_MS);
+    };
+
+    schedule();
+    return () => {
+      stopped = true;
+      if (timerId) clearTimeout(timerId);
+    };
+  }, [deliveryPartnerId, isConnected, recoverDeliveryState]);
+
   // Helper functions
-  const clearNewOrder = useCallback((orderOrId) => {
-    const target = orderOrId || newOrder || activeOrderRef.current;
-    if (target) {
+  const clearNewOrder = useCallback((orderOrIdOrOptions) => {
+    // The offer card calls this with `{ advance: true }` when its countdown runs out.
+    // That is not a rejection: the backend offer can still be live, so the order must
+    // not be added to the processed set — otherwise recovery could never show it
+    // again and the rider loses a job they were still allowed to take. It only closes
+    // the current card and moves the queue on to the next offer.
+    const isAdvanceRequest =
+      Boolean(orderOrIdOrOptions) &&
+      typeof orderOrIdOrOptions === 'object' &&
+      orderOrIdOrOptions.advance === true &&
+      collectOrderAlertKeys(orderOrIdOrOptions).length === 0;
+
+    const target = isAdvanceRequest
+      ? newOrder || activeOrderRef.current
+      : orderOrIdOrOptions || newOrder || activeOrderRef.current;
+
+    if (target && !isAdvanceRequest) {
       if (typeof target === 'object') {
         markOrderIdsProcessed(target);
         clearOrderMuteState(target);
@@ -1312,6 +1380,17 @@ export const useDeliveryNotifications = () => {
     if (removeId) {
       useDeliveryStore.getState().removeNewOrder(removeId);
     }
+
+    // Show the next queued offer straight away instead of leaving the rider with a
+    // blank screen while the queue still holds work.
+    const remaining = useDeliveryStore.getState().newOrders || [];
+    if (remaining.length > 0) {
+      const nextOffer = remaining[0];
+      activeOrderRef.current = nextOffer;
+      setNewOrder(nextOffer);
+      return;
+    }
+
     stopAlertsWhenQueueEmpty();
   }, [clearOrderMuteState, markOrderIdsProcessed, newOrder, stopAlertLoop, stopAlertsWhenQueueEmpty]);
 

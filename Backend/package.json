@@ -16,6 +16,7 @@
     "migrate:fcm-tokens": "node scripts/migrate-fcm-tokens-to-profile-models.js",
     "migrate:order-payments": "node scripts/migrate-orders-to-transactions.js",
     "migrate:outlet-timings-from-opening-closing": "node scripts/sync-outlet-timings-from-opening-closing.js",
+    "migrate:restaurant-zones": "node scripts/backfill-restaurant-zones.js",
     "cleanup:legacy-collections": "node scripts/cleanup-legacy-collections.js",
     "test": "node --test --test-force-exit tests/*.test.js",
     "test:unit": "node --test --test-force-exit tests/*.test.js",

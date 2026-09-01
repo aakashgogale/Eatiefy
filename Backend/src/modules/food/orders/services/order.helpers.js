@@ -8,6 +8,7 @@ import {
 } from "../../../../core/notifications/firebase.service.js";
 import { getIO, rooms } from '../../../../config/socket.js';
 import { addOrderJob } from '../../../../queues/producers/order.producer.js';
+import crypto from 'crypto';
 
 export function enqueueOrderEvent(action, payload = {}) {
   try {
@@ -23,9 +24,66 @@ export function haversineKm(lat1, lon1, lat2, lon2) {
   return geoHaversineKm(lat1, lon1, lat2, lon2);
 }
 
-export function generateFourDigitDeliveryOtp() {
-  return String(Math.floor(1000 + Math.random() * 9000));
+/**
+ * Length of the customer handover code.
+ *
+ * This is the single source of truth: the generator, the server-side validation and
+ * the rider app's input all derive from it. They drifted apart once — the server
+ * issued six digits while the rider app had four boxes — which made handover
+ * impossible for every order until it was noticed.
+ *
+ * Four digits is safe here only because guesses are capped. The brute-force risk was
+ * never the length on its own; it was unlimited attempts. With DELIVERY_OTP_MAX_ATTEMPTS
+ * tries against 9,000 codes the chance of a lucky guess is well under a tenth of a
+ * percent per lockout window — the same trade-off a bank card PIN makes.
+ * If this is ever raised, raise it here and in the rider app's matching constant.
+ */
+export const DELIVERY_OTP_LENGTH = 4;
+
+const DELIVERY_OTP_MIN = 10 ** (DELIVERY_OTP_LENGTH - 1);
+const DELIVERY_OTP_MAX = 10 ** DELIVERY_OTP_LENGTH;
+
+/**
+ * Generates a handover code from a CSPRNG. `Math.random()` is not appropriate for a
+ * value that authorises releasing goods and collecting cash.
+ * @returns {string}
+ */
+export function generateDeliveryOtp() {
+  return String(crypto.randomInt(DELIVERY_OTP_MIN, DELIVERY_OTP_MAX));
 }
+
+/**
+ * True when `value` looks like a handover code at all — checked before comparing so
+ * a length mismatch reports itself instead of silently failing as "wrong OTP".
+ * @param {string} value
+ * @returns {boolean}
+ */
+export function isWellFormedDeliveryOtp(value) {
+  const trimmed = String(value || '').trim();
+  return trimmed.length === DELIVERY_OTP_LENGTH && /^[0-9]+$/.test(trimmed);
+}
+
+/** @deprecated retained so older imports keep working; now returns six digits. */
+export const generateFourDigitDeliveryOtp = generateDeliveryOtp;
+
+/**
+ * Constant-time string comparison, so response timing cannot leak how much of a
+ * guessed OTP was correct.
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+export function timingSafeEquals(a, b) {
+  const bufA = Buffer.from(String(a ?? ''), 'utf8');
+  const bufB = Buffer.from(String(b ?? ''), 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+/** Max wrong guesses before the OTP locks and support has to intervene. */
+export const DELIVERY_OTP_MAX_ATTEMPTS = 5;
+/** How long a lock lasts once the attempts are exhausted. */
+export const DELIVERY_OTP_LOCK_MS = 15 * 60 * 1000;
 
 export function sanitizeOrderForExternal(orderDoc) {
   const o = orderDoc?.toObject ? orderDoc.toObject() : { ...(orderDoc || {}) };
@@ -476,6 +534,27 @@ export const STATUS_PRIORITY = {
   cancelled_by_restaurant: 100,
   cancelled_by_admin: 100,
 };
+
+/**
+ * True when the order has already reached (or passed) `target`.
+ *
+ * Lets a repeated transition be answered idempotently instead of as an error. A
+ * rider double-tapping, a retried request after a dropped connection, or a client
+ * whose UI did not refresh are all normal — re-asking for a step you already
+ * completed is a no-op, not a failure. Moving *backwards* is still refused.
+ *
+ * @param {string} current
+ * @param {string} target
+ * @returns {boolean}
+ */
+export function hasReachedStatus(current, target) {
+  const currentPrio = STATUS_PRIORITY[current] || 0;
+  const targetPrio = STATUS_PRIORITY[target] || 0;
+  if (!currentPrio || !targetPrio) return false;
+  // A cancellation is terminal, not "past" a delivery step.
+  if (currentPrio >= 100) return false;
+  return currentPrio >= targetPrio;
+}
 
 /**
  * Returns true if the next status is a valid forward progression from the current status.

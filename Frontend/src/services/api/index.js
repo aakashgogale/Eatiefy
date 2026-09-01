@@ -1928,11 +1928,17 @@ export const publicConfigGetOnce = (url, config = {}) => {
 
 // Public user-app endpoints can be called by multiple components/effects on refresh (and React StrictMode in dev).
 // A small in-flight + short TTL cache collapses duplicate requests without changing functionality.
-const publicRestaurantsCache = createInFlightCache({ ttlMs: 3000 });
+//
+// The TTLs are deliberately not shorter than the server's own cache for the same route:
+// with a 3s window, Home and the keep-alive Eatiefy-99 tab each refetched the identical
+// restaurant and category URLs seconds apart, and the second call could only ever be
+// served the same server-cached body. Matching the server here removes the duplicate
+// without the client ever showing older data than the API would have returned anyway.
+const publicRestaurantsCache = createInFlightCache({ ttlMs: 60 * 1000 }); // server: 300s
 const publicRestaurantMenuCache = createInFlightCache({ ttlMs: 5 * 60 * 1000 });
 const publicRestaurantOutletTimingsCache = createInFlightCache({ ttlMs: 5 * 60 * 1000 });
 const publicFoodsCache = createInFlightCache({ ttlMs: 3 * 60 * 1000 });
-const publicGenericGetCache = createInFlightCache({ ttlMs: 3000 });
+const publicGenericGetCache = createInFlightCache({ ttlMs: 60 * 1000 }); // categories; server: 600s
 
 export const publicGetOnce = (url, config = {}) => {
   const safeUrl = typeof url === "string" ? url.trim() : "";

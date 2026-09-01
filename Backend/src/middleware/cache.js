@@ -92,6 +92,25 @@ export const cacheResponse = (ttlInSeconds = 300, prefix = 'api_cache', options 
 };
 
 /**
+ * Clear every cached list a menu change can appear in.
+ *
+ * Keys are built as `<prefix>:GET:<path>?<query>`, so a bare `restaurant_menu:<id>`
+ * pattern matches nothing — the id sits in the middle of the path. `public_foods`
+ * and `search_unified` are cross-restaurant lists, so one new item invalidates all
+ * of their variants (zone, category, promo).
+ *
+ * @param {string} [restaurantId] - Narrows the menu cache; omit to clear every menu.
+ */
+export const invalidateMenuCaches = async (restaurantId) => {
+    const id = String(restaurantId || '').trim();
+    await Promise.all([
+        invalidateCache(id ? `restaurant_menu:*${id}*` : 'restaurant_menu:*'),
+        invalidateCache('public_foods:*'),
+        invalidateCache('search_unified:*'),
+    ]);
+};
+
+/**
  * Clear cache by pattern using SCAN so Redis is not blocked by KEYS on larger datasets.
  * @param {string} pattern - Redis glob pattern for keys to delete.
  */

@@ -336,6 +336,32 @@ export const removeFirebaseDeviceToken = async ({ ownerType, ownerId, token }) =
     return { success: true };
 };
 
+/** Max simultaneous FCM requests per send. Keeps the outbound socket pool bounded. */
+const FCM_SEND_CONCURRENCY = 12;
+
+/**
+ * Runs `worker` over `items` with at most `limit` in flight, preserving order.
+ * @template T, R
+ * @param {T[]} items
+ * @param {number} limit
+ * @param {(item: T) => Promise<R>} worker
+ * @returns {Promise<R[]>}
+ */
+const mapWithConcurrency = async (items, limit, worker) => {
+    const results = new Array(items.length);
+    let cursor = 0;
+
+    const runner = async () => {
+        while (cursor < items.length) {
+            const index = cursor++;
+            results[index] = await worker(items[index]);
+        }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, runner));
+    return results;
+};
+
 export const sendPushNotification = async (tokens, payload = {}) => {
     const projectId = getFirebaseProjectId();
     const accessToken = await getFirebaseAccessToken();
@@ -345,8 +371,12 @@ export const sendPushNotification = async (tokens, payload = {}) => {
         return { successCount: 0, failureCount: 0, results: [] };
     }
 
-    const results = await Promise.all(
-        uniqueTokens.map(async (token) => {
+    // FCM v1 has no multicast endpoint — one request per token is required. Firing
+    // them all at once is what breaks under load: a dispatch to 15 riders is ~30
+    // sockets, and a hundred concurrent orders is three thousand, which exhausts the
+    // outbound connection pool and stalls unrelated requests. Bounded concurrency
+    // keeps throughput high and the process alive.
+    const results = await mapWithConcurrency(uniqueTokens, FCM_SEND_CONCURRENCY, async (token) => {
             const message = buildMessagePayload(payload, token);
             try {
                 const response = await fetch(FCM_SEND_URL(projectId), {
@@ -381,8 +411,7 @@ export const sendPushNotification = async (tokens, payload = {}) => {
                     error: error?.message || String(error)
                 };
             }
-        })
-    );
+        });
 
     const successCount = results.filter((result) => result.ok).length;
     const failureCount = results.length - successCount;

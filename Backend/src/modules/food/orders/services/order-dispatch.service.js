@@ -107,19 +107,54 @@ async function listNearbyOnlineDeliveryPartners(
   // Counted so an empty result can explain *why* it is empty. Without these a failed
   // dispatch looks identical to a healthy one that simply found nobody, and the only
   // way to tell them apart on a live server is to query Mongo by hand.
-  const [totalPartners, approvedPartners] = await Promise.all([
+  const [totalPartners, approvedPartners, onlinePartners] = await Promise.all([
     FoodDeliveryPartner.countDocuments({}),
     FoodDeliveryPartner.countDocuments({ status: { $nin: ['deactivated', 'rejected', 'blocked'] } }),
+    FoodDeliveryPartner.countDocuments({
+      availabilityStatus: 'online',
+      status: { $nin: ['deactivated', 'rejected', 'blocked'] },
+    }),
   ]);
 
-  const allOnline = await FoodDeliveryPartner.find({
+  const approvedOnline = {
     availabilityStatus: "online",
     status: { $nin: ['deactivated', 'rejected', 'blocked'] },
-  })
-    .select("_id status lastLat lastLng lastLocationAt name phone userId")
-    .lean();
+  };
+  const riderFields = "_id status lastLat lastLng lastLocationAt name phone userId";
 
-  let outOfRange = 0;
+  // Riders with a known position are fetched through the 2dsphere index on
+  // `lastLocation`, so Mongo returns only those inside the radius, already ordered
+  // by distance. Loading every online rider and filtering in JavaScript — as this
+  // did before — costs a full collection read on every dispatch, and dispatch runs
+  // on every accept plus a retry per order per minute.
+  const [locatedPartners, unlocatedPartners] = await Promise.all([
+    FoodDeliveryPartner.find({
+      ...approvedOnline,
+      lastLocation: {
+        $nearSphere: {
+          $geometry: { type: 'Point', coordinates: [rLng, rLat] },
+          $maxDistance: maxKm * 1000,
+        },
+      },
+    })
+      .select(riderFields)
+      .limit(Math.max(limit * 2, 50))
+      .lean(),
+
+    // Riders who have never reported GPS cannot be matched geographically. They are
+    // still offered the order (with a neutral distance) rather than dropped, which
+    // is how they behaved before — but the set is capped so it cannot grow unbounded.
+    FoodDeliveryPartner.find({
+      ...approvedOnline,
+      $or: [{ lastLocation: { $exists: false } }, { lastLocation: null }],
+    })
+      .select(riderFields)
+      .limit(25)
+      .lean(),
+  ]);
+
+  const allOnline = [...locatedPartners, ...unlocatedPartners];
+
   const scored = [];
 
   for (const p of allOnline) {
@@ -128,10 +163,7 @@ async function listNearbyOnlineDeliveryPartners(
     if (p.lastLat != null && p.lastLng != null && Number.isFinite(p.lastLat) && Number.isFinite(p.lastLng)) {
       const d = haversineKm(rLat, rLng, p.lastLat, p.lastLng);
       if (Number.isFinite(d)) {
-        if (d > maxKm) {
-          outOfRange += 1;
-          continue; // Outside current search radius
-        }
+        if (d > maxKm) continue; // Defensive: geo query should already exclude these.
         distanceKm = d;
       }
     }
@@ -150,18 +182,23 @@ async function listNearbyOnlineDeliveryPartners(
   const picked = scored.slice(0, Math.max(1, limit));
 
   if (picked.length === 0) {
+    let cause;
+    if (onlinePartners === 0) {
+      cause = 'Cause: no partner has availabilityStatus="online" — riders must go online in the app.';
+    } else if (locatedPartners.length === 0 && unlocatedPartners.length === 0) {
+      cause = `Cause: ${onlinePartners} rider(s) online, none within ${maxKm}km of this restaurant.`;
+    } else {
+      cause = 'Cause: every nearby rider is already busy or was excluded for this order.';
+    }
     logger.warn(
       `[Dispatch] No rider matched for restaurant ${rId} within ${maxKm}km. ` +
-      `partners_total=${totalPartners} approved=${approvedPartners} ` +
-      `online=${allOnline.length} out_of_range=${outOfRange}. ` +
-      (allOnline.length === 0
-        ? 'Cause: no partner has availabilityStatus="online" — riders must go online in the app.'
-        : 'Cause: every online rider is farther than the search radius.'),
+      `partners_total=${totalPartners} approved=${approvedPartners} online=${onlinePartners} ` +
+      `in_radius=${locatedPartners.length} no_gps=${unlocatedPartners.length}. ${cause}`,
     );
   } else {
     logger.info(
       `[Dispatch] Matched ${picked.length} rider(s) for restaurant ${rId} within ${maxKm}km ` +
-      `(online=${allOnline.length}, out_of_range=${outOfRange}).`,
+      `(online=${onlinePartners}, in_radius=${locatedPartners.length}, no_gps=${unlocatedPartners.length}).`,
     );
   }
 

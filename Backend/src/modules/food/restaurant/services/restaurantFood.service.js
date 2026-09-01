@@ -15,6 +15,7 @@ import {
     categoryAllowsFoodType,
     GLOBAL_CATEGORY_FILTER
 } from '../../shared/categoryWorkflow.js';
+import { invalidateMenuCaches } from '../../../../middleware/cache.js';
 
 const toStr = (v) => (v != null ? String(v).trim() : '');
 const APPROVED_CATEGORY_FILTER = [
@@ -271,6 +272,8 @@ export async function createRestaurantFood(restaurantId, body = {}) {
         requestedAt: new Date()
     });
 
+    await invalidateMenuCaches(restaurantId);
+
     try {
         const { notifyAdminsSafely } = await import('../../../../core/notifications/firebase.service.js');
         void notifyAdminsSafely({
@@ -354,6 +357,10 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
         },
         { new: true }
     ).lean();
+
+    if (updated) {
+        await invalidateMenuCaches(restaurantId);
+    }
 
     if (updated && shouldResubmitForApproval) {
         try {

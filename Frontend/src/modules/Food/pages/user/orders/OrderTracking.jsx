@@ -33,7 +33,14 @@ import {
   Flame,
   Zap,
   Package,
-  Smile
+  Smile,
+  Copy,
+  Maximize2,
+  Minimize2,
+  ExternalLink,
+  ShieldCheck,
+  HelpCircle,
+  CreditCard
 } from "lucide-react"
 import { resolveMediaUrl } from "@food/utils/common"
 import AnimatedPage from "@food/components/user/AnimatedPage"
@@ -447,6 +454,150 @@ function normalizeLookupId(value) {
   return raw
 }
 
+// Interactive Live Tracking Stepper
+const LiveTrackingStepper = memo(({ status, isCancelled }) => {
+  if (isCancelled) {
+    return (
+      <div className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-2xl p-4 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/60 flex items-center justify-center text-red-600 dark:text-red-400 shrink-0">
+          <CircleSlash className="w-5 h-5" />
+        </div>
+        <div>
+          <h4 className="text-sm font-bold text-red-800 dark:text-red-300">Order Cancelled</h4>
+          <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">This order has been cancelled</p>
+        </div>
+      </div>
+    );
+  }
+
+  const steps = [
+    {
+      key: 'placed',
+      title: 'Placed',
+      fullTitle: 'Order Placed',
+      desc: 'Received by kitchen',
+      icon: ShoppingBag
+    },
+    {
+      key: 'confirmed',
+      title: 'Confirmed',
+      fullTitle: 'Order Confirmed',
+      desc: 'Accepted by kitchen',
+      icon: UtensilsCrossed
+    },
+    {
+      key: 'preparing',
+      title: 'Cooking',
+      fullTitle: 'Preparing Food',
+      desc: 'Fresh meal in progress',
+      icon: Flame
+    },
+    {
+      key: 'on_way',
+      title: 'On Way',
+      fullTitle: 'Out for Delivery',
+      desc: 'Rider is on the way',
+      icon: Bike
+    },
+    {
+      key: 'delivered',
+      title: 'Delivered',
+      fullTitle: 'Order Delivered',
+      desc: 'Enjoy your meal!',
+      icon: CheckCircle2
+    }
+  ];
+
+  const getStepStatus = (stepKey, index) => {
+    let currentIdx = 0;
+    if (status === 'confirmed') currentIdx = 1;
+    else if (status === 'preparing') currentIdx = 2;
+    else if (['assigned', 'at_pickup', 'ready'].includes(status)) currentIdx = 2.5;
+    else if (['on_way', 'at_drop'].includes(status)) currentIdx = 3;
+    else if (status === 'delivered') currentIdx = 4;
+
+    if (index < Math.floor(currentIdx)) return 'completed';
+    if (index === Math.floor(currentIdx)) return 'active';
+    return 'upcoming';
+  };
+
+  return (
+    <div className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-xs border border-gray-100 dark:border-zinc-800">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 flex items-center gap-2">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+          </span>
+          <span>Order Timeline</span>
+        </h3>
+        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
+          Live Tracking
+        </span>
+      </div>
+
+      <div className="relative pt-1 pb-1">
+        {/* Horizontal Connector Line */}
+        <div className="absolute top-6 left-6 right-6 h-1 bg-gray-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+          <div 
+            className="h-full bg-emerald-500 transition-all duration-700 ease-out rounded-full"
+            style={{
+              width: 
+                status === 'placed' ? '12%' :
+                status === 'confirmed' ? '30%' :
+                status === 'preparing' ? '50%' :
+                ['assigned', 'at_pickup', 'ready'].includes(status) ? '65%' :
+                ['on_way', 'at_drop'].includes(status) ? '85%' :
+                status === 'delivered' ? '100%' : '10%'
+            }}
+          />
+        </div>
+
+        {/* Step Nodes */}
+        <div className="flex items-center justify-between relative z-10">
+          {steps.map((s, idx) => {
+            const stepState = getStepStatus(s.key, idx);
+            const Icon = s.icon;
+            const isCompleted = stepState === 'completed';
+            const isActive = stepState === 'active';
+
+            return (
+              <div key={s.key} className="flex flex-col items-center text-center group">
+                <div
+                  className={`w-10 h-10 rounded-2xl flex items-center justify-center transition-all duration-300 ${
+                    isCompleted
+                      ? "bg-emerald-500 text-white shadow-md shadow-emerald-500/25 ring-2 ring-emerald-100 dark:ring-emerald-950"
+                      : isActive
+                      ? "bg-[#EB590E] text-white shadow-lg shadow-orange-500/30 scale-110 ring-4 ring-orange-100 dark:ring-orange-950/60 animate-pulse"
+                      : "bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-500"
+                  }`}
+                >
+                  {isCompleted ? (
+                    <Check className="w-5 h-5 stroke-[3]" />
+                  ) : (
+                    <Icon className="w-4 h-4" />
+                  )}
+                </div>
+                <span
+                  className={`text-[10px] font-bold mt-2 transition-colors ${
+                    isCompleted
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : isActive
+                      ? "text-[#EB590E] font-black"
+                      : "text-gray-400 dark:text-zinc-500"
+                  }`}
+                >
+                  {s.title}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+});
+
 export default function OrderTracking() {
   const navigate = useNavigate()
   const companyName = useCompanyName()
@@ -470,7 +621,18 @@ export default function OrderTracking() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [showCancelDialog, setShowCancelDialog] = useState(false)
   const [showOrderDetails, setShowOrderDetails] = useState(false)
-  const [isSheetCollapsed, setIsSheetCollapsed] = useState(false)
+  
+  // Sheet Snap Modes: 'compact' (~90px), 'half' (~56vh), 'expanded' (~90vh)
+  const [sheetMode, setSheetMode] = useState('half')
+  const isSheetCollapsed = sheetMode === 'compact'
+  const setIsSheetCollapsed = useCallback((val) => {
+    if (typeof val === 'function') {
+      setSheetMode(prev => prev === 'compact' ? 'half' : 'compact');
+    } else {
+      setSheetMode(val ? 'compact' : 'half');
+    }
+  }, [])
+
   const [cancellationReason, setCancellationReason] = useState("")
   const [isCancelling, setIsCancelling] = useState(false)
   const [isInstructionsModalOpen, setIsInstructionsModalOpen] = useState(false)
@@ -867,6 +1029,17 @@ export default function OrderTracking() {
     const code = codeFromOrder ?? socketDropOtpCode
     return code ? String(code) : null
   }, [order?.deliveryVerification?.dropOtp?.code, socketDropOtpCode])
+
+  const handleCopyOtp = (e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (!customerDeliveryOtp) return;
+    try {
+      navigator.clipboard.writeText(String(customerDeliveryOtp));
+      toast.success("Delivery OTP copied to clipboard! 📋");
+    } catch {
+      toast.info(`Delivery OTP: ${customerDeliveryOtp}`);
+    }
+  };
 
   useEffect(() => {
     if (!isEditWindowOpen) return
@@ -1890,24 +2063,42 @@ export default function OrderTracking() {
 
       {/* Header Container */}
       <motion.div
-        className="sticky top-0 z-50 shadow-md rounded-b-[2rem] overflow-hidden"
-        style={{ backgroundColor: isCancelledOrder ? "#dc2626" : themeColor }}
+        className="sticky top-0 z-50 shadow-md backdrop-blur-md"
+        style={{ backgroundColor: isCancelledOrder ? "#dc2626" : "rgba(255, 255, 255, 0.9)" }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
       >
-        <div className="bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md py-2.5 px-4 flex items-center justify-between">
+        <div className="dark:bg-zinc-900/90 py-3 px-4 flex items-center justify-between border-b border-gray-100 dark:border-zinc-800">
           <div className="flex items-center gap-3">
-            <Link to="/user/orders">
-              <button className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors">
-                <ArrowLeft className="w-6 h-6 text-gray-700 dark:text-gray-200" />
-              </button>
-            </Link>
+            <button 
+              type="button"
+              onClick={() => navigate('/food/user/orders')} 
+              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5 text-gray-700 dark:text-gray-200" />
+            </button>
             <div>
-              <h1 className="text-lg font-bold text-gray-800 dark:text-white leading-snug">Track Order</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-bold text-gray-900 dark:text-white leading-snug">Track Order</h1>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Live
+                </span>
+              </div>
               <p className="text-xs text-gray-500 dark:text-gray-400">Order #{orderId?.slice(-6).toUpperCase()}</p>
             </div>
           </div>
-          <div className="w-10" />
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleRefresh}
+              className="p-2 bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-full transition-colors"
+              title="Refresh order"
+            >
+              <RefreshCw className={`w-4 h-4 text-gray-600 dark:text-gray-300 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
       </motion.div>
 
@@ -1926,109 +2117,49 @@ export default function OrderTracking() {
         </div>
       )}
 
-      {/* Collapsible Bottom Sheet */}
-      <motion.div 
-        initial={false}
-        animate={{ 
-          height: isSheetCollapsed ? '88px' : '42vh',
-          maxHeight: isSheetCollapsed ? '88px' : '65vh'
-        }}
-        transition={{ type: "spring", damping: 26, stiffness: 280 }}
-        className="absolute bottom-0 left-0 right-0 z-40 bg-gray-50/95 dark:bg-zinc-950/95 backdrop-blur-xl rounded-t-[2.5rem] shadow-[0_-20px_50px_rgba(0,0,0,0.18)] flex flex-col overflow-hidden border-t border-white/50 dark:border-zinc-800"
-      >
-        {/* Interactive Drag & Tap Handle */}
-        <div 
-          onClick={() => setIsSheetCollapsed(prev => !prev)}
-          className="w-full flex flex-col items-center pt-3 pb-1.5 cursor-pointer select-none active:opacity-70 transition-opacity shrink-0 group hover:bg-gray-100/50 dark:hover:bg-zinc-900/50"
-        >
-          <div className="w-12 h-1.5 bg-gray-300 group-hover:bg-gray-400 dark:bg-zinc-700 rounded-full transition-colors mb-1" />
-          <div className="flex items-center gap-1 text-[11px] font-semibold text-gray-500 dark:text-gray-400">
-            <span>{isSheetCollapsed ? "Tap to view order details" : "Tap to minimize for full map"}</span>
-            {isSheetCollapsed ? (
-              <ChevronUp className="w-3.5 h-3.5 text-gray-500" />
-            ) : (
-              <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
-            )}
+      {/* Floating Map Utility Bar on Top-Right */}
+      {!isDeliveredOrder && orderStatus !== 'cancelled' && (
+        <div className="absolute top-16 right-4 z-30 hidden sm:flex items-center gap-2">
+          {currentEta && (
+            <div className="bg-white/90 dark:bg-zinc-900/90 backdrop-blur-md px-3.5 py-1.5 rounded-full shadow-lg border border-gray-100 dark:border-zinc-800 flex items-center gap-2 text-xs font-bold text-gray-800 dark:text-gray-200">
+              <Clock className="w-3.5 h-3.5 text-[#EB590E]" />
+              <span>ETA: ~{currentEta}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* DESKTOP VIEW: Floating Responsive Sidebar (Visible on lg+ screens) */}
+      <div className="hidden lg:flex flex-col absolute top-18 left-6 bottom-6 w-[450px] z-40 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-2xl rounded-3xl shadow-[0_20px_60px_rgba(0,0,0,0.2)] border border-gray-200/80 dark:border-zinc-800 overflow-hidden">
+        {/* Desktop Sidebar Header */}
+        <div className="px-6 py-4 border-b border-gray-100 dark:border-zinc-800 flex items-center justify-between shrink-0 bg-white/50 dark:bg-zinc-900/50">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <h2 className="text-sm font-black text-gray-900 dark:text-white uppercase tracking-wider">Live Order Status</h2>
           </div>
+          <button
+            type="button"
+            onClick={handleRefresh}
+            className="p-1.5 hover:bg-gray-100 dark:hover:bg-zinc-800 rounded-full transition-colors text-gray-500"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </button>
         </div>
 
-        {/* Collapsed Compact State Summary Banner */}
-        {isSheetCollapsed && (
-          <div 
-            onClick={() => setIsSheetCollapsed(false)}
-            className="px-5 pb-3 flex items-center justify-between cursor-pointer active:scale-[0.99] transition-transform"
-          >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <span
-                className="w-2.5 h-2.5 rounded-full shrink-0 animate-pulse"
-                style={{ backgroundColor: themeColor }}
-              />
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-gray-900 dark:text-white truncate">
-                  {currentStatus.subtitle || currentStatus.title || "Tracking Order"}
-                </p>
-                <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">
-                  {currentEta ? `ETA: ~${currentEta}` : (restaurantDisplayName || "Live on map")}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-1 px-2.5 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full text-[11px] font-bold shrink-0">
-              <span>Expand</span>
-              <ChevronUp className="w-3.5 h-3.5" />
-            </div>
-          </div>
-        )}
-        
-        {/* Scrollable Area */}
-        <div className={`overflow-y-auto px-4 md:px-6 lg:px-8 pb-8 space-y-4 flex-1 ${isSheetCollapsed ? 'hidden' : 'block'}`}>
-        
-        {/* Main Status Card */}
-        {isDeliveredOrder ? (
-          <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-gradient-to-br from-emerald-500 via-green-600 to-teal-700 text-white rounded-3xl p-6 shadow-xl relative overflow-hidden text-center"
-          >
-            <div className="absolute -top-10 -right-10 w-32 h-32 bg-white/10 rounded-full blur-xl pointer-events-none" />
-            <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-white/10 rounded-full blur-xl pointer-events-none" />
-
-            <div className="relative z-10 flex flex-col items-center">
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: "spring", damping: 12, stiffness: 200, delay: 0.1 }}
-                className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-lg mb-3"
-              >
-                <CheckCircle2 className="w-10 h-10 text-emerald-600" />
-              </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-              >
-                <div className="inline-flex items-center gap-1.5 bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider mb-2">
-                  <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
-                  <span>Order Delivered</span>
-                </div>
-                <h2 className="text-2xl font-black tracking-tight">Delivered Successfully! 🎉</h2>
-                <p className="text-emerald-100 text-sm mt-1 max-w-xs mx-auto font-medium">
-                  We hope you enjoy your meal from {restaurantDisplayName}!
-                </p>
-              </motion.div>
-            </div>
-          </motion.div>
-        ) : (
-          <div className="bg-white dark:bg-zinc-900 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-zinc-800 relative overflow-hidden">
-            <div className="flex items-start justify-between relative z-10">
+        {/* Desktop Scrollable Content */}
+        <div className="overflow-y-auto px-6 py-5 space-y-4.5 flex-1 overscroll-contain">
+          {/* Main Status Hero */}
+          <div className="bg-gradient-to-br from-orange-50 via-white to-amber-50/40 dark:from-zinc-900 dark:via-zinc-900 dark:to-zinc-850 rounded-3xl p-5 shadow-xs border border-orange-100/70 dark:border-zinc-800 relative overflow-hidden">
+            <div className="flex items-start justify-between">
               <div>
                 <span
-                  className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mb-3"
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold mb-2 shadow-2xs"
                   style={{ backgroundColor: `rgba(${themeRgb}, 0.12)`, color: themeColor }}
                 >
+                  <Sparkles className="w-3 h-3" />
                   {currentStatus.title}
                 </span>
-                <h2 className="text-2xl font-black text-gray-900 dark:text-white leading-tight">
+                <h2 className="text-xl font-black text-gray-900 dark:text-white leading-tight">
                   {(isCancelledOrder && order?.status === 'cancelled_by_restaurant')
                     ? "Cancelled by Restaurant"
                     : isCancelledOrder
@@ -2036,374 +2167,649 @@ export default function OrderTracking() {
                       : currentStatus.subtitle}
                 </h2>
                 {isCancelledOrder && order?.status === 'cancelled_by_restaurant' && order?.note && (
-                  <p className="mt-2 text-gray-500 dark:text-gray-400 font-medium">
+                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 font-medium">
                     {order.note}
                   </p>
                 )}
               </div>
-              <motion.button
-                onClick={handleRefresh}
-                className="p-2 bg-gray-50 dark:bg-zinc-800 rounded-full"
-                animate={{ rotate: isRefreshing ? 360 : 0 }}
-              >
-                <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-              </motion.button>
+              {currentEta && !isCancelledOrder && !isDeliveredOrder && (
+                <div className="flex flex-col items-end shrink-0 bg-white/90 dark:bg-zinc-800/90 px-3 py-1.5 rounded-2xl border border-gray-100 dark:border-zinc-700 shadow-2xs">
+                  <span className="text-[10px] uppercase font-bold text-gray-400">Estimated Arrival</span>
+                  <span className="text-sm font-black text-[#EB590E]">~{currentEta}</span>
+                </div>
+              )}
             </div>
           </div>
-        )}
 
-        {/* Interactive Rating & Feedback Card on Delivery */}
-        {isDeliveredOrder && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-zinc-800"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="font-bold text-gray-900 dark:text-white text-base">Rate Your Experience</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Help us improve your future orders</p>
-              </div>
-              <span className="text-2xl">⭐</span>
-            </div>
+          {/* Stepper */}
+          <LiveTrackingStepper status={orderStatus} isCancelled={isCancelledOrder} />
 
-            {ratingSubmitted ? (
-              <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl p-4 text-center">
-                <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-900/60 rounded-full flex items-center justify-center mx-auto mb-2 text-emerald-600 dark:text-emerald-300 font-bold">
-                  ✓
-                </div>
-                <h4 className="font-bold text-emerald-900 dark:text-emerald-200 text-sm">Thank you for your rating!</h4>
-                <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-0.5">Your feedback helps us serve you better.</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {/* Restaurant Food Rating */}
-                <div className="bg-gray-50 dark:bg-zinc-800/60 rounded-2xl p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-gray-700 dark:text-gray-300">Food Quality ({restaurantDisplayName})</span>
-                    <span className="text-xs font-bold text-orange-600 dark:text-orange-400">
-                      {restaurantRating === 5 ? "🤩 Amazing" : restaurantRating === 4 ? "😋 Delicious" : restaurantRating === 3 ? "👍 Good" : restaurantRating === 2 ? "😐 Average" : "👎 Bad"}
+          {/* Delivery OTP Card */}
+          {customerDeliveryOtp && !isDeliveredOrder && !isCancelledOrder && (
+            <motion.div
+              className="bg-gradient-to-br from-blue-500/10 via-indigo-500/10 to-blue-600/10 dark:from-blue-950/40 dark:to-indigo-950/40 border-2 border-blue-400/40 dark:border-blue-700/60 rounded-3xl p-5 shadow-xs relative overflow-hidden"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-xl bg-blue-500 text-white flex items-center justify-center shadow-xs">
+                    <Shield className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                      DELIVERY PIN / OTP
                     </span>
-                  </div>
-                  <div className="flex items-center justify-center gap-3 py-1">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <button
-                        key={star}
-                        type="button"
-                        onClick={() => setRestaurantRating(star)}
-                        className="p-1 transition-transform hover:scale-125 active:scale-95"
-                      >
-                        <Star
-                          className={`w-7 h-7 ${
-                            star <= restaurantRating
-                              ? "text-amber-400 fill-amber-400 drop-shadow-sm"
-                              : "text-gray-300 dark:text-zinc-600"
-                          }`}
-                        />
-                      </button>
-                    ))}
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400">Share with rider only on delivery</p>
                   </div>
                 </div>
-
-                {/* Delivery Partner Rating */}
-                {order?.deliveryPartnerId && (
-                  <div className="bg-gray-50 dark:bg-zinc-800/60 rounded-2xl p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-bold text-gray-700 dark:text-gray-300">
-                        Delivery Partner ({order.deliveryPartner?.name || "Rider"})
-                      </span>
-                      <span className="text-xs font-bold text-blue-600 dark:text-blue-400">
-                        {deliveryRating === 5 ? "⚡ Super Fast" : deliveryRating === 4 ? "😊 Polite & On-time" : deliveryRating === 3 ? "👍 Good" : "😐 Average"}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-center gap-3 py-1">
-                      {[1, 2, 3, 4, 5].map((star) => (
-                        <button
-                          key={star}
-                          type="button"
-                          onClick={() => setDeliveryRating(star)}
-                          className="p-1 transition-transform hover:scale-125 active:scale-95"
-                        >
-                          <Star
-                            className={`w-7 h-7 ${
-                              star <= deliveryRating
-                                ? "text-amber-400 fill-amber-400 drop-shadow-sm"
-                                : "text-gray-300 dark:text-zinc-600"
-                            }`}
-                          />
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Quick Compliment Tags */}
-                <div>
-                  <label className="text-xs font-bold text-gray-600 dark:text-gray-400 mb-2 block">What did you like?</label>
-                  <div className="flex flex-wrap gap-2">
-                    {["🔥 Hot & Fresh", "⚡ Fast Delivery", "📦 Great Packaging", "😋 Tasty Food", "😊 Polite Rider"].map((chip) => {
-                      const isSelected = selectedCompliments.includes(chip);
-                      return (
-                        <button
-                          key={chip}
-                          type="button"
-                          onClick={() => {
-                            setSelectedCompliments(prev =>
-                              isSelected ? prev.filter(c => c !== chip) : [...prev, chip]
-                            );
-                          }}
-                          className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
-                            isSelected
-                              ? "bg-orange-500 text-white shadow-sm"
-                              : "bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-zinc-700"
-                          }`}
-                        >
-                          {chip}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Submit Rating Button */}
-                <Button
+                <button
                   type="button"
-                  onClick={handleRatingSubmit}
-                  disabled={isSubmittingRating}
-                  className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold h-11 rounded-2xl shadow-md transition-all flex items-center justify-center gap-2"
+                  onClick={handleCopyOtp}
+                  className="px-3 py-1 bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/60 dark:hover:bg-blue-800 text-blue-700 dark:text-blue-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 shadow-2xs cursor-pointer"
                 >
-                  {isSubmittingRating ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" /> Submitting...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4" /> Submit Feedback
-                    </>
-                  )}
-                </Button>
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copy</span>
+                </button>
               </div>
-            )}
-          </motion.div>
-        )}
 
-        {/* Quick Action CTAs for Delivered Order */}
-        {isDeliveredOrder && (
-          <div className="space-y-2.5">
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  const restId = order?.restaurantId?._id || order?.restaurantId || order?.restaurant?._id;
-                  if (restId) navigate(`/food/user/restaurants/${restId}`);
-                  else navigate('/food/user');
-                }}
-                className="flex items-center justify-center gap-2 py-3.5 px-4 bg-orange-600 hover:bg-orange-700 text-white rounded-2xl font-bold text-sm shadow-md transition-all active:scale-95"
-              >
-                <RotateCcw className="w-4 h-4" /> Order Again
-              </button>
-              
-              <Link
-                to={`/food/user/orders/${orderId}/invoice`}
-                className="flex items-center justify-center gap-2 py-3.5 px-4 bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-gray-800 dark:text-white rounded-2xl font-bold text-sm transition-all active:scale-95"
-              >
-                <Receipt className="w-4 h-4" /> View Invoice
-              </Link>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => navigate('/food/user')}
-              className="w-full flex items-center justify-center gap-2 py-3 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 hover:bg-gray-50 dark:hover:bg-zinc-800 text-gray-700 dark:text-gray-300 rounded-2xl font-semibold text-sm transition-all"
-            >
-              <HomeIcon className="w-4 h-4" /> Back to Home
-            </button>
-          </div>
-        )}
-
-        {/* Cancel button visible ONLY until restaurant accepts (confirmed) */}
-        {!isAdminAccepted && !isCancelledOrder && !isDeliveredOrder && (
-          <motion.div
-            className="bg-white dark:bg-zinc-900 rounded-xl p-4 shadow-sm border border-red-50 dark:border-zinc-800"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <p className="text-sm font-semibold text-gray-900 dark:text-white">Need to cancel?</p>
-              <span className="text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-md bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400">
-                Available until accepted
-              </span>
-            </div>
-            <Button 
-              type="button" 
-              onClick={handleCancelOrder} 
-              variant="destructive"
-              className="w-full bg-red-600 hover:bg-red-700 text-white font-bold h-11"
-            >
-              Cancel Order
-            </Button>
-          </motion.div>
-        )}
-
-        {customerDeliveryOtp && !isDeliveredOrder && !isCancelledOrder && (
-          <motion.div
-            className="bg-blue-50 dark:bg-blue-900/20 rounded-2xl p-5 shadow-sm border border-blue-100 dark:border-blue-800"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wide">Delivery OTP</p>
-            <p className="text-3xl font-black text-blue-900 dark:text-blue-100 mt-1 tracking-[0.2em]">{customerDeliveryOtp}</p>
-          </motion.div>
-        )}
-
-        {/* Address Card */}
-        <div className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-zinc-800">
-          <div className="flex items-start gap-4">
-            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-2xl">
-              <MapPin className="w-5 h-5 text-blue-500" />
-            </div>
-            <div>
-              <h3 className="font-bold text-gray-900 dark:text-white text-sm mb-1">Delivering to Home</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-                {order?.address?.formattedAddress || 'Address not available'}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Delivery Partner Profile Card */}
-        {order?.deliveryPartnerId && (
-          <div className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-zinc-800">
-            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
-              Delivery Partner
-            </h3>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="relative">
-                  <div className="w-14 h-14 rounded-2xl bg-gray-100 dark:bg-zinc-800 flex items-center justify-center border-2 border-white dark:border-zinc-800">
-                    <User className="w-8 h-8 text-gray-400 dark:text-gray-500" />
+              <div className="flex items-center justify-center gap-2.5 py-1">
+                {String(customerDeliveryOtp).split("").map((digit, i) => (
+                  <div
+                    key={i}
+                    className="w-12 h-13 rounded-2xl bg-white dark:bg-zinc-900 border-2 border-blue-400 dark:border-blue-500 shadow-md flex items-center justify-center text-2xl font-black text-blue-600 dark:text-blue-400"
+                  >
+                    {digit}
                   </div>
-                  <div className="absolute -bottom-1 -right-1 bg-green-500 w-4 h-4 rounded-full border-2 border-white dark:border-zinc-900" />
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {/* Delivery Partner Profile Card */}
+          {order?.deliveryPartnerId && (
+            <div className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-xs border border-gray-100 dark:border-zinc-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3.5">
+                  <div className="relative">
+                    <div className="w-13 h-13 rounded-2xl bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border-2 border-white dark:border-zinc-800 text-slate-500 shadow-2xs">
+                      <User className="w-7 h-7" />
+                    </div>
+                    <div className="absolute -bottom-1 -right-1 bg-emerald-500 w-4 h-4 rounded-full border-2 border-white dark:border-zinc-900" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 dark:text-white text-sm">{order.deliveryPartner?.name || 'Delivery Partner'}</h3>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <div className="flex items-center gap-1">
+                        <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+                        <span className="text-xs font-bold text-gray-700 dark:text-gray-300">4.9</span>
+                      </div>
+                      <span className="text-gray-300 dark:text-zinc-700">•</span>
+                      <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                        <Bike className="w-3.5 h-3.5" /> Assigned Rider
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-bold text-gray-900 dark:text-white">{order.deliveryPartner?.name || 'Delivery Partner'}</h3>
-                  <div className="flex items-center gap-1 mt-0.5">
-                    <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
-                    <span className="text-xs font-bold text-gray-700 dark:text-gray-300">4.9</span>
-                  </div>
+                {!isDeliveredOrder && !isCancelledOrder && (
+                  <button
+                    type="button"
+                    onClick={handleCallRider}
+                    className="flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-xs shadow-md shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer"
+                  >
+                    <Phone className="w-3.5 h-3.5" />
+                    <span>Call</span>
+                  </button>
+                )}
+              </div>
+
+              {order?.deliveryInstructions && (
+                <div className="bg-blue-50/60 dark:bg-blue-950/30 p-3 mt-3.5 rounded-2xl flex items-start gap-2.5 border border-blue-100/80 dark:border-blue-900/40 text-xs text-blue-950 dark:text-blue-200">
+                  <MessageSquare className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                  <p className="leading-relaxed italic">"{order.deliveryInstructions}"</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Delivery Address Card */}
+          <div className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-xs border border-gray-100 dark:border-zinc-800">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3.5 min-w-0">
+                <div className="p-2.5 bg-blue-50 dark:bg-blue-950/40 rounded-2xl text-blue-500 shrink-0 mt-0.5">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-gray-900 dark:text-white text-sm mb-1">Delivering to Home</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed break-words">
+                    {order?.address?.formattedAddress || 'Address not available'}
+                  </p>
                 </div>
               </div>
               {!isDeliveredOrder && !isCancelledOrder && (
-                <motion.button className="w-12 h-12 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center" onClick={handleCallRider}>
-                  <Phone className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                </motion.button>
+                <button
+                  type="button"
+                  onClick={() => setIsInstructionsModalOpen(true)}
+                  className="text-xs font-bold text-[#EB590E] hover:underline shrink-0 pt-0.5"
+                >
+                  Edit Note
+                </button>
               )}
             </div>
-            {order?.deliveryInstructions && (
-              <div className="bg-blue-50/50 dark:bg-blue-900/10 p-4 mt-4 rounded-xl flex items-start gap-3 border border-blue-100 dark:border-blue-900">
-                <MessageSquare className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
-                <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed italic">"{order.deliveryInstructions}"</p>
-              </div>
-            )}
           </div>
-        )}
 
-        {/* Delivery Instructions - Only show if NOT delivered */}
-        {!isDeliveredOrder && !isCancelledOrder && (
-          <div onClick={() => setIsInstructionsModalOpen(true)} className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-zinc-800 mb-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-zinc-800">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-purple-50 dark:bg-purple-900/20 rounded-xl">
-                  <FileText className="w-4 h-4 text-purple-500" />
+          {/* Restaurant Info & Order Items */}
+          <div className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-xs border border-gray-100 dark:border-zinc-800">
+            <div className="flex items-center justify-between gap-3 pb-4 mb-4 border-b border-gray-100 dark:border-zinc-800">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-11 h-11 rounded-2xl bg-orange-50 dark:bg-orange-950/40 text-[#EB590E] flex items-center justify-center shrink-0">
+                  <Store className="w-5 h-5" />
                 </div>
-                <span className="text-sm font-bold text-gray-800 dark:text-white">Add delivery instructions</span>
-              </div>
-              <ChevronRight className="w-4 h-4 text-gray-400" />
-            </div>
-          </div>
-        )}
-
-        {isDeliveredOrder && (
-          <Link to={`/user/complaints/submit/${complaintOrderId}`} className="flex items-center justify-center gap-2 py-4 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 font-bold text-gray-800 dark:text-white text-sm hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors w-full">
-            <CircleSlash className="w-4 h-4 text-red-500" /> Raise a Complaint
-          </Link>
-        )}
-
-        {/* Order Summary & Restaurant Info */}
-        <div className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-zinc-800">
-          <div className="flex items-center justify-between gap-4 mb-5">
-            <div className="flex items-center gap-4 min-w-0">
-            <div className="w-12 h-12 rounded-2xl bg-gray-100 dark:bg-zinc-800 overflow-hidden flex items-center justify-center">
-              <Store className="w-6 h-6 text-gray-400" />
-            </div>
-            <div className="min-w-0">
-              <h3 className="font-bold text-gray-900 dark:text-white truncate">{restaurantDisplayName}</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400">{order.restaurantAddress || 'Location'}</p>
-            </div>
-          </div>
-            {!isDeliveredOrder && !isCancelledOrder && (
-              <button
-                type="button"
-                onClick={handleCallRestaurant}
-                className="w-10 h-10 rounded-full border flex items-center justify-center shrink-0"
-                style={{
-                  backgroundColor: `rgba(${themeRgb}, 0.12)`,
-                  borderColor: `rgba(${themeRgb}, 0.35)`,
-                }}
-                aria-label="Call restaurant"
-              >
-                <Phone className="w-4 h-4" style={{ color: themeColor }} />
-              </button>
-            )}
-          </div>
-          <div className="space-y-3">
-            {order?.items?.map((item, i) => {
-              const resolvedIsVeg = typeof item?.isVeg === "boolean"
-                ? item.isVeg
-                : ["veg", "vegetarian"].includes(String(item?.foodType || item?.category || item?.type || "").toLowerCase().trim());
-
-              return (
-              <div key={i} className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-2 min-w-0">
-                  <div
-                    className={`w-3.5 h-3.5 mt-0.5 border flex items-center justify-center p-[1px] shrink-0 ${resolvedIsVeg ? "border-[#16a34a] bg-green-50/40 dark:bg-green-900/25" : "border-[#dc2626] bg-red-50/40 dark:bg-red-900/25"}`}
-                  >
-                    <div className={`w-full h-full rounded-full ${resolvedIsVeg ? "bg-[#16a34a]" : "bg-[#dc2626]"}`} />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm text-gray-700 dark:text-gray-300 font-medium truncate">
-                      {(item?.quantity || 1)} x {item?.name || "Item"}
-                    </p>
-                    {item?.variantName ? (
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{item.variantName}</p>
-                    ) : null}
-                  </div>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate">{restaurantDisplayName}</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{order.restaurantAddress || 'Restaurant Location'}</p>
                 </div>
-                <span className="text-sm font-bold text-gray-900 dark:text-white shrink-0">
-                  {"\u20B9"}{((item?.price || 0) * (item?.quantity || 1)).toFixed(0)}
+              </div>
+              {!isDeliveredOrder && !isCancelledOrder && (
+                <button
+                  type="button"
+                  onClick={handleCallRestaurant}
+                  className="p-2.5 bg-orange-50 hover:bg-orange-100 dark:bg-orange-950/40 dark:hover:bg-orange-900/60 rounded-2xl text-[#EB590E] transition-colors shrink-0 cursor-pointer"
+                  title="Call Restaurant"
+                >
+                  <Phone className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Items List */}
+            <div className="space-y-3">
+              {order?.items?.map((item, i) => {
+                const resolvedIsVeg = typeof item?.isVeg === "boolean"
+                  ? item.isVeg
+                  : ["veg", "vegetarian"].includes(String(item?.foodType || item?.category || item?.type || "").toLowerCase().trim());
+
+                return (
+                  <div key={i} className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <div
+                        className={`w-3.5 h-3.5 mt-0.5 border flex items-center justify-center p-[1px] shrink-0 ${resolvedIsVeg ? "border-[#16a34a] bg-green-50/40 dark:bg-green-900/25" : "border-[#dc2626] bg-red-50/40 dark:bg-red-900/25"}`}
+                      >
+                        <div className={`w-full h-full rounded-full ${resolvedIsVeg ? "bg-[#16a34a]" : "bg-[#dc2626]"}`} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs sm:text-sm text-gray-800 dark:text-gray-200 font-semibold truncate">
+                          {item?.quantity || 1} x {item?.name || "Item"}
+                        </p>
+                        {item?.variantName && (
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{item.variantName}</p>
+                        )}
+                      </div>
+                    </div>
+                    <span className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white shrink-0">
+                      ₹{((item?.price || 0) * (item?.quantity || 1)).toFixed(0)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Collapsible Bill Breakdown */}
+            <div className="mt-4 pt-3.5 border-t border-dashed border-gray-200 dark:border-zinc-700">
+              <div className="space-y-2 text-xs text-gray-600 dark:text-gray-400">
+                <div className="flex justify-between">
+                  <span>Item Total</span>
+                  <span>₹{order?.pricing?.subtotal || order?.subtotal || (order?.totalAmount || 0)}</span>
+                </div>
+                {Number(order?.pricing?.deliveryFee || order?.deliveryFee || 0) > 0 ? (
+                  <div className="flex justify-between">
+                    <span>Delivery Fee</span>
+                    <span>₹{order?.pricing?.deliveryFee || order?.deliveryFee}</span>
+                  </div>
+                ) : (
+                  <div className="flex justify-between text-emerald-600 font-semibold">
+                    <span>Delivery Fee</span>
+                    <span>FREE</span>
+                  </div>
+                )}
+                {Number(order?.pricing?.tax || order?.pricing?.gst || order?.gst || 0) > 0 && (
+                  <div className="flex justify-between">
+                    <span>Taxes & Restaurant GST</span>
+                    <span>₹{order?.pricing?.tax || order?.pricing?.gst || order?.gst}</span>
+                  </div>
+                )}
+                {Number(order?.pricing?.discount || order?.discount || 0) > 0 && (
+                  <div className="flex justify-between text-emerald-600 font-semibold">
+                    <span>Discount</span>
+                    <span>-₹{order?.pricing?.discount || order?.discount}</span>
+                  </div>
+                )}
+                <div className="flex justify-between pt-2.5 border-t border-gray-100 dark:border-zinc-800 text-sm font-black text-gray-900 dark:text-white">
+                  <span>Total Paid</span>
+                  <span>₹{order?.pricing?.total || order?.totalAmount || order?.total || 0}</span>
+                </div>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-gray-100 dark:border-zinc-800 flex items-center justify-between">
+                <Link
+                  to={`/food/user/orders/${orderId}/invoice`}
+                  className="text-xs font-bold text-[#EB590E] hover:underline flex items-center gap-1"
+                >
+                  <Receipt className="w-3.5 h-3.5" />
+                  <span>View Tax Invoice</span>
+                </Link>
+                <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                  {order?.paymentMethod || order?.payment?.method || "Paid Online"}
                 </span>
               </div>
-            )})}
+            </div>
           </div>
-          
-          {!isDeliveredOrder && (
-            <div className="mt-4">
-              <div className="h-px bg-gray-50 dark:bg-zinc-800 mb-4" />
-              <Link 
-                to="/food/user/profile/help-content"
-                className="flex items-center justify-between hover:bg-gray-50 dark:hover:bg-zinc-800/50 p-2 -mx-2 rounded-xl transition-colors cursor-pointer group"
+
+          {/* Cancel Order Action */}
+          {!isAdminAccepted && !isCancelledOrder && !isDeliveredOrder && (
+            <div className="bg-red-50/60 dark:bg-red-950/20 rounded-3xl p-4 border border-red-100 dark:border-red-900/40">
+              <div className="flex items-center justify-between mb-2.5">
+                <p className="text-xs font-bold text-red-900 dark:text-red-200">Need to cancel?</p>
+                <span className="text-[10px] uppercase font-bold text-red-600 dark:text-red-400">Available before accepted</span>
+              </div>
+              <Button
+                type="button"
+                onClick={handleCancelOrder}
+                variant="destructive"
+                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold h-10 rounded-2xl"
               >
-                <p className="text-xs text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-200 transition-colors">
-                  Order issues? Reach out to support
-                </p>
-                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
-              </Link>
+                Cancel Order
+              </Button>
             </div>
           )}
+
+          {/* Help & Support Link */}
+          <div className="pt-2 text-center pb-6">
+            <Link
+              to="/food/user/profile/help-content"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:text-[#EB590E] transition-colors"
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+              <span>Need help with this order? Contact Support</span>
+            </Link>
+          </div>
         </div>
       </div>
-    </motion.div>
+
+      {/* MOBILE VIEW: Modern Multi-Snap Fluid Bottom Sheet (Visible on < lg screens) */}
+      <motion.div
+        initial={false}
+        animate={{
+          height:
+            sheetMode === 'compact' ? '92px' :
+            sheetMode === 'half' ? '56vh' :
+            '90vh',
+        }}
+        transition={{ type: "spring", damping: 28, stiffness: 290 }}
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-2xl rounded-t-[2.5rem] shadow-[0_-20px_50px_rgba(0,0,0,0.22)] flex flex-col overflow-hidden border-t border-white/60 dark:border-zinc-800"
+      >
+        {/* Interactive Handle Bar with Mode Toggle */}
+        <div className="w-full pt-3 pb-2 flex flex-col items-center shrink-0 select-none bg-white/50 dark:bg-zinc-900/50 border-b border-gray-100/80 dark:border-zinc-800/80">
+          {/* Pill Drag Handle */}
+          <div 
+            onClick={() => setSheetMode(prev => prev === 'compact' ? 'half' : prev === 'half' ? 'expanded' : 'compact')}
+            className="w-12 h-1.5 bg-gray-300 hover:bg-gray-400 dark:bg-zinc-700 rounded-full transition-colors mb-2.5 cursor-pointer" 
+          />
+
+          {/* 3-State Mode Buttons for 1-Tap Control */}
+          <div className="flex items-center gap-2 px-4">
+            <button
+              type="button"
+              onClick={() => setSheetMode('compact')}
+              className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
+                sheetMode === 'compact'
+                  ? 'bg-gray-900 text-white dark:bg-white dark:text-zinc-900 shadow-xs'
+                  : 'bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200'
+              }`}
+            >
+              🗺️ Map Focus
+            </button>
+            <button
+              type="button"
+              onClick={() => setSheetMode('half')}
+              className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
+                sheetMode === 'half'
+                  ? 'bg-[#EB590E] text-white shadow-xs'
+                  : 'bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200'
+              }`}
+            >
+              ⚡ Overview
+            </button>
+            <button
+              type="button"
+              onClick={() => setSheetMode('expanded')}
+              className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
+                sheetMode === 'expanded'
+                  ? 'bg-gray-900 text-white dark:bg-white dark:text-zinc-900 shadow-xs'
+                  : 'bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200'
+              }`}
+            >
+              📄 All Details
+            </button>
+          </div>
+        </div>
+
+        {/* Compact Mode Summary Bar */}
+        {sheetMode === 'compact' && (
+          <div
+            onClick={() => setSheetMode('half')}
+            className="px-5 py-3 flex items-center justify-between cursor-pointer active:scale-[0.99] transition-transform"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <span
+                className="w-3 h-3 rounded-full shrink-0 animate-pulse"
+                style={{ backgroundColor: themeColor }}
+              />
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-gray-900 dark:text-white truncate">
+                  {currentStatus.subtitle || currentStatus.title || "Tracking Order"}
+                </p>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
+                  {currentEta ? `ETA: ~${currentEta}` : (restaurantDisplayName || "Live on map")}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 px-3 py-1.5 bg-[#EB590E] text-white rounded-full text-xs font-bold shrink-0 shadow-xs">
+              <span>View Details</span>
+              <ChevronUp className="w-3.5 h-3.5" />
+            </div>
+          </div>
+        )}
+
+        {/* Mobile Scrollable Area (Rendered when half or expanded) */}
+        <div className={`overflow-y-auto px-4 sm:px-6 py-4 space-y-4 flex-1 overscroll-contain pb-12 ${sheetMode === 'compact' ? 'hidden' : 'block'}`}>
+          {/* Main Status Hero */}
+          <div className="bg-gradient-to-br from-orange-50 via-white to-amber-50/40 dark:from-zinc-900 dark:via-zinc-900 dark:to-zinc-850 rounded-3xl p-5 shadow-xs border border-orange-100/70 dark:border-zinc-800 relative overflow-hidden">
+            <div className="flex items-start justify-between">
+              <div>
+                <span
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold mb-2 shadow-2xs"
+                  style={{ backgroundColor: `rgba(${themeRgb}, 0.12)`, color: themeColor }}
+                >
+                  <Sparkles className="w-3 h-3" />
+                  {currentStatus.title}
+                </span>
+                <h2 className="text-xl font-black text-gray-900 dark:text-white leading-tight">
+                  {(isCancelledOrder && order?.status === 'cancelled_by_restaurant')
+                    ? "Cancelled by Restaurant"
+                    : isCancelledOrder
+                      ? "Order Cancelled"
+                      : currentStatus.subtitle}
+                </h2>
+                {isCancelledOrder && order?.status === 'cancelled_by_restaurant' && order?.note && (
+                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 font-medium">
+                    {order.note}
+                  </p>
+                )}
+              </div>
+              {currentEta && !isCancelledOrder && !isDeliveredOrder && (
+                <div className="flex flex-col items-end shrink-0 bg-white/90 dark:bg-zinc-800/90 px-3 py-1.5 rounded-2xl border border-gray-100 dark:border-zinc-700 shadow-2xs">
+                  <span className="text-[10px] uppercase font-bold text-gray-400">Arrival</span>
+                  <span className="text-sm font-black text-[#EB590E]">~{currentEta}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Stepper */}
+          <LiveTrackingStepper status={orderStatus} isCancelled={isCancelledOrder} />
+
+          {/* Delivery OTP Card */}
+          {customerDeliveryOtp && !isDeliveredOrder && !isCancelledOrder && (
+            <motion.div
+              className="bg-gradient-to-br from-blue-500/10 via-indigo-500/10 to-blue-600/10 dark:from-blue-950/40 dark:to-indigo-950/40 border-2 border-blue-400/40 dark:border-blue-700/60 rounded-3xl p-5 shadow-xs relative overflow-hidden"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-xl bg-blue-500 text-white flex items-center justify-center shadow-xs">
+                    <Shield className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                      DELIVERY PIN / OTP
+                    </span>
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400">Share with rider only on delivery</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopyOtp}
+                  className="px-3 py-1 bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/60 dark:hover:bg-blue-800 text-blue-700 dark:text-blue-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 shadow-2xs cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copy</span>
+                </button>
+              </div>
+
+              <div className="flex items-center justify-center gap-2.5 py-1">
+                {String(customerDeliveryOtp).split("").map((digit, i) => (
+                  <div
+                    key={i}
+                    className="w-12 h-13 rounded-2xl bg-white dark:bg-zinc-900 border-2 border-blue-400 dark:border-blue-500 shadow-md flex items-center justify-center text-2xl font-black text-blue-600 dark:text-blue-400"
+                  >
+                    {digit}
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {/* Delivery Partner Profile Card */}
+          {order?.deliveryPartnerId && (
+            <div className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-xs border border-gray-100 dark:border-zinc-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3.5">
+                  <div className="relative">
+                    <div className="w-13 h-13 rounded-2xl bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border-2 border-white dark:border-zinc-800 text-slate-500 shadow-2xs">
+                      <User className="w-7 h-7" />
+                    </div>
+                    <div className="absolute -bottom-1 -right-1 bg-emerald-500 w-4 h-4 rounded-full border-2 border-white dark:border-zinc-900" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 dark:text-white text-sm">{order.deliveryPartner?.name || 'Delivery Partner'}</h3>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <div className="flex items-center gap-1">
+                        <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+                        <span className="text-xs font-bold text-gray-700 dark:text-gray-300">4.9</span>
+                      </div>
+                      <span className="text-gray-300 dark:text-zinc-700">•</span>
+                      <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                        <Bike className="w-3.5 h-3.5" /> Assigned Rider
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                {!isDeliveredOrder && !isCancelledOrder && (
+                  <button
+                    type="button"
+                    onClick={handleCallRider}
+                    className="flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-xs shadow-md shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer"
+                  >
+                    <Phone className="w-3.5 h-3.5" />
+                    <span>Call</span>
+                  </button>
+                )}
+              </div>
+
+              {order?.deliveryInstructions && (
+                <div className="bg-blue-50/60 dark:bg-blue-950/30 p-3 mt-3.5 rounded-2xl flex items-start gap-2.5 border border-blue-100/80 dark:border-blue-900/40 text-xs text-blue-950 dark:text-blue-200">
+                  <MessageSquare className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                  <p className="leading-relaxed italic">"{order.deliveryInstructions}"</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Delivery Address Card */}
+          <div className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-xs border border-gray-100 dark:border-zinc-800">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3.5 min-w-0">
+                <div className="p-2.5 bg-blue-50 dark:bg-blue-950/40 rounded-2xl text-blue-500 shrink-0 mt-0.5">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-gray-900 dark:text-white text-sm mb-1">Delivering to Home</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed break-words">
+                    {order?.address?.formattedAddress || 'Address not available'}
+                  </p>
+                </div>
+              </div>
+              {!isDeliveredOrder && !isCancelledOrder && (
+                <button
+                  type="button"
+                  onClick={() => setIsInstructionsModalOpen(true)}
+                  className="text-xs font-bold text-[#EB590E] hover:underline shrink-0 pt-0.5"
+                >
+                  Edit Note
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Restaurant Info & Order Items */}
+          <div className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-xs border border-gray-100 dark:border-zinc-800">
+            <div className="flex items-center justify-between gap-3 pb-4 mb-4 border-b border-gray-100 dark:border-zinc-800">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-11 h-11 rounded-2xl bg-orange-50 dark:bg-orange-950/40 text-[#EB590E] flex items-center justify-center shrink-0">
+                  <Store className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate">{restaurantDisplayName}</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{order.restaurantAddress || 'Restaurant Location'}</p>
+                </div>
+              </div>
+              {!isDeliveredOrder && !isCancelledOrder && (
+                <button
+                  type="button"
+                  onClick={handleCallRestaurant}
+                  className="p-2.5 bg-orange-50 hover:bg-orange-100 dark:bg-orange-950/40 dark:hover:bg-orange-900/60 rounded-2xl text-[#EB590E] transition-colors shrink-0 cursor-pointer"
+                  title="Call Restaurant"
+                >
+                  <Phone className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Items List */}
+            <div className="space-y-3">
+              {order?.items?.map((item, i) => {
+                const resolvedIsVeg = typeof item?.isVeg === "boolean"
+                  ? item.isVeg
+                  : ["veg", "vegetarian"].includes(String(item?.foodType || item?.category || item?.type || "").toLowerCase().trim());
+
+                return (
+                  <div key={i} className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <div
+                        className={`w-3.5 h-3.5 mt-0.5 border flex items-center justify-center p-[1px] shrink-0 ${resolvedIsVeg ? "border-[#16a34a] bg-green-50/40 dark:bg-green-900/25" : "border-[#dc2626] bg-red-50/40 dark:bg-red-900/25"}`}
+                      >
+                        <div className={`w-full h-full rounded-full ${resolvedIsVeg ? "bg-[#16a34a]" : "bg-[#dc2626]"}`} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs sm:text-sm text-gray-800 dark:text-gray-200 font-semibold truncate">
+                          {item?.quantity || 1} x {item?.name || "Item"}
+                        </p>
+                        {item?.variantName && (
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{item.variantName}</p>
+                        )}
+                      </div>
+                    </div>
+                    <span className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white shrink-0">
+                      ₹{((item?.price || 0) * (item?.quantity || 1)).toFixed(0)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Collapsible Bill Breakdown */}
+            <div className="mt-4 pt-3.5 border-t border-dashed border-gray-200 dark:border-zinc-700">
+              <div className="space-y-2 text-xs text-gray-600 dark:text-gray-400">
+                <div className="flex justify-between">
+                  <span>Item Total</span>
+                  <span>₹{order?.pricing?.subtotal || order?.subtotal || (order?.totalAmount || 0)}</span>
+                </div>
+                {Number(order?.pricing?.deliveryFee || order?.deliveryFee || 0) > 0 ? (
+                  <div className="flex justify-between">
+                    <span>Delivery Fee</span>
+                    <span>₹{order?.pricing?.deliveryFee || order?.deliveryFee}</span>
+                  </div>
+                ) : (
+                  <div className="flex justify-between text-emerald-600 font-semibold">
+                    <span>Delivery Fee</span>
+                    <span>FREE</span>
+                  </div>
+                )}
+                {Number(order?.pricing?.tax || order?.pricing?.gst || order?.gst || 0) > 0 && (
+                  <div className="flex justify-between">
+                    <span>Taxes & Restaurant GST</span>
+                    <span>₹{order?.pricing?.tax || order?.pricing?.gst || order?.gst}</span>
+                  </div>
+                )}
+                {Number(order?.pricing?.discount || order?.discount || 0) > 0 && (
+                  <div className="flex justify-between text-emerald-600 font-semibold">
+                    <span>Discount</span>
+                    <span>-₹{order?.pricing?.discount || order?.discount}</span>
+                  </div>
+                )}
+                <div className="flex justify-between pt-2.5 border-t border-gray-100 dark:border-zinc-800 text-sm font-black text-gray-900 dark:text-white">
+                  <span>Total Paid</span>
+                  <span>₹{order?.pricing?.total || order?.totalAmount || order?.total || 0}</span>
+                </div>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-gray-100 dark:border-zinc-800 flex items-center justify-between">
+                <Link
+                  to={`/food/user/orders/${orderId}/invoice`}
+                  className="text-xs font-bold text-[#EB590E] hover:underline flex items-center gap-1"
+                >
+                  <Receipt className="w-3.5 h-3.5" />
+                  <span>View Tax Invoice</span>
+                </Link>
+                <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                  {order?.paymentMethod || order?.payment?.method || "Paid Online"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Cancel Order Action */}
+          {!isAdminAccepted && !isCancelledOrder && !isDeliveredOrder && (
+            <div className="bg-red-50/60 dark:bg-red-950/20 rounded-3xl p-4 border border-red-100 dark:border-red-900/40">
+              <div className="flex items-center justify-between mb-2.5">
+                <p className="text-xs font-bold text-red-900 dark:text-red-200">Need to cancel?</p>
+                <span className="text-[10px] uppercase font-bold text-red-600 dark:text-red-400">Available before accepted</span>
+              </div>
+              <Button
+                type="button"
+                onClick={handleCancelOrder}
+                variant="destructive"
+                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold h-10 rounded-2xl"
+              >
+                Cancel Order
+              </Button>
+            </div>
+          )}
+
+          {/* Help & Support Link */}
+          <div className="pt-2 text-center pb-6">
+            <Link
+              to="/food/user/profile/help-content"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:text-[#EB590E] transition-colors"
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+              <span>Need help with this order? Contact Support</span>
+            </Link>
+          </div>
+        </div>
+      </motion.div>
 
       {/* Cancel Order Dialog */}
       <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>

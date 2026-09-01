@@ -15,7 +15,18 @@ const buildCategoryKeywords = (categorySlug) => {
     return [...new Set([raw, normalized, ...words])];
 };
 
-const isEatiefyPrice = (price) => String(price ?? '').includes('99');
+/** Eatiefy promo ceiling (₹99). Overridable per request via ?maxPrice=. */
+const EATIEFY_MAX_PRICE = 99;
+
+const resolvePromoMaxPrice = (rawMaxPrice) => {
+    const parsed = Number(rawMaxPrice);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : EATIEFY_MAX_PRICE;
+};
+
+const isPromoPrice = (price, maxPrice) => {
+    const numeric = Number(price);
+    return Number.isFinite(numeric) && numeric > 0 && numeric <= maxPrice;
+};
 
 export async function listPublicFoods(query = {}) {
     const limit = Math.min(Math.max(parseInt(query.limit, 10) || 500, 1), 1000);
@@ -23,6 +34,7 @@ export async function listPublicFoods(query = {}) {
     const categorySlug = String(query.categorySlug || query.category || '').trim().toLowerCase();
     const promo = String(query.promo || query.promoSlug || '').trim().toLowerCase();
     const isEatiefyPromo = promo === 'eatiefy' || promo === 'under-250' || promo === 'under250';
+    const promoMaxPrice = resolvePromoMaxPrice(query.maxPrice);
 
     const restaurantFilter = { status: 'approved' };
     if (zoneIdRaw && mongoose.Types.ObjectId.isValid(zoneIdRaw)) {
@@ -91,7 +103,7 @@ export async function listPublicFoods(query = {}) {
     })
         .filter((food) => {
             if (food.isAvailable === false) return false;
-            if (isEatiefyPromo) return isEatiefyPrice(food.price);
+            if (isEatiefyPromo) return isPromoPrice(food.price, promoMaxPrice);
             return true;
         })
         .slice(0, limit);

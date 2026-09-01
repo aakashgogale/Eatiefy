@@ -4,9 +4,13 @@ import { Suspense, lazy } from "react"
 import Loader from "@food/components/Loader"
 import ProtectedRoute from "@food/components/ProtectedRoute"
 import Home from "@food/pages/user/Home"
-import Profile from "@food/pages/user/profile/Profile"
 
 // Lazy Loading Pages
+
+// Profile was the one page imported eagerly here, so opening Home also downloaded it
+// and everything it pulls in (the delete-account dialog, logout, form primitives).
+// Loading it on demand, like every other route, keeps those out of the Home load.
+const Profile = lazy(() => import("@food/pages/user/profile/Profile"))
 
 // Home & Discovery
 const Dining = lazy(() => import("@food/pages/user/Dining"))

@@ -10,6 +10,11 @@ const NATIVE_LAST_ROUTE_KEY = 'native_last_route'
 
 // ─── Quick-spicy Food Module Initialization ───────────────────────────────────
 
+// Drop the legacy service-worker API cache before anything reads from it.
+import('./shared/utils/purgeLegacyApiCache.js')
+  .then(({ purgeLegacyApiCache }) => purgeLegacyApiCache())
+  .catch(() => { /* CacheStorage unavailable — nothing to purge */ })
+
 // Load food module business settings (favicon, title) — non-critical
 import('./modules/Food/utils/businessSettings.js')
   .then(({ loadBusinessSettings }) => loadBusinessSettings())

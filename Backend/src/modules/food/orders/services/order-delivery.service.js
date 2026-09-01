@@ -22,7 +22,7 @@ import {
   buildOrderIdentityFilter,
   emitDeliveryDropOtpToUser,
   enqueueOrderEvent,
-  generateFourDigitDeliveryOtp,
+  generateDeliveryOtp,
   haversineKm,
   notifyOwnerSafely,
   notifyOwnersSafely,
@@ -31,6 +31,12 @@ import {
   sanitizeOrderForDeliveryPartner,
   TERMINAL_ORDER_STATUSES,
   isStatusAdvance,
+  timingSafeEquals,
+  DELIVERY_OTP_MAX_ATTEMPTS,
+  DELIVERY_OTP_LOCK_MS,
+  isWellFormedDeliveryOtp,
+  DELIVERY_OTP_LENGTH,
+  hasReachedStatus,
 } from './order.helpers.js';
 const DELIVERY_ORDER_BASE_SELECT = [
   '_id',
@@ -617,7 +623,8 @@ export async function rejectOrderDelivery(orderId, deliveryPartnerId) {
   const identity = buildOrderIdentityFilter(orderId);
   if (!identity) throw new ValidationError('Order id required');
 
-  const order = await FoodOrder.findOne(identity).select('+deliveryOtp');
+  const order = await FoodOrder.findOne(identity)
+    .select('+deliveryOtp +deliveryOtpAttempts +deliveryOtpLockedUntil');
   if (!order) throw new NotFoundError('Order not found');
   if (order.dispatch.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) {
     throw new ForbiddenError('Not your order');
@@ -662,7 +669,8 @@ export async function confirmReachedPickupDelivery(orderId, deliveryPartnerId) {
   const identity = buildOrderIdentityFilter(orderId);
   if (!identity) throw new ValidationError('Order id required');
 
-  const order = await FoodOrder.findOne(identity).select('+deliveryOtp');
+  const order = await FoodOrder.findOne(identity)
+    .select('+deliveryOtp +deliveryOtpAttempts +deliveryOtpLockedUntil');
   if (!order) throw new NotFoundError('Order not found');
   if (
     order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()
@@ -740,9 +748,41 @@ export async function confirmReachedPickupDelivery(orderId, deliveryPartnerId) {
   return order.toObject();
 }
 
+/**
+ * Guarantees the order carries a handover code the rider app can actually enter.
+ *
+ * Issues one when missing, and reissues when the stored code is not
+ * DELIVERY_OTP_LENGTH digits — the rider app renders exactly that many boxes, so a
+ * code of any other length simply cannot be typed and strands the order at handover.
+ *
+ * @param {object} order mutable order document
+ * @returns {boolean} true when a new code was issued
+ */
+function ensureUsableHandoverOtp(order) {
+  const existing = String(order.deliveryOtp || '').trim();
+  if (existing && isWellFormedDeliveryOtp(existing)) return false;
+
+  if (existing) {
+    logger.warn(
+      `[DeliveryOtp] Reissuing handover code for order ${order._id}: stored code was ` +
+      `${existing.length} digits, rider app expects ${DELIVERY_OTP_LENGTH}.`,
+    );
+  }
+
+  order.deliveryOtp = generateDeliveryOtp();
+  order.deliveryOtpAttempts = 0;
+  order.deliveryOtpLockedUntil = null;
+  order.deliveryVerification = {
+    ...(order.deliveryVerification?.toObject?.() || order.deliveryVerification || {}),
+    dropOtp: { required: true, verified: false },
+  };
+  return true;
+}
+
 export async function confirmPickupDelivery(orderId, deliveryPartnerId, billImageUrl) {
   const identity = buildOrderIdentityFilter(orderId);
-  const order = await FoodOrder.findOne(identity).select('+deliveryOtp');
+  const order = await FoodOrder.findOne(identity)
+    .select('+deliveryOtp +deliveryOtpAttempts +deliveryOtpLockedUntil');
   if (!order) throw new NotFoundError('Order not found');
   if (
     order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()
@@ -752,8 +792,24 @@ export async function confirmPickupDelivery(orderId, deliveryPartnerId, billImag
 
   const from = order.orderStatus;
   const nextStatus = 'picked_up';
+
+  // Already picked up (or further along): answer idempotently instead of failing.
+  // A rider whose UI did not refresh will swipe again, and every retry used to come
+  // back 400 — leaving the order stuck and, because this handler also reissues the
+  // handover code, leaving a stale OTP in place too.
+  if (hasReachedStatus(from, nextStatus)) {
+    const reissued = ensureUsableHandoverOtp(order);
+    if (reissued) await order.save();
+    emitDeliveryDropOtpToUser(order, String(order.deliveryOtp || '').trim());
+    emitOrderUpdate(order, deliveryPartnerId);
+    logger.info(`[Pickup] Order ${order._id} already at '${from}'; returning current state.`);
+    return sanitizeOrderForDeliveryPartner(order);
+  }
+
   if (!isStatusAdvance(from, nextStatus)) {
-      throw new ValidationError(`Order is already at status '${from}'. Cannot re-mark as '${nextStatus}'.`);
+    throw new ValidationError(
+      `Order cannot move from '${from}' to '${nextStatus}'.`,
+    );
   }
   order.orderStatus = nextStatus;
   order.deliveryState = {
@@ -764,17 +820,8 @@ export async function confirmPickupDelivery(orderId, deliveryPartnerId, billImag
     billImageUrl,
   };
 
-  // Pre-generate handover OTP so user can see it as soon as food is on the way
-  const existingOtp = String(order.deliveryOtp || '').trim();
-  if (!existingOtp) {
-    order.deliveryOtp = generateFourDigitDeliveryOtp();
-    order.deliveryVerification = {
-      ...(order.deliveryVerification?.toObject?.() ||
-        order.deliveryVerification ||
-        {}),
-      dropOtp: { required: true, verified: false },
-    };
-  }
+  // Pre-generate the handover OTP so the customer sees it as soon as food is moving.
+  ensureUsableHandoverOtp(order);
 
   emitDeliveryDropOtpToUser(order, String(order.deliveryOtp || "").trim());
 
@@ -801,7 +848,8 @@ export async function confirmReachedDropDelivery(orderId, deliveryPartnerId) {
   const identity = buildOrderIdentityFilter(orderId);
   if (!identity) throw new ValidationError('Order id required');
 
-  const order = await FoodOrder.findOne(identity).select('+deliveryOtp');
+  const order = await FoodOrder.findOne(identity)
+    .select('+deliveryOtp +deliveryOtpAttempts +deliveryOtpLockedUntil');
   if (!order) throw new NotFoundError('Order not found');
   if (
     order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()
@@ -823,15 +871,18 @@ export async function confirmReachedDropDelivery(orderId, deliveryPartnerId) {
     order.orderStatus ||
     '';
 
-  const existingOtp = String(order.deliveryOtp || '').trim();
-  if (!alreadyAtDrop || !existingOtp) {
-    order.deliveryOtp = generateFourDigitDeliveryOtp();
+  // Arriving at the drop for the first time issues a fresh code; an existing code is
+  // kept unless it is one the rider app cannot enter.
+  if (!alreadyAtDrop) {
+    order.deliveryOtp = generateDeliveryOtp();
+    order.deliveryOtpAttempts = 0;
+    order.deliveryOtpLockedUntil = null;
     order.deliveryVerification = {
-      ...(order.deliveryVerification?.toObject?.() ||
-        order.deliveryVerification ||
-        {}),
+      ...(order.deliveryVerification?.toObject?.() || order.deliveryVerification || {}),
       dropOtp: { required: true, verified: false },
     };
+  } else {
+    ensureUsableHandoverOtp(order);
   }
 
   order.deliveryState = {
@@ -867,7 +918,8 @@ export async function confirmReachedDropDelivery(orderId, deliveryPartnerId) {
 
 export async function verifyDropOtpDelivery(orderId, deliveryPartnerId, otp) {
   const identity = buildOrderIdentityFilter(orderId);
-  const order = await FoodOrder.findOne(identity).select('+deliveryOtp');
+  const order = await FoodOrder.findOne(identity)
+    .select('+deliveryOtp +deliveryOtpAttempts +deliveryOtpLockedUntil');
   if (!order) throw new NotFoundError('Order not found');
   if (
     order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()
@@ -882,18 +934,57 @@ export async function verifyDropOtpDelivery(orderId, deliveryPartnerId, otp) {
   const otpStr = String(otp || '').trim();
   if (!otpStr) throw new ValidationError('OTP is required');
 
+  // A wrong-length entry is a mismatch, not a wrong guess. Judging it against the
+  // code actually stored for this order keeps the attempt counter meaningful and
+  // gives the rider a message they can act on.
+  const storedOtp = String(order.deliveryOtp || '').trim();
+  const expectedLength = storedOtp.length || DELIVERY_OTP_LENGTH;
+  if (otpStr.length !== expectedLength || !/^[0-9]+$/.test(otpStr)) {
+    throw new ValidationError(
+      `Enter the ${expectedLength}-digit code shown in the customer's app.`,
+    );
+  }
+
   if (!order.deliveryVerification?.dropOtp?.required) {
     throw new ValidationError(
       'OTP verification is not active for this order. Confirm reached drop first.',
     );
   }
 
-  const expected = String(order.deliveryOtp || '').trim();
-  if (!expected || expected !== otpStr) {
+  const now = new Date();
+  if (order.deliveryOtpLockedUntil && order.deliveryOtpLockedUntil > now) {
+    const mins = Math.ceil((order.deliveryOtpLockedUntil - now) / 60000);
     throw new ValidationError(
-      'Invalid OTP. Ask the customer for the code shown in their app.',
+      `Too many incorrect OTP attempts. Try again in ${mins} minute(s) or contact support.`,
     );
   }
+
+  if (!storedOtp || !timingSafeEquals(storedOtp, otpStr)) {
+    // Count the failure before responding, so a guessing loop runs out of attempts
+    // instead of running out of codes.
+    const attempts = Number(order.deliveryOtpAttempts || 0) + 1;
+    const update = { deliveryOtpAttempts: attempts };
+    let locked = false;
+    if (attempts >= DELIVERY_OTP_MAX_ATTEMPTS) {
+      update.deliveryOtpLockedUntil = new Date(Date.now() + DELIVERY_OTP_LOCK_MS);
+      update.deliveryOtpAttempts = 0;
+      locked = true;
+    }
+    await FoodOrder.updateOne({ _id: order._id }, { $set: update });
+    logger.warn(
+      `[DeliveryOtp] Wrong OTP for order ${order._id} by partner ${deliveryPartnerId} ` +
+      `(attempt ${attempts}/${DELIVERY_OTP_MAX_ATTEMPTS}${locked ? ', locked' : ''})`,
+    );
+
+    throw new ValidationError(
+      locked
+        ? 'Too many incorrect OTP attempts. This order is locked for 15 minutes.'
+        : `Invalid OTP. ${DELIVERY_OTP_MAX_ATTEMPTS - attempts} attempt(s) left.`,
+    );
+  }
+
+  order.deliveryOtpAttempts = 0;
+  order.deliveryOtpLockedUntil = null;
 
   if (!order.deliveryVerification) order.deliveryVerification = { dropOtp: {} };
   order.deliveryVerification.dropOtp.verified = true;
@@ -911,7 +1002,8 @@ export async function verifyDropOtpDelivery(orderId, deliveryPartnerId, otp) {
 
 export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
   const identity = buildOrderIdentityFilter(orderId);
-  const order = await FoodOrder.findOne(identity).select('+deliveryOtp');
+  const order = await FoodOrder.findOne(identity)
+    .select('+deliveryOtp +deliveryOtpAttempts +deliveryOtpLockedUntil');
   if (!order) throw new NotFoundError('Order not found');
   if (
     order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()
@@ -927,14 +1019,34 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
     order.deliveryVerification?.dropOtp?.required &&
     !order.deliveryVerification?.dropOtp?.verified
   ) {
-    const orderWithSecret = await FoodOrder.findById(order._id).select('+deliveryOtp');
+    const orderWithSecret = await FoodOrder.findById(order._id)
+      .select('+deliveryOtp +deliveryOtpAttempts +deliveryOtpLockedUntil');
+    const lockedUntil = orderWithSecret?.deliveryOtpLockedUntil;
+    if (lockedUntil && lockedUntil > new Date()) {
+      throw new ValidationError(
+        'Too many incorrect OTP attempts. This order is locked. Contact support.',
+      );
+    }
     const expected = String(orderWithSecret?.deliveryOtp || '').trim();
-    if (expected && expected === String(otp).trim()) {
+    if (expected && timingSafeEquals(expected, String(otp).trim())) {
       order.deliveryVerification.dropOtp.verified = true;
       order.markModified('deliveryVerification.dropOtp.verified');
       logger.info(`[DeliveryComplete] OTP verified during completion call for ${order._id}`);
     } else {
-      throw new ValidationError('Invalid handover OTP provided.');
+      const attempts = Number(orderWithSecret?.deliveryOtpAttempts || 0) + 1;
+      const update = { deliveryOtpAttempts: attempts };
+      let locked = false;
+      if (attempts >= DELIVERY_OTP_MAX_ATTEMPTS) {
+        update.deliveryOtpLockedUntil = new Date(Date.now() + DELIVERY_OTP_LOCK_MS);
+        update.deliveryOtpAttempts = 0;
+        locked = true;
+      }
+      await FoodOrder.updateOne({ _id: order._id }, { $set: update });
+      throw new ValidationError(
+        locked
+          ? 'Too many incorrect OTP attempts. This order is locked for 15 minutes.'
+          : `Invalid handover OTP. ${DELIVERY_OTP_MAX_ATTEMPTS - attempts} attempt(s) left.`,
+      );
     }
   }
 
@@ -950,9 +1062,18 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
 
   const from = order.orderStatus;
   const nextStatus = 'delivered';
+
+  // Already delivered: return the order instead of erroring. This matters more here
+  // than anywhere else — settlement and rider earnings are written below, so a
+  // double-tap or a retry after a slow response must not run them a second time.
+  if (from === nextStatus) {
+    logger.info(`[DeliveryComplete] Order ${order._id} already delivered; no-op.`);
+    return sanitizeOrderForDeliveryPartner(order);
+  }
+
   if (!isStatusAdvance(from, nextStatus)) {
-      logger.warn(`[DeliveryComplete] Status advance check failed for ${order._id}. Current: ${from}`);
-      throw new ValidationError(`Order is already at status '${from}'. Cannot re-mark as '${nextStatus}'.`);
+    logger.warn(`[DeliveryComplete] Refused ${from} → ${nextStatus} for ${order._id}.`);
+    throw new ValidationError(`Order cannot move from '${from}' to '${nextStatus}'.`);
   }
   
   const tx = await FoodTransaction.findOne({ orderId: order._id }).lean();
@@ -1033,15 +1154,23 @@ export async function updateOrderStatusDelivery(orderId, deliveryPartnerId, orde
   const identity = buildOrderIdentityFilter(orderId);
   if (!identity) throw new ValidationError('Order id required');
 
-  const order = await FoodOrder.findOne(identity).select('+deliveryOtp');
+  const order = await FoodOrder.findOne(identity)
+    .select('+deliveryOtp +deliveryOtpAttempts +deliveryOtpLockedUntil');
   if (!order) throw new NotFoundError('Order not found');
   if (order.dispatch.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) {
     throw new ForbiddenError('Not your order');
   }
 
   const from = order.orderStatus;
+  // Re-sending the status the order is already in is a retry, not an error.
+  if (from === orderStatus) {
+    emitOrderUpdate(order, deliveryPartnerId);
+    return sanitizeOrderForDeliveryPartner(order);
+  }
   if (!isStatusAdvance(from, orderStatus)) {
-      throw new ValidationError(`Current order status '${from}' is further ahead than '${orderStatus}'. Order cannot be moved backwards.`);
+    throw new ValidationError(
+      `Order cannot move from '${from}' back to '${orderStatus}'.`,
+    );
   }
   order.orderStatus = orderStatus;
   pushStatusHistory(order, {

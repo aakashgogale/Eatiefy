@@ -302,6 +302,11 @@ const orderSchema = new mongoose.Schema(
         tripDurationMins: { type: Number, default: null, min: 0 },
         /** Plain 4-digit OTP for handover; cleared after successful verify (never expose to partner in API responses). */
         deliveryOtp: { type: String, default: '', select: false },
+        // Handover OTP hardening. Without an attempt cap a rider can simply guess
+        // the code and mark an order delivered without ever meeting the customer.
+        deliveryOtpAttempts: { type: Number, default: 0, select: false },
+        deliveryOtpIssuedAt: { type: Date, default: null, select: false },
+        deliveryOtpLockedUntil: { type: Date, default: null, select: false },
         deliveryVerification: {
             type: deliveryVerificationSchema,
             default: () => ({})

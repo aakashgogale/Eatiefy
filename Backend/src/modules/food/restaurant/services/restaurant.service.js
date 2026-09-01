@@ -842,6 +842,16 @@ export const registerRestaurant = async (payload, files) => {
     try {
         const latNum = toFiniteNumber(latitude);
         const lngNum = toFiniteNumber(longitude);
+        // The pin decides the zone. A client-supplied zoneId is only a fallback for
+        // signups without coordinates: trusting it blindly is how restaurants end up
+        // attached to a zone that was later deleted, invisible to every user.
+        const matchedZone = await findMatchedZoneForCoordinates(latNum, lngNum);
+        const requestedZoneId = String(zoneId || '').trim();
+        const resolvedZoneId = matchedZone?._id
+            ? new mongoose.Types.ObjectId(String(matchedZone._id))
+            : (requestedZoneId && mongoose.Types.ObjectId.isValid(requestedZoneId)
+                ? new mongoose.Types.ObjectId(requestedZoneId)
+                : undefined);
         const restaurant = await FoodRestaurant.create({
             restaurantName,
             restaurantNameNormalized,
@@ -853,9 +863,7 @@ export const registerRestaurant = async (payload, files) => {
             ownerPhoneLast10,
             primaryContactNumber,
             pureVegRestaurant: pureVegRestaurant === true,
-            zoneId: zoneId && mongoose.Types.ObjectId.isValid(String(zoneId).trim())
-                ? new mongoose.Types.ObjectId(String(zoneId).trim())
-                : undefined,
+            zoneId: resolvedZoneId,
             // Store unified location object (geo + address).
             location: {
                 type: 'Point',

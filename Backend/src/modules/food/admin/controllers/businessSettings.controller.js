@@ -61,35 +61,52 @@ const ensurePowerScanningOnSettings = (settingsDocOrPlain = null) => {
     };
 };
 
+/** Shared by the standalone route and the aggregated /public/app-config payload. */
+export async function loadBusinessSettingsPayload() {
+    let settings = await FoodBusinessSettings.findOne();
+    if (!settings) {
+        // Create default settings if none exist
+        settings = await FoodBusinessSettings.create({
+            companyName: 'Eatiefy',
+            email: 'admin@eatiefy.com'
+        });
+    }
+
+    // Backend-side safety: always expose normalized powerScanning in public payload.
+    const normalizedPowerScanning = buildPowerScanningPayload(
+        settings?.powerScanning || {},
+        settings?.powerScanning || POWER_SCANNING_DEFAULT
+    );
+
+    // Backfill old docs that might not have powerScanning persisted yet.
+    const persistedPowerScanning = settings?.powerScanning || {};
+    const wasMissingAnyModule =
+        !persistedPowerScanning?.user ||
+        !persistedPowerScanning?.restaurant ||
+        !persistedPowerScanning?.delivery;
+    if (wasMissingAnyModule) {
+        settings.powerScanning = normalizedPowerScanning;
+        await settings.save();
+    }
+
+    return ensurePowerScanningOnSettings(settings.toObject());
+}
+
+/** Shared by the standalone route and the aggregated /public/app-config payload. */
+export async function loadPowerScanningPayload() {
+    let settings = await FoodBusinessSettings.findOne().lean();
+    if (!settings) {
+        settings = await FoodBusinessSettings.create({
+            companyName: 'Eatiefy',
+            email: 'admin@eatiefy.com'
+        });
+    }
+    return buildPowerScanningPayload(settings?.powerScanning || {}, settings?.powerScanning || POWER_SCANNING_DEFAULT);
+}
+
 export async function getBusinessSettings(req, res, next) {
     try {
-        let settings = await FoodBusinessSettings.findOne();
-        if (!settings) {
-            // Create default settings if none exist
-            settings = await FoodBusinessSettings.create({
-                companyName: 'Eatiefy',
-                email: 'admin@eatiefy.com'
-            });
-        }
-
-        // Backend-side safety: always expose normalized powerScanning in public payload.
-        const normalizedPowerScanning = buildPowerScanningPayload(
-            settings?.powerScanning || {},
-            settings?.powerScanning || POWER_SCANNING_DEFAULT
-        );
-
-        // Backfill old docs that might not have powerScanning persisted yet.
-        const persistedPowerScanning = settings?.powerScanning || {};
-        const wasMissingAnyModule =
-            !persistedPowerScanning?.user ||
-            !persistedPowerScanning?.restaurant ||
-            !persistedPowerScanning?.delivery;
-        if (wasMissingAnyModule) {
-            settings.powerScanning = normalizedPowerScanning;
-            await settings.save();
-        }
-
-        const payload = ensurePowerScanningOnSettings(settings.toObject());
+        const payload = await loadBusinessSettingsPayload();
         return sendResponse(res, 200, 'Business settings fetched successfully', payload);
     } catch (error) {
         next(error);
@@ -98,14 +115,7 @@ export async function getBusinessSettings(req, res, next) {
 
 export async function getPowerScanningSettings(req, res, next) {
     try {
-        let settings = await FoodBusinessSettings.findOne().lean();
-        if (!settings) {
-            settings = await FoodBusinessSettings.create({
-                companyName: 'Eatiefy',
-                email: 'admin@eatiefy.com'
-            });
-        }
-        const payload = buildPowerScanningPayload(settings?.powerScanning || {}, settings?.powerScanning || POWER_SCANNING_DEFAULT);
+        const payload = await loadPowerScanningPayload();
         return sendResponse(res, 200, 'Power scanning settings fetched successfully', payload);
     } catch (error) {
         next(error);
