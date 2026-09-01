@@ -228,8 +228,23 @@ async function scheduleDispatchRetry(orderMongoId, nextAttempt, delayMs) {
   }, delayMs).unref?.();
 }
 
+/**
+ * @typedef {object} DispatchOutcome
+ * @property {object|null} order
+ * @property {number} notifiedCount how many partners were actually offered the order
+ * @property {boolean} skipped true when the run was refused before offering anything
+ * @property {string} reason human-readable explanation, safe to show to staff
+ */
+
 export async function tryAutoAssign(orderId, options = {}) {
   const attempt = options.attempt || 1;
+
+  // Callers that only re-dispatch in the background keep the legacy contract
+  // (order document, or null when the run was skipped). `detailed: true` returns a
+  // DispatchOutcome instead — used by the manual "resend" actions, which must be
+  // able to tell staff whether anyone was actually reached.
+  const outcome = (order, notifiedCount, skipped, reason) =>
+    options.detailed ? { order, notifiedCount, skipped, reason } : order;
   const lockTimeout = 45000; // 45 seconds lock interval
   const staleThreshold = new Date(Date.now() - 15000);
 
@@ -265,14 +280,18 @@ export async function tryAutoAssign(orderId, options = {}) {
 
   if (!order) {
     logger.info(`tryAutoAssign: Skip for ${orderId} (already dispatching, accepted, or multi-attempt lock active).`);
-    return null;
+    return outcome(null, 0, true, 'A dispatch attempt for this order is already in progress.');
   }
 
   // Decoupling: Ensure order is accepted by restaurant before dispatching to delivery boys
   const DISPATCHABLE_STATUSES = ['confirmed', 'preparing', 'ready_for_pickup', 'ready', 'reached_pickup', 'picked_up', 'reached_drop'];
   if (!DISPATCHABLE_STATUSES.includes(order.orderStatus)) {
     logger.info(`tryAutoAssign: Skip for ${orderId} (status ${order.orderStatus} not dispatchable yet).`);
-    return order;
+    // This return sits before the try/finally below, so the lock this function just
+    // took has to be released by hand — otherwise the order stays locked and every
+    // later attempt (including a manual resend) is silently refused.
+    await FoodOrder.findByIdAndUpdate(orderId, { $unset: { 'dispatch.dispatchingAt': '' } });
+    return outcome(order, 0, true, `Order status "${order.orderStatus}" cannot be dispatched yet.`);
   }
 
   try {
@@ -352,11 +371,40 @@ export async function tryAutoAssign(orderId, options = {}) {
         }
       }
 
-      // Re-queue itself to keep trying
+      // Push as well as sockets. This branch is what the automatic retries hit, so
+      // sending only over the socket meant a rider whose app was closed — or whose
+      // socket was down — could never be reached again after the first offer.
+      if (reofferEligible.length > 0) {
+        const pushTargets = [];
+        for (const p of reofferEligible) {
+          pushTargets.push({ ownerType: 'DELIVERY_PARTNER', ownerId: p.partnerId });
+          if (p.userId && p.userId !== p.partnerId.toString()) {
+            pushTargets.push({ ownerType: 'DELIVERY_PARTNER', ownerId: p.userId });
+          }
+        }
+        try {
+          await notifyOwnersSafely(pushTargets, {
+            title: 'New order available!',
+            body: `Order #${order.order_id || order._id} is still waiting for a delivery partner.`,
+            data: { type: 'new_order', orderId: order._id.toString() },
+          });
+        } catch (err) {
+          logger.warn(`Re-offer push failed for order ${order._id}: ${err.message}`);
+        }
+      }
+
       // Retry faster (30s) when nobody was found at all.
       await scheduleDispatchRetry(order._id, attempt + 1, 30000);
 
-      return order;
+      const reofferedCount = reofferEligible.length;
+      return outcome(
+        order,
+        reofferedCount,
+        false,
+        reofferedCount > 0
+          ? `Re-offered to ${reofferedCount} delivery partner(s).`
+          : 'No delivery partner is online near the restaurant right now.',
+      );
     }
 
     const io = getIO();
@@ -419,7 +467,12 @@ export async function tryAutoAssign(orderId, options = {}) {
     // Re-check in 60s
     await scheduleDispatchRetry(order._id, attempt + 1, 60000);
 
-    return order;
+    return outcome(
+      order,
+      eligible.length,
+      false,
+      `Offered to ${eligible.length} delivery partner(s).`,
+    );
   } finally {
     await FoodOrder.findByIdAndUpdate(orderId, {
       $unset: { 'dispatch.dispatchingAt': '' },
@@ -478,10 +531,31 @@ export async function resendDeliveryNotificationRestaurant(orderId, restaurantId
   order.dispatch.status = 'unassigned';
   order.dispatch.deliveryPartnerId = null;
   order.dispatch.offeredTo = [];
+  // `dispatchingAt` is the in-progress lock tryAutoAssign checks. A resend that
+  // leaves it set is refused by that lock and returns a cheerful success while
+  // reaching nobody — which is exactly how "resend does nothing" looked. The
+  // restaurant-accept path already cleared it; these paths must match.
+  // null rather than undefined: Mongoose does not always mark a nested path as
+  // modified when it is set to undefined, and the lock query treats null and a
+  // missing field identically.
+  order.dispatch.dispatchingAt = null;
   await order.save();
 
-  await tryAutoAssign(order._id);
-  return { success: true };
+  const result = await tryAutoAssign(order._id, { detailed: true });
+
+  // A manual resend is a person waiting for an answer: report what really happened
+  // instead of an unconditional success.
+  if (result.skipped) {
+    throw new ValidationError(result.reason);
+  }
+  if (result.notifiedCount === 0) {
+    throw new ValidationError(
+      'No delivery partner is online near the restaurant right now. ' +
+      'We will keep retrying automatically.',
+    );
+  }
+
+  return { success: true, notifiedCount: result.notifiedCount, message: result.reason };
 }
 
 export async function resendDeliveryNotificationAdmin(orderId) {
@@ -502,8 +576,29 @@ export async function resendDeliveryNotificationAdmin(orderId) {
   order.dispatch.status = 'unassigned';
   order.dispatch.deliveryPartnerId = null;
   order.dispatch.offeredTo = [];
+  // `dispatchingAt` is the in-progress lock tryAutoAssign checks. A resend that
+  // leaves it set is refused by that lock and returns a cheerful success while
+  // reaching nobody — which is exactly how "resend does nothing" looked. The
+  // restaurant-accept path already cleared it; these paths must match.
+  // null rather than undefined: Mongoose does not always mark a nested path as
+  // modified when it is set to undefined, and the lock query treats null and a
+  // missing field identically.
+  order.dispatch.dispatchingAt = null;
   await order.save();
 
-  await tryAutoAssign(order._id);
-  return { success: true };
+  const result = await tryAutoAssign(order._id, { detailed: true });
+
+  // A manual resend is a person waiting for an answer: report what really happened
+  // instead of an unconditional success.
+  if (result.skipped) {
+    throw new ValidationError(result.reason);
+  }
+  if (result.notifiedCount === 0) {
+    throw new ValidationError(
+      'No delivery partner is online near the restaurant right now. ' +
+      'We will keep retrying automatically.',
+    );
+  }
+
+  return { success: true, notifiedCount: result.notifiedCount, message: result.reason };
 }

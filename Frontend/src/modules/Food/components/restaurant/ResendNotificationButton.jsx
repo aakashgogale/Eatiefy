@@ -46,11 +46,20 @@ export default function ResendNotificationButton({ orderId, mongoId, onSuccess }
 
       if (response.data?.success) {
         const notifiedCount = getNotifiedPartnersCount(response);
-        toast.success(
-          notifiedCount === null
-            ? "Notification resent to delivery partners"
-            : `Notification sent to ${notifiedCount} delivery partners`,
-        );
+
+        // The backend now refuses the resend outright when nobody could be reached,
+        // so a success here means partners really were notified. Zero is still
+        // treated as a warning rather than a success in case an older API is live.
+        if (notifiedCount === 0) {
+          toast.warning("No delivery partner is online nearby. We'll keep retrying.");
+        } else {
+          toast.success(
+            notifiedCount === null
+              ? "Notification resent to delivery partners"
+              : `Notification sent to ${notifiedCount} delivery partner${notifiedCount === 1 ? "" : "s"}`,
+          );
+        }
+
         // Refresh orders if onSuccess callback is provided
         if (onSuccess) {
            onSuccess();
