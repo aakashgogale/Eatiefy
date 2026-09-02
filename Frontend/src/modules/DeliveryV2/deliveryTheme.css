@@ -232,3 +232,31 @@
     padding: 1.1rem !important;
   }
 }
+
+/* Scoped Mobile Touch Scrolling & Android Gesture Optimizations */
+.delivery-v2-theme,
+.delivery-v2-theme [class*="overflow-y-auto"],
+.delivery-v2-theme [class*="overflow-x-auto"],
+.delivery-v2-theme [class*="overflow-auto"] {
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+.delivery-v2-theme .touch-pan-y {
+  touch-action: pan-y !important;
+}
+
+.delivery-v2-theme .touch-auto {
+  touch-action: auto !important;
+}
+
+@media (pointer: coarse), (max-width: 900px) {
+  .delivery-v2-theme,
+  .delivery-v2-theme main,
+  .delivery-v2-theme [class*="min-h-screen"],
+  .delivery-v2-theme [class*="min-h-[100dvh]"],
+  .delivery-v2-theme [class*="overflow-y-auto"] {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
+}

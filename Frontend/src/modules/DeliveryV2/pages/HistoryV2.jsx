@@ -143,7 +143,7 @@ export const HistoryV2 = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#f8f9fa] font-poppins pb-32">
+    <div className="min-h-full bg-[#f8f9fa] font-poppins pb-32 overflow-x-clip touch-pan-y" style={{ WebkitOverflowScrolling: 'touch' }}>
        {/* 1. Header (Premium Floating Glass) */}
        <div className="sticky top-0 z-[100] bg-[#f8f9fa]/90 backdrop-blur-xl border-b border-gray-100 px-4 py-4 pt-8">
           <div className="flex items-center justify-between">

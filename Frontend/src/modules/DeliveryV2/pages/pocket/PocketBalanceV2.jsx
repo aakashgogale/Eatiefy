@@ -181,7 +181,7 @@ export const PocketBalanceV2 = () => {
   );
 
   return (
-    <div className="min-h-screen bg-[#f8f9fa] font-poppins pb-32">
+    <div className="min-h-screen bg-[#f8f9fa] font-poppins pb-32 overflow-x-clip touch-pan-y" style={{ WebkitOverflowScrolling: 'touch' }}>
        {/* Header */}
        <div className="fixed top-0 inset-x-0 h-20 bg-[#f8f9fa]/90 backdrop-blur-xl z-50 px-5 flex items-center justify-between pb-2 pt-6">
           <div className="flex items-center gap-3">

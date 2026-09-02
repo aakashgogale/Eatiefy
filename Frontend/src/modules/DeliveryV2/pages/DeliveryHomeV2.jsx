@@ -899,7 +899,14 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
       )}
 
       {/* ─── 2. MAIN CONTENT ─── */}
-      <div className={`flex-1 min-h-0 relative overflow-y-auto overscroll-y-contain ${currentTab === 'feed' ? 'pt-[120px]' : 'pt-0'} no-scrollbar`}>
+      <div
+        className={`flex-1 min-h-0 relative ${
+          currentTab === 'feed'
+            ? 'overflow-hidden pt-[120px]'
+            : 'overflow-y-auto overscroll-y-contain pt-0 touch-pan-y'
+        } no-scrollbar`}
+        style={currentTab !== 'feed' ? { WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' } : undefined}
+      >
         {currentTab === 'feed' ? (
           <div className="absolute inset-0 top-[-120px]">
             <LiveMap

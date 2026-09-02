@@ -207,7 +207,7 @@ export default function OrdersV2() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 pb-28">
+      <div className="flex-1 overflow-y-auto p-4 pb-28 touch-pan-y" style={{ WebkitOverflowScrolling: 'touch' }}>
         {activeTab === 'new' ? (
           visibleNewOrders.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-6 text-center text-sm text-gray-500">

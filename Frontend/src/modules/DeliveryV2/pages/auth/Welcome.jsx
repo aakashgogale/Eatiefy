@@ -65,7 +65,7 @@ export default function DeliveryWelcome() {
   }
 
   return (
-    <div className="min-h-screen bg-white flex flex-col relative overflow-hidden">
+    <div className="min-h-[100dvh] bg-white flex flex-col relative overflow-x-clip overflow-y-auto touch-pan-y" style={{ WebkitOverflowScrolling: 'touch' }}>
       {/* Main Content */}
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-8 relative z-10">
         {/* Welcome Message */}

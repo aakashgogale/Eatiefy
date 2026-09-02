@@ -194,7 +194,7 @@ export default function DeliveryOTP() {
   if (!authData) return null
 
   return (
-    <div className="min-h-[100dvh] bg-white dark:bg-[#0A0A0B] flex flex-col font-sans overflow-x-clip">
+    <div className="min-h-[100dvh] bg-white dark:bg-[#0A0A0B] flex flex-col font-sans overflow-x-clip overflow-y-auto touch-pan-y" style={{ WebkitOverflowScrolling: 'touch' }}>
       {/* Top Branding Section - 35% height */}
       <div className="relative h-[35dvh] w-full bg-[#00B761] overflow-hidden flex flex-col items-center justify-center text-white">
         <div className="absolute inset-0 opacity-20">

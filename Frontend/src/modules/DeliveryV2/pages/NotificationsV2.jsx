@@ -94,7 +94,7 @@ export default function NotificationsV2() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8f9fa] flex flex-col font-poppins">
+    <div className="min-h-screen bg-[#f8f9fa] flex flex-col font-poppins overflow-x-clip touch-pan-y" style={{ WebkitOverflowScrolling: 'touch' }}>
       <div className="fixed top-0 inset-x-0 h-20 bg-[#f8f9fa]/90 backdrop-blur-xl z-50 px-5 flex items-center justify-between pb-2 pt-6">
         <div className="flex items-center gap-3">
           <button
