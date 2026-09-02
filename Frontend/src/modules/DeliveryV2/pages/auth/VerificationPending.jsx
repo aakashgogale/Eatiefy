@@ -148,7 +148,7 @@ export default function VerificationPending() {
 
   return (
     <div
-      className={`min-h-[100dvh] overflow-y-auto overscroll-contain px-4 py-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-10 font-['Poppins'] transition-all duration-300 ${
+      className={`min-h-[100dvh] px-4 py-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-10 font-['Poppins'] transition-all duration-300 ${
         isRejected
           ? "bg-gradient-to-br from-[#FFF5F5] via-[#FFEBEB] to-[#FEF2F2]"
           : "bg-gradient-to-br from-slate-50 via-blue-50/40 to-slate-100"

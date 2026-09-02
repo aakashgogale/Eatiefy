@@ -686,7 +686,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   };
 
   return (
-    <div className={`relative h-screen w-full text-gray-900 overflow-hidden flex flex-col ${currentTab === 'pocket' ? 'bg-[#f8f9fa]' : 'bg-white'}`}>
+    <div className={`relative h-[100dvh] w-full text-gray-900 overflow-hidden flex flex-col ${currentTab === 'pocket' ? 'bg-[#f8f9fa]' : 'bg-white'}`}>
       {/* ─── 1. TOP HEADER (Ultra Premium Minimalist) ─── */}
       {currentTab === 'feed' && (
         <div className="absolute top-0 inset-x-0 z-[200] safe-top pointer-events-none">
@@ -899,7 +899,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
       )}
 
       {/* ─── 2. MAIN CONTENT ─── */}
-      <div className={`flex-1 relative overflow-y-auto ${currentTab === 'feed' ? 'pt-[120px]' : 'pt-0'} no-scrollbar`}>
+      <div className={`flex-1 min-h-0 relative overflow-y-auto overscroll-y-contain ${currentTab === 'feed' ? 'pt-[120px]' : 'pt-0'} no-scrollbar`}>
         {currentTab === 'feed' ? (
           <div className="absolute inset-0 top-[-120px]">
             <LiveMap

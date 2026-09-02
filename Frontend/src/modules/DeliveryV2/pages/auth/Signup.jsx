@@ -176,7 +176,7 @@ export default function DeliverySignup() {
   }
 
   return (
-    <div className="min-h-[100dvh] w-full flex flex-col lg:flex-row bg-white overflow-x-hidden overflow-y-auto overscroll-contain">
+    <div className="min-h-[100dvh] w-full flex flex-col lg:flex-row bg-white overflow-x-clip">
       {/* Left image section */}
       <div className="hidden lg:flex lg:w-1/2 relative min-h-[100dvh]">
         <img
@@ -203,7 +203,7 @@ export default function DeliverySignup() {
       </div>
 
       {/* Right form section */}
-      <div className="w-full lg:w-1/2 min-h-full flex flex-col overflow-y-auto pb-12">
+      <div className="w-full lg:w-1/2 min-h-full flex flex-col pb-12">
         {/* Top logo and version */}
         <div className="relative flex items-center justify-center px-6 sm:px-10 lg:px-16 pt-6 pb-4">
           <div

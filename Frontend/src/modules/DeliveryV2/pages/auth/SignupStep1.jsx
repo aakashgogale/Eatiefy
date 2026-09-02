@@ -342,8 +342,7 @@ export default function SignupStep1() {
 
   return (
     <div
-      className="min-h-[100dvh] bg-gray-100 flex flex-col overflow-x-hidden overflow-y-auto overscroll-contain"
-      style={{ WebkitOverflowScrolling: "touch" }}
+      className="min-h-[100dvh] bg-gray-100 flex flex-col overflow-x-clip"
     >
       {/* Sticky Header */}
       <div className="sticky top-0 z-30 bg-white px-4 py-3.5 flex items-center gap-4 border-b border-gray-200 shadow-2xs">

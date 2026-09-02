@@ -470,7 +470,7 @@ export const ProfileDetailsV2 = () => {
   )
 
   return (
-    <div className="min-h-[100dvh] bg-[#f8f9fa] font-poppins overflow-x-hidden overflow-y-auto overscroll-contain pb-32">
+    <div className="min-h-[100dvh] bg-[#f8f9fa] font-poppins overflow-x-clip pb-32">
       {/* ─── HEADER ─── */}
       <div className="fixed top-0 inset-x-0 h-20 bg-[#f8f9fa]/90 backdrop-blur-xl z-50 px-5 flex items-center justify-between pb-2 pt-6">
         <div className="flex items-center gap-3">

@@ -135,7 +135,7 @@ export default function RestaurantSignup() {
   }
 
   return (
-    <div className="min-h-[100dvh] w-full flex flex-col lg:flex-row bg-white overflow-x-hidden overflow-y-auto overscroll-contain">
+    <div className="min-h-[100dvh] w-full flex flex-col lg:flex-row bg-white overflow-x-clip">
       {/* Left image section */}
       <div className="hidden lg:flex lg:w-1/2 relative min-h-[100dvh]">
         <img

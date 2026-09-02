@@ -107,7 +107,7 @@ export const ProfileBankV2 = () => {
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><Loader2 className="w-8 h-8 animate-spin text-orange-500" /></div>;
 
   return (
-    <div className="min-h-[100dvh] bg-gray-50 font-poppins overflow-x-hidden overflow-y-auto overscroll-contain">
+    <div className="min-h-[100dvh] bg-gray-50 font-poppins overflow-x-clip">
        <div className="bg-white px-4 py-5 flex items-center gap-4 fixed top-0 w-full z-50 shadow-sm">
           <button onClick={goBack}><ArrowLeft className="w-6 h-6" /></button>
           <h1 className="text-xl font-black">Bank Details</h1>

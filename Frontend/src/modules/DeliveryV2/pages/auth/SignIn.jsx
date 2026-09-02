@@ -92,7 +92,7 @@ export default function DeliverySignIn() {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-white dark:bg-[#0A0A0B] flex flex-col font-sans overflow-x-hidden overflow-y-auto">
+    <div className="min-h-[100dvh] bg-white dark:bg-[#0A0A0B] flex flex-col font-sans overflow-x-clip">
       {/* Top Branding Section - 40% height */}
       <div className={`relative w-full bg-[#00B761] overflow-hidden flex flex-col items-center justify-center transition-all duration-200 ${keyboardInset > 0 ? "h-[22dvh] min-h-[130px]" : "h-[40dvh] min-h-[260px]"}`}>
         {/* Subtle Decorative Elements (No Blur) */}
