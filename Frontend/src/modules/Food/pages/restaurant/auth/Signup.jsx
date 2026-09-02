@@ -135,9 +135,9 @@ export default function RestaurantSignup() {
   }
 
   return (
-    <div className="h-screen w-full flex bg-white overflow-hidden">
+    <div className="min-h-[100dvh] w-full flex flex-col lg:flex-row bg-white overflow-x-hidden overflow-y-auto overscroll-contain">
       {/* Left image section */}
-      <div className="hidden lg:flex lg:w-1/2 relative">
+      <div className="hidden lg:flex lg:w-1/2 relative min-h-[100dvh]">
         <img
           src={loginBg}
           alt="Restaurant background"
@@ -162,7 +162,7 @@ export default function RestaurantSignup() {
       </div>
 
       {/* Right form section */}
-      <div className="w-full lg:w-1/2 h-full flex flex-col">
+      <div className="w-full lg:w-1/2 min-h-full flex flex-col pb-[max(2rem,env(safe-area-inset-bottom))]">
         {/* Top logo and version */}
         <div className="relative flex items-center justify-center px-6 sm:px-10 lg:px-16 pt-6 pb-4">
           <div
