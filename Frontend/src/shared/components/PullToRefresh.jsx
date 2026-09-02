@@ -6,6 +6,9 @@ import { EATIEFY_REFRESH_EVENT } from '../hooks/usePullToRefresh';
 
 const PULL_THRESHOLD = 65; // pixels to trigger refresh
 const MAX_PULL_DISTANCE = 85; // maximum indicator travel
+// Finger travel needed before we decide what a gesture is. Below this the touch is
+// left completely untouched, so the browser keeps ownership of normal scrolling.
+const GESTURE_DECISION_SLOP = 10;
 
 export default function PullToRefresh({ children, onRefresh }) {
   const queryClient = useQueryClient();
@@ -133,6 +136,12 @@ export default function PullToRefresh({ children, onRefresh }) {
     let startX = 0;
     let startY = 0;
     let validPullStart = false;
+    // 'undecided' -> still within the slop; 'scroll' -> the browser owns this gesture and
+    // we never touch it again; 'pull' -> it is a pull-to-refresh drag.
+    // Deciding once per gesture is what keeps one-finger scrolling alive: calling
+    // preventDefault() on an early jittery touchmove makes Android cancel the whole
+    // scroll gesture, which felt like "scrolling is dead until I lift my finger".
+    let gestureMode = 'undecided';
 
     const handleTouchStart = (e) => {
       if (isRefreshingRef.current) return;
@@ -143,6 +152,7 @@ export default function PullToRefresh({ children, onRefresh }) {
       startY = touch.clientY;
       touchStartRef.current = { x: startX, y: startY, time: Date.now() };
       hapticTriggeredRef.current = false;
+      gestureMode = 'undecided';
 
       // Only allow pull-to-refresh if we are at the top
       validPullStart = isScrollAtTop(e.target);
@@ -150,44 +160,63 @@ export default function PullToRefresh({ children, onRefresh }) {
     };
 
     const handleTouchMove = (e) => {
-      if (!validPullStart || isRefreshingRef.current || e.touches.length !== 1) return;
+      if (gestureMode === 'scroll') return;
+      if (!validPullStart || isRefreshingRef.current || e.touches.length !== 1) {
+        gestureMode = 'scroll';
+        return;
+      }
 
       const touch = e.touches[0];
       const deltaY = touch.clientY - startY;
       const deltaX = touch.clientX - startX;
 
-      // If scrolling up or user is swiping horizontally (carousels, tabs), ignore
-      if (deltaY <= 0 || Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
-        return;
+      if (gestureMode === 'undecided') {
+        // Not enough travel yet to tell a scroll from a pull: stay out of the way.
+        if (Math.abs(deltaY) < GESTURE_DECISION_SLOP && Math.abs(deltaX) < GESTURE_DECISION_SLOP) {
+          return;
+        }
+
+        // Upwards, horizontal (carousels/tabs), or no longer at the top -> plain scroll.
+        // Once marked as a scroll the gesture is never intercepted again, even if the
+        // finger later moves back downwards.
+        if (
+          deltaY <= 0 ||
+          Math.abs(deltaX) > Math.abs(deltaY) * 1.2 ||
+          !isScrollAtTop(e.target)
+        ) {
+          gestureMode = 'scroll';
+          return;
+        }
+
+        gestureMode = 'pull';
       }
 
-      // If we are at the top and pulling downwards
-      if (isScrollAtTop(e.target)) {
-        // Prevent default native browser overscroll/rubber-band pull
-        if (e.cancelable) {
-          e.preventDefault();
+      // Prevent default native browser overscroll/rubber-band pull
+      if (e.cancelable) {
+        e.preventDefault();
+      }
+
+      isPullingRef.current = true;
+
+      // Smooth logarithmic dampening formula. The slop is subtracted so the indicator
+      // starts from zero instead of jumping once the gesture is recognised.
+      const pullY = Math.max(0, deltaY - GESTURE_DECISION_SLOP);
+      const dampenedY = Math.min(
+        MAX_PULL_DISTANCE,
+        Math.pow(pullY, 0.82) * 1.85
+      );
+
+      setPullDistance(dampenedY);
+
+      if (dampenedY >= PULL_THRESHOLD) {
+        if (!hapticTriggeredRef.current) {
+          triggerHaptic();
+          hapticTriggeredRef.current = true;
         }
-
-        isPullingRef.current = true;
-
-        // Smooth logarithmic dampening formula
-        const dampenedY = Math.min(
-          MAX_PULL_DISTANCE,
-          Math.pow(deltaY, 0.82) * 1.85
-        );
-
-        setPullDistance(dampenedY);
-
-        if (dampenedY >= PULL_THRESHOLD) {
-          if (!hapticTriggeredRef.current) {
-            triggerHaptic();
-            hapticTriggeredRef.current = true;
-          }
-          setStatus('ready');
-        } else {
-          hapticTriggeredRef.current = false;
-          setStatus('pulling');
-        }
+        setStatus('ready');
+      } else {
+        hapticTriggeredRef.current = false;
+        setStatus('pulling');
       }
     };
 
@@ -208,6 +237,7 @@ export default function PullToRefresh({ children, onRefresh }) {
 
       validPullStart = false;
       isPullingRef.current = false;
+      gestureMode = 'undecided';
     };
 
     const options = { passive: false };

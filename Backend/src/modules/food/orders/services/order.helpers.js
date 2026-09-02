@@ -259,20 +259,22 @@ export function normalizeOrderForClient(orderDoc) {
       name: order.dispatch.deliveryPartnerId.name || order.dispatch.deliveryPartnerId.fullName || 'Delivery Partner',
       phone: order.dispatch.deliveryPartnerId.phone || order.dispatch.deliveryPartnerId.phoneNumber || '',
       avatar: order.dispatch.deliveryPartnerId.avatar || order.dispatch.deliveryPartnerId.profileImage || null,
-      location: order.dispatch.deliveryPartnerId.location || null
+      location: readPartnerLatLng(order.dispatch.deliveryPartnerId)
     } : (order?.deliveryPartner || null),
     deliveryPartnerId:
       order?.dispatch?.deliveryPartnerId?._id || order?.dispatch?.deliveryPartnerId || order?.deliveryPartnerId || null,
     rating: order?.ratings?.restaurant?.rating ?? order?.rating ?? null,
     deliveryState: {
       ...(order?.deliveryState || {}),
-      currentLocation: order?.lastRiderLocation?.coordinates?.length >= 2 ? {
-        lat: order.lastRiderLocation.coordinates[1],
-        lng: order.lastRiderLocation.coordinates[0]
-      } : (order?.dispatch?.deliveryPartnerId?.location?.coordinates?.length >= 2 ? {
-        lat: order.dispatch.deliveryPartnerId.location.coordinates[1],
-        lng: order.dispatch.deliveryPartnerId.location.coordinates[0]
-      } : (order?.deliveryState?.currentLocation || null))
+      // The order's own last known rider position first, then the partner's own GPS.
+      // Without the second one a customer opening the tracking screen sees an empty
+      // map until the next live packet arrives — which never comes if the rider app
+      // is in the background.
+      currentLocation:
+        readOrderLastRiderLatLng(order) ||
+        readPartnerLatLng(order?.dispatch?.deliveryPartnerId) ||
+        order?.deliveryState?.currentLocation ||
+        null
     }
   };
 }
@@ -292,6 +294,37 @@ export async function applyAggregateRating(model, entityId, newRating) {
   doc.totalRatings = nextTotal;
   doc.rating = nextAverage;
   await doc.save();
+}
+
+/** Rider position stored on the order itself (GeoJSON [lng, lat]). */
+export function readOrderLastRiderLatLng(order) {
+  const coords = order?.lastRiderLocation?.coordinates;
+  if (!Array.isArray(coords) || coords.length < 2) return null;
+  const lat = Number(coords[1]);
+  const lng = Number(coords[0]);
+  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+}
+
+/**
+ * A delivery partner's own last known GPS.
+ *
+ * The model keeps this as `lastLocation` (GeoJSON) plus flat `lastLat`/`lastLng`,
+ * updated by the REST heartbeat even when no trip socket is streaming — which makes
+ * it the reliable fallback for showing the rider straight away.
+ */
+export function readPartnerLatLng(partner) {
+  if (!partner || typeof partner !== 'object') return null;
+
+  const coords = partner?.lastLocation?.coordinates;
+  if (Array.isArray(coords) && coords.length >= 2) {
+    const lat = Number(coords[1]);
+    const lng = Number(coords[0]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+  }
+
+  const lat = Number(partner.lastLat);
+  const lng = Number(partner.lastLng);
+  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
 }
 
 export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {

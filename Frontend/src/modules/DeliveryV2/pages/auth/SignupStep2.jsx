@@ -215,6 +215,160 @@ const cleanupDeliveryOnboardingIndexedDb = async () => {
 }
 
 
+const DOCUMENT_FIELDS = [
+  { docType: "profilePhoto", label: "Profile Photo" },
+  { docType: "aadharPhoto", label: "Aadhar Card Photo" },
+  { docType: "panPhoto", label: "PAN Card Photo" },
+  { docType: "drivingLicensePhoto", label: "Driving License Photo" },
+]
+
+/**
+ * Rendered as a stable component type (module scope on purpose).
+ *
+ * It used to be declared inside SignupStep2, which gave React a brand-new component
+ * type on every render: the whole card - including the hidden <input type="file"> and
+ * the <img> preview - was torn down and rebuilt whenever any state changed. A file
+ * chosen from the camera/gallery landed on an input that no longer existed, so the
+ * change never arrived and the picked photo silently disappeared.
+ */
+const DocumentUploadCard = ({
+  docType,
+  label,
+  required = true,
+  uploadedName,
+  isUploading,
+  previewSrc,
+  hasDocument,
+  controlsDisabled,
+  inputRef,
+  onTakePhoto,
+  onPickGallery,
+  onRemove,
+  onFileSelected,
+}) => (
+  <div className="bg-white rounded-2xl p-4 border border-gray-200 shadow-xs">
+    <div className="flex items-center justify-between mb-2.5">
+      <label className="block text-sm font-bold text-gray-800">
+        {label} {required && <span className="text-red-500">*</span>}
+      </label>
+      {hasDocument && (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+          <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+          Selected
+        </span>
+      )}
+    </div>
+
+    {hasDocument ? (
+      <div className="relative w-full h-52 bg-gray-900/5 rounded-xl overflow-hidden border border-gray-200 shadow-inner flex items-center justify-center group">
+        {previewSrc ? (
+          <img
+            src={previewSrc}
+            alt={label}
+            className="w-full h-full object-cover rounded-xl transition-transform duration-300 group-hover:scale-105"
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center p-4 text-center">
+            <FileText className="w-12 h-12 text-[#00B761] mb-2" />
+            <p className="text-sm font-semibold text-gray-800">{uploadedName || "Document attached"}</p>
+            <span className="text-xs text-gray-500 mt-0.5">Ready for upload</span>
+          </div>
+        )}
+
+        {/* Remove / Replace Photo Button */}
+        <button
+          type="button"
+          disabled={controlsDisabled}
+          onClick={onRemove}
+          className={`absolute top-2.5 right-2.5 text-white p-2 rounded-full transition-all shadow-md z-10 ${
+            controlsDisabled
+              ? "bg-red-300 cursor-not-allowed"
+              : "bg-red-500 hover:bg-red-600 active:scale-90 cursor-pointer"
+          }`}
+          aria-label="Remove document"
+          title="Remove document"
+        >
+          <X className="w-4 h-4" />
+        </button>
+
+        {/* Uploaded Badge Overlay */}
+        <div className="absolute bottom-2.5 left-2.5 bg-emerald-600 text-white px-3 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-bold shadow-md z-10 backdrop-blur-xs">
+          <Check className="w-3.5 h-3.5 stroke-[3]" />
+          <span>Uploaded</span>
+        </div>
+      </div>
+    ) : (
+      <div className="flex flex-col items-center justify-center w-full min-h-[190px] border-2 border-dashed border-gray-300 rounded-xl hover:border-[#00B761] transition-all px-4 py-5 bg-gray-50/50">
+        <div className="flex flex-col items-center justify-center mb-3">
+          {isUploading ? (
+            <>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#00B761] mb-2" />
+              <p className="text-xs font-medium text-gray-600">Processing photo...</p>
+            </>
+          ) : (
+            <>
+              <Upload className="w-8 h-8 text-gray-400 mb-1.5" />
+              <p className="text-sm font-semibold text-gray-700 mb-0.5">Upload document</p>
+              <p className="text-xs text-gray-400">PNG, JPG up to 5MB</p>
+            </>
+          )}
+        </div>
+
+        {!isUploading && (
+          <div className="w-full grid grid-cols-2 gap-2.5 mt-1">
+            <button
+              type="button"
+              disabled={controlsDisabled}
+              onClick={onTakePhoto}
+              className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-white text-xs font-bold transition-all shadow-xs ${
+                controlsDisabled
+                  ? "bg-gray-400 cursor-not-allowed"
+                  : "bg-gray-900 hover:bg-black active:scale-95 cursor-pointer"
+              }`}
+            >
+              <Camera className="w-4 h-4" />
+              <span>Take Photo</span>
+            </button>
+            <button
+              type="button"
+              disabled={controlsDisabled}
+              onClick={onPickGallery}
+              className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-white text-xs font-bold transition-all shadow-xs ${
+                controlsDisabled
+                  ? "bg-[#8fd8b6] cursor-not-allowed"
+                  : "bg-[#00B761] hover:bg-[#00A055] active:scale-95 cursor-pointer"
+              }`}
+            >
+              <ImageIcon className="w-4 h-4" />
+              <span>Gallery</span>
+            </button>
+          </div>
+        )}
+      </div>
+    )}
+
+    {/* Kept outside the conditional branches so the input survives selecting,
+        replacing and removing a document. */}
+    <input
+      ref={inputRef}
+      type="file"
+      className="hidden"
+      accept=".jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif"
+      onClick={(e) => {
+        e.target.value = ""
+      }}
+      onChange={(e) => {
+        const selectedFile = e.target.files?.[0]
+        if (selectedFile) {
+          onFileSelected(selectedFile)
+        }
+        e.target.value = ""
+      }}
+      disabled={controlsDisabled}
+    />
+  </div>
+)
+
 export default function SignupStep2() {
   const navigate = useNavigate()
   const goBack = useDeliveryBackNavigation()
@@ -252,7 +406,7 @@ export default function SignupStep2() {
   const [uploading, setUploading] = useState({})
   const [keyboardInset, setKeyboardInset] = useState(0)
   const [isInputFocused, setIsInputFocused] = useState(false)
-  const documentTypes = ["profilePhoto", "aadharPhoto", "panPhoto", "drivingLicensePhoto"]
+  const documentTypes = DOCUMENT_FIELDS.map((field) => field.docType)
   const isMountedRef = useRef(true)
 
   // Sync previews whenever documents change from external sources
@@ -653,138 +807,6 @@ export default function SignupStep2() {
     }
   }
 
-  const DocumentUpload = ({ docType, label, required = true }) => {
-    const uploaded = uploadedDocs[docType]
-    const isUploading = Boolean(uploading[docType])
-    const previewSrc = previews[docType] || getPreviewSrc(docType)
-    const hasDocument = Boolean(documents[docType] || uploaded || previewSrc)
-    const controlsDisabled = isUploading || isSubmitting
-
-    return (
-      <div className="bg-white rounded-2xl p-4 border border-gray-200 shadow-xs">
-        <div className="flex items-center justify-between mb-2.5">
-          <label className="block text-sm font-bold text-gray-800">
-            {label} {required && <span className="text-red-500">*</span>}
-          </label>
-          {hasDocument && (
-            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-              <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-              Selected
-            </span>
-          )}
-        </div>
-
-        {hasDocument ? (
-          <div className="relative w-full h-52 bg-gray-900/5 rounded-xl overflow-hidden border border-gray-200 shadow-inner flex items-center justify-center group">
-            {previewSrc ? (
-              <img
-                src={previewSrc}
-                alt={label}
-                className="w-full h-full object-cover rounded-xl transition-transform duration-300 group-hover:scale-105"
-              />
-            ) : (
-              <div className="flex flex-col items-center justify-center p-4 text-center">
-                <FileText className="w-12 h-12 text-[#00B761] mb-2" />
-                <p className="text-sm font-semibold text-gray-800">{uploadedDocs[docType]?.name || "Document attached"}</p>
-                <span className="text-xs text-gray-500 mt-0.5">Ready for upload</span>
-              </div>
-            )}
-
-            {/* Remove / Replace Photo Button */}
-            <button
-              type="button"
-              disabled={controlsDisabled}
-              onClick={() => handleRemove(docType)}
-              className={`absolute top-2.5 right-2.5 text-white p-2 rounded-full transition-all shadow-md z-10 ${
-                controlsDisabled
-                  ? "bg-red-300 cursor-not-allowed"
-                  : "bg-red-500 hover:bg-red-600 active:scale-90 cursor-pointer"
-              }`}
-              aria-label="Remove document"
-              title="Remove document"
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            {/* Uploaded Badge Overlay */}
-            <div className="absolute bottom-2.5 left-2.5 bg-emerald-600 text-white px-3 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-bold shadow-md z-10 backdrop-blur-xs">
-              <Check className="w-3.5 h-3.5 stroke-[3]" />
-              <span>Uploaded</span>
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center w-full min-h-[190px] border-2 border-dashed border-gray-300 rounded-xl hover:border-[#00B761] transition-all px-4 py-5 bg-gray-50/50">
-            <div className="flex flex-col items-center justify-center mb-3">
-              {isUploading ? (
-                <>
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#00B761] mb-2" />
-                  <p className="text-xs font-medium text-gray-600">Processing photo...</p>
-                </>
-              ) : (
-                <>
-                  <Upload className="w-8 h-8 text-gray-400 mb-1.5" />
-                  <p className="text-sm font-semibold text-gray-700 mb-0.5">Upload document</p>
-                  <p className="text-xs text-gray-400">PNG, JPG up to 5MB</p>
-                </>
-              )}
-            </div>
-
-            {!isUploading && (
-              <div className="w-full grid grid-cols-2 gap-2.5 mt-1">
-                <button
-                  type="button"
-                  disabled={controlsDisabled}
-                  onClick={() => handleTakeCameraPhoto(docType, label)}
-                  className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-white text-xs font-bold transition-all shadow-xs ${
-                    controlsDisabled
-                      ? "bg-gray-400 cursor-not-allowed"
-                      : "bg-gray-900 hover:bg-black active:scale-95 cursor-pointer"
-                  }`}
-                >
-                  <Camera className="w-4 h-4" />
-                  <span>Take Photo</span>
-                </button>
-                <button
-                  type="button"
-                  disabled={controlsDisabled}
-                  onClick={() => handlePickFromGallery(docType)}
-                  className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-white text-xs font-bold transition-all shadow-xs ${
-                    controlsDisabled
-                      ? "bg-[#8fd8b6] cursor-not-allowed"
-                      : "bg-[#00B761] hover:bg-[#00A055] active:scale-95 cursor-pointer"
-                  }`}
-                >
-                  <ImageIcon className="w-4 h-4" />
-                  <span>Gallery</span>
-                </button>
-              </div>
-            )}
-
-            <input
-              ref={(node) => {
-                fileInputRefs.current[docType] = node
-              }}
-              type="file"
-              className="hidden"
-              accept=".jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif"
-              onClick={(e) => {
-                e.target.value = ""
-              }}
-              onChange={(e) => {
-                const selectedFile = e.target.files[0]
-                if (selectedFile) {
-                  handleFileSelect(docType, selectedFile)
-                }
-                e.target.value = ""
-              }}
-              disabled={controlsDisabled}
-            />
-          </div>
-        )}
-      </div>
-    )
-  }
-
   const isAnyUploading = documentTypes.some((docType) => Boolean(uploading[docType]))
   const hasAllDocuments = documentTypes.every((docType) => documents[docType])
   const disableSubmit = isSubmitting || isAnyUploading || !hasAllDocuments
@@ -825,10 +847,26 @@ export default function SignupStep2() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <DocumentUpload docType="profilePhoto" label="Profile Photo" required={true} />
-          <DocumentUpload docType="aadharPhoto" label="Aadhar Card Photo" required={true} />
-          <DocumentUpload docType="panPhoto" label="PAN Card Photo" required={true} />
-          <DocumentUpload docType="drivingLicensePhoto" label="Driving License Photo" required={true} />
+          {DOCUMENT_FIELDS.map(({ docType, label }) => (
+            <DocumentUploadCard
+              key={docType}
+              docType={docType}
+              label={label}
+              required
+              uploadedName={uploadedDocs[docType]?.name}
+              isUploading={Boolean(uploading[docType])}
+              previewSrc={previews[docType] || getPreviewSrc(docType)}
+              hasDocument={Boolean(documents[docType] || uploadedDocs[docType] || previews[docType])}
+              controlsDisabled={Boolean(uploading[docType]) || isSubmitting}
+              inputRef={(node) => {
+                fileInputRefs.current[docType] = node
+              }}
+              onTakePhoto={() => handleTakeCameraPhoto(docType, label)}
+              onPickGallery={() => handlePickFromGallery(docType)}
+              onRemove={() => handleRemove(docType)}
+              onFileSelected={(file) => handleFileSelect(docType, file)}
+            />
+          ))}
 
           {/* Submit Button */}
           <div className="pt-2">

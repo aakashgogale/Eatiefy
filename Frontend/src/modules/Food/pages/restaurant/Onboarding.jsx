@@ -247,7 +247,7 @@ const hasSuspiciousEmailTld = (emailValue) => {
 }
 
 // Helper functions for localStorage
-const saveOnboardingToLocalStorage = (step1, step2, step3, currentStep, step4State) => {
+const saveOnboardingToLocalStorage = (step1, step2, step3, currentStep, step4State, sessionPhone = "") => {
   try {
     // Persist only stable URL-based values. File/Blob objects are not serializable and
     // restoring metadata-only placeholders breaks preview/upload flows.
@@ -288,6 +288,10 @@ const saveOnboardingToLocalStorage = (step1, step2, step3, currentStep, step4Sta
       step3: serializableStep3,
       step4: step4State,
       currentStep,
+      // Owner of this draft: the phone of the logged-in/verified session at save time.
+      // This is NOT the editable ownerPhone field, so typing a different number in the
+      // form can never make the draft look like it belongs to another account.
+      sessionPhone: normalizePhoneDigits(sessionPhone),
       timestamp: Date.now(),
     }
     localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(dataToSave))
@@ -758,6 +762,7 @@ export default function RestaurantOnboarding() {
     try {
       await logoutRestaurantSession({ clearAllModules: true, navigate })
       // Clear onboarding drafts/files after auth + FCM cleanup
+      onboardingClearedRef.current = true
       clearOnboardingFromLocalStorage()
       await clearAllFilesFromDB()
     } catch (error) {
@@ -778,6 +783,15 @@ export default function RestaurantOnboarding() {
   const [zonesLoading, setZonesLoading] = useState(false)
   const [isOnboardingHydrated, setIsOnboardingHydrated] = useState(false)
   const isRestoringOnboardingRef = useRef(true)
+  // Snapshot restored from localStorage on mount. When present it is the freshest
+  // record of what the user typed, so it wins over anything the server returns.
+  const localSnapshotRef = useRef(null)
+  // Latest form state, kept in a ref so we can flush a save when the tab is hidden
+  // or reloaded before the debounced/async save effect had a chance to run.
+  const latestOnboardingStateRef = useRef(null)
+  // Set once the draft has been intentionally discarded (successful submit / logout) so
+  // no later save - including the unmount flush - can resurrect it.
+  const onboardingClearedRef = useRef(false)
 
   const [step1, setStep1] = useState({
     restaurantName: "",
@@ -1119,13 +1133,15 @@ export default function RestaurantOnboarding() {
   }
 
 
-  // Load from localStorage on mount and check URL parameter
+  // Load from localStorage on mount and check URL parameter.
+  // Runs once per mount only: re-running it on every ?step= change would replay a
+  // stale snapshot over whatever the user is currently typing.
   useEffect(() => {
     isRestoringOnboardingRef.current = true
     setVerifiedPhoneNumber(getVerifiedPhoneFromStoredRestaurant())
 
     // Check if step is specified in URL (from OTP login redirect)
-    const stepParam = searchParams.get("step")
+    const stepParam = new URLSearchParams(window.location.search).get("step")
     if (stepParam) {
       const stepNum = parseInt(stepParam, 10)
       if (stepNum >= 1 && stepNum <= 3) {
@@ -1139,20 +1155,21 @@ export default function RestaurantOnboarding() {
         const localData = loadOnboardingFromLocalStorage()
         
         if (localData) {
-          // SECURITY CHECK: If the saved data's phone number doesn't match current login, clear it.
-          // This prevents data leakage when logging in with a different account on the same device.
-          const savedPhone = normalizePhoneDigits(localData.step1?.ownerPhone || "")
+          // SECURITY CHECK: only discard the draft when it provably belongs to a different
+          // account. We compare the session phone captured at save time - never the editable
+          // ownerPhone field, which is half-typed while the user fills the form.
+          const savedSessionPhone = normalizePhoneDigits(localData.sessionPhone || "")
           const normalizedCurrent = normalizePhoneDigits(currentPhone)
-          
-          if (savedPhone && normalizedCurrent && savedPhone !== normalizedCurrent) {
-             debugLog("? Phone mismatch, data belongs to different user. Clearing.")
-             // Be a bit more lenient: only clear if they are substantially different
-             if (savedPhone.slice(-10) !== normalizedCurrent.slice(-10)) {
-               clearOnboardingFromLocalStorage()
-               await clearAllFilesFromDB()
-               return
-             }
+
+          if (savedSessionPhone && normalizedCurrent && savedSessionPhone !== normalizedCurrent) {
+            debugLog("Draft belongs to a different account. Clearing.")
+            clearOnboardingFromLocalStorage()
+            await clearAllFilesFromDB()
+            localSnapshotRef.current = null
+            return
           }
+
+          localSnapshotRef.current = localData
 
           if (localData.step1) {
             setStep1((prev) => ({
@@ -1283,7 +1300,8 @@ export default function RestaurantOnboarding() {
     }
 
     loadData()
-  }, [searchParams])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (!verifiedPhoneNumber) return
@@ -1315,7 +1333,8 @@ export default function RestaurantOnboarding() {
   useEffect(() => {
     if (!isOnboardingHydrated) return
     if (isRestoringOnboardingRef.current) return
-    saveOnboardingToLocalStorage(step1, step2, step3, step, step4State)
+    if (onboardingClearedRef.current) return
+    saveOnboardingToLocalStorage(step1, step2, step3, step, step4State, verifiedPhoneNumber)
     
     // Save images to IndexedDB
     const saveFiles = async () => {
@@ -1337,7 +1356,42 @@ export default function RestaurantOnboarding() {
       await persistMenuImagesToDB(step2.menuImages || [])
     }
     saveFiles()
-  }, [isOnboardingHydrated, step1, step2, step3, step, step4State])
+  }, [isOnboardingHydrated, step1, step2, step3, step, step4State, verifiedPhoneNumber])
+
+  // Keep the latest state in a ref and flush it synchronously when the page is being
+  // hidden/reloaded, so a refresh mid-typing never loses the last edits.
+  useEffect(() => {
+    latestOnboardingStateRef.current = { step1, step2, step3, step, step4State, verifiedPhoneNumber }
+  }, [step1, step2, step3, step, step4State, verifiedPhoneNumber])
+
+  useEffect(() => {
+    const flush = () => {
+      if (!isOnboardingHydrated || isRestoringOnboardingRef.current) return
+      if (onboardingClearedRef.current) return
+      const latest = latestOnboardingStateRef.current
+      if (!latest) return
+      saveOnboardingToLocalStorage(
+        latest.step1,
+        latest.step2,
+        latest.step3,
+        latest.step,
+        latest.step4State,
+        latest.verifiedPhoneNumber,
+      )
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flush()
+    }
+    window.addEventListener("pagehide", flush)
+    window.addEventListener("beforeunload", flush)
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    return () => {
+      window.removeEventListener("pagehide", flush)
+      window.removeEventListener("beforeunload", flush)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      flush()
+    }
+  }, [isOnboardingHydrated])
 
   useEffect(() => {
     syncOnboardingFileCache(step2, step3)
@@ -1356,12 +1410,23 @@ export default function RestaurantOnboarding() {
     }
   }, [])
 
+  // Server data is only merged in AFTER the local draft is hydrated, and it never
+  // overwrites a value the user already has locally - while onboarding is in progress
+  // the local draft is the freshest source of truth.
   useEffect(() => {
+    if (!isOnboardingHydrated) return undefined
+    let cancelled = false
+    const localSnapshot = localSnapshotRef.current
+    const hasLocalStep1 = !!localSnapshot?.step1
+    const hasLocalStep2 = !!localSnapshot?.step2
+    const hasLocalStep3 = !!localSnapshot?.step3
+
     const fetchData = async () => {
       try {
         setLoading(true)
         // Use restaurantAPI.getCurrentRestaurant() to fetch real data
         const res = await restaurantAPI.getCurrentRestaurant()
+        if (cancelled) return
         const data = res?.data?.data?.restaurant || res?.data?.restaurant
         
           if (data) {
@@ -1411,51 +1476,59 @@ export default function RestaurantOnboarding() {
                 data.ownerPhone ||
                 data.phone ||
                 "",
-              location: {
-                ...prev.location,
-                formattedAddress:
-                  locationData.formattedAddress ||
-                  locationData.address ||
-                  data.address ||
-                  prev.location?.formattedAddress ||
-                  "",
-                addressLine1: locationData.addressLine1 || data.addressLine1 || prev.location?.addressLine1 || "",
-                addressLine2: locationData.addressLine2 || data.addressLine2 || prev.location?.addressLine2 || "",
-                area: locationData.area || data.area || prev.location?.area || "",
-                city: locationData.city || data.city || prev.location?.city || "",
-                state: locationData.state || data.state || prev.location?.state || "",
-                pincode: locationData.pincode || data.pincode || prev.location?.pincode || "",
-                landmark: locationData.landmark || data.landmark || prev.location?.landmark || "",
-                latitude: locationData.latitude ?? prev.location?.latitude ?? "",
-                longitude: locationData.longitude ?? prev.location?.longitude ?? "",
-              },
+              location: hasLocalStep1
+                ? prev.location
+                : {
+                    ...prev.location,
+                    formattedAddress:
+                      locationData.formattedAddress ||
+                      locationData.address ||
+                      data.address ||
+                      prev.location?.formattedAddress ||
+                      "",
+                    addressLine1: locationData.addressLine1 || data.addressLine1 || prev.location?.addressLine1 || "",
+                    addressLine2: locationData.addressLine2 || data.addressLine2 || prev.location?.addressLine2 || "",
+                    area: locationData.area || data.area || prev.location?.area || "",
+                    city: locationData.city || data.city || prev.location?.city || "",
+                    state: locationData.state || data.state || prev.location?.state || "",
+                    pincode: locationData.pincode || data.pincode || prev.location?.pincode || "",
+                    landmark: locationData.landmark || data.landmark || prev.location?.landmark || "",
+                    latitude: locationData.latitude ?? prev.location?.latitude ?? "",
+                    longitude: locationData.longitude ?? prev.location?.longitude ?? "",
+                  },
             }))
 
             // Map Step 2
             setStep2((prev) => ({
               ...prev,
               menuImages:
-                (step2Data.menuImageUrls && step2Data.menuImageUrls.length > 0)
+                (prev.menuImages && prev.menuImages.length > 0)
+                  ? prev.menuImages
+                  : (step2Data.menuImageUrls && step2Data.menuImageUrls.length > 0)
                   ? step2Data.menuImageUrls
                   : (data.menuImages && data.menuImages.length > 0)
                   ? data.menuImages
                   : prev.menuImages,
-              profileImage: step2Data.profileImageUrl || data.profileImage || prev.profileImage,
-              cuisines:
-                (step2Data.cuisines && step2Data.cuisines.length > 0)
+              profileImage: prev.profileImage || step2Data.profileImageUrl || data.profileImage || null,
+              cuisines: hasLocalStep2
+                ? prev.cuisines
+                : (step2Data.cuisines && step2Data.cuisines.length > 0)
                   ? step2Data.cuisines
                   : (data.cuisines && data.cuisines.length > 0)
                   ? data.cuisines
                   : prev.cuisines,
-              estimatedDeliveryTime:
-                step2Data.estimatedDeliveryTime ||
-                data.estimatedDeliveryTime ||
-                prev.estimatedDeliveryTime ||
-                "",
-              openingTime: normalizeTimeValue(deliveryTimings.openingTime || data.openingTime) || prev.openingTime,
-              closingTime: normalizeTimeValue(deliveryTimings.closingTime || data.closingTime) || prev.closingTime,
-              openDays:
-                (step2Data.openDays && step2Data.openDays.length > 0)
+              estimatedDeliveryTime: hasLocalStep2
+                ? prev.estimatedDeliveryTime
+                : (step2Data.estimatedDeliveryTime || data.estimatedDeliveryTime || prev.estimatedDeliveryTime || ""),
+              openingTime: hasLocalStep2
+                ? prev.openingTime
+                : (normalizeTimeValue(deliveryTimings.openingTime || data.openingTime) || prev.openingTime),
+              closingTime: hasLocalStep2
+                ? prev.closingTime
+                : (normalizeTimeValue(deliveryTimings.closingTime || data.closingTime) || prev.closingTime),
+              openDays: hasLocalStep2
+                ? prev.openDays
+                : (step2Data.openDays && step2Data.openDays.length > 0)
                   ? step2Data.openDays
                   : (data.openDays && data.openDays.length > 0)
                   ? data.openDays
@@ -1465,39 +1538,54 @@ export default function RestaurantOnboarding() {
             // Map Step 3
             setStep3((prev) => ({
               ...prev,
-              panNumber: panData.panNumber || data.panNumber || prev.panNumber || "",
-              nameOnPan: panData.nameOnPan || data.nameOnPan || prev.nameOnPan || "",
-              panImage: panData.image || data.panImage || prev.panImage || null,
-              gstRegistered:
-                typeof gstData.isRegistered === "boolean"
+              panNumber: hasLocalStep3 ? prev.panNumber : (panData.panNumber || data.panNumber || prev.panNumber || ""),
+              nameOnPan: hasLocalStep3 ? prev.nameOnPan : (panData.nameOnPan || data.nameOnPan || prev.nameOnPan || ""),
+              panImage: prev.panImage || panData.image || data.panImage || null,
+              gstRegistered: hasLocalStep3
+                ? Boolean(prev.gstRegistered)
+                : typeof gstData.isRegistered === "boolean"
                   ? gstData.isRegistered
                   : typeof data.gstRegistered === "boolean"
                   ? data.gstRegistered
                   : (prev.gstRegistered || false),
-              gstNumber: gstData.gstNumber || data.gstNumber || prev.gstNumber || "",
-              gstLegalName: gstData.legalName || data.gstLegalName || prev.gstLegalName || "",
-              gstAddress: gstData.address || data.gstAddress || prev.gstAddress || "",
-              gstImage: gstData.image || data.gstImage || prev.gstImage || null,
-              fssaiNumber: fssaiData.registrationNumber || data.fssaiNumber || prev.fssaiNumber || "",
-              fssaiExpiry:
-                fssaiData.expiryDate
+              gstNumber: hasLocalStep3 ? prev.gstNumber : (gstData.gstNumber || data.gstNumber || prev.gstNumber || ""),
+              gstLegalName: hasLocalStep3
+                ? prev.gstLegalName
+                : (gstData.legalName || data.gstLegalName || prev.gstLegalName || ""),
+              gstAddress: hasLocalStep3 ? prev.gstAddress : (gstData.address || data.gstAddress || prev.gstAddress || ""),
+              gstImage: prev.gstImage || gstData.image || data.gstImage || null,
+              fssaiNumber: hasLocalStep3
+                ? prev.fssaiNumber
+                : (fssaiData.registrationNumber || data.fssaiNumber || prev.fssaiNumber || ""),
+              fssaiExpiry: hasLocalStep3
+                ? prev.fssaiExpiry
+                : fssaiData.expiryDate
                   ? String(fssaiData.expiryDate).split("T")[0]
                   : data.fssaiExpiry
                   ? String(data.fssaiExpiry).split("T")[0]
                   : prev.fssaiExpiry,
-              fssaiImage: fssaiData.image || data.fssaiImage || prev.fssaiImage || null,
-              accountNumber: bankData.accountNumber || data.accountNumber || prev.accountNumber || "",
-              confirmAccountNumber:
-                bankData.accountNumber || data.accountNumber || prev.confirmAccountNumber || "",
-              ifscCode: (bankData.ifscCode || data.ifscCode || prev.ifscCode || "").toUpperCase(),
-              accountHolderName:
-                bankData.accountHolderName || data.accountHolderName || prev.accountHolderName || "",
-              accountType: normalizeAccountTypeValue(bankData.accountType || data.accountType || prev.accountType || ""),
+              fssaiImage: prev.fssaiImage || fssaiData.image || data.fssaiImage || null,
+              accountNumber: hasLocalStep3
+                ? prev.accountNumber
+                : (bankData.accountNumber || data.accountNumber || prev.accountNumber || ""),
+              confirmAccountNumber: hasLocalStep3
+                ? prev.confirmAccountNumber
+                : (bankData.accountNumber || data.accountNumber || prev.confirmAccountNumber || ""),
+              ifscCode: hasLocalStep3
+                ? (prev.ifscCode || "").toUpperCase()
+                : (bankData.ifscCode || data.ifscCode || prev.ifscCode || "").toUpperCase(),
+              accountHolderName: hasLocalStep3
+                ? prev.accountHolderName
+                : (bankData.accountHolderName || data.accountHolderName || prev.accountHolderName || ""),
+              accountType: hasLocalStep3
+                ? normalizeAccountTypeValue(prev.accountType || "")
+                : normalizeAccountTypeValue(bankData.accountType || data.accountType || prev.accountType || ""),
             }))
 
-          // Only determine step automatically if not specified in URL
-          const stepParam = searchParams.get("step")
-          if (!stepParam) {
+          // Only determine step automatically if not specified in URL, and never when a
+          // local draft already remembered which step the user was on.
+          const stepParam = new URLSearchParams(window.location.search).get("step")
+          if (!stepParam && !localSnapshot?.currentStep) {
             // If already registered/pending, stay on step 1 for editing
             if (data.status === "approved" || data.status === "pending") {
                setStep(1)
@@ -1534,7 +1622,11 @@ export default function RestaurantOnboarding() {
     }
 
     fetchData()
-  }, [searchParams])
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnboardingHydrated])
 
   const handleUpload = async (file, folder) => {
     try {
@@ -1872,8 +1964,11 @@ export default function RestaurantOnboarding() {
     try {
       await restaurantAPI.register(formData)
       toast.dismiss(loadingToast)
+      // Draft is now submitted: discard it for good (and block any further autosave).
+      onboardingClearedRef.current = true
       clearOnboardingFromLocalStorage()
       clearOnboardingFileCache()
+      await clearAllFilesFromDB()
       try {
         localStorage.setItem('restaurant_pendingPhone', normalizePhoneDigits(step1.ownerPhone))
       } catch {}
@@ -2045,14 +2140,14 @@ export default function RestaurantOnboarding() {
                   !isEditing
                 )}
               >
-                🟢 Yes, Pure Veg
+                🟢 Pure Veg
               </button>
               <button
                 type="button"
                 onClick={() => isEditing && setStep1({ ...step1, pureVegRestaurant: false, dietaryType: "non-veg" })}
                 className={chipClass(step1.dietaryType === "non-veg", !isEditing)}
               >
-                🔴 No, Pure Non-Veg
+                🔴 Pure Non-Veg
               </button>
               <button
                 type="button"
@@ -2062,11 +2157,11 @@ export default function RestaurantOnboarding() {
                   !isEditing
                 )}
               >
-                🟡 No, Mixed Menu
+                🟡 Mixed Menu
               </button>
             </div>
             <p className={ONBOARDING_HINT}>
-              Choose "Yes, Pure Veg" for vegetarian-only restaurants, "No, Pure Non-Veg", or "No, Mixed Menu" if your restaurant serves both.
+              Choose "Pure Veg" for vegetarian-only restaurants, "Pure Non-Veg", or "Mixed Menu" if your restaurant serves both.
             </p>
           </div>
         </div>

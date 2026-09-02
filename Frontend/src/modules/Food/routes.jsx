@@ -10,7 +10,6 @@ import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotificatio
 import { applyModulePowerScanning, getCachedSettings } from "@food/utils/businessSettings"
 import { PublicAppConfigProvider } from "@food/context/PublicAppConfigContext"
 import { shouldSkipScrollResetForHome } from "@food/utils/homeScrollRestore"
-import SoundEnableBanner from "@food/components/restaurant/SoundEnableBanner"
 
 // Lazy Loading Components
 const UserRouter = lazy(() => import("@food/components/user/UserRouter"))
@@ -74,18 +73,11 @@ function RestaurantGlobalNotificationListener() {
     !isOrderManagedRoute &&
     isModuleAuthenticated("restaurant")
 
-  const isSignedInRestaurantRoute =
-    isRestaurantRoute && !isRestaurantAuthRoute && isModuleAuthenticated("restaurant")
-
-  return (
-    <>
-      {shouldListen ? <RestaurantGlobalNotificationListenerInner /> : null}
-      {/* The banner is needed most on the orders screen, which mounts the hook
-          itself — so it renders on every signed-in restaurant route, not only the
-          ones where this component owns the listener. */}
-      {isSignedInRestaurantRoute ? <SoundEnableBanner /> : null}
-    </>
-  )
+  // No sound prompt is rendered: the unlock listener in useRestaurantNotifications
+  // is attached to the document for pointerdown/click/touchend/keydown, so the first
+  // tap anywhere in the panel arms the alert, and it keeps listening until that
+  // actually succeeds. A floating prompt only covered the bottom navigation.
+  return shouldListen ? <RestaurantGlobalNotificationListenerInner /> : null
 }
 
 export default function App() {

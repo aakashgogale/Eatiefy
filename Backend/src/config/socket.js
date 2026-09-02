@@ -266,6 +266,7 @@ export const initSocket = async (server) => {
         // Delivery partner emits live GPS location for an active order.
         // Broadcasts to the tracking room so users see the bike move in real time.
         const _lastLocationBroadcast = {};
+        const _lastLocationPersist = {};
         socket.on('update-location', async (data) => {
             if (socket.user?.role !== 'DELIVERY_PARTNER') return;
             if (!data || !data.orderId) return;
@@ -366,6 +367,25 @@ export const initSocket = async (server) => {
                 const { getRedisClient } = await import('../config/redis.js');
                 const trackingQueue = getTrackingQueue();
                 const redis = getRedisClient();
+
+                if (!trackingQueue || !redis) {
+                    // No Redis: the deferred BullMQ write never runs, so the order keeps
+                    // no rider position at all and a customer opening the tracking screen
+                    // gets an empty map until the next live packet — which never arrives
+                    // if the rider app is backgrounded. Write it straight to Mongo instead,
+                    // throttled so a moving rider does not hammer the database.
+                    const lastPersistTS = _lastLocationPersist[data.orderId] || 0;
+                    if (now - lastPersistTS >= 10000) {
+                        _lastLocationPersist[data.orderId] = now;
+                        const { FoodOrder } = await import('../modules/food/orders/models/order.model.js');
+                        const identity = order?._id ? { _id: order._id } : { orderId: String(data.orderId) };
+                        FoodOrder.updateOne(identity, {
+                            $set: {
+                                lastRiderLocation: { type: 'Point', coordinates: [lng, lat] },
+                            },
+                        }).catch((e) => logger.error(`Rider location persist failed: ${e.message}`));
+                    }
+                }
 
                 if (trackingQueue && redis) {
                     const coordString = JSON.stringify({ lat, lng, timestamp: now });

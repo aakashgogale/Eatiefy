@@ -171,78 +171,160 @@ export const isFlutterBridgeAvailable = () => {
 }
 
 /**
- * Open camera via Flutter bridge or browser fallback.
- * ALWAYS falls back seamlessly if bridge throws or fails.
+ * A native picker is driven by the user: taking a photo or browsing a gallery easily
+ * takes longer than any timeout we could justify. So the bridge call is never
+ * "given up on" - we only fall back when it answers that it cannot help, or when it
+ * stays silent long enough that the handler is almost certainly not registered.
+ *
+ * Whichever source answers first wins; a late answer from the other one is dropped
+ * instead of overwriting the picture the user already picked.
  */
-export const openCamera = async ({ onSelectFile, fileNamePrefix = "camera-photo", quality = 0.8 }) => {
-  if (typeof onSelectFile !== "function") return
+const BRIDGE_SILENCE_FALLBACK_MS = 20000
 
-  const triggerCameraFallback = (reason) => {
-    logPickerDiagnostic("camera:fallback", { reason })
+const createSingleDelivery = (onSelectFile) => {
+  let delivered = false
+  return {
+    isDelivered: () => delivered,
+    deliver: (file) => {
+      if (delivered || !file) return false
+      delivered = true
+      try {
+        onSelectFile(file)
+      } catch (error) {
+        logPickerDiagnostic("deliver:handler-threw", error)
+      }
+      return true
+    },
+  }
+}
+
+const extractBridgeFile = (result, fileNamePrefix) => {
+  if (!result || typeof result !== "object") return null
+
+  const base64Value = result?.base64 || result?.base64String || result?.data?.base64
+  const mimeType = result?.mimeType || result?.type || result?.data?.mimeType || "image/jpeg"
+  const originalFileName = result?.fileName || result?.name || result?.data?.fileName || ""
+
+  if (base64Value) {
     try {
-      openBrowserCameraFallback(onSelectFile)
-    } catch (e) {
-      logPickerDiagnostic("camera:fallback-failed", e)
-      openTransientImageInput({ onSelectFile, accept: "image/*" })
+      return convertBase64ToFile(base64Value, mimeType, fileNamePrefix, originalFileName)
+    } catch (error) {
+      logPickerDiagnostic("bridge:base64-conversion-failed", error)
+      return null
     }
   }
 
+  if (result.file instanceof File || result.file instanceof Blob) {
+    return result.file
+  }
+
+  return null
+}
+
+/**
+ * Shared driver for the camera and gallery pickers.
+ */
+const openBridgePicker = async ({
+  handlerName,
+  payload,
+  onSelectFile,
+  fileNamePrefix,
+  openFallback,
+}) => {
+  if (typeof onSelectFile !== "function") return
+
+  const delivery = createSingleDelivery(onSelectFile)
+  const runFallback = (reason) => {
+    if (delivery.isDelivered()) return
+    logPickerDiagnostic(`${handlerName}:fallback`, { reason })
+    try {
+      openFallback(delivery.deliver)
+    } catch (error) {
+      logPickerDiagnostic(`${handlerName}:fallback-failed`, error)
+      openTransientImageInput({ onSelectFile: delivery.deliver, accept: "image/*" })
+    }
+  }
+
+  // No bridge: open the file input in the SAME tick as the user's tap. Android WebView
+  // rejects a programmatic file-input click once the user gesture has expired.
   if (!isFlutterBridgeAvailable()) {
-    triggerCameraFallback("no-flutter-bridge")
+    runFallback("no-flutter-bridge")
     return
   }
 
-  try {
-    const bridgePromise = window.flutter_inappwebview.callHandler("openCamera", {
-      source: "camera",
-      accept: "image/*",
-      multiple: false,
-      quality: quality,
+  let bridgeAnswered = false
+  const bridgePromise = Promise.resolve()
+    .then(() => window.flutter_inappwebview.callHandler(handlerName, payload))
+    .then((result) => {
+      bridgeAnswered = true
+      return result
     })
 
-    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 1500))
-    const result = await Promise.race([bridgePromise, timeoutPromise])
-
-    const isSuccess =
-      result?.success === true ||
-      Boolean(result?.base64 || result?.base64String || result?.data?.base64)
-
-    if (result && isSuccess) {
-      let selectedFile = null
-      const base64Value = result?.base64 || result?.base64String || result?.data?.base64
-      const mimeType = result?.mimeType || result?.type || result?.data?.mimeType || "image/jpeg"
-      const originalFileName = result?.fileName || result?.name || result?.data?.fileName || ""
-
-      if (base64Value) {
-        selectedFile = convertBase64ToFile(
-          base64Value,
-          mimeType,
-          fileNamePrefix,
-          originalFileName,
-        )
-      } else if (result.file instanceof File || result.file instanceof Blob) {
-        selectedFile = result.file
+  // A late native answer is still honoured, as long as nothing was delivered meanwhile.
+  bridgePromise
+    .then((result) => {
+      const file = extractBridgeFile(result, fileNamePrefix)
+      if (file && delivery.deliver(file)) {
+        logPickerDiagnostic(`${handlerName}:bridge-success`, { late: true })
       }
+    })
+    .catch(() => {})
 
-      if (selectedFile) {
-        onSelectFile(selectedFile)
-        return
-      }
-    }
+  const silenceTimeout = new Promise((resolve) =>
+    setTimeout(() => resolve("__picker_silence__"), BRIDGE_SILENCE_FALLBACK_MS),
+  )
 
-    if (!result) {
-      triggerCameraFallback("bridge-timeout-or-no-handler")
-      return
-    }
-
-    if (result.success === false) {
-      triggerCameraFallback({ reason: "bridge-reported-failure", result })
-    }
+  let result
+  try {
+    result = await Promise.race([bridgePromise, silenceTimeout])
   } catch (error) {
-    logPickerDiagnostic("camera:bridge-threw", error)
-    triggerCameraFallback("bridge-threw")
+    logPickerDiagnostic(`${handlerName}:bridge-threw`, error)
+    runFallback("bridge-threw")
+    return
   }
+
+  if (result === "__picker_silence__" && !bridgeAnswered) {
+    // Handler is not registered on the Flutter side, or never answered.
+    runFallback("bridge-timeout-or-no-handler")
+    return
+  }
+
+  if (result === "__picker_silence__") return
+
+  const file = extractBridgeFile(result, fileNamePrefix)
+  if (file) {
+    if (delivery.deliver(file)) {
+      logPickerDiagnostic(`${handlerName}:bridge-success`, { late: false })
+    }
+    return
+  }
+
+  // Bridge answered but gave us nothing usable.
+  if (result === null || result === undefined) {
+    runFallback("bridge-returned-null")
+    return
+  }
+
+  if (result?.cancelled === true || result?.canceled === true) {
+    logPickerDiagnostic(`${handlerName}:user-cancelled`, { result })
+    return
+  }
+
+  runFallback({ reason: "bridge-answer-without-usable-file", result })
 }
+
+/**
+ * Open camera via Flutter bridge or browser fallback.
+ * ALWAYS falls back seamlessly if bridge throws or fails.
+ */
+export const openCamera = async ({ onSelectFile, fileNamePrefix = "camera-photo", quality = 0.8 }) =>
+  openBridgePicker({
+    handlerName: "openCamera",
+    payload: { source: "camera", accept: "image/*", multiple: false, quality },
+    onSelectFile,
+    fileNamePrefix,
+    openFallback: (deliver) => openBrowserCameraFallback(deliver),
+  })
 
 /**
  * Open gallery via Flutter bridge or browser fallback.
@@ -252,89 +334,17 @@ export const openGallery = async ({
   onSelectFile,
   fileNamePrefix = "gallery-photo",
   fallbackInputRef = null,
-}) => {
-  if (typeof onSelectFile !== "function") return
-
-  const triggerGalleryFallback = (reason) => {
-    logPickerDiagnostic("gallery:fallback", {
-      reason,
-      usingFallbackInputRef: Boolean(fallbackInputRef?.current),
-    })
-    try {
+}) =>
+  openBridgePicker({
+    handlerName: "openGallery",
+    payload: { source: "gallery", accept: "image/*", multiple: false },
+    onSelectFile,
+    fileNamePrefix,
+    openFallback: (deliver) => {
       if (fallbackInputRef?.current && typeof fallbackInputRef.current.click === "function") {
         fallbackInputRef.current.click()
         return
       }
-      openTransientImageInput({
-        onSelectFile,
-        accept: "image/*",
-      })
-    } catch (e) {
-      logPickerDiagnostic("gallery:fallback-input-click-failed", e)
-      openTransientImageInput({
-        onSelectFile,
-        accept: "image/*",
-      })
-    }
-  }
-
-  if (!isFlutterBridgeAvailable()) {
-    triggerGalleryFallback("no-flutter-bridge")
-    return
-  }
-
-  try {
-    const bridgePromise = window.flutter_inappwebview.callHandler("openGallery", {
-      source: "gallery",
-      accept: "image/*",
-      multiple: false,
-    })
-
-    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 1500))
-    const result = await Promise.race([bridgePromise, timeoutPromise])
-
-    const isSuccess =
-      result?.success === true ||
-      Boolean(result?.base64 || result?.base64String || result?.data?.base64)
-
-    if (result && isSuccess) {
-      let selectedFile = null
-      const base64Value = result?.base64 || result?.base64String || result?.data?.base64
-      const mimeType = result?.mimeType || result?.type || result?.data?.mimeType || "image/jpeg"
-      const originalFileName = result?.fileName || result?.name || result?.data?.fileName || ""
-
-      if (base64Value) {
-        selectedFile = convertBase64ToFile(
-          base64Value,
-          mimeType,
-          fileNamePrefix,
-          originalFileName,
-        )
-      } else if (result.file instanceof File || result.file instanceof Blob) {
-        selectedFile = result.file
-      }
-
-      if (selectedFile) {
-        logPickerDiagnostic("gallery:bridge-success", { mimeType, originalFileName })
-        onSelectFile(selectedFile)
-        return
-      }
-
-      triggerGalleryFallback("bridge-success-without-usable-file")
-      return
-    }
-
-    if (!result) {
-      // Handler is not registered on the Flutter side, or never answered.
-      triggerGalleryFallback("bridge-timeout-or-no-handler")
-      return
-    }
-
-    if (result.success === false) {
-      triggerGalleryFallback({ reason: "bridge-reported-failure", result })
-    }
-  } catch (error) {
-    logPickerDiagnostic("gallery:bridge-threw", error)
-    triggerGalleryFallback("bridge-threw")
-  }
-}
+      openTransientImageInput({ onSelectFile: deliver, accept: "image/*" })
+    },
+  })

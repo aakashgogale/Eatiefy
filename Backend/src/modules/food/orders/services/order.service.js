@@ -994,7 +994,13 @@ export async function getOrderById(
       "restaurantId",
       "restaurantName ownerPhone profileImage area city location rating totalRatings primaryContactNumber",
     )
-    .populate("dispatch.deliveryPartnerId", "name fullName phone phoneNumber rating totalRatings profileImage avatar location")
+    // lastLocation/lastLat/lastLng are where a partner's GPS actually lives; "location"
+    // does not exist on that model, so the rider fallback in normalizeOrderForClient
+    // silently had nothing to fall back to and the customer saw an empty map.
+    .populate(
+      "dispatch.deliveryPartnerId",
+      "name fullName phone phoneNumber rating totalRatings profileImage avatar lastLocation lastLat lastLng lastLocationAt",
+    )
     .populate("userId", "name fullName phone email")
     .select("+deliveryOtp")
     .lean();
