@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
+import { MAX_USABLE_ACCURACY_M } from '@/modules/DeliveryV2/constants/gps';
 import { useProximityCheck } from '@/modules/DeliveryV2/hooks/useProximityCheck';
 import { useOrderManager } from '@/modules/DeliveryV2/hooks/useOrderManager';
 import { extractDeliveryOrderList } from '@/modules/DeliveryV2/utils/orderMapping';
@@ -417,7 +418,20 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
       // CRITICAL: In Simulation Mode, we disable actual GPS to prevent overwriting our test position
       if (isSimMode) return;
 
-      const { latitude: lat, longitude: lng, heading, speed } = pos.coords;
+      const { latitude: lat, longitude: lng, heading, speed, accuracy } = pos.coords;
+
+      // A Wi-Fi/cell fix can be kilometres wide. Acting on one teleports the rider
+      // across town: wrong distance and ETA, and a geofence that can auto-arrive
+      // from the next neighbourhood. Drop it — unless we have no position at all
+      // yet, where a rough marker still beats a blank map.
+      if (
+        Number.isFinite(accuracy) &&
+        accuracy > MAX_USABLE_ACCURACY_M &&
+        useDeliveryStore.getState().riderLocation
+      ) {
+        return;
+      }
+
       const now = Date.now();
 
       const currentRiderPos = { lat, lng, heading: heading || 0 };

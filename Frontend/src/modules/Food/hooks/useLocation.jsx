@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react"
 import { locationAPI, userAPI } from "@food/api"
 import { useProfile } from "@food/context/ProfileContext"
 import { acquireLocation, GEO_ERROR } from "@food/utils/liveLocation"
+import { reverseGeocodeWithGoogle } from "@food/utils/googleGeocoding"
 import {
   getCachedCustomizationSettings,
   loadCorePublicAppConfig,
@@ -367,6 +368,30 @@ export const hasValidStoredUserLocation = () => {
 }
 
 let pageLoadAutoRefreshStarted = false
+let coarseCacheRefreshStarted = false
+
+/**
+ * True for a cached entry left behind by the old city-level fallback: the
+ * coordinates are fine but the address never got more specific than the city.
+ *
+ * Those entries sit in localStorage and keep rendering "Indore" on every reload,
+ * because a reload deliberately reuses the cache instead of re-reading GPS. Spot
+ * them and re-resolve once, so existing users heal without clearing site data.
+ * @param {object|null} loc
+ * @returns {boolean}
+ */
+const isCoarseStoredAddress = (loc) => {
+  if (!loc || typeof loc !== "object") return false
+  if (!Number.isFinite(Number(loc.latitude)) || !Number.isFinite(Number(loc.longitude))) return false
+  if (String(loc.area || "").trim()) return false
+
+  const city = String(loc.city || "").trim().toLowerCase()
+  if (!city) return false
+
+  const address = String(loc.address || loc.formattedAddress || "").trim().toLowerCase()
+  // "Indore" or "Indore, Madhya Pradesh, India" — nothing below city level.
+  return address === city || address.startsWith(`${city},`)
+}
 let pageLoadDeliveryModeBootstrapped = false
 let cachedIsNewAppSession = false
 let autoLocationRefreshInFlight = null
@@ -634,100 +659,55 @@ export function useLocation() {
 
   // Google Places API removed - using OLA Maps only
 
-  /* Reverse geocode via backend proxy so the Maps key never hits the browser Network tab. */
+  /**
+   * Reverse geocode via the backend proxy (the Maps key never reaches the browser).
+   *
+   * Delegates to `reverseGeocodeWithGoogle`, which asks Google for the POI /
+   * premise / street-address result types alongside the general one and then picks
+   * the most specific result. Taking `results[0]` from a plain reverse lookup is
+   * what produced city-level labels: when Google has no street match for the fix it
+   * returns the locality first, and that locality became the whole address.
+   */
   const reverseGeocodeWithGoogleMaps = async (latitude, longitude, _options = {}) => {
     try {
-      debugLog("?? Fetching exact address from Google Maps (proxy) for:", latitude, longitude)
+      debugLog("Fetching exact address via geocode proxy for:", latitude, longitude)
 
-      const { geocodeAPI } = await import("@food/api")
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 3000)
+      const parsed = await reverseGeocodeWithGoogle(latitude, longitude)
 
-      let response
-      try {
-        response = await geocodeAPI.reverse(latitude, longitude, {}, { signal: controller.signal })
-      } finally {
-        clearTimeout(timeoutId)
-      }
-
-      const data = response?.data?.data
-
-      if (data?.status !== "OK" || !data.results || data.results.length === 0) {
-        debugWarn("?? Google Geocoding failed or returned no results:", data?.status)
-        return reverseGeocodeDirect(latitude, longitude)
-      }
-
-      // We use the first result which is usually the most specific (premise/street address)
-      const result = data.results[0]
-      const components = result.address_components
-      
-      const getComponent = (types) => {
-        const comp = components.find(c => types.some(t => c.types.includes(t)))
-        return comp ? comp.long_name : ""
-      }
-
-      // Extract parts
-      const streetNumber = getComponent(["street_number"])
-      const route = getComponent(["route"])
-      const sublocality = getComponent(["sublocality_level_1"]) || getComponent(["sublocality"])
-      const neighborhood = getComponent(["neighborhood"])
-      const locality = getComponent(["locality"])
-      const adminArea2 = getComponent(["administrative_area_level_2"])
-      const state = getComponent(["administrative_area_level_1"])
-      const country = getComponent(["country"])
-      const pincode = getComponent(["postal_code"])
-
-      // Prefer a served metro name over a village locality so the restaurant city
-      // filter matches; falls back to whatever the geocoder returned.
+      // Prefer a served metro name over a village locality so city-filtered
+      // restaurant queries match; with no service cities configured this returns
+      // the geocoder's own answer unchanged.
       const city = resolveServiceCity({
-        locality,
-        adminArea2,
-        formattedAddress: result.formatted_address,
-        fallback: locality || adminArea2 || "",
+        locality: parsed.city,
+        adminArea2: "",
+        formattedAddress: parsed.formattedAddress,
+        fallback: parsed.city || "",
       })
-      
-      // Determine area - prioritize sublocality/neighborhood for "Exact" feel
-      let area = sublocality || neighborhood || ""
-      if (
-        !area &&
-        locality &&
-        locality.toLowerCase() !== String(city).toLowerCase()
-      ) {
-        area = locality
-      }
-      
-      // If we have building/apartment info (premise/subpremise)
-      const premise = getComponent(["premise"]) || getComponent(["subpremise"]) || getComponent(["point_of_interest"])
 
-      // Construct a clean display address
-      // e.g. "B-204, Silver Oak Apartment, New Palasia"
-      let addressParts = []
-      if (premise) addressParts.push(premise)
-      if (streetNumber && route) addressParts.push(`${streetNumber}, ${route}`)
-      else if (route) addressParts.push(route)
-      if (area) addressParts.push(area)
-      
-      const displayAddress = addressParts.join(", ") || result.formatted_address.split(",")[0]
+      let area = parsed.area || ""
+      if (!area && parsed.city && parsed.city.toLowerCase() !== String(city).toLowerCase()) {
+        area = parsed.city
+      }
 
       const value = {
         city: city || "",
-        state: state,
-        country: country,
-        area: area,
-        pincode: pincode,
-        mainTitle: area || city,
-        address: displayAddress,
-        formattedAddress: result.formatted_address,
-        premise: premise || "",
-        streetNumber: streetNumber,
-        route: route,
-        placeId: result.place_id
+        state: parsed.state || "",
+        country: parsed.country || "",
+        area,
+        pincode: parsed.pincode || "",
+        mainTitle: parsed.placeName || parsed.mainTitle || area || city,
+        address: parsed.address || parsed.formattedAddress || "",
+        formattedAddress: parsed.formattedAddress || parsed.address || "",
+        premise: parsed.premise || "",
+        streetNumber: parsed.streetNumber || "",
+        route: parsed.route || "",
+        placeId: parsed.placeId || "",
       }
 
-      debugLog("? Google Geocoding successful (Exact):", value)
+      debugLog("Reverse geocode resolved (exact):", value)
       return value
     } catch (err) {
-      debugError("?? Google Geocoding error:", err.message)
+      debugError("Reverse geocode proxy error:", err.message)
       return reverseGeocodeDirect(latitude, longitude)
     }
   }
@@ -1974,6 +1954,22 @@ export function useLocation() {
     // Fresh tab/app open → force current GPS (F5 keeps selected city via isNewAppSession=false).
     const startAutoLocationRefresh = () => {
       runDedupedAutoRefresh(() => refreshLocationIfPermitted({ showLoading: false }))
+    }
+
+    // A reload keeps the cached pin on purpose, but a city-only cached address is
+    // stale data from the old fallback rather than a choice the user made — so
+    // re-resolve it once instead of showing "Indore" until the next cold open.
+    if (!isDefaultLocationMode && !isSuppressedPath && !coarseCacheRefreshStarted) {
+      let stored = null
+      try {
+        stored = JSON.parse(localStorage.getItem("userLocation") || "null")
+      } catch {
+        stored = null
+      }
+      if (isCoarseStoredAddress(stored)) {
+        coarseCacheRefreshStarted = true
+        startAutoLocationRefresh()
+      }
     }
 
     if (!isDefaultLocationMode && !isSuppressedPath && isNewAppSession) {

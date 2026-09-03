@@ -1,12 +1,16 @@
 import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
+import { MAX_USABLE_ACCURACY_M } from '@/modules/DeliveryV2/constants/gps';
 
 const LAPTOP_TEST_FALLBACK = { lat: 22.7196, lng: 75.8577, heading: 0 };
 
 const geoOptions = {
   enableHighAccuracy: true,
-  maximumAge: 5000,
+  // A cached fix is whatever the browser last settled for — often a coarse Wi-Fi
+  // estimate. Distance and ETA on the Orders screen are computed from this, so
+  // always take a live reading.
+  maximumAge: 0,
   timeout: 15000,
 };
 
@@ -31,8 +35,19 @@ export function useRiderLocationSync() {
     }
 
     const applyPosition = (pos) => {
-      const { latitude: lat, longitude: lng, heading } = pos.coords;
+      const { latitude: lat, longitude: lng, heading, accuracy } = pos.coords;
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+      // Reject a kilometre-wide tower estimate once we already hold a position —
+      // it would skew the new-order distance and ETA shown on the Orders screen.
+      if (
+        Number.isFinite(accuracy) &&
+        accuracy > MAX_USABLE_ACCURACY_M &&
+        useDeliveryStore.getState().riderLocation
+      ) {
+        return;
+      }
+
       setRiderLocation({ lat, lng, heading: heading || 0 });
     };
 

@@ -1,4 +1,5 @@
 import { parseGeoPoint } from "@food/utils/geo"
+import { preciseLocationLabel } from "@food/utils/locationLabel"
 
 export const DELIVERY_ADDRESS_MODE_KEY = "deliveryAddressMode"
 export const USER_LOCATION_KEY = "userLocation"
@@ -120,14 +121,9 @@ export function buildDisplayAddressText({
     return savedAddressText
   }
 
-  if (effectiveLocation?.area && effectiveLocation?.city) {
-    return `${effectiveLocation.area}, ${effectiveLocation.city}`
-  }
-
-  return (
-    effectiveLocation?.area ||
-    effectiveLocation?.city ||
-    effectiveLocation?.formattedAddress ||
-    "Select Location"
-  )
+  // `area, city` — and worse, the bare `city` fallback below it — discarded the
+  // street and building that reverse geocoding had already resolved, so a live
+  // location rendered as just "Indore". Build the label from the specific parts
+  // first and let the city anchor it.
+  return preciseLocationLabel(effectiveLocation, "Select Location")
 }

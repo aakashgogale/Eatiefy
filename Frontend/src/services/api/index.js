@@ -2728,6 +2728,29 @@ export const userAPI = {
   },
 };
 export const locationAPI = createStubAPI();
+
+/**
+ * Geocoding, proxied through our backend so the Maps server key never reaches the
+ * browser. Every "exact address" path in the apps goes through here; without it
+ * the callers threw and silently degraded to a city-level fallback provider.
+ */
+export const geocodeAPI = {
+  /** Reverse geocode a fix. `extraParams` carries Google's `result_type` filter. */
+  reverse: (latitude, longitude, extraParams = {}, config = {}) =>
+    apiClient.get("/food/geocode/reverse", {
+      params: { lat: latitude, lng: longitude, ...extraParams },
+      ...config,
+    }),
+  /** Forward geocode a Google place_id to coordinates + components. */
+  place: (placeId, config = {}) =>
+    apiClient.get("/food/geocode/place", { params: { place_id: placeId }, ...config }),
+  /** Nearest named places around a fix — turns coordinates into a building name. */
+  nearby: (body = {}, config = {}) =>
+    apiClient.post("/food/geocode/nearby", body, config),
+  /** Places text search, used by the address search boxes. */
+  textSearch: (body = {}, config = {}) =>
+    apiClient.post("/food/geocode/text-search", body, config),
+};
 export const zoneAPI = {
   /** Public: detect active service zone for a lat/lng point. */
   detectZone: (lat, lng) =>

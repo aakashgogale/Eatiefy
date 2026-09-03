@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom"
 import { useState, useEffect } from "react"
 import DynamicLogo from "@food/components/DynamicLogo"
+import { preciseLocationLabel } from "@food/utils/locationLabel"
 import { MapPin, ShoppingCart, Trophy } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { Avatar, AvatarFallback } from "@food/components/ui/avatar"
@@ -75,10 +76,13 @@ export default function Navbar() {
     }
   }, [])
 
-  // Show area if available, otherwise show city
+  // Main line shows the exact place (building / street / area); the sub-line keeps
+  // the city and state. Showing only `area` on the main line hid the precise
+  // address reverse geocoding had already resolved.
   const areaName = location?.area && location?.area !== location?.city ? location.area : null
-  const cityName = areaName || location?.city || "Select"
-  const stateName = location?.state || "Location"
+  const cityName = preciseLocationLabel(location, "Select")
+  const stateName =
+    [location?.city, location?.state].filter(Boolean).join(", ") || "Location"
 
   const handleLocationClick = () => {
     // Open location selector overlay

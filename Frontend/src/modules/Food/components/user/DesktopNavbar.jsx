@@ -8,6 +8,7 @@ import { useDeliveryLocation } from "@food/context/DeliveryLocationContext"
 import { useCart } from "@food/context/CartContext"
 import { useLocationSelector, useSearchOverlay } from "./UserLayout"
 import { useProfile } from "@food/context/ProfileContext"
+import { preciseLocationLabel } from "@food/utils/locationLabel"
 import { FaLocationDot } from "react-icons/fa6"
 import { AnimatePresence, motion } from "framer-motion"
 import DynamicLogo from "@food/components/DynamicLogo"
@@ -43,8 +44,10 @@ export default function DesktopNavbar({ showLogo = true }) {
     const areaName = userLocation?.area && userLocation?.area.trim() ? userLocation.area.trim() : null
     const cityName = userLocation?.city || null
     const stateName = userLocation?.state || null
-    // Main location name: Show area if available, otherwise show city, otherwise "Select"
-    const mainLocationName = areaName || cityName || "Select"
+    // Main location name: the exact place (building / street / area) that reverse
+    // geocoding resolved. Falling straight back to `area` here showed a
+    // neighbourhood — or just the city — in place of the address the user asked for.
+    const mainLocationName = preciseLocationLabel(userLocation, "Select")
     // Secondary location: Show only city when area is available (as per design image)
     const secondaryLocation = areaName
         ? (cityName || "")  // Show only city when area is available

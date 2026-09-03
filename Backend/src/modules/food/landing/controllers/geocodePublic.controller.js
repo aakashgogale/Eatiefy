@@ -97,6 +97,15 @@ export const reverseGeocodePublicController = async (req, res, next) => {
                 const googleData = await response.json();
                 if (googleData?.status === 'OK' && googleData?.results?.length > 0) {
                     data = googleData;
+                } else if (googleData?.status && googleData.status !== 'ZERO_RESULTS') {
+                    // A misconfigured key (billing off, API not enabled, referrer-restricted)
+                    // fails on every request and used to be indistinguishable from "no
+                    // result" — the coarse fallback below then answered with a city name.
+                    // Say so loudly: this is a deploy problem, not a data problem.
+                    console.error(
+                        `[geocode] Google reverse geocode rejected: ${googleData.status}` +
+                        (googleData.error_message ? ` — ${googleData.error_message}` : '')
+                    );
                 }
             } catch (googleErr) {
                 console.warn('Google reverse geocode error, falling back:', googleErr?.message);

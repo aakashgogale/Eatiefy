@@ -74,6 +74,12 @@ import {
 } from '../controllers/top10GourmetAdmin.controller.js';
 import { getPublicPageController } from '../../admin/controllers/pageContent.controller.js';
 import { getPublicReferralSettingsController } from '../controllers/publicReferralSettings.controller.js';
+import {
+    reverseGeocodePublicController,
+    geocodePlacePublicController,
+    nearbyPlacesPublicController,
+    textSearchPlacesPublicController
+} from '../controllers/geocodePublic.controller.js';
 
 const router = express.Router();
 const requireAdmin = [authMiddleware, requireRoles('ADMIN')];
@@ -81,6 +87,13 @@ const requireAdmin = [authMiddleware, requireRoles('ADMIN')];
 // Public CMS pages (About + legal). No auth required.
 router.get('/pages/:key', getPublicPageController);
 router.get('/referral-settings', getPublicReferralSettingsController);
+
+// Geocoding proxy — keeps the Maps server key out of the browser. Public because
+// the user app resolves an address before anyone signs in.
+router.get('/geocode/reverse', reverseGeocodePublicController);
+router.get('/geocode/place', geocodePlacePublicController);
+router.post('/geocode/nearby', nearbyPlacesPublicController);
+router.post('/geocode/text-search', textSearchPlacesPublicController);
 
 // Public landing endpoints — before admin CMS routes
 router.get('/hero-banners/public', getPublicHeroBannersController);

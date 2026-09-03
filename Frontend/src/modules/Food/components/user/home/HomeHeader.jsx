@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, ChevronDown, Search, Mic, Bell, CheckCircle2, Tag, Gift, AlertCircle, Clock, BellOff, X, ChevronRight, ShoppingBag, Menu, Wallet } from 'lucide-react';
+import { preciseLocationLabel } from "@food/utils/locationLabel";
 import { Badge } from "@food/components/ui/badge";
 import { Avatar, AvatarFallback } from "@food/components/ui/avatar";
 import { API_BASE_URL } from "@food/api/config";
@@ -575,9 +576,7 @@ export default function HomeHeader({
                   <ChevronDown className="h-3.5 w-3.5 text-white stroke-[3]" />
                 </div>
                 <span className="text-[11px] font-semibold text-white/95 truncate drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)] max-w-full">
-                  {savedAddressText || (location?.area && location?.city 
-                    ? `${location.area}, ${location.city}` 
-                    : location?.area || location?.city || "73, Sahakar Nagar, Indore")}
+                  {savedAddressText || preciseLocationLabel(location)}
                 </span>
               </div>
             </div>

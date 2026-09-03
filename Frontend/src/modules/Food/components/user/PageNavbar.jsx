@@ -8,6 +8,7 @@ import { useLocationSelector } from "./UserLayout"
 import { FaLocationDot } from "react-icons/fa6"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
 import DynamicLogo from "@food/components/DynamicLogo"
+import { getKnownCityNames } from "@food/utils/locationLabel"
 
 export default function PageNavbar({
   textColor = "white",
@@ -385,13 +386,15 @@ export default function PageNavbar({
         debugLog(`?? City index (exact match with "${location.city}"):`, cityIndex)
       }
 
-      // Method 2: Check common city names (case-insensitive)
+      // Method 2: Check known city names (case-insensitive). The list is the
+      // geocoded city plus the admin-configured service cities — a hardcoded list
+      // matched nothing outside those cities and left the label as the city name.
       if (cityIndex === -1) {
-        const commonCities = ["Indore", "indore", "Bhopal", "bhopal", "Mumbai", "mumbai", "Delhi", "delhi"]
-        cityIndex = filteredParts.findIndex(part =>
-          commonCities.some(city => part.toLowerCase() === city.toLowerCase())
+        const knownCities = getKnownCityNames(location)
+        cityIndex = knownCities.length === 0 ? -1 : filteredParts.findIndex(part =>
+          knownCities.some(city => part.toLowerCase() === city.toLowerCase())
         )
-        debugLog("?? City index (common cities):", cityIndex)
+        debugLog("?? City index (known cities):", cityIndex)
       }
 
       // Method 3: Check if part contains state name (usually comes after city)
@@ -507,9 +510,9 @@ export default function PageNavbar({
         }
 
         if (cityIndex === -1) {
-          const commonCities = ["Indore", "indore", "Bhopal", "bhopal"]
-          cityIndex = filteredParts.findIndex(part =>
-            commonCities.some(city => part.toLowerCase().includes(city.toLowerCase()))
+          const knownCities = getKnownCityNames(location)
+          cityIndex = knownCities.length === 0 ? -1 : filteredParts.findIndex(part =>
+            knownCities.some(city => part.toLowerCase().includes(city.toLowerCase()))
           )
         }
 
@@ -657,7 +660,7 @@ export default function PageNavbar({
     }
 
     // Final check: If mainLocation is just city name, try one more time to extract from formattedAddress
-    if (mainLocation && (mainLocation.toLowerCase() === location?.city?.toLowerCase() || mainLocation === "Indore")) {
+    if (mainLocation && mainLocation.toLowerCase() === location?.city?.toLowerCase()) {
       debugLog("?????? MainLocation is city, trying to extract locality one more time...")
 
       // First priority: Check if area is available in location object
