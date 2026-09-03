@@ -528,6 +528,10 @@ export function useLocation() {
   // Consumers use this to decide whether to ask the user to confirm the pin.
   const [accuracyMeters, setAccuracyMeters] = useState(null)
   const [isPreciseLocation, setIsPreciseLocation] = useState(false)
+  // True when the device settled on a kilometre-wide fix — the signature of
+  // "Approximate" location permission (Android 12+ / iOS). No address resolved
+  // from such a fix can be more specific than the city.
+  const [isApproximatePermission, setIsApproximatePermission] = useState(false)
 
   const watchIdRef = useRef(null)
   const updateTimerRef = useRef(null)
@@ -1482,6 +1486,7 @@ export function useLocation() {
             debugLog(`Fix settled: ${Math.round(fix.accuracy)}m in ${fix.elapsedMs}ms, precise=${fix.isPrecise}`)
             setAccuracyMeters(fix.accuracy)
             setIsPreciseLocation(fix.isPrecise)
+            setIsApproximatePermission(Boolean(fix.isApproximate))
             return onPosition({
               coords: {
                 latitude: fix.latitude,
@@ -2293,6 +2298,7 @@ export function useLocation() {
     permissionGranted,
     accuracyMeters,
     isPreciseLocation,
+    isApproximatePermission,
     requestLocation,
     requestLocationFast,
     startWatchingLocation,

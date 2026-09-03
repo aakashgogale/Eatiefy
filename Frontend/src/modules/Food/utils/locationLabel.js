@@ -33,11 +33,28 @@ const firstUsable = (...candidates) => {
   return ""
 }
 
+/**
+ * Segments that carry no meaning in a one-line header.
+ *
+ * A plot number ("1264/26", "47", "G-2") is precise but says nothing a person can
+ * place, and Google occasionally returns a bare generic word as a sublocality
+ * name — real observed values include "area" and "Colony". Both belong in the
+ * saved address, not in the label the user reads at a glance.
+ */
+export const isNoiseSegment = (part) => {
+  const text = clean(part)
+  if (!text) return true
+  // "1264/26", "47", "G-2", "B/204" — a number, optionally with a letter prefix.
+  if (/^[A-Za-z]?[-/]?\d+([-/]\d+)*[A-Za-z]?$/.test(text)) return true
+  return ["area", "colony", "block", "sector", "ward", "zone"].includes(text.toLowerCase())
+}
+
 const splitParts = (value) =>
   String(value || "")
     .split(",")
     .map((part) => part.trim())
     .filter(Boolean)
+    .filter((part) => !isNoiseSegment(part))
 
 /**
  * A `formatted_address` ends in administrative noise — "Indore, Madhya Pradesh
@@ -81,7 +98,7 @@ export function preciseLocationLabel(location, fallback = "Select location") {
   const label = []
   const add = (value) => {
     const text = clean(value)
-    if (!text || isPlaceholder(text)) return
+    if (!text || isPlaceholder(text) || isNoiseSegment(text)) return
     const lower = text.toLowerCase()
     // Skip anything an existing segment already says ("New Palasia" after
     // "Princess Centre, New Palasia").

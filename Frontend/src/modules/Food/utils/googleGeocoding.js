@@ -1,5 +1,6 @@
 import { geocodeAPI } from "@food/api"
 import { getCurrentCoordinates } from "@food/utils/liveLocation"
+import { isNoiseSegment } from "@food/utils/locationLabel"
 
 /**
  * Read fresh GPS coordinates from the device (no cache).
@@ -178,9 +179,22 @@ export function parseGoogleGeocodeResult(result, options = {}) {
 
   const streetNumber = getComponent(components, ["street_number"])
   const route = getComponent(components, ["route"])
+
+  // Locality-level components, most specific first. In India, Google puts the
+  // colony/nagar name in `sublocality_level_1` (and a finer subdivision in
+  // `sublocality_level_2`); reading only the administrative levels is what left
+  // the label at city granularity.
+  // Google sometimes fills a sublocality with a bare generic word — "Colony",
+  // "area" — which names nothing. Skip those so the chain falls through to a
+  // component that a person can actually place.
+  const named = (value) => (value && !isNoiseSegment(value) ? value : "")
+
+  const sublocality1 = named(getComponent(components, ["sublocality_level_1"]))
+  const sublocality2 = named(getComponent(components, ["sublocality_level_2"]))
+  const sublocalityGeneric = named(getComponent(components, ["sublocality"]))
+  const neighborhood = named(getComponent(components, ["neighborhood"]))
   const sublocality =
-    getComponent(components, ["sublocality_level_1"]) || getComponent(components, ["sublocality"])
-  const neighborhood = getComponent(components, ["neighborhood"])
+    sublocality1 || neighborhood || sublocality2 || sublocalityGeneric
   const locality = getComponent(components, ["locality"])
   const adminArea2 = getComponent(components, ["administrative_area_level_2"])
   const postalTown = getComponent(components, ["postal_town"])
@@ -202,17 +216,28 @@ export function parseGoogleGeocodeResult(result, options = {}) {
       ? getPlaceNameFromFormattedAddress(result?.formatted_address)
       : "")
 
-  let area = sublocality || neighborhood || ""
+  // Area fallback chain: sublocality_level_1 → neighborhood → sublocality_level_2
+  // → generic sublocality → a locality that differs from the resolved city. Only
+  // when every one of those is absent does the label collapse to the city.
+  let area = sublocality || ""
   if (!area && locality && locality.toLowerCase() !== String(city).toLowerCase()) {
     area = locality
   }
 
+  // A finer subdivision that isn't already implied by `area` — "Sahakar Nagar"
+  // under "Vijay Nagar" — is worth keeping as the more specific half of the label.
+  const subArea =
+    sublocality2 && sublocality2.toLowerCase() !== area.toLowerCase() ? sublocality2 : ""
+
   const streetLine =
     streetNumber && route ? `${streetNumber}, ${route}` : route || ""
 
+  // "[place], [street], [sub-area], [area]" — most specific first, so the header
+  // reads "Sahakar Nagar, Indore" rather than "Indore".
   const addressParts = []
   if (placeName) addressParts.push(placeName)
   if (streetLine && streetLine !== placeName) addressParts.push(streetLine)
+  if (subArea) addressParts.push(subArea)
   if (area) addressParts.push(area)
 
   const displayAddress = addressParts.join(", ") || result?.formatted_address?.split(",")[0] || ""
@@ -224,6 +249,7 @@ export function parseGoogleGeocodeResult(result, options = {}) {
     state: state || "",
     country: country || "India",
     area,
+    subArea,
     pincode,
     placeName: placeName || "",
     mainTitle: placeName || area || city || displayAddress,

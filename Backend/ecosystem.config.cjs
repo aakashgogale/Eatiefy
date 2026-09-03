@@ -1,5 +1,5 @@
 /**
- * PM2 ecosystem for Eatiefy API + BullMQ workers.
+ * PM2 ecosystem for Eatiefy API + BullMQ workers + Socket Server.
  *
  * Usage (on live server, from Backend folder):
  *   pm2 start ecosystem.config.cjs
@@ -11,11 +11,9 @@
  * - Workers wait for Redis, then exit 0 (not 1) so PM2 doesn't hard crash-loop
  *
  * Realtime (Socket.IO):
- * - Sockets are served by `eatiefy-api` itself (server.js calls initSocket).
- *   Do NOT run `npm run start:socket` here — socket_server.js defaults to
- *   SOCKET_PORT=5010, which collides with the API's PORT and causes EADDRINUSE.
+ * - Sockets run on dedicated standalone socket server (`eatiefy-socket`) on port 5001.
  * - Workers have no Socket.IO server, so they emit through the Redis emitter
- *   (src/config/socketEmitter.js). That requires REDIS_ENABLED=true and the API
+ *   (src/config/socketEmitter.js). That requires REDIS_ENABLED=true and the API/socket
  *   running the Redis adapter, otherwise realtime events raised inside jobs
  *   (dispatch retries, acceptance timeouts) are dropped.
  */
@@ -28,6 +26,22 @@ const api = {
       max_memory_restart: '512M',
       env: {
         NODE_ENV: 'production',
+        USE_DEFAULT_OTP: 'false',
+      },
+    };
+
+const socket = {
+      name: 'eatiefy-socket',
+      script: 'socket_server.js',
+      cwd: __dirname,
+      instances: 1,
+      exec_mode: 'fork',
+      max_memory_restart: '256M',
+      restart_delay: 5000,
+      env: {
+        NODE_ENV: 'production',
+        SOCKET_PORT: 5001,
+        PORT: 5001,
         USE_DEFAULT_OTP: 'false',
       },
     };
@@ -88,6 +102,7 @@ const workers = [
 module.exports = {
   apps: [
     api,
+    socket,
     ...workers,
   ],
 };

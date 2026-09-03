@@ -5,6 +5,7 @@ import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
 import { Textarea } from "@food/components/ui/textarea"
 import { useDeliveryLocation } from "@food/context/DeliveryLocationContext"
+import { APPROXIMATE_ACCURACY_M } from "@food/utils/liveLocation"
 import { useProfile } from "@food/context/ProfileContext"
 import { toast } from "sonner"
 import { locationAPI, userAPI } from "@food/api"
@@ -793,6 +794,16 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
       if (!locationData.latitude || !locationData.longitude) {
         toast.error("Invalid location data received. Please try again.", { id: "location-request" })
         return
+      }
+
+      // A kilometre-wide fix means the OS handed us "Approximate" location. No
+      // amount of geocoding turns that into a street, so say what to change
+      // rather than quietly showing the user their city.
+      if (locationData?.accuracy > APPROXIMATE_ACCURACY_M) {
+        toast(
+          "Only approximate location is allowed for this app. Turn on precise location in your device settings for an exact address.",
+          { id: "location-request", icon: "📍", duration: 6000 },
+        )
       }
 
       debugLog("? Fresh location received:", {

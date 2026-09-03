@@ -24,6 +24,18 @@
  * assumed anywhere in this file.
  */
 
+/**
+ * Above this radius a fix cannot have come from GPS.
+ *
+ * Android 12+ lets a user grant "Approximate" location instead of "Precise", and
+ * iOS has the same switch. The browser does not expose which was granted — the
+ * only signal is the accuracy it reports, which sits in the 1–3 km range and,
+ * crucially, never improves however long the watch stays open. That is
+ * indistinguishable from a locality, so the address can only ever be city-level.
+ * Detect it and tell the user, rather than silently showing them the wrong place.
+ */
+export const APPROXIMATE_ACCURACY_M = 500
+
 export const GEO_ERROR = {
   UNSUPPORTED: 'UNSUPPORTED',
   INSECURE_CONTEXT: 'INSECURE_CONTEXT',
@@ -169,6 +181,9 @@ export const acquireLocation = ({
       resolve({
         ...fix,
         isPrecise: fix.accuracy <= acceptableAccuracyM,
+        // The receiver had its full window and still could not do better than a
+        // kilometre — the device is withholding precise location.
+        isApproximate: fix.accuracy > APPROXIMATE_ACCURACY_M,
         elapsedMs: Date.now() - startedAt,
       });
     };

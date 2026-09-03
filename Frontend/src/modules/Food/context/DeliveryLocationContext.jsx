@@ -25,6 +25,8 @@ const defaultDeliveryLocationContext = {
   savedAddressText: "",
   defaultSavedAddress: null,
   loading: true,
+  accuracyMeters: null,
+  isApproximatePermission: false,
   requestLocation: async () => null,
   requestLiveLocation: async () => null,
   zoneId: null,
@@ -41,7 +43,13 @@ const DeliveryLocationContext = createContext(defaultDeliveryLocationContext)
 
 export function DeliveryLocationProvider({ children }) {
   const { getDefaultAddress } = useProfile()
-  const { location: liveLocation, loading, requestLocation } = useLocation()
+  const {
+    location: liveLocation,
+    loading,
+    requestLocation,
+    accuracyMeters,
+    isApproximatePermission,
+  } = useLocation()
   const [deliveryAddressMode, setDeliveryAddressMode] = useState(getDeliveryAddressMode)
   const [addressRevision, setAddressRevision] = useState(0)
 
@@ -145,6 +153,8 @@ export function DeliveryLocationProvider({ children }) {
       savedAddressText,
       defaultSavedAddress,
       loading,
+      accuracyMeters,
+      isApproximatePermission,
       requestLocation,
       requestLiveLocation,
       zoneId,
@@ -164,6 +174,8 @@ export function DeliveryLocationProvider({ children }) {
       savedAddressText,
       defaultSavedAddress,
       loading,
+      accuracyMeters,
+      isApproximatePermission,
       requestLocation,
       requestLiveLocation,
       zoneId,
