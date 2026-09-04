@@ -1,5 +1,9 @@
 import { API_BASE_URL } from "../../services/api/config.js";
-import { normalizeBackendOrigin, sanitizeProtocol } from "../../services/api/urlUtils.js";
+import {
+  normalizeBackendOrigin,
+  preferPageOriginOverLocalhost,
+  sanitizeProtocol,
+} from "../../services/api/urlUtils.js";
 
 const SIGNED_URL_PATTERN =
   /[?&](X-Amz-|Signature=|Expires=|AWSAccessKeyId=|GoogleAccessId=|token=|sig=|se=|sp=|sv=)/i;
@@ -22,9 +26,14 @@ export const getBackendOrigin = () => {
  * Prod CDN: set VITE_UPLOAD_BASE_URL=https://cdn.yourdomain.com/uploads
  */
 export const getUploadBaseUrl = () => {
+  // preferPageOriginOverLocalhost keeps a stale localhost value from a bad
+  // production build out of every <img src>; it is a no-op in development.
   const explicit =
     typeof import.meta !== "undefined"
-      ? String(import.meta.env?.VITE_UPLOAD_BASE_URL || "").trim().replace(/\/$/, "")
+      ? preferPageOriginOverLocalhost(
+          String(import.meta.env?.VITE_UPLOAD_BASE_URL || "").trim().replace(/\/$/, ""),
+          "VITE_UPLOAD_BASE_URL",
+        )
       : "";
   if (explicit) return explicit;
 

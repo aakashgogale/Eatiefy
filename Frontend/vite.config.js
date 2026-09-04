@@ -75,8 +75,11 @@ export default defineConfig({
           // short-lived, and limited to genuinely public data — never authenticated
           // responses.
         ],
-        // Let API requests reach the network instead of being answered with index.html.
-        navigateFallbackDenylist: [/^\/api\//],
+        // Anything the reverse proxy owns must reach the network instead of being
+        // answered from the precached index.html: the REST API, uploaded media and
+        // the Socket.IO handshake are all same-origin here, so without this the SW
+        // hands back HTML and requests fail in ways that look like server errors.
+        navigateFallbackDenylist: [/^\/api\//, /^\/uploads\//, /^\/socket\.io\//],
         cleanupOutdatedCaches: true,
       }
     })

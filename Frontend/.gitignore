@@ -24,7 +24,10 @@ dist-ssr
 *.sw?
 
 # Environment variables
+# .env.production is ignored like .env: both hold browser keys and the live
+# API origin, and are created on the deploy host from .env.production.example.
 .env
+.env.production
 .env.development.local
 .env.test.local
 .env.production.local

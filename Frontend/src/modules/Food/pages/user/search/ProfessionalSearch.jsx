@@ -12,17 +12,15 @@ import { useLocation as useGeoLocation } from "@food/hooks/useLocation"
 import { useZone } from "@food/hooks/useZone"
 import { adminAPI, searchAPI } from "@/services/api"
 import { motion, AnimatePresence } from "framer-motion"
+import { resolveMediaUrl } from "@/shared/utils/mediaUrl"
 
-// Helper to resolve media URLs consistently
+// Media URLs go through the shared resolver so this page cannot drift from the
+// rest of the app. The local copy this replaces fell back to a hardcoded
+// http://localhost:5000/api/v1, which baked that origin into the production
+// bundle whenever VITE_API_BASE_URL was missing or wrong.
 const getMediaUrl = (url) => {
   if (!url || typeof url !== 'string') return null;
-  if (url.startsWith('http')) return url;
-  
-  // Use VITE_API_BASE_URL to derive the backend origin
-  const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api/v1";
-  const origin = apiBase.split('/api/v1')[0];
-  
-  return `${origin}${url.startsWith('/') ? url : '/' + url}`;
+  return resolveMediaUrl(url) || null;
 };
 
 // Debounce hook for real-time search
