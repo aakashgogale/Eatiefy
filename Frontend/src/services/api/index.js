@@ -133,9 +133,9 @@ export const api = {
 
 /** Auth API - user OTP + admin login via new backend */
 export const authAPI = {
-  sendOTP: (phone, _purpose = "login", _email = null) => {
+  sendOTP: (phone, purpose = "login", _email = null) => {
     if (!phone) return Promise.reject(new Error("Phone is required"));
-    return authService.requestUserOtp(phone);
+    return authService.requestUserOtp(phone, purpose);
   },
   verifyOTP: (
     phone,

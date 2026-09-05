@@ -9,8 +9,35 @@ import logoImg from "@food/assets/user-app-logo.webp"
 import DynamicLogo from "@food/components/DynamicLogo"
 import loginBgImg from "@food/assets/login_bg.webp"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
+import { readAuthDraft, saveAuthDraft, clearAuthDraft } from "@food/utils/authDraft"
 
 const debugError = (...args) => { }
+
+/**
+ * Resolve the phone/tab this page should open with, synchronously on first render.
+ * Priority: the in-progress draft (user left for Terms/Privacy/Support and came
+ * back) > the phone an OTP was already sent to (user backed out of the OTP page).
+ */
+const resolveInitialAuthState = () => {
+  const draft = readAuthDraft("user")
+  if (draft) {
+    return { phone: draft.phone, countryCode: draft.countryCode, isSignUp: draft.isSignUp }
+  }
+
+  try {
+    const stored = sessionStorage.getItem("userAuthData")
+    if (stored) {
+      const data = JSON.parse(stored)
+      const fullPhone = String(data.phone || "").trim()
+      const phoneDigits = fullPhone.replace(/^\+91\s*/, "").replace(/\D/g, "").slice(0, 10)
+      return { phone: phoneDigits, countryCode: "+91", isSignUp: data.isSignUp === true }
+    }
+  } catch (err) {
+    debugError("Error parsing stored auth data:", err)
+  }
+
+  return { phone: "", countryCode: "+91", isSignUp: false }
+}
 
 export default function SignIn() {
   const navigate = useNavigate()
@@ -25,13 +52,22 @@ export default function SignIn() {
     return cached?.companyName || "Eatiefy"
   })
 
+  // Read once, before first paint, so the input never mounts empty and then refills.
+  const initialAuthStateRef = useRef(null)
+  if (initialAuthStateRef.current === null) {
+    initialAuthStateRef.current = resolveInitialAuthState()
+  }
+
   const [formData, setFormData] = useState({
-    phone: "",
-    countryCode: "+91",
+    phone: initialAuthStateRef.current.phone,
+    countryCode: initialAuthStateRef.current.countryCode,
   })
-  const [isSignUp, setIsSignUp] = useState(false)
+  const [isSignUp, setIsSignUp] = useState(initialAuthStateRef.current.isSignUp)
 
   const [error, setError] = useState("")
+  // Set when the backend refuses a login because the number has no account yet,
+  // so the message can offer the register flow instead of just failing.
+  const [notRegistered, setNotRegistered] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const submittingRef = useRef(false)
 
@@ -50,23 +86,20 @@ export default function SignIn() {
     fetchSettings()
   }, [])
 
+  // Keep the draft in sync so navigating to Terms/Privacy/Support (which unmounts
+  // this route) and coming back restores exactly what was typed.
   useEffect(() => {
-    const stored = sessionStorage.getItem("userAuthData")
-    if (!stored) return
+    saveAuthDraft("user", {
+      phone: formData.phone,
+      countryCode: formData.countryCode,
+      isSignUp,
+    })
+  }, [formData.phone, formData.countryCode, isSignUp])
 
-    try {
-      const data = JSON.parse(stored)
-      const fullPhone = String(data.phone || "").trim()
-      const phoneDigits = fullPhone.replace(/^\+91\s*/, "").replace(/\D/g, "").slice(0, 10)
-
-      setFormData((prev) => ({
-        ...prev,
-        phone: phoneDigits || prev.phone,
-      }))
-    } catch (err) {
-      debugError("Error parsing stored auth data:", err)
-    }
-  }, [])
+  const exitAuthFlow = () => {
+    clearAuthDraft("user")
+    navigate("/food/user")
+  }
 
   const validatePhone = (phone) => {
     if (!phone.trim()) return "Phone number is required"
@@ -82,6 +115,8 @@ export default function SignIn() {
     if (name === "phone") {
       value = value.replace(/\D/g, "").slice(0, 10)
       setError(validatePhone(value))
+      // A different number has to be re-checked against the backend.
+      setNotRegistered(false)
     }
 
     setFormData((prev) => ({ ...prev, [name]: value }))
@@ -96,6 +131,7 @@ export default function SignIn() {
     submittingRef.current = true
     setIsLoading(true)
     setError("")
+    setNotRegistered(false)
 
     try {
       const countryCode = formData.countryCode?.trim() || "+91"
@@ -122,13 +158,24 @@ export default function SignIn() {
       }
 
       sessionStorage.setItem("userAuthData", JSON.stringify(authData))
-      navigate("/food/user/auth/otp")
+      // fromLogin marks that this page is the entry directly behind /otp, so
+      // Edit Phone Number can pop back to it instead of pushing a new one.
+      navigate("/food/user/auth/otp", { state: { fromLogin: true } })
     } catch (apiError) {
-      const message =
-        apiError?.response?.data?.message ||
-        apiError?.response?.data?.error ||
-        "Failed to send OTP. Please try again."
-      setError(message)
+      // No OTP was sent and no auth state was written, so the user simply stays
+      // here with their number intact.
+      const isNotRegistered =
+        apiError?.response?.data?.code === "USER_NOT_REGISTERED"
+      if (isNotRegistered) {
+        setNotRegistered(true)
+        setError("This number is not registered. Please register to continue.")
+      } else {
+        const message =
+          apiError?.response?.data?.message ||
+          apiError?.response?.data?.error ||
+          "Failed to send OTP. Please try again."
+        setError(message)
+      }
     } finally {
       setIsLoading(false)
       submittingRef.current = false
@@ -174,7 +221,7 @@ export default function SignIn() {
         {/* Top Header - Back Button */}
         <div className="flex items-center justify-between w-full">
           <button
-            onClick={() => navigate("/food/user")}
+            onClick={exitAuthFlow}
             className="p-2.5 bg-black/35 hover:bg-black/45 backdrop-blur-md rounded-full text-white transition-all active:scale-95 shadow-md flex items-center justify-center cursor-pointer border border-white/10"
             aria-label="Continue as Guest"
           >
@@ -215,14 +262,14 @@ export default function SignIn() {
             <div className="flex bg-gray-100/80 p-1 rounded-xl mb-6 border border-gray-200/50">
               <button
                 type="button"
-                onClick={() => setIsSignUp(false)}
+                onClick={() => { setIsSignUp(false); setNotRegistered(false); setError("") }}
                 className={`flex-1 py-2.5 text-sm font-black rounded-lg transition-all duration-300 ${!isSignUp ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
               >
                 Login
               </button>
               <button
                 type="button"
-                onClick={() => setIsSignUp(true)}
+                onClick={() => { setIsSignUp(true); setNotRegistered(false); setError("") }}
                 className={`flex-1 py-2.5 text-sm font-black rounded-lg transition-all duration-300 ${isSignUp ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
               >
                 Register
@@ -275,10 +322,23 @@ export default function SignIn() {
                   <motion.div
                     initial={{ opacity: 0, y: -4 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="flex items-center gap-1.5 text-xs font-bold text-red-500 pl-1 pt-0.5"
+                    className="flex items-center gap-1.5 text-xs font-bold text-red-500 pl-1 pt-0.5 flex-wrap"
                   >
-                    <AlertCircle className="h-3.5 w-3.5" />
+                    <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
                     <span>{error}</span>
+                    {notRegistered && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsSignUp(true)
+                          setNotRegistered(false)
+                          setError("")
+                        }}
+                        className="font-black uppercase tracking-wider text-[#659116] hover:text-[#588114] underline underline-offset-2 transition-colors cursor-pointer"
+                      >
+                        Register
+                      </button>
+                    )}
                   </motion.div>
                 )}
               </div>

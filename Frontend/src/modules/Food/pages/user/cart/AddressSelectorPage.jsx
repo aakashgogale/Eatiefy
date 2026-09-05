@@ -1,6 +1,14 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
-import { ChevronLeft, ChevronRight, Plus, MapPin, MoreHorizontal, Navigation, Home, Building2, Briefcase, Phone, X, Crosshair, Search } from "lucide-react"
+import { ChevronLeft, ChevronRight, Plus, MapPin, MoreHorizontal, Navigation, Home, Building2, Briefcase, Phone, X, Crosshair, Search, Pencil, Trash2, Loader2 } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@food/components/ui/dialog"
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
@@ -10,6 +18,8 @@ import { useProfile } from "@food/context/ProfileContext"
 import { toast } from "sonner"
 import { locationAPI, userAPI } from "@food/api"
 import { Loader } from '@googlemaps/js-api-loader'
+import { GEO_ERROR, LocationError } from "@food/utils/liveLocation"
+import { showLocationFailureToast } from "@food/utils/locationFailure"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { isModuleAuthenticated } from "@food/utils/auth"
@@ -56,7 +66,14 @@ export default function AddressSelectorPage() {
   const routerLocation = useLocation()
   const goBack = useAppBackNavigation()
   const { liveLocation: location, loading, requestLiveLocation } = useDeliveryLocation()
-  const { addresses = [], addAddress, updateAddress, setDefaultAddress, userProfile } = useProfile()
+  const {
+    addresses = [],
+    addAddress,
+    updateAddress,
+    deleteAddress,
+    setDefaultAddress,
+    userProfile,
+  } = useProfile()
   const [showAddressForm, setShowAddressForm] = useState(false)
   const [mapPosition, setMapPosition] = useState([
     Number.isFinite(location?.latitude) ? location.latitude : 20.5937,
@@ -74,6 +91,13 @@ export default function AddressSelectorPage() {
   const [loadingAddress, setLoadingAddress] = useState(false)
   const [mapLoading, setMapLoading] = useState(false)
   const [isLocating, setIsLocating] = useState(false)
+  /** True after a failed detection, so the row stops implying a live fix exists. */
+  const [locationFailed, setLocationFailed] = useState(false)
+  /** Id of the address being edited; null means the form is adding a new one. */
+  const [editingAddressId, setEditingAddressId] = useState(null)
+  /** The address awaiting delete confirmation. */
+  const [addressPendingDelete, setAddressPendingDelete] = useState(null)
+  const [isDeletingAddress, setIsDeletingAddress] = useState(false)
   const mapContainerRef = useRef(null)
   const googleMapRef = useRef(null) // Google Maps instance
   const greenMarkerRef = useRef(null) // Green marker for address selection
@@ -408,16 +432,20 @@ export default function AddressSelectorPage() {
     if (isLocating) return
     setIsLocating(true)
     try {
+      setLocationFailed(false)
       toast.loading("Detecting your live location...", { id: "geo" })
-      const loc = await requestLiveLocation()
-      let resolvedLoc = loc
-      if (!resolvedLoc || !Number.isFinite(Number(resolvedLoc?.latitude)) || !Number.isFinite(Number(resolvedLoc?.longitude))) {
-        resolvedLoc = location || readStoredUserLocation()
-      }
+      const resolvedLoc = await requestLiveLocation()
 
-      if (!resolvedLoc || !Number.isFinite(Number(resolvedLoc?.latitude)) || !Number.isFinite(Number(resolvedLoc?.longitude))) {
-        toast.error("Could not detect GPS location. Please allow location permissions in your browser.", { id: "geo" })
-        return
+      // No falling back to `location` / the stored location here. Substituting the
+      // previous position when the fix fails is what made a failed detection look
+      // like a successful one: the row kept showing the old city and the app was
+      // switched to "current location" pointing at a place the user may have left.
+      if (
+        !resolvedLoc ||
+        !Number.isFinite(Number(resolvedLoc?.latitude)) ||
+        !Number.isFinite(Number(resolvedLoc?.longitude))
+      ) {
+        throw new LocationError(GEO_ERROR.POSITION_UNAVAILABLE)
       }
 
       const isCoordinate = (str) => /^-?\d+\.\d+,\s*-?\d+\.\d+$/.test(String(str || "").trim())
@@ -476,7 +504,11 @@ export default function AddressSelectorPage() {
         handleBack()
       }
     } catch (e) {
-      toast.error(e?.message || "Failed to get location", { id: "geo" })
+      // Nothing was committed: the delivery mode, the stored location and the
+      // selected address are all untouched, so the app keeps using whatever
+      // valid place it already had.
+      setLocationFailed(true)
+      showLocationFailureToast(e, handleUseCurrentLocation, "geo")
     } finally {
       setIsLocating(false)
     }
@@ -533,11 +565,93 @@ export default function AddressSelectorPage() {
       navigate("/food/user/auth/login", { state: { from: routerLocation.pathname } })
       return
     }
+    // Adding starts from a clean slate — otherwise the previously edited
+    // address would leak into the "new address" form.
+    setEditingAddressId(null)
+    setAddressFormData({
+      street: "",
+      city: "",
+      state: "",
+      zipCode: "",
+      additionalDetails: "",
+      label: "Home",
+      phone: userProfile?.phone || "",
+    })
+    setAddressAutocompleteValue("")
     setShowAddressForm(true)
+  }
+
+  /** Open the existing form pre-filled with everything already saved. */
+  const handleEditAddressClick = (address) => {
+    if (!isModuleAuthenticated("user")) {
+      navigate("/food/user/auth/login", { state: { from: routerLocation.pathname } })
+      return
+    }
+
+    const id = getAddressId(address)
+    if (!id) {
+      toast.error("This address can't be edited")
+      return
+    }
+
+    setEditingAddressId(id)
+    setAddressFormData({
+      street: address?.street || "",
+      city: address?.city || "",
+      state: address?.state || "",
+      zipCode: address?.zipCode || "",
+      additionalDetails: address?.additionalDetails || "",
+      // "Office" is stored, "Work" is the label the picker shows.
+      label: address?.label === "Office" ? "Work" : address?.label || "Home",
+      phone: address?.phone || userProfile?.phone || "",
+    })
+
+    // Drop the map pin on the saved coordinates so editing starts where the
+    // address actually is, not on the previous screen's position.
+    const coords = address?.location?.coordinates
+    const lat = Array.isArray(coords) && coords.length >= 2
+      ? Number(coords[1])
+      : Number(address?.latitude ?? address?.lat)
+    const lng = Array.isArray(coords) && coords.length >= 2
+      ? Number(coords[0])
+      : Number(address?.longitude ?? address?.lng)
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      setMapPosition([lat, lng])
+      googleMapRef.current?.panTo({ lat, lng })
+    }
+
+    const preview = [address?.street, address?.city, address?.state].filter(Boolean).join(", ")
+    suppressSuggestionFetchRef.current = true
+    setAddressAutocompleteValue(preview)
+    setCurrentAddress(preview)
+    setShowAddressForm(true)
+  }
+
+  const handleConfirmDeleteAddress = async () => {
+    const id = getAddressId(addressPendingDelete)
+    if (!id || isDeletingAddress) return
+
+    setIsDeletingAddress(true)
+    try {
+      // deleteAddress calls DELETE /food/user/addresses/:id and only drops the
+      // row from state once the backend confirms — the card is never removed
+      // on the client alone.
+      await deleteAddress(id)
+      toast.success("Address deleted")
+      setAddressPendingDelete(null)
+    } catch (error) {
+      debugError("Failed to delete address:", error)
+      toast.error(
+        error?.response?.data?.message || "Couldn't delete this address. Please try again.",
+      )
+    } finally {
+      setIsDeletingAddress(false)
+    }
   }
 
   const handleCancelAddressForm = () => {
     setShowAddressForm(false)
+    setEditingAddressId(null)
   }
 
   const scrollFieldIntoView = useCallback((fieldName) => {
@@ -762,6 +876,19 @@ export default function AddressSelectorPage() {
         latitude: mapPosition[0],
         longitude: mapPosition[1]
       }
+      if (editingAddressId) {
+        // Editing an existing address updates it in place. Crucially it does NOT
+        // call setDefaultAddress: editing the label or flat number of some other
+        // address must not silently make it the selected delivery address.
+        const updated = await updateAddress(editingAddressId, payload)
+        if (updated) {
+          toast.success("Address updated")
+          setShowAddressForm(false)
+          setEditingAddressId(null)
+        }
+        return
+      }
+
       const created = await addAddress(payload)
       if (created) {
         const id = getAddressId(created)
@@ -773,7 +900,11 @@ export default function AddressSelectorPage() {
         handleBack()
       }
     } catch (error) {
-      toast.error("Failed to save address")
+      debugError("Failed to save address:", error)
+      toast.error(
+        error?.response?.data?.message ||
+          (editingAddressId ? "Failed to update address" : "Failed to save address"),
+      )
     } finally {
       setLoadingAddress(false)
     }
@@ -823,7 +954,9 @@ export default function AddressSelectorPage() {
           <Button variant="ghost" size="icon" onClick={handleCancelAddressForm} className="rounded-full">
             <ChevronLeft className="h-6 w-6" />
           </Button>
-          <h1 className="text-lg font-bold">Add delivery location</h1>
+          <h1 className="text-lg font-bold">
+            {editingAddressId ? "Edit delivery address" : "Add delivery location"}
+          </h1>
         </div>
 
         <div
@@ -1079,7 +1212,9 @@ export default function AddressSelectorPage() {
             onClick={handleAddressFormSubmit}
             disabled={loadingAddress}
           >
-            {loadingAddress ? "Saving..." : "Save Address \u0026 Proceed"}
+            {loadingAddress
+              ? (editingAddressId ? "Updating..." : "Saving...")
+              : (editingAddressId ? "Update Address" : "Save Address & Proceed")}
           </Button>
         </div>
       </AnimatedPage>
@@ -1115,11 +1250,15 @@ export default function AddressSelectorPage() {
               <p className="text-xs text-gray-500 line-clamp-1 truncate">
                 {isLocating
                   ? "Getting current GPS location..."
-                  : currentAddress && !/^-?\d+\.\d+,\s*-?\d+\.\d+$/.test(currentAddress)
-                    ? currentAddress
-                    : location?.area || location?.city
-                      ? [location.area, location.city].filter(Boolean).join(", ")
-                      : "Tap to detect your live location"}
+                  : locationFailed
+                    // After a failure the previous city is not where we just
+                    // detected the user, so showing it would read as a result.
+                    ? "Couldn't detect location — tap to retry"
+                    : currentAddress && !/^-?\d+\.\d+,\s*-?\d+\.\d+$/.test(currentAddress)
+                      ? currentAddress
+                      : location?.area || location?.city
+                        ? [location.area, location.city].filter(Boolean).join(", ")
+                        : "Tap to detect your live location"}
               </p>
             </div>
             <ChevronRight className="h-5 w-5 text-gray-400 flex-shrink-0" />
@@ -1144,30 +1283,111 @@ export default function AddressSelectorPage() {
               addresses.map((addr, idx) => {
                 const Icon = getAddressIcon(addr)
                 return (
-                  <button
+                  <div
                     key={getAddressId(addr) || idx}
-                    onClick={() => handleSelectSavedAddress(addr)}
-                    className="w-full flex items-start gap-4 p-4 bg-slate-50 dark:bg-[#1a1a1a] rounded-xl hover:bg-orange-50 dark:hover:bg-orange-900/10 transition-colors text-left group"
+                    className="bg-slate-50 dark:bg-[#1a1a1a] rounded-xl overflow-hidden group"
                   >
-                    <div className="h-10 w-10 rounded-full bg-white dark:bg-gray-800 flex items-center justify-center shadow-sm">
-                      <Icon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                    {/* Selecting stays the primary tap target, exactly as before. */}
+                    <button
+                      onClick={() => handleSelectSavedAddress(addr)}
+                      className="w-full flex items-start gap-4 p-4 hover:bg-orange-50 dark:hover:bg-orange-900/10 transition-colors text-left"
+                    >
+                      <div className="h-10 w-10 rounded-full bg-white dark:bg-gray-800 flex items-center justify-center shadow-sm flex-shrink-0">
+                        <Icon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-gray-900 dark:text-white capitalize">{addr.label || "Address"}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">
+                          {[addr.additionalDetails, addr.street, addr.city, addr.state].filter(Boolean).join(", ")}
+                        </p>
+                      </div>
+                      <div className="h-6 w-6 rounded-full border border-gray-200 dark:border-gray-700 mt-2 flex items-center justify-center group-hover:border-[#EB590E] flex-shrink-0">
+                        <ChevronRight className="h-3 w-3 text-gray-400 group-hover:text-[#EB590E]" />
+                      </div>
+                    </button>
+
+                    {/* Edit / Delete, kept out of the select button so tapping one
+                        cannot also change the selected delivery address. */}
+                    <div className="flex items-center border-t border-gray-200/70 dark:border-gray-800">
+                      <button
+                        type="button"
+                        onClick={() => handleEditAddressClick(addr)}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-bold text-gray-600 dark:text-gray-300 hover:text-[#EB590E] hover:bg-orange-50/60 dark:hover:bg-orange-900/10 transition-colors"
+                        aria-label={`Edit ${addr.label || "address"}`}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Edit
+                      </button>
+                      <span className="w-px self-stretch bg-gray-200/70 dark:bg-gray-800" />
+                      <button
+                        type="button"
+                        onClick={() => setAddressPendingDelete(addr)}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-bold text-gray-600 dark:text-gray-300 hover:text-red-600 hover:bg-red-50/60 dark:hover:bg-red-900/10 transition-colors"
+                        aria-label={`Delete ${addr.label || "address"}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete
+                      </button>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-gray-900 dark:text-white capitalize">{addr.label || "Address"}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">
-                        {[addr.additionalDetails, addr.street, addr.city, addr.state].filter(Boolean).join(", ")}
-                      </p>
-                    </div>
-                    <div className="h-6 w-6 rounded-full border border-gray-200 dark:border-gray-700 mt-2 flex items-center justify-center group-hover:border-[#EB590E]">
-                       <ChevronRight className="h-3 w-3 text-gray-400 group-hover:text-[#EB590E]" />
-                    </div>
-                  </button>
+                  </div>
                 )
               })
             )}
           </div>
         </div>
       </div>
+      {/* Delete confirmation — removal only happens after an explicit Yes. */}
+      <Dialog
+        open={Boolean(addressPendingDelete)}
+        onOpenChange={(open) => {
+          if (!open && !isDeletingAddress) setAddressPendingDelete(null)
+        }}
+      >
+        <DialogContent className="max-w-sm w-[calc(100%-2rem)] rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold text-gray-900 dark:text-white">
+              Delete this address?
+            </DialogTitle>
+            <DialogDescription className="text-sm text-gray-500 dark:text-gray-400">
+              {[
+                addressPendingDelete?.additionalDetails,
+                addressPendingDelete?.street,
+                addressPendingDelete?.city,
+              ]
+                .filter(Boolean)
+                .join(", ") || "This address"}{" "}
+              will be removed permanently. This can't be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-row gap-3 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1 sm:flex-none rounded-xl font-bold"
+              disabled={isDeletingAddress}
+              onClick={() => setAddressPendingDelete(null)}
+            >
+              Keep it
+            </Button>
+            <Button
+              type="button"
+              className="flex-1 sm:flex-none rounded-xl font-bold bg-red-600 hover:bg-red-700 text-white"
+              disabled={isDeletingAddress}
+              onClick={handleConfirmDeleteAddress}
+            >
+              {isDeletingAddress ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Deleting...
+                </span>
+              ) : (
+                "Delete"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <style>{`
         @keyframes bounce-short {
           0%, 100% { transform: translateY(0); }

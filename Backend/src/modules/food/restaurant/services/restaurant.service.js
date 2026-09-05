@@ -2104,6 +2104,18 @@ export const listApprovedRestaurants = async (query = {}) => {
         openDays: 1
     };
 
+    // A restaurant with nothing orderable renders as an empty card, so it must not
+    // be listed at all. The eligible set is derived from live menu data on every
+    // request — never a hardcoded or manually maintained list of restaurants.
+    // Same definition of "orderable" the public dish feed uses: approved, and not
+    // switched off. If this lookup fails the error propagates, so a menu-data
+    // failure surfaces as an error instead of listing unverified restaurants.
+    const restaurantIdsWithMenu = await FoodItem.distinct('restaurantId', {
+        approvalStatus: 'approved',
+        isAvailable: { $ne: false }
+    });
+    filter.$and = [...(filter.$and || []), { _id: { $in: restaurantIdsWithMenu } }];
+
     // Use $geoNear only when geo is explicitly needed (radius filter or nearest sorting).
     // This avoids accidentally hiding restaurants that do not have coordinates yet.
     const wantsGeo = (radiusKm !== null) || sortBy === 'nearest';

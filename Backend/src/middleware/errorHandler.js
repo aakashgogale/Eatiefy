@@ -54,6 +54,9 @@ const errorHandler = (err, req, res, next) => {
         success: false,
         error: message,
         message,
+        // Machine-readable code when the error carries one, so clients can
+        // branch on it instead of matching the human-readable message.
+        ...(err.code && typeof err.code === 'string' ? { code: err.code } : {}),
     });
 };
 

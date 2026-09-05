@@ -94,6 +94,58 @@ export default function Wallet() {
     })
   }, [selectedFilter, transactions])
 
+  /**
+   * "Nothing here" and "nothing matching this tab" are different situations and
+   * deserve different words — a wallet with a top-up should not claim it has no
+   * transactions just because the Deductions tab is empty.
+   */
+  const emptyState = useMemo(() => {
+    const iconClass = "h-8 w-8 md:h-9 md:w-9"
+
+    if (transactions.length === 0) {
+      return {
+        icon: <IndianRupee className={`${iconClass} text-gray-400 dark:text-gray-500`} />,
+        title: "No transactions yet",
+        description: `Add money to your ${companyName} wallet and your activity will show up here.`,
+        showViewAll: false,
+      }
+    }
+
+    if (selectedFilter === TRANSACTION_TYPES.ADDITIONS) {
+      return {
+        icon: <ArrowDownCircle className={`${iconClass} text-gray-400 dark:text-gray-500`} />,
+        title: "No money added yet",
+        description: "Top-ups and cashback you receive will be listed here.",
+        showViewAll: true,
+      }
+    }
+
+    if (selectedFilter === TRANSACTION_TYPES.DEDUCTIONS) {
+      return {
+        icon: <ArrowUpCircle className={`${iconClass} text-gray-400 dark:text-gray-500`} />,
+        title: "No deductions yet",
+        description: "Wallet payments you make for orders will be listed here.",
+        showViewAll: true,
+      }
+    }
+
+    if (selectedFilter === TRANSACTION_TYPES.REFUNDS) {
+      return {
+        icon: <RefreshCw className={`${iconClass} text-gray-400 dark:text-gray-500`} />,
+        title: "No refunds yet",
+        description: "Money returned for cancelled orders will be listed here.",
+        showViewAll: true,
+      }
+    }
+
+    return {
+      icon: <IndianRupee className={`${iconClass} text-gray-400 dark:text-gray-500`} />,
+      title: "No transactions yet",
+      description: "Your wallet activity will show up here.",
+      showViewAll: false,
+    }
+  }, [selectedFilter, transactions.length, companyName])
+
   const formatAmount = (amount) => {
     const numeric = Number(amount ?? 0)
     const safe = Number.isFinite(numeric) ? numeric : 0
@@ -301,28 +353,29 @@ export default function Wallet() {
                   ))}
                 </div>
               ) : (
-                <div className="py-12 md:py-16 lg:py-20 xl:py-24">
-                  <div className="space-y-3 md:space-y-4 mb-6 md:mb-8 max-w-2xl mx-auto">
-                    {[1, 2, 3].map((i) => (
-                      <div
-                        key={i}
-                        className="flex items-center gap-3 md:gap-4 bg-gray-100 dark:bg-gray-800 rounded-xl px-4 md:px-5 lg:px-6 py-3 md:py-4"
-                        style={{
-                          opacity: 0.3 + i * 0.15,
-                        }}
-                      >
-                        <div className="w-10 h-10 md:w-12 md:h-12 bg-gray-200 dark:bg-gray-700 rounded-lg flex-shrink-0" />
-                        <div className="flex-1 space-y-2">
-                          <div className="h-3 md:h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
-                          <div className="h-2 md:h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
-                        </div>
-                      </div>
-                    ))}
+                /* A real empty state. This used to render three grey placeholder
+                   rows, which are indistinguishable from a loading skeleton — an
+                   empty tab looked like it was stuck loading forever. Loading has
+                   its own spinner above; here we simply say there is nothing. */
+                <div className="py-12 md:py-16 lg:py-20 flex flex-col items-center justify-center text-center">
+                  <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-gray-50 dark:bg-gray-800/50 flex items-center justify-center mb-4 md:mb-5">
+                    {emptyState.icon}
                   </div>
-
-                  <p className="text-gray-600 dark:text-gray-400 text-sm md:text-base lg:text-lg text-center font-medium">
-                    Your transactions will appear here
+                  <p className="text-gray-900 dark:text-white text-base md:text-lg lg:text-xl font-bold mb-1.5">
+                    {emptyState.title}
                   </p>
+                  <p className="text-gray-500 dark:text-gray-400 text-sm md:text-base max-w-xs md:max-w-sm">
+                    {emptyState.description}
+                  </p>
+                  {emptyState.showViewAll && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFilter(TRANSACTION_TYPES.ALL)}
+                      className="mt-5 md:mt-6 text-sm md:text-base font-bold text-[#659116] hover:text-[#588114] transition-colors cursor-pointer"
+                    >
+                      View all transactions
+                    </button>
+                  )}
                 </div>
               )}
             </div>

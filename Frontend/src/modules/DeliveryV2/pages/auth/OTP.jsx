@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useLocation } from "react-router-dom"
 import { ArrowLeft, Loader2, Timer, RefreshCw, AlertCircle, ShieldCheck, User } from "lucide-react"
 import { Input } from "@food/components/ui/input"
 import { Button } from "@food/components/ui/button"
 import { deliveryAPI } from "@food/api"
 import { setAuthData as storeAuthData } from "@food/utils/auth"
+import { clearAuthDraft, startPhoneEdit } from "@food/utils/authDraft"
 import { resolveDeviceFcmToken, registerWebPushForCurrentModule } from "@food/utils/firebaseMessaging"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { motion, AnimatePresence } from "framer-motion"
@@ -12,6 +13,7 @@ import { motion, AnimatePresence } from "framer-motion"
 export default function DeliveryOTP() {
   const companyName = useCompanyName()
   const navigate = useNavigate()
+  const location = useLocation()
   const [otp, setOtp] = useState(["", "", "", ""])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
@@ -154,6 +156,7 @@ export default function DeliveryOTP() {
       }
       if (data.needsRegistration === true) {
         sessionStorage.removeItem("deliveryAuthData")
+        clearAuthDraft("delivery")
         sessionStorage.setItem("deliveryNeedsRegistration", "true")
         sessionStorage.setItem("deliverySignupDetails", JSON.stringify({ name: "", phone: phone.replace(/\D/g, "").slice(-10), countryCode: "+91" }))
         setIsLoading(false); navigate("/food/delivery/signup/details", { replace: true });
@@ -161,6 +164,7 @@ export default function DeliveryOTP() {
       }
       const { accessToken, refreshToken, user } = data
       if (accessToken && user) {
+        clearAuthDraft("delivery")
         storeAuthData("delivery", accessToken, user, refreshToken)
         window.dispatchEvent(new Event("deliveryAuthChanged"))
         registerWebPushForCurrentModule("/food/delivery", { force: true }).catch(() => {})
@@ -175,6 +179,7 @@ export default function DeliveryOTP() {
       const response = await deliveryAPI.verifyOTP(authData?.phone, verifiedOtp, authData?.purpose || "login", name.trim(), deviceToken, activePlatform)
       const { accessToken, refreshToken, user } = response?.data?.data || response?.data || {}
       if (accessToken && user) {
+        clearAuthDraft("delivery")
         storeAuthData("delivery", accessToken, user, refreshToken)
         window.dispatchEvent(new Event("deliveryAuthChanged"))
         registerWebPushForCurrentModule("/food/delivery", { force: true }).catch(() => {})
@@ -189,6 +194,19 @@ export default function DeliveryOTP() {
     try { await deliveryAPI.sendOTP(authData?.phone, authData?.purpose || "login"); setResendTimer(60); }
     catch (err) { setError("Resend failed."); } finally { setIsLoading(false); }
     setOtp(["", "", "", ""]); setShowNameInput(false); setName(""); setVerifiedOtp("")
+  }
+
+  // The one Edit Phone Number action: end the pending OTP step, keep the phone,
+  // and go back to the phone page's own history entry (never push a new one).
+  const handleEditPhone = () => {
+    startPhoneEdit({
+      module: "delivery",
+      navigate,
+      loginPath: "/food/delivery/login",
+      cameFromLogin: location.state?.fromLogin === true,
+      phone: authData?.phone,
+      countryCode: "+91",
+    })
   }
 
   if (!authData) return null
@@ -281,7 +299,7 @@ export default function DeliveryOTP() {
                       )}
 
                       <Button
-                        onClick={() => navigate("/food/delivery/login")}
+                        onClick={handleEditPhone}
                         variant="ghost"
                         className="text-zinc-400 dark:text-zinc-600 font-bold text-[10px] uppercase tracking-widest hover:bg-transparent hover:text-zinc-900"
                       >
@@ -361,7 +379,7 @@ export default function DeliveryOTP() {
                       </Button>
                    )}
                    <button 
-                    onClick={() => navigate("/food/delivery/login")} 
+                    onClick={handleEditPhone} 
                     className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.4em] hover:text-[#00B761] transition-all"
                    >
                     BACK TO BASE

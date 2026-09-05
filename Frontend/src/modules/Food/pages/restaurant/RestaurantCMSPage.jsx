@@ -8,6 +8,12 @@ import api from "@food/api"
 export default function RestaurantCMSPage({ endpoint, title: defaultTitle, module = "RESTAURANT" }) {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
+  /**
+   * Set only when the fetch itself failed. Without it a network/server error is
+   * indistinguishable from a page the admin simply hasn't filled in — both
+   * rendered "No additional content available", with no way to retry.
+   */
+  const [loadFailed, setLoadFailed] = useState(false)
   const [pageData, setPageData] = useState({
     title: defaultTitle,
     content: '',
@@ -22,6 +28,7 @@ export default function RestaurantCMSPage({ endpoint, title: defaultTitle, modul
   const fetchPageData = async () => {
     try {
       setLoading(true)
+      setLoadFailed(false)
       console.log(`[CMS] Fetching: ${endpoint}?module=${module}`)
       
       const response = await api.get(endpoint, {
@@ -54,6 +61,7 @@ export default function RestaurantCMSPage({ endpoint, title: defaultTitle, modul
       }
     } catch (error) {
       console.error(`[CMS] Error fetching data for ${endpoint}:`, error)
+      setLoadFailed(true)
     } finally {
       setLoading(false)
     }
@@ -130,6 +138,21 @@ export default function RestaurantCMSPage({ endpoint, title: defaultTitle, modul
                 prose-li:text-gray-600"
               dangerouslySetInnerHTML={{ __html: pageData.content }}
             />
+          ) : loadFailed ? (
+            <div className="text-center py-20">
+              <Lock className="w-16 h-16 text-gray-100 mx-auto mb-4" />
+              <p className="text-gray-900 font-bold mb-1">Couldn't load this page</p>
+              <p className="text-gray-400 font-medium mb-6">
+                Please check your connection and try again.
+              </p>
+              <Button
+                type="button"
+                onClick={fetchPageData}
+                className="rounded-xl bg-[#E2AD4B] px-6 font-bold text-gray-900 hover:bg-[#d19f3f]"
+              >
+                Try again
+              </Button>
+            </div>
           ) : (
             <div className="text-center py-20">
                <Lock className="w-16 h-16 text-gray-100 mx-auto mb-4" />

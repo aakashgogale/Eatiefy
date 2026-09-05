@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react"
 import { locationAPI, userAPI } from "@food/api"
 import { useProfile } from "@food/context/ProfileContext"
-import { acquireLocation, GEO_ERROR } from "@food/utils/liveLocation"
+import { acquireLocation, GEO_ERROR, LocationError } from "@food/utils/liveLocation"
 import { reverseGeocodeWithGoogle } from "@food/utils/googleGeocoding"
 import {
   getCachedCustomizationSettings,
@@ -11,6 +11,37 @@ import {
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
+
+/** True only when a real, coordinate-bearing location is cached. */
+const hasUsableStoredLocation = () => {
+  try {
+    const raw = localStorage.getItem("userLocation")
+    if (!raw) return false
+    const parsed = JSON.parse(raw)
+    return (
+      Number.isFinite(Number(parsed?.latitude)) &&
+      Number.isFinite(Number(parsed?.longitude))
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Normalize whatever a failed acquisition threw into `{ code, message }`.
+ *
+ * Callers need the code: matching on message text is brittle (the timeout message
+ * reads "…a location fix in time", which contains no "timeout"), and it is what
+ * lets each failure mode get its own wording and retry affordance.
+ */
+const toLocationErrorState = (err) => {
+  const code = err?.code
+  const known = typeof code === "string" && Object.values(GEO_ERROR).includes(code)
+  return {
+    code: known ? code : GEO_ERROR.POSITION_UNAVAILABLE,
+    message: err?.message || "Could not get your location. Please try again.",
+  }
+}
 
 let globalCustomizationSettings = null
 let customizationFetchPromise = null
@@ -437,7 +468,11 @@ function bootstrapLocationModeOnAppOpen() {
   cachedIsNewAppSession = true
   try {
     sessionStorage.setItem(LOCATION_APP_SESSION_KEY, "1")
-    localStorage.setItem("deliveryAddressMode", "current")
+    // Intent (prefer live GPS on a cold open) is unchanged — it is carried out by
+    // the auto-refresh this flag triggers. What is removed is committing the mode
+    // here, before any fix exists: when the GPS attempt then failed, the app was
+    // already switched to "current" with nothing behind it, silently discarding a
+    // valid saved address. requestLocation now flips the mode on success only.
   } catch {
     /* ignore */
   }
@@ -523,6 +558,8 @@ export function useLocation() {
   }, [])
 
   const [error, setError] = useState(null)
+  /** Holds the in-flight user-initiated request so repeat taps reuse it. */
+  const locationRequestInFlightRef = useRef(null)
   const [permissionGranted, setPermissionGranted] = useState(false)
   // Radius of the current fix in metres, and whether it is tight enough to trust.
   // Consumers use this to decide whether to ask the user to confirm the pin.
@@ -1456,14 +1493,24 @@ export function useLocation() {
                 }
                 setPermissionGranted(true) // Still grant permission if we have location
                 if (showLoading) setGlobalLocationLoading(false)
-                resolve(fallback)
+                // Background refreshes are happy with a stale fix, but a user who
+                // just tapped "Use current location" must not be silently handed
+                // their previous position as if it were a fresh one. Mark it so
+                // that caller can reject; everyone else keeps the old behaviour.
+                resolve({
+                  ...fallback,
+                  locationFixFailed: true,
+                  locationFixErrorCode: err?.code,
+                })
               } else {
                 // No fallback available - set a default location so UI doesn't hang
                 debugWarn("?? No fallback location available, setting default")
                 const defaultLocation = {
                   city: "Select location",
                   address: "Select location",
-                  formattedAddress: "Select location"
+                  formattedAddress: "Select location",
+                  locationFixFailed: true,
+                  locationFixErrorCode: err?.code,
                 }
                 setLocation(defaultLocation)
                 setError(isTimeout ? "Location request timed out. Please try again." : err.message)
@@ -1982,8 +2029,11 @@ export function useLocation() {
         pageLoadAutoRefreshStarted = true
         try {
           sessionStorage.setItem("manual_location_update", "true")
-          localStorage.setItem("deliveryAddressMode", "current")
-          window.dispatchEvent(new CustomEvent("deliveryAddressModeUpdated"))
+          // The mode switch used to happen here, before the refresh had produced
+          // anything. When the refresh then failed, the app was left on "current"
+          // with no current location — which is how a failed fix ended up
+          // replacing a perfectly good saved address. requestLocation now commits
+          // the switch itself, but only once it actually has a fix.
         } catch {}
         // requestLocation clears the prior city pin and pulls live GPS (not a silent cache hit).
         runDedupedAutoRefresh(() =>
@@ -2064,24 +2114,45 @@ export function useLocation() {
   }, [])
 
   const requestLocation = async () => {
-    debugLog("?????? User requested location update - clearing cache and fetching fresh")
-    setGlobalLocationLoading(true)
-    setError(null)
+    debugLog("?????? User requested location update - fetching fresh")
 
-    try {
+    // Repeated taps must not stack parallel acquisitions — each one would race to
+    // write location state and emit its own failure toast.
+    if (locationRequestInFlightRef.current) {
+      return locationRequestInFlightRef.current
+    }
+
+    const run = async () => {
+      setGlobalLocationLoading(true)
+      setError(null)
+
       try {
-        localStorage.setItem("deliveryAddressMode", "current")
-        window.dispatchEvent(new CustomEvent("deliveryAddressModeUpdated"))
-      } catch {}
+        // Nothing is mutated up front. Switching deliveryAddressMode to "current"
+        // or clearing the cached location before the fix arrives means a failed
+        // request silently abandons a valid saved address and leaves the app on
+        // stale coordinates. getLocation(forceFresh) bypasses the cache anyway,
+        // so there is nothing to clear — we commit only once we have a real fix.
+        //
+        // forceFresh = true, updateDB = true, showLoading = true
+        const location = await getLocation(true, true, true)
 
-      // Clear cached location to force fresh fetch
-      localStorage.removeItem("userLocation")
-      debugLog("??? Cleared cached location from localStorage")
+        // getLocation rejects for this (forceFresh + showLoading) path, but on its
+        // other paths it resolves with a stale fix or a "Select location"
+        // placeholder so background refreshes degrade quietly. Guard against both
+        // shapes regardless: either one means we do not actually know where the
+        // user is, and neither may be committed as their chosen location.
+        if (location?.locationFixFailed) {
+          throw new LocationError(
+            location.locationFixErrorCode || GEO_ERROR.POSITION_UNAVAILABLE,
+          )
+        }
 
-      // Show loading, so pass showLoading = true
-      // forceFresh = true, updateDB = true, showLoading = true
-      // This ensures we get fresh GPS coordinates and reverse geocode
-      const location = await getLocation(true, true, true)
+        if (
+          !Number.isFinite(Number(location?.latitude)) ||
+          !Number.isFinite(Number(location?.longitude))
+        ) {
+          throw new LocationError(GEO_ERROR.POSITION_UNAVAILABLE)
+        }
 
       debugLog("??? Fresh location requested successfully:", location)
       debugLog("??? Complete Location details:", {
@@ -2116,21 +2187,53 @@ export function useLocation() {
         debugLog("? Full address:", location.formattedAddress)
       }
 
-      // Dispatch custom event to notify all other mounted hook instances (Navbar, Home, etc.)
-      try {
-        window.dispatchEvent(new CustomEvent("userLocationUpdated"))
-      } catch (evtErr) {
-        debugWarn("Failed to dispatch custom event:", evtErr)
-      }
+        // Commit point. Only a real fix switches the app onto "current location";
+        // until here a valid saved/default address stays selected and in use.
+        try {
+          localStorage.setItem("deliveryAddressMode", "current")
+          window.dispatchEvent(new CustomEvent("deliveryAddressModeUpdated"))
+          window.dispatchEvent(new Event("deliveryAddressModeChanged"))
+        } catch {}
 
-      return location
-    } catch (err) {
-      debugError("? Failed to request location:", err)
-      setError(err.message || "Failed to get location")
-      throw err
-    } finally {
-      setGlobalLocationLoading(false)
+        // Dispatch custom event to notify all other mounted hook instances (Navbar, Home, etc.)
+        try {
+          window.dispatchEvent(new CustomEvent("userLocationUpdated"))
+        } catch (evtErr) {
+          debugWarn("Failed to dispatch custom event:", evtErr)
+        }
+
+        return location
+      } catch (err) {
+        debugError("? Failed to request location:", err)
+
+        // This request committed nothing, but an earlier step (a fresh app
+        // session) may already have put the app in "current" mode optimistically.
+        // "current" with no usable live fix has no fallback — buildEffectiveLocation
+        // just returns the empty/stale live location, and the zone + restaurant
+        // list follow it. Hand control back to the saved address instead.
+        try {
+          if (
+            localStorage.getItem("deliveryAddressMode") === "current" &&
+            !hasUsableStoredLocation()
+          ) {
+            localStorage.setItem("deliveryAddressMode", "saved")
+            window.dispatchEvent(new CustomEvent("deliveryAddressModeUpdated"))
+            window.dispatchEvent(new Event("deliveryAddressModeChanged"))
+          }
+        } catch {}
+
+        setError(toLocationErrorState(err))
+        throw err
+      } finally {
+        setGlobalLocationLoading(false)
+      }
     }
+
+    const pending = run().finally(() => {
+      locationRequestInFlightRef.current = null
+    })
+    locationRequestInFlightRef.current = pending
+    return pending
   }
 
   /**
@@ -2147,10 +2250,8 @@ export function useLocation() {
     }
 
     try {
-      try {
-        localStorage.setItem("deliveryAddressMode", "current")
-        window.dispatchEvent(new CustomEvent("deliveryAddressModeUpdated"))
-      } catch {}
+      // The mode switch is deliberately not done here — see requestLocation. It is
+      // committed below, once a usable fix has actually been resolved.
 
       // "Fast" path: settle as soon as the fix is usable rather than waiting for the
       // tightest possible one, but still refine past the first coarse reading.
@@ -2187,9 +2288,17 @@ export function useLocation() {
         accuracy: accuracy ?? null,
       }
 
+      // Commit point — a usable fix exists, so it is now safe to persist it and
+      // switch the app onto "current location".
       localStorage.setItem("userLocation", JSON.stringify(finalLoc))
       setLocation(finalLoc)
       setPermissionGranted(true)
+
+      try {
+        localStorage.setItem("deliveryAddressMode", "current")
+        window.dispatchEvent(new CustomEvent("deliveryAddressModeUpdated"))
+        window.dispatchEvent(new Event("deliveryAddressModeChanged"))
+      } catch {}
 
       // Don't block UI on DB write
       updateLocationInDB(finalLoc).catch(() => {})
@@ -2201,7 +2310,7 @@ export function useLocation() {
       return finalLoc
     } catch (err) {
       debugError("? Fast location request failed:", err)
-      setError(err.message || "Failed to get location")
+      setError(toLocationErrorState(err))
       throw err
     }
   }

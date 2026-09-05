@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useLocation } from "react-router-dom"
 import { ArrowLeft, Loader2, AlertCircle, Smartphone, ShieldCheck, RefreshCw, Edit2 } from "lucide-react"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Input } from "@food/components/ui/input"
 import apiClient, { authAPI } from "@food/api"
 import { setAuthData as setUserAuthData } from "@food/utils/auth"
+import { clearAuthDraft, startPhoneEdit } from "@food/utils/authDraft"
 import { resolveDeviceFcmToken, registerWebPushForCurrentModule } from "@food/utils/firebaseMessaging"
 import { motion, AnimatePresence } from "framer-motion"
 import loginBgImg from "@food/assets/login_bg.webp"
@@ -13,6 +14,7 @@ const FULL_NAME_REGEX = /^[A-Za-z ]+$/
 
 export default function OTP() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [otp, setOtp] = useState(["", "", "", ""]) // 4 digits
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
@@ -189,6 +191,7 @@ export default function OTP() {
       }
 
       sessionStorage.removeItem("userAuthData")
+      clearAuthDraft("user")
       setUserAuthData("user", accessToken, user, refreshToken)
       window.dispatchEvent(new Event("userAuthChanged"))
       await registerWebPushForCurrentModule("/food/user", { force: true }).catch(() => {})
@@ -232,6 +235,7 @@ export default function OTP() {
       }
 
       sessionStorage.removeItem("userAuthData")
+      clearAuthDraft("user")
       setUserAuthData("user", accessToken, { ...user, name: normalizedName }, refreshToken)
       window.dispatchEvent(new Event("userAuthChanged"))
       await registerWebPushForCurrentModule("/food/user", { force: true }).catch(() => {})
@@ -259,6 +263,20 @@ export default function OTP() {
       setIsLoading(false)
     }
     setOtp(["", "", "", ""])
+  }
+
+  // The one Edit Phone Number action: end the pending OTP step, keep the phone,
+  // and go back to the phone page's own history entry (never push a new one).
+  const handleEditPhone = () => {
+    startPhoneEdit({
+      module: "user",
+      navigate,
+      loginPath: "/food/user/auth/login",
+      cameFromLogin: location.state?.fromLogin === true,
+      phone: authData?.phone,
+      countryCode: "+91",
+      isSignUp: authData?.isSignUp === true,
+    })
   }
 
   if (!authData) return null
@@ -301,7 +319,7 @@ export default function OTP() {
 
         {/* Back button */}
         <button
-          onClick={() => navigate("/food/user/auth/login")}
+          onClick={handleEditPhone}
           className="absolute top-6 left-6 p-2.5 rounded-full bg-white/20 backdrop-blur-md border border-white/30 text-white hover:bg-white/30 transition-all cursor-pointer z-20 shadow-md"
         >
           <ArrowLeft className="w-5 h-5" />
@@ -331,9 +349,10 @@ export default function OTP() {
               <span>{showNameInput ? "Tell us your name" : `SENT TO ${contactInfo}`}</span>
               {!showNameInput && (
                 <button
-                  onClick={() => navigate("/food/user/auth/login")}
+                  onClick={handleEditPhone}
                   className="p-1 hover:text-white transition-colors cursor-pointer"
                   title="Edit Phone Number"
+                  aria-label="Edit Phone Number"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
                 </button>
@@ -434,16 +453,6 @@ export default function OTP() {
                       <span>Resend Code Now</span>
                     </button>
                   )}
-
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => navigate("/food/user/auth/login")}
-                      className="text-gray-400 dark:text-gray-500 font-bold text-xs uppercase tracking-wider hover:text-[#659116] transition-colors cursor-pointer inline-flex items-center gap-1"
-                    >
-                      <span>Edit Phone Number</span>
-                    </button>
-                  </div>
                 </div>
               </motion.div>
             ) : (

@@ -6,31 +6,53 @@ import { useCompanyName } from "@food/hooks/useCompanyName"
 import { motion, AnimatePresence } from "framer-motion"
 import { Bike, Loader2, AlertCircle } from "lucide-react"
 import { Button } from "@food/components/ui/button"
+import { readAuthDraft, saveAuthDraft } from "@food/utils/authDraft"
+
+/**
+ * Resolve the phone this page should open with, synchronously on first render.
+ * Priority: the in-progress draft (partner left for Terms/Privacy/Support and
+ * came back) > the phone an OTP was already sent to (backed out of the OTP page).
+ */
+const resolveInitialPhone = () => {
+  const draft = readAuthDraft("delivery")
+  if (draft) return draft.phone
+
+  try {
+    const stored = sessionStorage.getItem("deliveryAuthData")
+    if (stored) {
+      const data = JSON.parse(stored)
+      if (data.phone) return String(data.phone).replace("+91", "").replace(/\D/g, "").slice(0, 10)
+    }
+  } catch (err) { }
+
+  return ""
+}
 
 export default function DeliverySignIn() {
   const companyName = useCompanyName()
   const navigate = useNavigate()
   const phoneInputRef = useRef(null)
+  // Read once, before first paint, so the input never mounts empty and then refills.
+  const initialPhoneRef = useRef(null)
+  if (initialPhoneRef.current === null) {
+    initialPhoneRef.current = resolveInitialPhone()
+  }
   const [formData, setFormData] = useState({
-    phone: "",
+    phone: initialPhoneRef.current,
     countryCode: "+91",
   })
   const [error, setError] = useState("")
   const [isSending, setIsSending] = useState(false)
   const [keyboardInset, setKeyboardInset] = useState(0)
 
+  // Keep the draft in sync so navigating to Terms/Privacy/Support (which unmounts
+  // this route) and coming back restores exactly what was typed.
   useEffect(() => {
-    const stored = sessionStorage.getItem("deliveryAuthData")
-    if (stored) {
-      try {
-        const data = JSON.parse(stored)
-        if (data.phone) {
-          const phoneDigits = data.phone.replace("+91", "").trim()
-          setFormData(prev => ({ ...prev, phone: phoneDigits }))
-        }
-      } catch (err) { }
-    }
-  }, [])
+    saveAuthDraft("delivery", {
+      phone: formData.phone,
+      countryCode: formData.countryCode,
+    })
+  }, [formData.phone, formData.countryCode])
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.visualViewport) return undefined
@@ -77,7 +99,9 @@ export default function DeliverySignIn() {
         purpose: "login",
         module: "delivery",
       }))
-      navigate("/food/delivery/otp")
+      // fromLogin marks that this page is the entry directly behind /otp, so
+      // Edit Phone Number can pop back to it instead of pushing a new one.
+      navigate("/food/delivery/otp", { state: { fromLogin: true } })
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to send OTP")
     } finally {

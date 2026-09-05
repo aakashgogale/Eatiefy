@@ -7,7 +7,10 @@ const schema = z.object({
         .min(1, 'Phone is required')
         .regex(/^\d+$/, 'Phone must contain only digits')
         .min(8, 'Phone must be at least 8 digits')
-        .max(15, 'Phone must be at most 15 digits')
+        .max(15, 'Phone must be at most 15 digits'),
+    // Login must prove the account exists first; register may create one.
+    // Defaults to the stricter intent when a client does not say.
+    purpose: z.enum(['login', 'register']).optional().default('login')
 });
 
 export const validateUserOtpRequestDto = (body) => {

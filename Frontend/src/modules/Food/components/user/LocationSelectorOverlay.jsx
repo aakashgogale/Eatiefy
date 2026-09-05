@@ -6,6 +6,7 @@ import { Label } from "@food/components/ui/label"
 import { Textarea } from "@food/components/ui/textarea"
 import { useDeliveryLocation } from "@food/context/DeliveryLocationContext"
 import { APPROXIMATE_ACCURACY_M } from "@food/utils/liveLocation"
+import { showLocationFailureToast } from "@food/utils/locationFailure"
 import { useProfile } from "@food/context/ProfileContext"
 import { toast } from "sonner"
 import { locationAPI, userAPI } from "@food/api"
@@ -20,6 +21,7 @@ const debugError = (...args) => {}
 
 // Enable Maps if API Key is available, otherwise fallback to coordinates-only mode
 const MAPS_ENABLED = !!import.meta.env.VITE_GOOGLE_MAPS_API_KEY
+
 
 
 // Google Maps implementation - Leaflet components removed
@@ -769,19 +771,10 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
       } catch (raceError) {
         debugWarn("?? Location request failed or timed out:", raceError.message)
 
-        let errorMessage = "Could not get location. Please try again."
-        if (raceError.message.includes("permission") || raceError.message.includes("denied")) {
-          errorMessage = "Location permission denied. Please enable location access in your browser settings."
-        } else if (raceError.message.includes("timeout") || raceError.message.includes("longer")) {
-          errorMessage = "Location request timed out. Please check your GPS settings and try again."
-        } else if (raceError.message.includes("unavailable")) {
-          errorMessage = "Location information is unavailable. Please check your device settings."
-        }
-
-        toast.error(errorMessage, {
-          id: "location-request",
-          duration: 5000,
-        })
+        // Branch on the error code, not on message text: the timeout message reads
+        // "…a location fix in time" and contains no "timeout", so the old substring
+        // matching never recognised the most common failure and mislabelled it.
+        showLocationFailureToast(raceError, handleUseCurrentLocation)
         return
       }
 
@@ -931,28 +924,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
         duration: 2400,
       })
     } catch (error) {
-      // Handle permission denied or other errors
-      if (error.code === 1 || error.code === "PERMISSION_DENIED" || error.message?.includes("denied") || error.message?.includes("permission")) {
-        toast.error("Location permission denied. Please enable location access in your browser settings.", {
-          id: "location-request",
-          duration: 4000,
-        })
-      } else if (error.code === 2 || error.code === "POSITION_UNAVAILABLE" || error.message?.includes("unavailable")) {
-        toast.error("Location unavailable. Please check your GPS settings.", {
-          id: "location-request",
-          duration: 3000,
-        })
-      } else if (error.code === 3 || error.code === "TIMEOUT" || error.message?.includes("timeout")) {
-        toast.error("Location request timed out. Please try again.", {
-          id: "location-request",
-          duration: 3000,
-        })
-      } else {
-        toast.error("Failed to get location. Please try again.", {
-          id: "location-request",
-          duration: 3000,
-        })
-      }
+      showLocationFailureToast(error, handleUseCurrentLocation)
       // Don't close the selector if there's an error, so user can try other options
     }
   }
@@ -1689,11 +1661,10 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
         locationData = await requestLiveLocation()
       } catch (raceError) {
         // Surface the actual reason (permission, HTTPS, GPS off) instead of a
-        // generic failure the user cannot act on.
-        toast.error(raceError?.message || "Could not get location. Please try again.", {
-          id: "current-location",
-          duration: 4000,
-        })
+        // generic failure the user cannot act on — and offer a retry where one
+        // could help, rather than dumping the raw internal message.
+        toast.dismiss("current-location")
+        showLocationFailureToast(raceError, handleUseCurrentLocationForAddress)
         return
       }
 

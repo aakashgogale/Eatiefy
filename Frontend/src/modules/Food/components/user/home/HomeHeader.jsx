@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, ChevronDown, Search, Mic, Bell, CheckCircle2, Tag, Gift, AlertCircle, Clock, BellOff, X, ChevronRight, ShoppingBag, Menu, Wallet } from 'lucide-react';
+import { MapPin, ChevronDown, Search, Mic, Bell, CheckCircle2, Tag, Gift, AlertCircle, Clock, BellOff, X, ChevronRight, ShoppingBag, Menu, Wallet, User } from 'lucide-react';
+import { useProfile } from "@food/context/ProfileContext";
 import { preciseLocationLabel } from "@food/utils/locationLabel";
 import { Badge } from "@food/components/ui/badge";
-import { Avatar, AvatarFallback } from "@food/components/ui/avatar";
 import { API_BASE_URL } from "@food/api/config";
 import foodIcon from "@food/assets/category-icons/food.webp";
 import quickIcon from "@food/assets/category-icons/quick.webp";
@@ -177,6 +177,30 @@ export default function HomeHeader({
 }) {
   const { startVoiceSearch } = useSearchOverlay();
   const navigate = useNavigate();
+  const { userProfile } = useProfile();
+
+  /**
+   * The header avatar used to be the literal character "A" typed into the JSX —
+   * it was never derived from the signed-in user, so every account showed the
+   * same letter. Resolve a real profile photo when one is configured, and fall
+   * back to the standard user icon rather than any letter.
+   */
+  const profileImageUrl = useMemo(() => {
+    const raw = userProfile?.profileImage;
+    if (typeof raw !== "string") return "";
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed === "null" || trimmed === "undefined") return "";
+    return resolveImageUrl(trimmed);
+  }, [userProfile?.profileImage]);
+
+  const [profileImageFailed, setProfileImageFailed] = useState(false);
+
+  useEffect(() => {
+    // A newly configured photo deserves a fresh attempt.
+    setProfileImageFailed(false);
+  }, [profileImageUrl]);
+
+  const showProfileImage = Boolean(profileImageUrl) && !profileImageFailed;
 
   const [isScrolled, setIsScrolled] = useState(false);
 
@@ -597,12 +621,25 @@ export default function HomeHeader({
                 <Wallet className="h-4.5 w-4.5" />
               </Link>
 
-              {/* Profile Avatar Badge */}
+              {/* Profile Avatar Badge — same size/spacing as before, styled to
+                  match the wallet button beside it instead of a one-off blue. */}
               <Link
                 to="/food/user/profile"
-                className="h-9 w-9 flex items-center justify-center rounded-full bg-[#1A73E8] border border-white/30 text-white font-black text-sm shadow-md active:scale-95 transition-all"
+                aria-label="Profile"
+                className="h-9 w-9 flex items-center justify-center overflow-hidden rounded-full bg-black/40 backdrop-blur-md border border-white/30 text-white shadow-md hover:bg-black/60 active:scale-95 transition-all"
               >
-                A
+                {showProfileImage ? (
+                  <img
+                    src={profileImageUrl}
+                    alt=""
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                    decoding="async"
+                    onError={() => setProfileImageFailed(true)}
+                  />
+                ) : (
+                  <User className="h-4.5 w-4.5" strokeWidth={2.5} />
+                )}
               </Link>
             </div>
           </div>

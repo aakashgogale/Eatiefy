@@ -2581,13 +2581,10 @@ export default function Home() {
           const sortRestaurantsForDisplay = (restaurants) => {
             if (!userLat || !userLng) return restaurants;
             return [...restaurants].sort((a, b) => {
-              // Available restaurants first, then unavailable
-              const aAvailable = getRestaurantAvailabilityStatus(a, new Date()).isOpen;
-              const bAvailable = getRestaurantAvailabilityStatus(b, new Date()).isOpen;
-
-              if (aAvailable !== bAvailable) {
-                return aAvailable ? -1 : 1; // Available restaurants come first
-              }
+              // Open-before-closed is NOT decided here: this ran only once, at
+              // fetch time, and only when coordinates were known, so the order
+              // went stale as restaurants opened/closed. `filteredRestaurants`
+              // owns that grouping now and re-applies it on every tick.
 
               // Apply secondary sort based on sortBy filter
               if (filters.sortBy === "price-low") {
@@ -2825,10 +2822,38 @@ export default function Home() {
     [activeFilters, sortBy]
   );
 
+  /**
+   * Open restaurants first, closed ones after — the final word on ordering.
+   *
+   * A stable partition rather than a comparator, so whatever order the list
+   * already had (backend nearest-first relevance, or the active sortBy applied
+   * by applyClientFilters) is preserved untouched inside each group.
+   * Nothing is removed; closed restaurants keep their card and status badge.
+   */
+  const partitionByAvailability = useCallback((list, now) => {
+    if (!Array.isArray(list) || list.length === 0) return list;
+    const open = [];
+    const closed = [];
+    for (const restaurant of list) {
+      if (getRestaurantAvailabilityStatus(restaurant, now).isOpen) {
+        open.push(restaurant);
+      } else {
+        closed.push(restaurant);
+      }
+    }
+    return closed.length === 0 ? list : [...open, ...closed];
+  }, []);
+
   // Filter restaurants and foods based on active filters
   const filteredRestaurants = useMemo(() => {
-    return applyClientFilters(restaurantsData || []);
-  }, [restaurantsData, applyClientFilters]);
+    // Grouping runs last so a client sortBy cannot mix closed restaurants back
+    // in, and re-runs on availabilityTick so the order tracks the same live
+    // status the cards already show.
+    return partitionByAvailability(
+      applyClientFilters(restaurantsData || []),
+      new Date(availabilityTick),
+    );
+  }, [restaurantsData, applyClientFilters, partitionByAvailability, availabilityTick]);
 
   const restaurantLazyLoadResetKey = useMemo(() => {
     const activeFilterKey = Array.from(activeFilters).sort().join("|");
@@ -3133,8 +3158,19 @@ export default function Home() {
   ]);
 
   const filteredRecommendedForYou = useMemo(() => {
-    return applyClientFilters(recommendedForYouRestaurants || []);
-  }, [recommendedForYouRestaurants, applyClientFilters]);
+    // Same rule as the main list: open first, closed after. The partition is
+    // stable, so the admin-curated order from landing settings is preserved
+    // inside each group — closed picks move to the end, they are not dropped.
+    return partitionByAvailability(
+      applyClientFilters(recommendedForYouRestaurants || []),
+      new Date(availabilityTick),
+    );
+  }, [
+    recommendedForYouRestaurants,
+    applyClientFilters,
+    partitionByAvailability,
+    availabilityTick,
+  ]);
 
   // Featured foods removed - will be handled by restaurants data from API
   const filteredFeaturedFoods = useMemo(() => {
@@ -4659,8 +4695,8 @@ export default function Home() {
               {/* Food Illustration in Top Right Corner */}
               <div className="absolute top-2.5 right-10 w-16 h-16 pointer-events-none select-none z-10">
                 <img
-                  src="/food_popup_ill2.webp"
-                  alt="Food illustration"
+                  src="/food_popup_ill2.png"
+                  alt="Vegetarian food illustration"
                   className="w-full h-full object-contain"
                  loading="lazy" decoding="async" />
               </div>

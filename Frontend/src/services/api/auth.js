@@ -38,7 +38,7 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * @param {string} phone - Phone (with or without country code, e.g. "+91 9876543210")
  * @returns {Promise<{ data }>}
  */
-export function requestUserOtp(phone) {
+export function requestUserOtp(phone, purpose = "login") {
   const digits = normalizePhone(phone);
   if (!digits) {
     return Promise.reject(new Error("Phone number is required"));
@@ -53,7 +53,9 @@ export function requestUserOtp(phone) {
   if (normalized.length !== USER_PHONE_LENGTH) {
     return Promise.reject(new Error("Phone number must be exactly 10 digits"));
   }
-  return apiClient.post(AUTH.USER_REQUEST_OTP, { phone: normalized });
+  // purpose lets the backend refuse a login for a number with no account
+  // instead of silently signing it up at verify time.
+  return apiClient.post(AUTH.USER_REQUEST_OTP, { phone: normalized, purpose });
 }
 
 /**

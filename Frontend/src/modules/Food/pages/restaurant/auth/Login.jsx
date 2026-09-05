@@ -228,18 +228,25 @@ export default function RestaurantLogin() {
               <p className="text-xs text-gray-400">
                 Secure partner login &middot; {companyName}
               </p>
-              <p className="text-[11px] text-gray-400">
-                <Link to="/food/restaurant/terms" className="transition-colors hover:text-[#E2AD4B]">
-                  Terms
-                </Link>
-                {" · "}
-                <Link to="/food/restaurant/privacy" className="transition-colors hover:text-[#E2AD4B]">
-                  Privacy
-                </Link>
-                {" · "}
-                <Link to="/food/restaurant/help-content" className="transition-colors hover:text-[#E2AD4B]">
-                  Support
-                </Link>
+              {/* These read as plain text when they are styled exactly like the
+                  static line above, so nobody realises they are tappable. Give
+                  them a real link affordance and a hit area big enough to tap. */}
+              <p className="flex items-center justify-center gap-1 text-[11px] text-gray-400">
+                {[
+                  { to: "/food/restaurant/terms", label: "Terms" },
+                  { to: "/food/restaurant/privacy", label: "Privacy" },
+                  { to: "/food/restaurant/help-content", label: "Support" },
+                ].map((link, index) => (
+                  <span key={link.to} className="flex items-center gap-1">
+                    {index > 0 && <span aria-hidden="true">·</span>}
+                    <Link
+                      to={link.to}
+                      className="inline-flex min-h-[32px] items-center rounded px-1.5 font-semibold text-gray-500 underline decoration-gray-300 underline-offset-4 transition-colors hover:text-[#E2AD4B] hover:decoration-[#E2AD4B] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E2AD4B]/60"
+                    >
+                      {link.label}
+                    </Link>
+                  </span>
+                ))}
               </p>
             </footer>
           </motion.div>

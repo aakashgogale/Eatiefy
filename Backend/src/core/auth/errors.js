@@ -31,3 +31,16 @@ export class NotFoundError extends Error {
     }
 }
 
+/**
+ * Login was attempted with a phone number that has no account yet.
+ * Carries a machine-readable `code` so clients can offer the register flow
+ * instead of string-matching the message.
+ */
+export class NotRegisteredError extends Error {
+    constructor(message, code = 'USER_NOT_REGISTERED') {
+        super(message);
+        this.name = 'NotRegisteredError';
+        this.statusCode = 404;
+        this.code = code;
+    }
+}

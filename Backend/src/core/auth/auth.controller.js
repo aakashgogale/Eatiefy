@@ -31,8 +31,8 @@ import { sendResponse } from "../../utils/response.js";
 
 export const requestUserOtpController = async (req, res, next) => {
   try {
-    const { phone } = validateUserOtpRequestDto(req.body);
-    const result = await requestUserOtp(phone);
+    const { phone, purpose } = validateUserOtpRequestDto(req.body);
+    const result = await requestUserOtp(phone, purpose);
     return sendResponse(res, 200, "OTP sent successfully", {
       phone,
       ...result,

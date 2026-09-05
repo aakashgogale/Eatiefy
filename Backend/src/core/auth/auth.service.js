@@ -11,7 +11,7 @@ import { FoodReferralLog } from "../../modules/food/admin/models/referralLog.mod
 import { createOrUpdateOtp, verifyOtp } from "../otp/otp.service.js";
 import { signAccessToken, signRefreshToken } from "./token.util.js";
 import { FoodRefreshToken } from "../refreshTokens/refreshToken.model.js";
-import { ValidationError, AuthError } from "./errors.js";
+import { ValidationError, AuthError, NotRegisteredError } from "./errors.js";
 import { config } from "../../config/env.js";
 import { logger } from "../../utils/logger.js";
 import { sendAdminResetOtpEmail } from "../../utils/email.js";
@@ -69,9 +69,21 @@ const saveLoginFcmToken = async ({ ownerType, ownerId, fcmToken, platform, owner
   }
 };
 
-export const requestUserOtp = async (phone) => {
+export const requestUserOtp = async (phone, purpose = "login") => {
   if (!phone) {
     throw new ValidationError("Phone is required");
+  }
+
+  // The account is only created at verify time, so without this check a login
+  // with an unknown number would happily issue an OTP and then sign the caller
+  // up. Logging in must require an account that already exists.
+  if (purpose === "login") {
+    const existingUser = await FoodUser.findOne({ phone }).select("_id").lean();
+    if (!existingUser) {
+      throw new NotRegisteredError(
+        "This number is not registered. Please register to continue.",
+      );
+    }
   }
 
   const otp = await createOrUpdateOtp(phone);
