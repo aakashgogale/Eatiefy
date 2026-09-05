@@ -60,7 +60,7 @@ export default function Home() {
               </div>
             )}
           </div>
-          <CardTitle className="text-3xl font-bold text-center">{companyName || "Ometto Food"}</CardTitle>
+          <CardTitle className="text-3xl font-bold text-center">{companyName || "Eatiefy Food"}</CardTitle>
           <CardDescription className="text-lg">
             Welcome to the Food Delivery Platform
           </CardDescription>

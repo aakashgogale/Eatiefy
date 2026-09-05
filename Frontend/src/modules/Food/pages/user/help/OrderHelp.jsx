@@ -436,10 +436,10 @@ export default function OrderHelp() {
                       Include order {order.id} in subject
                     </p>
                     <a
-                      href={`mailto:support@ometto.com?subject=Help with Order ${order.id}`}
+                      href={`mailto:support@eatiefy.com?subject=Help with Order ${order.id}`}
                       className="text-sm text-primary hover:underline font-medium"
                     >
-                      support@ometto.com
+                      support@eatiefy.com
                     </a>
                   </div>
                 </div>

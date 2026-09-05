@@ -769,7 +769,7 @@ export function CartProvider({ children }) {
     () => ({
       _isProvider: true,
       cart: normalizedCart,
-      // Ometto compatibility: delivery/takeaway share the same server cart when logged in.
+      // Eatiefy compatibility: delivery/takeaway share the same server cart when logged in.
       deliveryCart: normalizedCart,
       takeawayCart: normalizedCart,
       items: cartForAnimation.items,

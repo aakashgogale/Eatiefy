@@ -17,7 +17,8 @@ export default function AddToCartButton({ item, className = "" }) {
     e.stopPropagation()
 
     if (!isModuleAuthenticated('user')) {
-      window.dispatchEvent(new CustomEvent('show-login-required'))
+      toast.error("Please login to add items to cart")
+      navigate('/food/user/auth/login', { state: { from: location.pathname } })
       return
     }
 
@@ -39,22 +40,22 @@ export default function AddToCartButton({ item, className = "" }) {
   if (inCart) {
     return (
       <div className={`flex items-center gap-2 ${className}`} onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
-        <div className="flex items-center gap-1 bg-[#DC2626] text-white rounded-md shadow-sm">
+        <div className="flex items-center gap-1 border border-primary-orange rounded-md">
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-6 text-white hover:bg-[#991B1B] hover:text-white"
+            className="h-8 w-6 hover:bg-gray-100"
             onClick={handleDecrease}
           >
             <Minus className="h-4 w-4" />
           </Button>
-          <span className="px-1 text-sm font-bold min-w-[1rem] text-center text-white">
+          <span className="px-1 text-sm font-semibold min-w-[1rem] text-center">
             {cartItem?.quantity || 0}
           </span>
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-6 text-white hover:bg-[#991B1B] hover:text-white"
+            className="h-8 w-6 hover:bg-gray-100"
             onClick={handleIncrease}
           >
             <Plus className="h-4 w-4" />
@@ -68,7 +69,7 @@ export default function AddToCartButton({ item, className = "" }) {
     <Button
       size="sm"
       onClick={handleAddToCart}
-      className="bg-[#DC2626] hover:bg-[#991B1B] text-white font-bold shadow-md transition-all active:scale-95"
+      className="bg-primary-orange hover:opacity-90 text-white"
     >
       Add to Cart
     </Button>

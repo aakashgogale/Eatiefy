@@ -133,7 +133,7 @@ export async function approveFoodItem(id) {
                 {
                     title: 'Dish Approved! 🍲',
                     body: `Your dish "${updated.name}" has been approved and is now visible to customers.`,
-                    image: updated.image || 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
+                    image: updated.image || 'https://i.ibb.co/3m2Yh7r/Eatiefy-Brand-Image.png',
                     sendToAllDevices: true,
                     data: {
                         type: 'food_approved',
@@ -174,7 +174,7 @@ export async function rejectFoodItem(id, reason) {
                 {
                     title: 'Dish Rejected ❌',
                     body: `Your dish "${updated.name}" was rejected. Reason: ${r}`,
-                    image: updated.image || 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
+                    image: updated.image || 'https://i.ibb.co/3m2Yh7r/Eatiefy-Brand-Image.png',
                     sendToAllDevices: true,
                     data: {
                         type: 'food_rejected',

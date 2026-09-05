@@ -60,6 +60,7 @@ import { sendError } from '../../../../utils/response.js';
 import { getRestaurantFinanceController } from '../controllers/restaurantFinance.controller.js';
 
 import { cacheResponse, invalidateCache, invalidateFoodBrowseCaches } from '../../../../middleware/cache.js';
+import { listPublicFoodsController } from '../controllers/publicFoods.controller.js';
 
 const router = express.Router();
 
@@ -107,6 +108,7 @@ router.get('/restaurants', cacheResponse(300, 'restaurants'), listApprovedRestau
 router.get('/restaurants/:id', cacheResponse(600, 'restaurant_detail'), getApprovedRestaurantController);
 router.get('/restaurants/:id/menu', cacheResponse(600, 'restaurant_menu'), getPublicRestaurantMenuController);
 router.get('/restaurants/:id/outlet-timings', cacheResponse(600, 'restaurant_timings'), getOutletTimingsByRestaurantIdController);
+router.get('/public/foods', cacheResponse(300, 'public_foods'), listPublicFoodsController);
 router.get('/under-250', cacheResponse(180, 'under250'), listRestaurantsUnder250Controller);
 router.get('/offers', cacheResponse(300, 'offers'), listPublicOffersController);
 // Public: categories list (zone-aware; returns zone categories + global)

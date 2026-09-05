@@ -1074,7 +1074,7 @@ async function syncFirebaseConfigToServiceWorker(registration, firebasePublicEnv
 
   // Persist for SW cold starts (closed-tab background push) — do not rely only on postMessage race
   try {
-    const cache = await caches.open("ometto-fcm-config-v1");
+    const cache = await caches.open("eatiefy-fcm-config-v1");
     await cache.put(
       "/__ometto_fcm_web_config__",
       new Response(JSON.stringify(config), {

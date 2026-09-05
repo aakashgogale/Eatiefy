@@ -1574,6 +1574,9 @@ export const restaurantAPI = {
   /** Public: get outlet timings by restaurant id */
   getOutletTimingsByRestaurantId: (id, config = {}) =>
     getPublicRestaurantOutletTimingsOnce(id, config),
+  /** Public: approved foods for user category/search pages (zone + optional category slug) */
+  getPublicFoods: (params = {}, config = {}) =>
+    getPublicFoodsOnce(params, config),
   /** Public (user app): approved add-ons by restaurant id/slug */
   getAddonsByRestaurantId: (id, config = {}) =>
     apiClient.get(`/food/restaurant/restaurants/${String(id)}/addons`, {
@@ -1655,7 +1658,37 @@ const publicRestaurantsCache = createInFlightCache({ ttlMs: 3000 });
 const publicRestaurantsUnder250Cache = createInFlightCache({ ttlMs: 3000 });
 const publicRestaurantMenuCache = createInFlightCache({ ttlMs: 3000 });
 const publicRestaurantOutletTimingsCache = createInFlightCache({ ttlMs: 3000 });
+const publicFoodsCache = createInFlightCache({ ttlMs: 3000 });
 const publicGenericGetCache = createInFlightCache({ ttlMs: 3000 });
+
+// Long-lived cache for public app config (banners, settings, fees) — shared across routes.
+const PUBLIC_CONFIG_CACHE_TTL_MS = 15 * 60 * 1000;
+const publicConfigCache = createInFlightCache({ ttlMs: PUBLIC_CONFIG_CACHE_TTL_MS });
+
+export const invalidatePublicConfigCache = () => {
+  publicConfigCache.invalidate();
+};
+
+export const publicConfigGetOnce = (url, config = {}) => {
+  const safeUrl = typeof url === "string" ? url.trim() : "";
+  const { noCache, params, ...axiosConfig } = config || {};
+  if (!safeUrl) return Promise.reject(new Error("url is required"));
+
+  if (noCache) {
+    return apiClient.get(safeUrl, { params, ...axiosConfig });
+  }
+
+  const keyParams =
+    params && typeof params === "object" ? { ...params } : params;
+  if (keyParams && typeof keyParams === "object") {
+    delete keyParams._ts;
+  }
+
+  const key = `CONFIG:${safeUrl}:${stableStringify(keyParams)}`;
+  return publicConfigCache.getOrCreate(key, () =>
+    apiClient.get(safeUrl, { params, ...axiosConfig }),
+  );
+};
 const adminReadCache = new Map();
 const adminReadInFlight = new Map();
 
@@ -1793,6 +1826,27 @@ const getPublicRestaurantMenuOnce = (id, config = {}) => {
   const key = `menu:${safeId}`;
   return publicRestaurantMenuCache.getOrCreate(key, () =>
     apiClient.get(`/food/restaurant/restaurants/${safeId}/menu`, {
+      ...axiosConfig,
+    }),
+  );
+};
+
+const getPublicFoodsOnce = (params = {}, config = {}) => {
+  const { noCache, ...axiosConfig } = config || {};
+  const keyParams = { ...(params || {}) };
+  if (keyParams && typeof keyParams === "object") {
+    delete keyParams._ts;
+  }
+  if (noCache) {
+    return apiClient.get("/food/restaurant/public/foods", {
+      params: keyParams,
+      ...axiosConfig,
+    });
+  }
+  const key = `publicFoods:${stableStringify(keyParams)}`;
+  return publicFoodsCache.getOrCreate(key, () =>
+    apiClient.get("/food/restaurant/public/foods", {
+      params: keyParams,
       ...axiosConfig,
     }),
   );

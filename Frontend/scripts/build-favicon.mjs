@@ -3,7 +3,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const src = 'C:/Users/princeb/Downloads/Ometto/ometto favicon new.png'
+const src = 'C:/Users/princeb/Downloads/Eatiefy/eatiefy favicon new.png'
 const out = path.resolve(__dirname, '../public/assets/images/favicon.png')
 const size = 256
 const radius = Math.round(size * 0.22)

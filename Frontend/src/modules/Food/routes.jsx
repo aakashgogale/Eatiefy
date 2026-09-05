@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, Suspense, lazy } from "react"
+import { PublicAppConfigProvider } from "@food/context/PublicAppConfigContext"
 import { Routes, Route, Navigate, useLocation, useNavigate, useNavigationType } from "react-router-dom"
 import ProtectedRoute from "@food/components/ProtectedRoute"
 import AuthRedirect from "@food/components/AuthRedirect"
@@ -237,7 +238,7 @@ export default function App() {
     return () => window.removeEventListener("userLoginSuccess", onLoginSuccess)
   }, [])
 
-  // Global Auth Failure Listener EXACTLY like Ometto
+  // Global Auth Failure Listener EXACTLY like Eatiefy
   useEffect(() => {
     const handleAuthFailure = (event) => {
       const module = event.detail?.module || 'user'
@@ -257,7 +258,7 @@ export default function App() {
     }
 
     const handleStorageChange = (e) => {
-      // Cross-tab instant logout (Ometto v2 upgrade)
+      // Cross-tab instant logout (Eatiefy v2 upgrade)
       if ((e.key === "restaurant_accessToken" || e.key === "delivery_accessToken") && !e.newValue) {
         const module = e.key === "restaurant_accessToken" ? "restaurant" : "delivery"
         const loginPaths = {
@@ -329,7 +330,7 @@ export default function App() {
 
   return (
     <AuthInitializer>
-      <>
+      <PublicAppConfigProvider>
         <ScrollToTop />
         <RestaurantGlobalNotificationListener />
         <PushSoundEnableButton />
@@ -368,7 +369,7 @@ export default function App() {
             element={<UserRouterWrapper />}
           />
         </Routes>
-      </>
+      </PublicAppConfigProvider>
     </AuthInitializer>
   )
 }

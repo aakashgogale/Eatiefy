@@ -635,7 +635,7 @@ export default function RestaurantLogin() {
           <div className="mb-5 text-center flex flex-col items-center">
             <img
               src="/assets/images/ometto_logo_transparent.png"
-              alt="Ometto Logo"
+              alt="Eatiefy Logo"
               className="h-28 -mb-3.5 object-contain drop-shadow-md"
             />
             <h2 className="text-[25px] font-extrabold text-[#B80B3D] dark:text-red-400 tracking-tight font-['Outfit']">

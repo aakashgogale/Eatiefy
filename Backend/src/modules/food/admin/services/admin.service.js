@@ -3728,7 +3728,7 @@ export async function approveRestaurantAddon(addonId) {
                 {
                     title: 'Addon Approved! ✅',
                     body: `Your addon "${updated.published?.name || 'New Addon'}" has been approved and is now live.`,
-                    image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
+                    image: 'https://i.ibb.co/3m2Yh7r/Eatiefy-Brand-Image.png',
                     sendToAllDevices: true,
                     data: {
                         type: 'addon_approved',
@@ -3774,7 +3774,7 @@ export async function rejectRestaurantAddon(addonId, reason) {
                 {
                     title: 'Addon Rejected ❌',
                     body: `Your addon request for "${updated.draft?.name || 'New Addon'}" was rejected. Reason: ${rejectionReason}`,
-                    image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
+                    image: 'https://i.ibb.co/3m2Yh7r/Eatiefy-Brand-Image.png',
                     sendToAllDevices: true,
                     data: {
                         type: 'addon_rejected',
@@ -4257,7 +4257,7 @@ async function sendRestaurantApprovalNotifications(restaurant, existing = {}, is
             {
                 title: pushTitle,
                 body: pushBody,
-                image: restaurant.profileImage || 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
+                image: restaurant.profileImage || 'https://i.ibb.co/3m2Yh7r/Eatiefy-Brand-Image.png',
                 sendToAllDevices: true,
                 data: {
                     type: isChangesApproval ? 'restaurant_changes_approved' : 'restaurant_approved',
@@ -4309,7 +4309,7 @@ async function sendDeliveryApprovalNotifications(partner, existing = {}, isChang
         ? 'Profile Changes Approved! ✅'
         : 'Welcome Aboard! 🛵';
     const pushBody = isChangesApproval
-        ? 'Your delivery profile changes have been approved. You can continue delivering with Ometto.'
+        ? 'Your delivery profile changes have been approved. You can continue delivering with Eatiefy.'
         : 'Your delivery partner application has been approved. You can now go online and start earning!';
     const targetUrl = isChangesApproval
         ? '/food/delivery'
@@ -4335,7 +4335,7 @@ async function sendDeliveryApprovalNotifications(partner, existing = {}, isChang
                 {
                     title: pushTitle,
                     body: pushBody,
-                    image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
+                    image: 'https://i.ibb.co/3m2Yh7r/Eatiefy-Brand-Image.png',
                     sendToAllDevices: true,
                     data: {
                         type: isChangesApproval ? 'delivery_changes_approved' : 'onboarding_approved',
@@ -4446,7 +4446,7 @@ export async function rejectRestaurant(id, reason) {
                 {
                     title: rejectTitle,
                     body: rejectBody,
-                    image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
+                    image: 'https://i.ibb.co/3m2Yh7r/Eatiefy-Brand-Image.png',
                     sendToAllDevices: true,
                     data: {
                         type: isChangesRejection ? 'restaurant_changes_rejected' : 'restaurant_rejected',
@@ -4646,7 +4646,7 @@ export async function createAdminOffer(body) {
                 {
                     title: 'New Campaign Invitation! Ã°Å¸â€œÂ¢',
                     body: `You have been invited to join a new campaign: "${doc.couponCode}". Check it out now!`,
-                    image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
+                    image: 'https://i.ibb.co/3m2Yh7r/Eatiefy-Brand-Image.png',
                     data: {
                         type: 'campaign_invitation',
                         offerId: String(doc._id),
@@ -5083,7 +5083,7 @@ export async function addDeliveryPartnerBonus(body, adminUser) {
             {
                 title: 'Bonus Credited! Ã°Å¸Å½Å ',
                 body: `You have received a bonus of \u20B9${body.amount}. ${body.reference || 'Great job!'}`,
-                image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
+                image: 'https://i.ibb.co/3m2Yh7r/Eatiefy-Brand-Image.png',
                 data: {
                     type: 'bonus_credited',
                     amount: String(body.amount),
@@ -5457,7 +5457,7 @@ export async function creditEarningAddonHistory(historyId, notes) {
             {
                 title: 'Incentive Credited! Ã°Å¸Å½Â¯',
                 body: `Your incentive for "${doc.offerId?.title || 'Earning Addon'}" has been approved and moved to your pocket.`,
-                image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
+                image: 'https://i.ibb.co/3m2Yh7r/Eatiefy-Brand-Image.png',
                 data: {
                     type: 'incentive_credited',
                     historyId: String(doc._id),
@@ -5489,7 +5489,7 @@ export async function cancelEarningAddonHistory(historyId, reason) {
             {
                 title: 'Incentive Update Ã°Å¸â€œâ€¹',
                 body: `Your incentive request for "${doc.offerId?.title || 'Earning Addon'}" was not approved. Reason: ${doc.cancelReason || 'Ineligible'}`,
-                image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
+                image: 'https://i.ibb.co/3m2Yh7r/Eatiefy-Brand-Image.png',
                 data: {
                     type: 'incentive_rejected',
                     historyId: String(doc._id),
@@ -5813,7 +5813,7 @@ export async function rejectDeliveryPartner(id, reason) {
                 {
                     title: rejectTitle,
                     body: rejectBody,
-                    image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
+                    image: 'https://i.ibb.co/3m2Yh7r/Eatiefy-Brand-Image.png',
                     sendToAllDevices: true,
                     data: {
                         type: isChangesRejection ? 'delivery_changes_rejected' : 'onboarding_rejected',

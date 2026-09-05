@@ -1561,7 +1561,7 @@ export async function updateOrderStatusRestaurant(
         {
           title: riderTitle,
           body: riderBody,
-          image: "https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png",
+          image: "https://i.ibb.co/3m2Yh7r/Eatiefy-Brand-Image.png",
           data: {
             type: "order_status_update",
             orderId: displayOrderId,

@@ -4,6 +4,7 @@ import { toast } from "sonner"
 import { ProfileProvider } from "@food/context/ProfileContext"
 import LocationPrompt from "./LocationPrompt"
 import { CartProvider } from "@food/context/CartContext"
+import { DeliveryLocationProvider } from "@food/context/DeliveryLocationContext"
 import { OrdersProvider } from "@food/context/OrdersContext"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -217,7 +218,7 @@ function UserLayoutContent() {
         <div className="w-[calc(100vw-32px)] sm:w-[380px] bg-white shadow-[0_8px_30px_rgb(0,0,0,0.12)] rounded-3xl pointer-events-auto flex items-center gap-4 p-3.5 border border-gray-50 animate-in fade-in slide-in-from-top-4">
           <div className="flex-shrink-0">
             <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-[#DC2626] to-[#991B1B] flex items-center justify-center shadow-lg">
-              <img src="/assets/images/ometto-toast-logo.png" alt="Ometto" className="w-7 h-7 object-contain brightness-0 invert" />
+              <img src="/assets/images/ometto-toast-logo.png" alt="Eatiefy" className="w-7 h-7 object-contain brightness-0 invert" />
             </div>
           </div>
           <div className="flex-1 pr-1 min-w-0">
@@ -485,7 +486,7 @@ function UserLayoutContent() {
               <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-[#DC2626] to-[#991B1B] flex items-center justify-center p-1.5 shadow-lg">
                 <img 
                   src="/assets/images/ometto-toast-logo.png" 
-                  alt="Ometto" 
+                  alt="Eatiefy" 
                   className="w-full h-full object-contain brightness-0 invert" 
                 />
               </div>
@@ -578,20 +579,54 @@ function UserLayoutContent() {
   )
 }
 
+// The bottom nav and floating dock read these vars for their transform, so the
+// nav keeps hiding on scroll-down and returning on scroll-up.
+function useBottomNavScrollHide() {
+  const location = useLocation()
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--bottom-nav-y', '0px')
+    document.documentElement.style.setProperty('--floating-dock-y', '-72px')
+  }, [location.pathname])
+
+  useEffect(() => {
+    let lastScroll = window.scrollY
+    const handleScroll = () => {
+      const currentScroll = window.scrollY
+
+      if (currentScroll > lastScroll + 12 && currentScroll > 80) {
+        document.documentElement.style.setProperty('--bottom-nav-y', '120px')
+        document.documentElement.style.setProperty('--floating-dock-y', '0px')
+      } else if (currentScroll < lastScroll - 12 || currentScroll <= 30) {
+        document.documentElement.style.setProperty('--bottom-nav-y', '0px')
+        document.documentElement.style.setProperty('--floating-dock-y', '-72px')
+      }
+
+      lastScroll = currentScroll
+    }
+
+    window.addEventListener("scroll", handleScroll, { passive: true })
+    return () => window.removeEventListener("scroll", handleScroll)
+  }, [])
+}
+
 export default function UserLayout() {
   useUserNotifications()
+  useBottomNavScrollHide()
 
   return (
     <div className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a] transition-colors duration-200">
       <ProfileProvider>
         <CartProvider>
-          <OrdersProvider>
-            <SearchOverlayProvider>
-              <LocationSelectorProvider>
-                <UserLayoutContent />
-              </LocationSelectorProvider>
-            </SearchOverlayProvider>
-          </OrdersProvider>
+          <DeliveryLocationProvider>
+            <OrdersProvider>
+              <SearchOverlayProvider>
+                <LocationSelectorProvider>
+                  <UserLayoutContent />
+                </LocationSelectorProvider>
+              </SearchOverlayProvider>
+            </OrdersProvider>
+          </DeliveryLocationProvider>
         </CartProvider>
       </ProfileProvider>
     </div>

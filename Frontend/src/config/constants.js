@@ -1,5 +1,5 @@
 export const APP_CONFIG = {
-  NAME: 'Ometto',
+  NAME: 'Eatiefy',
   VERSION: '1.0.0',
 };
 

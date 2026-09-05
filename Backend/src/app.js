@@ -49,6 +49,9 @@ app.use(helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
 const defaultOrigins = [
+    'https://eatiefy.com',
+    'https://www.eatiefy.com',
+    // Legacy domain kept so anything still served from it keeps working.
     'https://omettofood.com',
     'https://www.omettofood.com',
     'http://omettofood.com',
@@ -58,6 +61,8 @@ const defaultOrigins = [
 ];
 
 const allowedHostnames = new Set([
+    'eatiefy.com',
+    'www.eatiefy.com',
     'omettofood.com',
     'www.omettofood.com',
     'localhost',

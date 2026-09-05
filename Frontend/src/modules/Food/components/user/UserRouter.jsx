@@ -42,6 +42,7 @@ const UserOrderDetails = lazy(() => import("@food/pages/user/orders/UserOrderDet
 
 // Offers
 const Offers = lazy(() => import("@food/pages/user/Offers"))
+const Reorder = lazy(() => import("@food/pages/user/reorder/Reorder"))
 
 // Gourmet
 const Gourmet = lazy(() => import("@food/pages/user/Gourmet"))
@@ -202,6 +203,7 @@ export default function UserRouter() {
             <Route path="dining/*" element={<Navigate to="/food/user" replace />} />
           )}
           <Route path="under-250" element={<MainTabRoutePlaceholder />} />
+          <Route path="reorder" element={<Reorder />} />
           <Route path="categories" element={<Categories />} />
           <Route path="category/:category" element={<MainTabRoutePlaceholder />} />
           <Route path="restaurants" element={<Restaurants />} />

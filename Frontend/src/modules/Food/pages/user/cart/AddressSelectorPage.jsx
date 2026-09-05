@@ -86,7 +86,7 @@ const showAddressRemovedBrandedToast = () => {
         <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-[#DC2626]/95 to-[#991B1B]/95 flex items-center justify-center p-0.5 shadow-md flex-shrink-0">
           <img
             src="/assets/images/ometto-toast-logo.png"
-            alt="Ometto"
+            alt="Eatiefy"
             className="w-full h-full object-contain brightness-0 invert scale-110"
           />
         </div>
@@ -1007,7 +1007,7 @@ export default function AddressSelectorPage() {
 
               <Label className="text-sm font-bold mb-2 block text-gray-700 dark:text-gray-300">Secondary Address (House No. / Flat / Floor)</Label>
               <Input 
-                placeholder="E.g. Flat 402, 4th Floor, AppZeto Building" 
+                placeholder="E.g. Flat 402, 4th Floor, Eatiefy Building" 
                 value={addressFormData.additionalDetails} 
                 onChange={e => setAddressFormData({...addressFormData, additionalDetails: e.target.value})}
                 onFocus={() => scrollFieldIntoView("additionalDetails")}

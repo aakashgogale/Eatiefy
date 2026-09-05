@@ -472,7 +472,7 @@ export default function OutletInfo() {
               <Input 
                 value={editNameValue} 
                 onChange={(e) => setEditNameValue(e.target.value.replace(/[\/-]/g, ""))} 
-                placeholder="Ex: Ometto Express" 
+                placeholder="Ex: Eatiefy Express" 
                 className="w-full h-14 px-5 rounded-2xl border-2 border-gray-100 focus:border-[#B80B3D] focus:ring-0 transition-all font-bold text-lg bg-gray-50 group-hover:bg-white" 
               />
               <Pencil className="absolute right-5 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-300 group-hover:text-[#B80B3D] transition-colors" />

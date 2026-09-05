@@ -142,7 +142,7 @@ const TakeawayAnimation = memo(({ order }) => {
       <div className="absolute w-1.5 h-1.5 rounded-full bg-orange-300/30 blur-[1px] animate-float-bokeh-3 select-none pointer-events-none" />
       <div className="absolute w-2.5 h-2.5 rounded-full bg-yellow-200/40 blur-[1.5px] animate-float-bokeh-4 select-none pointer-events-none" />
 
-      {/* Top Typography section in Ometto-Takeaway-Self-Pickup theme */}
+      {/* Top Typography section in Eatiefy-Takeaway-Self-Pickup theme */}
       <div className="text-center px-4 mt-1.5 select-none pointer-events-none flex flex-col items-center z-10">
         <h3 className="text-[#7C2D12] dark:text-[#FEF3C7] font-black text-[13px] sm:text-base tracking-widest mb-0.5 select-none uppercase drop-shadow-[0_1px_2px_rgba(255,255,255,0.3)] dark:drop-shadow-md">
           ORDER, EAT, ENJOY!

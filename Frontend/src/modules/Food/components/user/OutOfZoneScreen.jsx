@@ -7,7 +7,7 @@ import outOfZoneBg from '@food/assets/Outofzone_bg.jpg';
 
 const OutOfZoneScreen = ({ location, handleLocationClick }) => {
   const { userProfile } = useProfile();
-  const BRAND_NAME = "Ometto"; // Change this for different projects
+  const BRAND_NAME = "Eatiefy"; // Change this for different projects
 
   const routerLocation = useLocation();
   const initials = React.useMemo(() => {
