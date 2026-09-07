@@ -76,6 +76,18 @@ async function finalizeRestaurantPendingSubmission(navigate, phone, fcmOptions =
 }
 
 
+// Business categories that drive the one-time onboarding fee. Slugs must match
+// RESTAURANT_TYPES in the backend; the payable amount is always resolved server-side.
+const RESTAURANT_TYPE_OPTIONS = [
+  { value: "family_restaurant", label: "Family Restaurant" },
+  { value: "cafe", label: "Cafe" },
+  { value: "cloud_kitchen", label: "Cloud Kitchen" },
+  { value: "street_food", label: "Street Food" },
+]
+
+const ONBOARDING_TOKEN_KEY = "restaurant_onboardingToken"
+const ONBOARDING_RESTAURANT_ID_KEY = "restaurant_onboardingRestaurantId"
+
 const daysOfWeek = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 const ONBOARDING_STORAGE_KEY = "restaurant_onboarding_data"
@@ -85,7 +97,38 @@ const FSSAI_NUMBER_REGEX = /^\d{14}$/
 const BANK_ACCOUNT_NUMBER_REGEX = /^\d{9,18}$/
 const IFSC_CODE_REGEX = /^[A-Z0-9]{11}$/
 const OWNER_NAME_REGEX = /^[A-Za-z ]+$/
-const ACCOUNT_HOLDER_NAME_REGEX = /^[A-Za-z ]+$/
+// Full personal/legal names: letters plus the separators that legally appear on
+// PAN cards and bank records — spaces between name parts, dots for initials,
+// apostrophes and hyphens. Must mirror the backend rule in restaurant.validator.js.
+const FULL_NAME_REGEX = /^[A-Za-z][A-Za-z.'\- ]*$/
+const FULL_NAME_MAX_LENGTH = 100
+
+const toFiniteCoordinate = (value) => {
+  const n = typeof value === "number" ? value : parseFloat(String(value ?? ""))
+  return Number.isFinite(n) ? n : null
+}
+
+/** Ray-casting point-in-polygon over a zone's [{latitude, longitude}] ring. */
+const isPointInZone = (lat, lng, zone) => {
+  const polygon = Array.isArray(zone?.coordinates) ? zone.coordinates : []
+  if (polygon.length < 3) return false
+
+  let inside = false
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = Number(polygon[i]?.longitude)
+    const yi = Number(polygon[i]?.latitude)
+    const xj = Number(polygon[j]?.longitude)
+    const yj = Number(polygon[j]?.latitude)
+    if (![xi, yi, xj, yj].every(Number.isFinite)) continue
+    if (yj === yi) continue
+    const intersect = yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi
+    if (intersect) inside = !inside
+  }
+  return inside
+}
+
+const getZoneLabel = (zone) =>
+  zone?.name || zone?.zoneName || zone?.serviceLocation || String(zone?._id || zone?.id || "")
 const GST_LEGAL_NAME_REGEX = /^[A-Za-z ]+$/
 const LOCAL_IMAGE_FILE_ACCEPT = ".jpg,.jpeg,.png,.webp,.heic,.heif"
 const GALLERY_IMAGE_ACCEPT =
@@ -263,6 +306,20 @@ const normalizeAccountTypeValue = (value) => {
   if (normalized === "current") return "Current"
   return ""
 }
+
+/**
+ * Keeps full names typeable: first name, last name and any middle parts stay
+ * intact, along with the dots/apostrophes/hyphens that appear on PAN and bank
+ * records. Only genuinely invalid characters are stripped, and inner spacing is
+ * preserved while typing (runs of spaces are collapsed on validation instead).
+ */
+const sanitizeFullName = (value) =>
+  String(value ?? "")
+    .replace(/[^A-Za-z.'\- ]/g, "")
+    .replace(/^[.'\- ]+/, "")
+    .slice(0, FULL_NAME_MAX_LENGTH)
+
+const normalizeFullName = (value) => String(value ?? "").replace(/\s+/g, " ").trim()
 
 const formatNameToCapital = (str) => {
   if (!str) return ""
@@ -556,6 +613,7 @@ export default function RestaurantOnboarding() {
     ownerEmail: "",
     ownerPhone: "",
     primaryContactNumber: "",
+    restaurantType: "",
     zoneId: "",
     location: {
       formattedAddress: "",
@@ -570,6 +628,37 @@ export default function RestaurantOnboarding() {
       longitude: "",
     },
   })
+
+  // Coordinates of the location the owner picked (empty until a suggestion is chosen).
+  const selectedLat = toFiniteCoordinate(step1.location?.latitude)
+  const selectedLng = toFiniteCoordinate(step1.location?.longitude)
+  const hasSelectedLocation = selectedLat !== null && selectedLng !== null
+
+  /**
+   * Once a location is picked, only zones whose polygon actually covers it may be
+   * chosen. Before that, every active zone stays selectable so the owner can pick
+   * a zone first and have the address search biased to it.
+   */
+  const selectableZones = useMemo(() => {
+    if (!hasSelectedLocation) return zones
+    return zones.filter((zone) => isPointInZone(selectedLat, selectedLng, zone))
+  }, [zones, hasSelectedLocation, selectedLat, selectedLng])
+
+  const isSelectedZoneValid = useMemo(() => {
+    const zoneId = String(step1.zoneId || "").trim()
+    if (!zoneId) return true
+    return selectableZones.some((zone) => String(zone?._id || zone?.id) === zoneId)
+  }, [selectableZones, step1.zoneId])
+
+  // Picking a location outside the chosen zone clears the now-invalid selection so
+  // an out-of-zone pairing can never reach the submit payload.
+  useEffect(() => {
+    if (step !== 1) return
+    if (!step1.zoneId || zonesLoading || zones.length === 0) return
+    if (isSelectedZoneValid) return
+    setStep1((prev) => ({ ...prev, zoneId: "" }))
+    toast.error("The selected location is outside your chosen service zone. Please pick a zone that covers it.")
+  }, [step, step1.zoneId, zones.length, zonesLoading, isSelectedZoneValid])
 
   const [step2, setStep2] = useState({
     menuImages: [],
@@ -886,6 +975,7 @@ export default function RestaurantOnboarding() {
             ownerEmail: s1.ownerEmail || apiData.ownerEmail || apiData.email || "",
             ownerPhone: s1.ownerPhone || apiData.ownerPhone || apiData.phone || "",
             primaryContactNumber: s1.primaryContactNumber || apiData.primaryContactNumber || "",
+            restaurantType: s1.restaurantType || apiData.restaurantType || "",
             zoneId: s1.zoneId || apiData.zoneId || "",
             location: {
               ...prev.location,
@@ -1148,8 +1238,15 @@ export default function RestaurantOnboarding() {
     } else if (!/^\d{10}$/.test(normalizePhoneDigits(step1.primaryContactNumber))) {
        errors.push("Primary contact number must be exactly 10 digits")
     }
+    if (!step1.restaurantType?.trim()) {
+      errors.push("Restaurant type is required")
+    } else if (!RESTAURANT_TYPE_OPTIONS.some((t) => t.value === step1.restaurantType)) {
+      errors.push("Please choose a valid restaurant type")
+    }
     if (!step1.zoneId?.trim()) {
       errors.push("Service zone is required")
+    } else if (zones.length > 0 && !isSelectedZoneValid) {
+      errors.push("The selected service zone does not cover your restaurant location")
     }
     if (!step1.location?.area?.trim()) {
       errors.push("Area/Sector/Locality is required")
@@ -1229,8 +1326,13 @@ export default function RestaurantOnboarding() {
     } else if (!PAN_NUMBER_REGEX.test(step3.panNumber.trim().toUpperCase())) {
       errors.push("PAN number must be valid (e.g., ABCDE1234F)")
     }
-    if (!step3.nameOnPan?.trim()) {
-      errors.push("Name on PAN is required")
+    const normalizedNameOnPan = normalizeFullName(step3.nameOnPan)
+    if (!normalizedNameOnPan) {
+      errors.push("PAN holder name is required")
+    } else if (normalizedNameOnPan.length < 2) {
+      errors.push("PAN holder name must be at least 2 characters")
+    } else if (!FULL_NAME_REGEX.test(normalizedNameOnPan)) {
+      errors.push("PAN holder name can only contain letters, spaces, dots, apostrophes and hyphens")
     }
     // Validate PAN image - must be a File or existing URL
     if (!step3.panImage) {
@@ -1315,10 +1417,13 @@ export default function RestaurantOnboarding() {
     } else if (!IFSC_CODE_REGEX.test(step3.ifscCode.trim().toUpperCase())) {
       errors.push("IFSC code must contain exactly 11 alphanumeric characters")
     }
-    if (!step3.accountHolderName?.trim()) {
+    const normalizedAccountHolderName = normalizeFullName(step3.accountHolderName)
+    if (!normalizedAccountHolderName) {
       errors.push("Account holder name is required")
-    } else if (!ACCOUNT_HOLDER_NAME_REGEX.test(step3.accountHolderName.trim())) {
-      errors.push("Account holder name must contain only letters")
+    } else if (normalizedAccountHolderName.length < 2) {
+      errors.push("Account holder name must be at least 2 characters")
+    } else if (!FULL_NAME_REGEX.test(normalizedAccountHolderName)) {
+      errors.push("Account holder name can only contain letters, spaces, dots, apostrophes and hyphens")
     }
     if (!step3.accountType?.trim()) {
       errors.push("Account type is required")
@@ -1385,6 +1490,7 @@ export default function RestaurantOnboarding() {
             ownerEmail: (step1.ownerEmail || "").trim(),
             ownerPhone: normalizePhoneDigits(step1.ownerPhone),
             primaryContactNumber: normalizePhoneDigits(step1.primaryContactNumber),
+            restaurantType: step1.restaurantType || "",
             zoneId: step1.zoneId || "",
             location: {
               formattedAddress: step1.location?.formattedAddress || "",
@@ -1406,7 +1512,7 @@ export default function RestaurantOnboarding() {
             menuImages: menuImagesPayload,
             profileImage: profileImagePayload || "",
             panNumber: step3.panNumber || "",
-            nameOnPan: step3.nameOnPan || "",
+            nameOnPan: normalizeFullName(step3.nameOnPan),
             panImage: panImagePayload || "",
             gstRegistered: Boolean(step3.gstRegistered),
             gstNumber: step3.gstRegistered ? step3.gstNumber || "" : "",
@@ -1418,7 +1524,7 @@ export default function RestaurantOnboarding() {
             fssaiImage: fssaiImagePayload || "",
             accountNumber: step3.accountNumber || "",
             ifscCode: (step3.ifscCode || "").toUpperCase(),
-            accountHolderName: step3.accountHolderName || "",
+            accountHolderName: normalizeFullName(step3.accountHolderName),
             accountType: step3.accountType || "",
             isTakeawayEnabled: step2.isTakeawayEnabled === true,
             isTakeawayCodEnabled: step2.isTakeawayCodEnabled === true,
@@ -1457,6 +1563,7 @@ export default function RestaurantOnboarding() {
         formData.append("ownerEmail", (step1.ownerEmail || "").trim())
         formData.append("ownerPhone", normalizePhoneDigits(step1.ownerPhone))
         formData.append("primaryContactNumber", normalizePhoneDigits(step1.primaryContactNumber))
+        formData.append("restaurantType", step1.restaurantType || "")
         formData.append("zoneId", step1.zoneId || "")
         formData.append("addressLine1", step1.location?.addressLine1 || "")
         formData.append("addressLine2", step1.location?.addressLine2 || "")
@@ -1495,7 +1602,7 @@ export default function RestaurantOnboarding() {
 
         // Step 3
         formData.append("panNumber", step3.panNumber || "")
-        formData.append("nameOnPan", step3.nameOnPan || "")
+        formData.append("nameOnPan", normalizeFullName(step3.nameOnPan))
         if (!isUploadableFile(step3.panImage)) {
           throw new Error("PAN image is required")
         }
@@ -1521,7 +1628,7 @@ export default function RestaurantOnboarding() {
 
         formData.append("accountNumber", step3.accountNumber || "")
         formData.append("ifscCode", (step3.ifscCode || "").toUpperCase())
-        formData.append("accountHolderName", step3.accountHolderName || "")
+        formData.append("accountHolderName", normalizeFullName(step3.accountHolderName))
         formData.append("accountType", step3.accountType || "")
 
         if (fcmToken) {
@@ -1529,7 +1636,10 @@ export default function RestaurantOnboarding() {
           formData.append("platform", platform)
         }
 
-        await restaurantAPI.register(formData)
+        const registerResponse = await restaurantAPI.register(formData)
+        const registered =
+          registerResponse?.data?.data || registerResponse?.data || {}
+        const onboarding = registered?.onboarding || {}
 
         // Clear localStorage when onboarding is complete
         clearOnboardingFromLocalStorage()
@@ -1537,6 +1647,26 @@ export default function RestaurantOnboarding() {
         try {
           await clearAllFilesFromDB()
         } catch {}
+
+        // A one-time fee applies: the restaurant is saved but NOT submitted to admin
+        // until the backend verifies the payment.
+        if (onboarding.paymentRequired && onboarding.onboardingToken) {
+          try {
+            localStorage.setItem(ONBOARDING_TOKEN_KEY, onboarding.onboardingToken)
+            localStorage.setItem(
+              ONBOARDING_RESTAURANT_ID_KEY,
+              String(registered?._id || registered?.id || ""),
+            )
+            if (normalizePhoneDigits(step1.ownerPhone)) {
+              localStorage.setItem(
+                "restaurant_pendingPhone",
+                normalizePhoneDigits(step1.ownerPhone),
+              )
+            }
+          } catch {}
+          navigate("/food/restaurant/onboarding/payment", { replace: true })
+          return
+        }
 
         toast.success("Registration submitted. Awaiting admin approval.", { duration: 4000 })
         await finalizeRestaurantPendingSubmission(navigate, step1.ownerPhone, { fcmToken, platform })
@@ -1733,6 +1863,32 @@ export default function RestaurantOnboarding() {
             Add your restaurant's location for order pick-up.
           </p>
           <div>
+            <Label className="text-xs text-gray-700">Restaurant type*</Label>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {RESTAURANT_TYPE_OPTIONS.map((option) => {
+                const selected = step1.restaurantType === option.value
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    disabled={!isEditing}
+                    onClick={() => setStep1({ ...step1, restaurantType: option.value })}
+                    className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+                      selected
+                        ? "border-[#2E7D52] bg-[#2E7D52] text-white"
+                        : "border-gray-200 bg-white text-gray-700 hover:border-[#2E7D52]/40"
+                    } ${!isEditing ? "opacity-70 cursor-not-allowed" : ""}`}
+                  >
+                    {option.label}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1">
+              Your one-time onboarding fee depends on this category and your service zone.
+            </p>
+          </div>
+          <div>
             <Label className="text-xs text-gray-700">Service zone*</Label>
             <select
               value={step1.zoneId || ""}
@@ -1741,19 +1897,26 @@ export default function RestaurantOnboarding() {
               disabled={zonesLoading || !isEditing}
             >
               <option value="">{zonesLoading ? "Loading zones..." : "Select a zone"}</option>
-              {zones.map((z) => {
+              {selectableZones.map((z) => {
                 const id = String(z?._id || z?.id || "")
-                const label = z?.name || z?.zoneName || z?.serviceLocation || id
                 return (
                   <option key={id} value={id}>
-                    {label}
+                    {getZoneLabel(z)}
                   </option>
                 )
               })}
             </select>
-            <p className="text-[11px] text-gray-500 mt-1">
-              Choose the service zone where your restaurant will be available.
-            </p>
+            {hasSelectedLocation && !zonesLoading && selectableZones.length === 0 ? (
+              <p className="text-[11px] text-red-600 mt-1">
+                No service zone covers the selected location yet. Please choose a different address.
+              </p>
+            ) : (
+              <p className="text-[11px] text-gray-500 mt-1">
+                {hasSelectedLocation
+                  ? "Only zones that cover your selected location are listed."
+                  : "Choose the service zone where your restaurant will be available."}
+              </p>
+            )}
           </div>
           <div ref={locationSearchContainerRef} className="relative">
             <Label className="text-xs text-gray-700">Search location</Label>
@@ -2507,7 +2670,7 @@ export default function RestaurantOnboarding() {
         <div className="flex items-center justify-between">
           <div className="space-y-0.5">
             <Label className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
-              <ShoppingBag className="w-4 h-4 text-green-600" />
+              <ShoppingBag className="w-4 h-4 text-[#2E7D52]" />
               <span>Takeaway (Pickup) order</span>
             </Label>
             <p className="text-[11px] text-gray-500 leading-relaxed">
@@ -2518,7 +2681,7 @@ export default function RestaurantOnboarding() {
             type="button"
             onClick={() => setStep2(prev => ({ ...prev, isTakeawayEnabled: !prev.isTakeawayEnabled }))}
             className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-              step2.isTakeawayEnabled ? "bg-green-600" : "bg-gray-200"
+              step2.isTakeawayEnabled ? "bg-[#2E7D52]" : "bg-gray-200"
             }`}
           >
             <span
@@ -2554,7 +2717,7 @@ export default function RestaurantOnboarding() {
               onChange={(e) =>
                 setStep3({
                   ...step3,
-                  nameOnPan: formatNameToCapital(e.target.value.replace(/[^A-Za-z ]/g, "")),
+                  nameOnPan: sanitizeFullName(e.target.value),
                 })
               }
               className="mt-1 bg-white text-sm"
@@ -2870,7 +3033,7 @@ export default function RestaurantOnboarding() {
           onChange={(e) =>
             setStep3({
               ...step3,
-              accountHolderName: formatNameToCapital(e.target.value.replace(/[^A-Za-z ]/g, "")),
+              accountHolderName: sanitizeFullName(e.target.value),
             })
           }
           className="bg-white text-sm"

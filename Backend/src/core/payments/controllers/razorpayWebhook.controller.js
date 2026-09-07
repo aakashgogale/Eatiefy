@@ -5,6 +5,11 @@ import * as foodTransactionService from '../../../modules/food/orders/services/f
 import * as orderService from '../../../modules/food/orders/services/order.service.js';
 import { config } from '../../../config/env.js';
 import { logger } from '../../../utils/logger.js';
+import {
+    findOnboardingPaymentByGatewayOrderId,
+    finalizeOnboardingPayment,
+    cancelOnboardingPayment
+} from '../../../modules/food/restaurant/services/onboardingPayment.service.js';
 
 function signaturesMatch(expectedHex, received) {
     try {
@@ -85,6 +90,30 @@ export const handleRazorpayWebhook = async (req, res) => {
             const rzOrderId = paymentObj.order_id;
             const rzPaymentId = paymentObj.id;
 
+            // Restaurant onboarding fees share this endpoint. finalizeOnboardingPayment
+            // is idempotent, so a webhook racing the checkout callback is harmless.
+            const onboardingPayment = await findOnboardingPaymentByGatewayOrderId(rzOrderId);
+            if (onboardingPayment) {
+                if (Number(paymentObj.amount) !== Number(onboardingPayment.amountPaise)) {
+                    logger.error(
+                        `Webhook [payment.captured]: onboarding amount mismatch for ${rzOrderId} ` +
+                        `(gateway=${paymentObj.amount} expected=${onboardingPayment.amountPaise})`
+                    );
+                    return res.status(200).json({ status: 'ok' });
+                }
+                const { alreadyProcessed } = await finalizeOnboardingPayment({
+                    payment: onboardingPayment,
+                    razorpayPaymentId: rzPaymentId,
+                    signatureVerified: true,
+                    confirmedVia: 'webhook'
+                });
+                logger.info(
+                    `Webhook [payment.captured]: onboarding payment ${onboardingPayment._id} ` +
+                    (alreadyProcessed ? 'already processed' : 'confirmed')
+                );
+                return res.status(200).json({ status: 'ok' });
+            }
+
             let order = await findFoodOrderForRazorpayOrderId(rzOrderId);
             if (!order) {
                 // If phone dropped network post-payment, recover order from pending intent
@@ -113,6 +142,21 @@ export const handleRazorpayWebhook = async (req, res) => {
                 logger.info(`Webhook [payment.captured]: Synced Order ${order.orderId || order._id} (Status=paid)`);
             } else {
                 logger.warn(`Webhook [payment.captured]: Order not found & no pending intent for RZ-Order: ${rzOrderId}`);
+            }
+        }
+
+        if (event === 'payment.failed') {
+            const paymentObj = payload?.payment?.entity || {};
+            const onboardingPayment = await findOnboardingPaymentByGatewayOrderId(paymentObj.order_id);
+            if (onboardingPayment) {
+                // Frees the reserved offer slot so a failed attempt never burns one.
+                await cancelOnboardingPayment(onboardingPayment.restaurantId, {
+                    razorpayOrderId: paymentObj.order_id,
+                    status: 'failed',
+                    reason: paymentObj?.error_description || 'Payment failed at gateway'
+                });
+                logger.info(`Webhook [payment.failed]: released onboarding payment ${onboardingPayment._id}`);
+                return res.status(200).json({ status: 'ok' });
             }
         }
 

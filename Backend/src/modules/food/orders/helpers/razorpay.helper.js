@@ -114,6 +114,34 @@ export async function fetchRazorpayPayment(paymentId) {
 }
 
 /**
+ * List the payments Razorpay has recorded against one order.
+ *
+ * Used to settle "did this actually get paid?" from the server when the browser's
+ * own signal is unreliable (tab switch, UPI app hop, dismissed modal).
+ * @param {string} orderId
+ * @returns {Promise<Array>} payment entities, newest first as returned by Razorpay
+ */
+export async function fetchRazorpayOrderPayments(orderId) {
+    const instance = getRazorpayInstance();
+    if (!instance) throw new Error('Razorpay not configured');
+    if (!orderId) throw new Error('orderId is required');
+    const result = await instance.orders.fetchPayments(String(orderId));
+    return Array.isArray(result?.items) ? result.items : [];
+}
+
+/**
+ * The successful payment on an order, if there is one.
+ * @returns {Promise<object|null>} a captured/authorized payment entity, else null
+ */
+export async function findSuccessfulPaymentForOrder(orderId) {
+    const payments = await fetchRazorpayOrderPayments(orderId);
+    return (
+        payments.find((p) => ['captured', 'authorized'].includes(String(p?.status || '').toLowerCase())) ||
+        null
+    );
+}
+
+/**
  * Fetch Razorpay payment-link to check status (used for Razorpay QR auto verification).
  * @param {string} paymentLinkId
  */

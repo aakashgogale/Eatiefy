@@ -196,6 +196,20 @@ export default function RestaurantOTP() {
         setDeletedAccountData(data)
         setShowRestorePopup(true)
         setIsLoading(false)
+      } else if (data.onboardingPaymentPending === true) {
+        // Onboarding was saved but the one-time fee is still unpaid — resume there.
+        isSuccessRef.current = true
+        sessionStorage.removeItem("restaurantAuthData")
+        sessionStorage.removeItem(getBlockKey())
+        sessionStorage.removeItem(getResendKey())
+        setRestaurantPendingPhone(phone)
+        try {
+          localStorage.setItem("restaurant_onboardingToken", data.onboardingToken || "")
+          localStorage.setItem("restaurant_onboardingRestaurantId", data.restaurantId || "")
+        } catch {}
+        setShowRestorePopup(false)
+        setIsLoading(false)
+        navigate("/food/restaurant/onboarding/payment", { replace: true })
       } else if (data.pendingApproval === true) {
         isSuccessRef.current = true
         sessionStorage.removeItem("restaurantAuthData")

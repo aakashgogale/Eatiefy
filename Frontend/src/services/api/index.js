@@ -923,6 +923,36 @@ export const adminAPI = {
       { contextModule: "admin" },
     ),
 
+  /** Restaurant onboarding pricing rules (admin) */
+  getOnboardingPricingBootstrap: () =>
+    apiClient.get("/food/admin/onboarding/pricing/bootstrap", { contextModule: "admin" }),
+  getOnboardingPricingRules: (params = {}) =>
+    apiClient.get("/food/admin/onboarding/pricing/rules", { params, contextModule: "admin" }),
+  createOnboardingPricingRule: (body) =>
+    apiClient.post("/food/admin/onboarding/pricing/rules", body ?? {}, { contextModule: "admin" }),
+  updateOnboardingPricingRule: (id, body) =>
+    apiClient.patch(`/food/admin/onboarding/pricing/rules/${id}`, body ?? {}, { contextModule: "admin" }),
+  toggleOnboardingPricingRule: (id, isActive) =>
+    apiClient.patch(`/food/admin/onboarding/pricing/rules/${id}/status`, { isActive }, { contextModule: "admin" }),
+  deleteOnboardingPricingRule: (id) =>
+    apiClient.delete(`/food/admin/onboarding/pricing/rules/${id}`, { contextModule: "admin" }),
+
+  /** Restaurant onboarding promotional offers (admin) */
+  getOnboardingOffers: (params = {}) =>
+    apiClient.get("/food/admin/onboarding/offers", { params, contextModule: "admin" }),
+  createOnboardingOffer: (body) =>
+    apiClient.post("/food/admin/onboarding/offers", body ?? {}, { contextModule: "admin" }),
+  updateOnboardingOffer: (id, body) =>
+    apiClient.patch(`/food/admin/onboarding/offers/${id}`, body ?? {}, { contextModule: "admin" }),
+  toggleOnboardingOffer: (id, isActive) =>
+    apiClient.patch(`/food/admin/onboarding/offers/${id}/status`, { isActive }, { contextModule: "admin" }),
+  deleteOnboardingOffer: (id) =>
+    apiClient.delete(`/food/admin/onboarding/offers/${id}`, { contextModule: "admin" }),
+
+  /** Onboarding payment review (admin) */
+  getOnboardingPayments: (params = {}) =>
+    apiClient.get("/food/admin/onboarding/payments", { params, contextModule: "admin" }),
+
   /** Fee Settings (admin) */
   getFeeSettings: (params) =>
     apiClient.get("/food/admin/fee-settings", {
@@ -1559,6 +1589,27 @@ export const restaurantAPI = {
     }
     return apiClient.post("/food/restaurant/register", formData);
   },
+  /**
+   * One-time onboarding payment.
+   * A restaurant has no access token before approval, so these calls carry the
+   * short-lived onboarding token returned by register()/OTP login instead.
+   */
+  getOnboardingPaymentQuote: (onboardingToken) =>
+    apiClient.get("/food/restaurant/onboarding/payment/quote", {
+      headers: { "X-Onboarding-Token": onboardingToken },
+    }),
+  createOnboardingPaymentOrder: (onboardingToken) =>
+    apiClient.post("/food/restaurant/onboarding/payment/order", {}, {
+      headers: { "X-Onboarding-Token": onboardingToken },
+    }),
+  verifyOnboardingPayment: (onboardingToken, body) =>
+    apiClient.post("/food/restaurant/onboarding/payment/verify", body ?? {}, {
+      headers: { "X-Onboarding-Token": onboardingToken },
+    }),
+  cancelOnboardingPayment: (onboardingToken, body) =>
+    apiClient.post("/food/restaurant/onboarding/payment/cancel", body ?? {}, {
+      headers: { "X-Onboarding-Token": onboardingToken },
+    }),
   /** Public: list approved restaurants for user app */
   getRestaurants: (params = {}, config = {}) =>
     getPublicRestaurantsOnce(params, config),

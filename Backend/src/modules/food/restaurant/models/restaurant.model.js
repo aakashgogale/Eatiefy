@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { RESTAURANT_TYPE_VALUES } from "../../shared/restaurantTypes.js";
 
 const normalizeRatingValue = (value) => {
   const numeric = Number(value);
@@ -131,6 +132,33 @@ const restaurantSchema = new mongoose.Schema(
       default: true,
       index: true,
     },
+    /** Business category driving the one-time onboarding fee. Server-persisted so
+     *  pricing can never be derived from a client-supplied value. */
+    restaurantType: {
+      type: String,
+      enum: RESTAURANT_TYPE_VALUES,
+      index: true,
+    },
+    /** Denormalised summary of the onboarding payment for fast admin listing.
+     *  The authoritative record lives in FoodOnboardingPayment. */
+    onboardingPayment: {
+      status: {
+        type: String,
+        enum: ["not_required", "pending", "paid"],
+        default: "not_required",
+      },
+      paymentId: { type: mongoose.Schema.Types.ObjectId, ref: "FoodOnboardingPayment", default: null },
+      amountPaid: { type: Number, default: null },
+      originalPrice: { type: Number, default: null },
+      offerPrice: { type: Number, default: null },
+      offerName: { type: String, default: "" },
+      currency: { type: String, default: "INR" },
+      transactionReference: { type: String, default: "" },
+      paidAt: { type: Date, default: null },
+    },
+    submittedForApprovalAt: {
+      type: Date,
+    },
     panNumber: {
       type: String,
     },
@@ -248,7 +276,9 @@ const restaurantSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "approved", "rejected", "banned", "deleted"],
+      // "payment_pending" = onboarding submitted but the one-time fee is unpaid.
+      // Admin queues filter on pending/rejected, so these stay out of review until paid.
+      enum: ["payment_pending", "pending", "approved", "rejected", "banned", "deleted"],
       default: "pending",
     },
     approvedAt: {

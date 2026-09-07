@@ -1,6 +1,7 @@
 import express from 'express';
 import { AuthError } from '../../../../core/auth/errors.js';
 import * as adminController from '../controllers/admin.controller.js';
+import * as onboardingPricingController from '../controllers/onboardingPricing.controller.js';
 import * as foodApprovalController from '../controllers/foodApproval.controller.js';
 import * as addonsApprovalController from '../controllers/addonsApproval.controller.js';
 import * as businessSettingsController from '../controllers/businessSettings.controller.js';
@@ -220,6 +221,20 @@ router.patch('/delivery/:id/approve', adminController.approveDeliveryPartner);
 router.patch('/delivery/:id/reject', adminController.rejectDeliveryPartner);
 
 // ----- Zones -----
+// ----- Restaurant onboarding pricing, offers & payments -----
+router.get('/onboarding/pricing/bootstrap', onboardingPricingController.getBootstrap);
+router.get('/onboarding/pricing/rules', onboardingPricingController.getPricingRules);
+router.post('/onboarding/pricing/rules', onboardingPricingController.savePricingRule);
+router.patch('/onboarding/pricing/rules/:id', onboardingPricingController.updatePricingRule);
+router.patch('/onboarding/pricing/rules/:id/status', onboardingPricingController.togglePricingRule);
+router.delete('/onboarding/pricing/rules/:id', onboardingPricingController.removePricingRule);
+router.get('/onboarding/offers', onboardingPricingController.getOffers);
+router.post('/onboarding/offers', onboardingPricingController.saveOffer);
+router.patch('/onboarding/offers/:id', onboardingPricingController.updateOffer);
+router.patch('/onboarding/offers/:id/status', onboardingPricingController.toggleOffer);
+router.delete('/onboarding/offers/:id', onboardingPricingController.removeOffer);
+router.get('/onboarding/payments', onboardingPricingController.getPayments);
+
 router.get('/zones', adminController.getZones);
 router.get('/zones/:id', adminController.getZoneById);
 router.post('/zones', adminController.createZone);

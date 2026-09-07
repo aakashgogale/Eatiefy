@@ -51,6 +51,18 @@ const startServer = async () => {
         // 1. Connect to Database (MongoDB)
         await connectDB();
 
+        // 1b. Converge notification indexes built by older releases.
+        try {
+            const { reconcileNotificationIndexes } = await import(
+                './src/core/notifications/models/notification.model.js'
+            );
+            if (await reconcileNotificationIndexes()) {
+                logger.info('Rebuilt notification broadcast index with partial filter');
+            }
+        } catch (err) {
+            logger.warn(`Notification index reconciliation skipped: ${err.message}`);
+        }
+
         // 2. Create HTTP server from Express app
         const httpServer = http.createServer(app);
 

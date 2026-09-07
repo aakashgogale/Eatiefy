@@ -3,6 +3,11 @@ import { uploadImageBuffer, deleteReplacedAssets } from '../../../../services/st
 import { ValidationError } from '../../../../core/auth/errors.js';
 import mongoose from 'mongoose';
 import { FoodZone } from '../../admin/models/zone.model.js';
+import { assertZoneCoversLocation } from '../../shared/zoneLocation.js';
+import { assertValidFullName } from '../validators/restaurant.validator.js';
+import { normalizeRestaurantType, getRestaurantTypeLabel } from '../../shared/restaurantTypes.js';
+import { buildOnboardingQuote } from './onboardingPricing.service.js';
+import { signOnboardingToken } from '../../../../core/auth/onboardingToken.js';
 import { FoodTopRestaurant } from '../../admin/models/topRestaurant.model.js';
 import { FoodOffer } from '../../admin/models/offer.model.js';
 import { FoodDiningRestaurant } from '../../dining/models/diningRestaurant.model.js';
@@ -200,6 +205,9 @@ const toRestaurantProfile = (doc) => {
         name: doc.restaurantName || '',
         restaurantName: doc.restaurantName || '',
         zoneId: doc.zoneId ? String(doc.zoneId) : '',
+        restaurantType: doc.restaurantType || '',
+        restaurantTypeLabel: getRestaurantTypeLabel(doc.restaurantType),
+        onboardingPayment: doc.onboardingPayment || null,
         cuisines: Array.isArray(doc.cuisines) ? doc.cuisines : [],
         location,
         ownerName: doc.ownerName || '',
@@ -340,6 +348,7 @@ export const registerRestaurant = async (payload, files) => {
         latitude,
         longitude,
         zoneId,
+        restaurantType,
         cuisines,
         openingTime,
         closingTime,
@@ -375,6 +384,26 @@ export const registerRestaurant = async (payload, files) => {
     if (!restaurantNameNormalized) {
         throw new ValidationError('Restaurant name is required to register a restaurant');
     }
+
+    // The chosen service zone must actually cover the chosen restaurant location.
+    await assertZoneCoversLocation(zoneId, latitude, longitude);
+
+    const normalizedRestaurantType = normalizeRestaurantType(restaurantType);
+    if (restaurantType && !normalizedRestaurantType) {
+        throw new ValidationError('Restaurant type is invalid');
+    }
+
+    // A fee is only charged when a type is known and the resolved amount is above
+    // zero, so zones/types an admin has priced at 0 keep the original instant-submit
+    // behaviour instead of opening an empty checkout.
+    let onboardingQuote = null;
+    if (normalizedRestaurantType && zoneId) {
+        onboardingQuote = await buildOnboardingQuote({
+            zoneId,
+            restaurantType: normalizedRestaurantType
+        });
+    }
+    const onboardingFeeDue = Number(onboardingQuote?.finalAmount) > 0;
 
     const images = {};
 
@@ -432,6 +461,13 @@ export const registerRestaurant = async (payload, files) => {
             zoneId: zoneId && mongoose.Types.ObjectId.isValid(String(zoneId).trim())
                 ? new mongoose.Types.ObjectId(String(zoneId).trim())
                 : undefined,
+            restaurantType: normalizedRestaurantType || undefined,
+            // Held out of the admin queue until the onboarding fee is verified.
+            status: onboardingFeeDue ? 'payment_pending' : 'pending',
+            onboardingPayment: {
+                status: onboardingFeeDue ? 'pending' : 'not_required'
+            },
+            submittedForApprovalAt: onboardingFeeDue ? undefined : new Date(),
             // Store unified location object (geo + address).
             location: latNum !== null && lngNum !== null ? {
                 type: 'Point',
@@ -511,7 +547,9 @@ export const registerRestaurant = async (payload, files) => {
             );
         }
 
-        try {
+        // When a fee is due the restaurant is not in the admin queue yet; the
+        // notification is sent from finalizeOnboardingPayment once payment clears.
+        if (!onboardingFeeDue) try {
             const { notifyAdminsSafely } = await import('../../../../core/notifications/firebase.service.js');
             void notifyAdminsSafely({
                 title: 'New Restaurant Registration 🏪',
@@ -526,7 +564,16 @@ export const registerRestaurant = async (payload, files) => {
             console.error('Failed to notify admins of new restaurant registration:', e);
         }
 
-        return restaurant.toObject();
+        return {
+            ...restaurant.toObject(),
+            onboarding: {
+                paymentRequired: onboardingFeeDue,
+                // Scoped, short-lived credential so the unapproved restaurant can drive
+                // the payment endpoints without a full access token.
+                onboardingToken: onboardingFeeDue ? signOnboardingToken(restaurant._id) : null,
+                quote: onboardingFeeDue ? onboardingQuote : null
+            }
+        };
     } catch (err) {
         // Handle uniqueness conflicts deterministically (race-safe).
         if (err && (err.code === 11000 || err?.name === 'MongoServerError')) {
@@ -841,7 +888,7 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
     }
 
     const currentRestaurant = await FoodRestaurant.findById(restaurantId)
-        .select('restaurantName restaurantNameNormalized ownerPhone ownerPhoneDigits ownerPhoneLast10 primaryContactNumber status profileImage coverImages menuImages panImage gstImage fssaiImage upiQrImage')
+        .select('restaurantName restaurantNameNormalized ownerPhone ownerPhoneDigits ownerPhoneLast10 primaryContactNumber status profileImage coverImages menuImages panImage gstImage fssaiImage upiQrImage zoneId location')
         .lean();
 
     if (!currentRestaurant) {
@@ -964,7 +1011,7 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
 
     // Bank + UPI fields (Explore -> Update Bank Details page)
     if (body.accountHolderName !== undefined) {
-        update.accountHolderName = String(body.accountHolderName || '').trim();
+        update.accountHolderName = assertValidFullName(body.accountHolderName, 'Account holder name');
     }
     if (body.accountNumber !== undefined) {
         update.accountNumber = String(body.accountNumber || '').replace(/\s|-/g, '').trim();
@@ -1114,7 +1161,7 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
         update.panNumber = String(body.panNumber || '').trim().toUpperCase();
     }
     if (body.nameOnPan !== undefined) {
-        update.nameOnPan = String(body.nameOnPan || '').trim();
+        update.nameOnPan = assertValidFullName(body.nameOnPan, 'PAN holder name');
     }
     if (body.panImage !== undefined) {
         update.panImage = toUrl(body.panImage) || '';
@@ -1168,6 +1215,20 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
 
     if (!Object.keys(update).length) {
         return getCurrentRestaurantProfile(restaurantId);
+    }
+
+    // Re-check the zone/location pairing whenever either side changes, using the
+    // stored value for the side that was not sent in this request.
+    if (update.zoneId !== undefined || update.location !== undefined) {
+        const effectiveZoneId =
+            update.zoneId !== undefined ? update.zoneId : currentRestaurant.zoneId;
+        const effectiveLocation =
+            update.location !== undefined ? update.location : currentRestaurant.location;
+        const effectiveLat =
+            effectiveLocation?.latitude ?? effectiveLocation?.coordinates?.[1];
+        const effectiveLng =
+            effectiveLocation?.longitude ?? effectiveLocation?.coordinates?.[0];
+        await assertZoneCoversLocation(effectiveZoneId, effectiveLat, effectiveLng);
     }
 
     update.status = 'pending';

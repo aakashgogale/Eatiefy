@@ -26,7 +26,10 @@ export const registerRestaurantController = async (req, res, next) => {
     try {
         const validated = validateRestaurantRegisterDto(req.body);
         const restaurant = await registerRestaurant(validated, req.files);
-        return sendResponse(res, 201, 'Restaurant registered successfully', restaurant);
+        const message = restaurant?.onboarding?.paymentRequired
+            ? 'Restaurant details saved. Complete the onboarding payment to submit for approval.'
+            : 'Restaurant registered successfully';
+        return sendResponse(res, 201, message, restaurant);
     } catch (error) {
         next(error);
     }

@@ -58,6 +58,13 @@ import * as orderController from '../../orders/controllers/order.controller.js';
 import { authMiddleware } from '../../../../core/auth/auth.middleware.js';
 import { sendError } from '../../../../utils/response.js';
 import { getRestaurantFinanceController } from '../controllers/restaurantFinance.controller.js';
+import {
+    getOnboardingPaymentQuoteController,
+    createOnboardingPaymentOrderController,
+    verifyOnboardingPaymentController,
+    cancelOnboardingPaymentController
+} from '../controllers/onboardingPayment.controller.js';
+import { onboardingAuthMiddleware } from '../../../../core/auth/onboardingToken.js';
 
 import { cacheResponse, invalidateCache, invalidateFoodBrowseCaches } from '../../../../middleware/cache.js';
 import { listPublicFoodsController } from '../controllers/publicFoods.controller.js';
@@ -102,6 +109,13 @@ const uploadFields = upload.fields([
 ]);
 
 router.post('/register', uploadFields, registerRestaurantController);
+
+// One-time onboarding payment. A restaurant has no access token until it is approved,
+// so these use the short-lived onboarding-scoped token issued by /register.
+router.get('/onboarding/payment/quote', onboardingAuthMiddleware, getOnboardingPaymentQuoteController);
+router.post('/onboarding/payment/order', onboardingAuthMiddleware, createOnboardingPaymentOrderController);
+router.post('/onboarding/payment/verify', onboardingAuthMiddleware, verifyOnboardingPaymentController);
+router.post('/onboarding/payment/cancel', onboardingAuthMiddleware, cancelOnboardingPaymentController);
 
 // Public: approved restaurants list (for user app)
 router.get('/restaurants', cacheResponse(300, 'restaurants'), listApprovedRestaurantsController);

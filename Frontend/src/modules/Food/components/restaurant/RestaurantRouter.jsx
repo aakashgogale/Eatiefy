@@ -14,6 +14,7 @@ const AllOrdersPage = lazy(() => import("@food/pages/restaurant/AllOrdersPage"))
 const OrderDetails = lazy(() => import("@food/pages/restaurant/OrderDetails"))
 const OrdersMain = lazy(() => import("@food/pages/restaurant/OrdersMain"))
 const RestaurantOnboarding = lazy(() => import("@food/pages/restaurant/Onboarding"))
+const RestaurantOnboardingPayment = lazy(() => import("@food/pages/restaurant/OnboardingPayment"))
 const PrivacyPolicyPage = lazy(() => import("@food/pages/restaurant/PrivacyPolicyPage"))
 const TermsAndConditionsPage = lazy(() => import("@food/pages/restaurant/TermsAndConditionsPage"))
 const MenuCategoriesPage = lazy(() => import("@food/pages/restaurant/MenuCategoriesPage"))
@@ -150,6 +151,7 @@ export default function RestaurantRouter() {
           <Route path="zone-setup" element={<ZoneSetup />} />
         </Route>
         <Route path="onboarding" element={<RestaurantOnboarding />} />
+        <Route path="onboarding/payment" element={<RestaurantOnboardingPayment />} />
         
         {/* Public Legal & Support Routes */}
         <Route path="privacy" element={<PrivacyPolicyPage />} />

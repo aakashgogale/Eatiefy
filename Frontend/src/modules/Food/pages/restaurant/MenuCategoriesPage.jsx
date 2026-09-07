@@ -12,6 +12,7 @@ import {
   Globe,
   Loader2,
   Plus,
+  RefreshCw,
   Trash2,
   Upload,
   X,
@@ -49,6 +50,7 @@ export default function MenuCategoriesPage() {
   const goBack = useRestaurantBackNavigation()
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [isPureVegRestaurant, setIsPureVegRestaurant] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [editingCategory, setEditingCategory] = useState(null)
@@ -58,6 +60,7 @@ export default function MenuCategoriesPage() {
   const [uploadingImage, setUploadingImage] = useState(false)
   const [isPhotoPickerOpen, setIsPhotoPickerOpen] = useState(false)
   const fileInputRef = useRef(null)
+  const refreshInFlightRef = useRef(false)
 
   useEffect(() => {
     fetchCategories()
@@ -103,19 +106,40 @@ export default function MenuCategoriesPage() {
     [categories],
   )
 
-  const fetchCategories = async () => {
+  /**
+   * @param {{ mode?: "initial" | "refresh" }} options
+   *   "refresh" keeps the existing list on screen (and any open modal untouched)
+   *   while the request is in flight, so only the button shows a spinner.
+   */
+  const fetchCategories = async ({ mode = "initial" } = {}) => {
+    const isRefresh = mode === "refresh"
+    // A refresh already in flight must not be queued up again.
+    if (isRefresh && refreshInFlightRef.current) return
+    if (isRefresh) refreshInFlightRef.current = true
+
     try {
-      setLoading(true)
+      if (isRefresh) setRefreshing(true)
+      else setLoading(true)
+
       const response = await restaurantAPI.getAllCategories()
       const list = response?.data?.data?.categories || []
       setCategories(Array.isArray(list) ? list : [])
+      if (isRefresh) toast.success("Categories updated")
     } catch (error) {
       toast.error(error?.response?.data?.message || "Failed to load categories")
-      setCategories([])
+      // Keep whatever is already on screen when a manual refresh fails.
+      if (!isRefresh) setCategories([])
     } finally {
-      setLoading(false)
+      if (isRefresh) {
+        refreshInFlightRef.current = false
+        setRefreshing(false)
+      } else {
+        setLoading(false)
+      }
     }
   }
+
+  const handleRefresh = () => fetchCategories({ mode: "refresh" })
 
   const resetModal = () => {
     setShowModal(false)
@@ -257,10 +281,21 @@ export default function MenuCategoriesPage() {
           <button onClick={goBack} className="rounded-full p-1 hover:bg-slate-100">
             <ArrowLeft className="h-5 w-5 text-slate-700" />
           </button>
-          <div>
+          <div className="min-w-0 flex-1">
             <h1 className="text-xl font-bold text-slate-900">Menu Categories</h1>
             <p className="text-xs text-slate-500">Create categories, track approvals, and resubmit edits safely.</p>
           </div>
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={refreshing || loading}
+            aria-label="Refresh categories"
+            title="Refresh categories"
+            className="ml-auto flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            {refreshing ? "Refreshing" : "Refresh"}
+          </button>
         </div>
       </div>
 

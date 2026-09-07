@@ -5,6 +5,10 @@ import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
 import { DeliverySupportTicket } from '../../delivery/models/supportTicket.model.js';
 import { FoodZone } from '../models/zone.model.js';
+import { assertZoneCoversLocation } from '../../shared/zoneLocation.js';
+import { getIO, rooms } from '../../../../config/socket.js';
+import { FoodOnboardingPayment } from '../../restaurant/models/onboardingPayment.model.js';
+import { getRestaurantTypeLabel } from '../../shared/restaurantTypes.js';
 import { FoodCategory } from '../models/category.model.js';
 import { FoodItem } from '../models/food.model.js';
 import { FoodOffer } from '../models/offer.model.js';
@@ -3111,11 +3115,43 @@ export async function getPendingRestaurants(query = {}) {
         FoodRestaurant.countDocuments(filter),
     ]);
 
-    const list = restaurants.map((r, i) => ({
-        ...r,
-        sl: skip + i + 1,
-        zone: r.zoneId?.zoneName || r.zoneId?.name || null,
-    }));
+    // Admins verify the onboarding fee before approving, so attach each restaurant's
+    // payment snapshot (original -> offer -> paid) to the review list.
+    const paymentsByRestaurant = new Map();
+    if (restaurants.length) {
+        const payments = await FoodOnboardingPayment.find({
+            restaurantId: { $in: restaurants.map((r) => r._id) },
+            status: 'paid'
+        }).lean();
+        payments.forEach((payment) => paymentsByRestaurant.set(String(payment.restaurantId), payment));
+    }
+
+    const list = restaurants.map((r, i) => {
+        const payment = paymentsByRestaurant.get(String(r._id)) || null;
+        return {
+            ...r,
+            sl: skip + i + 1,
+            zone: r.zoneId?.zoneName || r.zoneId?.name || null,
+            restaurantTypeLabel: getRestaurantTypeLabel(r.restaurantType),
+            onboardingPaymentDetails: payment
+                ? {
+                    status: payment.status,
+                    originalPrice: payment.pricing?.originalPrice ?? null,
+                    offerPrice: payment.pricing?.offerPrice ?? null,
+                    finalAmount: payment.pricing?.finalAmount ?? null,
+                    offerName: payment.pricing?.offerName || '',
+                    currency: payment.pricing?.currency || 'INR',
+                    transactionReference: payment.gateway?.razorpayPaymentId || '',
+                    gatewayOrderId: payment.gateway?.razorpayOrderId || '',
+                    paidAt: payment.paidAt,
+                    zoneName: payment.pricing?.zoneName || '',
+                    restaurantTypeLabel: getRestaurantTypeLabel(payment.restaurantType)
+                }
+                : (r.onboardingPayment?.status === 'not_required'
+                    ? { status: 'not_required' }
+                    : null),
+        };
+    });
 
     return { restaurants: list, total, page, limit };
 }
@@ -3230,6 +3266,9 @@ export async function updateRestaurantById(id, body = {}) {
         }
     }
 
+    // The selected zone must cover the restaurant location being saved.
+    await assertZoneCoversLocation(doc.zoneId, doc.location?.latitude, doc.location?.longitude);
+
     await doc.save();
     return FoodRestaurant.findById(id).select('-__v').populate('zoneId', 'name zoneName serviceLocation isActive').lean();
 }
@@ -3330,6 +3369,9 @@ export async function updateRestaurantLocation(id, body = {}) {
             doc.zoneId = new mongoose.Types.ObjectId(zoneId);
         }
     }
+
+    // The selected zone must cover the restaurant location being saved.
+    await assertZoneCoversLocation(doc.zoneId, doc.location?.latitude, doc.location?.longitude);
 
     await doc.save();
     return FoodRestaurant.findById(id).select('-__v').populate('zoneId', 'name zoneName serviceLocation isActive').lean();
@@ -4210,6 +4252,8 @@ export async function createRestaurantByAdmin(body) {
         doc.pureVegRestaurant = true;
     }
 
+    await assertZoneCoversLocation(doc.zoneId, doc.location?.latitude, doc.location?.longitude);
+
     const restaurant = await FoodRestaurant.create(doc);
 
     try {
@@ -4246,6 +4290,59 @@ async function sendRestaurantApprovalNotifications(restaurant, existing = {}, is
         : '/food/restaurant/pending-verification';
 
     logger.info(`[APPROVE-EMAIL] Restaurant ${restaurantId} — ownerEmail=${recipientEmail || 'MISSING'}`);
+
+    // Persist an inbox row first: push/email are best-effort, but the partner panel
+    // reads this collection, so it must survive refresh and re-login.
+    try {
+        const { FoodNotification } = await import('../../../../core/notifications/models/notification.model.js');
+        const inboxRow = await FoodNotification.findOneAndUpdate(
+            {
+                ownerType: 'RESTAURANT',
+                ownerId: restaurant._id,
+                source: 'RESTAURANT_APPROVAL',
+                'metadata.approvalType': isChangesApproval ? 'changes' : 'registration'
+            },
+            {
+                $set: {
+                    title: isChangesApproval ? 'Profile Changes Approved' : 'Restaurant Approved',
+                    message: pushBody,
+                    link: targetUrl,
+                    category: 'approval',
+                    isRead: false,
+                    readAt: null,
+                    dismissedAt: null,
+                    metadata: {
+                        restaurantId,
+                        restaurantName,
+                        approvalType: isChangesApproval ? 'changes' : 'registration',
+                        approvedAt: new Date().toISOString()
+                    }
+                }
+            },
+            { new: true, upsert: true, setDefaultsOnInsert: true }
+        ).lean();
+
+        logger.info(`[APPROVE-INBOX] Restaurant ${restaurantId} — notification ${inboxRow?._id}`);
+
+        // Nudge any open partner session to refetch the inbox immediately.
+        try {
+            const io = getIO();
+            if (io) {
+                io.to(rooms.restaurant(restaurantId)).emit('admin_notification', {
+                    id: String(inboxRow?._id || ''),
+                    title: inboxRow?.title,
+                    message: inboxRow?.message,
+                    link: targetUrl,
+                    type: isChangesApproval ? 'restaurant_changes_approved' : 'restaurant_approved',
+                    createdAt: inboxRow?.createdAt || new Date().toISOString()
+                });
+            }
+        } catch (socketError) {
+            logger.warn(`[APPROVE-INBOX] Restaurant ${restaurantId} — socket emit failed: ${socketError?.message || socketError}`);
+        }
+    } catch (e) {
+        logger.error(`[APPROVE-INBOX] Restaurant ${restaurantId} — inbox write failed: ${e?.message || e}`);
+    }
 
     try {
         const { notifyOwnersSafely, listOwnerTokens } = await import('../../../../core/notifications/firebase.service.js');

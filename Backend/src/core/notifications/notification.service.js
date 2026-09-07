@@ -56,7 +56,7 @@ export const createInboxNotifications = async ({ notifications = [] } = {}) => {
             message: String(item.message).trim(),
             link: String(item.link || '').trim(),
             category: String(item.category || 'broadcast').trim(),
-            source: item.source && ['ADMIN_BROADCAST', 'FSSAI_EXPIRY', 'ORDER_UPDATE'].includes(item.source) ? item.source : 'ADMIN_BROADCAST',
+            source: item.source && ['ADMIN_BROADCAST', 'FSSAI_EXPIRY', 'ORDER_UPDATE', 'RESTAURANT_APPROVAL'].includes(item.source) ? item.source : 'ADMIN_BROADCAST',
             metadata: item.metadata && typeof item.metadata === 'object' ? item.metadata : {},
         };
 

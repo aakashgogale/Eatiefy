@@ -171,7 +171,7 @@ export default function MasterLandingPage() {
             className="mb-2"
           >
             <h1 className="text-7xl md:text-[110px] font-black italic tracking-tighter drop-shadow-2xl text-white">
-              omet<span className="text-[#D32F2F]">to</span>
+              Eatie<span className="text-[#D32F2F]">fy</span>
             </h1>
           </motion.div>
 
@@ -567,7 +567,7 @@ export default function MasterLandingPage() {
           <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-12">
             <div className="w-full md:w-1/2 text-center md:text-left">
               <h2 className="text-4xl md:text-5xl lg:text-6xl font-black mb-6 leading-tight text-white">
-                Get the <span className="text-white">omet</span><span className="text-[#D32F2F]">to</span> App
+                Get the <span className="text-white">Eatie</span><span className="text-[#D32F2F]">fy</span> App
               </h2>
               <p className="text-gray-400 text-lg mb-10 max-w-md mx-auto md:mx-0">
                 Download our app for the fastest booking experience, exclusive offers, and live order tracking.

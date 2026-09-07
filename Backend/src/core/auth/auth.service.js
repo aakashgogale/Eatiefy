@@ -414,7 +414,7 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
   });
 
   // Prioritize accounts: approved > pending > rejected > deleted
-  const statusPriority = { approved: 1, pending: 2, rejected: 3, deleted: 4 };
+  const statusPriority = { approved: 1, pending: 2, payment_pending: 3, rejected: 4, deleted: 5 };
   const sortedRestaurants = matchingRestaurants.sort((a, b) => {
     const pA = statusPriority[a.status] || 99;
     const pB = statusPriority[b.status] || 99;
@@ -501,6 +501,19 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
   }
 
   const restaurantStatus = restaurant.status || "pending";
+
+  // Onboarding saved but the one-time fee was never completed: send the partner back
+  // to the payment step with a fresh scoped token instead of the pending screen.
+  if (restaurantStatus === "payment_pending") {
+    const { signOnboardingToken } = await import("./onboardingToken.js");
+    return {
+      onboardingPaymentPending: true,
+      restaurantId: String(restaurant._id),
+      onboardingToken: signOnboardingToken(restaurant._id),
+      message: "Please complete your onboarding payment to submit your restaurant for approval.",
+    };
+  }
+
   if (restaurantStatus !== "approved") {
     const isRejected = restaurantStatus === "rejected";
     return {

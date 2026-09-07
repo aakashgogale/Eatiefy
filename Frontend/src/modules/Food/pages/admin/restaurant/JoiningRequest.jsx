@@ -869,6 +869,89 @@ export default function JoiningRequest() {
                     </div>
                   </div>
 
+                  {/* Onboarding payment — admins verify the fee before approving. */}
+                  {(() => {
+                    const pay = selectedRequest?.onboardingPaymentDetails || r?.onboardingPaymentDetails
+                    const typeLabel =
+                      selectedRequest?.restaurantTypeLabel ||
+                      r?.restaurantTypeLabel ||
+                      pay?.restaurantTypeLabel ||
+                      ""
+                    const rupee = (v) =>
+                      v == null || Number.isNaN(Number(v))
+                        ? "—"
+                        : `₹${Number(v).toLocaleString("en-IN")}`
+                    const paidOn = pay?.paidAt ? new Date(pay.paidAt) : null
+                    return (
+                      <div className="pb-6 border-b border-slate-200">
+                        <h4 className="text-lg font-semibold text-slate-900 mb-4">Onboarding Payment</h4>
+                        {!pay ? (
+                          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                            No onboarding payment recorded for this restaurant.
+                          </p>
+                        ) : pay.status === "not_required" ? (
+                          <p className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                            No onboarding fee applied to this registration.
+                          </p>
+                        ) : (
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div>
+                              <p className="text-xs text-slate-500">Restaurant Type</p>
+                              <p className="text-sm font-medium text-slate-900">{typeLabel || "—"}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-slate-500">Zone</p>
+                              <p className="text-sm font-medium text-slate-900">
+                                {pay.zoneName || selectedRequest?.zone || "—"}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-slate-500">Original Price</p>
+                              <p className="text-sm font-medium text-slate-700">{rupee(pay.originalPrice)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-slate-500">Offer Applied</p>
+                              <p className="text-sm font-medium text-emerald-700">
+                                {pay.offerPrice != null ? `${rupee(pay.offerPrice)}${pay.offerName ? ` — ${pay.offerName}` : ""}` : "None"}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-slate-500">Final Amount Paid</p>
+                              <p className="text-base font-bold text-slate-900">{rupee(pay.finalAmount)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-slate-500">Payment Status</p>
+                              <span
+                                className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                  pay.status === "paid"
+                                    ? "bg-green-100 text-green-700"
+                                    : "bg-amber-100 text-amber-700"
+                                }`}
+                              >
+                                {pay.status}
+                              </span>
+                            </div>
+                            <div>
+                              <p className="text-xs text-slate-500">Transaction Reference</p>
+                              <p className="text-xs font-mono text-slate-700 break-all">
+                                {pay.transactionReference || pay.gatewayOrderId || "—"}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-slate-500">Payment Date</p>
+                              <p className="text-sm font-medium text-slate-700">
+                                {paidOn ? paidOn.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "—"}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                        <p className="mt-3 text-[11px] text-slate-500">
+                          A verified payment only makes this restaurant eligible for review — approval is still your decision.
+                        </p>
+                      </div>
+                    )
+                  })()}
+
                   {/* Owner Information */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>

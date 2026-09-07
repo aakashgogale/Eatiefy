@@ -19,6 +19,50 @@ const requiredBooleanSchema = z.preprocess((value) => {
 
 const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
 
+/**
+ * Full personal/legal names: letters plus the separators that legally appear in
+ * Indian PAN / bank records — spaces between name parts, dots for initials,
+ * apostrophes and hyphens. Digits and other symbols stay rejected.
+ */
+export const FULL_NAME_REGEX = /^[A-Za-z][A-Za-z.'\- ]*$/;
+export const FULL_NAME_MAX_LENGTH = 100;
+
+export const normalizeFullName = (value) =>
+    String(value ?? '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+export const assertValidFullName = (value, fieldLabel) => {
+    const name = normalizeFullName(value);
+    if (!name) return '';
+    if (name.length < 2) {
+        throw new ValidationError(`${fieldLabel} must be at least 2 characters`);
+    }
+    if (name.length > FULL_NAME_MAX_LENGTH) {
+        throw new ValidationError(`${fieldLabel} must be at most ${FULL_NAME_MAX_LENGTH} characters`);
+    }
+    if (!FULL_NAME_REGEX.test(name)) {
+        throw new ValidationError(
+            `${fieldLabel} can only contain letters, spaces, dots, apostrophes and hyphens`
+        );
+    }
+    return name;
+};
+
+/** Optional full-name field for zod schemas — accepts "" and normalizes spacing. */
+const fullNameSchema = (fieldLabel) =>
+    z
+        .string()
+        .optional()
+        .transform((value) => normalizeFullName(value))
+        .refine(
+            (value) => !value || (value.length >= 2 && value.length <= FULL_NAME_MAX_LENGTH),
+            { message: `${fieldLabel} must be between 2 and ${FULL_NAME_MAX_LENGTH} characters` }
+        )
+        .refine((value) => !value || FULL_NAME_REGEX.test(value), {
+            message: `${fieldLabel} can only contain letters, spaces, dots, apostrophes and hyphens`
+        });
+
 const normalizeTimeValue = (value) => {
     const raw = String(value || '').trim();
     if (!raw) return '';
@@ -81,6 +125,7 @@ const restaurantRegisterSchema = z.object({
     latitude: z.string().optional(),
     longitude: z.string().optional(),
     zoneId: z.string().optional(),
+    restaurantType: z.string().optional(),
     cuisines: z
         .string()
         .optional()
@@ -97,7 +142,7 @@ const restaurantRegisterSchema = z.object({
         .regex(panRegex, 'Invalid PAN format')
         .optional()
         .or(z.literal('')),
-    nameOnPan: z.string().optional(),
+    nameOnPan: fullNameSchema('PAN holder name'),
     gstRegistered: z
         .string()
         .optional()
@@ -109,7 +154,7 @@ const restaurantRegisterSchema = z.object({
     fssaiExpiry: z.string().optional(),
     accountNumber: z.string().optional(),
     ifscCode: z.string().optional(),
-    accountHolderName: z.string().optional(),
+    accountHolderName: fullNameSchema('Account holder name'),
     accountType: z.string().optional(),
     isTakeawayEnabled: z.string().optional(),
     isTakeawayCodEnabled: z.string().optional(),
