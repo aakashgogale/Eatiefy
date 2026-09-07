@@ -13,7 +13,7 @@
 module.exports = {
   apps: [
     {
-      name: 'ometto',
+      name: 'eatiefy',
       script: 'server.js',
       cwd: __dirname,
       instances: 1,
@@ -24,7 +24,7 @@ module.exports = {
       },
     },
     {
-      name: 'ometto-worker-order',
+      name: 'eatiefy-worker-order',
       script: 'src/queues/workers/order.worker.js',
       cwd: __dirname,
       instances: 1,
@@ -34,7 +34,7 @@ module.exports = {
       env: { NODE_ENV: 'production' },
     },
     {
-      name: 'ometto-worker-payment',
+      name: 'eatiefy-worker-payment',
       script: 'src/queues/workers/payment.worker.js',
       cwd: __dirname,
       instances: 1,
@@ -44,7 +44,7 @@ module.exports = {
       env: { NODE_ENV: 'production' },
     },
     {
-      name: 'ometto-worker-notification',
+      name: 'eatiefy-worker-notification',
       script: 'src/queues/workers/notification.worker.js',
       cwd: __dirname,
       instances: 1,
@@ -54,7 +54,7 @@ module.exports = {
       env: { NODE_ENV: 'production' },
     },
     {
-      name: 'ometto-worker-tracking',
+      name: 'eatiefy-worker-tracking',
       script: 'src/queues/workers/tracking.worker.js',
       cwd: __dirname,
       instances: 1,
@@ -64,7 +64,7 @@ module.exports = {
       env: { NODE_ENV: 'production' },
     },
     {
-      name: 'ometto-worker-otp',
+      name: 'eatiefy-worker-otp',
       script: 'src/queues/workers/otp.worker.js',
       cwd: __dirname,
       instances: 1,
