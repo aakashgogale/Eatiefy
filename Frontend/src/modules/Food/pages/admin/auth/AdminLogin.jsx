@@ -226,19 +226,15 @@ export default function AdminLogin() {
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[350px] h-[350px] rounded-full bg-white/5 blur-[90px] pointer-events-none md:hidden" />
 
         <form onSubmit={handleLogin} className="w-full max-w-[350px] sm:max-w-[380px] p-7 sm:p-9 md:p-0 rounded-[2rem] md:rounded-none bg-white/10 md:bg-transparent backdrop-blur-xl md:backdrop-blur-none border border-white/10 md:border-none shadow-2xl md:shadow-none shadow-black/25 flex flex-col items-center -mt-16 md:-mt-16 z-10">
-          {/* Logo */}
-          <div className="w-[130px] md:w-[180px] mb-4 select-none flex justify-center items-center md:items-start">
-             <img
-              src="/assets/images/eatiefy-toast-logo.png"
-              alt="Eatiefy Logo"
-              className="w-full object-contain"
-            />
+          {/* Brand & Heading */}
+          <div className="mb-6 md:mb-8 text-center flex flex-col items-center select-none">
+            <h1 className="text-[38px] sm:text-[44px] md:text-[48px] leading-none font-extrabold bg-gradient-to-r from-[#C9962F] via-[#E8C87A] to-[#A8761D] bg-clip-text text-transparent tracking-tight font-['Outfit'] mb-1.5 drop-shadow-sm">
+              Eatiefy
+            </h1>
+            <h2 className="text-[20px] sm:text-[23px] md:text-[26px] font-extrabold text-white tracking-tight font-['Outfit'] drop-shadow-sm">
+              Admin Panel
+            </h2>
           </div>
-
-          {/* Heading */}
-          <h1 className="premium-heading text-[16px] sm:text-[18px] md:text-[32px] mb-8 text-center uppercase whitespace-nowrap">
-            Admin Panel
-          </h1>
 
           {/* Inputs */}
           <div className="w-full space-y-3 md:space-y-5 mb-5 md:mb-8">
