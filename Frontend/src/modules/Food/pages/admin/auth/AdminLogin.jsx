@@ -36,7 +36,7 @@ function LoginInput({
       >
         {/* Left Icon Circle */}
         {Icon && (
-          <div className="w-[30px] h-[30px] md:w-[38px] md:h-[38px] rounded-full bg-gradient-to-br from-[#A31515] to-[#801124] md:bg-none md:bg-[#801124] flex items-center justify-center text-white shrink-0 shadow-md md:shadow-sm shadow-black/10">
+          <div className="w-[30px] h-[30px] md:w-[38px] md:h-[38px] rounded-full bg-gradient-to-br from-[#1B4332] to-[#0B2E1F] md:bg-none md:bg-[#14532D] flex items-center justify-center text-white shrink-0 shadow-md md:shadow-sm shadow-black/10">
             <Icon size={15} className="md:scale-[1.2]" />
           </div>
         )}
@@ -192,7 +192,7 @@ export default function AdminLogin() {
           font-family: 'Outfit', sans-serif !important;
           font-weight: 800 !important;
           letter-spacing: 0.25em !important;
-          background: linear-gradient(135deg, #FFFFFF 0%, #FFEBEF 100%) !important;
+          background: linear-gradient(135deg, #FFFFFF 0%, #E8C86A 100%) !important;
           -webkit-background-clip: text !important;
           -webkit-text-fill-color: transparent !important;
           text-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
@@ -214,21 +214,22 @@ export default function AdminLogin() {
           src="/assets/images/adminloginpagedesign.webp"
           alt="Login Illustration"
           className="w-full h-full object-contain scale-[0.86] md:-translate-x-10"
+          style={{ filter: "hue-rotate(105deg) saturate(0.85)" }}
         />
       </div>
 
       {/* RIGHT SECTION CONTENT (46% desktop, full h-screen on mobile) */}
-      <div className={`w-full md:w-[46%] h-screen md:h-full relative flex flex-col justify-center items-center px-4 sm:px-12 md:px-16 lg:px-24 shrink-0 z-20 overflow-hidden ${!isDesktop ? "bg-gradient-to-br from-[#8B0000] via-[#B71C1C] to-[#8B0000]" : "bg-transparent"}`}>
+      <div className={`w-full md:w-[46%] h-screen md:h-full relative flex flex-col justify-center items-center px-4 sm:px-12 md:px-16 lg:px-24 shrink-0 z-20 overflow-hidden ${!isDesktop ? "bg-gradient-to-br from-[#0B2E1F] via-[#14532D] to-[#0B2E1F]" : "bg-transparent"}`}>
         {/* Ambient Glow Blobs (Mobile only) */}
-        <div className="absolute -top-20 -left-20 w-[280px] h-[280px] rounded-full bg-[#FF8A80]/15 blur-[60px] pointer-events-none md:hidden" />
-        <div className="absolute -bottom-20 -right-20 w-[300px] h-[300px] rounded-full bg-[#FF8A80]/12 blur-[70px] pointer-events-none md:hidden" />
+        <div className="absolute -top-20 -left-20 w-[280px] h-[280px] rounded-full bg-[#D4AF37]/20 blur-[60px] pointer-events-none md:hidden" />
+        <div className="absolute -bottom-20 -right-20 w-[300px] h-[300px] rounded-full bg-[#D4AF37]/15 blur-[70px] pointer-events-none md:hidden" />
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[350px] h-[350px] rounded-full bg-white/5 blur-[90px] pointer-events-none md:hidden" />
 
         <form onSubmit={handleLogin} className="w-full max-w-[350px] sm:max-w-[380px] p-7 sm:p-9 md:p-0 rounded-[2rem] md:rounded-none bg-white/10 md:bg-transparent backdrop-blur-xl md:backdrop-blur-none border border-white/10 md:border-none shadow-2xl md:shadow-none shadow-black/25 flex flex-col items-center -mt-16 md:-mt-16 z-10">
           {/* Logo */}
-          <div className="w-[160px] md:w-[220px] mb-4 select-none flex justify-center items-center md:items-start">
+          <div className="w-[130px] md:w-[180px] mb-4 select-none flex justify-center items-center md:items-start">
              <img
-              src="/assets/images/ometto_logo_admin.png"
+              src="/assets/images/eatiefy-toast-logo.png"
               alt="Eatiefy Logo"
               className="w-full object-contain"
             />
@@ -270,7 +271,7 @@ export default function AdminLogin() {
 
       {/* RIGHT BACKGROUND WAVE OVERLAY (Direct Sibling, NOT clipped by right container!) */}
       <div
-        className={`absolute top-0 right-0 h-full w-[59vw] bg-gradient-to-br from-[#8B0000] via-[#A31515] to-[#C62828] z-10 pointer-events-none ${isDesktop ? "block" : "hidden"}`}
+        className={`absolute top-0 right-0 h-full w-[59vw] bg-gradient-to-br from-[#0B2E1F] via-[#14532D] to-[#1F7A4D] z-10 pointer-events-none ${isDesktop ? "block" : "hidden"}`}
         style={{
           clipPath: isDesktop ? "url(#wave-clip)" : "none",
         }}
