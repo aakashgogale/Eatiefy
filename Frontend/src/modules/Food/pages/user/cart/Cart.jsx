@@ -2325,6 +2325,12 @@ export default function Cart() {
           } else {
             toast.info("Payment was cancelled. No order has been placed.")
           }
+            // Drop the saved payload so a cancelled attempt can never be
+            // replayed into an order on a later visit.
+            try {
+              window.localStorage.removeItem('pendingOrderPayload')
+              window.localStorage.removeItem('pendingOrderSavings')
+            } catch {}
           setIsPlacingOrder(false)
         },
         onClose: async () => {
@@ -2332,6 +2338,12 @@ export default function Cart() {
           paymentHandled = true
           debugLog("?? Payment modal closed by user - no DB order was created")
           toast.info("Payment was not completed. No order has been placed.")
+            // Drop the saved payload so a cancelled attempt can never be
+            // replayed into an order on a later visit.
+            try {
+              window.localStorage.removeItem('pendingOrderPayload')
+              window.localStorage.removeItem('pendingOrderSavings')
+            } catch {}
           setIsPlacingOrder(false)
         }
       })
@@ -3291,7 +3303,14 @@ export default function Cart() {
             <button
               onClick={handlePlaceOrder}
               disabled={isPlacingOrder || loadingPricing || isCartZoneMismatch || (selectedPaymentMethod === "wallet" && walletBalance < total) || isRestaurantClosed}
-              className="w-full bg-gradient-to-r from-[#DC2626] to-[#991B1B] hover:from-[#991B1B] hover:to-[#7F1D1D] text-white px-6 h-12 md:h-14 rounded-2xl font-black shadow-lg shadow-[#DC2626]/30 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between transition-all active:scale-[0.98] border-b-4 border-red-900/30"
+              /*
+                bg-[#DC2626] is a solid fallback painted underneath the gradient.
+                The gradient utilities depend on registered custom properties, so
+                anything that leaves those unresolved would otherwise render the
+                button as a blank white box with unreadable white text.
+                Disabled state is dimmed but still clearly red and legible.
+              */
+              className="w-full bg-[#DC2626] bg-gradient-to-r from-[#DC2626] to-[#991B1B] hover:from-[#991B1B] hover:to-[#7F1D1D] text-white px-6 h-12 md:h-14 rounded-2xl font-black shadow-lg shadow-[#DC2626]/30 disabled:opacity-70 disabled:saturate-75 disabled:cursor-not-allowed flex items-center justify-between transition-all active:scale-[0.98] border-b-4 border-red-900/30"
             >
               {(selectedPaymentMethod === "razorpay" || selectedPaymentMethod === "wallet" || selectedPaymentMethod === "cash") && (
                 <div className="text-left flex flex-col justify-center border-r-[1.5px] border-white/20 pr-4">
@@ -3308,6 +3327,8 @@ export default function Cart() {
                     ? "Processing..."
                   : loadingPricing
                     ? "Calculating..."
+                  : (selectedPaymentMethod === "wallet" && walletBalance < total)
+                    ? "Low Wallet Balance"
                     : (orderType !== "takeaway" && !hasSavedAddress)
                       ? "Select Address"
                       : "Place Order"}

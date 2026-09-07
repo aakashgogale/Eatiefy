@@ -389,7 +389,7 @@ export default function OrdersPage() {
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 py-6 pb-24 md:pb-6">
         {/* Title */}
-        <h1 className="text-2xl md:text-[#B80B3D]xl font-bold text-gray-800 mb-6 text-center md:text-left">
+        <h1 className="text-2xl md:text-[#2E7D52]xl font-bold text-gray-800 mb-6 text-center md:text-left">
           Orders
         </h1>
 
@@ -471,10 +471,10 @@ export default function OrdersPage() {
             />
           ) : error ? (
             <div className="text-center py-12">
-              <p className="text-[#B80B3D] text-base md:text-lg mb-2">Error: {error}</p>
+              <p className="text-[#2E7D52] text-base md:text-lg mb-2">Error: {error}</p>
               <button 
                 onClick={() => window.location.reload()} 
-                className="text-[#B80B3D] hover:underline"
+                className="text-[#2E7D52] hover:underline"
               >
                 Retry
               </button>
@@ -526,7 +526,7 @@ export default function OrdersPage() {
                   
                   {/* Footer Row */}
                   <div className="flex items-center justify-between pt-2 md:pt-3 border-t border-gray-100 pb-3 md:pb-0">
-                    <span className="text-[#B80B3D] text-xs md:text-sm font-medium">
+                    <span className="text-[#2E7D52] text-xs md:text-sm font-medium">
                       {order.deliveryType}
                     </span>
                     <div className="text-right">

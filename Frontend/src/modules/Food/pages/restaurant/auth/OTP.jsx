@@ -10,8 +10,10 @@ import {
 } from "@food/utils/auth"
 import { checkOnboardingStatus, isRestaurantOnboardingComplete } from "@food/utils/onboardingUtils"
 import { collectFcmTokenFast, persistModuleFcmToken, syncPendingPartnerFcmQuick } from "@food/utils/firebaseMessaging"
+import { useCompanyName } from "@food/hooks/useCompanyName"
 
 export default function RestaurantOTP() {
+  const companyName = useCompanyName()
   const navigate = useNavigate()
   const location = useLocation()
   const [otp, setOtp] = useState(["", "", "", ""])
@@ -399,8 +401,8 @@ export default function RestaurantOTP() {
         <svg viewBox="0 0 1440 320" className="w-full h-full block" preserveAspectRatio="none" overflow="visible">
           <defs>
             <linearGradient id="topRedGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#B80B3D" />
-              <stop offset="100%" stopColor="#66001D" />
+              <stop offset="0%" stopColor="#2E7D52" />
+              <stop offset="100%" stopColor="#14472F" />
             </linearGradient>
           </defs>
           <path fill="url(#topRedGrad)" d="M -50,-50 L -50,280 C 200,100 800,100 1490,100 L 1490,-50 Z" filter="drop-shadow(0px 5px 15px rgba(0,0,0,0.15))" />
@@ -417,8 +419,8 @@ export default function RestaurantOTP() {
         <svg viewBox="0 0 1440 320" className="w-full h-full block" preserveAspectRatio="none" overflow="visible">
           <defs>
             <linearGradient id="botRedGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#B80B3D" />
-              <stop offset="100%" stopColor="#66001D" />
+              <stop offset="0%" stopColor="#2E7D52" />
+              <stop offset="100%" stopColor="#14472F" />
             </linearGradient>
           </defs>
           <path fill="url(#botRedGrad)" d="M -50,370 L -50,220 C 640,220 1240,220 1490,40 L 1490,370 Z" filter="drop-shadow(0px -5px 15px rgba(0,0,0,0.15))" />
@@ -435,19 +437,17 @@ export default function RestaurantOTP() {
         <div className="w-full max-w-sm flex flex-col relative -top-10">
           {/* Main Title */}
           <div className="mb-5 text-center flex flex-col items-center">
-            <img 
-              src="/assets/images/ometto_logo_transparent.png" 
-              alt="Eatiefy Logo" 
-              className="h-28 -mb-3.5 object-contain drop-shadow-md" 
-            />
-            <h2 className="text-[25px] font-extrabold text-[#B80B3D] dark:text-red-400 tracking-tight font-['Outfit']">
+            <h1 className="text-[42px] leading-none font-extrabold bg-gradient-to-r from-[#C9962F] via-[#E8C87A] to-[#A8761D] bg-clip-text text-transparent tracking-tight font-['Outfit'] mb-1.5">
+              {companyName}
+            </h1>
+            <h2 className="text-[25px] font-extrabold text-[#2E7D52] dark:text-red-400 tracking-tight font-['Outfit']">
               Restaurant Partner
             </h2>
             <div className="text-[13px] text-slate-500/90 dark:text-slate-400/90 font-['Outfit'] font-semibold tracking-[0.015em] leading-relaxed max-w-[300px] text-center px-4 mt-5 flex items-center justify-center gap-1.5">
               <span>We've sent a code to {contactInfo}</span>
               <button 
                 onClick={() => navigate("/food/restaurant/login")}
-                className="p-1.5 ml-1 bg-gradient-to-r from-[#B80B3D] to-[#66001D] hover:from-[#90082E] hover:to-[#4A0014] rounded-[10px] text-white shadow-md shadow-[#B80B3D]/20 transition-all hover:scale-105 active:scale-95"
+                className="p-1.5 ml-1 bg-gradient-to-r from-[#2E7D52] to-[#14472F] hover:from-[#1B5E3F] hover:to-[#0E3220] rounded-[10px] text-white shadow-md shadow-[#2E7D52]/20 transition-all hover:scale-105 active:scale-95"
                 aria-label="Edit phone number"
               >
                 <Pencil className="w-3.5 h-3.5" strokeWidth={2.5} />
@@ -485,8 +485,8 @@ export default function RestaurantOTP() {
                     key={index}
                     className={`flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 text-center text-2xl font-bold bg-gray-50 dark:bg-gray-800 border-2 shadow-sm rounded-[20px] transition-all duration-300 text-gray-900 dark:text-white 
                       ${blockTimer > 0 ? "opacity-50 border-red-400 bg-red-50 text-red-800" : 
-                        (otp.join("").length === index && !(isLoading || blockTimer > 0)) ? "bg-white dark:bg-gray-900 border-[#B80B3D] ring-4 ring-[#B80B3D]/10" : 
-                        (otp[index] ? "border-[#B80B3D]" : "border-gray-300 dark:border-gray-600")}
+                        (otp.join("").length === index && !(isLoading || blockTimer > 0)) ? "bg-white dark:bg-gray-900 border-[#2E7D52] ring-4 ring-[#2E7D52]/10" : 
+                        (otp[index] ? "border-[#2E7D52]" : "border-gray-300 dark:border-gray-600")}
                     `}
                   >
                     {otp[index] ? otp[index] : <span className="text-gray-300 dark:text-gray-600 font-normal">•</span>}
@@ -515,7 +515,7 @@ export default function RestaurantOTP() {
               <button
                 type="submit"
                 disabled={isLoading || !isOtpComplete || blockTimer > 0}
-                className="w-full py-3.5 bg-gradient-to-r from-[#B80B3D] to-[#66001D] hover:from-[#A10935] hover:to-[#4F0016] disabled:opacity-50 text-white rounded-full font-medium text-base shadow-[0_8px_20px_rgba(184,11,61,0.3)] disabled:shadow-none transition-all active:scale-[0.98] flex items-center justify-center gap-2 mt-4"
+                className="w-full py-3.5 bg-gradient-to-r from-[#2E7D52] to-[#14472F] hover:from-[#276B47] hover:to-[#103A26] disabled:opacity-50 text-white rounded-full font-medium text-base shadow-[0_8px_20px_rgba(184,11,61,0.3)] disabled:shadow-none transition-all active:scale-[0.98] flex items-center justify-center gap-2 mt-4"
               >
                 {isLoading ? (
                   <span className="flex items-center gap-2">
@@ -529,10 +529,10 @@ export default function RestaurantOTP() {
 
               {blockTimer > 0 && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center w-fit mx-auto px-6 py-2.5 bg-red-50 dark:bg-red-950/20 rounded-xl border border-red-100 dark:border-red-900/50 mt-4">
-                  <p className="text-[11px] font-bold text-[#B80B3D] uppercase tracking-wider">
+                  <p className="text-[11px] font-bold text-[#2E7D52] uppercase tracking-wider">
                     Too many failed attempts
                   </p>
-                  <p className="text-sm font-bold text-[#B80B3D]">
+                  <p className="text-sm font-bold text-[#2E7D52]">
                     Try again after {Math.floor((blockTimer - 1) / 60)}:{String((blockTimer - 1) % 60).padStart(2, '0')}
                   </p>
                 </motion.div>
@@ -572,8 +572,8 @@ export default function RestaurantOTP() {
                 <X className="w-5 h-5" />
               </button>
 
-              <div className="w-20 h-20 bg-[#B80B3D]/10 rounded-full flex items-center justify-center mx-auto mb-6">
-                <ShieldCheck className="h-10 w-10 text-[#B80B3D]" />
+              <div className="w-20 h-20 bg-[#2E7D52]/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                <ShieldCheck className="h-10 w-10 text-[#2E7D52]" />
               </div>
 
               <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">Restaurant Found!</h3>
@@ -585,7 +585,7 @@ export default function RestaurantOTP() {
               <div className="space-y-4">
                 <button
                   onClick={() => handleRestoreAction("restore")}
-                  className="w-full h-14 bg-gradient-to-r from-[#B80B3D] to-[#66001D] text-white font-bold rounded-2xl shadow-xl shadow-[#B80B3D]/20 transition-all active:scale-[0.98]"
+                  className="w-full h-14 bg-gradient-to-r from-[#2E7D52] to-[#14472F] text-white font-bold rounded-2xl shadow-xl shadow-[#2E7D52]/20 transition-all active:scale-[0.98]"
                 >
                   Restore My Account
                 </button>

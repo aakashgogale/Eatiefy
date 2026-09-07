@@ -175,7 +175,7 @@ export default function UpdateBankDetails() {
   const inputClass = (key) =>
     `w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 text-base transition-colors ${
       errors[key]
-        ? "border-red-500 focus:ring-[#B80B3D] focus:border-[#B80B3D]"
+        ? "border-red-500 focus:ring-[#2E7D52] focus:border-[#2E7D52]"
         : "border-gray-300 focus:ring-blue-500 focus:border-transparent"
     }`
 
@@ -213,7 +213,7 @@ export default function UpdateBankDetails() {
                 placeholder="Enter account holder name"
               />
               {errors.accountHolderName ? (
-                <p className="mt-1.5 text-xs text-[#B80B3D] flex items-center gap-1">
+                <p className="mt-1.5 text-xs text-[#2E7D52] flex items-center gap-1">
                   <AlertCircle className="w-3 h-3" /> {errors.accountHolderName}
                 </p>
               ) : null}
@@ -230,7 +230,7 @@ export default function UpdateBankDetails() {
                 placeholder="Enter account number"
               />
               {errors.accountNumber ? (
-                <p className="mt-1.5 text-xs text-[#B80B3D] flex items-center gap-1">
+                <p className="mt-1.5 text-xs text-[#2E7D52] flex items-center gap-1">
                   <AlertCircle className="w-3 h-3" /> {errors.accountNumber}
                 </p>
               ) : null}
@@ -247,7 +247,7 @@ export default function UpdateBankDetails() {
                 placeholder="Re-enter account number"
               />
               {errors.confirmAccountNumber ? (
-                <p className="mt-1.5 text-xs text-[#B80B3D] flex items-center gap-1">
+                <p className="mt-1.5 text-xs text-[#2E7D52] flex items-center gap-1">
                   <AlertCircle className="w-3 h-3" /> {errors.confirmAccountNumber}
                 </p>
               ) : null}
@@ -264,7 +264,7 @@ export default function UpdateBankDetails() {
                 placeholder="e.g. SBIN0018764"
               />
               {errors.ifscCode ? (
-                <p className="mt-1.5 text-xs text-[#B80B3D] flex items-center gap-1">
+                <p className="mt-1.5 text-xs text-[#2E7D52] flex items-center gap-1">
                   <AlertCircle className="w-3 h-3" /> {errors.ifscCode}
                 </p>
               ) : null}
@@ -282,7 +282,7 @@ export default function UpdateBankDetails() {
                 placeholder="e.g. merchant@okaxis"
               />
               {errors.upiId ? (
-                <p className="mt-1.5 text-xs text-[#B80B3D] flex items-center gap-1">
+                <p className="mt-1.5 text-xs text-[#2E7D52] flex items-center gap-1">
                   <AlertCircle className="w-3 h-3" /> {errors.upiId}
                 </p>
               ) : null}
@@ -331,7 +331,7 @@ export default function UpdateBankDetails() {
             <button
               type="submit"
               disabled={saving || uploadingQr}
-              className="w-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white font-bold py-4 rounded-lg text-base transition-colors"
+              className="w-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white font-bold py-4 rounded-lg text-base transition-colors"
             >
               {saving ? "Saving..." : "Submit"}
             </button>

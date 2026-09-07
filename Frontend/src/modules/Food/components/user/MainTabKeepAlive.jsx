@@ -5,7 +5,7 @@ import { AppShellSkeleton } from "@food/components/ui/loading-skeletons";
 import { registerFoodPageCacheLifecycle } from "@food/utils/foodPageCache";
 import { normalizeBrowsePath } from "@food/utils/browseScrollMemory";
 import { requestBottomNavShow } from "@food/utils/bottomNavEvents";
-import { DINING_ENABLED } from "@food/config/featureFlags";
+import { isDiningEnabled } from "@food/config/featureFlags";
 
 const Dining = lazy(() => import("@food/pages/user/Dining"));
 const Under250 = lazy(() => import("@food/pages/user/Under250"));
@@ -19,7 +19,7 @@ function isHomeBrowsePath(path) {
     p === "/user" ||
     p === "/user/takeaway" ||
     p === "/takeaway" ||
-    (DINING_ENABLED && (p === "/user/dining" || p === "/dining")) ||
+    (isDiningEnabled() && (p === "/user/dining" || p === "/dining")) ||
     p === "/user/under-250" ||
     p === "/under-250"
   );
@@ -193,7 +193,7 @@ export default function MainTabKeepAlive({ activeTab, isVisible = true }) {
         </div>
       )}
 
-      {DINING_ENABLED && visited.has("dining") && (
+      {isDiningEnabled() && visited.has("dining") && (
         <div {...paneProps("dining")}>
           <TabSuspense>
             <Dining isTabActive={isVisible && activeTab === "dining"} />

@@ -73,7 +73,7 @@ export default function WithdrawalHistoryPage() {
             onClick={() => setWithdrawalHistoryTab('pending')}
             className={`flex-1 px-4 py-3 rounded-lg font-medium text-sm transition-colors ${
               withdrawalHistoryTab === 'pending'
-                ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white"
+                ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white"
                 : "bg-gray-100 text-gray-600 hover:bg-gray-200"
             }`}
           >
@@ -83,7 +83,7 @@ export default function WithdrawalHistoryPage() {
             onClick={() => setWithdrawalHistoryTab('successful')}
             className={`flex-1 px-4 py-3 rounded-lg font-medium text-sm transition-colors ${
               withdrawalHistoryTab === 'successful'
-                ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white"
+                ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white"
                 : "bg-gray-100 text-gray-600 hover:bg-gray-200"
             }`}
           >

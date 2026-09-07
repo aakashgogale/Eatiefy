@@ -494,12 +494,12 @@ export default function DiningReservations() {
                     >
                         <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50/50 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110" />
                         <div className="flex items-center gap-4 relative">
-                            <div className="bg-gradient-to-br from-[#B80B3D] to-[#66001D] p-3 rounded-xl text-white shadow-lg shadow-blue-200">
+                            <div className="bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] p-3 rounded-xl text-white shadow-lg shadow-blue-200">
                                 <Users className="w-6 h-6" />
                             </div>
                             <div>
                                 <p className="text-slate-500 text-sm font-semibold uppercase tracking-wider">Total Bookings</p>
-                                <p className="text-[#B80B3D]xl font-black text-slate-900 leading-none mt-1">{bookings.length}</p>
+                                <p className="text-[#2E7D52]xl font-black text-slate-900 leading-none mt-1">{bookings.length}</p>
                             </div>
                         </div>
                     </motion.div>
@@ -517,7 +517,7 @@ export default function DiningReservations() {
                             </div>
                             <div>
                                 <p className="text-slate-500 text-sm font-semibold uppercase tracking-wider">Active</p>
-                                <p className="text-[#B80B3D]xl font-black text-slate-900 leading-none mt-1">
+                                <p className="text-[#2E7D52]xl font-black text-slate-900 leading-none mt-1">
                                     {bookings.filter(b => ['pending', 'confirmed', 'accepted', 'checked-in'].includes(String(b.status || '').toLowerCase())).length}
                                 </p>
                             </div>
@@ -537,7 +537,7 @@ export default function DiningReservations() {
                             </div>
                             <div>
                                 <p className="text-slate-500 text-sm font-semibold uppercase tracking-wider">Today's Bookings</p>
-                                <p className="text-[#B80B3D]xl font-black text-slate-900 leading-none mt-1">
+                                <p className="text-[#2E7D52]xl font-black text-slate-900 leading-none mt-1">
                                     {bookings.filter(b => new Date(b.date).toDateString() === new Date().toDateString()).length}
                                 </p>
                             </div>
@@ -549,13 +549,13 @@ export default function DiningReservations() {
                     <div className="flex items-center gap-2 rounded-xl bg-white border border-slate-200 p-1">
                         <button
                             onClick={() => setActiveSection("reservations")}
-                            className={`flex-1 px-3 py-2 text-xs font-semibold rounded-lg transition-colors ${activeSection === "reservations" ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white" : "text-slate-600"}`}
+                            className={`flex-1 px-3 py-2 text-xs font-semibold rounded-lg transition-colors ${activeSection === "reservations" ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white" : "text-slate-600"}`}
                         >
                             Reservations
                         </button>
                         <button
                             onClick={() => setActiveSection("media")}
-                            className={`flex-1 px-3 py-2 text-xs font-semibold rounded-lg transition-colors ${activeSection === "media" ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white" : "text-slate-600"}`}
+                            className={`flex-1 px-3 py-2 text-xs font-semibold rounded-lg transition-colors ${activeSection === "media" ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white" : "text-slate-600"}`}
                         >
                             Photos & Menu
                         </button>
@@ -585,7 +585,7 @@ export default function DiningReservations() {
                                 <h2 className="text-lg font-bold text-slate-900">Restaurant Photos</h2>
                                 <p className="text-sm text-slate-500 mt-1">Add multiple restaurant photos. The first one will be used as the main preview.</p>
                             </div>
-                            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white text-sm font-semibold cursor-pointer hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D] transition-colors">
+                            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white text-sm font-semibold cursor-pointer hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] transition-colors">
                                 <UploadCloud className="w-4 h-4" />
                                 {uploadingRestaurantPhoto ? "Uploading..." : "Add Photos"}
                                 <input
@@ -628,7 +628,7 @@ export default function DiningReservations() {
                                             alt={`Restaurant photo ${index + 1}`}
                                             className="w-full h-full object-cover"
                                         />
-                                        <span className="absolute inset-x-0 bottom-0 bg-gradient-to-br from-[#B80B3D] to-[#66001D]/45 px-1 py-0.5 text-[10px] font-semibold text-white">
+                                        <span className="absolute inset-x-0 bottom-0 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]/45 px-1 py-0.5 text-[10px] font-semibold text-white">
                                             {restaurantPhoto === photo.url ? "Main" : `Photo ${index + 1}`}
                                         </span>
                                         <span
@@ -661,7 +661,7 @@ export default function DiningReservations() {
                                 <h2 className="text-lg font-bold text-slate-900">Menu Photos</h2>
                                 <p className="text-sm text-slate-500 mt-1">Add menu photos and view previously uploaded photos.</p>
                             </div>
-                            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white text-sm font-semibold cursor-pointer hover:bg-blue-700 transition-colors">
+                            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white text-sm font-semibold cursor-pointer hover:bg-blue-700 transition-colors">
                                 <UploadCloud className="w-4 h-4" />
                                 {uploadingMenuPhotos ? "Uploading..." : "Add Photos"}
                                 <input
@@ -838,7 +838,7 @@ export default function DiningReservations() {
                                 type="button"
                                 onClick={handleSaveDiningSettings}
                                 disabled={savingDiningSettings || !!pendingRequest}
-                                className="rounded-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] px-10 py-4 text-sm font-black text-white transition-all hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 shadow-xl shadow-slate-200 uppercase tracking-widest"
+                                className="rounded-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] px-10 py-4 text-sm font-black text-white transition-all hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 shadow-xl shadow-slate-200 uppercase tracking-widest"
                             >
                                 {savingDiningSettings ? "Saving..." : pendingRequest ? "Approval Pending" : "Save settings"}
                             </button>
@@ -879,19 +879,19 @@ export default function DiningReservations() {
                         <div className="flex items-center gap-2 rounded-xl bg-white border border-slate-200 p-1">
                             <button
                                 onClick={() => setActiveView("priority")}
-                                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${activeView === "priority" ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white" : "text-slate-500"}`}
+                                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${activeView === "priority" ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white" : "text-slate-500"}`}
                             >
                                 Priority
                             </button>
                             <button
                                 onClick={() => setActiveView("new")}
-                                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${activeView === "new" ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white" : "text-slate-500"}`}
+                                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${activeView === "new" ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white" : "text-slate-500"}`}
                             >
                                 New ({newRequestsCount})
                             </button>
                             <button
                                 onClick={() => setActiveView("today")}
-                                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${activeView === "today" ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white" : "text-slate-500"}`}
+                                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${activeView === "today" ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white" : "text-slate-500"}`}
                             >
                                 Today
                             </button>
@@ -945,7 +945,7 @@ export default function DiningReservations() {
                                                                 </div>
                                                                 {booking.specialRequest && (
                                                                     <div className="mt-2 flex items-start gap-1.5 p-1.5 rounded-lg bg-blue-50 border border-blue-100 max-w-[180px]">
-                                                                        <MessageSquare className="w-3 h-3 text-[#B80B3D] mt-0.5 shrink-0" />
+                                                                        <MessageSquare className="w-3 h-3 text-[#2E7D52] mt-0.5 shrink-0" />
                                                                         <p className="text-[10px] font-bold text-blue-700 leading-tight">{booking.specialRequest}</p>
                                                                     </div>
                                                                 )}
@@ -990,7 +990,7 @@ export default function DiningReservations() {
                                                             {String(booking.status || '').toLowerCase() === 'pending' && (
                                                                 <button
                                                                     onClick={() => handleStatusUpdate(booking._id, 'accepted')}
-                                                                    className="px-3 py-1.5 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white text-xs font-bold rounded-lg hover:opacity-95 transition-opacity shadow-sm"
+                                                                    className="px-3 py-1.5 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white text-xs font-bold rounded-lg hover:opacity-95 transition-opacity shadow-sm"
                                                                 >
                                                                     Accept
                                                                 </button>
@@ -1014,7 +1014,7 @@ export default function DiningReservations() {
                                                             {booking.status === 'checked-in' && (
                                                                 <button
                                                                     onClick={() => handleStatusUpdate(booking._id, 'completed')}
-                                                                    className="px-3 py-1.5 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+                                                                    className="px-3 py-1.5 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
                                                                 >
                                                                     Check-out
                                                                 </button>
@@ -1022,7 +1022,7 @@ export default function DiningReservations() {
                                                             {booking.specialRequest && (
                                                                 <button
                                                                     title={booking.specialRequest}
-                                                                    className="p-2 text-[#B80B3D] hover:bg-blue-50 rounded-lg transition-colors border border-blue-100 bg-blue-50/50"
+                                                                    className="p-2 text-[#2E7D52] hover:bg-blue-50 rounded-lg transition-colors border border-blue-100 bg-blue-50/50"
                                                                 >
                                                                     <MessageSquare className="w-4 h-4" />
                                                                 </button>
@@ -1050,7 +1050,7 @@ export default function DiningReservations() {
                                         >
                                             <div className="flex items-start justify-between mb-4">
                                                 <div className="flex items-center gap-3">
-                                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] flex items-center justify-center text-white font-black text-sm uppercase">
+                                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] flex items-center justify-center text-white font-black text-sm uppercase">
                                                         {getBookerName(booking).charAt(0) || '?'}
                                                     </div>
                                                     <div>
@@ -1103,7 +1103,7 @@ export default function DiningReservations() {
                                                 {String(booking.status || '').toLowerCase() === 'pending' && (
                                                     <button
                                                         onClick={() => handleStatusUpdate(booking._id, 'accepted')}
-                                                        className="flex-1 py-2.5 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white text-xs font-black rounded-xl hover:opacity-95 transition-opacity uppercase tracking-widest"
+                                                        className="flex-1 py-2.5 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white text-xs font-black rounded-xl hover:opacity-95 transition-opacity uppercase tracking-widest"
                                                     >
                                                         Accept
                                                     </button>
@@ -1127,7 +1127,7 @@ export default function DiningReservations() {
                                                 {booking.status === 'checked-in' && (
                                                     <button
                                                         onClick={() => handleStatusUpdate(booking._id, 'completed')}
-                                                        className="flex-1 py-2.5 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white text-xs font-black rounded-xl hover:bg-blue-700 transition-colors uppercase tracking-widest"
+                                                        className="flex-1 py-2.5 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white text-xs font-black rounded-xl hover:bg-blue-700 transition-colors uppercase tracking-widest"
                                                     >
                                                         Check-out
                                                     </button>

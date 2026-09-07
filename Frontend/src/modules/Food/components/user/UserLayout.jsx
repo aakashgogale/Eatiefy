@@ -27,7 +27,7 @@ import MainTabKeepAlive from "./MainTabKeepAlive"
 import { getMainTabFromPath, isExactMainTabPath, rememberMainTabBeforeProfile, shouldPreserveMainTabsUnderPath, getCategorySlugFromPath, isRestaurantDetailPath, rememberCategoryKeepAliveSlug, peekCategoryKeepAliveSlug, clearCategoryKeepAliveSlug } from "@food/utils/mainTabRoutes"
 import { registerFoodPageCacheLifecycle } from "@food/utils/foodPageCache"
 import CategoryBrowseKeepAlive from "./CategoryBrowseKeepAlive"
-import { DINING_ENABLED } from "@food/config/featureFlags"
+import { isDiningEnabled } from "@food/config/featureFlags";
 
 let reloadManualLocationFlagCleared = false
 /** Clear sticky manual-location loader flag on F5 before first paint. */
@@ -77,7 +77,7 @@ function RouteSyncHandler() {
     if (normalizedPath === "/takeaway" || normalizedPath.startsWith("/takeaway/") || normalizedPath.startsWith("/user/takeaway")) {
       newMode = "takeaway"
     } else if (
-      DINING_ENABLED &&
+      isDiningEnabled() &&
       (normalizedPath === "/dining" ||
         normalizedPath.startsWith("/dining/") ||
         normalizedPath.startsWith("/user/dining"))
@@ -217,8 +217,8 @@ function UserLayoutContent() {
       toast.custom(() => (
         <div className="w-[calc(100vw-32px)] sm:w-[380px] bg-white shadow-[0_8px_30px_rgb(0,0,0,0.12)] rounded-3xl pointer-events-auto flex items-center gap-4 p-3.5 border border-gray-50 animate-in fade-in slide-in-from-top-4">
           <div className="flex-shrink-0">
-            <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-[#DC2626] to-[#991B1B] flex items-center justify-center shadow-lg">
-              <img src="/assets/images/ometto-toast-logo.png" alt="Eatiefy" className="w-7 h-7 object-contain brightness-0 invert" />
+            <div className="h-12 w-12 rounded-2xl bg-[#14231A] flex items-center justify-center shadow-lg">
+              <img src="/assets/images/eatiefy-toast-logo.png" alt="Eatiefy" className="w-7 h-7 object-contain" />
             </div>
           </div>
           <div className="flex-1 pr-1 min-w-0">
@@ -483,11 +483,11 @@ function UserLayoutContent() {
             className="w-[calc(100vw-32px)] sm:w-[380px] bg-white shadow-[0_8px_30px_rgb(0,0,0,0.12)] rounded-3xl pointer-events-auto flex items-center gap-4 p-3.5 border border-gray-50 duration-300 animate-in fade-in slide-in-from-top-4"
           >
             <div className="flex-shrink-0">
-              <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-[#DC2626] to-[#991B1B] flex items-center justify-center p-1.5 shadow-lg">
+              <div className="h-14 w-14 rounded-2xl bg-[#14231A] flex items-center justify-center p-1.5 shadow-lg">
                 <img 
-                  src="/assets/images/ometto-toast-logo.png" 
+                  src="/assets/images/eatiefy-toast-logo.png" 
                   alt="Eatiefy" 
-                  className="w-full h-full object-contain brightness-0 invert" 
+                  className="w-full h-full object-contain" 
                 />
               </div>
             </div>

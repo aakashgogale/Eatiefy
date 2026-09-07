@@ -18,13 +18,14 @@ import {
   getCachedUnder250PriceLimit,
   getLandingSettingsPublic,
 } from "@food/utils/foodPageCache"
-import { DINING_ENABLED } from "@food/config/featureFlags"
+import useModuleAccess from "@food/hooks/useModuleAccess";
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
 
 export default function DesktopNavbar({ showLogo = true }) {
+  const { diningEnabled, takeawayEnabled } = useModuleAccess();
     const location = useLocation()
     const navigate = useNavigate()
     const { location: userLocation, loading: locationLoading } = useLocationHook()
@@ -391,6 +392,7 @@ export default function DesktopNavbar({ showLogo = true }) {
                             </Link>
 
                             {/* Takeaway Tab */}
+                            {takeawayEnabled && (
                             <Link
                                 to="/food/user/takeaway"
                                 className={`flex flex-col items-center gap-1 px-2 py-1 transition-colors relative group ${isTakeaway
@@ -409,6 +411,7 @@ export default function DesktopNavbar({ showLogo = true }) {
                                     />
                                 )}
                             </Link>
+                            )}
 
                             {/* Under 250 Tab */}
                             <Link
@@ -430,8 +433,8 @@ export default function DesktopNavbar({ showLogo = true }) {
                                 )}
                             </Link>
 
-                            {/* Dining Tab — gated by DINING_ENABLED */}
-                            {DINING_ENABLED && (
+                            {/* Dining Tab — gated by diningEnabled */}
+                            {diningEnabled && (
                             <Link
                                 to="/food/user/dining"
                                 className={`flex flex-col items-center gap-1 px-2 py-1 transition-colors relative group ${isDining

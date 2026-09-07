@@ -4,7 +4,7 @@ import { ArrowLeft, Plus, Share2, UtensilsCrossed, Store, X } from "lucide-react
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
-import { DINING_ENABLED } from "@food/config/featureFlags"
+import useModuleAccess from "@food/hooks/useModuleAccess";
 
 // Import banner
 import collectionsBanner from "@food/assets/collectionspagebanner.png"
@@ -22,6 +22,7 @@ const gradientColors = [
 ]
 
 export default function Collections() {
+  const { diningEnabled } = useModuleAccess();
   const navigate = useNavigate()
   const goBack = useAppBackNavigation()
   const [activeTab, setActiveTab] = useState("delivery")
@@ -94,7 +95,7 @@ export default function Collections() {
               <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-20 h-1 bg-[#DC2626] rounded-full" />
             )}
           </button>
-          {DINING_ENABLED && (
+          {diningEnabled && (
           <button
             onClick={() => setActiveTab("dining")}
             className={`flex-1 py-4 text-center font-semibold transition-colors relative ${activeTab === "dining" ? "text-gray-900 dark:text-gray-100" : "text-gray-400 dark:text-gray-500"

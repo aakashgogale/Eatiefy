@@ -14,6 +14,7 @@ import {
 import {
   isNativeAppWebView,
   shouldSkipDuplicateOsNotification,
+  getNotificationIcon,
 } from '@food/utils/firebaseMessaging';
 import { toast } from 'sonner';
 
@@ -192,7 +193,17 @@ export const useDeliveryNotifications = () => {
   const userInteractedRef = useRef(false);
   const lastAlertAtByOrderRef = useRef(new Map());
   const lastBrowserNotificationAtByOrderRef = useRef(new Map());
-  const processedOrderIdsRef = useRef(new Set());
+  /**
+   * Orders already handled on this device, kept as id -> timestamp.
+   *
+   * This used to be an unbounded Set, which meant an order dismissed once could
+   * never be shown again for the whole session. The server already refuses to
+   * re-offer an order to a partner who declined it (dispatch.offeredTo), so a
+   * short local window is enough to stop duplicate cards — and it lets a
+   * legitimately re-dispatched order through instead of silently dropping it.
+   */
+  const processedOrderIdsRef = useRef(new Map());
+  const PROCESSED_ORDER_TTL_MS = 15 * 60 * 1000;
   const mutedOrderIdsRef = useRef((() => {
     const ids = new Set();
     if (typeof window !== 'undefined') {
@@ -311,7 +322,15 @@ export const useDeliveryNotifications = () => {
       orderData.order_id,
       orderData.order_mongo_id
     ].filter(Boolean);
-    return ids.some(id => processedOrderIdsRef.current.has(String(id).trim()));
+    const now = Date.now();
+    // Drop stale entries so the map cannot grow without bound.
+    for (const [key, at] of processedOrderIdsRef.current) {
+      if (now - at > PROCESSED_ORDER_TTL_MS) processedOrderIdsRef.current.delete(key);
+    }
+    return ids.some((id) => {
+      const at = processedOrderIdsRef.current.get(String(id).trim());
+      return at != null && now - at <= PROCESSED_ORDER_TTL_MS;
+    });
   }, []);
 
   const isOrderInAcceptedQueue = useCallback((orderData) => {
@@ -331,7 +350,8 @@ export const useDeliveryNotifications = () => {
       orderData.id,
       orderData.mongoId,
     ].filter(Boolean);
-    ids.forEach((id) => processedOrderIdsRef.current.add(String(id).trim()));
+    const now = Date.now();
+    ids.forEach((id) => processedOrderIdsRef.current.set(String(id).trim(), now));
   }, []);
 
   const shouldProcessOrderAlert = (orderData = {}) => {
@@ -578,7 +598,7 @@ export const useDeliveryNotifications = () => {
             requireInteraction: true,
             silent: false,
             vibrate: [200, 100, 200, 100, 300],
-            icon: '/favicon.ico',
+            icon: getNotificationIcon("delivery"),
             data: notificationOptions.data,
           });
           return;
@@ -590,7 +610,7 @@ export const useDeliveryNotifications = () => {
         tag: notificationOptions.tag,
         requireInteraction: true,
         silent: false,
-        icon: '/favicon.ico',
+        icon: getNotificationIcon("delivery"),
         data: notificationOptions.data,
       });
     } catch (error) {
@@ -1393,7 +1413,7 @@ export const useDeliveryNotifications = () => {
         markOrderIdsProcessed(target);
         clearOrderMuteState(target);
       } else {
-        processedOrderIdsRef.current.add(String(target).trim());
+        processedOrderIdsRef.current.set(String(target).trim(), Date.now());
         clearOrderMuteState(target);
       }
     }
@@ -1409,6 +1429,33 @@ export const useDeliveryNotifications = () => {
     }
     stopAlertsWhenQueueEmpty();
   }, [clearOrderMuteState, markOrderIdsProcessed, newOrder, stopAlertLoop, stopAlertsWhenQueueEmpty]);
+
+  /**
+   * Hide the offer card WITHOUT marking the order processed.
+   *
+   * clearNewOrder() permanently blocklists the order via markOrderIdsProcessed,
+   * and the socket handler drops anything already processed — so using it for a
+   * minimise, or before an accept that then fails, made that order impossible to
+   * receive again for the rest of the session. Use this whenever the rider has
+   * not actually declined the order.
+   */
+  const dismissNewOrder = useCallback(() => {
+    stopAlertLoop();
+    activeOrderRef.current = null;
+    setNewOrder(null);
+    stopAlertsWhenQueueEmpty();
+  }, [stopAlertLoop, stopAlertsWhenQueueEmpty]);
+
+  /** Drop every pending offer (used when the rider goes offline or clears the feed). */
+  const clearAllOffers = useCallback(() => {
+    stopAlertLoop();
+    activeOrderRef.current = null;
+    setNewOrder(null);
+    try {
+      useDeliveryStore.getState().setNewOrders([]);
+    } catch (_) {}
+    stopAlertsWhenQueueEmpty();
+  }, [stopAlertLoop, stopAlertsWhenQueueEmpty]);
 
   const clearClaimedOrderId = () => setClaimedOrderId(null);
 
@@ -1436,6 +1483,8 @@ export const useDeliveryNotifications = () => {
   return {
     newOrder,
     clearNewOrder,
+    clearAllOffers,
+    dismissNewOrder,
     orderReady,
     clearOrderReady,
     orderStatusUpdate,

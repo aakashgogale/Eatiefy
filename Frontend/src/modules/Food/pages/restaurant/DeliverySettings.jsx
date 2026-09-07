@@ -270,7 +270,7 @@ export default function DeliverySettings() {
                         initial={{ opacity: 0, y: -5 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -5 }}
-                        className="text-xs text-[#B80B3D] mt-2 animate-pulse flex items-center gap-1"
+                        className="text-xs text-[#2E7D52] mt-2 animate-pulse flex items-center gap-1"
                       >
                         <AlertCircle className="w-3 h-3" />
                         Warning: Delivery enabled outside outlet timings!
@@ -335,7 +335,7 @@ export default function DeliverySettings() {
                     pendingStatus ? "bg-orange-100" : "bg-red-100"
                   }`}>
                     <AlertCircle className={`w-10 h-10 ${
-                      pendingStatus ? "text-orange-600" : "text-[#B80B3D]"
+                      pendingStatus ? "text-orange-600" : "text-[#2E7D52]"
                     }`} />
                   </div>
                 </div>
@@ -368,7 +368,7 @@ export default function DeliverySettings() {
                     className={`flex-1 px-4 py-3 font-semibold rounded-lg transition-colors ${
                       pendingStatus 
                         ? "bg-green-600 hover:bg-green-700 text-white"
-                        : "bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-red-700 text-white"
+                        : "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:bg-red-700 text-white"
                     }`}
                   >
                     {pendingStatus ? "Enable" : "Disable"}
@@ -390,7 +390,7 @@ export default function DeliverySettings() {
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
             className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] px-4 w-full max-w-md"
           >
-            <div className="bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white px-4 py-3 rounded-lg shadow-2xl flex items-center gap-3">
+            <div className="bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white px-4 py-3 rounded-lg shadow-2xl flex items-center gap-3">
               <CheckCircle className="w-5 h-5 text-green-400 shrink-0" />
               <p className="text-sm font-medium flex-1">{toastMessage}</p>
             </div>

@@ -27,9 +27,13 @@ const errorHandler = (err, req, res, next) => {
         logger.error(`[${requestId}] ${err.stack}`);
     }
 
+    // `message` mirrors `error` because sendError/sendResponse use `message`
+    // everywhere else — clients that read only one key were showing a blank
+    // reason (e.g. "Order cannot be cancelled" never reached the cancel dialog).
     res.status(statusCode).json({
         success: false,
-        error: message
+        error: message,
+        message
     });
 };
 

@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from "react"
+import TimeField from "@food/components/restaurant/TimeField"
+import { isOvernightRange, formatOpenDuration, normalizeTimeValue, OPENING_TIME_PRESETS, CLOSING_TIME_PRESETS } from "@food/utils/outletHours"
 import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import { motion, AnimatePresence } from "framer-motion"
 import Lenis from "lenis"
 import { ArrowLeft, ChevronUp, ChevronDown, Clock, Edit2 } from "lucide-react"
 import { Switch } from "@food/components/ui/switch"
-import { MobileTimePicker } from "@mui/x-date-pickers/MobileTimePicker"
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
 import { useCompanyName } from "@food/hooks/useCompanyName"
@@ -163,7 +164,8 @@ export default function OutletTimings() {
     
     allowAutosaveRef.current = true
     isInternalUpdate.current = true
-    const timeString = timeToString(newTime)
+    // TimeField emits a canonical "HH:mm" string (the old MUI picker gave a Date).
+    const timeString = normalizeTimeValue(newTime)
     
     // Validate time string format
     if (!timeString || !timeString.includes(":")) {
@@ -214,9 +216,9 @@ export default function OutletTimings() {
           {/* Eatiefy delivery Section Header */}
           <div className="mb-6">
             <div className="text-center mb-2">
-              <h2 className="text-base font-semibold text-[#B80B3D]">{companyName} delivery</h2>
+              <h2 className="text-base font-semibold text-[#2E7D52]">{companyName} delivery</h2>
             </div>
-            <div className="h-0.5 bg-gradient-to-br from-[#B80B3D] to-[#66001D]"></div>
+            <div className="h-0.5 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]"></div>
           </div>
 
           {/* Day-wise Accordion */}
@@ -273,117 +275,26 @@ export default function OutletTimings() {
                         <div className="p-4 space-y-4 border-t border-gray-100">
                           {dayData.isOpen ? (
                             <>
-                              {/* Opening Time */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                                  <Clock className="w-4 h-4" />
-                                  Opening time
-                                </label>
-                                <div className="border border-gray-200 rounded-md px-3 py-2 bg-gray-50/60">
-                                  <MobileTimePicker
-                                    value={stringToTime(dayData.openingTime)}
-                                    onChange={(newValue) => {
-                                      debugLog('?? Opening time picker onChange:', newValue)
-                                      if (newValue) {
-                                        handleTimeChange(day, "openingTime", newValue)
-                                      }
-                                    }}
-                                    onAccept={(newValue) => {
-                                      debugLog('? Opening time picker onAccept:', newValue)
-                                      if (newValue) {
-                                        handleTimeChange(day, "openingTime", newValue)
-                                      }
-                                    }}
-                                    slotProps={{
-                                      textField: {
-                                        variant: "outlined",
-                                        size: "small",
-                                        placeholder: "Select opening time",
-                                        sx: {
-                                          "& .MuiOutlinedInput-root": {
-                                            height: "36px",
-                                            fontSize: "12px",
-                                            backgroundColor: "white",
-                                            "& fieldset": {
-                                              borderColor: "#e5e7eb",
-                                            },
-                                            "&:hover fieldset": {
-                                              borderColor: "#d1d5db",
-                                            },
-                                            "&.Mui-focused fieldset": {
-                                              borderColor: "#000",
-                                            },
-                                          },
-                                          "& .MuiInputBase-input": {
-                                            padding: "8px 12px",
-                                            fontSize: "12px",
-                                          },
-                                        },
-                                      },
-                                    }}
-                                    format="hh:mm a"
-                                  />
-                                </div>
-                                <p className="text-xs text-gray-500">
-                                  Current: {formatTime12Hour(dayData.openingTime)}
-                                </p>
-                              </div>
+                              <TimeField
+                                label="Opening time"
+                                value={dayData.openingTime}
+                                presets={OPENING_TIME_PRESETS}
+                                onChange={(val) => handleTimeChange(day, "openingTime", val)}
+                              />
 
-                              {/* Closing Time */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                                  <Clock className="w-4 h-4" />
-                                  Closing time
-                                </label>
-                                <div className="border border-gray-200 rounded-md px-3 py-2 bg-gray-50/60">
-                                  <MobileTimePicker
-                                    value={stringToTime(dayData.closingTime)}
-                                    onChange={(newValue) => {
-                                      debugLog('?? Closing time picker onChange:', newValue)
-                                      if (newValue) {
-                                        handleTimeChange(day, "closingTime", newValue)
-                                      }
-                                    }}
-                                    onAccept={(newValue) => {
-                                      debugLog('? Closing time picker onAccept:', newValue)
-                                      if (newValue) {
-                                        handleTimeChange(day, "closingTime", newValue)
-                                      }
-                                    }}
-                                    slotProps={{
-                                      textField: {
-                                        variant: "outlined",
-                                        size: "small",
-                                        placeholder: "Select closing time",
-                                        sx: {
-                                          "& .MuiOutlinedInput-root": {
-                                            height: "36px",
-                                            fontSize: "12px",
-                                            backgroundColor: "white",
-                                            "& fieldset": {
-                                              borderColor: "#e5e7eb",
-                                            },
-                                            "&:hover fieldset": {
-                                              borderColor: "#d1d5db",
-                                            },
-                                            "&.Mui-focused fieldset": {
-                                              borderColor: "#000",
-                                            },
-                                          },
-                                          "& .MuiInputBase-input": {
-                                            padding: "8px 12px",
-                                            fontSize: "12px",
-                                          },
-                                        },
-                                      },
-                                    }}
-                                    format="hh:mm a"
-                                  />
-                                </div>
+                              <TimeField
+                                label="Closing time"
+                                value={dayData.closingTime}
+                                presets={CLOSING_TIME_PRESETS}
+                                hint={isOvernightRange(dayData.openingTime, dayData.closingTime) ? "Closes next day" : undefined}
+                                onChange={(val) => handleTimeChange(day, "closingTime", val)}
+                              />
+
+                              {isOvernightRange(dayData.openingTime, dayData.closingTime) ? (
                                 <p className="text-xs text-gray-500">
-                                  Current: {formatTime12Hour(dayData.closingTime)}
+                                  Overnight — open for {formatOpenDuration(dayData.openingTime, dayData.closingTime)}
                                 </p>
-                              </div>
+                              ) : null}
                             </>
                           ) : (
                             <p className="text-sm text-gray-500 pl-6">This day is closed</p>

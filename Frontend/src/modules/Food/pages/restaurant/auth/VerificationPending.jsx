@@ -381,7 +381,7 @@ export default function VerificationPending() {
             ) : localStatus === "rejected" ? (
               <>
                 <Button
-                  className="h-12 w-full rounded-xl text-base font-semibold transition-all duration-300 bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:opacity-90 text-white active:scale-[0.98]"
+                  className="h-12 w-full rounded-xl text-base font-semibold transition-all duration-300 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:opacity-90 text-white active:scale-[0.98]"
                   onClick={() => {
                     clearOnboardingFromLocalStorage()
                     localStorage.removeItem("restaurant_pendingStatus")
@@ -425,7 +425,7 @@ export default function VerificationPending() {
                   </Button>
                 ) : null}
                 <Button
-                  className="h-12 w-full rounded-xl text-base font-semibold transition-all duration-300 bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:opacity-90 text-white active:scale-[0.98]"
+                  className="h-12 w-full rounded-xl text-base font-semibold transition-all duration-300 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:opacity-90 text-white active:scale-[0.98]"
                   onClick={() => {
                     syncFcmBeforeLeave()
                     clearModuleAuth("restaurant")

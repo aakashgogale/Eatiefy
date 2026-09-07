@@ -4,7 +4,7 @@ import UserLayout from "./UserLayout"
 import Loader from "@food/components/Loader"
 import ProtectedRoute from "@food/components/ProtectedRoute"
 import AuthRedirect from "@food/components/AuthRedirect"
-import { DINING_ENABLED } from "@food/config/featureFlags"
+import useModuleAccess from "@food/hooks/useModuleAccess"
 
 const SearchResults = lazy(() => import("@food/pages/user/search/ProfessionalSearch"))
 
@@ -143,6 +143,8 @@ const RequireInitialAuth = ({ children }) => {
 }
 
 export default function UserRouter() {
+  const { takeawayEnabled, diningEnabled } = useModuleAccess()
+
   return (
     <Suspense fallback={<AppShellSkeleton />}>
       <Routes>
@@ -189,8 +191,8 @@ export default function UserRouter() {
           {/* Home & Discovery — kept alive in UserLayout MainTabKeepAlive */}
           <Route path="" element={<MainTabRoutePlaceholder />} />
           <Route path="home" element={<MainTabRoutePlaceholder />} />
-          <Route path="takeaway" element={<MainTabRoutePlaceholder />} />
-          {DINING_ENABLED ? (
+          <Route path="takeaway" element={takeawayEnabled ? <MainTabRoutePlaceholder /> : <Navigate to="/food/user" replace />} />
+          {diningEnabled ? (
             <>
               <Route path="dining" element={<MainTabRoutePlaceholder />} />
               <Route path="dining/:category" element={<DiningCategory />} />
@@ -216,8 +218,8 @@ export default function UserRouter() {
           {/* PROTECTED ROUTES (Login required)          */}
           {/* ========================================== */}
           <Route element={<ProtectedRoute requiredRole="user" loginPath="/user/auth/login"><Outlet /></ProtectedRoute>}>
-            {/* Dining Table Bookings — gated by DINING_ENABLED */}
-            {DINING_ENABLED ? (
+            {/* Dining Table Bookings — gated by the admin Dining toggle */}
+            {diningEnabled ? (
               <>
                 <Route path="dining/book/:slug" element={<TableBooking />} />
                 <Route path="dining/book-confirmation" element={<TableBookingConfirmation />} />
@@ -268,7 +270,7 @@ export default function UserRouter() {
             <Route path="profile/accessibility" element={<Accessibility />} />
             <Route path="profile/logout" element={<Logout />} />
             <Route path="profile/refer-earn" element={<ReferEarn />} />
-            <Route path="profile/dining-bookings" element={DINING_ENABLED ? <MyBookings /> : <Navigate to="/food/user/profile" replace />} />
+            <Route path="profile/dining-bookings" element={diningEnabled ? <MyBookings /> : <Navigate to="/food/user/profile" replace />} />
             <Route path="profile/settings" element={<Suspense fallback={<Loader />}><Settings /></Suspense>} />
 
             {/* Notifications */}

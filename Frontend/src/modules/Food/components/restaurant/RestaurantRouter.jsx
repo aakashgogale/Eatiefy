@@ -6,7 +6,7 @@ import Loader from "@food/components/Loader"
 import { OnboardingSkeleton } from "@food/components/ui/loading-skeletons"
 import "./restaurantTheme.css"
 import { toast } from "sonner"
-import { DINING_ENABLED } from "@food/config/featureFlags"
+import useModuleAccess from "@food/hooks/useModuleAccess"
 
 // Lazy Loading Components
 const RestaurantNotifications = lazy(() => import("@food/pages/restaurant/Notifications"))
@@ -56,6 +56,7 @@ const VerificationPending = lazy(() => import("@food/pages/restaurant/auth/Verif
 const CMSHelpSupportPage = lazy(() => import("@food/pages/restaurant/CMSHelpSupportPage"))
 
 export default function RestaurantRouter() {
+  const { diningEnabled } = useModuleAccess()
   const location = useLocation()
   const navigate = useNavigate()
   const isOnboarding = location.pathname.includes("/onboarding")
@@ -93,7 +94,7 @@ export default function RestaurantRouter() {
           <div className="min-h-screen bg-white dark:bg-[#0a0a0a] flex items-center justify-center">
             <div className="relative">
               <div className="w-10 h-10 border-[3px] border-gray-100/30 rounded-full"></div>
-              <div className="absolute top-0 left-0 w-10 h-10 border-[3px] border-[#B80B3D] border-t-transparent rounded-full animate-spin"></div>
+              <div className="absolute top-0 left-0 w-10 h-10 border-[3px] border-[#2E7D52] border-t-transparent rounded-full animate-spin"></div>
             </div>
           </div>
         )
@@ -144,8 +145,8 @@ export default function RestaurantRouter() {
           <Route path="download-report" element={<DownloadReport />} />
           <Route path="manage-outlets" element={<ManageOutlets />} />
           <Route path="update-bank-details" element={<UpdateBankDetails />} />
-          <Route path="reservations" element={DINING_ENABLED ? <DiningReservations /> : <Navigate to="/food/restaurant" replace />} />
-          <Route path="dining-reservations" element={DINING_ENABLED ? <DiningReservations /> : <Navigate to="/food/restaurant" replace />} />
+          <Route path="reservations" element={diningEnabled ? <DiningReservations /> : <Navigate to="/food/restaurant" replace />} />
+          <Route path="dining-reservations" element={diningEnabled ? <DiningReservations /> : <Navigate to="/food/restaurant" replace />} />
           <Route path="zone-setup" element={<ZoneSetup />} />
         </Route>
         <Route path="onboarding" element={<RestaurantOnboarding />} />

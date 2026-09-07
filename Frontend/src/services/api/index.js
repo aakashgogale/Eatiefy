@@ -2771,6 +2771,9 @@ export const orderAPI = {
       return p;
     };
   })(),
+  /** GET /food/orders/:id/drop-otp — delivery OTP shown to the customer. */
+  getOrderDropOtp: (orderId) =>
+    apiClient.get(`/food/orders/${String(orderId)}/drop-otp`, { contextModule: "user" }),
   cancelOrder: (orderId, body = {}) =>
     apiClient.patch(`/food/orders/${String(orderId)}/cancel`, body ?? {}, {
       contextModule: "user",

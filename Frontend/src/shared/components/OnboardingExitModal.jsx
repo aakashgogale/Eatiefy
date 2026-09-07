@@ -4,11 +4,11 @@ import { LogOut } from "lucide-react"
 
 const THEMES = {
   delivery: {
-    header: "bg-gradient-to-br from-[#0E4B9C] to-[#021024]",
+    header: "bg-gradient-to-br from-[#1B5E3F] to-[#0E3220]",
     stay: "bg-[#00B761] hover:bg-[#00A055] shadow-[#00B761]/20",
   },
   restaurant: {
-    header: "bg-gradient-to-br from-[#B80B3D] to-[#66001D]",
+    header: "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]",
     stay: "bg-green-700 hover:bg-green-800 shadow-green-700/20",
   },
 }

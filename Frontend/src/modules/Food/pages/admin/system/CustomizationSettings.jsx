@@ -5,9 +5,23 @@ import { adminAPI } from "@food/api";
 import { Card, CardHeader, CardTitle, CardContent } from "@food/components/ui/card";
 import { Label } from "@food/components/ui/label";
 import { Switch } from "@food/components/ui/switch";
-import { DINING_ENABLED } from "@food/config/featureFlags";
+import { isDiningEnabled } from "@food/config/featureFlags";
 
 const CUSTOMIZATION_TOGGLES = [
+  {
+    key: "takeaway_enabled",
+    label: "Takeaway Module",
+    description:
+      "When OFF, takeaway is hidden everywhere — nav tabs, entry points and direct URLs all redirect away.",
+    defaultValue: true,
+  },
+  {
+    key: "dining_enabled",
+    label: "Dining Module",
+    description:
+      "When OFF, dining is hidden everywhere — nav tabs, table booking, restaurant reservations, admin dining pages and direct URLs all redirect away.",
+    defaultValue: false,
+  },
   {
     key: "cod_enabled",
     label: "Global COD",
@@ -29,7 +43,7 @@ const CUSTOMIZATION_TOGGLES = [
       "Controls Cash on Delivery (COD) visibility for delivery orders.",
     defaultValue: true,
   },
-  ...(DINING_ENABLED
+  ...(isDiningEnabled()
     ? [
         {
           key: "dining_cod_enabled",
@@ -177,6 +191,23 @@ export default function CustomizationSettings() {
 
     try {
       await adminAPI.updateCustomizationSettings({ [key]: checked });
+
+      // Takeaway / Dining gate routes and nav across the apps, so push the new
+      // value into the shared cache and tell live tabs to re-read it.
+      if (key === "takeaway_enabled" || key === "dining_enabled") {
+        try {
+          const raw = localStorage.getItem("ometto_customization_settings");
+          const parsed = raw ? JSON.parse(raw) : {};
+          localStorage.setItem(
+            "ometto_customization_settings",
+            JSON.stringify({ ...parsed, [key]: checked === true })
+          );
+        } catch {
+          /* ignore */
+        }
+        window.dispatchEvent(new CustomEvent("customizationSettingsUpdated"));
+      }
+
       if (key === "maintenance_mode_enabled") {
         try {
           const raw = localStorage.getItem("ometto_customization_settings");

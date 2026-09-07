@@ -46,11 +46,11 @@ const CUISINES_STORAGE_KEY = "restaurant_cuisines"
 const ActionButton = ({ icon: Icon, label, onClick }) => (
   <button 
     onClick={onClick}
-    className="w-full flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-100 hover:border-[#B80B3D]/30 hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D]/5 transition-all active:scale-[0.98] shadow-sm"
+    className="w-full flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-100 hover:border-[#2E7D52]/30 hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]/5 transition-all active:scale-[0.98] shadow-sm"
   >
     <div className="flex items-center gap-4">
-      <div className="bg-gradient-to-br from-[#B80B3D] to-[#66001D]/5 p-2.5 rounded-xl">
-        <Icon className="w-5 h-5 text-[#B80B3D]" />
+      <div className="bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]/5 p-2.5 rounded-xl">
+        <Icon className="w-5 h-5 text-[#2E7D52]" />
       </div>
       <span className="text-[15px] font-bold text-gray-800 tracking-tight">{label}</span>
     </div>
@@ -348,13 +348,13 @@ export default function OutletInfo() {
             <div className="flex items-center gap-2 flex-1">
               <button 
                 onClick={goBack} 
-                className="p-2 hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D]/5 rounded-xl transition-all active:scale-95"
+                className="p-2 hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]/5 rounded-xl transition-all active:scale-95"
               >
-                <ArrowLeft className="w-5 h-5 text-[#B80B3D]" />
+                <ArrowLeft className="w-5 h-5 text-[#2E7D52]" />
               </button>
               <h1 className="text-[17px] font-bold text-gray-900 tracking-tight">Outlet Information</h1>
             </div>
-            <div className="bg-gradient-to-br from-[#B80B3D] to-[#66001D] px-3 py-1.5 rounded-full shadow-sm">
+            <div className="bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] px-3 py-1.5 rounded-full shadow-sm">
               <p className="text-[11px] font-black text-white uppercase tracking-wider">
                 ID: {loading ? "..." : (restaurantMongoId && restaurantMongoId.length >= 5 ? restaurantMongoId.slice(-5) : (restaurantId || "N/A"))}
               </p>
@@ -402,7 +402,7 @@ export default function OutletInfo() {
                 
                 <button
                   onClick={() => navigate("/food/restaurant/edit-owner", { state: { from: location.pathname, activeTab: "restaurant" } })}
-                  className="mt-4 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#B80B3D]/20 active:scale-95 transition-all w-fit"
+                  className="mt-4 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#2E7D52]/20 active:scale-95 transition-all w-fit"
                 >
                   <Pencil className="w-3.5 h-3.5" />
                   Edit Outlet Info
@@ -423,11 +423,11 @@ export default function OutletInfo() {
               animate={{ opacity: 1, y: 0 }}
               className="bg-gradient-to-br from-blue-50/40 to-blue-50/80 rounded-[1.5rem] p-5 border border-blue-100/50 shadow-sm relative"
             >
-              <p className="text-[10px] text-[#B80B3D] font-black uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 bg-gradient-to-br from-[#B80B3D] to-[#66001D] rounded-full"></span>
+              <p className="text-[10px] text-[#2E7D52] font-black uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] rounded-full"></span>
                 Restaurant Name
               </p>
-              <p className="text-lg font-black text-gray-900 group-hover:text-[#B80B3D] transition-colors">
+              <p className="text-lg font-black text-gray-900 group-hover:text-[#2E7D52] transition-colors">
                 {loading ? "Loading..." : (restaurantName || "N/A")}
               </p>
             </motion.div>
@@ -447,7 +447,7 @@ export default function OutletInfo() {
               </p>
               <div className="flex items-start gap-3">
                 <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-100 shrink-0">
-                  <MapPin className="w-5 h-5 text-[#B80B3D]" />
+                  <MapPin className="w-5 h-5 text-[#2E7D52]" />
                 </div>
                 <p className="text-[15px] font-bold text-gray-700 leading-snug">
                   {loading ? "Loading..." : (address || "No address found")}
@@ -473,15 +473,15 @@ export default function OutletInfo() {
                 value={editNameValue} 
                 onChange={(e) => setEditNameValue(e.target.value.replace(/[\/-]/g, ""))} 
                 placeholder="Ex: Eatiefy Express" 
-                className="w-full h-14 px-5 rounded-2xl border-2 border-gray-100 focus:border-[#B80B3D] focus:ring-0 transition-all font-bold text-lg bg-gray-50 group-hover:bg-white" 
+                className="w-full h-14 px-5 rounded-2xl border-2 border-gray-100 focus:border-[#2E7D52] focus:ring-0 transition-all font-bold text-lg bg-gray-50 group-hover:bg-white" 
               />
-              <Pencil className="absolute right-5 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-300 group-hover:text-[#B80B3D] transition-colors" />
+              <Pencil className="absolute right-5 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-300 group-hover:text-[#2E7D52] transition-colors" />
             </div>
             <p className="text-[10px] font-bold text-gray-400 px-1 italic">* This will be visible to all customers on the app.</p>
           </div>
           <DialogFooter className="p-6 bg-gray-50/50 flex flex-row gap-3">
             <Button variant="ghost" onClick={() => setShowEditNameDialog(false)} className="flex-1 h-12 rounded-2xl font-bold text-gray-500">Discard</Button>
-            <Button onClick={handleSaveName} disabled={!editNameValue.trim()} className="flex-[2] h-12 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white hover:bg-[#6a2f56] rounded-2xl font-bold shadow-lg shadow-[#B80B3D]/20 transition-all active:scale-95 disabled:opacity-50">Save Changes</Button>
+            <Button onClick={handleSaveName} disabled={!editNameValue.trim()} className="flex-[2] h-12 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white hover:bg-[#6a2f56] rounded-2xl font-bold shadow-lg shadow-[#2E7D52]/20 transition-all active:scale-95 disabled:opacity-50">Save Changes</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

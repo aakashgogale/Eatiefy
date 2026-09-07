@@ -1,9 +1,11 @@
 /** Main bottom-nav / desktop-nav tab routes — exact paths only (no sub-routes). */
-import { DINING_ENABLED } from "@food/config/featureFlags";
+import { isDiningEnabled } from "@food/config/featureFlags";
 
-export const MAIN_TAB_IDS = DINING_ENABLED
-  ? ["delivery", "takeaway", "dining", "under250", "profile"]
-  : ["delivery", "takeaway", "under250", "profile"];
+/** Resolved per call so an admin toggle takes effect without a reload. */
+export const getMainTabIds = () =>
+  isDiningEnabled()
+    ? ["delivery", "takeaway", "dining", "under250", "profile"]
+    : ["delivery", "takeaway", "under250", "profile"];
 
 export function normalizeFoodUserPath(pathname) {
   let path = pathname || "/";
@@ -22,7 +24,7 @@ export function getMainTabFromPath(pathname) {
   if (normalized === "/takeaway" || normalized === "/user/takeaway") {
     return "takeaway";
   }
-  if (DINING_ENABLED && (normalized === "/dining" || normalized === "/user/dining")) {
+  if (isDiningEnabled() && (normalized === "/dining" || normalized === "/user/dining")) {
     return "dining";
   }
   if (normalized === "/under-250" || normalized === "/user/under-250") {
@@ -215,7 +217,7 @@ export function rememberMainTabBeforeProfile(tabId) {
 export function getRememberedMainTabBeforeProfile() {
   try {
     const tabId = sessionStorage.getItem(LAST_MAIN_TAB_BEFORE_PROFILE_KEY);
-    if (tabId && tabId !== "profile" && MAIN_TAB_IDS.includes(tabId)) {
+    if (tabId && tabId !== "profile" && getMainTabIds().includes(tabId)) {
       return tabId;
     }
   } catch {
@@ -241,7 +243,7 @@ export function mainTabToPath(tabId) {
     case "takeaway":
       return "/food/user/takeaway";
     case "dining":
-      return DINING_ENABLED ? "/food/user/dining" : "/food/user";
+      return isDiningEnabled() ? "/food/user/dining" : "/food/user";
     case "under250":
       return "/food/user/under-250";
     case "profile":

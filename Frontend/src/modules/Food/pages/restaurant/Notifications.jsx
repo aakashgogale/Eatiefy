@@ -159,7 +159,7 @@ export default function Notifications() {
           <div className="flex justify-end mb-2">
             <button
               onClick={clearAll}
-              className="text-xs font-medium text-[#B80B3D] hover:text-red-700"
+              className="text-xs font-medium text-[#2E7D52] hover:text-red-700"
             >
               Clear all
             </button>
@@ -180,7 +180,7 @@ export default function Notifications() {
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    {item.source === "broadcast" && <Bell className="w-4 h-4 text-[#B80B3D]" />}
+                    {item.source === "broadcast" && <Bell className="w-4 h-4 text-[#2E7D52]" />}
                     <p className="text-sm font-medium text-gray-900">{item.message}</p>
                   </div>
                   {item.source === "broadcast" ? (

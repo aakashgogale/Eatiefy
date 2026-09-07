@@ -1,4 +1,5 @@
 import { toast } from "sonner";
+import { getCachedSettings, getModuleFaviconUrl } from "@food/utils/businessSettings";
 import { showNotificationToast } from "@/shared/utils/customToasts";
 import { userAPI, restaurantAPI, deliveryAPI, adminAPI } from "@food/api";
 import { initializeApp, getApp, getApps } from "firebase/app";
@@ -85,7 +86,30 @@ function shouldPlayAlertSoundForPush(payload = {}) {
   return ORDER_ALERT_PUSH_TYPES.has(type);
 }
 
-const NOTIFICATION_ICON_PATH = "/assets/images/favicon.png";
+/** Bundled Eatiefy icon — regenerate with `npm run build:favicon`. */
+export const NOTIFICATION_ICON_PATH = "/assets/images/favicon.png";
+
+/**
+ * Notification icon for the module currently in use.
+ *
+ * Prefers the favicon an admin uploaded in Business Settings so push icons
+ * follow the configured brand, and falls back to the bundled icon when nothing
+ * is configured or the settings cache is cold.
+ */
+export function getNotificationIcon(moduleName) {
+  try {
+    const settings = getCachedSettings?.();
+    if (settings) {
+      const url = getModuleFaviconUrl(moduleName || normalizeModuleFromPath());
+      // Only trust an absolute/admin-served URL; the local fallbacks are webp
+      // logos that are not shaped for a notification badge.
+      if (url && /^https?:\/\//i.test(url)) return url;
+    }
+  } catch {
+    /* fall through to the bundled icon */
+  }
+  return NOTIFICATION_ICON_PATH;
+}
 
 function isSupportedBrowser() {
   if (typeof window === "undefined") return false;
@@ -1363,7 +1387,7 @@ function showForegroundNotification(payload = {}) {
           if (registration) {
             registration.showNotification(title, {
               body,
-              icon: NOTIFICATION_ICON_PATH,
+              icon: getNotificationIcon(),
               image,
               tag: notificationKey || undefined,
               renotify: false,
@@ -1374,7 +1398,7 @@ function showForegroundNotification(payload = {}) {
           } else {
             new Notification(title, {
               body,
-              icon: NOTIFICATION_ICON_PATH,
+              icon: getNotificationIcon(),
               image,
               tag: notificationKey || undefined,
               requireInteraction: true,
@@ -1383,7 +1407,7 @@ function showForegroundNotification(payload = {}) {
         }).catch(() => {
           new Notification(title, {
             body,
-            icon: NOTIFICATION_ICON_PATH,
+            icon: getNotificationIcon(),
             image,
             tag: notificationKey || undefined,
           });
@@ -1391,7 +1415,7 @@ function showForegroundNotification(payload = {}) {
       } else {
         new Notification(title, {
           body,
-          icon: NOTIFICATION_ICON_PATH,
+          icon: getNotificationIcon(),
           image,
           tag: notificationKey || undefined,
         });

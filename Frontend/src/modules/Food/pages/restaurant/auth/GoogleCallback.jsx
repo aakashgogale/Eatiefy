@@ -126,7 +126,7 @@ export default function RestaurantGoogleCallback() {
 
         {status === "error" && (
           <div className="flex flex-col items-center justify-center py-6 space-y-4">
-            <XCircle className="h-14 w-14 text-[#B80B3D]" />
+            <XCircle className="h-14 w-14 text-[#2E7D52]" />
             {error && (
               <div className="flex items-start gap-2 bg-red-50 p-3 rounded-lg text-sm text-red-700 w-full">
                 <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
@@ -143,7 +143,7 @@ export default function RestaurantGoogleCallback() {
               </Button>
               <Button
                 onClick={handleRetry}
-                className="flex-1 bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-blue-700 text-white"
+                className="flex-1 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:bg-blue-700 text-white"
               >
                 Try Again
               </Button>

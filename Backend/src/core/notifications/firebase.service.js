@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { getCachedNotificationIcon } from './notificationBranding.service.js';
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import mongoose from 'mongoose';
@@ -170,6 +171,14 @@ const buildMessagePayload = (payload = {}, token, { platform } = {}) => {
     });
     const image =
         sanitizeString(payload.icon || payload.notification?.image || payload.notification?.icon || data.image || data.imageUrl);
+
+    // The web service worker cannot read admin settings, so the branded icon
+    // travels in the data map. Left empty when nothing is configured, and the
+    // client then falls back to its bundled icon.
+    if (!data.icon) {
+        const brandIcon = getCachedNotificationIcon();
+        if (brandIcon) data.icon = brandIcon;
+    }
 
     // dataOnly: omit system notification blocks ONLY if caller explicitly requested silent background sync.
     // For killed/closed app delivery (Android/iOS/Web), top-level `notification` block MUST be included.

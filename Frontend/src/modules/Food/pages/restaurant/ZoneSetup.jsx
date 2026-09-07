@@ -450,7 +450,7 @@ export default function ZoneSetup() {
             >
               <ArrowLeft className="w-5 h-5 text-gray-700" />
             </button>
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#B80B3D] to-[#66001D] flex items-center justify-center">
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] flex items-center justify-center">
               <MapPin className="w-5 h-5 text-white" />
             </div>
             <div>
@@ -472,7 +472,7 @@ export default function ZoneSetup() {
                 onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
                 onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
                 placeholder="Search for your restaurant location..."
-                className="w-full min-w-0 pl-10 sm:pl-12 pr-4 py-3.5 text-sm sm:text-base border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#B80B3D] focus:border-transparent"
+                className="w-full min-w-0 pl-10 sm:pl-12 pr-4 py-3.5 text-sm sm:text-base border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2E7D52] focus:border-transparent"
               />
               {showSuggestions && suggestions.length > 0 && (
                 <ul className="absolute z-[200] left-0 right-0 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-72 overflow-y-auto">
@@ -488,7 +488,7 @@ export default function ZoneSetup() {
                         }}
                         className="flex items-start gap-2.5 px-3 sm:px-4 py-3 cursor-pointer hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
                       >
-                        <MapPin className="w-4 h-4 text-[#B80B3D] mt-0.5 shrink-0" />
+                        <MapPin className="w-4 h-4 text-[#2E7D52] mt-0.5 shrink-0" />
                         <div className="min-w-0 flex-1">
                           <p className="text-sm text-gray-900 font-medium leading-snug break-words">{main}</p>
                           {secondary && (
@@ -504,7 +504,7 @@ export default function ZoneSetup() {
             <button
               onClick={handleSaveLocation}
               disabled={!selectedLocation || saving}
-              className="w-full sm:w-auto sm:self-end flex items-center justify-center gap-2 px-6 py-3.5 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white text-sm sm:text-base font-semibold rounded-lg hover:opacity-95 transition-opacity disabled:bg-gray-400 disabled:cursor-not-allowed shrink-0"
+              className="w-full sm:w-auto sm:self-end flex items-center justify-center gap-2 px-6 py-3.5 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white text-sm sm:text-base font-semibold rounded-lg hover:opacity-95 transition-opacity disabled:bg-gray-400 disabled:cursor-not-allowed shrink-0"
             >
               {saving ? (
                 <>
@@ -528,7 +528,7 @@ export default function ZoneSetup() {
                 Coordinates: {Number(selectedLocation.latitude).toFixed(6)}, {Number(selectedLocation.longitude).toFixed(6)}
               </p>
               {geocoding && (
-                <p className="text-xs text-[#B80B3D] mt-1">Updating address details...</p>
+                <p className="text-xs text-[#2E7D52] mt-1">Updating address details...</p>
               )}
             </div>
           )}
@@ -552,7 +552,7 @@ export default function ZoneSetup() {
           {mapLoading && (
             <div className="absolute inset-0 bg-white flex items-center justify-center z-10">
               <div className="text-center">
-                <Loader2 className="w-8 h-8 animate-spin text-[#B80B3D] mx-auto mb-2" />
+                <Loader2 className="w-8 h-8 animate-spin text-[#2E7D52] mx-auto mb-2" />
                 <p className="text-gray-600">Loading map...</p>
                 <p className="text-xs text-gray-400 mt-2">If this takes too long, please refresh the page</p>
               </div>

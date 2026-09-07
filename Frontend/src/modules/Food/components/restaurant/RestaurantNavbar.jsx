@@ -7,7 +7,7 @@ import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSet
 import useNotificationInbox from "@food/hooks/useNotificationInbox"
 import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications"
 import { Utensils } from "lucide-react"
-import { DINING_ENABLED } from "@food/config/featureFlags"
+import { isDiningEnabled } from "@food/config/featureFlags";
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -246,7 +246,7 @@ export default function RestaurantNavbar({
 
   return (
     <>
-      <div className="w-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] rounded-b-[35px] flex flex-col shadow-[0_10px_30px_rgba(184,11,61,0.25)] pb-2 relative z-10">
+      <div className="w-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] rounded-b-[35px] flex flex-col shadow-[0_10px_30px_rgba(184,11,61,0.25)] pb-2 relative z-10">
         {/* Top Navbar */}
         <div className="px-4 py-3 flex items-center justify-between">
           {/* Left Side - Restaurant Info */}
@@ -278,7 +278,7 @@ export default function RestaurantNavbar({
                 className={`flex items-center gap-1 px-2 py-1 rounded-full transition-all duration-300 backdrop-blur-md border ${
                   status === "Online" 
                     ? "bg-white/15 border-white/20 text-white" 
-                    : "bg-gradient-to-br from-[#B80B3D] to-[#66001D]/20 border-white/10 text-white/70"
+                    : "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]/20 border-white/10 text-white/70"
                 } active:scale-95 shadow-sm hover:bg-white/25`}
               >
                 <div className="relative flex items-center justify-center">
@@ -304,7 +304,7 @@ export default function RestaurantNavbar({
               >
                 <Bell className="w-5 h-5 text-white" />
                 {unreadCount > 0 && (
-                  <span className="absolute top-2 right-2.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[#B80B3D] shadow-[0_0_8px_rgba(52,211,153,0.4)]" />
+                  <span className="absolute top-2 right-2.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[#2E7D52] shadow-[0_0_8px_rgba(52,211,153,0.4)]" />
                 )}
               </button>
             )}
@@ -317,14 +317,14 @@ export default function RestaurantNavbar({
         <div className="px-4 py-3 bg-white">
           <div className="relative group">
             <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
-              <Search className="h-4.5 w-4.5 text-slate-400 group-focus-within:text-[#B80B3D] transition-colors" />
+              <Search className="h-4.5 w-4.5 text-slate-400 group-focus-within:text-[#2E7D52] transition-colors" />
             </div>
             <input
               type="text"
               value={searchValue}
               onChange={handleSearchChange}
               placeholder="Search by order ID or dish name"
-              className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-[14px] font-semibold text-slate-900 placeholder:text-slate-400 placeholder:font-medium focus:outline-none focus:ring-2 focus:ring-[#B80B3D]/10 focus:border-[#B80B3D]/20 transition-all shadow-sm"
+              className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-[14px] font-semibold text-slate-900 placeholder:text-slate-400 placeholder:font-medium focus:outline-none focus:ring-2 focus:ring-[#2E7D52]/10 focus:border-[#2E7D52]/20 transition-all shadow-sm"
             />
             {searchValue && (
               <button
@@ -338,13 +338,13 @@ export default function RestaurantNavbar({
         </div>
       )}
       
-      {/* Real-time Dining Booking Popup — gated by DINING_ENABLED */}
-      {DINING_ENABLED && newReservation && (
+      {/* Real-time Dining Booking Popup — gated by isDiningEnabled() */}
+      {isDiningEnabled() && newReservation && (
         <div className="fixed top-20 left-4 right-4 z-[100] animate-in slide-in-from-top duration-300">
-          <div className="bg-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-[#B80B3D]/10 overflow-hidden">
+          <div className="bg-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-[#2E7D52]/10 overflow-hidden">
             <div className="p-4 flex items-center gap-4">
               <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center shrink-0">
-                <Utensils className="w-6 h-6 text-[#B80B3D]" />
+                <Utensils className="w-6 h-6 text-[#2E7D52]" />
               </div>
               <div className="flex-1 min-w-0">
                 <h4 className="font-black text-slate-900 text-sm">New Table Request!</h4>
@@ -365,7 +365,7 @@ export default function RestaurantNavbar({
                   clearNewReservation();
                   navigate("/food/restaurant/dining-reservations");
                 }}
-                className="flex-1 h-10 bg-gradient-to-r from-[#B80B3D] to-[#66001D] text-white text-xs font-bold rounded-xl uppercase tracking-widest shadow-lg shadow-red-100"
+                className="flex-1 h-10 bg-gradient-to-r from-[#2E7D52] to-[#1B5E3F] text-white text-xs font-bold rounded-xl uppercase tracking-widest shadow-lg shadow-red-100"
               >
                 View Request
               </button>

@@ -459,7 +459,7 @@ export default function RestaurantStatus() {
             {!isDayClosed && (
               <button
                 onClick={() => navigate("/food/restaurant/outlet-timings", { state: { from: location.pathname } })}
-                className="flex items-center gap-1 text-[#B80B3D] hover:text-blue-700 text-sm font-medium"
+                className="flex items-center gap-1 text-[#2E7D52] hover:text-blue-700 text-sm font-medium"
               >
                 Details
                 <ChevronRight className="w-4 h-4" />
@@ -475,7 +475,7 @@ export default function RestaurantStatus() {
   {/* Warning Message - Only show if outside timings AND day is not closed */}
   {!isWithinTimings && restaurantData && !isDayClosed && (
         <div className="bg-pink-50 rounded-b-lg rounded-t-none p-4 flex items-start gap-3">
-          <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] flex items-center justify-center shrink-0 mt-0.5">
+          <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] flex items-center justify-center shrink-0 mt-0.5">
             <span className="text-white text-xs font-bold">!</span>
           </div>
           <p className="text-sm text-gray-700 flex-1">
@@ -489,7 +489,7 @@ export default function RestaurantStatus() {
         <DialogContent className="sm:max-w-md p-4 w-[90%] gap-2 flex flex-col">
           <DialogHeader className="text-center">
             <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-orange-100">
-              <span className="text-[#B80B3D]xl">??</span>
+              <span className="text-[#2E7D52]xl">??</span>
             </div>
             <DialogTitle className="text-lg font-semibold text-gray-900 text-center">
               Outlet Timings Closed
@@ -505,7 +505,7 @@ export default function RestaurantStatus() {
             </Button>
             <Button
               onClick={handleGoToOutletTimings}
-              className="w-full sm:w-auto bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-blue-700 text-white"
+              className="w-full sm:w-auto bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:bg-blue-700 text-white"
             >
               Go to Outlet Timings
             </Button>
@@ -518,7 +518,7 @@ export default function RestaurantStatus() {
         <DialogContent className="sm:max-w-md p-4 w-[90%] gap-2 flex flex-col">
           <DialogHeader className="text-center">
             <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-orange-100">
-              <span className="text-[#B80B3D]xl">??</span>
+              <span className="text-[#2E7D52]xl">??</span>
             </div>
             <DialogTitle className="text-lg font-semibold text-gray-900 text-center">
               Outside Delivery Timings
@@ -540,7 +540,7 @@ export default function RestaurantStatus() {
                 setShowOutsideTimingsDialog(false)
                 navigate("/food/restaurant/outlet-timings", { state: { from: location.pathname } })
               }}
-              className="w-full sm:w-auto bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-blue-700 text-white"
+              className="w-full sm:w-auto bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:bg-blue-700 text-white"
             >
               Change Outlet Timings
             </Button>

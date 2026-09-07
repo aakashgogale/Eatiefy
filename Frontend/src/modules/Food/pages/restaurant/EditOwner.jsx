@@ -948,7 +948,7 @@ export default function EditOwner() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border-4 border-t-[#B80B3D] border-gray-200 rounded-full animate-spin"></div>
+          <div className="w-10 h-10 border-4 border-t-[#2E7D52] border-gray-200 rounded-full animate-spin"></div>
           <p className="text-sm font-medium text-gray-500">Loading profile details...</p>
         </div>
       </div>
@@ -987,11 +987,11 @@ export default function EditOwner() {
                   onClick={() => setActiveTab(tab.id)}
                   className={`flex items-center gap-2 py-3 px-1 border-b-2 text-xs font-semibold whitespace-nowrap transition-all duration-200 ${
                     isActive
-                      ? "border-[#B80B3D] text-[#B80B3D] scale-105"
+                      ? "border-[#2E7D52] text-[#2E7D52] scale-105"
                       : "border-transparent text-gray-500 hover:text-gray-900"
                   }`}
                 >
-                  <Icon className={`w-4 h-4 ${isActive ? "text-[#B80B3D]" : "text-gray-400"}`} />
+                  <Icon className={`w-4 h-4 ${isActive ? "text-[#2E7D52]" : "text-gray-400"}`} />
                   {tab.label}
                 </button>
               )
@@ -1024,7 +1024,7 @@ export default function EditOwner() {
                   {formData.profileImage && (
                     <button
                       onClick={() => handleRemoveImage("profileImage")}
-                      className="absolute -top-1 -right-1 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white rounded-full p-1 shadow-md hover:scale-110 transition-transform"
+                      className="absolute -top-1 -right-1 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-full p-1 shadow-md hover:scale-110 transition-transform"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -1034,7 +1034,7 @@ export default function EditOwner() {
                   variant="outline"
                   size="sm"
                   onClick={() => handlePhotoClick("profileImage")}
-                  className="mt-1 border-[#B80B3D] text-[#B80B3D] hover:bg-red-50 text-xs font-semibold px-4"
+                  className="mt-1 border-[#2E7D52] text-[#2E7D52] hover:bg-red-50 text-xs font-semibold px-4"
                 >
                   <Upload className="w-3.5 h-3.5 mr-1.5" />
                   Choose Photo
@@ -1180,8 +1180,8 @@ export default function EditOwner() {
                       }}
                       className={`flex-1 min-w-[120px] px-3 py-2.5 text-xs font-semibold rounded-full border transition-all ${
                         formData.pureVegRestaurant === false
-                          ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white border-transparent shadow-sm"
-                          : "bg-white text-gray-700 border-gray-200 hover:border-[#B80B3D]"
+                          ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white border-transparent shadow-sm"
+                          : "bg-white text-gray-700 border-gray-200 hover:border-[#2E7D52]"
                       }`}
                     >
                       No, Mixed Menu
@@ -1233,7 +1233,7 @@ export default function EditOwner() {
                         },
                       })
                     }}
-                    className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[#B80B3D] hover:bg-red-50 px-2 py-1 rounded-md transition-colors"
+                    className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[#2E7D52] hover:bg-red-50 px-2 py-1 rounded-md transition-colors"
                   >
                     <MapPin className="w-3.5 h-3.5" />
                     Select from map
@@ -1365,10 +1365,6 @@ export default function EditOwner() {
                               toast.error("Opening time and closing time cannot be same")
                               return
                             }
-                            if (closingMinutes < openingMinutes) {
-                              toast.error("Closing time cannot be less than opening time")
-                              return
-                            }
                           }
                           handleInputChange("openingTime", nextOpening)
                         }}
@@ -1415,10 +1411,6 @@ export default function EditOwner() {
                               toast.error("Opening time and closing time cannot be same")
                               return
                             }
-                            if (closingMinutes < openingMinutes) {
-                              toast.error("Closing time cannot be less than opening time")
-                              return
-                            }
                           }
                           handleInputChange("closingTime", nextClosing)
                         }}
@@ -1448,7 +1440,7 @@ export default function EditOwner() {
 
                 <div>
                   <label className="text-xs font-bold text-gray-700 block mb-2 uppercase tracking-wide flex items-center gap-1">
-                    <CalendarIcon className="w-3.5 h-3.5 text-[#B80B3D]" />
+                    <CalendarIcon className="w-3.5 h-3.5 text-[#2E7D52]" />
                     Operational Days
                   </label>
                   <div className="grid grid-cols-7 gap-1.5">
@@ -1461,7 +1453,7 @@ export default function EditOwner() {
                           onClick={() => handleDayToggle(day)}
                           className={`h-9 rounded-lg text-xs font-semibold flex items-center justify-center transition-all ${
                             isActive
-                              ? "bg-[#B80B3D] text-white shadow-sm"
+                              ? "bg-[#2E7D52] text-white shadow-sm"
                               : "bg-gray-100 text-gray-800 hover:bg-gray-200"
                           }`}
                         >
@@ -1490,7 +1482,7 @@ export default function EditOwner() {
               <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4">
                 <div className="flex items-center justify-between border-b pb-2">
                   <h3 className="text-sm font-bold text-gray-900">Cuisines Served</h3>
-                  <span className="text-[10px] bg-[#B80B3D]/10 text-[#B80B3D] font-bold px-2 py-0.5 rounded">
+                  <span className="text-[10px] bg-[#2E7D52]/10 text-[#2E7D52] font-bold px-2 py-0.5 rounded">
                     MAX 8 SELECTED
                   </span>
                 </div>
@@ -1504,12 +1496,12 @@ export default function EditOwner() {
                         onClick={() => handleCuisineToggle(cuisine)}
                         className={`py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-between border text-left transition-all ${
                           isSelected
-                            ? "border-[#B80B3D] bg-red-50/50 text-[#B80B3D]"
+                            ? "border-[#2E7D52] bg-red-50/50 text-[#2E7D52]"
                             : "border-gray-200 hover:bg-gray-50 text-gray-700"
                         }`}
                       >
                         <span>{cuisine}</span>
-                        {isSelected && <Check className="w-3.5 h-3.5 text-[#B80B3D]" />}
+                        {isSelected && <Check className="w-3.5 h-3.5 text-[#2E7D52]" />}
                       </button>
                     )
                   })}
@@ -1566,7 +1558,7 @@ export default function EditOwner() {
                       />
                       <button
                         onClick={() => handleRemoveImage("panImage")}
-                        className="absolute top-1.5 right-1.5 bg-[#B80B3D] text-white rounded-full p-1 shadow-md"
+                        className="absolute top-1.5 right-1.5 bg-[#2E7D52] text-white rounded-full p-1 shadow-md"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -1683,7 +1675,7 @@ export default function EditOwner() {
                     type="button"
                     onClick={() => handleInputChange("gstRegistered", !formData.gstRegistered)}
                     className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      formData.gstRegistered ? "bg-[#B80B3D]" : "bg-gray-200"
+                      formData.gstRegistered ? "bg-[#2E7D52]" : "bg-gray-200"
                     }`}
                   >
                     <span
@@ -1752,7 +1744,7 @@ export default function EditOwner() {
                           />
                           <button
                             onClick={() => handleRemoveImage("gstImage")}
-                            className="absolute top-1.5 right-1.5 bg-[#B80B3D] text-white rounded-full p-1 shadow-md"
+                            className="absolute top-1.5 right-1.5 bg-[#2E7D52] text-white rounded-full p-1 shadow-md"
                           >
                             <X className="w-3.5 h-3.5" />
                           </button>
@@ -1830,7 +1822,7 @@ export default function EditOwner() {
                       />
                       <button
                         onClick={() => handleRemoveImage("fssaiImage")}
-                        className="absolute top-1.5 right-1.5 bg-[#B80B3D] text-white rounded-full p-1 shadow-md"
+                        className="absolute top-1.5 right-1.5 bg-[#2E7D52] text-white rounded-full p-1 shadow-md"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -1857,7 +1849,7 @@ export default function EditOwner() {
               <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4">
                 <div className="flex items-center justify-between border-b pb-2">
                   <h3 className="text-sm font-bold text-gray-900">Menu & Photos</h3>
-                  <span className="text-[10px] bg-blue-50 text-[#B80B3D] font-bold px-2 py-0.5 rounded">
+                  <span className="text-[10px] bg-blue-50 text-[#2E7D52] font-bold px-2 py-0.5 rounded">
                     {formData.menuImages.length} / 10 PHOTOS
                   </span>
                 </div>
@@ -1886,7 +1878,7 @@ export default function EditOwner() {
                     <button
                       type="button"
                       onClick={() => handlePhotoClick("menuImages")}
-                      className="aspect-[4/3] rounded-xl border border-dashed border-gray-300 hover:border-[#B80B3D] bg-gray-50/70 hover:bg-red-50/10 flex flex-col items-center justify-center gap-1.5 transition-all"
+                      className="aspect-[4/3] rounded-xl border border-dashed border-gray-300 hover:border-[#2E7D52] bg-gray-50/70 hover:bg-red-50/10 flex flex-col items-center justify-center gap-1.5 transition-all"
                     >
                       <div className="w-9 h-9 rounded-full bg-white flex items-center justify-center border border-gray-200">
                         <ImageIcon className="w-4.5 h-4.5 text-gray-600" />
@@ -1907,7 +1899,7 @@ export default function EditOwner() {
           <Button
             onClick={handleSave}
             disabled={!hasChanges || loading || saving}
-            className="w-full py-3 h-12 text-sm font-bold tracking-wide rounded-xl shadow-lg transition-all bg-gradient-to-r from-[#B80B3D] to-[#66001D] text-white shadow-[0_8px_20px_rgba(184,11,61,0.3)] disabled:opacity-50 disabled:shadow-none hover:from-[#A10935] hover:to-[#4F0016] active:scale-[0.98]"
+            className="w-full py-3 h-12 text-sm font-bold tracking-wide rounded-xl shadow-lg transition-all bg-gradient-to-r from-[#2E7D52] to-[#1B5E3F] text-white shadow-[0_8px_20px_rgba(184,11,61,0.3)] disabled:opacity-50 disabled:shadow-none hover:from-[#A10935] hover:to-[#4F0016] active:scale-[0.98]"
           >
             {saving ? "Uploading & Saving details..." : "Save Profile Details"}
           </Button>

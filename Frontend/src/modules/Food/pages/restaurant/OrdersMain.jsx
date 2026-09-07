@@ -28,7 +28,7 @@ import {
 import { toast } from "sonner";
 import BottomNavOrders from "@food/components/restaurant/BottomNavOrders";
 import RestaurantNavbar from "@food/components/restaurant/RestaurantNavbar";
-import { DINING_ENABLED } from "@food/config/featureFlags";
+import { isDiningEnabled } from "@food/config/featureFlags";
 const notificationSound = "/assets/media/restaurant_alert.mp3";
 import { restaurantAPI, diningAPI } from "@food/api";
 import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications";
@@ -566,7 +566,7 @@ function CancelledOrders({ onSelectOrder, refreshToken = 0 }) {
                         {order.itemsSummary}
                       </p>
                       {order.cancellationReason && (
-                        <p className="text-[10px] text-[#B80B3D] mt-1 line-clamp-1">
+                        <p className="text-[10px] text-[#2E7D52] mt-1 line-clamp-1">
                           Reason: {order.cancellationReason}
                         </p>
                       )}
@@ -703,7 +703,7 @@ function TableBookings() {
               const s = String(booking.status || '').toLowerCase();
               if (s === 'pending') {
                 return {
-                  style: { color: '#B80B3D', backgroundColor: '#FDF2F4', borderColor: '#FBCFE8' },
+                  style: { color: '#2E7D52', backgroundColor: '#FDF2F4', borderColor: '#FBCFE8' },
                   text: 'APPROVAL REQ'
                 };
               }
@@ -788,7 +788,7 @@ function TableBookings() {
                   <div className="mt-4 flex gap-2">
                     <button
                       onClick={() => handleStatusUpdate(booking._id, 'accepted')}
-                      className="flex-1 py-2 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white text-[11px] font-black rounded-xl hover:opacity-95 transition-opacity uppercase tracking-widest shadow-sm"
+                      className="flex-1 py-2 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white text-[11px] font-black rounded-xl hover:opacity-95 transition-opacity uppercase tracking-widest shadow-sm"
                     >
                       Accept
                     </button>
@@ -948,7 +948,7 @@ function AllOrders({ onSelectOrder, onCancel, onVerifyTakeaway, refreshToken = 0
         </div>
         <button
           onClick={() => navigate('/food/restaurant/orders/all', { state: { from: '/food/restaurant' } })}
-          className="text-xs font-bold text-[#B80B3D] hover:underline flex items-center gap-1"
+          className="text-xs font-bold text-[#2E7D52] hover:underline flex items-center gap-1"
         >
           Full History
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1194,6 +1194,9 @@ function SearchResults({ query, results, isLoading, onSelectOrder, onVerifyTakea
 const isTakeawayOrder = (order) =>
   String(order?.orderType || order?.type || "").toLowerCase() === "takeaway";
 
+/** Fallback accept window when admin settings are missing or unreachable. */
+const DEFAULT_ACCEPT_ORDER_TIMEOUT_SECONDS = 10 * 60;
+
 const resolveAcceptOrderTimeoutSeconds = (
   order,
   deliveryTimeoutSeconds,
@@ -1232,8 +1235,8 @@ class OrdersErrorBoundary extends Component {
       const comp = this.state.componentStack || '';
       return (
         <div style={{ padding: 16, background: '#fff', minHeight: '100dvh', overflowY: 'auto' }}>
-          <h2 style={{ color: '#B80B3D', fontWeight: 700, marginBottom: 8, fontSize: 16 }}>Something went wrong</h2>
-          <p style={{ fontSize: 12, color: '#B80B3D', fontWeight: 600, marginBottom: 8, wordBreak: 'break-all' }}>{msg}</p>
+          <h2 style={{ color: '#2E7D52', fontWeight: 700, marginBottom: 8, fontSize: 16 }}>Something went wrong</h2>
+          <p style={{ fontSize: 12, color: '#2E7D52', fontWeight: 600, marginBottom: 8, wordBreak: 'break-all' }}>{msg}</p>
           {stack ? (
             <pre style={{ fontSize: 9, color: '#555', background: '#f5f5f5', padding: 8, borderRadius: 6, overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginBottom: 8 }}>
               {stack.slice(0, 800)}
@@ -1246,7 +1249,7 @@ class OrdersErrorBoundary extends Component {
           ) : null}
           <button
             onClick={() => { this.setState({ hasError: false, error: null, stack: '', componentStack: '' }); window.location.reload(); }}
-            style={{ padding: '10px 20px', background: '#B80B3D', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 13 }}>
+            style={{ padding: '10px 20px', background: '#2E7D52', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 13 }}>
             Reload Page
           </button>
         </div>
@@ -1287,10 +1290,10 @@ function OrdersMainInner() {
   const [showNewOrderPopup, setShowNewOrderPopup] = useState(false);
   const [popupOrder, setPopupOrder] = useState(null); // Store order for popup (from Socket.IO or API)
   const [prepTime, setPrepTime] = useState(11);
-  const [deliveryAcceptOrderTimeoutSeconds, setDeliveryAcceptOrderTimeoutSeconds] = useState(null);
-  const [takeawayAcceptOrderTimeoutSeconds, setTakeawayAcceptOrderTimeoutSeconds] = useState(null);
-  const deliveryAcceptOrderTimeoutSecondsRef = useRef(null);
-  const takeawayAcceptOrderTimeoutSecondsRef = useRef(null);
+  const [deliveryAcceptOrderTimeoutSeconds, setDeliveryAcceptOrderTimeoutSeconds] = useState(DEFAULT_ACCEPT_ORDER_TIMEOUT_SECONDS);
+  const [takeawayAcceptOrderTimeoutSeconds, setTakeawayAcceptOrderTimeoutSeconds] = useState(DEFAULT_ACCEPT_ORDER_TIMEOUT_SECONDS);
+  const deliveryAcceptOrderTimeoutSecondsRef = useRef(DEFAULT_ACCEPT_ORDER_TIMEOUT_SECONDS);
+  const takeawayAcceptOrderTimeoutSecondsRef = useRef(DEFAULT_ACCEPT_ORDER_TIMEOUT_SECONDS);
   const [countdown, setCountdown] = useState(0);
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
   const [showRejectPopup, setShowRejectPopup] = useState(false);
@@ -1331,17 +1334,23 @@ function OrdersMainInner() {
           if (Number.isFinite(deliveryMinutes) && deliveryMinutes >= 1 && deliveryMinutes <= 60) {
             setDeliveryAcceptOrderTimeoutSeconds(Math.round(deliveryMinutes) * 60);
           } else {
-            setDeliveryAcceptOrderTimeoutSeconds(null);
+            setDeliveryAcceptOrderTimeoutSeconds(DEFAULT_ACCEPT_ORDER_TIMEOUT_SECONDS);
           }
 
           if (Number.isFinite(takeawayMinutes) && takeawayMinutes >= 1 && takeawayMinutes <= 60) {
             setTakeawayAcceptOrderTimeoutSeconds(Math.round(takeawayMinutes) * 60);
           } else {
-            setTakeawayAcceptOrderTimeoutSeconds(null);
+            setTakeawayAcceptOrderTimeoutSeconds(DEFAULT_ACCEPT_ORDER_TIMEOUT_SECONDS);
           }
         }
       } catch (error) {
         debugError("Failed to load restaurant accept order time:", error);
+        // Never let a settings failure hide incoming orders — the popup is
+        // gated on this value, so fall back instead of leaving it unset.
+        if (!cancelled) {
+          setDeliveryAcceptOrderTimeoutSeconds((prev) => prev ?? DEFAULT_ACCEPT_ORDER_TIMEOUT_SECONDS);
+          setTakeawayAcceptOrderTimeoutSeconds((prev) => prev ?? DEFAULT_ACCEPT_ORDER_TIMEOUT_SECONDS);
+        }
       }
     };
 
@@ -1452,7 +1461,7 @@ function OrdersMainInner() {
         const restaurantData = resRes.data?.data?.restaurant || resRes.data?.restaurant || resRes.data?.data;
 
         if (restaurantData?._id || restaurantData?.id) {
-          if (DINING_ENABLED) {
+          if (isDiningEnabled()) {
             // 1. Fetch bookings
             const res = await diningAPI.getRestaurantBookings(restaurantData);
             if (res.data.success) {
@@ -2773,14 +2782,14 @@ function OrdersMainInner() {
         <div className="py-3">
           <div className="relative group">
             <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
-              <Search className="h-4.5 w-4.5 text-slate-400 group-focus-within:text-[#B80B3D] transition-colors" />
+              <Search className="h-4.5 w-4.5 text-slate-400 group-focus-within:text-[#2E7D52] transition-colors" />
             </div>
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by order ID or dish name"
-              className="w-full pl-10 pr-4 py-3 bg-white border border-slate-100 rounded-2xl text-[14px] font-semibold text-slate-900 placeholder:text-slate-400 placeholder:font-medium focus:outline-none focus:ring-2 focus:ring-[#B80B3D]/10 focus:border-[#B80B3D]/20 transition-all shadow-sm"
+              className="w-full pl-10 pr-4 py-3 bg-white border border-slate-100 rounded-2xl text-[14px] font-semibold text-slate-900 placeholder:text-slate-400 placeholder:font-medium focus:outline-none focus:ring-2 focus:ring-[#2E7D52]/10 focus:border-[#2E7D52]/20 transition-all shadow-sm"
             />
             {searchQuery && (
               <button
@@ -2834,7 +2843,7 @@ function OrdersMainInner() {
                 {isActive && (
                   <motion.div
                     layoutId="activeFilterBackground"
-                    className="absolute inset-0 bg-gradient-to-br from-[#B80B3D] to-[#66001D] rounded-full -z-10"
+                    className="absolute inset-0 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] rounded-full -z-10"
                     initial={false}
                     transition={{
                       type: "spring",
@@ -2853,7 +2862,7 @@ function OrdersMainInner() {
                     )}
                   </span>
                   {tab.id === 'all' && pendingOrdersCount > 0 && (
-                    <span className="w-2 h-2 rounded-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)]" />
+                    <span className="w-2 h-2 rounded-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)]" />
                   )}
                 </div>
               </motion.button>
@@ -2895,10 +2904,10 @@ function OrdersMainInner() {
                 <>
                   <div className="flex items-start gap-3 mb-3">
                     <div className="flex-shrink-0 rounded-full p-2 bg-red-100">
-                      <AlertCircle className="w-5 h-5 text-[#B80B3D]" />
+                      <AlertCircle className="w-5 h-5 text-[#2E7D52]" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-lg font-bold text-[#B80B3D] mb-2">
+                      <h3 className="text-lg font-bold text-[#2E7D52] mb-2">
                         Denied Verification
                       </h3>
                       <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3">
@@ -2935,7 +2944,7 @@ function OrdersMainInner() {
                   <button
                     onClick={handleReverify}
                     disabled={isReverifying}
-                    className="w-full px-6 py-2.5 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white rounded-lg font-semibold text-sm hover:bg-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                    className="w-full px-6 py-2.5 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-lg font-semibold text-sm hover:bg-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
                     {isReverifying ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -2960,15 +2969,15 @@ function OrdersMainInner() {
             </motion.div>
           )}
 
-        {/* Dining Approval Pending Card — gated by DINING_ENABLED */}
-        {DINING_ENABLED && pendingDiningRequest && (
+        {/* Dining Approval Pending Card — gated by isDiningEnabled() */}
+        {isDiningEnabled() && pendingDiningRequest && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             className="mt-4 mb-4 rounded-2xl shadow-sm px-6 py-4 bg-white border border-blue-200">
             <div className="flex items-center gap-3 mb-2">
               <div className="p-2 rounded-full bg-blue-100">
-                <Clock className="w-4 h-4 text-[#B80B3D]" />
+                <Clock className="w-4 h-4 text-[#2E7D52]" />
               </div>
               <h3 className="text-base font-bold text-gray-900">
                 Dining Activation Request Pending
@@ -3010,7 +3019,7 @@ function OrdersMainInner() {
                 animate={{ scale: activeFilter === 'takeaway-orders' ? 1.05 : 1 }}
                 whileTap={{ scale: 0.95 }}>
                 {activeFilter === 'takeaway-orders' && (
-                  <div className="absolute inset-0 bg-gradient-to-br from-[#B80B3D] to-[#66001D] rounded-full -z-10" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] rounded-full -z-10" />
                 )}
                 <div className="flex items-center justify-center gap-2 relative z-10">
                   <span className="flex items-center gap-1.5">
@@ -3027,8 +3036,8 @@ function OrdersMainInner() {
                 </div>
               </motion.button>
 
-              {/* Table Booking button — gated by DINING_ENABLED */}
-              {DINING_ENABLED && (
+              {/* Table Booking button — gated by isDiningEnabled() */}
+              {isDiningEnabled() && (
               <motion.button
                 onClick={() => {
                   if (activeFilter === 'table-booking') {
@@ -3042,19 +3051,19 @@ function OrdersMainInner() {
                 animate={{ scale: activeFilter === 'table-booking' ? 1.05 : 1 }}
                 whileTap={{ scale: 0.95 }}>
                 {activeFilter === 'table-booking' && (
-                  <div className="absolute inset-0 bg-gradient-to-br from-[#B80B3D] to-[#66001D] rounded-full -z-10" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] rounded-full -z-10" />
                 )}
                 <div className="flex items-center justify-center gap-2 relative z-10">
                   <span className="flex items-center gap-1.5">
                     Dining Booking
                     {pendingBookingsCount > 0 && (
-                      <span className="px-1.5 py-0.5 rounded-full bg-red-100 text-[#B80B3D] text-[10px] font-black animate-bounce">
+                      <span className="px-1.5 py-0.5 rounded-full bg-red-100 text-[#2E7D52] text-[10px] font-black animate-bounce">
                         {pendingBookingsCount}
                       </span>
                     )}
                   </span>
                   {pendingBookingsCount > 0 && (
-                    <span className="w-2 h-2 rounded-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)]" />
+                    <span className="w-2 h-2 rounded-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)]" />
                   )}
                 </div>
               </motion.button>
@@ -3233,7 +3242,7 @@ function OrdersMainInner() {
                   {(popupOrder || newOrder)?.restaurantNote && (
                     <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
                       <div className="flex items-center gap-2 mb-1">
-                        <FileText className="w-4 h-4 text-[#B80B3D]" />
+                        <FileText className="w-4 h-4 text-[#2E7D52]" />
                         <p className="text-[10px] font-bold text-blue-800 uppercase tracking-wider">
                           Note for Restaurant
                         </p>
@@ -3514,7 +3523,7 @@ function OrdersMainInner() {
                               ? "Order canceled by user"
                               : "Order cancelled"}
                           </p>
-                          <p className="mt-1 text-xs text-[#B80B3D]">
+                          <p className="mt-1 text-xs text-[#2E7D52]">
                             This order is no longer available for acceptance.
                           </p>
                         </div>
@@ -3525,9 +3534,9 @@ function OrdersMainInner() {
                       <div className="space-y-3">
                         <div
                           ref={acceptSliderRef}
-                          className="relative h-14 rounded-2xl bg-gradient-to-br from-[#B80B3D] to-[#66001D] overflow-hidden select-none touch-pan-y">
+                          className="relative h-14 rounded-2xl bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] overflow-hidden select-none touch-pan-y">
                           <motion.div
-                            className="absolute inset-y-0 left-0 bg-gradient-to-br from-[#B80B3D] to-[#66001D]"
+                            className="absolute inset-y-0 left-0 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]"
                             initial={{ width: "100%" }}
                             animate={{ width: `${popupTimeoutSeconds > 0 ? (countdown / popupTimeoutSeconds) * 100 : 0}%` }}
                             transition={{ duration: 1, ease: "linear" }}
@@ -3577,7 +3586,7 @@ function OrdersMainInner() {
                         <button
                           onClick={handleRejectClick}
                           disabled={isAcceptingOrder}
-                          className="w-full bg-white border-2 border-red-500 text-[#B80B3D] py-3 rounded-lg font-semibold text-sm hover:bg-red-50 transition-colors disabled:opacity-60">
+                          className="w-full bg-white border-2 border-red-500 text-[#2E7D52] py-3 rounded-lg font-semibold text-sm hover:bg-red-50 transition-colors disabled:opacity-60">
                           Reject Order
                         </button>
                       </div>
@@ -3625,19 +3634,19 @@ function OrdersMainInner() {
                         key={reason}
                         onClick={() => setRejectReason(reason)}
                         className={`w-full text-left p-3 sm:p-4 rounded-lg border-2 transition-all ${rejectReason === reason
-                            ? "border-[#B80B3D] bg-red-50"
+                            ? "border-[#2E7D52] bg-red-50"
                             : "border-gray-200 bg-white hover:border-gray-300"
                           }`}>
                         <div className="flex items-center justify-between">
                           <span
                             className={`text-sm font-medium ${rejectReason === reason
-                                ? "text-[#B80B3D]"
+                                ? "text-[#2E7D52]"
                                 : "text-gray-900"
                               }`}>
                             {reason}
                           </span>
                           {rejectReason === reason && (
-                            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] flex items-center justify-center">
+                            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] flex items-center justify-center">
                               <svg
                                 className="w-3 h-3 text-white"
                                 fill="none"
@@ -3670,7 +3679,7 @@ function OrdersMainInner() {
                     onClick={handleRejectConfirm}
                     disabled={!rejectReason || isRejectingOrder}
                     className={`flex-1 py-2.5 sm:py-3 rounded-lg font-semibold text-sm transition-colors flex items-center justify-center gap-2 ${rejectReason
-                        ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white shadow-md shadow-red-900/20 active:scale-98 disabled:opacity-90 cursor-not-allowed"
+                        ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white shadow-md shadow-red-900/20 active:scale-98 disabled:opacity-90 cursor-not-allowed"
                         : "bg-gray-200 text-gray-400 cursor-not-allowed"
                       }`}>
                     {isRejectingOrder ? (
@@ -3731,7 +3740,7 @@ function OrdersMainInner() {
                         <div className="flex items-center gap-3">
                           <div
                             className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${cancelReason === reason
-                                ? "border-red-500 bg-gradient-to-br from-[#B80B3D] to-[#66001D]"
+                                ? "border-red-500 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]"
                                 : "border-gray-300"
                               }`}>
                             {cancelReason === reason && (
@@ -3774,7 +3783,7 @@ function OrdersMainInner() {
                     onClick={handleCancelConfirm}
                     disabled={!cancelReason || isCancellingOrder}
                     className={`flex-1 py-2.5 sm:py-3 rounded-lg font-semibold text-sm transition-colors flex items-center justify-center gap-2 ${cancelReason
-                        ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white shadow-md shadow-red-900/20 active:scale-98 disabled:opacity-90 cursor-not-allowed"
+                        ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white shadow-md shadow-red-900/20 active:scale-98 disabled:opacity-90 cursor-not-allowed"
                         : "bg-gray-200 text-gray-400 cursor-not-allowed"
                       }`}>
                     {isCancellingOrder ? (
@@ -3804,7 +3813,7 @@ function OrdersMainInner() {
               onClick={(e) => e.stopPropagation()}>
 
               {/* Gradient Header */}
-              <div className="bg-gradient-to-br from-[#B80B3D] to-[#66001D] px-6 pt-6 pb-8 text-center relative overflow-hidden">
+              <div className="bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] px-6 pt-6 pb-8 text-center relative overflow-hidden">
                 {/* decorative circles */}
                 <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full bg-white/10" />
                 <div className="absolute -bottom-4 -left-4 w-20 h-20 rounded-full bg-white/5" />
@@ -3864,7 +3873,7 @@ function OrdersMainInner() {
                   onChange={(e) => setTakeawayOtpInput(e.target.value.replace(/\D/g, "").slice(0, 4))}
                   ref={otpInputRef}
                   placeholder="••••"
-                  className="w-full text-center text-5xl font-black tracking-[0.6em] pl-[0.3em] py-4 border-2 border-slate-200 dark:border-slate-700 rounded-2xl focus:border-[#B80B3D] focus:outline-none focus:ring-4 focus:ring-[#B80B3D]/10 bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-white transition-all font-mono caret-[#B80B3D]"
+                  className="w-full text-center text-5xl font-black tracking-[0.6em] pl-[0.3em] py-4 border-2 border-slate-200 dark:border-slate-700 rounded-2xl focus:border-[#2E7D52] focus:outline-none focus:ring-4 focus:ring-[#2E7D52]/10 bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-white transition-all font-mono caret-[#2E7D52]"
                 />
               </div>
 
@@ -3881,7 +3890,7 @@ function OrdersMainInner() {
                   onClick={handleVerifyTakeawayConfirm}
                   disabled={isSubmittingVerifyTakeaway || takeawayOtpInput.length < 4}
                   className="flex-1 py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider text-white shadow-lg shadow-[#DC2626]/30 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
-                  style={{ background: takeawayOtpInput.length < 4 ? '#94a3b8' : 'linear-gradient(135deg, #B80B3D, #66001D)' }}>
+                  style={{ background: takeawayOtpInput.length < 4 ? '#94a3b8' : 'linear-gradient(135deg, #2E7D52, #1B5E3F)' }}>
                   {isSubmittingVerifyTakeaway ? "Verifying…" : "Complete Order"}
                 </button>
               </div>
@@ -3984,7 +3993,7 @@ function OrdersMainInner() {
                     .filter(Boolean)
                     .map((itemStr, idx) => (
                       <div key={idx} className="text-sm text-slate-900 font-bold flex items-center gap-2 bg-slate-50 px-3.5 py-2.5 rounded-xl border border-slate-200/80 shadow-sm">
-                        <span className="w-2 h-2 rounded-full bg-[#B80B3D] shrink-0" />
+                        <span className="w-2 h-2 rounded-full bg-[#2E7D52] shrink-0" />
                         <span className="leading-snug">{itemStr}</span>
                       </div>
                     ))}
@@ -4020,7 +4029,7 @@ function OrdersMainInner() {
 
               {selectedOrder.status === "cancelled" && selectedOrder.cancellationReason && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-xl">
-                  <p className="text-[10px] font-bold text-[#B80B3D] uppercase mb-1">Cancellation Reason</p>
+                  <p className="text-[10px] font-bold text-[#2E7D52] uppercase mb-1">Cancellation Reason</p>
                   <p className="text-xs text-red-700 font-medium">{selectedOrder.cancellationReason}</p>
                 </div>
               )}
@@ -4034,13 +4043,13 @@ function OrdersMainInner() {
 
               {selectedOrder.restaurantNote && (
                 <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-xl">
-                  <p className="text-[10px] font-bold text-[#B80B3D] uppercase mb-1">Note for Restaurant</p>
+                  <p className="text-[10px] font-bold text-[#2E7D52] uppercase mb-1">Note for Restaurant</p>
                   <p className="text-xs text-blue-700 font-medium">{selectedOrder.restaurantNote}</p>
                 </div>
               )}
 
               <button
-                className="w-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white py-3 rounded-xl text-sm font-bold shadow-md hover:shadow-lg transition-all active:scale-[0.98]"
+                className="w-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white py-3 rounded-xl text-sm font-bold shadow-md hover:shadow-lg transition-all active:scale-[0.98]"
                 onClick={() => setIsSheetOpen(false)}>
                 Close
               </button>
@@ -4094,7 +4103,7 @@ const OrderCard = memo(function OrderCard({
   const normalizedType = String(type || "").toLowerCase();
   const isReady = normalizedStatus === "ready";
   const isPreparing = normalizedStatus === "preparing";
-  const brandColor = "#B80B3D";
+  const brandColor = "#2E7D52";
 
   const isAccepted = !!acceptedAt;
   const isWaitingAcceptance = !isAccepted && (normalizedStatus === "confirmed" || normalizedStatus === "pending" || normalizedStatus === "created");
@@ -4204,7 +4213,7 @@ const OrderCard = memo(function OrderCard({
               .filter(Boolean)
               .map((itemStr, idx) => (
                 <div key={idx} className="flex items-center gap-1.5 leading-tight">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#B80B3D] shrink-0" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#2E7D52] shrink-0" />
                   <span>{itemStr}</span>
                 </div>
               ))}
@@ -4970,7 +4979,7 @@ function EmptyState({ message = "Temporarily closed" }) {
             window.location.reload();
           }
         }}
-        className="bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white px-6 py-3 rounded-lg font-medium hover:bg-gray-800 transition-colors">
+        className="bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white px-6 py-3 rounded-lg font-medium hover:bg-gray-800 transition-colors">
         View status
       </button>
     </div>

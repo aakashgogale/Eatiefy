@@ -158,7 +158,7 @@ export default function RestaurantDetailsPage() {
         <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl p-4 md:p-6">
           <div className="flex items-start gap-4">
             <div className="flex-shrink-0">
-              <div className="bg-gradient-to-br from-[#B80B3D] to-[#66001D] rounded-lg p-3">
+              <div className="bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] rounded-lg p-3">
                 {restaurantData.logo && !logoLoadFailed ? (
                   <img 
                     src={restaurantData.logo} 
@@ -240,7 +240,7 @@ export default function RestaurantDetailsPage() {
                 {activeCategory === category.id && (
                   <motion.div
                     layoutId="activeCategory"
-                    className="absolute inset-0 bg-gradient-to-br from-[#B80B3D] to-[#66001D] rounded-full z-0"
+                    className="absolute inset-0 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] rounded-full z-0"
                     transition={{ type: "spring", stiffness: 500, damping: 30 }}
                   />
                 )}
@@ -293,7 +293,7 @@ export default function RestaurantDetailsPage() {
                           {item.name}
                         </h4>
                         <button className="flex-shrink-0 ml-2 p-1 hover:bg-gray-100 rounded transition-colors">
-                          <div className="w-1 h-1 bg-gradient-to-br from-[#B80B3D] to-[#66001D] rounded-full"></div>
+                          <div className="w-1 h-1 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] rounded-full"></div>
                         </button>
                       </div>
                       

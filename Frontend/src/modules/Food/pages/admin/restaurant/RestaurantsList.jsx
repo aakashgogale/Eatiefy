@@ -906,10 +906,8 @@ export default function RestaurantsList() {
           alert("Opening time and closing time cannot be same")
           return
         }
-        if (closingMinutes < openingMinutes) {
-          alert("Closing time cannot be less than opening time")
-          return
-        }
+        // A closing time before the opening time means the outlet trades past
+        // midnight (10:00 -> 02:00), which the backend already supports.
       }
 
       const payload = {

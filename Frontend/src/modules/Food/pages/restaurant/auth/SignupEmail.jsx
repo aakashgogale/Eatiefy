@@ -204,8 +204,8 @@ export default function RestaurantSignupEmail() {
           className="w-full h-full object-cover"
         />
         <div className="absolute inset-0 flex items-center text-white pointer-events-none">
-          <div className="bg-gradient-to-br from-[#B80B3D] to-[#66001D]/80 rounded-r-full py-10 xl:py-20 pl-10 xl:pl-14 pr-10 xl:pr-20 max-w-[70%] shadow-xl backdrop-blur-[1px]">
-            <h1 className="text-[#B80B3D]xl xl:text-4xl font-extrabold mb-4 tracking-wide leading-tight">
+          <div className="bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]/80 rounded-r-full py-10 xl:py-20 pl-10 xl:pl-14 pr-10 xl:pr-20 max-w-[70%] shadow-xl backdrop-blur-[1px]">
+            <h1 className="text-[#2E7D52]xl xl:text-4xl font-extrabold mb-4 tracking-wide leading-tight">
               JOIN EATIEFY
               <br />
               FOOD PLATFORM
@@ -222,7 +222,7 @@ export default function RestaurantSignupEmail() {
         {/* Top logo */}
         <div className="relative flex items-center justify-center px-6 sm:px-10 lg:px-16 pt-6 pb-4">
           <div className="flex items-center gap-3">
-            <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-[#B80B3D] to-[#66001D] flex items-center justify-center text-white shadow-lg">
+            <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] flex items-center justify-center text-white shadow-lg">
               <UtensilsCrossed className="h-6 w-6" />
             </div>
             <div className="flex flex-col items-start">
@@ -240,7 +240,7 @@ export default function RestaurantSignupEmail() {
         <div className="flex-1 flex flex-col items-center justify-center px-6 sm:px-10 lg:px-16 pb-8">
           <Card className="w-full max-w-lg bg-white/80 backdrop-blur-sm border border-gray-200 shadow-xl">
             <CardHeader>
-              <CardTitle className="text-2xl sm:text-[#B80B3D]xl font-semibold text-gray-900">
+              <CardTitle className="text-2xl sm:text-[#2E7D52]xl font-semibold text-gray-900">
                 {step === 1 ? "Create Account" : "Verify Email"}
               </CardTitle>
               <CardDescription className="text-sm text-gray-500">
@@ -377,7 +377,7 @@ export default function RestaurantSignupEmail() {
 
                   <Button
                     type="submit"
-                    className="h-11 w-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D]/90 text-white"
+                    className="h-11 w-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]/90 text-white"
                     disabled={isLoading}
                   >
                     {isLoading ? "Sending..." : "Continue"}
@@ -439,7 +439,7 @@ export default function RestaurantSignupEmail() {
 
                   <Button
                     type="submit"
-                    className="h-11 w-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D]/90 text-white"
+                    className="h-11 w-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]/90 text-white"
                     disabled={isLoading}
                   >
                     {isLoading ? "Verifying..." : "Verify & Sign Up"}

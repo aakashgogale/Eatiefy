@@ -98,7 +98,7 @@ export default function DownloadReport() {
               <button
                 key={type}
                 onClick={() => setViewType(type)}
-                className={`py-2 ${viewType === type ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white" : "bg-white text-gray-800"}`}
+                className={`py-2 ${viewType === type ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white" : "bg-white text-gray-800"}`}
               >
                 {type}
               </button>
@@ -129,7 +129,7 @@ export default function DownloadReport() {
       <div className="px-4 pb-6">
         <button
           onClick={handleSend}
-          className="w-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white py-4 rounded-xl text-sm font-semibold flex items-center justify-center gap-2"
+          className="w-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white py-4 rounded-xl text-sm font-semibold flex items-center justify-center gap-2"
         >
           <Mail className="w-5 h-5" />
           Send an email

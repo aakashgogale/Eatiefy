@@ -368,7 +368,7 @@ function TimePickerWheel({
           <div className="border-t border-gray-200 px-4 py-4 flex justify-center">
             <button
               onClick={handleConfirm}
-              className="text-[#B80B3D] hover:text-blue-700 font-medium text-base transition-colors"
+              className="text-[#2E7D52] hover:text-blue-700 font-medium text-base transition-colors"
             >
               Okay
             </button>
@@ -625,7 +625,7 @@ export default function DaySlots() {
                   </div>
                   <button
                     onClick={() => deleteSlot(slot.id)}
-                    className="w-8 h-8 bg-pink-100 hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D] rounded-full flex items-center justify-center transition-colors"
+                    className="w-8 h-8 bg-pink-100 hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] rounded-full flex items-center justify-center transition-colors"
                     aria-label="Delete slot"
                   >
                     <Trash2 className="w-4 h-4 text-red-400" />
@@ -714,7 +714,7 @@ export default function DaySlots() {
         {dayData.slots.length < 3 && (
           <button
             onClick={addSlot}
-            className="w-full text-[#B80B3D] hover:text-blue-700 text-sm font-medium py-3 transition-colors"
+            className="w-full text-[#2E7D52] hover:text-blue-700 text-sm font-medium py-3 transition-colors"
           >
             + Add time slot
           </button>
@@ -748,7 +748,7 @@ export default function DaySlots() {
           {/* Save Button */}
           <Button
             onClick={handleSave}
-            className="w-full bg-gray-800 hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white font-medium py-3 rounded-lg"
+            className="w-full bg-gray-800 hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white font-medium py-3 rounded-lg"
           >
             Save
           </Button>
@@ -805,7 +805,7 @@ export default function DaySlots() {
           <DialogHeader>
             <div className="flex items-center gap-3 mb-2">
               <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center shrink-0">
-                <AlertTriangle className="w-6 h-6 text-[#B80B3D]" />
+                <AlertTriangle className="w-6 h-6 text-[#2E7D52]" />
               </div>
               <DialogTitle className="text-left">Delete Time Slot</DialogTitle>
             </div>
@@ -826,7 +826,7 @@ export default function DaySlots() {
             </Button>
             <Button
               onClick={confirmDelete}
-              className="w-full sm:w-auto bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-red-700 text-white"
+              className="w-full sm:w-auto bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:bg-red-700 text-white"
             >
               Delete
             </Button>

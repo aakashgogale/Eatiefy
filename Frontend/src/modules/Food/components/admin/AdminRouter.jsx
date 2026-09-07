@@ -5,7 +5,7 @@ import PermissionRoute from "./PermissionRoute";
 import AdminLayout from "./AdminLayout";
 import AuthRedirect from "@food/components/AuthRedirect";
 import Loader from "@food/components/Loader";
-import { DINING_ENABLED } from "@food/config/featureFlags";
+import useModuleAccess from "@food/hooks/useModuleAccess";
 
 const AdminHome = lazy(() => import("@food/pages/admin/AdminHome"));
 const PointOfSale = lazy(() => import("@food/pages/admin/PointOfSale"));
@@ -142,6 +142,7 @@ const AdminSignup = lazy(() => import("@food/pages/admin/auth/AdminSignup"));
 const AdminForgotPassword = lazy(() => import("@food/pages/admin/auth/AdminForgotPassword"));
 
 export default function AdminRouter() {
+  const { diningEnabled } = useModuleAccess();
   return (
     <Suspense fallback={null}>
       <Routes>
@@ -327,9 +328,9 @@ export default function AdminRouter() {
             <Route path="clean-database" element={<CleanDatabase />} />
             <Route path="addon-activation" element={<AddonActivation />} />
             <Route path="hero-banner-management" element={<LandingPageManagement />} />
-            <Route path="dining-management" element={DINING_ENABLED ? <DiningManagement /> : <Navigate to="/admin/food" replace />} />
-            <Route path="dining-list" element={DINING_ENABLED ? <DiningList /> : <Navigate to="/admin/food" replace />} />
-            <Route path="dining-requests" element={DINING_ENABLED ? <DiningRequests /> : <Navigate to="/admin/food" replace />} />
+            <Route path="dining-management" element={diningEnabled ? <DiningManagement /> : <Navigate to="/admin/food" replace />} />
+            <Route path="dining-list" element={diningEnabled ? <DiningList /> : <Navigate to="/admin/food" replace />} />
+            <Route path="dining-requests" element={diningEnabled ? <DiningRequests /> : <Navigate to="/admin/food" replace />} />
             <Route path="customization-settings" element={<CustomizationSettings />} />
             <Route path="archived-accounts" element={<ArchivedAccounts />} />
           </Route>

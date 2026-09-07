@@ -1,4 +1,4 @@
-import { DINING_ENABLED } from "@food/config/featureFlags"
+import { isDiningEnabled } from "@food/config/featureFlags"
 
 export const adminSidebarMenu = [
   {
@@ -208,7 +208,7 @@ export const adminSidebarMenu = [
       { type: "link", label: "Landing Page Management", path: "/admin/food/hero-banner-management", icon: "Image" },
     ],
   },
-  ...(DINING_ENABLED
+  ...(isDiningEnabled()
     ? [
         {
           type: "section",

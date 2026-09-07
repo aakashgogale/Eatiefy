@@ -8,41 +8,45 @@ import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { sendResponse } from '../../../../utils/response.js';
 
 /** Public hero banners for user home: active only, sorted, with linkedRestaurants populated for click-through */
+/** Shared by the standalone route and the aggregated /public/app-config payload. */
+export const loadPublicHeroBanners = async (zoneId) => {
+    let query = { isActive: true };
+    if (zoneId) query.zoneId = zoneId;
+    else query.zoneId = null;
+
+    const populateLinked = {
+        path: 'linkedRestaurantIds',
+        select: '_id restaurantName slug area city rating cuisines profileImage pureVegRestaurant zoneId',
+        model: 'FoodRestaurant'
+    };
+
+    let docs = await FoodHeroBanner.find(query)
+        .sort({ sortOrder: 1, createdAt: -1 })
+        .populate(populateLinked)
+        .lean();
+
+    // Fall back to global banners when the zone has none of its own.
+    if (zoneId && docs.length === 0) {
+        query.zoneId = null;
+        docs = await FoodHeroBanner.find(query)
+            .sort({ sortOrder: 1, createdAt: -1 })
+            .populate(populateLinked)
+            .lean();
+    }
+
+    return (docs || []).map((b) => {
+        const { linkedRestaurantIds, ...rest } = b;
+        return {
+            ...rest,
+            linkedRestaurants: Array.isArray(linkedRestaurantIds) ? linkedRestaurantIds : [],
+            imageUrl: b.imageUrl
+        };
+    });
+};
+
 export const getPublicHeroBannersController = async (req, res, next) => {
     try {
-        const { zoneId } = req.query;
-        let query = { isActive: true };
-        if (zoneId) query.zoneId = zoneId;
-        else query.zoneId = null;
-
-        let docs = await FoodHeroBanner.find(query)
-            .sort({ sortOrder: 1, createdAt: -1 })
-            .populate({
-                path: 'linkedRestaurantIds',
-                select: '_id restaurantName slug area city rating cuisines profileImage pureVegRestaurant zoneId',
-                model: 'FoodRestaurant'
-            })
-            .lean();
-        
-        if (zoneId && docs.length === 0) {
-            query.zoneId = null;
-            docs = await FoodHeroBanner.find(query)
-                .sort({ sortOrder: 1, createdAt: -1 })
-                .populate({
-                    path: 'linkedRestaurantIds',
-                    select: '_id restaurantName slug area city rating cuisines profileImage pureVegRestaurant zoneId',
-                    model: 'FoodRestaurant'
-                })
-                .lean();
-        }
-        const banners = (docs || []).map((b) => {
-            const { linkedRestaurantIds, ...rest } = b;
-            return {
-                ...rest,
-                linkedRestaurants: Array.isArray(linkedRestaurantIds) ? linkedRestaurantIds : [],
-                imageUrl: b.imageUrl
-            };
-        });
+        const banners = await loadPublicHeroBanners(req.query?.zoneId);
         return sendResponse(res, 200, 'Hero banners fetched', { banners });
     } catch (error) {
         next(error);
@@ -85,9 +89,9 @@ export const getPublicDiningBannersController = async (req, res, next) => {
     }
 };
 
-export const getPublicExploreIconsController = async (req, res, next) => {
-    try {
-        const { zoneId } = req.query;
+/** Shared by the standalone route and the aggregated /public/app-config payload. */
+export const loadPublicExploreIcons = async (zoneId) => {
+    {
         let globalDocs = await FoodExploreIcon.find({ zoneId: null, isActive: true }).sort({ sortOrder: 1, createdAt: -1 }).lean();
         let zoneDocs = zoneId ? await FoodExploreIcon.find({ zoneId, isActive: true }).sort({ sortOrder: 1, createdAt: -1 }).lean() : [];
         
@@ -120,7 +124,13 @@ export const getPublicExploreIconsController = async (req, res, next) => {
             
             docs.sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
         }
-        const items = docs.map(({ targetPath, sortOrder, ...rest }) => ({ ...rest, link: targetPath, order: sortOrder }));
+        return docs.map(({ targetPath, sortOrder, ...rest }) => ({ ...rest, link: targetPath, order: sortOrder }));
+    }
+};
+
+export const getPublicExploreIconsController = async (req, res, next) => {
+    try {
+        const items = await loadPublicExploreIcons(req.query?.zoneId);
         return sendResponse(res, 200, 'Explore icons fetched', { items });
     } catch (error) {
         next(error);
@@ -143,9 +153,9 @@ export const getPublicGourmetController = async (req, res, next) => {
     }
 };
 
-export const getPublicLandingSettingsController = async (req, res, next) => {
-    try {
-        const { zoneId } = req.query;
+/** Shared by the standalone route and the aggregated /public/app-config payload. */
+export const loadPublicLandingSettings = async (zoneId) => {
+    {
         let settings = await getLandingSettings(zoneId);
         let globalSettings = null;
         
@@ -174,6 +184,13 @@ export const getPublicLandingSettingsController = async (req, res, next) => {
             recommendedRestaurantIds: undefined,
             recommendedRestaurants
         };
+        return payload;
+    }
+};
+
+export const getPublicLandingSettingsController = async (req, res, next) => {
+    try {
+        const payload = await loadPublicLandingSettings(req.query?.zoneId);
         return sendResponse(res, 200, 'Landing settings fetched', payload);
     } catch (error) {
         next(error);

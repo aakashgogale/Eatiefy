@@ -1,4 +1,5 @@
 import express from 'express';
+import { getPublicAppConfigController } from '../modules/food/landing/controllers/publicAppConfig.controller.js';
 import authRoutes from '../core/auth/auth.routes.js';
 import deliveryRoutes from '../modules/food/delivery/routes/delivery.routes.js';
 import restaurantRoutes from '../modules/food/restaurant/routes/restaurant.routes.js';
@@ -35,6 +36,8 @@ router.get('/v1/health', (req, res) => {
 router.get('/v1/food/public/customization-settings', systemConfigController.getCustomizationSettings);
 router.get('/v1/food/public/restaurant-settings', systemConfigController.getRestaurantSettings);
 router.get('/v1/food/admin/business-settings/public', businessSettingsController.getBusinessSettings);
+// Aggregated app-shell config — one request instead of nine on first paint.
+router.get('/v1/food/public/app-config', getPublicAppConfigController);
 
 // Block user / restaurant / delivery APIs when maintenance is on (admin stays open)
 router.use(maintenanceModeMiddleware);

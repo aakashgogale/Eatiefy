@@ -1,18 +1,24 @@
 import { FoodBusinessSettings } from '../models/businessSettings.model.js';
 import { sendResponse } from '../../../../utils/response.js';
+import { invalidateNotificationIconCache } from '../../../../core/notifications/notificationBranding.service.js';
 import { storeImageBuffer, deleteStoredAssets, extractAssetUrl } from '../../../../services/storage.service.js';
+
+/** Shared by the standalone route and the aggregated /public/app-config payload. */
+export async function loadBusinessSettingsPayload() {
+    let settings = await FoodBusinessSettings.findOne().lean();
+    if (!settings) {
+        // Create default settings if none exist
+        settings = await FoodBusinessSettings.create({
+            companyName: 'Eatiefy',
+            email: 'admin@eatiefy.com'
+        });
+    }
+    return settings;
+}
 
 export async function getBusinessSettings(req, res, next) {
     try {
-        let settings = await FoodBusinessSettings.findOne().lean();
-        if (!settings) {
-            // Create default settings if none exist
-            settings = await FoodBusinessSettings.create({
-                companyName: 'Eatiefy',
-                email: 'admin@eatiefy.com'
-            });
-        }
-        return sendResponse(res, 200, 'Business settings fetched successfully', settings);
+        return sendResponse(res, 200, 'Business settings fetched successfully', await loadBusinessSettingsPayload());
     } catch (error) {
         next(error);
     }
@@ -118,6 +124,8 @@ export async function updateBusinessSettings(req, res, next) {
         }
 
         await settings.save();
+        // Push icons follow the configured favicon/logo.
+        invalidateNotificationIconCache();
         return sendResponse(res, 200, 'Business settings updated successfully', settings);
     } catch (error) {
         next(error);

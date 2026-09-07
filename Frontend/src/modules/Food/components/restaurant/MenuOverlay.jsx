@@ -217,7 +217,7 @@ export default function MenuOverlay({ showMenu, setShowMenu }) {
                       }}
                       className={`flex flex-col items-center justify-center gap-2 p-3 md:p-4 rounded-xl transition-all shadow-md hover:shadow-lg ${
                         option.isLogout
-                          ? "bg-gray-800 hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white"
+                          ? "bg-gray-800 hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white"
                           : option.isDelete
                           ? "bg-[#FF3131] hover:bg-[#D41B1B] text-white"
                           : "bg-gradient-to-br from-[#ff8100] to-[#ff9500] hover:from-[#e67300] hover:to-[#e68500] text-white"
@@ -292,7 +292,7 @@ export default function MenuOverlay({ showMenu, setShowMenu }) {
               
               <div className="bg-gray-50 rounded-2xl p-4 mb-5 text-center">
                 <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">{balanceData.type}</p>
-                <p className="text-[#B80B3D]xl font-black text-black">₹{balanceData.balance.toLocaleString('en-IN')}</p>
+                <p className="text-[#2E7D52]xl font-black text-black">₹{balanceData.balance.toLocaleString('en-IN')}</p>
               </div>
 
               <p className="text-sm text-gray-500 mb-6 leading-relaxed">
@@ -315,7 +315,7 @@ export default function MenuOverlay({ showMenu, setShowMenu }) {
                     setShowBalanceWarning(false);
                     navigate("/food/restaurant/hub-finance");
                   }}
-                  className="w-full h-12 rounded-xl bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white font-bold hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D] transition-colors"
+                  className="w-full h-12 rounded-xl bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white font-bold hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] transition-colors"
                 >
                   Go to Payout
                 </button>
@@ -339,7 +339,7 @@ export default function MenuOverlay({ showMenu, setShowMenu }) {
           >
             <div className="flex justify-center mb-4">
               <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
-                <Trash2 className="w-8 h-8 text-[#B80B3D]" />
+                <Trash2 className="w-8 h-8 text-[#2E7D52]" />
               </div>
             </div>
 
@@ -350,7 +350,7 @@ export default function MenuOverlay({ showMenu, setShowMenu }) {
 
             <div className="mb-5 bg-red-50 border-l-4 border-red-500 rounded-r-xl p-3 text-left">
               <div className="flex items-center gap-2 mb-1">
-                <AlertTriangle className="w-4 h-4 text-[#B80B3D] flex-shrink-0" />
+                <AlertTriangle className="w-4 h-4 text-[#2E7D52] flex-shrink-0" />
                 <span className="text-xs font-bold text-red-700 uppercase tracking-wider">Warning</span>
               </div>
               <p className="text-[11px] text-red-800 font-medium leading-tight">
@@ -365,7 +365,7 @@ export default function MenuOverlay({ showMenu, setShowMenu }) {
                 placeholder="Type DELETE to confirm" 
                 value={deleteCaptcha}
                 onChange={(e) => setDeleteCaptcha(e.target.value.toUpperCase())}
-                className="w-full h-12 px-4 rounded-xl border-2 border-gray-100 focus:border-[#B80B3D] focus:ring-4 focus:ring-red-50 outline-none transition-all font-bold text-center tracking-widest placeholder:tracking-normal placeholder:font-medium placeholder:text-gray-400"
+                className="w-full h-12 px-4 rounded-xl border-2 border-gray-100 focus:border-[#2E7D52] focus:ring-4 focus:ring-red-50 outline-none transition-all font-bold text-center tracking-widest placeholder:tracking-normal placeholder:font-medium placeholder:text-gray-400"
               />
             </div>
 
@@ -398,7 +398,7 @@ export default function MenuOverlay({ showMenu, setShowMenu }) {
                   }
                 }}
                 disabled={isDeleting || deleteCaptcha !== "DELETE"}
-                className="flex-1 h-12 rounded-xl bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white font-bold text-sm transition-all hover:bg-red-700 active:scale-95 disabled:opacity-50"
+                className="flex-1 h-12 rounded-xl bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white font-bold text-sm transition-all hover:bg-red-700 active:scale-95 disabled:opacity-50"
               >
                 {isDeleting ? "Deleting..." : "Delete Account"}
               </button>

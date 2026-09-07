@@ -478,7 +478,7 @@ export default function EditRestaurantAddress() {
             className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors shrink-0"
             aria-label="Go back"
           >
-            <ArrowLeft className="w-6 h-6 text-[#B80B3D]" />
+            <ArrowLeft className="w-6 h-6 text-[#2E7D52]" />
           </button>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1">
@@ -506,19 +506,19 @@ export default function EditRestaurantAddress() {
           {mapLoading && (
             <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-30">
               <div className="text-center">
-                <Loader2 className="w-8 h-8 animate-spin text-[#B80B3D] mx-auto mb-2" />
+                <Loader2 className="w-8 h-8 animate-spin text-[#2E7D52] mx-auto mb-2" />
                 <p className="text-sm text-gray-600">Loading map...</p>
               </div>
             </div>
           )}
 
           <div className="absolute top-[36%] left-1/2 -translate-x-1/2 -translate-y-full pointer-events-none z-10 flex flex-col items-center">
-            <div className="bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white px-3 py-2 rounded-lg mb-2 max-w-[220px] text-center shadow-lg">
+            <div className="bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white px-3 py-2 rounded-lg mb-2 max-w-[220px] text-center shadow-lg">
               <p className="text-xs font-semibold">Your outlet location</p>
               <p className="text-[10px] text-white/80">Drag map or search above</p>
             </div>
-            <div className="w-5 h-5 bg-[#B80B3D] rounded-full border-[3px] border-white shadow-lg" />
-            <div className="w-0.5 h-3 bg-[#B80B3D]" />
+            <div className="w-5 h-5 bg-[#2E7D52] rounded-full border-[3px] border-white shadow-lg" />
+            <div className="w-0.5 h-3 bg-[#2E7D52]" />
           </div>
         </div>
 
@@ -528,7 +528,7 @@ export default function EditRestaurantAddress() {
 
           {geocoding && hasMovedPin ? (
             <div className="flex items-center gap-2 text-sm text-gray-500 mb-4 min-h-[148px]">
-              <Loader2 className="w-4 h-4 animate-spin text-[#B80B3D]" />
+              <Loader2 className="w-4 h-4 animate-spin text-[#2E7D52]" />
               Fetching exact place details...
             </div>
           ) : selectedLocation ? (
@@ -581,7 +581,7 @@ export default function EditRestaurantAddress() {
             <button
               onClick={handleUpdateClick}
               disabled={loading || mapLoading || geocoding}
-              className="w-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white font-bold py-4 text-base rounded-xl shadow-lg shadow-[#B80B3D]/20 transition-all active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white font-bold py-4 text-base rounded-xl shadow-lg shadow-[#2E7D52]/20 transition-all active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
             >
               Update Address
             </button>
@@ -610,7 +610,7 @@ export default function EditRestaurantAddress() {
               <div
                 className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
                   selectedOption === "update_address"
-                    ? "border-[#B80B3D] bg-gradient-to-br from-[#B80B3D] to-[#66001D]"
+                    ? "border-[#2E7D52] bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]"
                     : "border-gray-300"
                 }`}
               >
@@ -637,7 +637,7 @@ export default function EditRestaurantAddress() {
               <div
                 className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
                   selectedOption === "minor_correction"
-                    ? "border-[#B80B3D] bg-gradient-to-br from-[#B80B3D] to-[#66001D]"
+                    ? "border-[#2E7D52] bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]"
                     : "border-gray-300"
                 }`}
               >
@@ -650,7 +650,7 @@ export default function EditRestaurantAddress() {
 
           <button
             onClick={handleProceedUpdate}
-            className="w-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white font-bold py-4 rounded-xl mt-6 shadow-lg shadow-[#B80B3D]/20 transition-all active:scale-[0.98]"
+            className="w-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white font-bold py-4 rounded-xl mt-6 shadow-lg shadow-[#2E7D52]/20 transition-all active:scale-[0.98]"
           >
             Proceed to update
           </button>

@@ -59,9 +59,42 @@ function getModuleFromUrl(url = "") {
   return "user";
 }
 
+/**
+ * True when the path itself names a module. Shared endpoints such as
+ * /uploads/image carry no module in the URL, so URL sniffing alone would
+ * silently fall through to "user" and send the wrong token.
+ */
+function urlNamesModule(url = "") {
+  const u = typeof url === "string" ? url : (url?.url || "");
+  if (!u) return false;
+  const normalized = u.toLowerCase();
+  return (
+    normalized.includes("/admin") ||
+    normalized.includes("/delivery") ||
+    normalized.includes("/restaurant") ||
+    normalized.includes("/user")
+  );
+}
+
+/** Which app the browser is currently in — the fallback for shared endpoints. */
+function getModuleFromLocation() {
+  try {
+    const path = (window?.location?.pathname || "").toLowerCase();
+    if (path.startsWith("/admin")) return "admin";
+    if (path.startsWith("/food/restaurant")) return "restaurant";
+    if (path.startsWith("/food/delivery")) return "delivery";
+  } catch {
+    /* SSR / non-browser */
+  }
+  return "user";
+}
+
 function getModuleFromConfig(config) {
   if (config?.contextModule) return config.contextModule;
-  return getModuleFromUrl(config?.url);
+  const url = config?.url;
+  // Module-agnostic endpoints (uploads, etc.) follow the active app instead.
+  if (!urlNamesModule(url)) return getModuleFromLocation();
+  return getModuleFromUrl(url);
 }
 
 function getAccessToken(config) {
@@ -175,7 +208,9 @@ apiClient.interceptors.response.use(
     if (err?.response?.status !== 401 || !original || original._retry) {
       return Promise.reject(err);
     }
-    const module = original.contextModule || getModuleFromUrl(original.url);
+    // Same resolution as the request interceptor, so a shared endpoint refreshes
+    // the module the user is actually signed into.
+    const module = getModuleFromConfig(original);
     const refreshToken = getRefreshToken(module);
     if (!refreshToken) {
       clearModuleAuth(module);

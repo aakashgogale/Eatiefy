@@ -168,7 +168,7 @@ export default function LocationSearchInput({
           }}
           placeholder={googleMapsLoaded ? placeholder : "Loading search..."}
           disabled={!googleMapsLoaded || isResolving}
-          className="w-full pl-10 pr-10 py-3 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#B80B3D]/30 focus:border-[#B80B3D] disabled:opacity-60"
+          className="w-full pl-10 pr-10 py-3 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#2E7D52]/30 focus:border-[#2E7D52] disabled:opacity-60"
         />
         {query && !isSearching && !isResolving ? (
           <button
@@ -181,7 +181,7 @@ export default function LocationSearchInput({
           </button>
         ) : null}
         {(isSearching || isResolving) && (
-          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#B80B3D] animate-spin" />
+          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#2E7D52] animate-spin" />
         )}
       </div>
 
@@ -201,9 +201,9 @@ export default function LocationSearchInput({
                 e.stopPropagation()
                 handleSelectSuggestion(suggestion)
               }}
-              className="w-full px-4 py-3 flex items-start gap-3 hover:bg-[#B80B3D]/5 transition-colors text-left border-b border-gray-50 last:border-none"
+              className="w-full px-4 py-3 flex items-start gap-3 hover:bg-[#2E7D52]/5 transition-colors text-left border-b border-gray-50 last:border-none"
             >
-              <MapPin className="w-4 h-4 text-[#B80B3D] mt-0.5 shrink-0" />
+              <MapPin className="w-4 h-4 text-[#2E7D52] mt-0.5 shrink-0" />
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-gray-900 truncate">
                   {suggestion.mainText || suggestion.display}

@@ -67,7 +67,7 @@ import { clearModuleAuth } from "@food/utils/auth";
 import { toast } from "sonner";
 import { showAccountDeletedToast } from "@/shared/utils/customToasts";
 import { resolveProfileBackPath } from "@food/utils/mainTabRoutes";
-import { DINING_ENABLED } from "@food/config/featureFlags";
+import useModuleAccess from "@food/hooks/useModuleAccess";
 
 const debugLog = (...args) => { };
 const debugWarn = (...args) => { };
@@ -76,6 +76,7 @@ const USER_SESSION_PREFERENCE_KEYS = ["userVegMode", "userVegModeOption", "food-
 
 
 export default function Profile() {
+  const { diningEnabled } = useModuleAccess();
   const { userProfile, vegMode, setVegMode, vegModeOption, setVegModeOption, getDefaultAddress, addresses, updateUserProfile } =
     useProfile();
   const { openLocationSelector } = useLocationSelector();
@@ -809,8 +810,8 @@ export default function Profile() {
           </Link>
         </div>
 
-        {/* Dining Section — gated by DINING_ENABLED */}
-        {DINING_ENABLED && (
+        {/* Dining Section — gated by diningEnabled */}
+        {diningEnabled && (
         <div className="mb-3">
           <div className="flex items-center gap-2 mb-2 px-1">
             <div className="w-1 h-4 bg-[#DC2626] rounded"></div>

@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useDeliveryStore, resolveOrderKey, mapDeliveryPhaseToTripStatus } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { useProximityCheck, formatTripDistanceKm } from '@/modules/DeliveryV2/hooks/useProximityCheck';
 import { useOrderManager } from '@/modules/DeliveryV2/hooks/useOrderManager';
+import { NewOrderModal } from '@/modules/DeliveryV2/components/modals/NewOrderModal';
 import { useDeliveryNotificationsContext } from '@/modules/DeliveryV2/components/DeliveryRealtimeShell';
 import { writeOrderTracking } from '@food/realtimeTracking';
 import { deliveryAPI } from '@food/api';
@@ -82,11 +83,13 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     updateOrderSession(focusedOrderId, { isModalMinimized: value });
   };
   const { isWithinRange, distanceToTarget } = useProximityCheck();
-  const { reachPickup, pickUpOrder, reachDrop, completeDelivery, resetTrip } = useOrderManager();
-  const { clearNewOrder, orderStatusUpdate, clearOrderStatusUpdate, claimedOrderId, clearClaimedOrderId, adminNotification, clearAdminNotification, isConnected: isSocketConnected, emitLocation } = useDeliveryNotificationsContext();
+  const { acceptOrder, reachPickup, pickUpOrder, reachDrop, completeDelivery, resetTrip } = useOrderManager();
+  const { newOrder, clearNewOrder, dismissNewOrder, isOrderAlertMuted, toggleOrderAlertMuted, orderStatusUpdate, clearOrderStatusUpdate, claimedOrderId, clearClaimedOrderId, adminNotification, clearAdminNotification, isConnected: isSocketConnected, emitLocation } = useDeliveryNotificationsContext();
   const companyName = useCompanyName();
   const { items: broadcastItems, unreadCount: notificationUnreadCount, markAsRead: markBroadcastAsRead, dismissAll: dismissAllBroadcast } = useNotificationInbox("delivery", { limit: 20 });
 
+  /** True while an accept request is in flight, so the card cannot be double-tapped. */
+  const [isAcceptingOffer, setIsAcceptingOffer] = useState(false);
   const [cashLimitNotice, setCashLimitNotice] = useState(null);
   const [currentTab, setCurrentTab] = useState(tab);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -1075,6 +1078,41 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
             </motion.div>
           )}
         </AnimatePresence>
+      )}
+
+      {/*
+        Incoming order offer. The socket and the alert sound were already wired,
+        but nothing rendered the offer, so a rider heard the ringtone and saw the
+        push while the accept / reject card never appeared.
+      */}
+      {newOrder && !activeOrder && (
+        <NewOrderModal
+          order={newOrder}
+          isMuted={isOrderAlertMuted?.(newOrder) ?? false}
+          onToggleMute={() => toggleOrderAlertMuted?.(newOrder)}
+          /* Minimise only hides the card — the offer must stay claimable. */
+          onMinimize={() => dismissNewOrder()}
+          /* Reject is a real decline, so this one blocklists the order. */
+          onReject={() => clearNewOrder()}
+          onAccept={async () => {
+            const offered = newOrder;
+            if (isAcceptingOffer) return; // guard against a double tap
+            setIsAcceptingOffer(true);
+            // Stop the ringtone immediately, but do NOT blocklist the order yet:
+            // clearNewOrder marks it processed, and a failed accept would then
+            // make it impossible to receive this order again.
+            dismissNewOrder();
+            try {
+              await acceptOrder(offered);
+              // Accepted for real — now it may be retired from the offer feed.
+              clearNewOrder(offered);
+            } catch (error) {
+              toast.error(error?.message || 'Could not accept this order. Please try again.');
+            } finally {
+              setIsAcceptingOffer(false);
+            }
+          }}
+        />
       )}
 
       {/* ─── MODALS RESTORED FROM OLD UI ─── */}

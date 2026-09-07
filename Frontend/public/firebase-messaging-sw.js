@@ -11,6 +11,7 @@ const sanitize = (value) => String(value || "").trim().replace(/^['"]|['"]$/g, "
 const CONFIG_CACHE = "eatiefy-fcm-config-v1";
 const CONFIG_URL = "/__ometto_fcm_web_config__";
 const notificationDedupWindowMs = 30000;
+const DEFAULT_NOTIFICATION_ICON = "/assets/images/favicon.png";
 
 let messagingReady = false;
 let firebaseInitPromise = null;
@@ -220,10 +221,14 @@ async function showOsNotificationFromPayload(payload) {
 
   const link = data.link || data.targetUrl || data.click_action || "/";
 
+  // A service worker cannot read localStorage, so the branded icon has to ride
+  // along in the payload. Falls back to the bundled Eatiefy icon.
+  const iconUrl = sanitize(data.icon || data.iconUrl) || DEFAULT_NOTIFICATION_ICON;
+
   await self.registration.showNotification(title, {
     body,
-    icon: "/assets/images/favicon.png",
-    badge: "/assets/images/favicon.png",
+    icon: iconUrl,
+    badge: DEFAULT_NOTIFICATION_ICON,
     image,
     tag: notificationKey || `eatiefy-${Date.now()}`,
     renotify: data.type === "admin_broadcast",

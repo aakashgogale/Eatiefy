@@ -4,6 +4,7 @@ import { Tag, User, Soup, ShoppingCart, History, UtensilsCrossed } from "lucide-
 import { clearHomeScrollState } from "@food/utils/homeScrollRestore"
 import { isFeatureEnabled } from "@food/services/publicAppConfig"
 import { usePublicAppConfigOptional } from "@food/context/PublicAppConfigContext"
+import useModuleAccess from "@food/hooks/useModuleAccess"
 
 export default function BottomNavigation() {
   const location = useLocation()
@@ -25,17 +26,21 @@ export default function BottomNavigation() {
     }
   }, [])
 
-  // Resolve dynamic feature flag from context, local cache, or config
-  const getDiningEnabled = () => {
+  // Dining visibility follows the admin Customization Settings toggle. The older
+  // `dining_control` feature setting still applies on top, so either switch can
+  // hide the tab, but neither can show it once dining itself is turned off.
+  const { diningEnabled: diningModuleEnabled } = useModuleAccess()
+
+  const getDiningFeatureEnabled = () => {
     try {
       const local = localStorage.getItem("food_feature_dining_control")
       if (local != null) return local === "true"
     } catch {}
     const diningFeature = (publicConfig?.featureSettings || []).find((f) => f.key === "dining_control")
     if (diningFeature != null) return Boolean(diningFeature.isEnabled)
-    return isFeatureEnabled("dining_control", false)
+    return isFeatureEnabled("dining_control", true)
   }
-  const diningEnabled = getDiningEnabled()
+  const diningEnabled = diningModuleEnabled && getDiningFeatureEnabled()
 
   // Check active routes - support both /user/* and /* paths
   const isCart = pathname === "/food/cart" || pathname.startsWith("/food/user/cart")

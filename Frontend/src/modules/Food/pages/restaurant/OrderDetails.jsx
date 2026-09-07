@@ -683,7 +683,7 @@ export default function OrderDetails() {
           className="bg-white rounded-3xl shadow-xl p-10 max-w-sm w-full text-center border border-gray-100"
         >
           <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
-            <XCircle className="w-10 h-10 text-[#B80B3D]" />
+            <XCircle className="w-10 h-10 text-[#2E7D52]" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-3">Order Not Found</h2>
           <p className="text-gray-500 mb-8 leading-relaxed">
@@ -692,7 +692,7 @@ export default function OrderDetails() {
           <div className="flex flex-col gap-3">
             <button
               onClick={() => window.location.reload()}
-              className="bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white font-bold py-4 px-6 rounded-2xl transition-all active:scale-95 shadow-lg shadow-gray-200"
+              className="bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white font-bold py-4 px-6 rounded-2xl transition-all active:scale-95 shadow-lg shadow-gray-200"
             >
               Try Again
             </button>
@@ -713,7 +713,7 @@ export default function OrderDetails() {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full mx-4 text-center">
-          <XCircle className="w-16 h-16 text-[#B80B3D] mx-auto mb-4" />
+          <XCircle className="w-16 h-16 text-[#2E7D52] mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Order Not Found</h2>
           <p className="text-gray-600 mb-6">The order you're looking for doesn't exist.</p>
           <button
@@ -823,7 +823,7 @@ export default function OrderDetails() {
 
           {/* Rejection Reason */}
           {orderData.reason && (
-            <p className="text-sm text-[#B80B3D]">{orderData.reason}</p>
+            <p className="text-sm text-[#2E7D52]">{orderData.reason}</p>
           )}
 
           {/* Restaurant Note */}
@@ -886,7 +886,7 @@ export default function OrderDetails() {
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
                        <div className={`w-3 h-3 rounded-full border ${String(item.type).toLowerCase().includes("non") ? "border-red-600" : "border-green-600"} flex items-center justify-center p-[1px]`}>
-                        <div className={`w-1.5 h-1.5 rounded-full ${String(item.type).toLowerCase().includes("non") ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D]" : "bg-green-600"}`}></div>
+                        <div className={`w-1.5 h-1.5 rounded-full ${String(item.type).toLowerCase().includes("non") ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]" : "bg-green-600"}`}></div>
                       </div>
                       <div>
                         <p className="text-sm font-semibold text-gray-900">
@@ -994,9 +994,9 @@ export default function OrderDetails() {
                     {/* Icon */}
                     <div className={`relative z-10 w-8 h-8 rounded-full flex items-center justify-center ${
                       event.status === "completed" 
-                        ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D]" 
+                        ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]" 
                         : event.status === "rejected"
-                        ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D]"
+                        ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]"
                         : "bg-gray-400"
                     }`}>
                       {event.status === "completed" ? (
@@ -1027,7 +1027,7 @@ export default function OrderDetails() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 50 }}
             transition={{ duration: 0.3 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 max-w-sm"
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 max-w-sm"
           >
             {isGeneratingPDF ? (
               <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">

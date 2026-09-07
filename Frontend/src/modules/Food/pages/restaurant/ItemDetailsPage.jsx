@@ -997,8 +997,8 @@ export default function ItemDetailsPage() {
           <div className="px-4 pt-4">
             <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
               <p className="text-sm font-semibold text-red-700">Approval rejected</p>
-              <p className="mt-1 text-sm leading-5 text-[#B80B3D]">Reason: {currentRejectionReason}</p>
-              <p className="mt-2 text-xs font-medium uppercase tracking-[0.18em] text-[#B80B3D]">
+              <p className="mt-1 text-sm leading-5 text-[#2E7D52]">Reason: {currentRejectionReason}</p>
+              <p className="mt-2 text-xs font-medium uppercase tracking-[0.18em] text-[#2E7D52]">
                 Update the dish and save to send it for approval again
               </p>
             </div>
@@ -1060,7 +1060,7 @@ export default function ItemDetailsPage() {
                   <button
                     type="button"
                     onClick={() => setShowRemoveImageConfirm(true)}
-                    className="absolute top-4 right-4 w-10 h-10 bg-[#B80B3D] hover:bg-[#990831] rounded-full flex items-center justify-center shadow-md transition-all z-20 text-white active:scale-95 border border-white/30"
+                    className="absolute top-4 right-4 w-10 h-10 bg-[#2E7D52] hover:bg-[#990831] rounded-full flex items-center justify-center shadow-md transition-all z-20 text-white active:scale-95 border border-white/30"
                     title="Remove Dish Photo"
                   >
                     <Trash2 className="w-5 h-5 text-white stroke-[2.2]" />
@@ -1088,7 +1088,7 @@ export default function ItemDetailsPage() {
                         setCurrentImageIndex(index)
                       }}
                       className={`transition-all duration-300 rounded-full ${index === currentImageIndex
-                        ? "w-8 h-2 bg-gradient-to-br from-[#B80B3D] to-[#66001D]"
+                        ? "w-8 h-2 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]"
                         : "w-2 h-2 bg-gray-300 hover:bg-gray-400"
                         }`}
                     />
@@ -1126,7 +1126,7 @@ export default function ItemDetailsPage() {
             />
             <button
               onClick={handleCameraClick}
-              className="w-full flex items-center justify-center gap-2.5 px-6 py-3.5 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white rounded-xl text-sm font-semibold cursor-pointer hover:from-gray-800 hover:to-gray-700 transition-all shadow-md hover:shadow-lg active:scale-95"
+              className="w-full flex items-center justify-center gap-2.5 px-6 py-3.5 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-xl text-sm font-semibold cursor-pointer hover:from-gray-800 hover:to-gray-700 transition-all shadow-md hover:shadow-lg active:scale-95"
             >
               <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center">
                 <Plus className="w-4 h-4" />
@@ -1165,7 +1165,7 @@ export default function ItemDetailsPage() {
                 value={itemName}
                 onChange={(e) => setItemName(e.target.value)}
                 maxLength={maxNameLength}
-                className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#B80B3D] focus:border-transparent"
+                className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#2E7D52] focus:border-transparent"
                 placeholder="Enter item name"
               />
               <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-gray-100">
@@ -1191,14 +1191,14 @@ export default function ItemDetailsPage() {
                 maxLength={maxDescriptionLength}
                 rows={4}
                 placeholder="Eg: Yummy veg paneer burger with a soft patty, veggies, cheese, and special sauce"
-                className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#B80B3D] focus:border-transparent resize-none"
+                className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#2E7D52] focus:border-transparent resize-none"
               />
               <button className="absolute right-3 top-3 p-1 rounded-full hover:bg-gray-100">
                 <EditIcon className="w-4 h-4 text-gray-500" />
               </button>
             </div>
             <div className="flex items-center justify-between mt-1">
-              <span className={`text-xs ${descriptionLength < minDescriptionLength ? "text-[#B80B3D]" : "text-gray-500"}`}>
+              <span className={`text-xs ${descriptionLength < minDescriptionLength ? "text-[#2E7D52]" : "text-gray-500"}`}>
                 {descriptionLength < minDescriptionLength ? "Min 5 characters required" : ""}
               </span>
               <span className="text-xs text-gray-500">
@@ -1236,7 +1236,7 @@ export default function ItemDetailsPage() {
                   type="button"
                   onClick={() => setFoodType("Non-Veg")}
                   className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${foodType === "Non-Veg"
-                    ? "border-red-600 border-2 text-[#B80B3D]"
+                    ? "border-red-600 border-2 text-[#2E7D52]"
                     : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                     }`}
                 >
@@ -1288,7 +1288,7 @@ export default function ItemDetailsPage() {
                           }
                         }}
                         placeholder="Enter price"
-                        className="w-full pl-8 pr-12 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#B80B3D] focus:border-transparent"
+                        className="w-full pl-8 pr-12 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#2E7D52] focus:border-transparent"
                       />
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-600">{"\u20B9"}</span>
                       <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-gray-100">
@@ -1331,7 +1331,7 @@ export default function ItemDetailsPage() {
                               value={variant.name}
                               onChange={(e) => handleVariantChange(variant.localId, "name", e.target.value)}
                               placeholder={index === 0 ? "e.g., Half" : "e.g., Full"}
-                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#B80B3D] focus:border-transparent"
+                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#2E7D52] focus:border-transparent"
                             />
                           </div>
                           <div>
@@ -1349,7 +1349,7 @@ export default function ItemDetailsPage() {
                                   handleVariantChange(variant.localId, "price", cleanedValue)
                                 }}
                                 placeholder="Enter price"
-                                className="w-full pl-8 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#B80B3D] focus:border-transparent"
+                                className="w-full pl-8 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#2E7D52] focus:border-transparent"
                               />
                               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-600">{"\u20B9"}</span>
                             </div>
@@ -1377,7 +1377,7 @@ export default function ItemDetailsPage() {
                   <select
                     value={preparationTime}
                     onChange={(e) => setPreparationTime(e.target.value)}
-                    className="w-full pl-4 pr-10 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#B80B3D] focus:border-transparent appearance-none"
+                    className="w-full pl-4 pr-10 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#2E7D52] focus:border-transparent appearance-none"
                   >
                     <option value="">Select timing</option>
                     <option value="10-20 mins">10-20 mins</option>
@@ -1455,7 +1455,7 @@ export default function ItemDetailsPage() {
                         state: { backTo: location.pathname, openCategoryPopup: true }
                       })
                     }}
-                    className="p-2 rounded-lg bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white hover:bg-gray-800 transition-colors flex items-center gap-1.5"
+                    className="p-2 rounded-lg bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white hover:bg-gray-800 transition-colors flex items-center gap-1.5"
                     title="Add Category"
                   >
                     <Plus className="w-4 h-4" />
@@ -1478,7 +1478,7 @@ export default function ItemDetailsPage() {
                     value={categorySearchQuery}
                     onChange={(e) => setCategorySearchQuery(e.target.value)}
                     placeholder="Search categories..."
-                    className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#B80B3D]/25 focus:border-[#B80B3D]/40 focus:bg-white transition-colors"
+                    className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#2E7D52]/25 focus:border-[#2E7D52]/40 focus:bg-white transition-colors"
                   />
                   {categorySearchQuery && (
                     <button
@@ -1507,7 +1507,7 @@ export default function ItemDetailsPage() {
                           state: { backTo: location.pathname, openCategoryPopup: true }
                         })
                       }}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white rounded-lg font-semibold hover:bg-gray-800 transition-colors"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-lg font-semibold hover:bg-gray-800 transition-colors"
                     >
                       <Plus className="w-5 h-5" />
                       Add Category
@@ -1528,7 +1528,7 @@ export default function ItemDetailsPage() {
                           key={cat.id}
                           onClick={() => handleCategorySelect(cat.id, cat.name)}
                           className={`w-full rounded-xl px-4 py-3 text-left transition-all ${isSelected
-                            ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white shadow-md"
+                            ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white shadow-md"
                             : "bg-gray-50 text-gray-900 hover:bg-gray-100"
                             }`}
                         >
@@ -1602,7 +1602,7 @@ export default function ItemDetailsPage() {
                       onClick={() => handleGstSelect(gstValue)}
                       className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
                         gst === gstValue
-                          ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white"
+                          ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white"
                           : "bg-gray-50 text-gray-900 hover:bg-gray-100"
                       }`}
                     >
@@ -1644,7 +1644,7 @@ export default function ItemDetailsPage() {
           <button
             onClick={handleSave}
             disabled={uploadingImages}
-            className="flex-1 py-3 px-4 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 uppercase bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D] disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
+            className="flex-1 py-3 px-4 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 uppercase bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
           >
             {uploadingImages ? (
               <>

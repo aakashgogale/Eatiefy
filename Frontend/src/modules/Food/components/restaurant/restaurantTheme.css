@@ -1,12 +1,27 @@
+/* Eatiefy partner theme — light forest green with gold accents, replacing the
+   old crimson scheme. Every restaurant surface reads from these tokens. */
 .restaurant-theme {
-  --rt-primary: #DC2626;
-  --rt-primary-strong: #991B1B;
-  --rt-primary-soft: #f9f0f7;
+  --rt-primary: #2E7D52;
+  --rt-primary-strong: #1B5E3F;
+  --rt-primary-soft: #F1F8F4;
+  --rt-accent: #C9962F;
   --rt-surface: #ffffff;
-  --rt-border: #ead6e3;
+  --rt-border: #D8E8DE;
   --rt-text: #1f1f24;
   --rt-muted: #6d6470;
   color: var(--rt-text);
+
+  /* global.css sets these shadcn tokens to the old crimson for every app.
+     Overriding them here keeps the change scoped to the restaurant panel so
+     the user and admin apps keep their own accent. */
+  --primary: var(--rt-primary);
+  --secondary: var(--rt-primary);
+  --accent-foreground: var(--rt-primary);
+  --ring: var(--rt-primary);
+  --sidebar-primary: var(--rt-primary);
+  --sidebar-accent: var(--rt-primary);
+  --sidebar-ring: var(--rt-primary);
+  --color-primary-orange: var(--rt-primary);
 }
 
 .restaurant-theme [class*="text-[#ff8100]"],

@@ -187,7 +187,7 @@ export default function FinanceDetailsPage() {
                 {isActive && (
                   <motion.div
                     layoutId="financeTopTabActive"
-                    className="absolute inset-0 bg-gradient-to-br from-[#B80B3D] to-[#66001D] rounded-full -z-10"
+                    className="absolute inset-0 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] rounded-full -z-10"
                     initial={false}
                     transition={{
                       type: "spring",
@@ -582,7 +582,7 @@ export default function FinanceDetailsPage() {
               </p>
               <button
                 onClick={() => setShowDownloadPopup(false)}
-                className="w-full py-3 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white rounded-lg font-medium hover:bg-gray-800 transition-colors"
+                className="w-full py-3 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-lg font-medium hover:bg-gray-800 transition-colors"
               >
                 Close
               </button>
@@ -623,7 +623,7 @@ export default function FinanceDetailsPage() {
               </p>
               <button
                 onClick={() => setShowEmailPopup(false)}
-                className="w-full py-3 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white rounded-lg font-medium hover:bg-gray-800 transition-colors"
+                className="w-full py-3 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-lg font-medium hover:bg-gray-800 transition-colors"
               >
                 Close
               </button>

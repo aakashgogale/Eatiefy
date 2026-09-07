@@ -203,8 +203,8 @@ export default function RestaurantForgotPassword() {
           className="w-full h-full object-cover"
         />
         <div className="absolute inset-0 flex items-center text-white pointer-events-none">
-          <div className="bg-gradient-to-br from-[#B80B3D] to-[#66001D]/80 rounded-r-full py-10 xl:py-20 pl-10 xl:pl-14 pr-10 xl:pr-20 max-w-[70%] shadow-xl backdrop-blur-[1px]">
-            <h1 className="text-[#B80B3D]xl xl:text-4xl font-extrabold mb-4 tracking-wide leading-tight">
+          <div className="bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]/80 rounded-r-full py-10 xl:py-20 pl-10 xl:pl-14 pr-10 xl:pr-20 max-w-[70%] shadow-xl backdrop-blur-[1px]">
+            <h1 className="text-[#2E7D52]xl xl:text-4xl font-extrabold mb-4 tracking-wide leading-tight">
               RESET YOUR
               <br />
               PASSWORD
@@ -220,7 +220,7 @@ export default function RestaurantForgotPassword() {
       <div className="w-full lg:w-1/2 h-full flex flex-col items-center justify-center px-6 sm:px-10 lg:px-16">
         <Card className="w-full max-w-lg bg-white/80 backdrop-blur-sm border border-gray-200 shadow-xl">
           <CardHeader>
-            <CardTitle className="text-2xl sm:text-[#B80B3D]xl font-semibold text-gray-900">
+            <CardTitle className="text-2xl sm:text-[#2E7D52]xl font-semibold text-gray-900">
               {step === 1 && "Forgot Password"}
               {step === 2 && "Verify OTP"}
               {step === 3 && "Reset Password"}
@@ -265,7 +265,7 @@ export default function RestaurantForgotPassword() {
 
                 <Button
                   type="submit"
-                  className="h-11 w-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D]/90 text-white"
+                  className="h-11 w-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]/90 text-white"
                   disabled={isLoading}
                 >
                   {isLoading ? "Sending..." : "Send Verification Code"}
@@ -327,7 +327,7 @@ export default function RestaurantForgotPassword() {
 
                 <Button
                   type="submit"
-                  className="h-11 w-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D]/90 text-white"
+                  className="h-11 w-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]/90 text-white"
                   disabled={isLoading}
                 >
                   {isLoading ? "Verifying..." : "Verify Code"}
@@ -399,7 +399,7 @@ export default function RestaurantForgotPassword() {
 
                 <Button
                   type="submit"
-                  className="h-11 w-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D]/90 text-white"
+                  className="h-11 w-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]/90 text-white"
                   disabled={isLoading}
                 >
                   {isLoading ? "Resetting..." : "Reset Password"}

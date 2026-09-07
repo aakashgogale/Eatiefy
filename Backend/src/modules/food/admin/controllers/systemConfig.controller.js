@@ -1,6 +1,7 @@
 import { FoodSystemConfig } from '../models/systemConfig.model.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
 import { invalidateMaintenanceModeCache } from '../services/maintenanceMode.service.js';
+import { invalidateModuleAccessCache } from '../services/moduleAccess.service.js';
 
 // Customization toggles live in FoodSystemConfig as individual keys.
 const CUSTOMIZATION_TOGGLES = [
@@ -48,6 +49,18 @@ const CUSTOMIZATION_TOGGLES = [
         key: 'maintenance_mode_enabled',
         defaultValue: false,
         description: 'When enabled, user / restaurant / delivery apps show Under Maintenance (admin stays available)'
+    },
+    {
+        key: 'takeaway_enabled',
+        // Takeaway ships enabled, so an install with no stored row keeps working.
+        defaultValue: true,
+        description: 'When disabled, takeaway routes, tabs and entry points are hidden across every app'
+    },
+    {
+        key: 'dining_enabled',
+        // Dining shipped switched off via the old build-time flag; keep that default.
+        defaultValue: false,
+        description: 'When disabled, dining routes, tabs and entry points are hidden across every app'
     }
 ];
 
@@ -60,7 +73,8 @@ function getCustomizationAllowlist() {
     return CUSTOMIZATION_TOGGLES.map(t => t.key);
 }
 
-export async function getCustomizationSettings(req, res) {
+/** Shared by the standalone route and the aggregated /public/app-config payload. */
+export async function loadCustomizationSettings() {
     const keys = getCustomizationAllowlist();
     const docs = await FoodSystemConfig.find({ key: { $in: keys } }).lean();
     const map = new Map(docs.map(d => [d.key, d]));
@@ -69,8 +83,11 @@ export async function getCustomizationSettings(req, res) {
     for (const t of CUSTOMIZATION_TOGGLES) {
         data[t.key] = resolveToggleValue(map.get(t.key) || null, t.defaultValue);
     }
+    return data;
+}
 
-    res.json({ success: true, data });
+export async function getCustomizationSettings(req, res) {
+    res.json({ success: true, data: await loadCustomizationSettings() });
 }
 
 export async function updateCustomizationSettings(req, res) {
@@ -111,6 +128,10 @@ export async function updateCustomizationSettings(req, res) {
             )
         )
     );
+
+    if (updates.some((u) => u.key === 'takeaway_enabled' || u.key === 'dining_enabled')) {
+        invalidateModuleAccessCache();
+    }
 
     const maintenanceUpdate = updates.find((u) => u.key === 'maintenance_mode_enabled');
     if (maintenanceUpdate) {
@@ -158,6 +179,9 @@ const RESTAURANT_SETTINGS = {
 
 const LEGACY_ACCEPT_ORDER_TIME_KEY = 'restaurant_accept_order_time_minutes';
 
+/** Used when an admin has never configured an accept window. */
+const DEFAULT_ACCEPT_ORDER_TIME_MINUTES = 10;
+
 function parseAcceptOrderTimeMinutes(value, fieldName = 'acceptOrderTimeMinutes') {
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) {
@@ -202,6 +226,15 @@ async function resolveRestaurantSettings() {
     }
     if (takeawayAcceptOrderTimeMinutes == null && legacyMinutes != null) {
         takeawayAcceptOrderTimeMinutes = readStoredAcceptOrderMinutes(legacyMinutes);
+    }
+
+    // An install where an admin never set these must still show the accept /
+    // reject popup — returning null used to suppress it entirely.
+    if (deliveryAcceptOrderTimeMinutes == null) {
+        deliveryAcceptOrderTimeMinutes = DEFAULT_ACCEPT_ORDER_TIME_MINUTES;
+    }
+    if (takeawayAcceptOrderTimeMinutes == null) {
+        takeawayAcceptOrderTimeMinutes = DEFAULT_ACCEPT_ORDER_TIME_MINUTES;
     }
 
     return { deliveryAcceptOrderTimeMinutes, takeawayAcceptOrderTimeMinutes };

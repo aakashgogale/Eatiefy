@@ -37,6 +37,7 @@ import * as dispatchService from './order-dispatch.service.js';
 import * as deliveryService from './order-delivery.service.js';
 import * as paymentService from './order-payment.service.js';
 import { detectZoneIdForPoint } from '../../utils/zoneGeo.js';
+import { isTakeawayEnabled, isDiningEnabled } from '../../admin/services/moduleAccess.service.js';
 import {
   enqueueOrderEvent,
   assertRestaurantDeliversToZone,
@@ -176,6 +177,16 @@ export async function initiateOnlinePayment(userId, dto) {
 
 // ----- Create order -----
 export async function createOrder(userId, dto) {
+  // Admin module toggles are enforced here too — hiding the UI is not enough to
+  // stop a direct API call for a module that has been switched off.
+  const requestedOrderType = dto?.orderType || "delivery";
+  if (requestedOrderType === "takeaway" && !(await isTakeawayEnabled())) {
+    throw new ValidationError("Takeaway is currently unavailable");
+  }
+  if (requestedOrderType === "dining" && !(await isDiningEnabled())) {
+    throw new ValidationError("Dining is currently unavailable");
+  }
+
   // SECURITY: load items from DB cart + recompute fees/coupon server-side.
   const priced = await calculateOrderPricing(userId, {
     ...dto,
@@ -1051,6 +1062,9 @@ export async function resyncState(userId, role) {
   return {};
 }
 
+/** Cash cancellations allowed before COD is blocked for a user. */
+const COD_CANCELLATION_BLOCK_THRESHOLD = 4;
+
 export async function cancelOrder(orderId, userId, reason, refundDestination = "source") {
   const identity = buildOrderIdentityFilter(orderId);
   if (!identity) throw new ValidationError("Order id required");
@@ -1170,22 +1184,47 @@ export async function cancelOrder(orderId, userId, reason, refundDestination = "
     }
   }
 
-  // Auto COD Blocking logic: If cash payment method, increment cancellation count
-  if (paymentMethod === "cash") {
-    const featureConfig = await FoodSystemConfig.findOne({ key: "cod_blocking_feature_enabled" }).select("value").lean();
-    if (!featureConfig || featureConfig.value !== false) { // enabled by default
-      const user = await FoodUser.findById(userId);
-      if (user) {
-        user.codCancellationCount = (user.codCancellationCount || 0) + 1;
-        if (user.codCancellationCount >= 4) {
-          user.isCodBlocked = true;
-        }
-        await user.save();
+  // Persist the cancellation first. Everything below is a side effect, and none of
+  // it is worth failing the request the user actually made.
+  await order.save();
+
+  // Auto COD blocking: count cash cancellations, block after the 4th.
+  //
+  // Done as one atomic pipeline update rather than findById + save(): a single
+  // round trip, no lost update when two cancels race, and no full-document
+  // validation on an unrelated model (a legacy user doc failing validation used
+  // to abort the whole cancel).
+  try {
+    if (paymentMethod === "cash") {
+      const featureConfig = await FoodSystemConfig.findOne({ key: "cod_blocking_feature_enabled" })
+        .select("value")
+        .lean();
+      if (!featureConfig || featureConfig.value !== false) { // enabled by default
+        await FoodUser.updateOne({ _id: userId }, [
+          {
+            $set: {
+              codCancellationCount: { $add: [{ $ifNull: ["$codCancellationCount", 0] }, 1] },
+            },
+          },
+          {
+            $set: {
+              // Only ever escalates to blocked — never silently unblocks a user
+              // an admin has already cleared.
+              isCodBlocked: {
+                $cond: [
+                  { $gte: ["$codCancellationCount", COD_CANCELLATION_BLOCK_THRESHOLD] },
+                  true,
+                  { $ifNull: ["$isCodBlocked", false] },
+                ],
+              },
+            },
+          },
+        ]);
       }
     }
+  } catch (err) {
+    logger.warn(`cancelOrder COD blocking update failed: ${err?.message || err}`);
   }
-
-  await order.save();
 
   enqueueOrderEvent("order_cancelled_by_user", {
     orderMongoId: order._id?.toString?.(),
@@ -1261,7 +1300,14 @@ export async function cancelOrder(orderId, userId, reason, refundDestination = "
     logger.warn(`cancelOrder socket emit failed: ${err?.message || err}`);
   }
 
-  return normalizeOrderForClient(order);
+  // The order is already cancelled in the database; a formatting problem must not
+  // turn a successful cancellation into a 500 for the caller.
+  try {
+    return normalizeOrderForClient(order);
+  } catch (err) {
+    logger.warn(`cancelOrder response normalise failed: ${err?.message || err}`);
+    return { _id: order._id, orderStatus: order.orderStatus };
+  }
 }
 
 export async function submitOrderRatings(orderId, userId, dto) {

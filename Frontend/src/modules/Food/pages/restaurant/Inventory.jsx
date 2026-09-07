@@ -570,7 +570,7 @@ function TimePickerWheel({
           <div className="border-t border-gray-200 px-4 py-4 flex justify-center">
             <button
               onClick={handleConfirm}
-              className="text-[#B80B3D] hover:text-blue-700 font-medium text-base transition-colors"
+              className="text-[#2E7D52] hover:text-blue-700 font-medium text-base transition-colors"
             >
               Okay
             </button>
@@ -716,9 +716,9 @@ function SimpleCalendar({ selectedDate, onDateSelect, isOpen, onClose }) {
                     className={`h-10 text-sm rounded transition-colors ${!isCurrent
                         ? 'text-gray-300'
                         : isSelectedDate
-                          ? 'bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white'
+                          ? 'bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white'
                           : isTodayDate
-                            ? 'bg-[#f9f0f7] text-[#B80B3D] font-semibold'
+                            ? 'bg-[#f9f0f7] text-[#2E7D52] font-semibold'
                             : 'text-gray-700 hover:bg-gray-100'
                       }`}
                   >
@@ -1824,7 +1824,7 @@ export default function Inventory() {
             onClick={() => setActiveTab("all-items")}
             className={`relative overflow-hidden rounded-[24px] border px-4 py-3 text-sm font-semibold ${
               activeTab === "all-items"
-                ? "border-[#B80B3D] text-white shadow-[0_18px_32px_-24px_rgba(126,56,102,0.6)]"
+                ? "border-[#2E7D52] text-white shadow-[0_18px_32px_-24px_rgba(126,56,102,0.6)]"
                 : "border-[#ead6e3] bg-white/90 text-[#6d6470] shadow-[0_16px_40px_-34px_rgba(109,100,112,0.35)]"
             }`}
             animate={{
@@ -1835,7 +1835,7 @@ export default function Inventory() {
             {activeTab === "all-items" && (
               <motion.div
                 layoutId="activeTabBackground"
-                className="absolute inset-0 rounded-[24px] bg-gradient-to-br from-[#B80B3D] to-[#66001D] -z-10"
+                className="absolute inset-0 rounded-[24px] bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] -z-10"
                 initial={false}
                 transition={{
                   type: "spring",
@@ -1847,7 +1847,7 @@ export default function Inventory() {
             <span className="relative z-10 flex min-h-7 items-center justify-center gap-2 leading-none">
               <span className="whitespace-nowrap">All items</span>
               <span className={`inline-flex min-h-5 min-w-[24px] items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                activeTab === "all-items" ? "bg-white text-[#B80B3D]" : "bg-[#f6ecf3] text-[#6d6470]"
+                activeTab === "all-items" ? "bg-white text-[#2E7D52]" : "bg-[#f6ecf3] text-[#6d6470]"
               }`}>
                 {totalItems}
               </span>
@@ -1858,7 +1858,7 @@ export default function Inventory() {
             onClick={() => setActiveTab("add-ons")}
             className={`relative overflow-hidden rounded-[24px] border px-4 py-3 text-sm font-semibold ${
               activeTab === "add-ons"
-                ? "border-[#B80B3D] text-white shadow-[0_18px_32px_-24px_rgba(126,56,102,0.6)]"
+                ? "border-[#2E7D52] text-white shadow-[0_18px_32px_-24px_rgba(126,56,102,0.6)]"
                 : "border-[#ead6e3] bg-white/90 text-[#6d6470] shadow-[0_16px_40px_-34px_rgba(109,100,112,0.35)]"
             }`}
             animate={{
@@ -1869,7 +1869,7 @@ export default function Inventory() {
             {activeTab === "add-ons" && (
               <motion.div
                 layoutId="activeTabBackground"
-                className="absolute inset-0 rounded-[24px] bg-gradient-to-br from-[#B80B3D] to-[#66001D] -z-10"
+                className="absolute inset-0 rounded-[24px] bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] -z-10"
                 initial={false}
                 transition={{
                   type: "spring",
@@ -1881,7 +1881,7 @@ export default function Inventory() {
             <span className="relative z-10 flex min-h-7 items-center justify-center gap-2 leading-none">
               <span className="whitespace-nowrap">Add ons</span>
               <span className={`inline-flex min-h-5 min-w-[24px] items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                activeTab === "add-ons" ? "bg-white text-[#B80B3D]" : "bg-[#f6ecf3] text-[#6d6470]"
+                activeTab === "add-ons" ? "bg-white text-[#2E7D52]" : "bg-[#f6ecf3] text-[#6d6470]"
               }`}>
                 {addons.length}
               </span>
@@ -2007,19 +2007,19 @@ export default function Inventory() {
 
               <button
                 onClick={() => setFilterOpen(true)}
-                className="relative flex h-12 items-center justify-center gap-2 rounded-[20px] border border-[#e7d5e0] bg-white px-4 text-sm font-semibold text-[#66001D] transition-colors hover:border-[#d5bdd0] hover:bg-[#f9f0f7]"
+                className="relative flex h-12 items-center justify-center gap-2 rounded-[20px] border border-[#e7d5e0] bg-white px-4 text-sm font-semibold text-[#1B5E3F] transition-colors hover:border-[#d5bdd0] hover:bg-[#f9f0f7]"
               >
-                <SlidersHorizontal className="w-4 h-4 text-[#B80B3D]" />
+                <SlidersHorizontal className="w-4 h-4 text-[#2E7D52]" />
                 <span>Filters</span>
                 {selectedFilter !== "all" && (
-                  <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] ring-2 ring-white" />
+                  <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] ring-2 ring-white" />
                 )}
               </button>
 
               {activeTab === "add-ons" && (
                 <button
                   onClick={() => setIsAddAddonOpen((v) => !v)}
-                  className="h-12 rounded-[20px] bg-gradient-to-br from-[#B80B3D] to-[#66001D] px-4 text-sm font-semibold text-white shadow-[0_18px_32px_-24px_rgba(126,56,102,0.7)] transition-colors hover:bg-[#66001D]"
+                  className="h-12 rounded-[20px] bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] px-4 text-sm font-semibold text-white shadow-[0_18px_32px_-24px_rgba(126,56,102,0.7)] transition-colors hover:bg-[#1B5E3F]"
                   style={{ minWidth: "128px" }}
                 >
                   {isAddAddonOpen ? "Close" : "Add Add-on"}
@@ -2041,7 +2041,7 @@ export default function Inventory() {
                     onClick={() => setSelectedFilter(option.value)}
                     className={`shrink-0 rounded-full border px-3.5 py-2 text-xs font-semibold transition-colors ${
                       isActive
-                        ? "border-[#B80B3D] bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white shadow-[0_14px_28px_-24px_rgba(126,56,102,0.8)]"
+                        ? "border-[#2E7D52] bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white shadow-[0_14px_28px_-24px_rgba(126,56,102,0.8)]"
                         : "border-[#e7d5e0] bg-[#fcf7fb] text-[#6d6470] hover:border-[#d5bdd0] hover:bg-white"
                     }`}
                   >
@@ -2071,7 +2071,7 @@ export default function Inventory() {
                         type="text"
                         value={addonName}
                         onChange={(e) => setAddonName(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#B80B3D] focus:outline-none"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#2E7D52] focus:outline-none"
                         placeholder="e.g., Coke, Chips"
                       />
                     </div>
@@ -2080,7 +2080,7 @@ export default function Inventory() {
                       <textarea
                         value={addonDescription}
                         onChange={(e) => setAddonDescription(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#B80B3D] focus:outline-none resize-none"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#2E7D52] focus:outline-none resize-none"
                         rows={3}
                         placeholder="Describe the add-on..."
                       />
@@ -2091,7 +2091,7 @@ export default function Inventory() {
                         type="number"
                         value={addonPrice}
                         onChange={(e) => setAddonPrice(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#B80B3D] focus:outline-none"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#2E7D52] focus:outline-none"
                         min="0"
                         step="0.01"
                         placeholder="0.00"
@@ -2146,7 +2146,7 @@ export default function Inventory() {
                         type="button"
                         onClick={handleSaveAddon}
                         disabled={savingAddon}
-                        className="px-4 py-2 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white rounded-md text-sm font-medium hover:bg-[#66001D] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        className="px-4 py-2 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-md text-sm font-medium hover:bg-[#1B5E3F] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                       >
                         {savingAddon && <Loader2 className="h-4 w-4 animate-spin" />}
                         <span>{savingAddon ? "Saving..." : "Submit for approval"}</span>
@@ -2203,7 +2203,7 @@ export default function Inventory() {
                           )}
                           <p className="text-base font-bold text-slate-950">Rs. {addon.price}</p>
                           {addon.approvalStatus === 'rejected' && addon.rejectionReason && (
-                            <p className="mt-2 text-xs font-medium text-[#B80B3D]">Reason: {addon.rejectionReason}</p>
+                            <p className="mt-2 text-xs font-medium text-[#2E7D52]">Reason: {addon.rejectionReason}</p>
                           )}
                         </div>
                         <div className="flex items-start gap-3">
@@ -2274,7 +2274,7 @@ export default function Inventory() {
 
                 {/* Category Header - Clickable */}
                 <div
-                  className="cursor-pointer bg-white dark:bg-gradient-to-br from-[#B80B3D] to-[#66001D] px-6 py-5 hover:bg-slate-50/50 transition-colors"
+                  className="cursor-pointer bg-white dark:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] px-6 py-5 hover:bg-slate-50/50 transition-colors"
                   onClick={() => toggleCategory(category.id)}
                 >
                   <div className="flex items-center justify-between gap-4">
@@ -2340,7 +2340,7 @@ export default function Inventory() {
                           toggleCategory(category.id)
                         }}
                         className={`w-10 h-10 flex items-center justify-center rounded-xl border transition-all ${
-                          isExpanded ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] border-slate-900 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                          isExpanded ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] border-slate-900 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
                         }`}
                       >
                         {isExpanded ? (
@@ -2391,10 +2391,10 @@ export default function Inventory() {
                                     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 sm:px-2.5 sm:py-1 text-[9px] sm:text-[10px] font-black uppercase tracking-wider shadow-sm transition-all ${
                                       item.isVeg
                                         ? "bg-white text-green-600 border border-green-100"
-                                        : "bg-white text-[#B80B3D] border border-red-100"
+                                        : "bg-white text-[#2E7D52] border border-red-100"
                                     }`}>
                                       <div className={`h-2.5 w-2.5 sm:h-3 sm:w-3 shrink-0 rounded-[2px] border flex items-center justify-center ${item.isVeg ? 'border-green-600' : 'border-red-600'}`}>
-                                        <div className={`h-1 w-1 sm:h-1.5 sm:w-1.5 rounded-full ${item.isVeg ? 'bg-green-600' : 'bg-gradient-to-br from-[#B80B3D] to-[#66001D]'}`} />
+                                        <div className={`h-1 w-1 sm:h-1.5 sm:w-1.5 rounded-full ${item.isVeg ? 'bg-green-600' : 'bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]'}`} />
                                       </div>
                                       {item.isVeg ? "Veg" : "Non-veg"}
                                     </span>
@@ -2414,8 +2414,8 @@ export default function Inventory() {
                                       onClick={() => handleEditItem(category, item)}
                                       className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 sm:px-3 sm:py-2 text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all shadow-sm ${
                                         isRejectedItem
-                                          ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white hover:bg-red-700"
-                                          : "bg-slate-100 text-slate-800 hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:text-white"
+                                          ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white hover:bg-red-700"
+                                          : "bg-slate-100 text-slate-800 hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:text-white"
                                       }`}
                                     >
                                       <Pencil className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
@@ -2432,7 +2432,7 @@ export default function Inventory() {
                                   )}
 
                                   {item.approvalStatus === "rejected" && item.rejectionReason && (
-                                    <p className="mt-2 text-[9px] sm:text-[10px] font-bold text-[#B80B3D] bg-red-50/50 border border-red-100/50 px-2.5 py-1 rounded-lg italic">
+                                    <p className="mt-2 text-[9px] sm:text-[10px] font-bold text-[#2E7D52] bg-red-50/50 border border-red-100/50 px-2.5 py-1 rounded-lg italic">
                                       {item.rejectionReason}
                                     </p>
                                   )}
@@ -2517,7 +2517,7 @@ export default function Inventory() {
                             name="filter"
                             checked={selectedFilter === option.value}
                             onChange={() => setSelectedFilter(option.value)}
-                            style={{ accentColor: "#B80B3D" }}
+                            style={{ accentColor: "#2E7D52" }}
                             className="w-5 h-5 border-gray-300"
                           />
                           <span className="text-base text-gray-900">{option.label}</span>
@@ -2541,7 +2541,7 @@ export default function Inventory() {
                   )}
                   <button
                     onClick={handleFilterApply}
-                    className={`${selectedFilter !== "all" ? 'flex-1' : 'w-full'} bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white py-3 rounded-lg font-medium hover:bg-[#66001D] transition-colors`}
+                    className={`${selectedFilter !== "all" ? 'flex-1' : 'w-full'} bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white py-3 rounded-lg font-medium hover:bg-[#1B5E3F] transition-colors`}
                   >
                     Apply
                   </button>
@@ -2624,7 +2624,7 @@ export default function Inventory() {
                         name="outOfStockOption"
                         checked={selectedOption === "specific-time"}
                         onChange={() => setSelectedOption("specific-time")}
-                        style={{ accentColor: "#B80B3D" }}
+                        style={{ accentColor: "#2E7D52" }}
                           className="ml-auto w-5 h-5 border-gray-300"
                       />
                     </div>
@@ -2640,7 +2640,7 @@ export default function Inventory() {
                         name="outOfStockOption"
                         checked={selectedOption === "next-business-day"}
                         onChange={() => setSelectedOption("next-business-day")}
-                        style={{ accentColor: "#B80B3D" }}
+                        style={{ accentColor: "#2E7D52" }}
                         className="ml-auto w-5 h-5 border-gray-300"
                       />
                     </div>
@@ -2656,7 +2656,7 @@ export default function Inventory() {
                         name="outOfStockOption"
                         checked={selectedOption === "custom-date-time"}
                         onChange={() => setSelectedOption("custom-date-time")}
-                        style={{ accentColor: "#B80B3D" }}
+                        style={{ accentColor: "#2E7D52" }}
                         className="ml-auto w-5 h-5 border-gray-300"
                       />
                     </div>
@@ -2691,7 +2691,7 @@ export default function Inventory() {
                           name="outOfStockOption"
                           checked={selectedOption === "manual"}
                           onChange={() => setSelectedOption("manual")}
-                          style={{ accentColor: "#B80B3D" }}
+                          style={{ accentColor: "#2E7D52" }}
                           className="ml-auto w-5 h-5 border-gray-300"
                         />
                       </div>
@@ -2713,7 +2713,7 @@ export default function Inventory() {
                   <button
                     onClick={handleToggleConfirm}
                     disabled={isConfirming}
-                    className="flex-1 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white py-3 rounded-lg font-medium hover:bg-[#66001D] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="flex-1 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white py-3 rounded-lg font-medium hover:bg-[#1B5E3F] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {isConfirming ? 'Confirming...' : 'Confirm'}
                   </button>
@@ -2749,7 +2749,7 @@ export default function Inventory() {
           <motion.button
             whileTap={{ scale: 0.96 }}
             onClick={() => navigate(`/food/restaurant/hub-menu/item/new`, { state: { backTo: "/food/restaurant/inventory" } })}
-            className="rounded-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] px-5 py-3 text-sm font-semibold text-white shadow-[0_22px_40px_-24px_rgba(126,56,102,0.72)]"
+            className="rounded-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] px-5 py-3 text-sm font-semibold text-white shadow-[0_22px_40px_-24px_rgba(126,56,102,0.72)]"
           >
             + Add item
           </motion.button>
@@ -2757,13 +2757,13 @@ export default function Inventory() {
             type="button"
             whileTap={{ scale: 0.96 }}
             onClick={() => setIsMenuOpen((prev) => !prev)}
-            className="flex items-center gap-2 rounded-full border border-[#ead6e3] bg-white/95 px-4 py-3 text-sm font-semibold text-[#66001D] shadow-[0_18px_36px_-28px_rgba(126,56,102,0.45)]"
+            className="flex items-center gap-2 rounded-full border border-[#ead6e3] bg-white/95 px-4 py-3 text-sm font-semibold text-[#1B5E3F] shadow-[0_18px_36px_-28px_rgba(126,56,102,0.45)]"
           >
             <span className="w-5 h-5 flex items-center justify-center">
               {isMenuOpen ? (
-                <X className="w-4 h-4 text-[#66001D]" />
+                <X className="w-4 h-4 text-[#1B5E3F]" />
               ) : (
-                <Utensils className="w-4 h-4 text-[#B80B3D]" />
+                <Utensils className="w-4 h-4 text-[#2E7D52]" />
               )}
             </span>
             <span>{isMenuOpen ? "Close" : "Menu"}</span>
@@ -2791,7 +2791,7 @@ export default function Inventory() {
                 >
                   <div className="h-full flex flex-col">
                     <div className="bg-[linear-gradient(135deg,#fcf4f9_0%,#f6e8f1_100%)] px-4 pt-4 pb-3">
-                      <p className="text-sm font-semibold text-[#66001D]">Jump to category</p>
+                      <p className="text-sm font-semibold text-[#1B5E3F]">Jump to category</p>
                     </div>
                     <div className="mx-4 h-px bg-slate-200" />
                     <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1">

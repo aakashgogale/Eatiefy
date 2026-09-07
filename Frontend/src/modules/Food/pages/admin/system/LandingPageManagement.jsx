@@ -9,7 +9,7 @@ import { Button } from "@food/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@food/components/ui/dialog"
 import { Checkbox } from "@food/components/ui/checkbox"
 import { prepareUploadFile, prepareUploadFiles } from "@/shared/utils/imageCompressor"
-import { DINING_ENABLED } from "@food/config/featureFlags"
+import { isDiningEnabled } from "@food/config/featureFlags";
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -1330,7 +1330,7 @@ export default function LandingPageManagement() {
   const tabs = [
     { id: 'banners', label: 'Hero Banners', icon: ImageIcon },
     { id: 'under-250', label: '250 Banner', icon: Tag },
-    ...(DINING_ENABLED ? [{ id: 'dining', label: 'Dining', icon: UtensilsCrossed }] : []),
+    ...(isDiningEnabled() ? [{ id: 'dining', label: 'Dining', icon: UtensilsCrossed }] : []),
     { id: 'explore-more', label: 'Explore More', icon: Layout },
   ]
 

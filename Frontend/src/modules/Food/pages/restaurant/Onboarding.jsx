@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
+import TimeField from "@food/components/restaurant/TimeField"
+import { validateOutletHours, formatOpenDuration, OPENING_TIME_PRESETS, CLOSING_TIME_PRESETS } from "@food/utils/outletHours"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { Input } from "@food/components/ui/input"
 import { Button } from "@food/components/ui/button"
@@ -15,7 +17,6 @@ import {
   SelectValue,
 } from "@food/components/ui/select"
 import { restaurantAPI, zoneAPI, uploadAPI, api } from "@food/api"
-import { MobileTimePicker } from "@mui/x-date-pickers/MobileTimePicker"
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
 import { determineStepToShow, clearOnboardingFromLocalStorage, clearAllFilesFromDB, hasRestaurantStep1Progress } from "@food/utils/onboardingUtils"
@@ -380,16 +381,6 @@ const clearOnboardingFileCache = () => {
   }
 }
 
-// Helper function to convert "HH:mm" string to Date object
-const stringToTime = (timeString) => {
-  const normalized = normalizeTimeValue(timeString)
-  if (!normalized || !normalized.includes(":")) {
-    return null
-  }
-  const [hours, minutes] = normalized.split(":").map(Number)
-  return new Date(2000, 0, 1, hours || 0, minutes || 0)
-}
-
 // Helper function to convert Date object to "HH:mm" string
 const timeToString = (date) => {
   if (!date) return ""
@@ -481,67 +472,6 @@ const parseLocalYMDDate = (value) => {
   if (parts.length !== 3 || parts.some(Number.isNaN)) return undefined
   const [year, month, day] = parts
   return new Date(year, month - 1, day)
-}
-
-function TimeSelector({ label, value, onChange }) {
-  const timeValue = stringToTime(value)
-
-  const handleTimeChange = (newValue) => {
-    if (!newValue) {
-      onChange("")
-      return
-    }
-    const timeString = timeToString(newValue)
-    onChange(timeString)
-  }
-
-  return (
-    <div className="border border-gray-200 rounded-md px-3 py-2 bg-gray-50/60">
-      <div className="flex items-center gap-2 mb-2">
-        <Clock className="w-4 h-4 text-gray-800" />
-        <span className="text-xs font-medium text-gray-900">{label}</span>
-      </div>
-      <MobileTimePicker ampm={true}
-        value={timeValue}
-        onChange={handleTimeChange}
-        onAccept={handleTimeChange}
-        slotProps={{
-          textField: {
-            variant: "outlined",
-            size: "small",
-            placeholder: "Select time",
-            sx: {
-              "& .MuiOutlinedInput-root": {
-                height: "36px",
-                fontSize: "12px",
-                backgroundColor: "white",
-                "& fieldset": {
-                  borderColor: "#e5e7eb",
-                },
-                "&:hover fieldset": {
-                  borderColor: "#d1d5db",
-                },
-                "&.Mui-focused fieldset": {
-                  borderColor: "#000",
-                },
-              },
-              "& .MuiInputBase-input": {
-                padding: "8px 12px",
-                fontSize: "12px",
-              },
-            },
-            onBlur: (event) => {
-              const normalized = normalizeTimeValue(event?.target?.value)
-              if (normalized) {
-                onChange(normalized)
-              }
-            },
-          },
-        }}
-        format="hh:mm a"
-      />
-    </div>
-  )
 }
 
 export default function RestaurantOnboarding() {
@@ -652,6 +582,12 @@ export default function RestaurantOnboarding() {
     isTakeawayEnabled: false,
     isTakeawayCodEnabled: false,
   })
+
+  /** Derived from the two times — never blocks entry, only reports the result. */
+  const outletHours = useMemo(
+    () => validateOutletHours(step2.openingTime, step2.closingTime),
+    [step2.openingTime, step2.closingTime],
+  )
 
   const [step3, setStep3] = useState({
     panNumber: "",
@@ -1270,14 +1206,10 @@ export default function RestaurantOnboarding() {
     if (!step2.closingTime?.trim()) {
       errors.push("Closing time is required")
     }
-    const openingMinutes = timeStringToMinutes(step2.openingTime)
-    const closingMinutes = timeStringToMinutes(step2.closingTime)
-    if (openingMinutes !== null && closingMinutes !== null) {
-      if (openingMinutes === closingMinutes) {
-        errors.push("Opening time and closing time cannot be same")
-      } else if (closingMinutes < openingMinutes) {
-        errors.push("Closing time cannot be less than opening time")
-      }
+    // Overnight trading (10:00 -> 02:00) is valid, so only identical times fail.
+    const hours = validateOutletHours(step2.openingTime, step2.closingTime)
+    if (hours.error) {
+      errors.push(hours.error)
     }
     if (!step2.openDays || step2.openDays.length === 0) {
       errors.push("Please select at least one open day")
@@ -1703,7 +1635,7 @@ export default function RestaurantOnboarding() {
                 }
                 className={`px-3 py-1.5 text-xs rounded-full border ${
                   step1.pureVegRestaurant === false
-                    ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white border-gray-900"
+                    ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white border-gray-900"
                     : "bg-white text-gray-700 border-gray-200"
                 } ${!isEditing ? "opacity-70 cursor-not-allowed" : ""}`}
               >
@@ -2376,7 +2308,7 @@ export default function RestaurantOnboarding() {
                           e.stopPropagation();
                           await handleRemoveMenuImage(idx)
                         }}
-                        className="bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white rounded-full p-1 shadow-md hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D] transition-colors"
+                        className="bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-full p-1 shadow-md hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] transition-colors"
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -2437,7 +2369,7 @@ export default function RestaurantOnboarding() {
                     e.stopPropagation();
                     await handleRemoveProfileImage()
                   }}
-                  className="absolute -top-1 -right-1 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white rounded-full p-1 shadow-md hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D] transition-colors z-10"
+                  className="absolute -top-1 -right-1 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-full p-1 shadow-md hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] transition-colors z-10"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -2495,47 +2427,40 @@ export default function RestaurantOnboarding() {
         <div className="space-y-3">
           <Label className="text-xs text-gray-700">Outlet timings</Label>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <TimeSelector
+            {/*
+              The value is always stored. The old handlers returned early when
+              validation failed, which threw the user's selection away and made
+              the picker look broken. Validation is derived below instead.
+            */}
+            <TimeField
               label="Opening time"
               value={step2.openingTime || ""}
-              onChange={(val) => {
-                const nextOpening = normalizeTimeValue(val) || ""
-                const openingMinutes = timeStringToMinutes(nextOpening)
-                const closingMinutes = timeStringToMinutes(step2.closingTime)
-                if (openingMinutes !== null && closingMinutes !== null) {
-                  if (openingMinutes === closingMinutes) {
-                    setError("Opening time and closing time cannot be same")
-                    return
-                  }
-                  if (closingMinutes < openingMinutes) {
-                    setError("Closing time cannot be less than opening time")
-                    return
-                  }
-                }
-                setStep2((prev) => ({ ...prev, openingTime: nextOpening }))
-              }}
+              invalid={Boolean(outletHours.error)}
+              presets={OPENING_TIME_PRESETS}
+              onChange={(val) =>
+                setStep2((prev) => ({ ...prev, openingTime: val }))
+              }
             />
-            <TimeSelector
+            <TimeField
               label="Closing time"
               value={step2.closingTime || ""}
-              onChange={(val) => {
-                const nextClosing = normalizeTimeValue(val) || ""
-                const openingMinutes = timeStringToMinutes(step2.openingTime)
-                const closingMinutes = timeStringToMinutes(nextClosing)
-                if (openingMinutes !== null && closingMinutes !== null) {
-                  if (openingMinutes === closingMinutes) {
-                    setError("Opening time and closing time cannot be same")
-                    return
-                  }
-                  if (closingMinutes < openingMinutes) {
-                    setError("Closing time cannot be less than opening time")
-                    return
-                  }
-                }
-                setStep2((prev) => ({ ...prev, closingTime: nextClosing }))
-              }}
+              invalid={Boolean(outletHours.error)}
+              presets={CLOSING_TIME_PRESETS}
+              hint={outletHours.overnight ? "Closes next day" : undefined}
+              onChange={(val) =>
+                setStep2((prev) => ({ ...prev, closingTime: val }))
+              }
             />
           </div>
+
+          {outletHours.error ? (
+            <p className="text-xs font-medium text-red-600">{outletHours.error}</p>
+          ) : outletHours.valid ? (
+            <p className="text-xs text-gray-500">
+              {outletHours.overnight ? "Overnight hours — " : ""}
+              Open for {formatOpenDuration(step2.openingTime, step2.closingTime)}
+            </p>
+          ) : null}
           <div>
             <Label className="text-xs text-gray-700">Estimated delivery time*</Label>
             <Input
@@ -2566,7 +2491,7 @@ export default function RestaurantOnboarding() {
                   key={day}
                   type="button"
                   onClick={() => toggleDay(day)}
-                  className={`aspect-square flex items-center justify-center rounded-md text-[11px] font-medium ${active ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white" : "bg-gray-100 text-gray-800"
+                  className={`aspect-square flex items-center justify-center rounded-md text-[11px] font-medium ${active ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white" : "bg-gray-100 text-gray-800"
                     }`}
                 >
                   {day.charAt(0)}
@@ -2684,7 +2609,7 @@ export default function RestaurantOnboarding() {
                   e.stopPropagation()
                   setStep3((prev) => ({ ...prev, panImage: null }))
                 }}
-                className="absolute top-2 right-2 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white rounded-full p-1 shadow-md hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D] transition-colors"
+                className="absolute top-2 right-2 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-full p-1 shadow-md hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] transition-colors"
               >
                 <X className="w-3 h-3" />
               </button>
@@ -2700,7 +2625,7 @@ export default function RestaurantOnboarding() {
           <button
             type="button"
             onClick={() => setStep3({ ...step3, gstRegistered: true })}
-            className={`px-3 py-1.5 text-xs rounded-full ${step3.gstRegistered ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white" : "bg-gray-100 text-gray-800"
+            className={`px-3 py-1.5 text-xs rounded-full ${step3.gstRegistered ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white" : "bg-gray-100 text-gray-800"
               }`}
           >
             Yes
@@ -2708,7 +2633,7 @@ export default function RestaurantOnboarding() {
           <button
             type="button"
             onClick={() => setStep3({ ...step3, gstRegistered: false })}
-            className={`px-3 py-1.5 text-xs rounded-full ${!step3.gstRegistered ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white" : "bg-gray-100 text-gray-800"
+            className={`px-3 py-1.5 text-xs rounded-full ${!step3.gstRegistered ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white" : "bg-gray-100 text-gray-800"
               }`}
           >
             No
@@ -2785,7 +2710,7 @@ export default function RestaurantOnboarding() {
                     e.stopPropagation()
                     setStep3((prev) => ({ ...prev, gstImage: null }))
                   }}
-                  className="absolute top-2 right-2 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white rounded-full p-1 shadow-md hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D] transition-colors"
+                  className="absolute top-2 right-2 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-full p-1 shadow-md hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] transition-colors"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -2896,7 +2821,7 @@ export default function RestaurantOnboarding() {
                 e.stopPropagation()
                 setStep3((prev) => ({ ...prev, fssaiImage: null }))
               }}
-              className="absolute top-2 right-2 bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white rounded-full p-1 shadow-md hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D] transition-colors"
+              className="absolute top-2 right-2 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-full p-1 shadow-md hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] transition-colors"
             >
               <X className="w-3 h-3" />
             </button>
@@ -3101,7 +3026,7 @@ export default function RestaurantOnboarding() {
                   disabled={isLoggingOut}
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 text-[#B80B3D] hover:text-red-700 hover:bg-red-50"
+                  className="h-9 w-9 text-[#2E7D52] hover:text-red-700 hover:bg-red-50"
                   title="Logout"
                 >
                   <LogOut className="w-4 h-4" />
@@ -3145,7 +3070,7 @@ export default function RestaurantOnboarding() {
         />
 
         {error && (
-          <div className="px-4 sm:px-6 pb-2 text-xs text-[#B80B3D]">
+          <div className="px-4 sm:px-6 pb-2 text-xs text-[#2E7D52]">
             {error}
           </div>
         )}
@@ -3157,7 +3082,7 @@ export default function RestaurantOnboarding() {
                 type="button"
                 onClick={handleBack}
                 disabled={saving}
-                className="flex-1 text-base font-bold h-11 bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:from-[#c90f49] hover:to-[#7a0024] text-white border-0 shadow-md shadow-[#B80B3D]/20 transition-all active:scale-[0.98]"
+                className="flex-1 text-base font-bold h-11 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:from-[#c90f49] hover:to-[#7a0024] text-white border-0 shadow-md shadow-[#2E7D52]/20 transition-all active:scale-[0.98]"
               >
                 Back
               </Button>
@@ -3165,7 +3090,7 @@ export default function RestaurantOnboarding() {
             <Button
               onClick={handleNext}
               disabled={saving || (step === 3 && !isEditing)}
-              className={`text-base font-bold h-11 bg-gradient-to-br from-[#B80B3D] to-[#66001D] hover:from-[#c90f49] hover:to-[#7a0024] text-white px-6 shadow-md shadow-[#B80B3D]/20 transition-all active:scale-[0.98] ${step === 1 ? "w-full" : "flex-1"} ${(step === 3 && !isEditing) ? "opacity-50 cursor-not-allowed" : ""}`}
+              className={`text-base font-bold h-11 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:from-[#c90f49] hover:to-[#7a0024] text-white px-6 shadow-md shadow-[#2E7D52]/20 transition-all active:scale-[0.98] ${step === 1 ? "w-full" : "flex-1"} ${(step === 3 && !isEditing) ? "opacity-50 cursor-not-allowed" : ""}`}
             >
               {step === 3 ? (saving ? "Saving..." : "Finish") : saving ? "Saving..." : "Continue"}
             </Button>

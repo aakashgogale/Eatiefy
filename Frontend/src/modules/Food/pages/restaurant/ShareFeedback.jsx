@@ -96,7 +96,7 @@ export default function ShareFeedback() {
                   transition={{ type: "spring", stiffness: 260, damping: 20 }}
                   className={`py-2 text-xs font-medium border-l border-gray-200 first:border-l-0 focus:outline-none ${
                     isActive
-                      ? "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white"
+                      ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white"
                       : "bg-white text-gray-900 hover:bg-gray-50"
                   }`}
                 >
@@ -106,7 +106,7 @@ export default function ShareFeedback() {
             })}
           </div>
           <div className="flex items-center justify-between mt-1">
-            <span className="text-xs text-[#B80B3D]">Very Bad</span>
+            <span className="text-xs text-[#2E7D52]">Very Bad</span>
             <span className="text-xs text-green-600">Very Good</span>
           </div>
           {rating !== null && (
@@ -148,7 +148,7 @@ export default function ShareFeedback() {
           className={`w-full py-3 rounded-full text-sm font-medium transition-colors ${
             rating === null
               ? "bg-gray-200 text-gray-500"
-              : "bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white hover:bg-gradient-to-br from-[#B80B3D] to-[#66001D]"
+              : "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]"
           }`}
           whileTap={rating !== null ? { scale: 0.98 } : undefined}
         >
@@ -189,7 +189,7 @@ export default function ShareFeedback() {
                 </p>
                 <button
                   type="button"
-                  className="w-full py-2.5 rounded-full bg-gradient-to-br from-[#B80B3D] to-[#66001D] text-white text-sm font-medium"
+                  className="w-full py-2.5 rounded-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white text-sm font-medium"
                   onClick={() => {
                     setShowThanks(false)
                     goBack()
