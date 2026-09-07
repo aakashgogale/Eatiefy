@@ -1,0 +1,839 @@
+{
+  "takenAt": "2026-09-07T11:56:45.060Z",
+  "window": {
+    "start": "2026-09-06T18:30:00.000Z",
+    "end": "2026-09-07T18:29:59.999Z"
+  },
+  "criteria": "createdAt within today AND orderStatus != 'delivered'",
+  "food_orders": [
+    {
+      "_id": "6a9e7b625dcf5ec6f2135d59",
+      "orderType": "delivery",
+      "userId": "6a906b63a59a66df88606d33",
+      "restaurantId": "6a9db5720c9e07d4cb8e037c",
+      "zoneId": "6a9666d3a32182265442ea71",
+      "items": [
+        {
+          "itemId": "6a9db6bf0c9e07d4cb8e062f",
+          "name": "paneer",
+          "variantId": "",
+          "variantName": "",
+          "variantPrice": 149,
+          "price": 149,
+          "basePrice": 149,
+          "otherPrice": 0,
+          "markupAmount": 0,
+          "appliedPricingType": null,
+          "appliedPricingValue": null,
+          "pricingScope": null,
+          "pricingRule": null,
+          "quantity": 1,
+          "isVeg": true,
+          "image": "https://eatiefy.com/uploads/eatiefy_restaurant_menu-items_405b12a676efae953be5.webp",
+          "notes": ""
+        }
+      ],
+      "deliveryAddress": {
+        "label": "Home",
+        "name": "Karan",
+        "fullName": "Karan",
+        "street": "Corporate House, 103, Film Colony Road, Chhoti Gwaltoli",
+        "additionalDetails": "Chhoti Gwaltoli",
+        "city": "Indore",
+        "state": "Madhya Pradesh",
+        "zipCode": "",
+        "phone": "6261745842",
+        "location": {
+          "type": "Point",
+          "coordinates": [
+            75.8720461240669,
+            22.717617112497823
+          ]
+        }
+      },
+      "customerName": "Karan",
+      "customerPhone": "6261745842",
+      "pricing": {
+        "subtotal": 149,
+        "baseSubtotal": 149,
+        "markupTotal": 0,
+        "tax": 0,
+        "packagingFee": 0,
+        "deliveryFee": 0,
+        "platformFee": 5,
+        "restaurantCommission": 26.97,
+        "discount": 0,
+        "total": 154,
+        "currency": "INR",
+        "couponCode": null
+      },
+      "payment": {
+        "method": "cash",
+        "status": "cod_pending",
+        "amountDue": 154,
+        "refund": {
+          "status": "none",
+          "destination": "source",
+          "amount": 0,
+          "refundId": ""
+        }
+      },
+      "orderStatus": "ready_for_pickup",
+      "dispatch": {
+        "modeAtCreation": "auto",
+        "status": "unassigned",
+        "deliveryPartnerId": null,
+        "offeredTo": []
+      },
+      "statusHistory": [
+        {
+          "at": "2026-09-07T08:52:50.819Z",
+          "byRole": "SYSTEM",
+          "from": "",
+          "to": "created",
+          "note": "Order placed"
+        },
+        {
+          "at": "2026-09-07T08:53:08.257Z",
+          "byRole": "RESTAURANT",
+          "byId": "6a9db5720c9e07d4cb8e037c",
+          "from": "created",
+          "to": "preparing",
+          "note": ""
+        },
+        {
+          "at": "2026-09-07T08:55:13.035Z",
+          "byRole": "RESTAURANT",
+          "byId": "6a9db5720c9e07d4cb8e037c",
+          "from": "preparing",
+          "to": "ready_for_pickup",
+          "note": ""
+        }
+      ],
+      "restaurantNote": "",
+      "note": "",
+      "sendCutlery": true,
+      "preparationTime": 11,
+      "deliveryFleet": "standard",
+      "scheduledAt": null,
+      "riderEarning": 30,
+      "platformProfit": 1.9699999999999989,
+      "deliveryOtp": "",
+      "deliveryState": {
+        "currentPhase": "en_route_to_pickup",
+        "status": "",
+        "reachedPickupAt": null,
+        "reachedDropAt": null,
+        "pickedUpAt": null,
+        "deliveredAt": null
+      },
+      "deliveryVerification": {
+        "dropOtp": {
+          "required": false,
+          "verified": false
+        }
+      },
+      "createdAt": "2026-09-07T08:52:50.825Z",
+      "updatedAt": "2026-09-07T08:55:44.824Z",
+      "order_id": "FOD-0825564",
+      "orderId": "FOD-0825564",
+      "__v": 4,
+      "transactionId": "6a9e7b625dcf5ec6f2135d5d",
+      "acceptedAt": "2026-09-07T08:53:08.257Z"
+    },
+    {
+      "_id": "6a9e5ffd5dcf5ec6f21329d5",
+      "orderType": "delivery",
+      "userId": "6a9e5c5c5dcf5ec6f213208d",
+      "restaurantId": "6a9e55bb5dcf5ec6f2130315",
+      "zoneId": "6a9666d3a32182265442ea71",
+      "items": [
+        {
+          "itemId": "6a9e59695dcf5ec6f21313ca",
+          "name": "Ice",
+          "variantId": "6a9e59695dcf5ec6f21313cb",
+          "variantName": "Half",
+          "variantPrice": 150,
+          "price": 150,
+          "basePrice": 150,
+          "otherPrice": 0,
+          "markupAmount": 0,
+          "appliedPricingType": null,
+          "appliedPricingValue": null,
+          "pricingScope": null,
+          "pricingRule": null,
+          "quantity": 1,
+          "isVeg": true,
+          "image": "https://eatiefy.com/uploads/eatiefy_restaurant_menu-items_a2d50881f0db7fca5cbb.webp",
+          "notes": ""
+        },
+        {
+          "itemId": "6a9e59695dcf5ec6f21313ca",
+          "name": "Ice",
+          "variantId": "6a9e59695dcf5ec6f21313cc",
+          "variantName": "Full",
+          "variantPrice": 300,
+          "price": 300,
+          "basePrice": 300,
+          "otherPrice": 0,
+          "markupAmount": 0,
+          "appliedPricingType": null,
+          "appliedPricingValue": null,
+          "pricingScope": null,
+          "pricingRule": null,
+          "quantity": 1,
+          "isVeg": true,
+          "image": "https://eatiefy.com/uploads/eatiefy_restaurant_menu-items_a2d50881f0db7fca5cbb.webp",
+          "notes": ""
+        }
+      ],
+      "deliveryAddress": {
+        "label": "Home",
+        "name": "Test userr",
+        "fullName": "Test userr",
+        "street": "Next Mall, S5/6, Film Colony Road, Chhoti Gwaltoli",
+        "additionalDetails": "Chhoti Gwaltoli",
+        "city": "Indore",
+        "state": "Madhya Pradesh",
+        "zipCode": "",
+        "phone": "9109599487",
+        "location": {
+          "type": "Point",
+          "coordinates": [
+            75.8716114,
+            22.7178258
+          ]
+        }
+      },
+      "customerName": "Test userr",
+      "customerPhone": "9109599487",
+      "pricing": {
+        "subtotal": 450,
+        "baseSubtotal": 450,
+        "markupTotal": 0,
+        "tax": 0,
+        "packagingFee": 0,
+        "deliveryFee": 28,
+        "platformFee": 5,
+        "restaurantCommission": 81.45,
+        "discount": 0,
+        "total": 483,
+        "currency": "INR",
+        "couponCode": null
+      },
+      "payment": {
+        "method": "cash",
+        "status": "cod_pending",
+        "amountDue": 483,
+        "refund": {
+          "status": "none",
+          "destination": "source",
+          "amount": 0,
+          "refundId": ""
+        }
+      },
+      "orderStatus": "cancelled_by_restaurant",
+      "dispatch": {
+        "modeAtCreation": "auto",
+        "status": "unassigned",
+        "deliveryPartnerId": null,
+        "offeredTo": []
+      },
+      "statusHistory": [
+        {
+          "at": "2026-09-07T06:55:57.370Z",
+          "byRole": "SYSTEM",
+          "from": "",
+          "to": "created",
+          "note": "Order placed"
+        },
+        {
+          "at": "2026-09-07T06:58:22.248Z",
+          "byRole": "RESTAURANT",
+          "byId": "6a9e55bb5dcf5ec6f2130315",
+          "from": "created",
+          "to": "cancelled_by_restaurant",
+          "note": "Technical issue"
+        }
+      ],
+      "restaurantNote": "Add less sugar",
+      "note": "",
+      "sendCutlery": true,
+      "preparationTime": 0,
+      "deliveryFleet": "standard",
+      "scheduledAt": null,
+      "riderEarning": 26,
+      "platformProfit": 88.45,
+      "deliveryOtp": "",
+      "deliveryState": {
+        "currentPhase": "en_route_to_pickup",
+        "status": "",
+        "reachedPickupAt": null,
+        "reachedDropAt": null,
+        "pickedUpAt": null,
+        "deliveredAt": null
+      },
+      "deliveryVerification": {
+        "dropOtp": {
+          "required": false,
+          "verified": false
+        }
+      },
+      "createdAt": "2026-09-07T06:55:57.376Z",
+      "updatedAt": "2026-09-07T06:58:22.277Z",
+      "order_id": "FOD-7376980",
+      "orderId": "FOD-7376980",
+      "__v": 1,
+      "transactionId": "6a9e5ffd5dcf5ec6f21329da"
+    },
+    {
+      "_id": "6a9e43fddd6c0092854f8f2d",
+      "orderType": "delivery",
+      "userId": "6a906b63a59a66df88606d33",
+      "restaurantId": "6a9db5720c9e07d4cb8e037c",
+      "zoneId": "6a9666d3a32182265442ea71",
+      "items": [
+        {
+          "itemId": "6a9db6bf0c9e07d4cb8e062f",
+          "name": "paneer",
+          "variantId": "",
+          "variantName": "",
+          "variantPrice": 149,
+          "price": 149,
+          "basePrice": 149,
+          "otherPrice": 0,
+          "markupAmount": 0,
+          "appliedPricingType": null,
+          "appliedPricingValue": null,
+          "pricingScope": null,
+          "pricingRule": null,
+          "quantity": 1,
+          "isVeg": true,
+          "image": "https://eatiefy.com/uploads/eatiefy_restaurant_menu-items_405b12a676efae953be5.webp",
+          "notes": ""
+        }
+      ],
+      "deliveryAddress": {
+        "label": "Home",
+        "name": "Karan",
+        "fullName": "Karan",
+        "street": "Corporate House, RNT Marg, South Tukoganj",
+        "additionalDetails": "South Tukoganj",
+        "city": "Indore",
+        "state": "Madhya Pradesh",
+        "zipCode": "",
+        "phone": "6261745842",
+        "location": {
+          "type": "Point",
+          "coordinates": [
+            75.87194029207986,
+            22.717614557493146
+          ]
+        }
+      },
+      "customerName": "Karan",
+      "customerPhone": "6261745842",
+      "pricing": {
+        "subtotal": 149,
+        "baseSubtotal": 149,
+        "markupTotal": 0,
+        "tax": 0,
+        "packagingFee": 0,
+        "deliveryFee": 0,
+        "platformFee": 5,
+        "restaurantCommission": 26.97,
+        "discount": 0,
+        "total": 154,
+        "currency": "INR",
+        "couponCode": null
+      },
+      "payment": {
+        "method": "cash",
+        "status": "cod_pending",
+        "amountDue": 154,
+        "refund": {
+          "status": "none",
+          "destination": "source",
+          "amount": 0,
+          "refundId": ""
+        }
+      },
+      "orderStatus": "cancelled_by_restaurant",
+      "dispatch": {
+        "modeAtCreation": "auto",
+        "status": "unassigned",
+        "deliveryPartnerId": null,
+        "offeredTo": []
+      },
+      "statusHistory": [
+        {
+          "at": "2026-09-07T04:56:29.143Z",
+          "byRole": "SYSTEM",
+          "from": "",
+          "to": "created",
+          "note": "Order placed"
+        },
+        {
+          "at": "2026-09-07T04:56:42.015Z",
+          "byRole": "RESTAURANT",
+          "byId": "6a9db5720c9e07d4cb8e037c",
+          "from": "created",
+          "to": "cancelled_by_restaurant",
+          "note": "Item not available"
+        }
+      ],
+      "restaurantNote": "",
+      "note": "",
+      "sendCutlery": true,
+      "preparationTime": 0,
+      "deliveryFleet": "standard",
+      "scheduledAt": null,
+      "riderEarning": 30,
+      "platformProfit": 1.9699999999999989,
+      "deliveryOtp": "",
+      "deliveryState": {
+        "currentPhase": "en_route_to_pickup",
+        "status": "",
+        "reachedPickupAt": null,
+        "reachedDropAt": null,
+        "pickedUpAt": null,
+        "deliveredAt": null
+      },
+      "deliveryVerification": {
+        "dropOtp": {
+          "required": false,
+          "verified": false
+        }
+      },
+      "createdAt": "2026-09-07T04:56:29.174Z",
+      "updatedAt": "2026-09-07T04:56:42.227Z",
+      "order_id": "FOD-9175451",
+      "orderId": "FOD-9175451",
+      "__v": 1,
+      "transactionId": "6a9e43fddd6c0092854f8f31"
+    },
+    {
+      "_id": "6a9dbde3af804a5f1e542f41",
+      "orderType": "delivery",
+      "userId": "6a906b63a59a66df88606d33",
+      "restaurantId": "6a9db5720c9e07d4cb8e037c",
+      "zoneId": "6a9666d3a32182265442ea71",
+      "items": [
+        {
+          "itemId": "6a9db6bf0c9e07d4cb8e062f",
+          "name": "paneer",
+          "variantId": "",
+          "variantName": "",
+          "variantPrice": 149,
+          "price": 149,
+          "basePrice": 149,
+          "otherPrice": 0,
+          "markupAmount": 0,
+          "appliedPricingType": null,
+          "appliedPricingValue": null,
+          "pricingScope": null,
+          "pricingRule": null,
+          "quantity": 1,
+          "isVeg": true,
+          "image": "https://eatiefy.com/uploads/eatiefy_restaurant_menu-items_405b12a676efae953be5.webp",
+          "notes": ""
+        }
+      ],
+      "deliveryAddress": {
+        "label": "Home",
+        "name": "Karan",
+        "fullName": "Karan",
+        "street": "PV89+G5G, Chhoti Gwaltoli",
+        "additionalDetails": "Chhoti Gwaltoli",
+        "city": "Indore",
+        "state": "Madhya Pradesh",
+        "zipCode": "",
+        "phone": "6261745842",
+        "location": {
+          "type": "Point",
+          "coordinates": [
+            75.8679403,
+            22.7163181
+          ]
+        }
+      },
+      "customerName": "Karan",
+      "customerPhone": "6261745842",
+      "pricing": {
+        "subtotal": 149,
+        "baseSubtotal": 149,
+        "markupTotal": 0,
+        "tax": 0,
+        "packagingFee": 0,
+        "deliveryFee": 0,
+        "platformFee": 5,
+        "restaurantCommission": 26.97,
+        "discount": 0,
+        "total": 154,
+        "currency": "INR",
+        "couponCode": null
+      },
+      "payment": {
+        "method": "cash",
+        "status": "cod_pending",
+        "amountDue": 154,
+        "refund": {
+          "status": "none",
+          "destination": "source",
+          "amount": 0,
+          "refundId": ""
+        }
+      },
+      "orderStatus": "ready_for_pickup",
+      "dispatch": {
+        "modeAtCreation": "auto",
+        "status": "unassigned",
+        "deliveryPartnerId": null,
+        "offeredTo": []
+      },
+      "statusHistory": [
+        {
+          "at": "2026-09-06T19:24:19.033Z",
+          "byRole": "SYSTEM",
+          "from": "",
+          "to": "created",
+          "note": "Order placed"
+        },
+        {
+          "at": "2026-09-06T19:24:30.074Z",
+          "byRole": "RESTAURANT",
+          "byId": "6a9db5720c9e07d4cb8e037c",
+          "from": "created",
+          "to": "preparing",
+          "note": ""
+        },
+        {
+          "at": "2026-09-06T19:26:25.710Z",
+          "byRole": "RESTAURANT",
+          "byId": "6a9db5720c9e07d4cb8e037c",
+          "from": "preparing",
+          "to": "ready_for_pickup",
+          "note": ""
+        }
+      ],
+      "restaurantNote": "",
+      "note": "",
+      "sendCutlery": true,
+      "preparationTime": 11,
+      "deliveryFleet": "standard",
+      "scheduledAt": null,
+      "riderEarning": 30,
+      "platformProfit": 1.9699999999999989,
+      "deliveryOtp": "",
+      "deliveryState": {
+        "currentPhase": "en_route_to_pickup",
+        "status": "",
+        "reachedPickupAt": null,
+        "reachedDropAt": null,
+        "pickedUpAt": null,
+        "deliveredAt": null
+      },
+      "deliveryVerification": {
+        "dropOtp": {
+          "required": false,
+          "verified": false
+        }
+      },
+      "createdAt": "2026-09-06T19:24:19.067Z",
+      "updatedAt": "2026-09-07T08:54:11.052Z",
+      "order_id": "FOD-9068440",
+      "orderId": "FOD-9068440",
+      "__v": 2,
+      "transactionId": "6a9dbde3af804a5f1e542f45",
+      "acceptedAt": "2026-09-06T19:24:30.074Z"
+    }
+  ],
+  "food_transactions": [
+    {
+      "_id": "6a9dbde3af804a5f1e542f45",
+      "orderId": "6a9dbde3af804a5f1e542f41",
+      "userId": "6a906b63a59a66df88606d33",
+      "restaurantId": "6a9db5720c9e07d4cb8e037c",
+      "deliveryPartnerId": null,
+      "paymentMethod": "cash",
+      "status": "pending",
+      "currency": "INR",
+      "pricing": {
+        "subtotal": 149,
+        "tax": 0,
+        "packagingFee": 0,
+        "deliveryFee": 0,
+        "platformFee": 5,
+        "restaurantCommission": 26.97,
+        "discount": 0,
+        "total": 154,
+        "currency": "INR"
+      },
+      "payment": {
+        "method": "cash",
+        "status": "cod_pending",
+        "amountDue": 154,
+        "razorpay": {
+          "orderId": "",
+          "paymentId": "",
+          "signature": ""
+        },
+        "qr": {
+          "qrId": "",
+          "imageUrl": "",
+          "paymentLinkId": "",
+          "shortUrl": "",
+          "status": "",
+          "expiresAt": null
+        }
+      },
+      "amounts": {
+        "totalCustomerPaid": 154,
+        "restaurantShare": 122.03,
+        "restaurantCommission": 26.97,
+        "riderShare": 30,
+        "platformNetProfit": 1.9699999999999989,
+        "taxAmount": 0
+      },
+      "gateway": {
+        "provider": "razorpay"
+      },
+      "settlement": {
+        "isRestaurantSettled": false,
+        "isRiderSettled": false
+      },
+      "history": [
+        {
+          "kind": "created",
+          "amount": 154,
+          "note": "Initial transaction created with order",
+          "_id": "6a9dbde3af804a5f1e542f46",
+          "at": "2026-09-06T19:24:19.282Z"
+        }
+      ],
+      "createdAt": "2026-09-06T19:24:19.284Z",
+      "updatedAt": "2026-09-06T19:24:19.284Z",
+      "__v": 0
+    },
+    {
+      "_id": "6a9e43fddd6c0092854f8f31",
+      "orderId": "6a9e43fddd6c0092854f8f2d",
+      "userId": "6a906b63a59a66df88606d33",
+      "restaurantId": "6a9db5720c9e07d4cb8e037c",
+      "deliveryPartnerId": null,
+      "paymentMethod": "cash",
+      "status": "failed",
+      "currency": "INR",
+      "pricing": {
+        "subtotal": 149,
+        "tax": 0,
+        "packagingFee": 0,
+        "deliveryFee": 0,
+        "platformFee": 5,
+        "restaurantCommission": 26.97,
+        "discount": 0,
+        "total": 154,
+        "currency": "INR"
+      },
+      "payment": {
+        "method": "cash",
+        "status": "cod_pending",
+        "amountDue": 154,
+        "razorpay": {
+          "orderId": "",
+          "paymentId": "",
+          "signature": ""
+        },
+        "qr": {
+          "qrId": "",
+          "imageUrl": "",
+          "paymentLinkId": "",
+          "shortUrl": "",
+          "status": "",
+          "expiresAt": null
+        }
+      },
+      "amounts": {
+        "totalCustomerPaid": 154,
+        "restaurantShare": 122.03,
+        "restaurantCommission": 26.97,
+        "riderShare": 30,
+        "platformNetProfit": 1.9699999999999989,
+        "taxAmount": 0
+      },
+      "gateway": {
+        "provider": "razorpay"
+      },
+      "settlement": {
+        "isRestaurantSettled": false,
+        "isRiderSettled": false
+      },
+      "history": [
+        {
+          "kind": "created",
+          "amount": 154,
+          "note": "Initial transaction created with order",
+          "_id": "6a9e43fddd6c0092854f8f32",
+          "at": "2026-09-07T04:56:29.293Z"
+        },
+        {
+          "kind": "cancelled_by_restaurant",
+          "amount": 154,
+          "at": "2026-09-07T04:56:42.176Z",
+          "note": "Order cancelled by restaurant/admin",
+          "recordedBy": {
+            "role": "RESTAURANT",
+            "id": "6a9db5720c9e07d4cb8e037c"
+          },
+          "_id": "6a9e440add6c0092854f8f64"
+        }
+      ],
+      "createdAt": "2026-09-07T04:56:29.297Z",
+      "updatedAt": "2026-09-07T04:56:42.182Z",
+      "__v": 1
+    },
+    {
+      "_id": "6a9e5ffd5dcf5ec6f21329da",
+      "orderId": "6a9e5ffd5dcf5ec6f21329d5",
+      "userId": "6a9e5c5c5dcf5ec6f213208d",
+      "restaurantId": "6a9e55bb5dcf5ec6f2130315",
+      "deliveryPartnerId": null,
+      "paymentMethod": "cash",
+      "status": "failed",
+      "currency": "INR",
+      "pricing": {
+        "subtotal": 450,
+        "tax": 0,
+        "packagingFee": 0,
+        "deliveryFee": 28,
+        "platformFee": 5,
+        "restaurantCommission": 81.45,
+        "discount": 0,
+        "total": 483,
+        "currency": "INR"
+      },
+      "payment": {
+        "method": "cash",
+        "status": "cod_pending",
+        "amountDue": 483,
+        "razorpay": {
+          "orderId": "",
+          "paymentId": "",
+          "signature": ""
+        },
+        "qr": {
+          "qrId": "",
+          "imageUrl": "",
+          "paymentLinkId": "",
+          "shortUrl": "",
+          "status": "",
+          "expiresAt": null
+        }
+      },
+      "amounts": {
+        "totalCustomerPaid": 483,
+        "restaurantShare": 368.55,
+        "restaurantCommission": 81.45,
+        "riderShare": 26,
+        "platformNetProfit": 88.45,
+        "taxAmount": 0
+      },
+      "gateway": {
+        "provider": "razorpay"
+      },
+      "settlement": {
+        "isRestaurantSettled": false,
+        "isRiderSettled": false
+      },
+      "history": [
+        {
+          "kind": "created",
+          "amount": 483,
+          "note": "Initial transaction created with order",
+          "_id": "6a9e5ffd5dcf5ec6f21329db",
+          "at": "2026-09-07T06:55:57.405Z"
+        },
+        {
+          "kind": "cancelled_by_restaurant",
+          "amount": 483,
+          "at": "2026-09-07T06:58:22.269Z",
+          "note": "Order cancelled by restaurant/admin",
+          "recordedBy": {
+            "role": "RESTAURANT",
+            "id": "6a9e55bb5dcf5ec6f2130315"
+          },
+          "_id": "6a9e608e5dcf5ec6f2132c50"
+        }
+      ],
+      "createdAt": "2026-09-07T06:55:57.407Z",
+      "updatedAt": "2026-09-07T06:58:22.270Z",
+      "__v": 1
+    },
+    {
+      "_id": "6a9e7b625dcf5ec6f2135d5d",
+      "orderId": "6a9e7b625dcf5ec6f2135d59",
+      "userId": "6a906b63a59a66df88606d33",
+      "restaurantId": "6a9db5720c9e07d4cb8e037c",
+      "deliveryPartnerId": null,
+      "paymentMethod": "cash",
+      "status": "pending",
+      "currency": "INR",
+      "pricing": {
+        "subtotal": 149,
+        "tax": 0,
+        "packagingFee": 0,
+        "deliveryFee": 0,
+        "platformFee": 5,
+        "restaurantCommission": 26.97,
+        "discount": 0,
+        "total": 154,
+        "currency": "INR"
+      },
+      "payment": {
+        "method": "cash",
+        "status": "cod_pending",
+        "amountDue": 154,
+        "razorpay": {
+          "orderId": "",
+          "paymentId": "",
+          "signature": ""
+        },
+        "qr": {
+          "qrId": "",
+          "imageUrl": "",
+          "paymentLinkId": "",
+          "shortUrl": "",
+          "status": "",
+          "expiresAt": null
+        }
+      },
+      "amounts": {
+        "totalCustomerPaid": 154,
+        "restaurantShare": 122.03,
+        "restaurantCommission": 26.97,
+        "riderShare": 30,
+        "platformNetProfit": 1.9699999999999989,
+        "taxAmount": 0
+      },
+      "gateway": {
+        "provider": "razorpay"
+      },
+      "settlement": {
+        "isRestaurantSettled": false,
+        "isRiderSettled": false
+      },
+      "history": [
+        {
+          "kind": "created",
+          "amount": 154,
+          "note": "Initial transaction created with order",
+          "_id": "6a9e7b625dcf5ec6f2135d5e",
+          "at": "2026-09-07T08:52:50.851Z"
+        }
+      ],
+      "createdAt": "2026-09-07T08:52:50.852Z",
+      "updatedAt": "2026-09-07T08:52:50.852Z",
+      "__v": 0
+    }
+  ]
+}
