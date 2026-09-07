@@ -106,9 +106,15 @@ export const getDeliveryPartnerWalletEnhanced = async (deliveryPartnerId) => {
     const totalCashLimit = Number(cashLimitSettings.deliveryCashLimit) || 0;
     const deliveryWithdrawalLimit = Number(cashLimitSettings.deliveryWithdrawalLimit) || 100;
 
-    // Pocket Balance = (Earnings + Bonus) - Total Withdrawn (approved) - Pending Withdrawals
-    // Wait, usually pocket balance subtracts pending too so user knows how much is "left" to request.
-    const pocketBalance = Math.max(0, (totalEarned + totalBonus) - (totalWithdrawn + pendingWithdrawals));
+    // Everything credited to the partner, and everything already claimed against it.
+    // Pending requests count as claimed so the partner cannot request the same money twice.
+    const totalCredited = totalEarned + totalBonus;
+    const totalCommitted = totalWithdrawn + pendingWithdrawals;
+
+    // Kept unclamped: a negative value means more has been claimed than earned, which is
+    // the signal callers need to detect an overdraw. `pocketBalance` stays clamped for display.
+    const netBalance = totalCredited - totalCommitted;
+    const pocketBalance = Math.max(0, netBalance);
 
     // Most recent approved withdrawal for "Last Payout" on Pocket
     const lastApprovedWithdrawal = (withdrawalsList || []).find((w) => w.status === 'approved') || null;
@@ -164,11 +170,14 @@ export const getDeliveryPartnerWalletEnhanced = async (deliveryPartnerId) => {
     ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
     return {
-        totalBalance: totalEarned + totalBonus, // Gross lifetime earnings
-        pocketBalance, // Available to withdraw
+        totalBalance: totalCredited, // Gross lifetime earnings
+        pocketBalance, // Available to withdraw (never negative)
+        netBalance, // Unclamped; negative means more claimed than earned
+        totalCredited, // Earnings + bonuses
+        totalCommitted, // Approved payouts + money held by pending requests
         cashInHand, // COD to be deposited/deducted
         totalWithdrawn, // Actually paid out
-        pendingWithdrawals, // In process
+        pendingWithdrawals, // In process — held, not yet paid
         lastPayout,
         totalEarned,
         totalBonus,
@@ -194,7 +203,11 @@ export const requestDeliveryWithdrawal = async (deliveryPartnerId, payload) => {
         throw new ValidationError(`Minimum withdrawal amount is ₹${wallet.deliveryWithdrawalLimit}`);
     }
     if (amount > wallet.pocketBalance) {
-        throw new ValidationError('Insufficient balance for this withdrawal');
+        throw new ValidationError(
+            wallet.pendingWithdrawals > 0
+                ? `Insufficient balance. ₹${wallet.pendingWithdrawals} of your earnings is already held by pending withdrawal requests.`
+                : 'Insufficient balance for this withdrawal'
+        );
     }
 
     const partner = await FoodDeliveryPartner.findById(deliveryPartnerId).lean();
@@ -214,6 +227,17 @@ export const requestDeliveryWithdrawal = async (deliveryPartnerId, payload) => {
         upiQrCode: partner.upiQrCode,
         status: 'pending'
     });
+
+    // The balance check above reads before this insert, so two requests fired at once
+    // could each see the same balance and both pass. Re-total afterwards — the sum now
+    // includes this row — and undo our own request if it pushed the partner overdrawn.
+    // Without this, a double-tap can create withdrawals that exceed real earnings and
+    // then permanently pin the pocket balance to zero.
+    const verified = await getDeliveryPartnerWalletEnhanced(deliveryPartnerId);
+    if (verified.pocketBalance < 0 || verified.totalCommitted > verified.totalCredited) {
+        await FoodDeliveryWithdrawal.deleteOne({ _id: withdrawal._id, status: 'pending' });
+        throw new ValidationError('Insufficient balance for this withdrawal');
+    }
 
     return withdrawal;
 };

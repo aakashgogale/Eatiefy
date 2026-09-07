@@ -32,6 +32,7 @@ export const PocketV2 = () => {
     availableToDeposit: 0,
     weeklyEarnings: 0,
     weeklyOrders: 0,
+    pendingWithdrawals: 0,
     payoutAmount: 0,
     payoutPeriod: 'Current Week',
     bankDetailsFilled: false
@@ -78,6 +79,10 @@ export const PocketV2 = () => {
         wallet.availableToDeposit != null
           ? Number(wallet.availableToDeposit)
           : Math.max(0, Number(wallet.cashInHand ?? prev.cashInHand) - Number(wallet.pendingCashSubmission ?? prev.pendingCashSubmission)),
+      pendingWithdrawals:
+        wallet.pendingWithdrawals != null
+          ? Number(wallet.pendingWithdrawals)
+          : prev.pendingWithdrawals,
       payoutAmount:
         wallet.lastPayout?.amount != null
           ? Number(wallet.lastPayout.amount)
@@ -150,6 +155,7 @@ export const PocketV2 = () => {
               : Math.max(0, Number(wallet.cashInHand) || 0),
           weeklyEarnings: Number(summary.totalEarnings) || 0,
           weeklyOrders: Number(summary.totalOrders) || 0,
+          pendingWithdrawals: Number(wallet.pendingWithdrawals) || 0,
           payoutAmount: Number(wallet.lastPayout?.amount) || 0,
           payoutPeriod: wallet.lastPayout?.date
             ? new Date(wallet.lastPayout.date).toLocaleDateString()
@@ -421,9 +427,17 @@ export const PocketV2 = () => {
                    <div className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center text-black border border-gray-100">
                       <Wallet className="w-6 h-6" />
                    </div>
-                   <div>
+                   <div className="text-left">
                       <span className="text-sm font-bold text-gray-800 block">Pocket balance</span>
-                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">Withdrawal Hub</p>
+                      {/* Without this, earnings on the card above with ₹0 here looks like
+                          money went missing — name what is actually holding it. */}
+                      {!loading && walletState.pendingWithdrawals > 0 ? (
+                         <p className="text-[10px] text-amber-600 font-bold tracking-tight">
+                            ₹{walletState.pendingWithdrawals.toFixed(0)} held by pending requests
+                         </p>
+                      ) : (
+                         <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">Withdrawal Hub</p>
+                      )}
                    </div>
                 </div>
                 <div className="flex items-center gap-2">
