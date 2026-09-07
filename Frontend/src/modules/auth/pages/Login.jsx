@@ -578,13 +578,13 @@ export default function UnifiedOTPFastLogin() {
         <div className={`w-full max-w-sm flex flex-col my-auto ${step === 2 ? "relative -top-8" : ""}`}>
 
           {/* Main Title (Design Reference: Log In text) */}
-          <div className="mb-10 mt-8 text-center flex flex-col items-center">
+          <div className="mb-8 mt-6 text-center flex flex-col items-center">
             <img
-              src="/assets/images/ometto_logo_transparent.png"
+              src="/assets/images/eatiefy_logo.png"
               alt="Eatiefy Logo"
-              className="h-28 mt-6 mb-1 object-contain drop-shadow-md"
+              className="h-28 sm:h-32 object-contain drop-shadow-md rounded-2xl"
             />
-            <div className="text-sm text-gray-500 dark:text-gray-400 mt-0 font-medium flex items-center justify-center gap-1.5">
+            <div className="text-sm text-gray-500 dark:text-gray-400 mt-2 font-medium flex items-center justify-center gap-1.5">
               {step === 1 ? (
                 <span>Login or signup with your phone number</span>
               ) : (

@@ -657,7 +657,7 @@ export default function MasterLandingPage() {
             {/* Brand */}
             <div>
               <div className="flex items-center gap-2 mb-6">
-                <img src="/assets/images/ometto_logo_admin.png" alt="Eatiefy" className="h-14 w-auto object-contain" />
+                <img src="/assets/images/eatiefy_logo_transparent.png" alt="Eatiefy" className="h-14 w-auto object-contain" />
               </div>
               <p className="text-gray-400 text-sm mb-6 leading-relaxed">
                 India's smartest dining and takeaway platform. Skip the lines, discover new tastes, and dine better.
