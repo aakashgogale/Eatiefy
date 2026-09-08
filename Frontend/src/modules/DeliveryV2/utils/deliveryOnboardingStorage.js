@@ -204,8 +204,70 @@ export const prepareSignupDocumentFile = async (file) => {
   }
 }
 
+const LEGACY_DOCS_KEY = "deliverySignupDocs"
+
+/**
+ * Durable fallback for when IndexedDB is unavailable — common in the WebView
+ * shell. Without it a failed IDB write left the photo only in module memory,
+ * which a refresh wipes, so the uploaded image vanished and had to be taken
+ * again. sessionStorage matches the lifetime of the rest of the signup data.
+ */
+const saveSignupDocumentToSession = (docType, file) =>
+  new Promise((resolve) => {
+    if (typeof sessionStorage === "undefined" || !isUploadableFile(file)) {
+      resolve(false)
+      return
+    }
+    try {
+      const reader = new FileReader()
+      reader.onload = () => {
+        try {
+          const existing = JSON.parse(sessionStorage.getItem(LEGACY_DOCS_KEY) || "{}")
+          existing[docType] = {
+            dataUrl: String(reader.result || ""),
+            type: file.type || "image/jpeg",
+            name: file.name || `${docType}.jpg`,
+          }
+          sessionStorage.setItem(LEGACY_DOCS_KEY, JSON.stringify(existing))
+          resolve(true)
+        } catch {
+          // Quota exceeded, private mode, etc.
+          resolve(false)
+        }
+      }
+      reader.onerror = () => resolve(false)
+      reader.readAsDataURL(file)
+    } catch {
+      resolve(false)
+    }
+  })
+
+const removeSignupDocumentFromSession = (docType) => {
+  if (typeof sessionStorage === "undefined") return
+  try {
+    const raw = sessionStorage.getItem(LEGACY_DOCS_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw)
+    delete parsed[docType]
+    if (Object.keys(parsed).length) {
+      sessionStorage.setItem(LEGACY_DOCS_KEY, JSON.stringify(parsed))
+    } else {
+      sessionStorage.removeItem(LEGACY_DOCS_KEY)
+    }
+  } catch {
+    // Nothing to clean up.
+  }
+}
+
+/**
+ * Persists an uploaded document. Returns `{ persisted }` so the caller can tell
+ * the user when a photo is only held for this session — previously every
+ * failure was swallowed and the UI reported success regardless.
+ */
 export const saveSignupDocumentToDB = async (docType, file) => {
-  if (!DELIVERY_SIGNUP_DOC_TYPES.includes(docType) || !isUploadableFile(file)) return
+  if (!DELIVERY_SIGNUP_DOC_TYPES.includes(docType) || !isUploadableFile(file)) {
+    return { persisted: false, storage: "none" }
+  }
 
   const prepared = toSignupFile(file, `${docType}.jpg`)
   signupDocumentMemory[docType] = prepared
@@ -227,8 +289,16 @@ export const saveSignupDocumentToDB = async (docType, file) => {
         throw new Error("IndexedDB write timeout")
       },
     )
+    // IndexedDB owns the file now; drop any older session copy so the two
+    // stores cannot disagree and the same upload is never restored twice.
+    removeSignupDocumentFromSession(docType)
+    return { persisted: true, storage: "indexeddb" }
   } catch {
-    // Session memory still holds the file for preview + submit.
+    const sessionSaved = await saveSignupDocumentToSession(docType, prepared)
+    return {
+      persisted: sessionSaved,
+      storage: sessionSaved ? "session" : "memory",
+    }
   }
 }
 
@@ -297,6 +367,8 @@ export const getAllSignupDocumentsFromDB = async () => {
 
 export const deleteSignupDocumentFromDB = async (docType) => {
   if (!DELIVERY_SIGNUP_DOC_TYPES.includes(docType)) return
+
+  removeSignupDocumentFromSession(docType)
 
   delete signupDocumentMemory[docType]
 
@@ -382,16 +454,18 @@ const migrateLegacySignupDocsToIndexedDB = async () => {
       const legacyFile = deserializeLegacySignupDocument(parsed?.[docType])
       if (legacyFile) {
         const prepared = await prepareSignupDocumentFile(legacyFile)
-        await saveSignupDocumentToDB(docType, prepared)
-        migrated = true
+        const result = await saveSignupDocumentToDB(docType, prepared)
+        // Only IndexedDB supersedes the session copy. When it is unavailable
+        // the session entry is the durable one and must survive.
+        if (result?.storage === "indexeddb") migrated = true
       }
     }
 
     if (migrated) {
-      sessionStorage.removeItem("deliverySignupDocs")
+      sessionStorage.removeItem(LEGACY_DOCS_KEY)
     }
   } catch {
-    sessionStorage.removeItem("deliverySignupDocs")
+    sessionStorage.removeItem(LEGACY_DOCS_KEY)
   }
 }
 

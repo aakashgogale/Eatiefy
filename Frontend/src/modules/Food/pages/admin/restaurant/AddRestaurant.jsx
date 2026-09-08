@@ -973,6 +973,8 @@ export default function AddRestaurant() {
               >
                 Yes, Pure Veg
               </button>
+              {/* DISABLED: "Pure Vegan" is not a selectable restaurant menu type —
+                  only Pure Veg and Mixed Menu are active. Kept, not deleted.
               <button
                 type="button"
                 onClick={() =>
@@ -990,6 +992,7 @@ export default function AddRestaurant() {
               >
                 Yes, Pure Vegan
               </button>
+              */}
               <button
                 type="button"
                 onClick={() =>

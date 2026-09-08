@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react"
+import { VEGAN_OPTION_ENABLED } from "@food/utils/vegMode"
 import { useNavigate, useParams, useLocation } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import { motion, AnimatePresence } from "framer-motion"
@@ -168,9 +169,11 @@ export default function ItemDetailsPage() {
     if (isPureVeganRestaurant) {
       setFoodType("Vegan")
     } else if (isPureVegRestaurant) {
-      setFoodType(rawFoodType === "Vegan" ? "Vegan" : "Veg")
+      // Vegan is disabled as a selectable type, so a legacy Vegan record is
+      // shown as Veg rather than leaving no diet button active.
+      setFoodType(rawFoodType === "Vegan" && VEGAN_OPTION_ENABLED ? "Vegan" : "Veg")
     } else if (rawFoodType === "Vegan") {
-      setFoodType("Vegan")
+      setFoodType(VEGAN_OPTION_ENABLED ? "Vegan" : "Veg")
     } else if (rawFoodType === "Veg") {
       setFoodType("Veg")
     } else {
@@ -284,7 +287,7 @@ export default function ItemDetailsPage() {
           pureVegan ||
           profile?.pureVegRestaurant === true ||
           profile?.pureVegRestaurant === "true"
-        setIsPureVeganRestaurant(pureVegan)
+        setIsPureVeganRestaurant(VEGAN_OPTION_ENABLED && pureVegan)
         setIsPureVegRestaurant(pureVeg)
         if (pureVegan) setFoodType("Vegan")
         else if (pureVeg) setFoodType((prev) => (prev === "Non-Veg" ? "Veg" : prev))
@@ -1220,6 +1223,8 @@ export default function ItemDetailsPage() {
                   <span>Veg</span>
                 </button>
               )}
+              {/* DISABLED: Vegan is not a selectable food type — only Veg,
+                  Non-Veg and Mixed are active. Kept (not deleted) for restore.
               <button
                 type="button"
                 onClick={() => setFoodType("Vegan")}
@@ -1231,6 +1236,7 @@ export default function ItemDetailsPage() {
                 {foodType === "Vegan" && <Check className="w-4 h-4" />}
                 <span>Vegan</span>
               </button>
+              */}
               {!isPureVegRestaurant && !isPureVeganRestaurant && (
                 <button
                   type="button"

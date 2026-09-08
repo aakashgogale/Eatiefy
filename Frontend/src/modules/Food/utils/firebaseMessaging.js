@@ -615,6 +615,12 @@ function sanitize(value) {
 function buildOsNotificationDedupeKey(source = {}) {
   const data = isRecord(source?.data) ? source.data : source;
 
+  // Prefer backend-provided idempotency keys (most reliable for dedup)
+  const backendTag = data?.tag || source?.tag || '';
+  const backendEventId = data?.eventId || source?.eventId || data?.idempotencyKey || source?.idempotencyKey || '';
+  if (backendEventId) return String(backendEventId);
+  if (backendTag) return String(backendTag);
+
   if (data?.notificationId || data?.messageId || source?.messageId) {
     return data?.notificationId || data?.messageId || source?.messageId;
   }
@@ -1361,6 +1367,10 @@ function showForegroundNotification(payload = {}) {
     window.dispatchEvent(new CustomEvent("delivery-wallet-refresh"));
   }
 
+  // Must match the tag the service worker uses for the same event so the two
+  // renderers replace each other instead of stacking duplicate banners.
+  const osTag = String(payload?.data?.tag || "").trim() || notificationKey || undefined;
+
   const isTabVisible =
     typeof document !== "undefined" && document.visibilityState === "visible";
 
@@ -1389,7 +1399,7 @@ function showForegroundNotification(payload = {}) {
               body,
               icon: getNotificationIcon(),
               image,
-              tag: notificationKey || undefined,
+              tag: osTag,
               renotify: false,
               data: payload?.data || {},
               requireInteraction: true,
@@ -1400,7 +1410,7 @@ function showForegroundNotification(payload = {}) {
               body,
               icon: getNotificationIcon(),
               image,
-              tag: notificationKey || undefined,
+              tag: osTag,
               requireInteraction: true,
             });
           }
@@ -1409,7 +1419,7 @@ function showForegroundNotification(payload = {}) {
             body,
             icon: getNotificationIcon(),
             image,
-            tag: notificationKey || undefined,
+            tag: osTag,
           });
         });
       } else {
@@ -1417,7 +1427,7 @@ function showForegroundNotification(payload = {}) {
           body,
           icon: getNotificationIcon(),
           image,
-          tag: notificationKey || undefined,
+          tag: osTag,
         });
       }
     } catch (error) {

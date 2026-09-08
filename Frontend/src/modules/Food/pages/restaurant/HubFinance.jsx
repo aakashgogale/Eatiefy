@@ -405,7 +405,18 @@ export default function HubFinance() {
         year: currentCycleDates.year,
         estimatedPayout: `₹${(currentCycle.estimatedPayout || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         orders: currentCycle.totalOrders || 0,
-        payoutDate: currentCycle.payoutDate ? new Date(currentCycle.payoutDate).toLocaleDateString('en-IN') : "-"
+        // The backend's processed-withdrawal timestamp, formatted exactly like
+        // the payout history screen so the report and the app agree. Never the
+        // report-generation date.
+        payoutDate: currentCycle.payoutDate
+          ? new Date(currentCycle.payoutDate).toLocaleString('en-IN', {
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            })
+          : "No payout processed yet"
       },
       pastCycles: pastCyclesData,
       allOrders: allOrders
@@ -813,7 +824,7 @@ export default function HubFinance() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-4 pt-6 pb-28">
+      <div className="flex-1 overflow-y-auto px-4 pt-6 pb-[calc(6.5rem+env(safe-area-inset-bottom,16px))]">
         {activeTab === "payouts" && (
           <div className="space-y-6">
             {/* Current cycle */}
@@ -1335,27 +1346,30 @@ export default function HubFinance() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 z-50"
+              className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50"
               onClick={() => setShowWithdrawalModal(false)}
             />
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto overscroll-contain"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+              <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 my-auto max-h-[calc(100dvh-2rem)] overflow-y-auto">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-xl font-bold text-gray-900">Withdraw Amount</h2>
                   <button
+                    type="button"
                     onClick={() => {
                       setShowWithdrawalModal(false)
                       setWithdrawalAmount('')
                     }}
-                    className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                    className="p-1.5 hover:bg-gray-100 rounded-full transition-colors text-gray-500 hover:text-gray-700"
+                    aria-label="Close"
                   >
-                    <X className="w-5 h-5 text-gray-600" />
+                    <X className="w-5 h-5" />
                   </button>
                 </div>
 
@@ -1383,24 +1397,26 @@ export default function HubFinance() {
                     }}
                     autoComplete="off"
                     placeholder="Enter amount"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent outline-none"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#2E7D52] focus:border-transparent outline-none text-base transition-all"
                   />
                   {withdrawalAmount && parseFloat(withdrawalAmount) > (financeData?.currentCycle?.estimatedPayout || 0) && (
-                    <p className="text-sm text-[#2E7D52] mt-1">Amount cannot exceed available balance</p>
+                    <p className="text-sm text-red-600 mt-1.5 font-medium">Amount cannot exceed available balance</p>
                   )}
                 </div>
 
-                <div className="flex gap-3">
+                <div className="flex gap-3 pt-2">
                   <button
+                    type="button"
                     onClick={() => {
                       setShowWithdrawalModal(false)
                       setWithdrawalAmount('')
                     }}
-                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                    className="flex-1 px-4 py-3 border border-gray-300 rounded-xl font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                   >
                     Cancel
                   </button>
                   <button
+                    type="button"
                     onClick={async () => {
                       const amount = parseFloat(withdrawalAmount)
                       if (!amount || amount <= 0) {
@@ -1443,7 +1459,7 @@ export default function HubFinance() {
                       }
                     }}
                     disabled={submittingWithdrawal || !withdrawalAmount || parseFloat(withdrawalAmount) <= 0 || parseFloat(withdrawalAmount) > (financeData?.currentCycle?.estimatedPayout || 0)}
-                    className="flex-1 px-4 py-3 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-lg font-medium hover:bg-gray-800 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    className="flex-1 px-4 py-3 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-xl font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {submittingWithdrawal ? 'Submitting...' : 'Submit Request'}
                   </button>
@@ -1454,7 +1470,7 @@ export default function HubFinance() {
         )}
       </AnimatePresence>
 
-      <BottomNavOrders />
+      {!showWithdrawalModal && <BottomNavOrders />}
     </div>
   )
 }

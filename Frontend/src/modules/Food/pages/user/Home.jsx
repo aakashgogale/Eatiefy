@@ -44,7 +44,15 @@ import {
 import { toast } from "sonner";
 import { buildCartLineId } from "@food/utils/foodVariants";
 import { isModuleAuthenticated } from "@food/utils/auth";
-import { isNonVegCategoryScope } from "@food/utils/vegMode";
+import {
+  isNonVegCategoryScope,
+  isVegMenuItem,
+  isVeganMenuItem,
+  matchesVegRestaurantFilter,
+  filterRestaurantsForVegMode,
+  filterDishesForVegMode,
+  filterCategoriesForVegMode,
+} from "@food/utils/vegMode";
 import VoiceSearchOverlay from "@food/components/user/VoiceSearchOverlay";
 import { useVoiceSearch } from "@food/hooks/useVoiceSearch";
 import { motion, AnimatePresence } from "framer-motion";
@@ -970,14 +978,7 @@ export default function Home() {
 
     // Apply global veg mode filter first
     if (vegMode) {
-      if (vegModeOption === "non-veg") {
-        // "Only Non-Veg Restaurants" is active → show only non-veg food
-        result = result.filter((m) => !m.isVeg);
-      } else if (vegModeOption === "pure-veg") {
-        // "Pure Veg" is active → show only veg food
-        result = result.filter((m) => m.isVeg);
-      }
-      // vegModeOption === "all" → no additional restriction
+      result = filterDishesForVegMode(result, vegMode, vegModeOption);
     }
 
     if (meals99IsVeg) {
@@ -2019,8 +2020,7 @@ export default function Home() {
           })
           .map((food) => {
             const rId = String(food?.restaurantId || "").trim();
-            const foodType = String(food?.foodType || "").toLowerCase();
-            const isVeg = foodType.includes("veg") && !foodType.includes("non");
+            const isVeg = isVegMenuItem(food);
 
             return {
               ...food,
@@ -2433,8 +2433,17 @@ export default function Home() {
         }
 
         // Veg mode filter
-        if (vegModeOption && vegModeOption !== "all") {
-          params.vegModeOption = vegModeOption;
+        if (vegMode) {
+          params.isVeg = "true";
+          params.vegMode = "true";
+          if (vegModeOption && vegModeOption !== "all") {
+            params.vegModeOption = vegModeOption;
+            if (vegModeOption === "pure-veg") {
+              params.pureVeg = "true";
+            } else if (vegModeOption === "pure-vegan") {
+              params.pureVegan = "true";
+            }
+          }
         }
 
         // Offers filter
@@ -2581,6 +2590,10 @@ export default function Home() {
                 slug: restaurant.slug,
                 restaurantId: restaurant.restaurantId,
                 pureVegRestaurant: restaurant.pureVegRestaurant === true,
+                pureVeganRestaurant: restaurant.pureVeganRestaurant === true,
+                isVeg: restaurant.isVeg === true || restaurant.pureVegRestaurant === true,
+                isPureVeg: restaurant.isPureVeg === true || restaurant.pureVegRestaurant === true,
+                isPureVegan: restaurant.isPureVegan === true || restaurant.pureVeganRestaurant === true,
                 location: restaurant.location,
                 isActive: restaurant.isActive !== false, // Default to true if not specified
                 isAcceptingOrders: restaurant.isAcceptingOrders !== false, // Default to true if not specified
@@ -2591,7 +2604,11 @@ export default function Home() {
                 outletTimings: restaurant.outletTimings || null,
                 openingTime: restaurant.openingTime || restaurant?.deliveryTimings?.openingTime || null,
                 closingTime: restaurant.closingTime || restaurant?.deliveryTimings?.closingTime || null,
+                recommendedDishes: Array.isArray(restaurant.recommendedDishes)
+                  ? restaurant.recommendedDishes
+                  : (Array.isArray(restaurant.recommendedItems) ? restaurant.recommendedItems : []),
                 recommendedItems: Array.isArray(restaurant.recommendedItems) ? restaurant.recommendedItems : [],
+                hasDishes: restaurant.hasDishes !== undefined ? restaurant.hasDishes : true,
               };
             },
             );
@@ -2670,6 +2687,7 @@ export default function Home() {
       effectiveLocation?.latitude,
       effectiveLocation?.longitude,
       zoneId,
+      vegMode,
       vegModeOption,
     ],
   );
@@ -2722,6 +2740,11 @@ export default function Home() {
       if (!Array.isArray(list)) return [];
 
       let result = list;
+
+      // Global Veg Mode filter
+      if (vegMode) {
+        result = filterRestaurantsForVegMode(result, { vegMode, vegModeOption });
+      }
 
       // Veg filter
       if (activeFilters.has("veg")) {
@@ -2837,7 +2860,7 @@ export default function Home() {
 
       return result;
     },
-    [activeFilters, sortBy]
+    [activeFilters, sortBy, vegMode, vegModeOption]
   );
 
   /**
@@ -3085,16 +3108,7 @@ export default function Home() {
     loadMoreRestaurants,
   ]);
   const matchesVegMode = useCallback(
-    (restaurant) => {
-      if (!vegMode) return true;
-      if (vegModeOption === "non-veg") {
-        return restaurant?.pureVegRestaurant === false && restaurant?.isVeg !== true;
-      }
-      if (vegModeOption === "pure-veg") {
-        return restaurant?.pureVegRestaurant === true || restaurant?.isVeg === true;
-      }
-      return true;
-    },
+    (restaurant) => matchesVegRestaurantFilter(restaurant, { vegMode, vegModeOption }),
     [vegMode, vegModeOption]
   );
 
@@ -3635,7 +3649,7 @@ export default function Home() {
             placeholderIndex={placeholderIndex}
             placeholders={placeholders}
             handleVegModeChange={handleVegModeChange}
-            isVegMode={vegModeOption === "pure-veg"}
+            isVegMode={Boolean(vegMode)}
             vegModeToggleRef={vegModeToggleRef}
             isCategoryStuck={isCategoryStuck}
             vegModeOption={vegModeOption}
@@ -3809,7 +3823,7 @@ export default function Home() {
                                   {/* Veg/Non-veg Dot & Name */}
                                   <div className="flex items-center gap-1.5 min-w-0 mt-0.5">
                                     <div className="shrink-0 w-3.5 h-3.5 border border-gray-300 dark:border-gray-700 rounded flex items-center justify-center p-[2px] bg-white">
-                                      <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: dish.isVeg ? "#22c55e" : "#dc2626" }} />
+                                      <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: dish.isVeg ? "#22c55e" : "#1F6B45" }} />
                                     </div>
                                     <span className="text-xs font-bold text-gray-900 dark:text-white truncate group-hover:text-[#24963F] transition-colors">
                                       {dish.name}
@@ -4118,7 +4132,7 @@ export default function Home() {
                 <PromoRow
                   handleVegModeChange={handleVegModeChange}
                   navigate={navigate}
-                  isVegMode={vegModeOption === "pure-veg" || vegModeOption === "non-veg"}
+                  isVegMode={Boolean(vegMode)}
                   toggleRef={vegModeToggleRef}
                 />
               </div>
@@ -4688,8 +4702,7 @@ export default function Home() {
             transition={{ duration: 0.2 }}
             onClick={() => {
               setShowVegModePopup(false);
-              setVegModeOption("all");
-              setPrevVegMode(false);
+              setPrevVegMode(vegMode);
             }}
             className="fixed inset-0 bg-black/30 z-[9998] backdrop-blur-sm"
           />
@@ -4725,8 +4738,7 @@ export default function Home() {
                 aria-label="Close veg mode popup"
                 onClick={() => {
                   setShowVegModePopup(false);
-                  setVegModeOption("all");
-                  setPrevVegMode(false);
+                  setPrevVegMode(vegMode);
                 }}
                 className="absolute top-4 right-4 p-0.5 text-gray-450 hover:text-gray-700 dark:text-gray-450 dark:hover:text-gray-200 transition-colors z-20"
               >
@@ -4840,13 +4852,12 @@ export default function Home() {
                   setShowVegModePopup(false);
                   setIsApplyingVegMode(true);
                   // Save preference to context
+                  setVegModeContext(true);
                   setVegModeOption(vegModeOption);
-                  const isEnabled = vegModeOption !== "all";
-                  setPrevVegMode(isEnabled);
-                  // Simulate applying veg mode settings
+                  setPrevVegMode(true);
                   setTimeout(() => {
                     setIsApplyingVegMode(false);
-                  }, 1000);
+                  }, 300);
                 }}
                 className="w-full bg-[#659116] hover:bg-[#5ECC11] text-white font-bold py-2.5 rounded-xl transition-colors mb-1 text-sm shadow-md shadow-emerald-500/10 active:scale-[0.98]"
               >
@@ -4869,8 +4880,7 @@ export default function Home() {
             onClick={() => {
               setShowSwitchOffPopup(false);
               isHandlingSwitchOff.current = false;
-              setVegModeContext(true);
-              // prevVegMode stays true (from before), which is correct
+              setPrevVegMode(vegMode);
             }}
             className="fixed inset-0 bg-black/50 z-[9998] backdrop-blur-sm"
           />
@@ -4918,13 +4928,13 @@ export default function Home() {
                   onClick={() => {
                     setShowSwitchOffPopup(false);
                     setIsSwitchingOffVegMode(true);
-                    // Simulate switching off veg mode
                     setTimeout(() => {
                       setIsSwitchingOffVegMode(false);
                       isHandlingSwitchOff.current = false;
+                      setVegModeContext(false);
                       setVegModeOption("all");
-                      setPrevVegMode(false); // Set to false to match current state (veg mode is OFF)
-                    }, 2000);
+                      setPrevVegMode(false);
+                    }, 300);
                   }}
                   className="w-full bg-transparent text-red-600 font-normal py-1 text-normal rounded-xl hover:bg-red-50 transition-colors text-base">
                   Switch off
@@ -4934,7 +4944,7 @@ export default function Home() {
                   onClick={() => {
                     setShowSwitchOffPopup(false);
                     isHandlingSwitchOff.current = false;
-                    // prevVegMode and vegModeOption stay as they were, which is correct
+                    setPrevVegMode(vegMode);
                   }}
                   className="w-full text-gray-900 dark:text-white font-normal py-1 text-center rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors text-base">
                   Keep using this mode

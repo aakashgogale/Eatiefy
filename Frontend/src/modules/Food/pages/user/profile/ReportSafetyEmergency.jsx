@@ -147,7 +147,7 @@ export default function ReportSafetyEmergency() {
             <div className="absolute top-0 right-0 w-32 h-32 bg-red-100 dark:bg-red-900/20 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
             <div className="flex items-start gap-4 relative z-10">
               <div className="bg-red-100 dark:bg-red-900/50 rounded-full p-3 md:p-3.5 mt-0.5 shadow-sm">
-                <Phone className="h-5 w-5 md:h-6 md:w-6 text-[#DC2626] dark:text-red-400" />
+                <Phone className="h-5 w-5 md:h-6 md:w-6 text-[#1F6B45] dark:text-red-400" />
               </div>
               <div className="flex-1">
                 <h3 className="text-lg md:text-xl font-bold text-slate-900 dark:text-white mb-1.5">
@@ -158,7 +158,7 @@ export default function ReportSafetyEmergency() {
                 </p>
                 <a
                   href="tel:100"
-                  className="inline-flex items-center justify-center bg-white dark:bg-[#222] text-[#DC2626] dark:text-red-400 border border-red-100 dark:border-red-900/30 font-bold text-base md:text-lg px-6 py-2.5 rounded-xl shadow-sm hover:shadow-md hover:bg-red-50 dark:hover:bg-red-900/20 transition-all active:scale-95"
+                  className="inline-flex items-center justify-center bg-white dark:bg-[#222] text-[#1F6B45] dark:text-red-400 border border-red-100 dark:border-red-900/30 font-bold text-base md:text-lg px-6 py-2.5 rounded-xl shadow-sm hover:shadow-md hover:bg-red-50 dark:hover:bg-red-900/20 transition-all active:scale-95"
                 >
                   <Phone className="w-4 h-4 mr-2" />
                   Call 100
@@ -209,7 +209,7 @@ export default function ReportSafetyEmergency() {
                     maxWidth: '100%'
                   }}
                 />
-                <p className={`text-xs md:text-sm mt-3 flex justify-between font-medium ${report.trim().length < 10 ? 'text-[#DC2626]' : 'text-slate-500 dark:text-gray-400'}`}>
+                <p className={`text-xs md:text-sm mt-3 flex justify-between font-medium ${report.trim().length < 10 ? 'text-[#1F6B45]' : 'text-slate-500 dark:text-gray-400'}`}>
                   <span>{report.length} characters</span>
                   <span>Min 10 characters</span>
                 </p>
@@ -220,7 +220,7 @@ export default function ReportSafetyEmergency() {
             <Button
               onClick={handleSubmit}
               disabled={report.trim().length < 10 || isSubmitting}
-              className="w-full bg-[#DC2626] hover:bg-[#B91C1C] text-white font-semibold text-base h-12 md:h-14 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_14px_rgba(220,38,38,0.25)] hover:shadow-[0_6px_20px_rgba(220,38,38,0.3)] transition-all active:scale-[0.98]"
+              className="w-full bg-[#1F6B45] hover:bg-[#1A5C3B] text-white font-semibold text-base h-12 md:h-14 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_14px_rgba(220,38,38,0.25)] hover:shadow-[0_6px_20px_rgba(220,38,38,0.3)] transition-all active:scale-[0.98]"
             >
               {isSubmitting ? (
                 <>

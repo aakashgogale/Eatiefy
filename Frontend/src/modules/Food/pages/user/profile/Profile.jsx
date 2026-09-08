@@ -777,7 +777,7 @@ export default function Profile() {
         {/* Collections Section */}
         <div className="mb-3">
           <div className="flex items-center gap-2 mb-2 px-1">
-            <div className="w-1 h-4 bg-[#DC2626] rounded"></div>
+            <div className="w-1 h-4 bg-[#1F6B45] rounded"></div>
             <h3 className="text-base font-semibold text-gray-900 dark:text-white">
               Collections
             </h3>
@@ -814,7 +814,7 @@ export default function Profile() {
         {diningEnabled && (
         <div className="mb-3">
           <div className="flex items-center gap-2 mb-2 px-1">
-            <div className="w-1 h-4 bg-[#DC2626] rounded"></div>
+            <div className="w-1 h-4 bg-[#1F6B45] rounded"></div>
             <h3 className="text-base font-semibold text-gray-900 dark:text-white">
               Dining Bookings
             </h3>
@@ -854,13 +854,13 @@ export default function Profile() {
         {/* Food Orders Section */}
         <div className="mb-3">
           <div className="flex items-center gap-2 mb-2 px-1">
-            <div className="w-1 h-4 bg-[#DC2626] rounded"></div>
+            <div className="w-1 h-4 bg-[#1F6B45] rounded"></div>
             <h3 className="text-base font-semibold text-gray-900 dark:text-white">
               Food Orders
             </h3>
           </div>
           <div className="space-y-2">
-            <Link to="/user/orders" state={{ from: "profile", backTo: "/food/user/profile" }} className="block">
+            <Link to="/food/user/orders" state={{ from: "profile", backTo: "/food/user/profile" }} className="block">
               <motion.div
                 whileHover={{ x: 4, scale: 1.01 }}
                 transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
@@ -892,7 +892,7 @@ export default function Profile() {
         {/* More Section */}
         <div className="mb-8 pb-8">
           <div className="flex items-center gap-2 mb-2 px-1">
-            <div className="w-1 h-4 bg-[#DC2626] rounded"></div>
+            <div className="w-1 h-4 bg-[#1F6B45] rounded"></div>
             <h3 className="text-base font-semibold text-gray-900 dark:text-white">
               More
             </h3>
@@ -1110,6 +1110,9 @@ export default function Profile() {
                 className={`h-5 w-5 ${vegMode && vegModeOption === "pure-veg" ? "text-green-600" : "text-gray-400"}`}
               />
             </button>
+            {/* DISABLED: "Vegan restaurants only" is no longer a selectable
+                food preference — only Veg, Non-Veg and Mixed are offered.
+                Kept here (commented, not deleted) so it can be restored.
             <button
               onClick={() => {
                 handleVegModeOptionUpdate("pure-vegan");
@@ -1140,18 +1143,19 @@ export default function Profile() {
                 className={`h-5 w-5 ${vegMode && vegModeOption === "pure-vegan" ? "text-green-600" : "text-gray-400"}`}
               />
             </button>
+            */}
             <button
               onClick={() => {
                 handleVegModeUpdate(false);
                 setVegModeOpen(false);
               }}
               className={`w-full p-3 rounded-xl border-2 transition-all flex items-center justify-between ${!vegMode
-                ? "border-[#991B1B] bg-[#fdfafc] dark:bg-[#7F1D1D]/10"
+                ? "border-[#14512F] bg-[#fdfafc] dark:bg-[#0F3D24]/10"
                 : "border-gray-200 dark:border-gray-800 bg-white hover:border-gray-300"
                 }`}>
               <div className="flex items-center gap-3">
                 <div
-                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${!vegMode ? "border-[#991B1B] bg-[#991B1B]" : "border-gray-300"
+                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${!vegMode ? "border-[#14512F] bg-[#14512F]" : "border-gray-300"
                     }`}>
                   {!vegMode && <Check className="h-3 w-3 text-white" />}
                 </div>
@@ -1233,12 +1237,12 @@ export default function Profile() {
                 setTimeout(() => setAppearance("light"), 250);
               }}
               className={`w-full p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${appearance === "light"
-                ? "border-[#DC2626] bg-[#fdfafc] dark:border-[#DC2626] dark:bg-[#7F1D1D]/20"
+                ? "border-[#1F6B45] bg-[#fdfafc] dark:border-[#1F6B45] dark:bg-[#0F3D24]/20"
                 : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600"
                 }`}>
               <div
                 className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${appearance === "light"
-                  ? "border-[#DC2626] bg-[#DC2626]"
+                  ? "border-[#1F6B45] bg-[#1F6B45]"
                   : "border-gray-300 dark:border-gray-600"
                   }`}>
                 {appearance === "light" && (
@@ -1261,12 +1265,12 @@ export default function Profile() {
                 setTimeout(() => setAppearance("dark"), 250);
               }}
               className={`w-full p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${appearance === "dark"
-                ? "border-[#DC2626] dark:border-[#DC2626] bg-[#fdfafc] dark:bg-[#7F1D1D]/20"
+                ? "border-[#1F6B45] dark:border-[#1F6B45] bg-[#fdfafc] dark:bg-[#0F3D24]/20"
                 : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600"
                 }`}>
               <div
                 className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${appearance === "dark"
-                  ? "border-[#DC2626] bg-[#DC2626]"
+                  ? "border-[#1F6B45] bg-[#1F6B45]"
                   : "border-gray-300 dark:border-gray-600"
                   }`}>
                 {appearance === "dark" && (

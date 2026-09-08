@@ -276,7 +276,7 @@ const RestaurantImageCarousel = React.memo(
 
     const showMultipleImages = slideItems.length > 1;
     const currentSlide = infiniteSlides[currentIndex] || null;
-    const isDishVeg = currentSlide?.dish ? isVegMenuItem(currentSlide.dish) : false;
+    const isDishVeg = currentSlide?.dish ? isVegMenuItem(currentSlide.dish, restaurant) : false;
 
     return (
       <div
@@ -328,7 +328,7 @@ const RestaurantImageCarousel = React.memo(
           <div className="absolute top-3 left-3 z-[2] max-w-[calc(100%-4.5rem)] pointer-events-none drop-shadow-lg">
             <div className="bg-black/92 px-3 py-1.5 rounded-full flex items-center gap-2 shadow-[0_4px_14px_rgba(0,0,0,0.45)] border border-white/20">
               {!vegMode &&
-                (isDishVeg || currentSlide.dish.foodType === "Veg" ? (
+                (isDishVeg ? (
                   <div className="flex-shrink-0 w-3.5 h-3.5 border-[1.5px] border-green-600 bg-white rounded-[2px] flex items-center justify-center p-[1.5px]">
                     <div className="w-full h-full bg-green-600 rounded-full" />
                   </div>

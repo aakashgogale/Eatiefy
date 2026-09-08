@@ -96,6 +96,16 @@ const resolveBackPath = ({ pathname, search, state, orderType }) => {
     if (state?.from === "profile" || state?.backTo?.includes("profile") || explicitBackPath?.includes("profile")) {
       return "/food/user/profile"
     }
+    // Prevent returning to cart / checkout from order tracking
+    if (explicitBackPath && !explicitBackPath.includes("/cart")) {
+      return explicitBackPath
+    }
+    if (state?.from === "/food/user/orders" || state?.from === "/user/orders") {
+      return "/food/user/orders"
+    }
+    if (/^\/user\/orders\/[^/]+(\/invoice|\/details)?$/.test(normalizedPath) && normalizedPath !== "/user/orders") {
+      return "/food/user/orders"
+    }
     return defaultHomePath
   }
 

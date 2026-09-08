@@ -473,7 +473,7 @@ export default function OTP() {
                       type="button"
                       onClick={handleResend}
                       disabled={isLoading}
-                      className="text-primary hover:text-[#991B1B] font-bold transition-colors disabled:opacity-50"
+                      className="text-primary hover:text-[#14512F] font-bold transition-colors disabled:opacity-50"
                     >
                       Resend SMS
                     </button>
@@ -508,7 +508,7 @@ export default function OTP() {
               <Button
                 onClick={handleSubmitName}
                 disabled={isLoading}
-                className="w-full h-12 md:h-14 bg-primary hover:bg-[#991B1B] text-white font-bold text-lg rounded-xl transition-all hover:shadow-lg active:scale-[0.98]"
+                className="w-full h-12 md:h-14 bg-primary hover:bg-[#14512F] text-white font-bold text-lg rounded-xl transition-all hover:shadow-lg active:scale-[0.98]"
               >
                 {isLoading ? "Getting things ready..." : "Finish Registration"}
               </Button>
@@ -551,7 +551,7 @@ export default function OTP() {
             <div className="space-y-3">
               <Button
                 onClick={() => handleRestoreAction("restore")}
-                className="w-full h-12 bg-primary hover:bg-[#991B1B] text-white font-bold rounded-xl shadow-lg shadow-primary/20"
+                className="w-full h-12 bg-primary hover:bg-[#14512F] text-white font-bold rounded-xl shadow-lg shadow-primary/20"
               >
                 Restore My Account
               </Button>

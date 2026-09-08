@@ -51,7 +51,10 @@ const buildRestaurantOrderNotification = (orderData = {}) => {
     body: itemCount > 0
       ? `${itemCount} item${itemCount === 1 ? '' : 's'} - ₹${total.toFixed(2)}`
       : 'A new order is waiting for review',
-    tag: `restaurant-order-${orderId}`,
+    // Prefer the backend tag: the service worker renders the push with the same
+    // value, so if both paths fire the second showNotification() replaces the
+    // first instead of stacking a second banner on the device.
+    tag: orderData.notificationTag || `restaurant-order-${orderId}`,
     data: {
       orderId,
       targetUrl: `/restaurant/orders/${orderData.orderMongoId || orderData.orderId || ''}`,
@@ -436,6 +439,10 @@ const showBackgroundOrderNotification = async (orderData) => {
 
   if (
     shouldSkipDuplicateOsNotification({
+      // The backend event id is what the push carries, so passing it through
+      // makes the socket fallback and the push resolve to the same dedupe key.
+      eventId: orderData?.eventId || orderData?.idempotencyKey,
+      tag: orderData?.notificationTag,
       orderMongoId: orderData?.orderMongoId || orderData?._id,
       orderId: orderData?.orderId || orderData?.order_id,
       orderStatus: orderData?.status || orderData?.orderStatus || 'new',

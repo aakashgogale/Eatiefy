@@ -3,6 +3,8 @@ import { registerDeliveryPartner, updateDeliveryPartnerProfile, updateDeliveryPa
 import { createDeliveryCashDepositOrder, getDeliveryPartnerWalletEnhanced, requestDeliveryWithdrawal, verifyDeliveryCashDepositPayment, submitCashDepositByHand } from '../services/deliveryFinance.service.js';
 import { getDeliveryCashLimitSettings, getDeliveryEmergencyHelp } from '../../admin/services/admin.service.js';
 import { DeliveryBonusTransaction } from '../../admin/models/deliveryBonusTransaction.model.js';
+import { FoodDeliveryWithdrawal } from '../models/foodDeliveryWithdrawal.model.js';
+import { FoodDeliveryCashDeposit } from '../models/foodDeliveryCashDeposit.model.js';
 import { validateDeliveryRegisterDto, validateDeliveryProfileUpdateDto, validateDeliveryBankDetailsDto } from '../validators/delivery.validator.js';
 import { sendResponse } from '../../../../utils/response.js';
 import { getDeliveryReferralStats } from '../services/deliveryReferral.service.js';
@@ -166,10 +168,74 @@ export const getWalletController = async (req, res, next) => {
                           ? new Set(['withdrawal', 'deposit'])
                           : new Set([requestedTypeRaw]);
 
-                wallet.transactions = (wallet.transactions || [])
-                    .filter((tx) => allowedTypes.has(String(tx?.type || '').trim().toLowerCase()))
-                    .map(normalizeWalletTransaction)
-                    .slice(0, limit);
+                // Withdrawals and deposits are read straight from their own
+                // collections. Filtering the wallet's merged feed instead meant
+                // the type filter ran *after* that feed had already been cut to
+                // its newest 50 rows across every type — so a payout could be
+                // pushed out by delivery earnings and vanish from history.
+                const directRows = [];
+
+                if (allowedTypes.has('withdrawal')) {
+                    const withdrawals = await FoodDeliveryWithdrawal.find({ deliveryPartnerId })
+                        .sort({ createdAt: -1 })
+                        .limit(limit)
+                        .lean();
+                    directRows.push(
+                        ...(withdrawals || []).map((w) => ({
+                            id: w._id,
+                            _id: w._id,
+                            type: 'withdrawal',
+                            amount: w.amount,
+                            status:
+                                w.status === 'pending'
+                                    ? 'Pending'
+                                    : w.status === 'approved'
+                                      ? 'Completed'
+                                      : 'Rejected',
+                            date: w.createdAt,
+                            createdAt: w.createdAt,
+                            processedAt: w.processedAt || null,
+                            failureReason: w.rejectionReason || null,
+                            transactionId: w.transactionId || null,
+                            description: `Withdrawal Request - ${w.paymentMethod}`,
+                            payoutMethod: w.paymentMethod
+                        }))
+                    );
+                }
+
+                if (allowedTypes.has('deposit')) {
+                    const deposits = await FoodDeliveryCashDeposit.find({ deliveryPartnerId })
+                        .sort({ createdAt: -1 })
+                        .limit(limit)
+                        .lean();
+                    directRows.push(
+                        ...(deposits || []).map((d) => ({
+                            id: d._id,
+                            _id: d._id,
+                            type: 'deposit',
+                            amount: d.amount,
+                            status: d.status || 'Pending',
+                            date: d.createdAt,
+                            createdAt: d.createdAt,
+                            description: 'Cash limit settlement',
+                            paymentMethod: d.paymentMethod || 'cash',
+                            razorpayPaymentId: d.razorpayPaymentId || '',
+                            razorpayOrderId: d.razorpayOrderId || ''
+                        }))
+                    );
+                }
+
+                if (directRows.length || allowedTypes.has('withdrawal') || allowedTypes.has('deposit')) {
+                    wallet.transactions = directRows
+                        .map(normalizeWalletTransaction)
+                        .sort((a, b) => new Date(b.date) - new Date(a.date))
+                        .slice(0, limit);
+                } else {
+                    wallet.transactions = (wallet.transactions || [])
+                        .filter((tx) => allowedTypes.has(String(tx?.type || '').trim().toLowerCase()))
+                        .map(normalizeWalletTransaction)
+                        .slice(0, limit);
+                }
             }
 
             return sendResponse(res, 200, 'Wallet fetched successfully', { wallet });

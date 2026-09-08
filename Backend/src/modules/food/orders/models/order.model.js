@@ -304,11 +304,21 @@ const orderSchema = new mongoose.Schema(
         },
         restaurantNote: { type: String, default: '', trim: true },
         note: { type: String, default: '', trim: true },
+        cancellationReason: { type: String, default: '', trim: true },
+        cancelledAt: { type: Date, default: null },
+        cancelledBy: { type: String, default: '', trim: true },
         sendCutlery: { type: Boolean, default: true },
         preparationTime: { type: Number, default: 0 },
         acceptedAt: { type: Date },
         deliveryFleet: { type: String, default: 'standard', trim: true },
         scheduledAt: { type: Date, default: null },
+        /**
+         * Restaurant → delivery-address distance in km, resolved at order time
+         * alongside the rider earning. It was previously written by the
+         * background geocode update but never declared here, so Mongoose's
+         * strict mode silently dropped it and the distance was lost.
+         */
+        distanceKm: { type: Number, default: null, min: 0 },
         riderEarning: { type: Number, default: 0, min: 0 },
         platformProfit: { type: Number, default: 0, min: 0 },
         /** Plain 4-digit OTP for handover; cleared after successful verify (never expose to partner in API responses). */

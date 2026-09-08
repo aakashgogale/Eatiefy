@@ -6,6 +6,7 @@ import AdminLayout from "./AdminLayout";
 import AuthRedirect from "@food/components/AuthRedirect";
 import Loader from "@food/components/Loader";
 import useModuleAccess from "@food/hooks/useModuleAccess";
+import { AdminShellSkeleton } from "@food/components/ui/loading-skeletons";
 
 const AdminHome = lazy(() => import("@food/pages/admin/AdminHome"));
 const PointOfSale = lazy(() => import("@food/pages/admin/PointOfSale"));
@@ -144,8 +145,10 @@ const AdminForgotPassword = lazy(() => import("@food/pages/admin/auth/AdminForgo
 
 export default function AdminRouter() {
   const { diningEnabled } = useModuleAccess();
+  // Admin-specific fallback. `null` here left a blank screen on slow networks,
+  // and the outer boundary would otherwise have shown the customer app shell.
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<AdminShellSkeleton />}>
       <Routes>
         {/* Protected Routes - With Layout */}
         {/* Admin Login - Same as earlier */}

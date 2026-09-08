@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import { motion, AnimatePresence } from "framer-motion"
@@ -26,6 +26,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@food/components/ui/dialog"
+import {
+  normalizeRestaurantProfile,
+  maskAccountNumber,
+} from "@food/utils/restaurantProfile"
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
 import { restaurantAPI } from "@food/api"
@@ -65,6 +69,9 @@ export default function OutletInfo() {
   
   // State management
   const [restaurantData, setRestaurantData] = useState(null)
+  // Same normalized profile Edit mode builds from, so view mode shows every
+  // saved field instead of only the two it used to hard-code.
+  const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const [restaurantName, setRestaurantName] = useState("")
   const [cuisineTags, setCuisineTags] = useState("")
@@ -90,7 +97,9 @@ export default function OutletInfo() {
       if (!data) return
 
       setRestaurantData(data)
-      setRestaurantName(data.name || "")
+      const normalized = normalizeRestaurantProfile(data)
+      setProfile(normalized)
+      setRestaurantName(normalized?.restaurantName || data.name || "")
       setRestaurantId(data.restaurantId || data.id || "")
       setRestaurantMongoId(String(data.id || data._id || ""))
       setAddress(formatRestaurantDisplayAddress(data.location, data))
@@ -156,6 +165,91 @@ export default function OutletInfo() {
       window.removeEventListener("ownerDataUpdated", handleRestaurantDataUpdate)
     }
   }, [location.pathname, location.state?.savedLocation])
+
+  // Everything Outlet Info shows in view mode, derived from the one normalized
+  // profile. Adding a field here is the only change needed for it to appear —
+  // no per-field JSX to keep in sync with Edit mode.
+  const infoSections = useMemo(() => {
+    const p = profile
+    if (!p) return []
+
+    const loc = p.location || {}
+    const fullAddress =
+      [loc.addressLine1, loc.addressLine2, loc.landmark, loc.area, loc.city, loc.state, loc.pincode]
+        .map((part) => String(part || "").trim())
+        .filter(Boolean)
+        .join(", ") || loc.formattedAddress
+
+    const dietary = [
+      p.pureVeganRestaurant ? "Pure Vegan" : null,
+      p.pureVegRestaurant && !p.pureVeganRestaurant ? "Pure Veg" : null,
+    ].filter(Boolean)
+
+    return [
+      {
+        title: "Outlet",
+        fields: [
+          { label: "Restaurant Name", value: p.restaurantName },
+          { label: "Cuisines", value: p.cuisines.join(", ") },
+          { label: "Dietary", value: dietary.join(", ") },
+          { label: "Primary Contact", value: p.primaryContactNumber },
+          { label: "Estimated Delivery Time", value: p.estimatedDeliveryTime },
+        ],
+      },
+      {
+        title: "Location",
+        fields: [
+          { label: "Address", value: fullAddress || address },
+          { label: "Area", value: loc.area },
+          { label: "City", value: loc.city },
+          { label: "State", value: loc.state },
+          { label: "Pincode", value: loc.pincode },
+          { label: "Landmark", value: loc.landmark },
+          {
+            label: "Coordinates",
+            value: loc.latitude && loc.longitude ? `${loc.latitude}, ${loc.longitude}` : "",
+          },
+        ],
+      },
+      {
+        title: "Operating Hours",
+        fields: [
+          { label: "Opening Time", value: p.openingTime },
+          { label: "Closing Time", value: p.closingTime },
+          { label: "Open Days", value: p.openDays.join(", ") },
+        ],
+      },
+      {
+        title: "Owner",
+        fields: [
+          { label: "Owner Name", value: p.ownerName },
+          { label: "Owner Phone", value: p.ownerPhone },
+          { label: "Owner Email", value: p.ownerEmail },
+        ],
+      },
+      {
+        title: "Bank & KYC",
+        fields: [
+          { label: "PAN Number", value: p.panNumber },
+          { label: "Name on PAN", value: p.nameOnPan },
+          { label: "Account Holder", value: p.accountHolderName },
+          { label: "Account Number", value: maskAccountNumber(p.accountNumber) },
+          { label: "IFSC Code", value: p.ifscCode },
+          { label: "Account Type", value: p.accountType },
+          { label: "GST Registered", value: p.gstRegistered ? "Yes" : "No" },
+          { label: "GST Number", value: p.gstRegistered ? p.gstNumber : "" },
+          { label: "GST Legal Name", value: p.gstRegistered ? p.gstLegalName : "" },
+        ],
+      },
+      {
+        title: "FSSAI",
+        fields: [
+          { label: "FSSAI Number", value: p.fssaiNumber },
+          { label: "FSSAI Expiry", value: p.fssaiExpiry },
+        ],
+      },
+    ]
+  }, [profile, address])
 
   // Lenis smooth scrolling
   useEffect(() => {
@@ -414,49 +508,50 @@ export default function OutletInfo() {
 
         {/* Info Content Section */}
         <div className="px-5 pt-8 pb-12 space-y-6">
-          <div className="space-y-4">
-
-
-            {/* Restaurant Name Card */}
-            <motion.div 
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-gradient-to-br from-blue-50/40 to-blue-50/80 rounded-[1.5rem] p-5 border border-blue-100/50 shadow-sm relative"
-            >
-              <p className="text-[10px] text-[#2E7D52] font-black uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] rounded-full"></span>
-                Restaurant Name
-              </p>
-              <p className="text-lg font-black text-gray-900 group-hover:text-[#2E7D52] transition-colors">
-                {loading ? "Loading..." : (restaurantName || "N/A")}
-              </p>
-            </motion.div>
-
-
-
-            {/* Address Card */}
-            <motion.div 
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="bg-gradient-to-br from-gray-50 to-gray-100/50 rounded-[1.5rem] p-5 border border-gray-200/50 shadow-sm relative"
-            >
-              <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 bg-gray-500 rounded-full"></span>
-                Location Address
-              </p>
-              <div className="flex items-start gap-3">
-                <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-100 shrink-0">
-                  <MapPin className="w-5 h-5 text-[#2E7D52]" />
-                </div>
-                <p className="text-[15px] font-bold text-gray-700 leading-snug">
-                  {loading ? "Loading..." : (address || "No address found")}
-                </p>
-              </div>
-            </motion.div>
-          </div>
-
-
+          {loading ? (
+            <div className="space-y-4">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="h-28 rounded-[1.5rem] bg-gray-100 animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {infoSections.map((section, index) => (
+                <motion.div
+                  key={section.title}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: Math.min(index * 0.05, 0.3) }}
+                  className="bg-gradient-to-br from-gray-50 to-gray-100/50 rounded-[1.5rem] p-5 border border-gray-200/50 shadow-sm"
+                >
+                  <p className="text-[10px] text-[#2E7D52] font-black uppercase tracking-widest mb-4 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] rounded-full" />
+                    {section.title}
+                  </p>
+                  <div className="space-y-3">
+                    {section.fields.map((field) => {
+                      const value = String(field.value ?? "").trim()
+                      return (
+                        <div key={field.label} className="flex flex-col gap-0.5">
+                          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                            {field.label}
+                          </p>
+                          {value ? (
+                            <p className="text-[15px] font-bold text-gray-800 leading-snug break-words">
+                              {value}
+                            </p>
+                          ) : (
+                            /* Genuinely unset — never a placeholder that reads like real data. */
+                            <p className="text-[13px] font-semibold text-gray-400 italic">Not set</p>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

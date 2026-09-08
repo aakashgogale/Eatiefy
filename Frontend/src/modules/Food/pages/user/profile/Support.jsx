@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { Link, useNavigate, useLocation } from "react-router-dom"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
@@ -10,13 +10,21 @@ import { toast } from "sonner"
 import { ArrowLeft, Building2, HelpCircle, ShoppingBag, ChevronRight } from "lucide-react"
 
 export default function Support() {
-  const [step, setStep] = useState(() => sessionStorage.getItem("support_step") || "pick")
-  const [type, setType] = useState(() => sessionStorage.getItem("support_type") || "")
+  const location = useLocation()
+  const [step, setStep] = useState(() => {
+    if (location?.state?.order) return location.state.step || "order_issue"
+    return sessionStorage.getItem("support_step") || "pick"
+  })
+  const [type, setType] = useState(() => {
+    if (location?.state?.order) return location.state.type || "order"
+    return sessionStorage.getItem("support_type") || ""
+  })
   const [orders, setOrders] = useState([])
   const [restaurants, setRestaurants] = useState([])
   const [selectedOrder, setSelectedOrder] = useState(() => {
-    const saved = sessionStorage.getItem("support_selectedOrder");
-    return saved ? JSON.parse(saved) : null;
+    if (location?.state?.order) return location.state.order
+    const saved = sessionStorage.getItem("support_selectedOrder")
+    return saved ? JSON.parse(saved) : null
   })
   const [selectedRestaurant, setSelectedRestaurant] = useState(() => {
     const saved = sessionStorage.getItem("support_selectedRestaurant");
@@ -248,9 +256,9 @@ export default function Support() {
           <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-slate-900 dark:text-white ml-4">Help & Support</h1>
         </div>
 
-        <Card className="bg-gradient-to-br from-[#DC2626]/5 to-white dark:from-[#DC2626]/10 dark:to-[#1a1a1a] rounded-2xl shadow-sm border border-[#DC2626]/10 dark:border-gray-800 mb-5 md:mb-6 overflow-hidden">
+        <Card className="bg-gradient-to-br from-[#1F6B45]/5 to-white dark:from-[#1F6B45]/10 dark:to-[#1a1a1a] rounded-2xl shadow-sm border border-[#1F6B45]/10 dark:border-gray-800 mb-5 md:mb-6 overflow-hidden">
           <CardContent className="p-5 md:p-6 relative">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-[#DC2626]/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
+            <div className="absolute top-0 right-0 w-32 h-32 bg-[#1F6B45]/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
             <div className="relative z-10">
               <h2 className="text-lg md:text-xl font-bold text-slate-900 dark:text-white">How can we help you?</h2>
               <p className="text-sm md:text-base text-slate-600 dark:text-slate-400 mt-1.5">Raise a support ticket and track updates seamlessly.</p>
@@ -262,36 +270,36 @@ export default function Support() {
           <CardContent className="p-4 space-y-4">
             {step === "pick" && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <button onClick={() => handlePick("order")} className="group w-full bg-white dark:bg-[#1a1a1a] border border-slate-100 dark:border-gray-800 rounded-2xl p-5 text-left hover:border-[#DC2626]/30 dark:hover:border-[#DC2626]/50 hover:shadow-[0_8px_20px_rgba(220,38,38,0.06)] transition-all">
+                <button onClick={() => handlePick("order")} className="group w-full bg-white dark:bg-[#1a1a1a] border border-slate-100 dark:border-gray-800 rounded-2xl p-5 text-left hover:border-[#1F6B45]/30 dark:hover:border-[#1F6B45]/50 hover:shadow-[0_8px_20px_rgba(220,38,38,0.06)] transition-all">
                   <div className="flex items-center justify-between">
-                    <div className="bg-slate-50 dark:bg-gray-800/80 rounded-full p-3 group-hover:bg-[#DC2626]/10 transition-colors">
-                      <ShoppingBag className="h-5 w-5 md:h-6 md:w-6 text-slate-700 dark:text-slate-300 group-hover:text-[#DC2626] transition-colors" />
+                    <div className="bg-slate-50 dark:bg-gray-800/80 rounded-full p-3 group-hover:bg-[#1F6B45]/10 transition-colors">
+                      <ShoppingBag className="h-5 w-5 md:h-6 md:w-6 text-slate-700 dark:text-slate-300 group-hover:text-[#1F6B45] transition-colors" />
                     </div>
-                    <ChevronRight className="h-5 w-5 text-slate-300 group-hover:text-[#DC2626] transition-colors" />
+                    <ChevronRight className="h-5 w-5 text-slate-300 group-hover:text-[#1F6B45] transition-colors" />
                   </div>
-                  <p className="mt-4 text-base md:text-lg font-bold text-slate-900 dark:text-white group-hover:text-[#DC2626] transition-colors">Order Issue</p>
+                  <p className="mt-4 text-base md:text-lg font-bold text-slate-900 dark:text-white group-hover:text-[#1F6B45] transition-colors">Order Issue</p>
                   <p className="text-sm text-slate-500 dark:text-gray-400 mt-1.5 leading-relaxed">Missing item, wrong item, delivery issue</p>
                 </button>
 
-                <button onClick={() => handlePick("restaurant")} className="group w-full bg-white dark:bg-[#1a1a1a] border border-slate-100 dark:border-gray-800 rounded-2xl p-5 text-left hover:border-[#DC2626]/30 dark:hover:border-[#DC2626]/50 hover:shadow-[0_8px_20px_rgba(220,38,38,0.06)] transition-all">
+                <button onClick={() => handlePick("restaurant")} className="group w-full bg-white dark:bg-[#1a1a1a] border border-slate-100 dark:border-gray-800 rounded-2xl p-5 text-left hover:border-[#1F6B45]/30 dark:hover:border-[#1F6B45]/50 hover:shadow-[0_8px_20px_rgba(220,38,38,0.06)] transition-all">
                   <div className="flex items-center justify-between">
-                    <div className="bg-slate-50 dark:bg-gray-800/80 rounded-full p-3 group-hover:bg-[#DC2626]/10 transition-colors">
-                      <Building2 className="h-5 w-5 md:h-6 md:w-6 text-slate-700 dark:text-slate-300 group-hover:text-[#DC2626] transition-colors" />
+                    <div className="bg-slate-50 dark:bg-gray-800/80 rounded-full p-3 group-hover:bg-[#1F6B45]/10 transition-colors">
+                      <Building2 className="h-5 w-5 md:h-6 md:w-6 text-slate-700 dark:text-slate-300 group-hover:text-[#1F6B45] transition-colors" />
                     </div>
-                    <ChevronRight className="h-5 w-5 text-slate-300 group-hover:text-[#DC2626] transition-colors" />
+                    <ChevronRight className="h-5 w-5 text-slate-300 group-hover:text-[#1F6B45] transition-colors" />
                   </div>
-                  <p className="mt-4 text-base md:text-lg font-bold text-slate-900 dark:text-white group-hover:text-[#DC2626] transition-colors">Restaurant Issue</p>
+                  <p className="mt-4 text-base md:text-lg font-bold text-slate-900 dark:text-white group-hover:text-[#1F6B45] transition-colors">Restaurant Issue</p>
                   <p className="text-sm text-slate-500 dark:text-gray-400 mt-1.5 leading-relaxed">Service, listing info, behavior report</p>
                 </button>
 
-                <button onClick={() => handlePick("other")} className="group w-full bg-white dark:bg-[#1a1a1a] border border-slate-100 dark:border-gray-800 rounded-2xl p-5 text-left hover:border-[#DC2626]/30 dark:hover:border-[#DC2626]/50 hover:shadow-[0_8px_20px_rgba(220,38,38,0.06)] transition-all">
+                <button onClick={() => handlePick("other")} className="group w-full bg-white dark:bg-[#1a1a1a] border border-slate-100 dark:border-gray-800 rounded-2xl p-5 text-left hover:border-[#1F6B45]/30 dark:hover:border-[#1F6B45]/50 hover:shadow-[0_8px_20px_rgba(220,38,38,0.06)] transition-all">
                   <div className="flex items-center justify-between">
-                    <div className="bg-slate-50 dark:bg-gray-800/80 rounded-full p-3 group-hover:bg-[#DC2626]/10 transition-colors">
-                      <HelpCircle className="h-5 w-5 md:h-6 md:w-6 text-slate-700 dark:text-slate-300 group-hover:text-[#DC2626] transition-colors" />
+                    <div className="bg-slate-50 dark:bg-gray-800/80 rounded-full p-3 group-hover:bg-[#1F6B45]/10 transition-colors">
+                      <HelpCircle className="h-5 w-5 md:h-6 md:w-6 text-slate-700 dark:text-slate-300 group-hover:text-[#1F6B45] transition-colors" />
                     </div>
-                    <ChevronRight className="h-5 w-5 text-slate-300 group-hover:text-[#DC2626] transition-colors" />
+                    <ChevronRight className="h-5 w-5 text-slate-300 group-hover:text-[#1F6B45] transition-colors" />
                   </div>
-                  <p className="mt-4 text-base md:text-lg font-bold text-slate-900 dark:text-white group-hover:text-[#DC2626] transition-colors">Other Issue</p>
+                  <p className="mt-4 text-base md:text-lg font-bold text-slate-900 dark:text-white group-hover:text-[#1F6B45] transition-colors">Other Issue</p>
                   <p className="text-sm text-slate-500 dark:text-gray-400 mt-1.5 leading-relaxed">Account, app, payment or general query</p>
                 </button>
               </div>
@@ -358,9 +366,9 @@ export default function Support() {
                 <Textarea placeholder="Describe the issue (optional)" value={description} onChange={(e) => setDescription(e.target.value)} className="min-h-[100px] placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-white bg-slate-50 dark:bg-[#111] border-slate-200 dark:border-gray-800 focus-visible:ring-2 focus-visible:ring-slate-200 dark:focus-visible:ring-slate-800 focus-visible:border-transparent rounded-xl text-base p-4" />
                 <div className="flex flex-col sm:flex-row gap-3 mt-4">
                   <Button 
-                    onClick={() => submitTicket({ type: "order", orderId: selectedOrder._id || selectedOrder.id, issueType, description })} 
+                    onClick={() => submitTicket({ type: "order", orderId: selectedOrder._id || selectedOrder.id || selectedOrder.orderId, issueType, description })} 
                     disabled={!issueType || submitting}
-                    className="flex-1 bg-[#DC2626] hover:bg-[#B91C1C] text-white font-semibold h-12 rounded-xl shadow-[0_4px_14px_rgba(220,38,38,0.25)] hover:shadow-[0_6px_20px_rgba(220,38,38,0.3)] transition-all"
+                    className="flex-1 bg-[#1F6B45] hover:bg-[#1A5C3B] text-white font-semibold h-12 rounded-xl shadow-[0_4px_14px_rgba(220,38,38,0.25)] hover:shadow-[0_6px_20px_rgba(220,38,38,0.3)] transition-all"
                   >
                     {submitting ? "Submitting..." : "Submit Ticket"}
                   </Button>
@@ -432,7 +440,7 @@ export default function Support() {
                   <Button 
                     onClick={() => submitTicket({ type: "restaurant", restaurantId: selectedRestaurant._id || selectedRestaurant.id, issueType, description })} 
                     disabled={!issueType || submitting}
-                    className="flex-1 bg-[#DC2626] hover:bg-[#B91C1C] text-white font-semibold h-12 rounded-xl shadow-[0_4px_14px_rgba(220,38,38,0.25)] hover:shadow-[0_6px_20px_rgba(220,38,38,0.3)] transition-all"
+                    className="flex-1 bg-[#1F6B45] hover:bg-[#1A5C3B] text-white font-semibold h-12 rounded-xl shadow-[0_4px_14px_rgba(220,38,38,0.25)] hover:shadow-[0_6px_20px_rgba(220,38,38,0.3)] transition-all"
                   >
                     {submitting ? "Submitting..." : "Submit Ticket"}
                   </Button>
@@ -450,7 +458,7 @@ export default function Support() {
                   <Button 
                     onClick={() => submitTicket({ type: "other", issueType: subject || "Other", description })} 
                     disabled={!subject || submitting}
-                    className="flex-1 bg-[#DC2626] hover:bg-[#B91C1C] text-white font-semibold h-12 rounded-xl shadow-[0_4px_14px_rgba(220,38,38,0.25)] hover:shadow-[0_6px_20px_rgba(220,38,38,0.3)] transition-all"
+                    className="flex-1 bg-[#1F6B45] hover:bg-[#1A5C3B] text-white font-semibold h-12 rounded-xl shadow-[0_4px_14px_rgba(220,38,38,0.25)] hover:shadow-[0_6px_20px_rgba(220,38,38,0.3)] transition-all"
                   >
                     {submitting ? "Submitting..." : "Submit Ticket"}
                   </Button>

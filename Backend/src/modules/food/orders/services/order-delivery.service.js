@@ -282,6 +282,9 @@ function emitOrderUpdate(order, deliveryPartnerId, options = {}) {
         {
           title: userTitle,
           body: userBody,
+          idempotencyKey: `delivery_status_user_${status}_${order._id}`,
+          eventId: `delivery_status_user_${status}_${order._id}`,
+          tag: `delivery_status_${status}_${order._id}`,
           // Must include notification payload so Android/iOS show tray UI when app is killed
           data: {
             type: 'order_status_update',
@@ -289,6 +292,8 @@ function emitOrderUpdate(order, deliveryPartnerId, options = {}) {
             orderMongoId: order._id?.toString?.() || '',
             orderStatus: status,
             link: `/food/user/orders/${order._id?.toString?.() || ''}`,
+            tag: `delivery_status_${status}_${order._id}`,
+            eventId: `delivery_status_user_${status}_${order._id}`,
           },
         },
       );
@@ -301,6 +306,9 @@ function emitOrderUpdate(order, deliveryPartnerId, options = {}) {
           title: riderTitle,
           body: riderBody,
           dataOnly: true,
+          idempotencyKey: `delivery_status_rider_${status}_${order._id}`,
+          eventId: `delivery_status_rider_${status}_${order._id}`,
+          tag: `delivery_status_${status}_${order._id}`,
           data: {
             type: status === 'delivered' ? 'order_completed' : 'order_status_update',
             orderId: displayOrderId,
@@ -309,6 +317,8 @@ function emitOrderUpdate(order, deliveryPartnerId, options = {}) {
             body: riderBody,
             paymentMethod: order.payment?.method || order.paymentMethod,
             amountCollected: String(order.pricing?.total || order.amounts?.totalCustomerPaid || 0),
+            tag: `delivery_status_${status}_${order._id}`,
+            eventId: `delivery_status_rider_${status}_${order._id}`,
           },
         },
       );
@@ -749,12 +759,17 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
         {
           title: `Delivery partner assigned`,
           body: `A delivery partner has accepted Order #${order._id.toString()}.`,
+          idempotencyKey: `delivery_accepted_user_${order._id}`,
+          eventId: `delivery_accepted_user_${order._id}`,
+          tag: `delivery_accepted_${order._id}`,
           data: {
             type: 'delivery_accepted',
             orderId: order._id.toString(),
             orderMongoId: order._id?.toString?.() || '',
             dispatchStatus: order.dispatch?.status,
             link: '/food/user/orders',
+            tag: `delivery_accepted_${order._id}`,
+            eventId: `delivery_accepted_user_${order._id}`,
           },
         },
       );
@@ -764,12 +779,17 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
         {
           title: `Rider assigned`,
           body: `Order #${order._id.toString()} is now assigned to a delivery partner.`,
+          idempotencyKey: `delivery_accepted_restaurant_${order._id}`,
+          eventId: `delivery_accepted_restaurant_${order._id}`,
+          tag: `delivery_accepted_${order._id}`,
           data: {
             type: 'delivery_accepted',
             orderId: order._id.toString(),
             orderMongoId: order._id?.toString?.() || '',
             dispatchStatus: order.dispatch?.status,
             link: '/food/restaurant/orders',
+            tag: `delivery_accepted_${order._id}`,
+            eventId: `delivery_accepted_restaurant_${order._id}`,
           },
         },
       );
@@ -885,6 +905,10 @@ export async function confirmReachedPickupDelivery(orderId, deliveryPartnerId) {
       .select('name')
       .lean();
 
+    const orderMongoId = String(order._id?.toString?.() || order._id || '');
+    const eventKey = `restaurant:rider_arrived:${orderMongoId}`;
+    const notificationTag = `restaurant-rider-${orderMongoId}`;
+
     await notifyOwnersSafely(
       [{ ownerType: 'RESTAURANT', ownerId: order.restaurantId }],
       {
@@ -892,8 +916,14 @@ export async function confirmReachedPickupDelivery(orderId, deliveryPartnerId) {
         body: `${partner?.name || 'The delivery partner'} has arrived at ${
           restaurant?.restaurantName || 'your restaurant'
         } to pick up Order #${order._id.toString()}.`,
+        idempotencyKey: eventKey,
+        eventId: eventKey,
+        tag: notificationTag,
         data: {
           type: 'rider_arrived',
+          eventId: eventKey,
+          idempotencyKey: eventKey,
+          tag: notificationTag,
           orderId: String(order._id.toString()),
           orderMongoId: String(order._id),
           partnerName: partner?.name || '',

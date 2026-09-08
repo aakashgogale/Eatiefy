@@ -1,8 +1,10 @@
+import { setupPdfFonts } from "@food/utils/pdfFontUtils"
+
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
-const formatMoney = (value) => `Rs. ${Number(value || 0).toFixed(2)}`
+const formatMoney = (value) => `₹${Number(value || 0).toFixed(2)}`
 
 // Export utility functions for orders
 export const exportToCSV = (orders, filename = "orders") => {
@@ -231,6 +233,7 @@ export const exportToPDF = async (orders, filename = "orders") => {
       unit: 'mm',
       format: 'a4'
     })
+    setupPdfFonts(doc)
 
     // Add title
     doc.setFontSize(16)
@@ -327,16 +330,19 @@ export const exportToPDF = async (orders, filename = "orders") => {
       body: tableData,
       startY: 28,
       styles: {
+        font: 'Roboto',
         fontSize: 7,
         cellPadding: 2,
       },
       headStyles: {
+        font: 'Roboto',
         fillColor: [59, 130, 246],
         textColor: 255,
         fontStyle: 'bold',
         fontSize: 8
       },
       bodyStyles: {
+        font: 'Roboto',
         fontSize: 7,
         textColor: [30, 30, 30]
       },

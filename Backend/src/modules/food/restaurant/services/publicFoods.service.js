@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { buildZoneServiceabilityClause, resolveServiceZone } from '../../shared/zoneLocation.js';
 import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodRestaurant } from '../models/restaurant.model.js';
 import { getFoodDisplayOtherPrice, getFoodDisplayPrice } from '../../admin/services/foodVariant.service.js';
@@ -40,8 +41,19 @@ export async function listPublicFoods(query = {}) {
     const promoMaxPrice = resolvePromoMaxPrice(query.maxPrice);
 
     const restaurantFilter = { status: 'approved' };
-    if (zoneIdRaw && mongoose.Types.ObjectId.isValid(zoneIdRaw)) {
-        restaurantFilter.zoneId = new mongoose.Types.ObjectId(zoneIdRaw);
+
+    // Same serviceability rule as the restaurant listing: only restaurants in the
+    // caller's service zone, and nothing at all when no zone can be resolved —
+    // this rail must never surface food from an out-of-zone restaurant.
+    const serviceZone = await resolveServiceZone({
+        zoneId: zoneIdRaw,
+        lat: query.lat,
+        lng: query.lng
+    });
+    if (serviceZone) {
+        restaurantFilter.$and = [buildZoneServiceabilityClause(serviceZone)];
+    } else if (String(query.allowUnzoned || '') !== 'true') {
+        return { foods: [], total: 0, requiresLocation: true };
     }
 
     const restaurants = await FoodRestaurant.find(restaurantFilter)

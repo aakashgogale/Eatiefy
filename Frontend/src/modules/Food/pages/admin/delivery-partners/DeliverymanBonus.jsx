@@ -197,7 +197,7 @@ export default function DeliverymanBonus() {
                           {formatCurrency(tx.amount ?? tx.bonus)}
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-700 max-w-xs truncate" title={tx.reference}>
-                          {tx.reference || "—"}
+                          {tx.reference || "ï¿½"}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
                           {formatDate(tx.createdAt)}
@@ -229,14 +229,16 @@ export default function DeliverymanBonus() {
       </div>
 
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <DialogContent className="max-w-md bg-white">
-          <DialogHeader>
+        <DialogContent className="max-w-md bg-white p-0 overflow-hidden gap-0">
+          {/* pr-14 keeps the title clear of the close button, which is
+              absolutely positioned at right-5 by the Dialog primitive. */}
+          <DialogHeader className="px-5 pt-5 pb-4 pr-14 sm:px-6 sm:pt-6 border-b border-slate-100">
             <DialogTitle className="flex items-center gap-2">
-              <Gift className="w-5 h-5 text-violet-600" />
+              <Gift className="w-5 h-5 text-violet-600 shrink-0" />
               Add Delivery Bonus
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleAddBonus} className="space-y-4">
+          <form onSubmit={handleAddBonus} className="px-5 py-5 sm:px-6 space-y-4">
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">Delivery Partner</label>
               <select
@@ -252,7 +254,7 @@ export default function DeliverymanBonus() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Amount (?)</label>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Amount (â‚¹)</label>
               <input
                 type="number"
                 required
@@ -274,7 +276,7 @@ export default function DeliverymanBonus() {
                 placeholder="e.g. Performance bonus"
               />
             </div>
-            <DialogFooter>
+            <DialogFooter className="pt-2 gap-2 sm:gap-3">
               <button
                 type="button"
                 onClick={() => setIsAddOpen(false)}

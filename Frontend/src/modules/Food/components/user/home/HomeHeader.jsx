@@ -79,7 +79,7 @@ export function SearchBarRow({
           }
         }}
       >
-        <Search className={`h-5 w-5 mr-3 transition-colors duration-300 ${isCompact ? "text-gray-400 group-hover:text-[#E23744]" : "text-white/80 group-hover:text-white"}`} strokeWidth={2.5} />
+        <Search className={`h-5 w-5 mr-3 transition-colors duration-300 ${isCompact ? "text-gray-400 group-hover:text-[#1F6B45]" : "text-white/80 group-hover:text-white"}`} strokeWidth={2.5} />
         <div className="flex-1 overflow-hidden relative h-5 pointer-events-none">
           <input
             type="text"
@@ -102,11 +102,11 @@ export function SearchBarRow({
         </div>
         <div 
           data-interactive="true"
-          className={`p-1.5 rounded-full ml-2 transition-all flex items-center justify-center ${isCompact ? "bg-[#E23744]/10 border border-[#E23744]/20" : "bg-white/20 border border-white/30 hover:bg-white/30"}`}
+          className={`p-1.5 rounded-full ml-2 transition-all flex items-center justify-center ${isCompact ? "bg-[#1F6B45]/10 border border-[#1F6B45]/20" : "bg-white/20 border border-white/30 hover:bg-white/30"}`}
           onClick={handleVoice}
           onTouchStart={handleVoice}
         >
-          <Mic className={`h-4 w-4 ${isCompact ? "text-[#E23744]" : "text-white"}`} strokeWidth={2.5} />
+          <Mic className={`h-4 w-4 ${isCompact ? "text-[#1F6B45]" : "text-white"}`} strokeWidth={2.5} />
         </div>
       </div>
 
@@ -503,7 +503,7 @@ export default function HomeHeader({
       {/* Top Header Section with Full-Cover Background Banner Support */}
       <div 
         ref={headerRef}
-        className="relative w-full bg-[#E23744] dark:bg-[#C52332] rounded-b-[2.8rem] sm:rounded-b-[4rem] shadow-xl transition-all overflow-hidden"
+        className="relative w-full bg-[#1F6B45] dark:bg-[#C52332] rounded-b-[2.8rem] sm:rounded-b-[4rem] shadow-xl transition-all overflow-hidden"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}

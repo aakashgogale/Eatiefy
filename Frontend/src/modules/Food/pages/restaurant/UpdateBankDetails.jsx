@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
-import { ArrowLeft, AlertCircle, Upload, Loader2 } from "lucide-react"
+import { ArrowLeft, AlertCircle, Upload, Loader2, Pencil } from "lucide-react"
 import { restaurantAPI, uploadAPI } from "@food/api"
 import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
 import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 import { toast } from "sonner"
+import { maskAccountNumber } from "@food/utils/restaurantProfile"
 
 const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/
 const UPI_REGEX = /^[a-zA-Z0-9._-]{2,256}@[a-zA-Z]{2,64}$/
 
 const EMPTY_FORM = {
+  bankName: "",
+  accountType: "",
   accountHolderName: "",
   accountNumber: "",
   confirmAccountNumber: "",
@@ -28,6 +31,8 @@ export default function UpdateBankDetails() {
   const [lastUpdated, setLastUpdated] = useState("")
 
   const [form, setForm] = useState(EMPTY_FORM)
+  // The page opens in read-only view; Edit reveals the same form, prefilled.
+  const [isEditing, setIsEditing] = useState(false)
   const [errors, setErrors] = useState({})
   const [isQrPickerOpen, setIsQrPickerOpen] = useState(false)
   const qrInputRef = useRef(null)
@@ -45,6 +50,20 @@ export default function UpdateBankDetails() {
       hour12: true,
     })
   }, [lastUpdated])
+
+  // Drives the empty state and the Add/Edit label.
+  const hasAnyDetails = useMemo(
+    () =>
+      Boolean(
+        form.accountHolderName ||
+          form.accountNumber ||
+          form.ifscCode ||
+          form.bankName ||
+          form.upiId ||
+          form.upiQrImage
+      ),
+    [form]
+  )
 
   const validate = () => {
     const nextErrors = {}
@@ -97,6 +116,8 @@ export default function UpdateBankDetails() {
           : String(doc.upiQrImage?.url || "")
 
       setForm({
+        bankName: String(doc.bankName || ""),
+        accountType: String(doc.accountType || ""),
         accountHolderName: String(doc.accountHolderName || ""),
         accountNumber,
         confirmAccountNumber: accountNumber,
@@ -162,9 +183,11 @@ export default function UpdateBankDetails() {
     try {
       setSaving(true)
       await restaurantAPI.updateProfile(payload)
+      // Reload from the backend so view mode shows exactly what was saved.
       await loadProfile()
       setErrors({})
-      alert("Bank details updated successfully")
+      setIsEditing(false)
+      toast.success("Bank details updated successfully")
     } catch (error) {
       alert(error?.response?.data?.message || "Failed to update bank details")
     } finally {
@@ -193,6 +216,80 @@ export default function UpdateBankDetails() {
           <div className="py-12 flex items-center justify-center gap-2 text-gray-600">
             <Loader2 className="w-4 h-4 animate-spin" />
             <span>Loading details...</span>
+          </div>
+        ) : !isEditing ? (
+          /* View mode: every saved detail, read-only, with an explicit Edit action. */
+          <div className="space-y-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-bold text-gray-900">Account details</h2>
+                {formattedUpdatedAt ? (
+                  <p className="text-sm text-gray-500 mt-1">Last updated: {formattedUpdatedAt}</p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditing(true)}
+                className="shrink-0 inline-flex items-center gap-2 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white px-4 py-2 rounded-lg text-sm font-bold active:scale-95 transition-transform"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                {hasAnyDetails ? "Edit" : "Add details"}
+              </button>
+            </div>
+
+            {!hasAnyDetails ? (
+              <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-5 py-10 text-center">
+                <p className="text-sm font-medium text-gray-600">No bank or UPI details saved yet</p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Add them so payouts can reach your account.
+                </p>
+              </div>
+            ) : (
+              <>
+                <dl className="space-y-4">
+                  {[
+                    { label: "Account holder name", value: form.accountHolderName },
+                    { label: "Bank name", value: form.bankName },
+                    // Masked on purpose — the full number is never rendered back.
+                    { label: "Account number", value: maskAccountNumber(form.accountNumber) },
+                    { label: "IFSC code", value: form.ifscCode },
+                    { label: "Account type", value: form.accountType },
+                    { label: "UPI ID", value: form.upiId },
+                  ].map((row) => {
+                    const value = String(row.value ?? "").trim()
+                    return (
+                      <div key={row.label} className="flex flex-col gap-0.5">
+                        <dt className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                          {row.label}
+                        </dt>
+                        <dd
+                          className={`text-[15px] font-semibold break-words ${
+                            value ? "text-gray-900" : "text-gray-400 italic font-medium"
+                          }`}
+                        >
+                          {value || "Not set"}
+                        </dd>
+                      </div>
+                    )
+                  })}
+                </dl>
+
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
+                    UPI QR
+                  </p>
+                  {form.upiQrImage ? (
+                    <img
+                      src={form.upiQrImage}
+                      alt="UPI QR code"
+                      className="h-40 w-40 rounded-xl border border-gray-200 object-contain bg-white"
+                    />
+                  ) : (
+                    <p className="text-[15px] font-medium text-gray-400 italic">Not set</p>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -328,13 +425,28 @@ export default function UpdateBankDetails() {
               </div>
             </div>
 
-            <button
-              type="submit"
-              disabled={saving || uploadingQr}
-              className="w-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white font-bold py-4 rounded-lg text-base transition-colors"
-            >
-              {saving ? "Saving..." : "Submit"}
-            </button>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  // Discard edits by reloading the saved values.
+                  setErrors({})
+                  setIsEditing(false)
+                  loadProfile()
+                }}
+                disabled={saving || uploadingQr}
+                className="flex-1 border border-gray-300 text-gray-700 font-bold py-4 rounded-lg text-base disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving || uploadingQr}
+                className="flex-[2] bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-4 rounded-lg text-base transition-colors"
+              >
+                {saving ? "Saving..." : "Save changes"}
+              </button>
+            </div>
           </form>
         )}
       </div>

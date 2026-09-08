@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react"
+import { publishOnlineStatus } from "@food/utils/restaurantOnlineStatus"
 import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import { motion, AnimatePresence } from "framer-motion"
@@ -13,7 +14,6 @@ const debugError = (...args) => {}
 
 
 const DELIVERY_STATUS_KEY = "restaurant_delivery_status"
-const RESTAURANT_ONLINE_STATUS_KEY = "restaurant_online_status"
 
 export default function DeliverySettings() {
   const navigate = useNavigate()
@@ -50,14 +50,12 @@ export default function DeliverySettings() {
     const value = Boolean(status)
     try {
       localStorage.setItem(DELIVERY_STATUS_KEY, JSON.stringify(value))
-      localStorage.setItem(RESTAURANT_ONLINE_STATUS_KEY, JSON.stringify(value))
     } catch (error) {
       debugError("Error saving delivery status locally:", error)
     }
 
-    window.dispatchEvent(new CustomEvent("restaurantStatusChanged", {
-      detail: { isOnline: value }
-    }))
+    // Single publisher writes the shared mirror and notifies every listener.
+    publishOnlineStatus(value)
   }
 
   // Load delivery status from backend on mount

@@ -903,7 +903,17 @@ export default function ExploreMore() {
         duration: 0.2,
         ease: [0.25, 0.1, 0.25, 1]
       }}
-      className="min-h-screen bg-white overflow-x-hidden pb-24"
+      /*
+       * `overflow-x-hidden` here was what stopped the header sticking: CSS
+       * computes the other axis to `auto`, which turns this element into the
+       * scrollport its `sticky` children resolve against. Because the element
+       * grows with its content and the *page* is what scrolls, the header
+       * stuck to a box that was itself scrolling away.
+       *
+       * `overflow-x-clip` clips the same horizontal overflow without creating
+       * a scroll container, so the header sticks to the viewport.
+       */
+      className="min-h-screen bg-white overflow-x-clip pb-24"
     >
       {/* Header */}
       <motion.div
@@ -913,7 +923,9 @@ export default function ExploreMore() {
           duration: 0.25,
           ease: [0.25, 0.1, 0.25, 1]
         }}
-        className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-50"
+        /* Safe-area padding keeps the row clear of the status bar in the mobile
+           shell without pushing the sticky edge away from the viewport top. */
+        className="bg-white border-b border-gray-200 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] sticky top-0 z-50"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 flex-1">

@@ -76,12 +76,14 @@ export const exportTransactionsToPDF = async (transactions, headers, filename = 
   // Instant PDF download using jsPDF + autoTable (no print dialog)
   const { default: jsPDF } = await import('jspdf')
   const { default: autoTable } = await import('jspdf-autotable')
+  const { setupPdfFonts } = await import('@food/utils/pdfFontUtils')
 
   const doc = new jsPDF({
     orientation: 'landscape',
     unit: 'mm',
     format: 'a4'
   })
+  setupPdfFonts(doc)
 
   const reportDate = new Date().toLocaleString('en-IN', {
     day: '2-digit',
@@ -94,8 +96,10 @@ export const exportTransactionsToPDF = async (transactions, headers, filename = 
 
   // Title
   doc.setFontSize(16)
+  doc.setFont('Roboto', 'bold')
   doc.text(title, 14, 16)
   doc.setFontSize(10)
+  doc.setFont('Roboto', 'normal')
   doc.text(`Generated: ${reportDate}`, 14, 22)
 
   const head = [headers.map(h => h.label)]
@@ -110,8 +114,9 @@ export const exportTransactionsToPDF = async (transactions, headers, filename = 
     head,
     body,
     startY: 28,
-    styles: { fontSize: 8, cellPadding: 2 },
-    headStyles: { fillColor: [0, 0, 0], textColor: 255, fontStyle: 'bold' },
+    styles: { font: 'Roboto', fontSize: 8, cellPadding: 2 },
+    headStyles: { font: 'Roboto', fillColor: [0, 0, 0], textColor: 255, fontStyle: 'bold' },
+    bodyStyles: { font: 'Roboto' },
     alternateRowStyles: { fillColor: [245, 245, 245] },
     margin: { left: 14, right: 14 }
   })

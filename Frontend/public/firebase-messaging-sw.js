@@ -18,6 +18,13 @@ let firebaseInitPromise = null;
 
 const getNotificationKey = (payload) => {
   const data = payload?.data || {};
+
+  // Prefer backend-provided idempotency keys (most reliable for dedup)
+  const backendTag = data.tag || '';
+  const backendEventId = data.eventId || data.idempotencyKey || '';
+  if (backendEventId) return String(backendEventId);
+  if (backendTag) return String(backendTag);
+
   if (data.notificationId || data.messageId || payload?.messageId) {
     return String(data.notificationId || data.messageId || payload.messageId);
   }
@@ -225,12 +232,17 @@ async function showOsNotificationFromPayload(payload) {
   // along in the payload. Falls back to the bundled Eatiefy icon.
   const iconUrl = sanitize(data.icon || data.iconUrl) || DEFAULT_NOTIFICATION_ICON;
 
+  // The OS tag must match what the page renders for the same event (socket
+  // fallback, foreground handler). Same tag => the second render replaces the
+  // first banner instead of stacking a duplicate.
+  const osTag = sanitize(data.tag) || notificationKey || `eatiefy-${Date.now()}`;
+
   await self.registration.showNotification(title, {
     body,
     icon: iconUrl,
     badge: DEFAULT_NOTIFICATION_ICON,
     image,
-    tag: notificationKey || `eatiefy-${Date.now()}`,
+    tag: osTag,
     renotify: data.type === "admin_broadcast",
     silent: false,
     requireInteraction: data.type === "admin_broadcast",

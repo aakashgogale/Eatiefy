@@ -162,13 +162,31 @@ export function validateOrderStatusDto(body) {
             'cancelled_by_restaurant'
         ]),
         note: z.string().optional(),
+        reason: z.string().optional(),
+        cancellationReason: z.string().optional(),
         preparationTime: z.number().int().min(0).optional()
+    }).refine((data) => {
+        if (data.orderStatus === 'cancelled_by_restaurant') {
+            const reasonStr = (data.note || data.reason || data.cancellationReason || '').trim();
+            return reasonStr.length > 0;
+        }
+        return true;
+    }, {
+        message: 'Cancellation reason is required when cancelling an order',
+        path: ['reason']
     });
     const result = schema.safeParse(body);
     if (!result.success) {
         throw new ValidationError(result.error.errors?.[0]?.message || 'Validation failed');
     }
-    return result.data;
+    const data = result.data;
+    const finalReason = (data.note || data.reason || data.cancellationReason || '').trim();
+    return {
+        ...data,
+        note: finalReason,
+        reason: finalReason,
+        cancellationReason: finalReason
+    };
 }
 
 export function validateAssignDeliveryDto(body) {

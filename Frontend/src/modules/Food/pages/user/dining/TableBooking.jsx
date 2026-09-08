@@ -346,7 +346,7 @@ export default function TableBooking() {
         <section className="rounded-[22px] bg-white dark:bg-[#1a1a1a] p-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-none dark:border dark:border-white/5">
           <div className="flex items-center justify-between gap-3 mb-4">
             <span className="text-sm font-medium text-[#2f3545] dark:text-gray-200">Select number of guests</span>
-            <span className="text-xs font-bold text-[#DC2626] dark:text-red-400 bg-[#fdfafc] dark:bg-[#2a1a1a] px-2 py-1 rounded-lg">
+            <span className="text-xs font-bold text-[#1F6B45] dark:text-red-400 bg-[#fdfafc] dark:bg-[#2a1a1a] px-2 py-1 rounded-lg">
                 {remainingSeats} left
             </span>
           </div>
@@ -475,7 +475,7 @@ export default function TableBooking() {
             onClick={handleProceed}
             className={`h-14 w-full rounded-2xl text-lg font-bold transition-all active:scale-[0.98] ${
               canProceed
-                ? "bg-gradient-to-br from-[#DC2626] to-[#7f1010] text-white"
+                ? "bg-gradient-to-br from-[#1F6B45] to-[#7f1010] text-white"
                 : "bg-[#a4abba] dark:bg-[#2a2a2a] text-white/95 dark:text-white/40 cursor-not-allowed"
             }`}
           >

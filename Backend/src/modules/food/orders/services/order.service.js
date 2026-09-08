@@ -581,11 +581,15 @@ export async function createOrder(userId, dto) {
         note: "Order placed",
       },
     ],
-    note: dto.note || "",
-    restaurantNote: dto.restaurantNote || "",
+    note: dto.restaurantNote || dto.note || "",
+    restaurantNote: dto.restaurantNote || dto.note || "",
     sendCutlery: dto.sendCutlery !== false,
     deliveryFleet: dto.deliveryFleet || "standard",
     scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
+    // Persisted so order details / receipts can show the real delivery distance
+    // instead of recomputing (or losing) it. Null for takeaway and for online
+    // orders until the background geocode fills it in.
+    distanceKm: Number.isFinite(distanceKm) ? distanceKm : null,
     riderEarning,
     platformProfit,
   });
@@ -629,6 +633,7 @@ export async function createOrder(userId, dto) {
     const isAwaitingOnlinePayment =
       String(paymentMethod || "").toLowerCase() === "razorpay" &&
       String(payment?.status || "").toLowerCase() !== "paid";
+    const eventType = isAwaitingOnlinePayment ? 'order_created_pending_payment' : 'order_created';
     await notifyOwnersSafely([{ ownerType: "USER", ownerId: userId }], {
       title: isAwaitingOnlinePayment
         ? "Complete Payment to Confirm Order"
@@ -636,13 +641,16 @@ export async function createOrder(userId, dto) {
       body: isAwaitingOnlinePayment
         ? `Order #${order.order_id || order._id} is created. Please complete payment to send it to ${restaurant.restaurantName || "the restaurant"}.`
         : `Your order #${order.order_id || order._id} from ${restaurant.restaurantName || "the restaurant"} has been placed successfully.`,
+      idempotencyKey: `${eventType}_${order._id}`,
+      eventId: `${eventType}_${order._id}`,
+      tag: `${eventType}_${order._id}`,
       data: {
-        type: isAwaitingOnlinePayment
-          ? "order_created_pending_payment"
-          : "order_created",
+        type: eventType,
         orderId: String(order._id),
         orderMongoId: order._id?.toString?.() || "",
         link: `/food/user/orders/${order._id?.toString?.() || ""}`,
+        tag: `${eventType}_${order._id}`,
+        eventId: `${eventType}_${order._id}`,
       },
     });
 
@@ -763,11 +771,16 @@ export async function verifyPayment(userId, dto) {
   await notifyOwnersSafely([{ ownerType: "USER", ownerId: userId }], {
     title: "Payment Successful",
     body: `We have received your payment of ₹${order.payment.amountDue} for Order #${order._id.toString()}.`,
+    idempotencyKey: `payment_success_${order._id}`,
+    eventId: `payment_success_${order._id}`,
+    tag: `payment_success_${order._id}`,
     data: {
       type: "payment_success",
       orderId: String(order._id.toString()),
       orderMongoId: String(order._id),
       link: `/food/user/orders/${order._id?.toString?.() || ""}`,
+      tag: `payment_success_${order._id}`,
+      eventId: `payment_success_${order._id}`,
     },
   });
 
@@ -1092,6 +1105,9 @@ export async function cancelOrder(orderId, userId, reason, refundDestination = "
 
   const from = order.orderStatus;
   order.orderStatus = "cancelled_by_user";
+  order.cancellationReason = reason || "";
+  order.cancelledAt = new Date();
+  order.cancelledBy = "customer";
   pushStatusHistory(order, {
     byRole: "USER",
     byId: userId,
@@ -1274,11 +1290,16 @@ export async function cancelOrder(orderId, userId, reason, refundDestination = "
     {
       title: "Order Cancelled",
       body: `Order #${order.order_id || order._id} has been cancelled successfully.${refundDetail}`,
+      idempotencyKey: `order_cancelled_${order._id}`,
+      eventId: `order_cancelled_${order._id}`,
+      tag: `order_cancelled_${order._id}`,
       data: {
         type: "order_cancelled",
         orderId: String(order._id.toString()),
         orderMongoId: String(order._id),
         link: `/food/user/orders/${order._id?.toString?.() || ""}`,
+        tag: `order_cancelled_${order._id}`,
+        eventId: `order_cancelled_${order._id}`,
       },
     },
   );
@@ -1443,6 +1464,16 @@ export async function updateOrderStatusRestaurant(
     }
     throw new ValidationError(`Current order status '${from}' is further ahead than '${orderStatus}'. Order cannot be moved backwards.`);
   }
+  const isCancelling = String(orderStatus).includes("cancel");
+  if (isCancelling) {
+    const cancellationReasonStr = String(note || "").trim();
+    if (!cancellationReasonStr) {
+      throw new ValidationError("Cancellation reason is required when cancelling an order");
+    }
+    order.cancellationReason = cancellationReasonStr;
+    order.cancelledAt = new Date();
+    order.cancelledBy = "restaurant";
+  }
   order.orderStatus = orderStatus;
 
   if (preparationTime !== undefined && preparationTime !== null && preparationTime > 0) {
@@ -1521,9 +1552,10 @@ export async function updateOrderStatusRestaurant(
   } else if (String(orderStatus).includes("cancel")) {
     const isOnlinePaid = order.payment.method === "razorpay" && (order.payment.status === "paid" || order.payment.status === "refunded");
     const refundDetail = isOnlinePaid ? ` Your refund of ₹${order.pricing.total} is being processed and will be credited to your original payment method within 5-7 working days.` : "";
+    const reasonText = order.cancellationReason ? ` Reason: ${order.cancellationReason}.` : "";
     
     title = "Order Cancelled";
-    body = `Unfortunately, your order has been cancelled by the restaurant.${refundDetail}`;
+    body = `Unfortunately, your order has been cancelled by the restaurant.${reasonText}${refundDetail}`;
   }
 
   // Real-time: status update to restaurant room.
@@ -1537,6 +1569,7 @@ export async function updateOrderStatusRestaurant(
         orderMongoId: order._id?.toString?.(),
         orderId: order._id.toString(),
         orderStatus: order.orderStatus,
+        cancellationReason: order.cancellationReason || "",
         title,
         message: body,
       };
@@ -1591,12 +1624,17 @@ export async function updateOrderStatusRestaurant(
       {
         title: title,
         body: body,
+        idempotencyKey: `order_status_${orderStatus}_${order._id}`,
+        eventId: `order_status_${orderStatus}_${order._id}`,
+        tag: `order_status_${orderStatus}_${order._id}`,
         data: {
           type: "order_status_update",
           orderId: order._id.toString(),
           orderMongoId: order._id?.toString?.() || "",
           orderStatus: String(orderStatus || ""),
           link: `/food/user/orders/${order._id?.toString?.() || ""}`,
+          tag: `order_status_${orderStatus}_${order._id}`,
+          eventId: `order_status_${orderStatus}_${order._id}`,
         },
       },
     );
@@ -1608,6 +1646,9 @@ export async function updateOrderStatusRestaurant(
           title: riderTitle,
           body: riderBody,
           image: "https://i.ibb.co/3m2Yh7r/Eatiefy-Brand-Image.png",
+          idempotencyKey: `order_status_rider_${orderStatus}_${order._id}`,
+          eventId: `order_status_rider_${orderStatus}_${order._id}`,
+          tag: `order_status_${orderStatus}_${order._id}`,
           data: {
             type: "order_status_update",
             orderId: displayOrderId,
@@ -1616,6 +1657,8 @@ export async function updateOrderStatusRestaurant(
             title: riderTitle,
             body: riderBody,
             link: "/food/delivery",
+            tag: `order_status_${orderStatus}_${order._id}`,
+            eventId: `order_status_rider_${orderStatus}_${order._id}`,
           },
         },
       );
@@ -2429,12 +2472,17 @@ export async function completeTakeawayOrderRestaurant(orderId, restaurantId, otp
       {
         title: "Takeaway Order Picked Up",
         body: "Your order has been picked up and marked as completed.",
+        idempotencyKey: `takeaway_picked_up_${order._id}`,
+        eventId: `takeaway_picked_up_${order._id}`,
+        tag: `takeaway_picked_up_${order._id}`,
         data: {
           type: "order_status_update",
           orderId: order._id.toString(),
           orderMongoId: order._id?.toString?.() || "",
           orderStatus: "delivered",
           link: `/food/user/orders/${order._id?.toString?.() || ""}`,
+          tag: `takeaway_picked_up_${order._id}`,
+          eventId: `takeaway_picked_up_${order._id}`,
         },
       }
     );

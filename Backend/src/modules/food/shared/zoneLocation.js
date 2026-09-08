@@ -28,6 +28,57 @@ export const isPointInZone = (lat, lng, zone) => {
     return inside;
 };
 
+/** GeoJSON polygon for a zone's coordinate ring, or null when it is not a ring. */
+export const zoneToGeoPolygon = (zoneDoc) => {
+    const coords = Array.isArray(zoneDoc?.coordinates) ? zoneDoc.coordinates : [];
+    if (coords.length < 3) return null;
+    const ring = coords
+        .map((c) => [Number(c.longitude), Number(c.latitude)])
+        .filter((pair) => pair.every((n) => Number.isFinite(n)));
+    if (ring.length < 3) return null;
+    const first = ring[0];
+    const last = ring[ring.length - 1];
+    if (first[0] !== last[0] || first[1] !== last[1]) ring.push(first);
+    return { type: 'Polygon', coordinates: [ring] };
+};
+
+/**
+ * Resolves the active service zone a discovery request belongs to: the one it
+ * names, or failing that the one covering its coordinates. Returns null when
+ * the request has no serviceable area — callers must then list nothing rather
+ * than falling back to every restaurant.
+ */
+export const resolveServiceZone = async ({ zoneId, lat, lng } = {}) => {
+    const rawZoneId = String(zoneId || '').trim();
+    const selection = 'name zoneName isActive coordinates serviceLocation location';
+
+    if (rawZoneId && mongoose.Types.ObjectId.isValid(rawZoneId)) {
+        const zone = await FoodZone.findById(rawZoneId).select(selection).lean();
+        if (zone && zone.isActive !== false) return zone;
+        return null;
+    }
+
+    const latitude = toFinite(lat);
+    const longitude = toFinite(lng);
+    if (latitude === null || longitude === null) return null;
+
+    const activeZones = await FoodZone.find({ isActive: true }).select(selection).lean();
+    return activeZones.find((zone) => isPointInZone(latitude, longitude, zone)) || null;
+};
+
+/**
+ * Mongo clause matching restaurants serviceable from `zone`: those explicitly
+ * assigned to it, plus those whose stored point falls inside its polygon (older
+ * records were never assigned a zoneId).
+ */
+export const buildZoneServiceabilityClause = (zone) => {
+    if (!zone?._id) return null;
+    const clauses = [{ zoneId: new mongoose.Types.ObjectId(String(zone._id)) }];
+    const polygon = zoneToGeoPolygon(zone);
+    if (polygon) clauses.push({ location: { $geoWithin: { $geometry: polygon } } });
+    return { $or: clauses };
+};
+
 /**
  * Guarantees the selected service zone exists, is active, and actually covers the
  * selected restaurant location. Throws ValidationError otherwise.

@@ -118,7 +118,7 @@ export default function Notifications() {
         timestamp: Date.now(),
         read: false,
         icon: "AlertCircle",
-        iconColor: "text-[#991B1B]",
+        iconColor: "text-[#14512F]",
       }
       setNotificationsList((prev) => {
         const cleaned = prev.filter((item) => !isLegacyMockNotification(item))
@@ -203,7 +203,7 @@ export default function Notifications() {
             </Button>
           </Link>
           <div className="flex items-center gap-2 sm:gap-3 flex-1">
-            <Bell className="h-5 w-5 sm:h-6 sm:w-6 text-[#DC2626] fill-[#DC2626]" />
+            <Bell className="h-5 w-5 sm:h-6 sm:w-6 text-[#1F6B45] fill-[#1F6B45]" />
             <h1 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold text-gray-800 dark:text-white">
               Notifications
             </h1>
@@ -256,7 +256,7 @@ export default function Notifications() {
                   }`}
                 >
                   {!notification.read && (
-                    <div className="absolute top-2 right-2 w-2.5 h-2.5 md:w-3 md:h-3 bg-[#DC2626] rounded-full" />
+                    <div className="absolute top-2 right-2 w-2.5 h-2.5 md:w-3 md:h-3 bg-[#1F6B45] rounded-full" />
                   )}
 
                   <CardContent className="p-3 md:p-4 lg:p-5">

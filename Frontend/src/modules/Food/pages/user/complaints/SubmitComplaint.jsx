@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom"
 import { ArrowLeft, AlertCircle, FileText } from "lucide-react"
 import { orderAPI } from "@food/api"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
+import { toFoodUserPath } from "@food/utils/mainTabRoutes"
 import { toast } from "sonner"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -38,7 +39,7 @@ export default function SubmitComplaint() {
       debugError("Order ID missing from URL params")
       toast.error("Order ID is required")
       setTimeout(() => {
-        navigate("/user/orders")
+        navigate(toFoodUserPath("/user/orders"))
       }, 2000)
       return
     }
@@ -58,7 +59,7 @@ export default function SubmitComplaint() {
           debugError("Order not found in response:", response?.data)
           toast.error("Order not found")
           setTimeout(() => {
-            navigate("/user/orders")
+            navigate(toFoodUserPath("/user/orders"))
           }, 2000)
           return
         }
@@ -73,7 +74,7 @@ export default function SubmitComplaint() {
         debugError("Error fetching order:", error)
         toast.error(error?.response?.data?.message || "Failed to load order details")
         setTimeout(() => {
-          navigate("/user/orders")
+          navigate(toFoodUserPath("/user/orders"))
         }, 2000)
       } finally {
         setLoading(false)
@@ -125,7 +126,7 @@ export default function SubmitComplaint() {
         toast.success("Complaint submitted successfully")
         // Navigate back to order details using the orderId from URL or order._id
         const orderIdForNav = order?._id || orderId
-        navigate(`/user/orders/${orderIdForNav}/details`)
+        navigate(toFoodUserPath(`/user/orders/${orderIdForNav}/details`))
       } else {
         toast.error(response?.data?.message || "Failed to submit complaint")
       }
@@ -164,7 +165,7 @@ export default function SubmitComplaint() {
         <button
           type="button"
           onClick={() => navigate("/user/profile/support")}
-          className="ml-auto text-sm font-semibold text-[#DC2626]"
+          className="ml-auto text-sm font-semibold text-[#1F6B45]"
         >
           View History
         </button>
@@ -206,7 +207,7 @@ export default function SubmitComplaint() {
           <select
             value={formData.complaintType}
             onChange={(e) => setFormData({ ...formData, complaintType: e.target.value })}
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#DC2626] focus:border-transparent"
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1F6B45] focus:border-transparent"
             required
           >
             <option value="">Select complaint type</option>
@@ -228,7 +229,7 @@ export default function SubmitComplaint() {
             value={formData.subject}
             onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
             placeholder="Brief description of your complaint"
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#DC2626] focus:border-transparent"
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1F6B45] focus:border-transparent"
             required
             maxLength={200}
           />
@@ -244,7 +245,7 @@ export default function SubmitComplaint() {
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
             placeholder="Please provide detailed information about your complaint..."
             rows={6}
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#DC2626] focus:border-transparent resize-none"
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1F6B45] focus:border-transparent resize-none"
             required
             maxLength={1000}
           />
@@ -269,7 +270,7 @@ export default function SubmitComplaint() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full bg-[#DC2626] text-white py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-[#991B1B] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-[#1F6B45] text-white py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-[#14512F] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting ? (
               <>

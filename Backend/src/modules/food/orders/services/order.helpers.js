@@ -199,8 +199,21 @@ export function toRestaurantFacingOrder(orderDoc) {
     Math.round((restaurantSubtotal + packagingFee) * 100) / 100,
   );
 
+  const customerNote = order?.restaurantNote || order?.note || "";
+  const statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+  const cancelHistory = statusHistory.findLast?.(h => h?.to?.includes('cancel')) || [...statusHistory].reverse().find(h => h?.to?.includes('cancel'));
+  const isCancelled = order?.orderStatus?.includes('cancel') || order?.status?.includes('cancel');
+  const cancellationReason = isCancelled ? (order?.cancellationReason || cancelHistory?.note || "") : null;
+  const cancelledAt = isCancelled ? (order?.cancelledAt || cancelHistory?.at || null) : null;
+  const cancelledBy = isCancelled ? (order?.cancelledBy || (cancelHistory?.byRole === 'RESTAURANT' ? 'restaurant' : cancelHistory?.byRole === 'USER' ? 'customer' : cancelHistory?.byRole === 'ADMIN' ? 'admin' : 'unknown')) : null;
+
   return {
     ...order,
+    note: customerNote,
+    restaurantNote: customerNote,
+    cancellationReason,
+    cancelledAt,
+    cancelledBy,
     items,
     pricing: {
       ...pricing,
@@ -309,6 +322,12 @@ export function normalizeOrderForClient(orderDoc) {
   const statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
   const lastHistory = statusHistory.length > 0 ? statusHistory[statusHistory.length - 1] : null;
 
+  const cancelHistory = statusHistory.findLast?.(h => h?.to?.includes('cancel')) || [...statusHistory].reverse().find(h => h?.to?.includes('cancel'));
+  const isCancelled = order?.orderStatus?.includes('cancel') || order?.status?.includes('cancel');
+  const cancellationReason = isCancelled ? (order?.cancellationReason || cancelHistory?.note || "") : null;
+  const cancelledAt = isCancelled ? (order?.cancelledAt || cancelHistory?.at || null) : null;
+  const cancelledBy = isCancelled ? (order?.cancelledBy || (cancelHistory?.byRole === 'RESTAURANT' ? 'restaurant' : cancelHistory?.byRole === 'USER' ? 'customer' : cancelHistory?.byRole === 'ADMIN' ? 'admin' : 'unknown')) : null;
+
   return {
     ...order,
     orderMongoId: mongoId,
@@ -319,10 +338,11 @@ export function normalizeOrderForClient(orderDoc) {
     deliveryPartnerId:
       order?.dispatch?.deliveryPartnerId || order?.deliveryPartnerId || null,
     rating: order?.ratings?.restaurant?.rating ?? order?.rating ?? null,
-    restaurantNote: order?.restaurantNote || "",
-    cancellationReason: (order?.orderStatus?.includes('cancel') || order?.status?.includes('cancel')) 
-      ? (statusHistory.findLast(h => h.to?.includes('cancel'))?.note || "")
-      : null,
+    restaurantNote: order?.restaurantNote || order?.note || "",
+    note: order?.restaurantNote || order?.note || "",
+    cancellationReason,
+    cancelledAt,
+    cancelledBy,
     adminStatusNote: (lastHistory && lastHistory.byRole === 'ADMIN' && lastHistory.note?.includes('Admin override'))
       ? `${lastHistory.note} from ${lastHistory.from} to ${lastHistory.to}`
       : null,
@@ -452,11 +472,23 @@ export async function notifyRestaurantNewOrder(orderDoc) {
   try {
     if (!orderDoc || !canExposeOrderToRestaurant(orderDoc)) return;
 
+    const orderMongoId = String(orderDoc._id?.toString?.() || orderDoc._id || '');
+    const displayOrderId = String(orderDoc.order_id || orderDoc.orderId || orderMongoId);
+    const eventKey = `restaurant:new_order:${orderMongoId || displayOrderId}`;
+    const notificationTag = `restaurant-order-${displayOrderId || orderMongoId}`;
+
     const io = getIO();
     if (io) {
-      const payload = toRestaurantFacingOrder(orderDoc);
+      // Same identity the push carries, so the socket fallback and the push
+      // resolve to one notification on the device instead of two.
+      const payload = {
+        ...toRestaurantFacingOrder(orderDoc),
+        eventId: eventKey,
+        idempotencyKey: eventKey,
+        notificationTag,
+      };
       logger.info(
-        `[RestaurantOrders] Emitting new_order to ${rooms.restaurant(orderDoc.restaurantId)} for order ${orderDoc._id?.toString?.() || ''}`,
+        `[RestaurantOrders] Emitting new_order to ${rooms.restaurant(orderDoc.restaurantId)} for order ${orderMongoId}`,
       );
       io.to(rooms.restaurant(orderDoc.restaurantId)).emit("new_order", payload);
     }
@@ -465,15 +497,21 @@ export async function notifyRestaurantNewOrder(orderDoc) {
       [{ ownerType: "RESTAURANT", ownerId: orderDoc.restaurantId }],
       {
         title: "🔔 New order received",
-        body: `Order #${orderDoc.order_id || orderDoc._id} is waiting for review.`,
+        body: `Order #${displayOrderId} is waiting for review.`,
         sound: "default",
         channelId: "restaurant_orders",
         sendToAllDevices: true,
+        idempotencyKey: eventKey,
+        eventId: eventKey,
+        tag: notificationTag,
         data: {
           type: "new_order",
-          orderId: orderDoc._id.toString(),
-          orderMongoId: orderDoc._id?.toString?.() || "",
-          link: `/restaurant/orders/${orderDoc._id?.toString?.() || ""}`,
+          eventId: eventKey,
+          idempotencyKey: eventKey,
+          tag: notificationTag,
+          orderId: displayOrderId,
+          orderMongoId: orderMongoId,
+          link: `/restaurant/orders/${orderMongoId}`,
         },
       },
     );

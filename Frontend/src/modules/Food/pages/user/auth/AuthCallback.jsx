@@ -134,7 +134,7 @@ export default function AuthCallback() {
         <CardContent className="space-y-6 md:space-y-8 p-6 md:p-8 lg:p-10 pt-0 md:pt-0 lg:pt-0">
           {status === "loading" && (
             <div className="flex flex-col items-center justify-center py-8 md:py-12 space-y-4 md:space-y-6">
-              <Loader2 className="h-12 w-12 md:h-16 md:w-16 text-[#DC2626] animate-spin" />
+              <Loader2 className="h-12 w-12 md:h-16 md:w-16 text-[#1F6B45] animate-spin" />
               <p className="text-sm md:text-base text-muted-foreground text-center">
                 Please wait while we verify your credentials...
               </p>
@@ -144,10 +144,10 @@ export default function AuthCallback() {
           {status === "success" && (
             <div className="flex flex-col items-center justify-center py-8 md:py-12 space-y-4 md:space-y-6">
               <div className="relative">
-                <CheckCircle2 className="h-16 w-16 md:h-20 md:w-20 lg:h-24 lg:w-24 text-[#DC2626] animate-in fade-in zoom-in duration-500" />
+                <CheckCircle2 className="h-16 w-16 md:h-20 md:w-20 lg:h-24 lg:w-24 text-[#1F6B45] animate-in fade-in zoom-in duration-500" />
               </div>
               <div className="text-center space-y-2 md:space-y-3">
-                <h3 className="text-xl md:text-2xl lg:text-3xl font-semibold text-[#DC2626] dark:text-[#DC2626]">
+                <h3 className="text-xl md:text-2xl lg:text-3xl font-semibold text-[#1F6B45] dark:text-[#1F6B45]">
                   Welcome!
                 </h3>
                 <p className="text-sm md:text-base text-muted-foreground">
@@ -186,7 +186,7 @@ export default function AuthCallback() {
                 </Button>
                 <Button
                   onClick={handleRetry}
-                  className="flex-1 h-11 md:h-12 text-base md:text-lg bg-[#DC2626] hover:bg-[#991B1B] text-white transition-all hover:shadow-lg active:scale-[0.98]"
+                  className="flex-1 h-11 md:h-12 text-base md:text-lg bg-[#1F6B45] hover:bg-[#14512F] text-white transition-all hover:shadow-lg active:scale-[0.98]"
                 >
                   Try Again
                 </Button>

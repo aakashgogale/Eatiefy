@@ -88,7 +88,7 @@ export default function CMSPage({
   if (loading) {
     return (
       <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center p-6 bg-white dark:bg-[#0a0a0a]">
-        <Loader2 className="h-10 w-10 animate-spin text-[#CB202D]" />
+        <Loader2 className="h-10 w-10 animate-spin text-[#1F6B45]" />
         <p className="mt-4 text-gray-500 font-bold uppercase tracking-widest text-[10px]">
           Loading...
         </p>
@@ -126,9 +126,9 @@ export default function CMSPage({
           {/* Support Contact Cards */}
           {isSupport && (
             <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${hasActualContent ? "mb-10" : "mb-0"}`}>
-              <div className="bg-gray-50 dark:bg-gray-900/50 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 flex flex-col items-center text-center group transition-all hover:border-[#CB202D]/30">
+              <div className="bg-gray-50 dark:bg-gray-900/50 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 flex flex-col items-center text-center group transition-all hover:border-[#1F6B45]/30">
                 <div className="w-12 h-12 bg-white dark:bg-gray-800 rounded-2xl flex items-center justify-center mb-4 shadow-sm group-hover:scale-110 transition-transform">
-                  <Mail className="w-6 h-6 text-[#CB202D]" />
+                  <Mail className="w-6 h-6 text-[#1F6B45]" />
                 </div>
                 <h3 className="text-sm font-black text-gray-900 dark:text-white uppercase tracking-wider mb-2">
                   Email Us
@@ -138,14 +138,14 @@ export default function CMSPage({
                 </p>
                 <a
                   href={`mailto:${pageData.email || "support@eatiefy.com"}`}
-                  className="mt-4 text-xs font-black text-[#CB202D] uppercase tracking-widest hover:underline"
+                  className="mt-4 text-xs font-black text-[#1F6B45] uppercase tracking-widest hover:underline"
                 >
                   Send Message
                 </a>
               </div>
-              <div className="bg-gray-50 dark:bg-gray-900/50 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 flex flex-col items-center text-center group transition-all hover:border-[#CB202D]/30">
+              <div className="bg-gray-50 dark:bg-gray-900/50 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 flex flex-col items-center text-center group transition-all hover:border-[#1F6B45]/30">
                 <div className="w-12 h-12 bg-white dark:bg-gray-800 rounded-2xl flex items-center justify-center mb-4 shadow-sm group-hover:scale-110 transition-transform">
-                  <Phone className="w-6 h-6 text-[#CB202D]" />
+                  <Phone className="w-6 h-6 text-[#1F6B45]" />
                 </div>
                 <h3 className="text-sm font-black text-gray-900 dark:text-white uppercase tracking-wider mb-2">
                   Call Us
@@ -155,7 +155,7 @@ export default function CMSPage({
                 </p>
                 <a
                   href={`tel:${pageData.mobile}`}
-                  className="mt-4 text-xs font-black text-[#CB202D] uppercase tracking-widest hover:underline"
+                  className="mt-4 text-xs font-black text-[#1F6B45] uppercase tracking-widest hover:underline"
                 >
                   Call Now
                 </a>
@@ -170,7 +170,7 @@ export default function CMSPage({
                 prose-headings:font-black prose-headings:text-gray-900 dark:prose-headings:text-white
                 prose-p:text-base prose-p:font-medium prose-p:text-gray-600 dark:prose-p:text-gray-300 prose-p:leading-relaxed
                 prose-strong:font-black prose-strong:text-gray-900 dark:prose-strong:text-white
-                prose-a:text-[#CB202D] dark:prose-a:text-[#DC2626]
+                prose-a:text-[#1F6B45] dark:prose-a:text-[#1F6B45]
                 prose-li:text-base prose-li:font-medium prose-li:text-gray-600 dark:prose-li:text-gray-300"
               dangerouslySetInnerHTML={{ __html: pageData.content }}
             />
@@ -230,7 +230,7 @@ export default function CMSPage({
                       key={idx}
                       className="flex items-start gap-4 p-5 rounded-3xl bg-gray-50 dark:bg-gray-900/30 border border-gray-100/50 dark:border-gray-800/50"
                     >
-                      <MessageSquare className="w-5 h-5 text-[#CB202D] shrink-0 mt-0.5" />
+                      <MessageSquare className="w-5 h-5 text-[#1F6B45] shrink-0 mt-0.5" />
                       <div className="space-y-1">
                         <h4 className="text-xs md:text-sm font-black text-gray-900 dark:text-white uppercase tracking-wider">
                           {faq.q}
@@ -263,7 +263,7 @@ export default function CMSPage({
                   return (
                     <>
                       <div className="flex items-start gap-4 p-5 rounded-3xl bg-gray-50 dark:bg-gray-900/30 border border-gray-100/50 dark:border-gray-800/50">
-                        <Clock className="w-5 h-5 text-[#CB202D] shrink-0 mt-0.5" />
+                        <Clock className="w-5 h-5 text-[#1F6B45] shrink-0 mt-0.5" />
                         <div className="space-y-1">
                           <h4 className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-wider">
                             Operational Hours
@@ -274,7 +274,7 @@ export default function CMSPage({
                         </div>
                       </div>
                       <div className="flex items-start gap-4 p-5 rounded-3xl bg-gray-50 dark:bg-gray-900/30 border border-gray-100/50 dark:border-gray-800/50">
-                        <ShieldCheck className="w-5 h-5 text-[#CB202D] shrink-0 mt-0.5" />
+                        <ShieldCheck className="w-5 h-5 text-[#1F6B45] shrink-0 mt-0.5" />
                         <div className="space-y-1">
                           <h4 className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-wider">
                             Data Privacy

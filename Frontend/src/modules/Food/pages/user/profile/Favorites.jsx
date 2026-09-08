@@ -11,6 +11,7 @@ import { toast } from "sonner"
 import {
   filterDishesForVegMode,
   filterRestaurantsForVegMode,
+  isVegMenuItem,
 } from "@food/utils/vegMode"
 
 export default function Favorites() {
@@ -77,7 +78,7 @@ export default function Favorites() {
             <Heart className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
             <p className="text-muted-foreground text-lg mb-4">You haven't added any favorites yet</p>
             <Link to="/user">
-              <Button className="bg-gradient-to-r bg-[#DC2626] hover:opacity-90 text-white">
+              <Button className="bg-gradient-to-r bg-[#1F6B45] hover:opacity-90 text-white">
                 Explore Restaurants
               </Button>
             </Link>
@@ -115,7 +116,7 @@ export default function Favorites() {
             onClick={() => setActiveTab("restaurants")}
             className={`px-4 py-2 font-medium transition-colors ${
               activeTab === "restaurants"
-                ? "border-b-2 border-[#DC2626] text-[#DC2626]"
+                ? "border-b-2 border-[#1F6B45] text-[#1F6B45]"
                 : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
             }`}
           >
@@ -125,7 +126,7 @@ export default function Favorites() {
             onClick={() => setActiveTab("dishes")}
             className={`px-4 py-2 font-medium transition-colors ${
               activeTab === "dishes"
-                ? "border-b-2 border-[#DC2626] text-[#DC2626]"
+                ? "border-b-2 border-[#1F6B45] text-[#1F6B45]"
                 : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
             }`}
           >
@@ -141,7 +142,7 @@ export default function Favorites() {
                 <Heart className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
                 <p className="text-muted-foreground text-lg mb-4">No restaurants saved yet</p>
                 <Link to="/user">
-                  <Button className="bg-gradient-to-r bg-[#DC2626] hover:opacity-90 text-white">
+                  <Button className="bg-gradient-to-r bg-[#1F6B45] hover:opacity-90 text-white">
                     Explore Restaurants
                   </Button>
                 </Link>
@@ -198,7 +199,7 @@ export default function Favorites() {
                         <span className="font-medium">{restaurant.distance}</span>
                       </div>
                     </div>
-                    <Button className="w-full bg-gradient-to-r bg-[#DC2626] hover:opacity-90 text-white text-xs py-1.5 h-8">
+                    <Button className="w-full bg-gradient-to-r bg-[#1F6B45] hover:opacity-90 text-white text-xs py-1.5 h-8">
                       View Restaurant
                       <ArrowRight className="h-3 w-3 ml-1" />
                     </Button>
@@ -219,7 +220,7 @@ export default function Favorites() {
                 <Bookmark className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
                 <p className="text-muted-foreground text-lg mb-4">No dishes saved yet</p>
                 <Link to="/user">
-                  <Button className="bg-gradient-to-r bg-[#DC2626] hover:opacity-90 text-white">
+                  <Button className="bg-gradient-to-r bg-[#1F6B45] hover:opacity-90 text-white">
                     Explore Dishes
                   </Button>
                 </Link>
@@ -264,22 +265,22 @@ export default function Favorites() {
                           </div>
                           <div className="flex items-center justify-between text-xs pt-2 border-t">
                             <div className="flex items-center gap-1">
-                              {dish.foodType === "Veg" ? (
+                              {isVegMenuItem(dish) ? (
                                 <div className="w-3 h-3 border-2 border-green-600 flex items-center justify-center rounded-sm">
                                   <div className="w-1.5 h-1.5 bg-green-600 rounded-full"></div>
                                 </div>
                               ) : (
-                                <div className="w-3 h-3 border-2 border-#991B1B flex items-center justify-center rounded-sm">
-                                  <div className="w-1.5 h-1.5 bg-#991B1B rounded-full"></div>
+                                <div className="w-3 h-3 border-2 border-red-600 flex items-center justify-center rounded-sm">
+                                  <div className="w-1.5 h-1.5 bg-red-600 rounded-full"></div>
                                 </div>
                               )}
-                              <span className="text-muted-foreground font-medium text-xs">{dish.foodType || "N/A"}</span>
+                              <span className="text-muted-foreground font-medium text-xs">{dish.foodType || (isVegMenuItem(dish) ? "Veg" : "Non-Veg")}</span>
                             </div>
-                            <div className="text-sm font-bold text-[#DC2626]">
+                            <div className="text-sm font-bold text-[#1F6B45]">
                               {"\u20B9"}{Math.round(dish.price || 0)}
                             </div>
                           </div>
-                          <Button className="w-full bg-gradient-to-r bg-[#DC2626] hover:opacity-90 text-white text-xs py-1.5 h-8">
+                          <Button className="w-full bg-gradient-to-r bg-[#1F6B45] hover:opacity-90 text-white text-xs py-1.5 h-8">
                             View Dish
                             <ArrowRight className="h-3 w-3 ml-1" />
                           </Button>

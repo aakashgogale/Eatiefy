@@ -10,6 +10,7 @@ import {
 import useNotificationInbox from "@food/hooks/useNotificationInbox"
 import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications"
 import { isDiningEnabled } from "@food/config/featureFlags";
+import useIsKeyboardOpen from "@food/hooks/useIsKeyboardOpen";
 
 const getOrdersTabs = (basePath = "/food/restaurant") => [
   { id: "orders", label: "Orders", icon: FileText, route: `${basePath}` },
@@ -27,7 +28,7 @@ const findActiveTab = (tabs, pathname) =>
 export default function BottomNavOrders({ activeTabOverride }) {
   const navigate = useNavigate()
   const { pathname } = useLocation()
-
+  const isKeyboardOpen = useIsKeyboardOpen()
 
   const basePath = pathname.includes("/food/restaurant")
     ? "/food/restaurant"
@@ -59,7 +60,13 @@ export default function BottomNavOrders({ activeTabOverride }) {
   }
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+    <div
+      className={`fixed bottom-0 left-0 right-0 z-40 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] transition-all duration-300 ease-in-out ${
+        isKeyboardOpen
+          ? "pointer-events-none opacity-0 translate-y-full"
+          : "opacity-100 translate-y-0"
+      }`}
+    >
       <div className="mx-auto flex w-full max-w-md items-end gap-2">
         <div className="flex-1 min-w-0">
           <div className="relative overflow-visible rounded-[30px] bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] py-2 pl-3 pr-2 shadow-[0_16px_40px_rgba(126,56,102,0.35)]">
@@ -91,7 +98,7 @@ export default function BottomNavOrders({ activeTabOverride }) {
                     {/* Notification Dot */}
                     {((tab.id === 'orders' && (newOrder || (isDiningEnabled() && newReservation))) ||
                       (tab.id === 'feedback' && unreadCount > 0)) && (
-                        <span className="absolute top-2 right-1/4 w-2 h-2 rounded-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] border border-[#2E7D52] z-20 animate-pulse" />
+                        <span className="absolute top-2 right-1/4 w-2 h-2 rounded-full bg-red-500 border border-white z-20 animate-pulse" />
                       )}
                     <span
                       className={`relative z-10 whitespace-nowrap text-[11px] leading-none transition-colors duration-300 ease-in-out ${isActive ? "text-white" : "text-white/78"

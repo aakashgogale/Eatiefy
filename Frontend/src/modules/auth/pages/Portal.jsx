@@ -11,7 +11,7 @@ const SERVICES = [
     image: "/super-app/food.png",
     path: "/food/user",
     icon: UtensilsCrossed,
-    color: "from-[#FF4D4D] to-[#CB202D]",
+    color: "from-[#FF4D4D] to-[#1F6B45]",
     badge: "Fast",
     badgeIcon: "⚡"
   },
@@ -84,7 +84,7 @@ export default function SuperAppPortal() {
                  repeat: Infinity,
                  ease: "linear"
                }}
-               className="absolute w-64 h-64 bg-[#CB202D]/5 rounded-full blur-3xl"
+               className="absolute w-64 h-64 bg-[#1F6B45]/5 rounded-full blur-3xl"
                style={{
                  left: `${Math.random() * 100}%`,
                  top: `${Math.random() * 100}%`,
@@ -103,7 +103,7 @@ export default function SuperAppPortal() {
           <motion.div 
             animate={{ rotate: [0, 10, -10, 0] }}
             transition={{ duration: 4, repeat: Infinity }}
-            className="w-6 h-6 bg-gradient-to-br from-[#DC2626] to-[#B91C1C] rounded-lg flex items-center justify-center shadow-lg"
+            className="w-6 h-6 bg-gradient-to-br from-[#1F6B45] to-[#1A5C3B] rounded-lg flex items-center justify-center shadow-lg"
           >
              <span className="text-white text-[10px] font-black italic">R</span>
           </motion.div>
@@ -117,7 +117,7 @@ export default function SuperAppPortal() {
           className="text-5xl md:text-7xl font-black text-[#1A202C] tracking-tight leading-none"
         >
           Welcome to <br />
-          <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#DC2626] via-[#f87171] to-[#DC2626] bg-[length:200%_auto] animate-gradient block mt-2">Eatiefy</span>
+          <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#1F6B45] via-[#6BAF8C] to-[#1F6B45] bg-[length:200%_auto] animate-gradient block mt-2">Eatiefy</span>
         </motion.h1>
 
         <motion.p 

@@ -119,7 +119,7 @@ export default function TableBookingConfirmation() {
     return (
         <AnimatedPage className="bg-slate-50 dark:bg-slate-950 min-h-screen pb-24 transition-colors">
             {/* Header */}
-            <div className="bg-[#DC2626] text-white px-4 py-4 sticky top-0 z-50 shadow-md">
+            <div className="bg-[#1F6B45] text-white px-4 py-4 sticky top-0 z-50 shadow-md">
                 <div className="flex items-center gap-3">
                     <button onClick={goBack} className="p-1 hover:bg-white/10 rounded-full transition-colors">
                         <ArrowLeft className="w-6 h-6" />
@@ -134,7 +134,7 @@ export default function TableBookingConfirmation() {
                     <div className="p-4 space-y-4">
                         <div className="flex items-start gap-3">
                             <div className="bg-[#F9F9FB] dark:bg-slate-800 p-2 rounded-xl">
-                                <Calendar className="w-5 h-5 text-[#DC2626]" />
+                                <Calendar className="w-5 h-5 text-[#1F6B45]" />
                             </div>
                              <div>
                                 <p className="font-bold text-gray-900 dark:text-slate-100">{formattedDate} at {timeSlot}</p>
@@ -172,7 +172,7 @@ export default function TableBookingConfirmation() {
                 >
                     <div className="flex items-center gap-3">
                         <div className={`p-2 rounded-xl transition-colors ${specialRequest ? 'bg-purple-50 dark:bg-purple-950/30' : 'bg-slate-100 dark:bg-slate-800 group-hover:bg-slate-200 dark:group-hover:bg-slate-700'}`}>
-                            <Info className={`w-5 h-5 ${specialRequest ? 'text-[#DC2626]' : 'text-slate-600 dark:text-slate-400'}`} />
+                            <Info className={`w-5 h-5 ${specialRequest ? 'text-[#1F6B45]' : 'text-slate-600 dark:text-slate-400'}`} />
                         </div>
                         <div className="text-left">
                             <span className="font-bold text-gray-700 dark:text-slate-200 block">
@@ -185,7 +185,7 @@ export default function TableBookingConfirmation() {
                     </div>
                     <div className="flex items-center gap-2">
                         {specialRequest && (
-                            <span className="text-[10px] font-black text-[#DC2626]/40 uppercase tracking-widest">Edit</span>
+                            <span className="text-[10px] font-black text-[#1F6B45]/40 uppercase tracking-widest">Edit</span>
                         )}
                         <ChevronRight className="w-5 h-5 text-slate-400" />
                     </div>
@@ -224,7 +224,7 @@ export default function TableBookingConfirmation() {
                              className="w-full bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-slate-800 flex items-center justify-between active:scale-[0.98] transition-all"
                         >
                             <div className="flex items-start gap-3">
-                                <div className="text-[#DC2626] dark:text-purple-400 mt-1">
+                                <div className="text-[#1F6B45] dark:text-purple-400 mt-1">
                                     <Edit2 className="w-5 h-5" />
                                 </div>
                                 <div className="text-left">
@@ -296,7 +296,7 @@ export default function TableBookingConfirmation() {
                 <Button
                     onClick={handleBooking}
                     disabled={bookingInProgress}
-                    className="w-full h-14 bg-[#DC2626] hover:bg-[#b91c1c] text-white font-bold text-lg rounded-2xl transition-all active:scale-[0.98] disabled:opacity-60"
+                    className="w-full h-14 bg-[#1F6B45] hover:bg-[#1A5C3B] text-white font-bold text-lg rounded-2xl transition-all active:scale-[0.98] disabled:opacity-60"
                 >
                     {bookingInProgress ? "Confirming..." : "Confirm your seat"}
                 </Button>
@@ -328,7 +328,7 @@ export default function TableBookingConfirmation() {
                                 value={tempRequest}
                                 onChange={(e) => setTempRequest(e.target.value)}
                                 placeholder="E.g. I have a peanut allergy, or we are celebrating a birthday..."
-                                className="w-full h-32 p-4 rounded-2xl bg-slate-50 dark:bg-[#242424] border border-slate-200 dark:border-white/10 text-sm font-medium text-gray-900 dark:text-gray-100 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#DC2626]/20 focus:border-[#DC2626] transition-all resize-none"
+                                className="w-full h-32 p-4 rounded-2xl bg-slate-50 dark:bg-[#242424] border border-slate-200 dark:border-white/10 text-sm font-medium text-gray-900 dark:text-gray-100 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#1F6B45]/20 focus:border-[#1F6B45] transition-all resize-none"
                                 autoFocus
                             />
 
@@ -344,7 +344,7 @@ export default function TableBookingConfirmation() {
                                         setSpecialRequest(tempRequest)
                                         setShowRequestModal(false)
                                     }}
-                                    className="h-12 rounded-xl bg-[#DC2626] text-white font-bold text-sm uppercase tracking-widest shadow-lg shadow-red-200 dark:shadow-none active:scale-95 transition-all"
+                                    className="h-12 rounded-xl bg-[#1F6B45] text-white font-bold text-sm uppercase tracking-widest shadow-lg shadow-red-200 dark:shadow-none active:scale-95 transition-all"
                                 >
                                     Save
                                 </button>

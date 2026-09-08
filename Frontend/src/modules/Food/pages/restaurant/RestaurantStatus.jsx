@@ -15,19 +15,15 @@ import {
   DialogTitle,
 } from "@food/components/ui/dialog"
 import { Button } from "@food/components/ui/button"
+import { publishOnlineStatus } from "@food/utils/restaurantOnlineStatus"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
 const RESTAURANT_ONLINE_STATUS_KEY = "restaurant_online_status"
 
-const persistRestaurantOnlineStatus = (isOnline) => {
-  try {
-    localStorage.setItem(RESTAURANT_ONLINE_STATUS_KEY, JSON.stringify(Boolean(isOnline)))
-  } catch (error) {
-    debugError("Error persisting restaurant online status:", error)
-  }
-}
+// Writes the mirror and notifies every mounted listener (Home navbar included).
+const persistRestaurantOnlineStatus = (isOnline) => publishOnlineStatus(isOnline)
 
 
 export default function RestaurantStatus() {
@@ -185,23 +181,8 @@ export default function RestaurantStatus() {
           if (restaurant.takeawaySettings) {
             setTakeawayStatus(restaurant.takeawaySettings.isEnabled)
           }
-          try {
-            localStorage.setItem('restaurant_online_status', JSON.stringify(Boolean(restaurant.isAcceptingOrders)))
-          } catch {}
-          persistRestaurantOnlineStatus(restaurant.isAcceptingOrders)
-          // Dispatch event to update navbar
-          window.dispatchEvent(new CustomEvent('restaurantStatusChanged', { 
-            detail: { isOnline: restaurant.isAcceptingOrders } 
-          }))
         } else {
           setDeliveryStatus(false)
-          try {
-            localStorage.setItem('restaurant_online_status', JSON.stringify(false))
-          } catch {}
-          persistRestaurantOnlineStatus(false)
-          window.dispatchEvent(new CustomEvent('restaurantStatusChanged', { 
-            detail: { isOnline: false } 
-          }))
         }
       } catch (error) {
         // Only log error if it's not a network/timeout error (backend might be down/slow)
@@ -209,13 +190,6 @@ export default function RestaurantStatus() {
           debugError("Error loading delivery status:", error)
         }
         setDeliveryStatus(false)
-        try {
-          localStorage.setItem('restaurant_online_status', JSON.stringify(false))
-        } catch {}
-        persistRestaurantOnlineStatus(false)
-        window.dispatchEvent(new CustomEvent('restaurantStatusChanged', { 
-          detail: { isOnline: false } 
-        }))
       }
     }
 
@@ -251,14 +225,6 @@ export default function RestaurantStatus() {
         return
       }
       
-      try {
-        localStorage.setItem('restaurant_online_status', JSON.stringify(Boolean(checked)))
-      } catch {}
-
-      // Dispatch custom event for navbar to listen
-      window.dispatchEvent(new CustomEvent('restaurantStatusChanged', { 
-        detail: { isOnline: checked } 
-      }))
     } catch (error) {
       debugError("Error saving delivery status:", error)
     }

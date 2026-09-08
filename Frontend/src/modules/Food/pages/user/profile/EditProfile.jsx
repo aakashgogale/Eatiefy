@@ -407,7 +407,7 @@ export default function EditProfile() {
           border-color: #9ca3af !important;
         }
         .dark .MuiOutlinedInput-root.Mui-focused fieldset {
-          border-color: #DC2626 !important;
+          border-color: #1F6B45 !important;
         }
         .dark input,
         .dark .MuiInputBase-root,
@@ -457,23 +457,23 @@ export default function EditProfile() {
           background-color: rgba(255, 255, 255, 0.08) !important;
         }
         .dark .MuiPickersDay-root.Mui-selected {
-          background-color: #DC2626 !important;
+          background-color: #1F6B45 !important;
           color: #ffffff !important;
         }
         .dark .MuiPickersDay-root.MuiPickersDay-today {
-          border-color: #DC2626 !important;
+          border-color: #1F6B45 !important;
         }
         .dark .MuiPickersYear-yearButton {
           color: #ffffff !important;
         }
         .dark .MuiPickersYear-yearButton.Mui-selected {
-          background-color: #DC2626 !important;
+          background-color: #1F6B45 !important;
         }
         .dark .MuiPickersMonth-monthButton {
           color: #ffffff !important;
         }
         .dark .MuiPickersMonth-monthButton.Mui-selected {
-          background-color: #DC2626 !important;
+          background-color: #1F6B45 !important;
         }
 
         /* Radix Select Trigger / Gender overrides */
@@ -547,9 +547,9 @@ export default function EditProfile() {
                       className="absolute bottom-1 right-1 w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-md border-[1.5px] border-gray-100 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {isUploadingImage ? (
-                        <Loader2 className="h-4 w-4 text-[#DC2626] animate-spin" />
+                        <Loader2 className="h-4 w-4 text-[#1F6B45] animate-spin" />
                       ) : (
-                        <Pencil className="h-[18px] w-[18px] text-[#DC2626]" strokeWidth={2.5} />
+                        <Pencil className="h-[18px] w-[18px] text-[#1F6B45]" strokeWidth={2.5} />
                       )}
                     </button>
                   </DropdownMenuTrigger>
@@ -561,7 +561,7 @@ export default function EditProfile() {
                         setImagePreview("")
                         setPendingImageFile(null)
                       }}
-                      className="cursor-pointer text-[15.5px] font-medium py-3.5 px-4 rounded-[20px] bg-[#E5E7EB] dark:bg-[#333] text-[#DC2626] focus:text-[#DC2626] focus:bg-[#D1D5DB] dark:focus:bg-[#444] hover:bg-[#D1D5DB] dark:hover:bg-[#444] outline-none flex justify-center tracking-wide shadow-sm"
+                      className="cursor-pointer text-[15.5px] font-medium py-3.5 px-4 rounded-[20px] bg-[#E5E7EB] dark:bg-[#333] text-[#1F6B45] focus:text-[#1F6B45] focus:bg-[#D1D5DB] dark:focus:bg-[#444] hover:bg-[#D1D5DB] dark:hover:bg-[#444] outline-none flex justify-center tracking-wide shadow-sm"
                     >
                       <span>Delete Photo</span>
                     </DropdownMenuItem>
@@ -580,9 +580,9 @@ export default function EditProfile() {
                   className="absolute bottom-1 right-1 w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-md border-[1.5px] border-gray-100 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isUploadingImage ? (
-                    <Loader2 className="h-4 w-4 text-[#DC2626] animate-spin" />
+                    <Loader2 className="h-4 w-4 text-[#1F6B45] animate-spin" />
                   ) : (
-                    <Pencil className="h-[18px] w-[18px] text-[#DC2626]" strokeWidth={2.5} />
+                    <Pencil className="h-[18px] w-[18px] text-[#1F6B45]" strokeWidth={2.5} />
                   )}
                 </button>
               )}
@@ -600,7 +600,7 @@ export default function EditProfile() {
           <div className="space-y-4 md:space-y-5 lg:space-y-6 pt-6">
             {/* Name Field */}
             <div className="relative">
-              <fieldset className="border border-gray-300 dark:border-gray-700 rounded-[14px] px-3 pb-2 pt-0 transition-colors focus-within:border-[#DC2626] focus-within:border-[1.5px]">
+              <fieldset className="border border-gray-300 dark:border-gray-700 rounded-[14px] px-3 pb-2 pt-0 transition-colors focus-within:border-[#1F6B45] focus-within:border-[1.5px]">
                 <legend className="text-[13px] text-gray-400 dark:text-gray-500 px-1 font-normal tracking-wide">Name</legend>
                 <div className="flex items-center justify-between">
                   <input
@@ -621,7 +621,7 @@ export default function EditProfile() {
 
             {/* Mobile Field */}
             <div>
-              <fieldset className="border border-gray-300 dark:border-gray-700 rounded-[14px] px-3 pb-2 pt-0 transition-colors focus-within:border-[#DC2626] focus-within:border-[1.5px]">
+              <fieldset className="border border-gray-300 dark:border-gray-700 rounded-[14px] px-3 pb-2 pt-0 transition-colors focus-within:border-[#1F6B45] focus-within:border-[1.5px]">
                 <legend className="text-[13px] text-gray-400 dark:text-gray-500 px-1 font-normal tracking-wide">Mobile</legend>
                 <div className="flex items-center justify-between">
                   <input
@@ -639,7 +639,7 @@ export default function EditProfile() {
                   <button
                     type="button"
                     onClick={handleMobileChange}
-                    className="text-[#DC2626] text-[13px] font-semibold tracking-wider shrink-0 px-1"
+                    className="text-[#1F6B45] text-[13px] font-semibold tracking-wider shrink-0 px-1"
                   >
                     CHANGE
                   </button>
@@ -650,7 +650,7 @@ export default function EditProfile() {
 
             {/* Email Field */}
             <div>
-              <fieldset className="border border-gray-300 dark:border-gray-700 rounded-[14px] px-3 pb-2 pt-0 transition-colors focus-within:border-[#DC2626] focus-within:border-[1.5px]">
+              <fieldset className="border border-gray-300 dark:border-gray-700 rounded-[14px] px-3 pb-2 pt-0 transition-colors focus-within:border-[#1F6B45] focus-within:border-[1.5px]">
                 <legend className="text-[13px] text-gray-400 dark:text-gray-500 px-1 font-normal tracking-wide">Email</legend>
                 <div className="flex items-center justify-between">
                   <input
@@ -660,7 +660,7 @@ export default function EditProfile() {
                     onChange={(e) => handleChange('email', e.target.value)}
                     className="w-full bg-transparent border-none outline-none text-gray-800 dark:text-white text-[16px] font-medium pb-1"
                   />
-                  <button type="button" onClick={handleEmailChange} className="text-[#DC2626] text-[13px] font-semibold tracking-wider shrink-0 px-1">
+                  <button type="button" onClick={handleEmailChange} className="text-[#1F6B45] text-[13px] font-semibold tracking-wider shrink-0 px-1">
                     CHANGE
                   </button>
                 </div>
@@ -670,7 +670,7 @@ export default function EditProfile() {
 
             {/* Date of Birth Field */}
             <div>
-              <fieldset className="border border-gray-300 dark:border-gray-600 rounded-[14px] px-3 pb-2 pt-0 transition-colors focus-within:border-[#DC2626] focus-within:border-[1.5px]">
+              <fieldset className="border border-gray-300 dark:border-gray-600 rounded-[14px] px-3 pb-2 pt-0 transition-colors focus-within:border-[#1F6B45] focus-within:border-[1.5px]">
                 <legend className="text-[13px] text-gray-400 dark:text-gray-400 px-1 font-normal tracking-wide">Date of birth</legend>
                 <input
                   id="dateOfBirth"
@@ -686,7 +686,7 @@ export default function EditProfile() {
 
             {/* Anniversary Field */}
             <div>
-              <fieldset className="border border-gray-300 dark:border-gray-600 rounded-[14px] px-3 pb-2 pt-0 transition-colors focus-within:border-[#DC2626] focus-within:border-[1.5px]">
+              <fieldset className="border border-gray-300 dark:border-gray-600 rounded-[14px] px-3 pb-2 pt-0 transition-colors focus-within:border-[#1F6B45] focus-within:border-[1.5px]">
                 <legend className="text-[13px] text-gray-400 dark:text-gray-400 px-1 font-normal tracking-wide">Anniversary</legend>
                 <input
                   id="anniversary"
@@ -700,7 +700,7 @@ export default function EditProfile() {
 
             {/* Gender Field */}
             <div>
-              <fieldset className="border border-gray-300 dark:border-gray-600 rounded-[14px] px-3 pb-1 pt-0 transition-colors focus-within:border-[#DC2626] focus-within:border-[1.5px]">
+              <fieldset className="border border-gray-300 dark:border-gray-600 rounded-[14px] px-3 pb-1 pt-0 transition-colors focus-within:border-[#1F6B45] focus-within:border-[1.5px]">
                 <legend className="text-[13px] text-gray-400 dark:text-gray-500 px-1 font-normal tracking-wide">Gender</legend>
                 <Select
                   value={formData.gender || ""}
@@ -727,8 +727,8 @@ export default function EditProfile() {
               onClick={handleUpdate}
               disabled={!hasChanges || isSaving || isUploadingImage}
               className={`w-full h-[52px] rounded-xl font-semibold text-[15px] transition-all ${isSaving || isUploadingImage || !hasChanges
-                  ? 'bg-[#DC2626]/70 text-white cursor-not-allowed'
-                  : 'bg-[#DC2626] hover:bg-[#991B1B] text-white shadow-md shadow-red-500/20'
+                  ? 'bg-[#1F6B45]/70 text-white cursor-not-allowed'
+                  : 'bg-[#1F6B45] hover:bg-[#14512F] text-white shadow-md shadow-red-500/20'
                 }`}
             >
               {isSaving ? (

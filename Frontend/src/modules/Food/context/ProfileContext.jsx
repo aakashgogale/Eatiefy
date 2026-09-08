@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useMemo, useCallback } from "react"
+import { normalizeVegModeOption } from "@food/utils/vegMode"
 import { authAPI, userAPI } from "@food/api"
 import { normalizeImageUrl } from "@food/utils/common"
 const debugLog = (...args) => {}
@@ -7,7 +8,7 @@ const debugError = (...args) => {}
 
 
 const ProfileContext = createContext(null)
-const USER_SESSION_PREFERENCE_KEYS = ["userVegMode", "userVegModeOption", "userOrderType", "food-under-250-filters"]
+const USER_SESSION_PREFERENCE_KEYS = ["userOrderType", "food-under-250-filters"]
 
 export function ProfileProvider({ children }) {
   const getAddressId = (address) => address?.id || address?._id || null
@@ -81,17 +82,37 @@ export function ProfileProvider({ children }) {
   })
 
   // VegMode state - stored in localStorage for persistence
-  const [vegMode, setVegMode] = useState(() => {
-    const saved = localStorage.getItem("userVegMode")
-    // Default to false (OFF) if not set
-    return saved !== null ? saved === "true" : false
+  const [vegMode, setVegModeState] = useState(() => {
+    try {
+      const saved = localStorage.getItem("userVegMode")
+      return saved !== null ? saved === "true" : false
+    } catch {
+      return false
+    }
   })
 
-  // Veg filter scope: "all" | "pure-veg" | "pure-vegan"
+  const setVegMode = useCallback((valOrFn) => {
+    setVegModeState((prev) => {
+      const next = typeof valOrFn === "function" ? valOrFn(prev) : valOrFn
+      const boolVal = Boolean(next)
+      try {
+        localStorage.setItem("userVegMode", String(boolVal))
+      } catch {
+        // ignore
+      }
+      return boolVal
+    })
+  }, [])
+
+  // Veg filter scope: "all" | "pure-veg" | "non-veg"
+  // ("pure-vegan" is disabled — normalizeVegModeOption folds any stored value
+  //  back to "pure-veg" so it cannot return after a refresh.)
   const [vegModeOption, setVegModeOptionState] = useState(() => {
     try {
       const saved = localStorage.getItem("userVegModeOption")
-      if (saved === "pure-veg" || saved === "pure-vegan") return saved
+      if (saved === "pure-veg" || saved === "pure-vegan" || saved === "non-veg") {
+        return normalizeVegModeOption(saved)
+      }
       return "all"
     } catch {
       return "all"
@@ -100,7 +121,9 @@ export function ProfileProvider({ children }) {
 
   const setVegModeOption = useCallback((next) => {
     const normalized =
-      next === "pure-veg" || next === "pure-vegan" ? next : "all"
+      next === "pure-veg" || next === "pure-vegan" || next === "non-veg"
+        ? normalizeVegModeOption(next)
+        : "all"
     try {
       localStorage.setItem("userVegModeOption", normalized)
     } catch {
@@ -151,18 +174,6 @@ export function ProfileProvider({ children }) {
     }
   }, [dishFavorites, isAuthenticated])
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      localStorage.setItem("userVegMode", vegMode.toString())
-    }
-  }, [vegMode, isAuthenticated])
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      localStorage.setItem("userVegModeOption", vegModeOption)
-    }
-  }, [vegModeOption, isAuthenticated])
-
   // Wrap setOrderType to SYNCHRONOUSLY save to localStorage before React re-render
   const setOrderType = (newType) => {
     if (["delivery", "dining", "takeaway"].includes(newType)) {
@@ -184,8 +195,6 @@ export function ProfileProvider({ children }) {
         setPaymentMethods([])
         setFavorites([])
         setDishFavorites([])
-        setVegMode(false)
-        setVegModeOptionState("all")
         USER_SESSION_PREFERENCE_KEYS.forEach((key) => {
           localStorage.removeItem(key)
         })

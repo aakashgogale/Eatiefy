@@ -2,6 +2,12 @@ import { useEffect, useMemo, useState } from "react"
 import { supportAPI } from "@food/api"
 import { toast } from "sonner"
 
+const TICKET_STATUS_LABELS = {
+  open: "Open",
+  "in-progress": "In Progress",
+  resolved: "Resolved",
+}
+
 export default function SupportTickets() {
   const [tickets, setTickets] = useState([])
   const [loading, setLoading] = useState(true)
@@ -58,11 +64,18 @@ export default function SupportTickets() {
   const update = async (id, patch) => {
     const ticket = tickets.find((t) => String(t._id) === String(id))
     try {
-      await supportAPI.updateSupportTicketAdmin(id, { ...patch, source: ticket?.source || "user" })
+      const res = await supportAPI.updateSupportTicketAdmin(id, { ...patch, source: ticket?.source || "user" })
+      // Merge what the backend actually saved, so the row (and its next set of
+      // allowed transitions) matches the database rather than the optimistic patch.
+      const saved = res?.data?.data?.ticket || res?.data?.ticket || null
       toast.success("Updated")
-      setTickets((prev) => prev.map((t) => (String(t._id) === String(id) ? { ...t, ...patch } : t)))
-    } catch {
-      toast.error("Failed to update")
+      setTickets((prev) =>
+        prev.map((t) => (String(t._id) === String(id) ? { ...t, ...patch, ...(saved || {}) } : t))
+      )
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to update")
+      // The move was rejected — reload so the UI shows the real stored status.
+      load()
     }
   }
 
@@ -175,9 +188,16 @@ export default function SupportTickets() {
                         onChange={(e) => update(t._id, { status: e.target.value })}
                         className="border rounded px-2 py-1 text-xs bg-white"
                       >
-                        <option value="open">Open</option>
-                        <option value="in-progress">In Progress</option>
-                        <option value="resolved">Resolved</option>
+                        {/* Options come from the backend's lifecycle, so the UI
+                            can never offer a transition the API would reject. */}
+                        {(t.allowedStatusTransitions?.length
+                          ? t.allowedStatusTransitions
+                          : [t.status]
+                        ).map((status) => (
+                          <option key={status} value={status}>
+                            {TICKET_STATUS_LABELS[status] || status}
+                          </option>
+                        ))}
                       </select>
                     </td>
                     <td className="px-4 py-3 text-sm">{new Date(t.createdAt).toLocaleDateString()}</td>

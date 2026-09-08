@@ -100,7 +100,7 @@ export default function MyBookings() {
         const key = String(status || "").toLowerCase()
         if (key === "pending") return "bg-amber-100 text-amber-700"
         if (key === "accepted" || key === "confirmed") return "bg-green-100 text-green-700 font-bold"
-        if (key === "checked-in") return "bg-[#F9F9FB] text-[#DC2626]"
+        if (key === "checked-in") return "bg-[#F9F9FB] text-[#1F6B45]"
         if (key === "completed") return "bg-blue-100 text-blue-700"
         if (key === "cancelled") return "bg-red-100 text-red-700"
         return "bg-slate-100 text-slate-700"

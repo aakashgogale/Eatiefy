@@ -348,6 +348,68 @@ function AppShellSkeleton({ className }) {
   )
 }
 
+/**
+ * Admin console loading state. Deliberately separate from AppShellSkeleton,
+ * which draws the customer app (hero banner, cuisine chips, restaurant grid) —
+ * showing that while admin chunks load flashed the wrong product entirely.
+ */
+function AdminShellSkeleton({ className }) {
+  return (
+    <LoadingSkeletonRegion
+      label="Loading admin console"
+      className={cn("min-h-screen bg-slate-50 dark:bg-[#0b0b0b]", className)}
+    >
+      <div className="flex min-h-screen">
+        {/* Sidebar (desktop only, mirroring the admin layout) */}
+        <aside className="hidden w-64 shrink-0 border-r border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#121212] lg:block">
+          <Skeleton className="mb-6 h-9 w-36 rounded-lg" />
+          <div className="space-y-2">
+            {Array.from({ length: 8 }).map((_, index) => (
+              <Skeleton key={index} className="h-9 w-full rounded-lg" />
+            ))}
+          </div>
+        </aside>
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/* Top bar */}
+          <header className="flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 py-3 dark:border-white/10 dark:bg-[#121212]">
+            <Skeleton className="h-8 w-44 rounded-lg" />
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-8 w-8 rounded-full" />
+              <Skeleton className="h-8 w-8 rounded-full" />
+            </div>
+          </header>
+
+          <main className="flex-1 space-y-5 p-4 lg:p-6">
+            {/* Stat cards */}
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div
+                  key={index}
+                  className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#141414]"
+                >
+                  <Skeleton className="mb-3 h-3 w-20 rounded-md" />
+                  <Skeleton className="h-7 w-24 rounded-md" />
+                </div>
+              ))}
+            </div>
+
+            {/* Data table */}
+            <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#141414]">
+              <Skeleton className="mb-4 h-6 w-40 rounded-md" />
+              <div className="space-y-3">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <Skeleton key={index} className="h-10 w-full rounded-lg" />
+                ))}
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    </LoadingSkeletonRegion>
+  )
+}
+
 function OnboardingSkeleton({ className }) {
   return (
     <LoadingSkeletonRegion label="Loading onboarding" className={cn("min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex flex-col", className)}>
@@ -435,6 +497,7 @@ function OnboardingSkeleton({ className }) {
 }
 
 export {
+  AdminShellSkeleton,
   AppShellSkeleton,
   CategoryChipRowSkeleton,
   ContentPageSkeleton,

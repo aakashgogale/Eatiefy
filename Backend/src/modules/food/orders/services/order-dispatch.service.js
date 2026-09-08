@@ -364,7 +364,10 @@ export async function tryAutoAssign(orderId, options = {}) {
           {
             title: 'Unassigned Order Crisis!',
             body: `Order #${order.order_id || order._id} has not been picked up for 5+ minutes. Manual intervention required!`,
-            data: { type: 'admin_alert_unassigned', orderId: order._id.toString() }
+            idempotencyKey: `admin_alert_unassigned_${order._id}_${attempt}`,
+            eventId: `admin_alert_unassigned_${order._id}_${attempt}`,
+            tag: `admin_alert_unassigned_${order._id}`,
+            data: { type: 'admin_alert_unassigned', orderId: order._id.toString(), tag: `admin_alert_unassigned_${order._id}`, eventId: `admin_alert_unassigned_${order._id}_${attempt}` }
           }
         );
       } catch (err) {
@@ -439,10 +442,15 @@ export async function tryAutoAssign(orderId, options = {}) {
             {
               title: 'New order assigned!',
               body: `You have 60 seconds to accept Order #${order.order_id || order._id}.`,
+              idempotencyKey: `dispatch_offer_${order._id}_${lead.partnerId}`,
+              eventId: `dispatch_offer_${order._id}_${lead.partnerId}`,
+              tag: `dispatch_offer_${order._id}`,
               data: {
                 type: 'new_order',
                 orderId: order.order_id || order._id.toString(),
                 orderMongoId: order._id.toString(),
+                tag: `dispatch_offer_${order._id}`,
+                eventId: `dispatch_offer_${order._id}_${lead.partnerId}`,
               },
             },
           );

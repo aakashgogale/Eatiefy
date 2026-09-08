@@ -15,11 +15,12 @@ import { useCart } from "@food/context/CartContext"
 import { useProfile } from "@food/context/ProfileContext"
 import { useOrders } from "@food/context/OrdersContext"
 import { api, restaurantAPI, adminAPI, userAPI } from "@food/api"
+import { toFoodUserPath } from "@food/utils/mainTabRoutes"
 
 export default function Checkout() {
   const navigate = useNavigate()
   const { cart, clearCart } = useCart()
-  const { getDefaultAddress, getDefaultPaymentMethod, setDefaultAddress, addresses, paymentMethods, orderType, userProfile } = useProfile()
+  const { getDefaultAddress, getDefaultPaymentMethod, setDefaultAddress, addresses, paymentMethods, orderType, setOrderType, userProfile } = useProfile()
   const { createOrder } = useOrders()
   const getAddressId = (address) => address?.id || address?._id || ""
   const [selectedAddressId, setSelectedAddressId] = useState(getAddressId(getDefaultAddress()))
@@ -27,8 +28,45 @@ export default function Checkout() {
   const [isPlacingOrder, setIsPlacingOrder] = useState(false)
   const [isTakeawayCodEnabled, setIsTakeawayCodEnabled] = useState(true)
   const [isCodBlockingFeatureEnabled, setIsCodBlockingFeatureEnabled] = useState(true)
+  // Whether this restaurant offers self-pickup. Null while unknown, so the
+  // selector is not shown (or hidden) on a guess.
+  const [supportsTakeaway, setSupportsTakeaway] = useState(null)
 
   const restaurantId = cart[0]?.restaurantId
+
+  // Self-pickup availability comes from the restaurant's own takeawaySettings —
+  // the same flag the restaurant app toggles — so the option is only offered
+  // where it is actually supported.
+  useEffect(() => {
+    let cancelled = false
+    if (!restaurantId) {
+      setSupportsTakeaway(null)
+      return undefined
+    }
+
+    restaurantAPI
+      .getRestaurantById(restaurantId)
+      .then((res) => {
+        if (cancelled) return
+        const restaurant = res?.data?.data?.restaurant || res?.data?.restaurant || null
+        setSupportsTakeaway(Boolean(restaurant?.takeawaySettings?.isEnabled))
+      })
+      .catch(() => {
+        if (!cancelled) setSupportsTakeaway(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantId])
+
+  // A takeaway selection carried in from browsing must not survive onto a
+  // restaurant that does not offer pickup.
+  useEffect(() => {
+    if (supportsTakeaway === false && orderType === "takeaway") {
+      setOrderType("delivery")
+    }
+  }, [supportsTakeaway, orderType, setOrderType])
 
   useEffect(() => {
     userAPI.getCustomizationSettings()
@@ -113,11 +151,12 @@ export default function Checkout() {
         total,
         restaurant: cart[0]?.restaurant || cart[0]?.name || "Multiple Restaurants",
         restaurantId: cart[0]?.restaurantId,
-        note: restaurantNote
+        note: restaurantNote,
+        restaurantNote: restaurantNote
       })
 
       clearCart()
-      navigate(`/user/orders/${orderId}?confirmed=true`, {
+      navigate(toFoodUserPath(`/user/orders/${orderId}?confirmed=true`), {
         replace: true,
         state: {
           order: {
@@ -180,6 +219,64 @@ export default function Checkout() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
           {/* Left Column - Order Details */}
           <div className="lg:col-span-2 space-y-6">
+            {/* Order type. Rendered only where the restaurant actually offers
+                self-pickup; the choice is stored in the same profile-level
+                orderType the rest of checkout, pricing and order creation
+                already read, so nothing parallel is introduced. */}
+            {supportsTakeaway ? (
+              <ScrollReveal delay={0.05}>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <ShoppingBag className="h-5 w-5 text-[#1F6B45]" />
+                      How would you like your order?
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div
+                      role="radiogroup"
+                      aria-label="Order type"
+                      className="grid grid-cols-2 gap-3"
+                    >
+                      {[
+                        { value: "delivery", label: "Delivery", hint: "Brought to your address", Icon: MapPin },
+                        { value: "takeaway", label: "Takeaway", hint: "Collect from the restaurant", Icon: ShoppingBag },
+                      ].map(({ value, label, hint, Icon }) => {
+                        const active = orderType === value
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            role="radio"
+                            aria-checked={active}
+                            onClick={() => setOrderType(value)}
+                            className={`rounded-xl border-2 p-3 text-left transition-colors active:scale-[0.98] ${
+                              active
+                                ? "border-[#1F6B45] bg-orange-50"
+                                : "border-border bg-background hover:bg-muted/50"
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <Icon className={`h-4 w-4 ${active ? "text-[#1F6B45]" : "text-muted-foreground"}`} />
+                              <span className={`text-sm font-semibold ${active ? "text-[#1F6B45]" : ""}`}>
+                                {label}
+                              </span>
+                            </span>
+                            <span className="mt-1 block text-xs text-muted-foreground">{hint}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {orderType === "takeaway" ? (
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        No delivery address or delivery fee applies to a pickup order.
+                      </p>
+                    ) : null}
+                  </CardContent>
+                </Card>
+              </ScrollReveal>
+            ) : null}
+
             {/* Delivery/Pickup Information */}
             <ScrollReveal delay={0.1}>
               <Card>
@@ -187,12 +284,12 @@ export default function Checkout() {
                   <CardTitle className="flex items-center gap-2">
                     {orderType === "takeaway" ? (
                       <>
-                        <ShoppingBag className="h-5 w-5 text-[#DC2626]" />
+                        <ShoppingBag className="h-5 w-5 text-[#1F6B45]" />
                         Pickup Information
                       </>
                     ) : (
                       <>
-                        <MapPin className="h-5 w-5 text-[#DC2626]" />
+                        <MapPin className="h-5 w-5 text-[#1F6B45]" />
                         Delivery Address
                       </>
                     )}
@@ -200,10 +297,10 @@ export default function Checkout() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {orderType === "takeaway" ? (
-                    <div className="border-2 border-[#DC2626] bg-orange-50 rounded-lg p-4">
+                    <div className="border-2 border-[#1F6B45] bg-orange-50 rounded-lg p-4">
                       <div className="flex items-start justify-between">
                         <div className="flex items-center gap-2 mb-2">
-                          <ShoppingBag className="h-4 w-4 text-[#DC2626]" />
+                          <ShoppingBag className="h-4 w-4 text-[#1F6B45]" />
                           <span className="font-semibold text-orange-900">Self-Pickup</span>
                         </div>
                       </div>
@@ -235,7 +332,7 @@ export default function Checkout() {
                           <div
                             key={addressId || `${address.label}-${address.street}-${address.city}`}
                             className={`border-2 rounded-lg p-4 cursor-pointer transition-colors ${isSelected
-                                ? "border-[#DC2626] bg-orange-50"
+                                ? "border-[#1F6B45] bg-orange-50"
                                 : "border-gray-200 hover:border-orange-300"
                               }`}
                             onClick={() => {
@@ -246,12 +343,12 @@ export default function Checkout() {
                             <div className="flex items-start justify-between">
                               <div className="flex-1">
                                 {address.isDefault && (
-                                  <Badge className="mb-2 bg-[#DC2626] text-white">Default</Badge>
+                                  <Badge className="mb-2 bg-[#1F6B45] text-white">Default</Badge>
                                 )}
                                 <p className="text-sm font-medium">{addressString}</p>
                               </div>
                               {isSelected && (
-                                <CheckCircle className="h-5 w-5 text-[#DC2626]" />
+                                <CheckCircle className="h-5 w-5 text-[#1F6B45]" />
                               )}
                             </div>
                           </div>
@@ -279,7 +376,7 @@ export default function Checkout() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <CreditCard className="h-5 w-5 text-[#DC2626]" />
+                    <CreditCard className="h-5 w-5 text-[#1F6B45]" />
                     Payment Method
                   </CardTitle>
                 </CardHeader>
@@ -291,7 +388,7 @@ export default function Checkout() {
                         className={`border-2 rounded-lg p-4 transition-colors ${
                           (userProfile?.isCodBlocked && isCodBlockingFeatureEnabled)
                             ? "border-gray-200 bg-gray-50 opacity-60 cursor-not-allowed"
-                            : `cursor-pointer ${selectedPayment === "cod" ? "border-[#DC2626] bg-orange-50" : "border-gray-200 hover:border-orange-300"}`
+                            : `cursor-pointer ${selectedPayment === "cod" ? "border-[#1F6B45] bg-orange-50" : "border-gray-200 hover:border-orange-300"}`
                         }`}
                         onClick={() => {
                           if (userProfile?.isCodBlocked && isCodBlockingFeatureEnabled) return;
@@ -313,7 +410,7 @@ export default function Checkout() {
                             </div>
                           </div>
                           {selectedPayment === "cod" && (
-                            <CheckCircle className="h-5 w-5 text-[#DC2626]" />
+                            <CheckCircle className="h-5 w-5 text-[#1F6B45]" />
                           )}
                         </div>
                       </div>
@@ -327,7 +424,7 @@ export default function Checkout() {
                         <div
                           key={payment.id}
                           className={`border-2 rounded-lg p-4 cursor-pointer transition-colors ${isSelected
-                              ? "border-[#DC2626] bg-orange-50"
+                              ? "border-[#1F6B45] bg-orange-50"
                               : "border-gray-200 hover:border-orange-300"
                             }`}
                           onClick={() => setSelectedPayment(payment.id)}
@@ -336,7 +433,7 @@ export default function Checkout() {
                             <div className="flex-1">
                               <div className="flex items-center gap-2 mb-2">
                                 {payment.isDefault && (
-                                  <Badge className="bg-[#DC2626] text-white">Default</Badge>
+                                  <Badge className="bg-[#1F6B45] text-white">Default</Badge>
                                 )}
                                 <Badge variant="outline" className="capitalize">
                                   {payment.type}
@@ -348,7 +445,7 @@ export default function Checkout() {
                               </p>
                             </div>
                             {isSelected && (
-                              <CheckCircle className="h-5 w-5 text-[#DC2626]" />
+                              <CheckCircle className="h-5 w-5 text-[#1F6B45]" />
                             )}
                           </div>
                         </div>
@@ -370,7 +467,7 @@ export default function Checkout() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <MessageSquare className="h-5 w-5 text-[#DC2626]" />
+                    <MessageSquare className="h-5 w-5 text-[#1F6B45]" />
                     Add note for restaurant
                   </CardTitle>
                 </CardHeader>
@@ -438,12 +535,12 @@ export default function Checkout() {
                     </div>
                     <div className="flex justify-between font-bold text-lg md:text-xl lg:text-2xl pt-2 md:pt-3 border-t dark:border-gray-700">
                       <span className="dark:text-white">Total</span>
-                      <span className="text-[#DC2626] dark:text-orange-400">₹{total.toFixed(0)}</span>
+                      <span className="text-[#1F6B45] dark:text-orange-400">₹{total.toFixed(0)}</span>
                     </div>
                   </div>
 
                   <Button
-                    className="w-full bg-[#DC2626] hover:bg-[#991B1B] text-white mt-4 md:mt-6 h-11 md:h-12 text-sm md:text-base border-none"
+                    className="w-full bg-[#1F6B45] hover:bg-[#14512F] text-white mt-4 md:mt-6 h-11 md:h-12 text-sm md:text-base border-none"
                     onClick={handlePlaceOrder}
                     disabled={isPlacingOrder || (orderType !== "takeaway" && !selectedAddress) || !selectedPayment}
                   >

@@ -395,8 +395,8 @@ export default function FoodsList() {
     )
     const rawType = String(food.foodType || "Non-Veg")
     let nextFoodType =
-      rawType === "Vegan" ? "Vegan" : rawType === "Veg" ? "Veg" : "Non-Veg"
-    if (restaurant?.pureVeganRestaurant === true) nextFoodType = "Vegan"
+      rawType === "Vegan" ? "Veg" : rawType === "Veg" ? "Veg" : "Non-Veg" // legacy Vegan shows as Veg
+    if (restaurant?.pureVeganRestaurant === true) nextFoodType = "Veg" // was "Vegan" — option disabled
     else if (restaurant?.pureVegRestaurant === true && nextFoodType === "Non-Veg") {
       nextFoodType = "Veg"
     }
@@ -1059,8 +1059,10 @@ export default function FoodsList() {
                   disabled={isSelectedRestaurantPureVegan}
                   className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white disabled:bg-slate-100 disabled:text-slate-600"
                 >
-                  {!isSelectedRestaurantPureVegan ? <option value="Veg">Veg</option> : null}
+                  <option value="Veg">Veg</option>
+                  {/* DISABLED: Vegan is not selectable — only Veg / Non-Veg / Mixed.
                   <option value="Vegan">Vegan</option>
+                  */}
                   {!isSelectedRestaurantPureVeg ? <option value="Non-Veg">Non-Veg</option> : null}
                 </select>
                 {isSelectedRestaurantPureVegan ? (

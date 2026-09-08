@@ -1,4 +1,5 @@
 import React, { Suspense, lazy } from "react"
+import RestaurantOfflineGate from "./RestaurantOfflineGate"
 import { Routes, Route, Navigate, Outlet, useLocation, useNavigate } from "react-router-dom"
 import ProtectedRoute from "@food/components/ProtectedRoute"
 import AuthRedirect from "@food/components/AuthRedirect"
@@ -88,6 +89,9 @@ export default function RestaurantRouter() {
 
   return (
     <div className="restaurant-theme">
+      {/* One offline state for every Restaurant screen. It overlays rather than
+          replaces the tree, so in-progress form input survives a dropout. */}
+      <RestaurantOfflineGate>
       <Suspense fallback={
         isOnboarding ? (
           <OnboardingSkeleton />
@@ -160,6 +164,7 @@ export default function RestaurantRouter() {
         <Route path="help-content" element={<CMSHelpSupportPage />} />
         </Routes>
       </Suspense>
+      </RestaurantOfflineGate>
     </div>
   )
 }

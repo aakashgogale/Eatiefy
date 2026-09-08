@@ -155,6 +155,26 @@ export async function getRestaurantFinance(restaurantId, query = {}) {
     const totalEffectiveWithdrawals = Number(effectiveWithdrawalsAgg?.[0]?.total || 0);
     const availableBalance = Math.max(0, globalEstimatedPayout - totalEffectiveWithdrawals);
 
+    // Authoritative payout date: when the most recent approved withdrawal was
+    // actually processed. This was hardcoded to null, so the downloaded report
+    // had no real date to print. Mirrors the delivery-partner finance service,
+    // and matches what the restaurant's payout history shows.
+    const lastApprovedWithdrawal = await FoodRestaurantWithdrawal.findOne({
+        restaurantId: rid,
+        status: 'approved'
+    })
+        .sort({ processedAt: -1, createdAt: -1 })
+        .select('processedAt createdAt amount transactionId')
+        .lean();
+
+    const lastPayout = lastApprovedWithdrawal
+        ? {
+            date: lastApprovedWithdrawal.processedAt || lastApprovedWithdrawal.createdAt || null,
+            amount: Number(lastApprovedWithdrawal.amount) || 0,
+            transactionId: lastApprovedWithdrawal.transactionId || null
+        }
+        : null;
+
     const currentCycle = {
         start: { ...nowWindow.startMeta },
         end: { ...nowWindow.endMeta },
@@ -162,7 +182,9 @@ export async function getRestaurantFinance(restaurantId, query = {}) {
         totalWithdrawn: totalEffectiveWithdrawals,
         estimatedPayout: availableBalance, // This is what UI shows as "Estimated Payout" (Available Balance)
         totalOrders: currentCycleOrders.length,
-        payoutDate: null,
+        // ISO string; the client applies the display locale/timezone.
+        payoutDate: lastPayout?.date ? new Date(lastPayout.date).toISOString() : null,
+        lastPayout,
         orders: currentCycleOrders
     };
 

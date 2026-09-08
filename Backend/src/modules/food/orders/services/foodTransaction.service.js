@@ -3,10 +3,13 @@ import { FoodRestaurantCommission } from '../../admin/models/restaurantCommissio
 import mongoose from 'mongoose';
 
 const RESTAURANT_COMMISSION_CACHE_MS = 60 * 1000;
-/** Platform fallback when a restaurant has no commission rule configured */
-export const DEFAULT_RESTAURANT_COMMISSION_PERCENT = 18.1;
 let restaurantCommissionRulesCache = null;
 let restaurantCommissionRulesLoadedAt = 0;
+
+export function invalidateRestaurantCommissionRulesCache() {
+  restaurantCommissionRulesCache = null;
+  restaurantCommissionRulesLoadedAt = 0;
+}
 
 async function getActiveRestaurantCommissionRules() {
   const now = Date.now();
@@ -27,13 +30,22 @@ async function getActiveRestaurantCommissionRules() {
 
 export function computeRestaurantCommissionAmount(baseAmount, rule) {
   const safeBase = Math.max(0, Number(baseAmount) || 0);
-  if (!Number.isFinite(safeBase) || safeBase < 0) return 0;
+  if (!Number.isFinite(safeBase) || safeBase <= 0) {
+    return { commissionAmount: 0, commissionType: null, commissionValue: null, isConfigured: false, baseAmount: 0 };
+  }
 
-  const commissionType = rule?.defaultCommission?.type || 'percentage';
-  const commissionValue = Math.max(
-    0,
-    Number(rule?.defaultCommission?.value ?? 0) || 0
-  );
+  if (!rule || rule.status === false) {
+    return { commissionAmount: 0, commissionType: null, commissionValue: null, isConfigured: false, baseAmount: safeBase };
+  }
+
+  const commissionType = rule.defaultCommission?.type || 'percentage';
+  const rawValue = rule.defaultCommission?.value;
+
+  if (rawValue === undefined || rawValue === null || isNaN(Number(rawValue)) || Number(rawValue) < 0) {
+    return { commissionAmount: 0, commissionType: null, commissionValue: null, isConfigured: false, baseAmount: safeBase };
+  }
+
+  const commissionValue = Math.max(0, Number(rawValue) || 0);
 
   let commissionAmount = 0;
   if (commissionType === 'percentage') {
@@ -42,11 +54,17 @@ export function computeRestaurantCommissionAmount(baseAmount, rule) {
     commissionAmount = commissionValue;
   }
 
-  // Round to 2 decimals and clamp to [0, base]
+  // Round to 2 decimals and clamp to [0, safeBase]
   commissionAmount = Math.round((commissionAmount || 0) * 100) / 100;
   commissionAmount = Math.max(0, Math.min(commissionAmount, safeBase));
 
-  return { commissionAmount, commissionType, commissionValue, baseAmount: safeBase };
+  return {
+    commissionAmount,
+    commissionType,
+    commissionValue,
+    isConfigured: true,
+    baseAmount: safeBase,
+  };
 }
 
 export async function getRestaurantCommissionSnapshot(orderDoc) {
@@ -58,8 +76,9 @@ export async function getRestaurantCommissionSnapshot(orderDoc) {
   if (!restaurantIdRaw) {
     return {
       commissionAmount: 0,
-      commissionType: 'percentage',
-      commissionValue: DEFAULT_RESTAURANT_COMMISSION_PERCENT,
+      commissionType: null,
+      commissionValue: null,
+      isConfigured: false,
       baseAmount,
     };
   }
@@ -71,13 +90,14 @@ export async function getRestaurantCommissionSnapshot(orderDoc) {
     rules.find((r) => String(r.restaurant || r.restaurant_id || '') === String(restaurantIdRaw)) ||
     null;
 
-  if (!rule) {
-    return computeRestaurantCommissionAmount(baseAmount, {
-      defaultCommission: {
-        type: 'percentage',
-        value: DEFAULT_RESTAURANT_COMMISSION_PERCENT,
-      },
-    });
+  if (!rule || rule.status === false) {
+    return {
+      commissionAmount: 0,
+      commissionType: null,
+      commissionValue: null,
+      isConfigured: false,
+      baseAmount,
+    };
   }
 
   return computeRestaurantCommissionAmount(baseAmount, rule);
@@ -93,11 +113,14 @@ export async function createInitialTransaction(order) {
     const totalCustomerPaid = order.pricing?.total || 0;
     const riderShare = order.riderEarning || 0;
     // Prefer commission already computed & stored on the order (source of truth for this order),
-    // fallback to rule snapshot for older orders.
-    const restaurantCommissionFromOrder = Number(order.pricing?.restaurantCommission);
+    // fallback to rule snapshot only when missing on older orders.
+    const restaurantCommissionFromOrder = order.pricing?.restaurantCommission;
     const restaurantCommission =
-        Number.isFinite(restaurantCommissionFromOrder) && restaurantCommissionFromOrder > 0
-            ? restaurantCommissionFromOrder
+        restaurantCommissionFromOrder !== undefined &&
+        restaurantCommissionFromOrder !== null &&
+        Number.isFinite(Number(restaurantCommissionFromOrder)) &&
+        Number(restaurantCommissionFromOrder) >= 0
+            ? Number(restaurantCommissionFromOrder)
             : (commissionAmount || 0);
     const baseSubtotal =
         Number(order.pricing?.baseSubtotal ?? order.pricing?.subtotal ?? 0) || 0;

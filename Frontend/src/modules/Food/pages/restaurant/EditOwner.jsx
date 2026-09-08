@@ -1,4 +1,9 @@
 import { useState, useEffect, useRef } from "react"
+import {
+  ALL_CUISINES as SHARED_ALL_CUISINES,
+  DAYS_OF_WEEK,
+  normalizeRestaurantProfile,
+} from "@food/utils/restaurantProfile"
 import { useNavigate, useLocation } from "react-router-dom"
 import Lenis from "lenis"
 import {
@@ -166,38 +171,9 @@ const createDefaultFormData = () => ({
   menuImages: [],
 })
 
-const daysOfWeek = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+const daysOfWeek = DAYS_OF_WEEK
 
-const ALL_CUISINES = [
-  "Burger",
-  "Chinese",
-  "Momos",
-  "North Indian",
-  "Pizza",
-  "Rolls",
-  "Sandwich",
-  "Shawarma",
-  "South Indian",
-  "Biryani",
-  "Desserts",
-  "Ice Cream",
-  "Fast Food",
-  "Cafe",
-  "Italian",
-  "Mexican",
-  "Thai",
-  "Seafood",
-  "Salad",
-  "Healthy Food",
-  "Juices",
-  "Beverages",
-  "Punjabi",
-  "Gujarati",
-  "Rajasthani",
-  "Mughlai",
-  "Street Food",
-  "Bakery",
-]
+const ALL_CUISINES = SHARED_ALL_CUISINES
 
 const formatNameToCapital = (str) => {
   return str
@@ -388,83 +364,14 @@ export default function EditOwner() {
         const apiData = response?.data?.data?.restaurant || response?.data?.restaurant
 
         if (apiData) {
-          // Backend returns flat fields via toRestaurantProfile() mapper
-          const loc = apiData.location || {}
-
-          // Helper to extract URL from image field (can be string URL or {url, publicId} object)
-          const toImgUrl = (field) => {
-            if (!field) return null
-            if (typeof field === "string") return field
-            if (field.url) return field.url
-            return null
-          }
-
-          // menuImages come as array of {url, publicId} objects or string URLs
-          const menuImagesArr = Array.isArray(apiData.menuImages)
-            ? apiData.menuImages.map((m) => (typeof m === "string" ? m : m?.url || "")).filter(Boolean)
-            : []
+          // One normalizer feeds both Outlet Info (view) and this form, so the
+          // two screens can never show different values for the same field.
+          const normalized = normalizeRestaurantProfile(apiData)
 
           const mappedData = {
-            ownerName: apiData.ownerName || "",
-            ownerEmail: apiData.ownerEmail || "",
-            ownerPhone: (apiData.ownerPhone || "").replace(/\D/g, "").slice(-10),
-            profileImage: toImgUrl(apiData.profileImage),
-
-            restaurantName: apiData.restaurantName || apiData.name || "",
-            pureVegRestaurant: Boolean(apiData.pureVegRestaurant) || Boolean(apiData.pureVeganRestaurant),
-            pureVeganRestaurant: Boolean(apiData.pureVeganRestaurant),
-            primaryContactNumber: (apiData.primaryContactNumber || "").replace(/\D/g, "").slice(-10),
-            zoneId: apiData.zoneId ? String(apiData.zoneId) : "",
-            location: {
-              formattedAddress: loc.formattedAddress || loc.address || "",
-              addressLine1: loc.addressLine1 || "",
-              addressLine2: loc.addressLine2 || "",
-              area: loc.area || "",
-              city: loc.city || "Indore",
-              state: loc.state || "Madhya Pradesh",
-              pincode: loc.pincode || "",
-              landmark: loc.landmark || "",
-              latitude:
-                loc.latitude != null && loc.latitude !== ""
-                  ? String(loc.latitude)
-                  : Array.isArray(loc.coordinates)
-                    ? String(loc.coordinates[1] ?? "")
-                    : "",
-              longitude:
-                loc.longitude != null && loc.longitude !== ""
-                  ? String(loc.longitude)
-                  : Array.isArray(loc.coordinates)
-                    ? String(loc.coordinates[0] ?? "")
-                    : "",
-            },
-            cuisines: Array.isArray(apiData.cuisines) 
-              ? apiData.cuisines.flatMap(c => typeof c === "string" ? c.split(",").map(s => s.trim()) : c).map(c => ALL_CUISINES.find(ac => ac.toLowerCase() === String(c).toLowerCase()) || c) 
-              : [],
-            openingTime: apiData.openingTime || "",
-            closingTime: apiData.closingTime || "",
-            openDays: Array.isArray(apiData.openDays) 
-              ? apiData.openDays.flatMap(d => typeof d === "string" ? d.split(",").map(s => s.trim()) : d).map(d => daysOfWeek.find(dw => dw.toLowerCase() === String(d).toLowerCase()) || d) 
-              : [],
-            estimatedDeliveryTime: apiData.estimatedDeliveryTime || "",
-
-            panNumber: apiData.panNumber || "",
-            nameOnPan: apiData.nameOnPan || "",
-            panImage: toImgUrl(apiData.panImage),
-            accountNumber: apiData.accountNumber || "",
-            confirmAccountNumber: apiData.accountNumber || "",
-            ifscCode: apiData.ifscCode || "",
-            accountHolderName: apiData.accountHolderName || "",
-            accountType: apiData.accountType || "Saving",
-            gstRegistered: Boolean(apiData.gstRegistered),
-            gstNumber: apiData.gstNumber || "",
-            gstLegalName: apiData.gstLegalName || "",
-            gstAddress: apiData.gstAddress || "",
-            gstImage: toImgUrl(apiData.gstImage),
-
-            fssaiNumber: apiData.fssaiNumber || "",
-            fssaiExpiry: apiData.fssaiExpiry ? String(apiData.fssaiExpiry).split("T")[0] : "",
-            fssaiImage: toImgUrl(apiData.fssaiImage),
-            menuImages: menuImagesArr,
+            ...normalized,
+            // Form-only mirror used by the confirm-account-number field.
+            confirmAccountNumber: normalized.accountNumber,
           }
 
           const savedInitial = JSON.parse(JSON.stringify(mappedData))
@@ -1158,6 +1065,8 @@ export default function EditOwner() {
                     >
                       Yes, Pure Veg
                     </button>
+                    {/* DISABLED: "Pure Vegan" is not a selectable restaurant menu type —
+                        only Pure Veg and Mixed Menu are active. Kept, not deleted.
                     <button
                       type="button"
                       onClick={() => {
@@ -1172,6 +1081,7 @@ export default function EditOwner() {
                     >
                       Yes, Pure Vegan
                     </button>
+                    */}
                     <button
                       type="button"
                       onClick={() => {

@@ -2,6 +2,8 @@ import { useParams, Link, useSearchParams, useNavigate } from "react-router-dom"
 import React, { useState, useEffect, useMemo, useRef, useCallback, memo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { toast } from "sonner"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
+import { toFoodUserPath } from "@food/utils/mainTabRoutes"
 import {
   ArrowLeft,
   RefreshCw,
@@ -43,6 +45,7 @@ import {
   CreditCard
 } from "lucide-react"
 import { resolveMediaUrl } from "@/shared/utils/mediaUrl"
+import { isVegMenuItem } from "@food/utils/vegMode"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Card, CardContent } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
@@ -334,14 +337,7 @@ const transformOrderForTracking = (apiOrder, previousOrder = null, explicitResta
       variantName: item.variantName || '',
       quantity: item.quantity,
       price: item.price,
-      isVeg: (() => {
-        if (typeof item.isVeg === "boolean") return item.isVeg;
-        const foodType = String(item.foodType || "").toLowerCase().trim();
-        const category = String(item.category || "").toLowerCase().trim();
-        const type = String(item.type || "").toLowerCase().trim();
-        if (foodType) return foodType === "veg" || foodType === "vegetarian";
-        return category === "veg" || type === "veg";
-      })(),
+      isVeg: isVegMenuItem(item),
     })) || previousOrder?.items || [],
     total: apiOrder?.pricing?.total || previousOrder?.total || 0,
     // Backend canonical field is orderStatus; keep legacy `status` for UI compatibility.
@@ -600,6 +596,7 @@ const LiveTrackingStepper = memo(({ status, isCancelled }) => {
 
 export default function OrderTracking() {
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const companyName = useCompanyName()
   const { orderId } = useParams()
   const [searchParams] = useSearchParams()
@@ -1529,7 +1526,7 @@ export default function OrderTracking() {
         <div className="max-w-lg mx-auto text-center py-20">
           <h1 className="text-lg sm:text-xl md:text-2xl font-bold mb-4 dark:text-white">Order Not Found</h1>
           <p className="text-gray-600 dark:text-gray-400 mb-6">{error || 'The order you\'re looking for doesn\'t exist.'}</p>
-          <Link to="/user/orders">
+          <Link to={toFoodUserPath("/user/orders")}>
             <Button className="text-white border-0" style={{ backgroundColor: "var(--module-theme-color, #EB590E)" }}>Back to Orders</Button>
           </Link>
         </div>
@@ -1714,8 +1711,8 @@ export default function OrderTracking() {
         <div className="sticky top-0 z-40 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md px-4 py-3.5 border-b border-gray-100 dark:border-zinc-800 flex items-center justify-between shadow-xs">
           <button
             type="button"
-            onClick={() => navigate('/food/user/orders')}
-            className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
+            onClick={goBack}
+            className="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
           >
             <ArrowLeft className="w-5 h-5 text-gray-800 dark:text-gray-200" />
           </button>
@@ -2035,22 +2032,26 @@ export default function OrderTracking() {
                   </div>
                 </div>
 
-                {/* Submit Feedback Button */}
+                {/* Continue/Save Feedback Button */}
                 <button
                   type="button"
                   onClick={handleRatingSubmit}
                   disabled={isSubmittingRating}
-                  className="w-full bg-[#EB590E] hover:bg-[#d44d08] active:scale-[0.99] text-white font-bold h-12 rounded-2xl shadow-lg shadow-orange-500/25 transition-all flex items-center justify-center gap-2"
+                  className={`w-full h-12 rounded-2xl font-bold text-base transition-all flex items-center justify-center gap-2 shadow-md ${
+                    isSubmittingRating
+                      ? "bg-orange-700 text-white cursor-wait opacity-90 shadow-none"
+                      : "bg-[#EB590E] hover:bg-[#d44d08] active:scale-[0.99] text-white shadow-orange-500/25 cursor-pointer"
+                  }`}
                 >
                   {isSubmittingRating ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Submitting...</span>
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      <span className="text-white font-bold">Saving Feedback...</span>
                     </>
                   ) : (
                     <>
-                      <Send className="w-4 h-4" />
-                      <span>Submit Feedback</span>
+                      <Send className="w-4 h-4 text-white" />
+                      <span className="text-white font-bold">Save & Submit Feedback</span>
                     </>
                   )}
                 </button>
@@ -2070,7 +2071,8 @@ export default function OrderTracking() {
             </button>
 
             <Link
-              to={`/food/user/orders/${orderId}/invoice`}
+              to={toFoodUserPath(`/user/orders/${orderId || order?.orderId || order?._id || resolvedLookupId}/invoice`)}
+              state={{ order, orderId: orderId || order?.orderId || order?._id || resolvedLookupId }}
               className="flex items-center justify-center gap-2 py-3.5 px-4 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 hover:bg-gray-50 dark:hover:bg-zinc-800 text-gray-800 dark:text-white rounded-2xl font-bold text-sm shadow-xs active:scale-95 transition-all"
             >
               <Receipt className="w-4 h-4" />
@@ -2147,7 +2149,7 @@ export default function OrderTracking() {
       {/* Header Container */}
       <motion.div
         className="sticky top-0 z-50 shadow-md backdrop-blur-md"
-        style={{ backgroundColor: isCancelledOrder ? "#dc2626" : "rgba(255, 255, 255, 0.9)" }}
+        style={{ backgroundColor: isCancelledOrder ? "#DC2626" : "rgba(255, 255, 255, 0.9)" }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
       >
@@ -2155,8 +2157,8 @@ export default function OrderTracking() {
           <div className="flex items-center gap-3">
             <button 
               type="button"
-              onClick={() => navigate('/food/user/orders')} 
-              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
+              onClick={goBack} 
+              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
             >
               <ArrowLeft className="w-5 h-5 text-gray-700 dark:text-gray-200" />
             </button>
@@ -2287,9 +2289,9 @@ export default function OrderTracking() {
                       ? "Order Cancelled"
                       : currentStatus.subtitle}
                 </h2>
-                {isCancelledOrder && order?.status === 'cancelled_by_restaurant' && order?.note && (
-                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 font-medium">
-                    {order.note}
+                {isCancelledOrder && (order?.cancellationReason || order?.note) && (
+                  <p className="mt-2 text-xs text-red-600 dark:text-red-400 font-medium">
+                    Reason: {order.cancellationReason || order.note}
                   </p>
                 )}
               </div>
@@ -2446,17 +2448,15 @@ export default function OrderTracking() {
             {/* Items List */}
             <div className="space-y-3">
               {order?.items?.map((item, i) => {
-                const resolvedIsVeg = typeof item?.isVeg === "boolean"
-                  ? item.isVeg
-                  : ["veg", "vegetarian"].includes(String(item?.foodType || item?.category || item?.type || "").toLowerCase().trim());
+                const resolvedIsVeg = isVegMenuItem(item);
 
                 return (
                   <div key={i} className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-2.5 min-w-0">
                       <div
-                        className={`w-3.5 h-3.5 mt-0.5 border flex items-center justify-center p-[1px] shrink-0 ${resolvedIsVeg ? "border-[#16a34a] bg-green-50/40 dark:bg-green-900/25" : "border-[#dc2626] bg-red-50/40 dark:bg-red-900/25"}`}
+                        className={`w-3.5 h-3.5 mt-0.5 border flex items-center justify-center p-[1px] shrink-0 ${resolvedIsVeg ? "border-[#16a34a] bg-green-50/40 dark:bg-green-900/25" : "border-[#1F6B45] bg-red-50/40 dark:bg-red-900/25"}`}
                       >
-                        <div className={`w-full h-full rounded-full ${resolvedIsVeg ? "bg-[#16a34a]" : "bg-[#dc2626]"}`} />
+                        <div className={`w-full h-full rounded-full ${resolvedIsVeg ? "bg-[#16a34a]" : "bg-[#1F6B45]"}`} />
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs sm:text-sm text-gray-800 dark:text-gray-200 font-semibold truncate">
@@ -2513,7 +2513,8 @@ export default function OrderTracking() {
 
               <div className="mt-4 pt-3 border-t border-gray-100 dark:border-zinc-800 flex items-center justify-between">
                 <Link
-                  to={`/food/user/orders/${orderId}/invoice`}
+                  to={toFoodUserPath(`/user/orders/${orderId || order?.orderId || order?._id || resolvedLookupId}/invoice`)}
+                  state={{ order, orderId: orderId || order?.orderId || order?._id || resolvedLookupId }}
                   className="text-xs font-bold text-[#EB590E] hover:underline flex items-center gap-1"
                 >
                   <Receipt className="w-3.5 h-3.5" />
@@ -2547,7 +2548,8 @@ export default function OrderTracking() {
           {/* Help & Support Link */}
           <div className="pt-2 text-center pb-6">
             <Link
-              to="/food/user/profile/help-content"
+              to={(orderId || order?.orderId || order?._id || order?.id || resolvedLookupId) ? toFoodUserPath(`/user/help/orders/${orderId || order?.orderId || order?._id || order?.id || resolvedLookupId}`) : toFoodUserPath('/user/profile/support')}
+              state={{ order, orderId: orderId || order?.orderId || order?._id || order?.id || resolvedLookupId }}
               className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:text-[#EB590E] transition-colors"
             >
               <HelpCircle className="w-3.5 h-3.5" />
@@ -2672,9 +2674,9 @@ export default function OrderTracking() {
                       ? "Order Cancelled"
                       : currentStatus.subtitle}
                 </h2>
-                {isCancelledOrder && order?.status === 'cancelled_by_restaurant' && order?.note && (
-                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 font-medium">
-                    {order.note}
+                {isCancelledOrder && (order?.cancellationReason || order?.note) && (
+                  <p className="mt-2 text-xs text-red-600 dark:text-red-400 font-medium">
+                    Reason: {order.cancellationReason || order.note}
                   </p>
                 )}
               </div>
@@ -2831,17 +2833,15 @@ export default function OrderTracking() {
             {/* Items List */}
             <div className="space-y-3">
               {order?.items?.map((item, i) => {
-                const resolvedIsVeg = typeof item?.isVeg === "boolean"
-                  ? item.isVeg
-                  : ["veg", "vegetarian"].includes(String(item?.foodType || item?.category || item?.type || "").toLowerCase().trim());
+                const resolvedIsVeg = isVegMenuItem(item);
 
                 return (
                   <div key={i} className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-2.5 min-w-0">
                       <div
-                        className={`w-3.5 h-3.5 mt-0.5 border flex items-center justify-center p-[1px] shrink-0 ${resolvedIsVeg ? "border-[#16a34a] bg-green-50/40 dark:bg-green-900/25" : "border-[#dc2626] bg-red-50/40 dark:bg-red-900/25"}`}
+                        className={`w-3.5 h-3.5 mt-0.5 border flex items-center justify-center p-[1px] shrink-0 ${resolvedIsVeg ? "border-[#16a34a] bg-green-50/40 dark:bg-green-900/25" : "border-[#1F6B45] bg-red-50/40 dark:bg-red-900/25"}`}
                       >
-                        <div className={`w-full h-full rounded-full ${resolvedIsVeg ? "bg-[#16a34a]" : "bg-[#dc2626]"}`} />
+                        <div className={`w-full h-full rounded-full ${resolvedIsVeg ? "bg-[#16a34a]" : "bg-[#1F6B45]"}`} />
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs sm:text-sm text-gray-800 dark:text-gray-200 font-semibold truncate">
@@ -2898,7 +2898,8 @@ export default function OrderTracking() {
 
               <div className="mt-4 pt-3 border-t border-gray-100 dark:border-zinc-800 flex items-center justify-between">
                 <Link
-                  to={`/food/user/orders/${orderId}/invoice`}
+                  to={toFoodUserPath(`/user/orders/${orderId || order?.orderId || order?._id || resolvedLookupId}/invoice`)}
+                  state={{ order, orderId: orderId || order?.orderId || order?._id || resolvedLookupId }}
                   className="text-xs font-bold text-[#EB590E] hover:underline flex items-center gap-1"
                 >
                   <Receipt className="w-3.5 h-3.5" />
@@ -2932,7 +2933,8 @@ export default function OrderTracking() {
           {/* Help & Support Link */}
           <div className="pt-2 text-center pb-6">
             <Link
-              to="/food/user/profile/help-content"
+              to={(orderId || order?.orderId || order?._id || order?.id || resolvedLookupId) ? toFoodUserPath(`/user/help/orders/${orderId || order?.orderId || order?._id || order?.id || resolvedLookupId}`) : toFoodUserPath('/user/profile/support')}
+              state={{ order, orderId: orderId || order?.orderId || order?._id || order?.id || resolvedLookupId }}
               className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:text-[#EB590E] transition-colors"
             >
               <HelpCircle className="w-3.5 h-3.5" />

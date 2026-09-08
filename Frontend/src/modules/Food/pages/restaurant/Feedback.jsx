@@ -6,6 +6,7 @@ import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation
 import { DateRangeCalendar } from "@food/components/ui/date-range-calendar"
 import BottomNavOrders from "@food/components/restaurant/BottomNavOrders"
 import { restaurantAPI } from "@food/api"
+import { applyReviewFilters } from "@food/utils/reviewFilters"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -52,6 +53,7 @@ const extractReviewText = (order) => {
 const toComparableId = (value) =>
   String(value?._id || value || "").trim()
 
+
 export default function Feedback() {
   const [searchParams, setSearchParams] = useSearchParams()
   const tabFromUrl = searchParams.get("tab")
@@ -88,6 +90,7 @@ export default function Feedback() {
   })
   const [isFilterLoading, setIsFilterLoading] = useState(false)
   const [displayedReviews, setDisplayedReviews] = useState([])
+  const [reviewsSearchQuery, setReviewsSearchQuery] = useState("")
   
   const [isComplaintsFilterOpen, setIsComplaintsFilterOpen] = useState(false)
   const [selectedComplaintsFilterCategory, setSelectedComplaintsFilterCategory] = useState("issueType")
@@ -265,6 +268,9 @@ export default function Feedback() {
               ordersCount: userOrdersCount,
               rating: rating,
               date: formattedDate,
+              // `date` is a display string ("5 Sep, 2025") and loses the time of
+              // day, so sorting keeps the original timestamp separately.
+              sortTimestamp: orderDate.getTime(),
               reviewText: reviewText,
               orderData: order
             }
@@ -290,22 +296,18 @@ export default function Feedback() {
     if (!isLoadingRestaurant) fetchReviews()
   }, [isLoadingRestaurant, restaurantData])
 
+  // Reviews are fully loaded client-side above, so search and filters are one
+  // pass over that data — no extra API round-trip per keystroke.
   useEffect(() => {
-    let filtered = [...reviews]
-    if (filterValues.sortBy) {
-      filtered.sort((a, b) => {
-        const dateA = new Date(a.date); const dateB = new Date(b.date)
-        if (filterValues.sortBy === "newest") return dateB - dateA
-        if (filterValues.sortBy === "oldest") return dateA - dateB
-        if (filterValues.sortBy === "bestRated") return (b.rating ?? 0) - (a.rating ?? 0)
-        if (filterValues.sortBy === "worstRated") return (a.rating ?? 0) - (b.rating ?? 0)
-        return 0
-      })
-    }
-    setDisplayedReviews(filtered)
-  }, [reviews, filterValues])
+    setDisplayedReviews(
+      applyReviewFilters(reviews, { search: reviewsSearchQuery, filters: filterValues })
+    )
+  }, [reviews, filterValues, reviewsSearchQuery])
 
-  const handleFilterReset = () => { setFilterValues({ duration: null, sortBy: "newest", reviewType: [] }); setIsFilterApply() }
+  const hasActiveReviewFilters =
+    filterValues.reviewType.length > 0 || filterValues.sortBy !== "newest"
+
+  const handleFilterReset = () => { setFilterValues({ duration: null, sortBy: "newest", reviewType: [] }); setIsFilterLoading(true); setIsFilterOpen(false); setTimeout(() => setIsFilterLoading(false), 200) }
   const handleFilterApply = () => { setIsFilterLoading(true); setIsFilterOpen(false); setTimeout(() => setIsFilterLoading(false), 200) }
 
   const formatDate = (date) => {
@@ -374,14 +376,25 @@ export default function Feedback() {
 
   const handleCustomDateApply = () => { setIsCustomDateOpen(false); setIsDateSelectorOpen(false); setIsComplaintsLoading(true); setTimeout(() => setIsComplaintsLoading(false), 200) }
 
-  const handleTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; touchStartY.current = e.touches[0].clientY; isSwiping.current = false }
+  // Any open bottom sheet owns the gesture. Without this the page-level swipe
+  // handler still reads touches made inside the sheet and switches tabs behind
+  // it, which on Android makes the filter feel unresponsive.
+  const isOverlayOpen =
+    isFilterOpen || isComplaintsFilterOpen || isDateSelectorOpen || isCustomDateOpen
+
+  const handleTouchStart = (e) => {
+    if (isOverlayOpen) { isSwiping.current = false; return }
+    touchStartX.current = e.touches[0].clientX; touchStartY.current = e.touches[0].clientY; isSwiping.current = false
+  }
   const handleTouchMove = (e) => {
+    if (isOverlayOpen) return
     const deltaX = Math.abs(e.touches[0].clientX - touchStartX.current)
     const deltaY = Math.abs(e.touches[0].clientY - touchStartY.current)
     if (deltaX > deltaY && deltaX > 10) isSwiping.current = true
     if (isSwiping.current) touchEndX.current = e.touches[0].clientX
   }
   const handleTouchEnd = () => {
+    if (isOverlayOpen) return
     if (!isSwiping.current) return
     const swipeDistance = touchStartX.current - touchEndX.current
     if (Math.abs(swipeDistance) > 50) {
@@ -504,14 +517,69 @@ export default function Feedback() {
           <div className="space-y-4">
             <div className="flex gap-2">
               <div className="flex-1 bg-white dark:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] p-3 rounded-xl border border-gray-200 dark:border-gray-800 flex items-center gap-2">
-                <Search className="w-4 h-4 text-gray-400" />
-                <input type="text" placeholder="Search reviews" className="flex-1 text-sm bg-transparent focus:outline-none dark:text-white" />
+                <Search className="w-4 h-4 text-gray-400 shrink-0" />
+                <input
+                  type="text"
+                  value={reviewsSearchQuery}
+                  onChange={(e) => setReviewsSearchQuery(e.target.value)}
+                  placeholder="Search reviews, customer or order"
+                  aria-label="Search reviews"
+                  className="flex-1 min-w-0 text-sm bg-transparent focus:outline-none dark:text-white"
+                />
+                {reviewsSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setReviewsSearchQuery("")}
+                    aria-label="Clear review search"
+                    className="p-1 -mr-1 shrink-0 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 active:scale-95 transition-all"
+                  >
+                    <X className="w-3.5 h-3.5 text-gray-400" />
+                  </button>
+                )}
               </div>
-              <button onClick={() => setIsFilterOpen(true)} className="bg-white dark:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] p-3 rounded-xl border border-gray-200 dark:border-gray-800">
-                <SlidersHorizontal className="w-4 h-4 text-gray-900 dark:text-white" />
+              <button
+                type="button"
+                onClick={() => setIsFilterOpen(true)}
+                aria-label="Filter reviews"
+                aria-expanded={isFilterOpen}
+                className={`relative shrink-0 p-3 rounded-xl border active:scale-95 transition-all ${
+                  hasActiveReviewFilters
+                    ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] border-transparent"
+                    : "bg-white dark:bg-gradient-to-br dark:from-[#2E7D52] dark:to-[#1B5E3F] border-gray-200 dark:border-gray-800"
+                }`}
+              >
+                <SlidersHorizontal className={`w-4 h-4 ${hasActiveReviewFilters ? "text-white" : "text-gray-900 dark:text-white"}`} />
+                {hasActiveReviewFilters && (
+                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 border-2 border-white dark:border-[#0a0a0a]" />
+                )}
               </button>
             </div>
 
+            {isLoadingReviews || isFilterLoading ? (
+              <div className="flex justify-center p-10"><Loader2 className="animate-spin text-gray-400" /></div>
+            ) : displayedReviews.length === 0 ? (
+              <div className="text-center py-20 bg-gray-50 dark:bg-[#1a1a1a] rounded-3xl border border-dashed border-gray-200 dark:border-gray-800 px-6">
+                <p className="text-sm text-gray-500 font-medium">
+                  {reviewsSearchQuery.trim()
+                    ? `No reviews match "${reviewsSearchQuery.trim()}"`
+                    : hasActiveReviewFilters
+                      ? "No reviews match the selected filters"
+                      : "No reviews yet"}
+                </p>
+                {(reviewsSearchQuery.trim() || hasActiveReviewFilters) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReviewsSearchQuery("")
+                      setFilterValues({ duration: null, sortBy: "newest", reviewType: [] })
+                    }}
+                    className="mt-3 text-xs font-bold text-[#2E7D52] underline underline-offset-4"
+                  >
+                    Clear search and filters
+                  </button>
+                )}
+              </div>
+            ) : (
             <div className="space-y-4 pb-20">
               {displayedReviews.map((review) => (
                 <div key={review.id} className="bg-white dark:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] rounded-2xl p-4 border border-gray-100 dark:border-gray-800 shadow-sm space-y-3">
@@ -522,9 +590,15 @@ export default function Feedback() {
                   <div className="flex items-center gap-3">
                     <img src={review.userImage} className="w-8 h-8 rounded-full border border-gray-100 dark:border-gray-800" />
                     <p className="font-bold text-gray-900 dark:text-white text-sm">{review.userName}</p>
-                    <div className="ml-auto flex items-center gap-1 bg-green-600 text-white px-1.5 py-0.5 rounded text-[10px] font-bold">
-                      {review.rating} <Star className="w-2 h-2 fill-current" />
-                    </div>
+                    {review.rating != null ? (
+                      <div className={`ml-auto flex items-center gap-1 px-2 py-1 rounded-md text-xs font-bold text-white ${
+                        review.rating >= 4 ? "bg-green-600" : review.rating >= 3 ? "bg-amber-500" : "bg-red-500"
+                      }`}>
+                        {review.rating} <Star className="w-3 h-3 fill-current" />
+                      </div>
+                    ) : (
+                      <span className="ml-auto text-[10px] text-gray-400 font-medium italic">No rating</span>
+                    )}
                   </div>
                   <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3">
                     <p className="text-sm text-gray-800 dark:text-gray-200 font-medium italic">"{review.reviewText}"</p>
@@ -532,6 +606,7 @@ export default function Feedback() {
                 </div>
               ))}
             </div>
+            )}
           </div>
         )}
       </div>
@@ -679,6 +754,117 @@ export default function Feedback() {
                   <button
                     onClick={handleComplaintsFilterApply}
                     className="flex-[2] bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] dark:bg-white text-white dark:text-black py-4 rounded-2xl font-bold shadow-xl shadow-slate-200 dark:shadow-none active:scale-[0.98] transition-all"
+                  >
+                    Apply Filters
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Reviews Filter Popup */}
+      <AnimatePresence>
+        {isFilterOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/40 z-50 backdrop-blur-sm"
+              onClick={() => setIsFilterOpen(false)}
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="fixed bottom-0 left-0 right-0 bg-white dark:bg-[#1a1a1a] rounded-t-[32px] shadow-2xl z-50 overflow-hidden flex flex-col"
+              style={{ maxHeight: "85vh" }}
+            >
+              {/* flex column + min-h-0 on the scroll area keeps the action row
+                  on screen instead of letting it overflow past the clip on
+                  short Android viewports. */}
+              <div className="p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] flex flex-col min-h-0">
+                <div className="flex justify-between items-center mb-6 shrink-0">
+                  <h3 className="text-xl font-bold text-slate-900 dark:text-white">Filter Reviews</h3>
+                  <button type="button" onClick={() => setIsFilterOpen(false)} className="p-2 hover:bg-slate-50 dark:hover:bg-gray-800 rounded-full transition-colors">
+                    <X className="w-5 h-5 text-slate-400" />
+                  </button>
+                </div>
+
+                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-2 -mr-2 space-y-6 mb-6">
+                  {/* Sort By */}
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Sort By</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { value: "newest", label: "Newest First" },
+                        { value: "oldest", label: "Oldest First" },
+                        { value: "bestRated", label: "Best Rated" },
+                        { value: "worstRated", label: "Worst Rated" },
+                      ].map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setFilterValues(prev => ({ ...prev, sortBy: option.value }))}
+                          aria-pressed={filterValues.sortBy === option.value}
+                          className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-95 ${
+                            filterValues.sortBy === option.value
+                              ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white shadow-lg shadow-slate-200 dark:shadow-none"
+                              : "bg-slate-50 dark:bg-gray-800 text-slate-600 dark:text-gray-400 hover:bg-slate-100 dark:hover:bg-gray-700"
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Star Rating */}
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Star Rating</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {[5, 4, 3, 2, 1].map((star) => (
+                        <button
+                          key={star}
+                          type="button"
+                          onClick={() => {
+                            // Single-select: tapping a rating replaces the previous
+                            // one, tapping the active one clears it. Appending here
+                            // stacked ratings and made the list look unresponsive.
+                            setFilterValues(prev => ({
+                              ...prev,
+                              reviewType: prev.reviewType.includes(star) ? [] : [star]
+                            }))
+                          }}
+                          aria-pressed={filterValues.reviewType.includes(star)}
+                          className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-95 ${
+                            filterValues.reviewType.includes(star)
+                              ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white shadow-lg shadow-slate-200 dark:shadow-none"
+                              : "bg-slate-50 dark:bg-gray-800 text-slate-600 dark:text-gray-400 hover:bg-slate-100 dark:hover:bg-gray-700"
+                          }`}
+                        >
+                          {star} <Star className="w-3 h-3 fill-current" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 mt-auto shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleFilterReset}
+                    className="flex-1 py-4 rounded-2xl font-bold text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+                  >
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleFilterApply}
+                    className="flex-[2] bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white py-4 rounded-2xl font-bold shadow-xl shadow-slate-200 dark:shadow-none active:scale-[0.98] transition-all"
                   >
                     Apply Filters
                   </button>

@@ -9,6 +9,10 @@ import { assertZoneCoversLocation } from '../../shared/zoneLocation.js';
 import { getIO, rooms } from '../../../../config/socket.js';
 import { FoodOnboardingPayment } from '../../restaurant/models/onboardingPayment.model.js';
 import { getRestaurantTypeLabel } from '../../shared/restaurantTypes.js';
+import {
+    assertTicketStatusTransition,
+    getAllowedTicketTransitions
+} from '../../shared/supportTicketWorkflow.js';
 import { FoodCategory } from '../models/category.model.js';
 import { FoodItem } from '../models/food.model.js';
 import { FoodOffer } from '../models/offer.model.js';
@@ -20,6 +24,7 @@ import { FoodRestaurantCommission } from '../models/restaurantCommission.model.j
 import { FoodDeliveryCommissionRule } from '../models/deliveryCommissionRule.model.js';
 import { FoodFeeSettings } from '../models/feeSettings.model.js';
 import { invalidateCommissionRulesCache } from '../../orders/services/riderEarning.service.js';
+import { invalidateRestaurantCommissionRulesCache } from '../../orders/services/foodTransaction.service.js';
 import { FeedbackExperience } from '../models/feedbackExperience.model.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { FoodRefreshToken } from '../../../../core/refreshTokens/refreshToken.model.js';
@@ -87,6 +92,18 @@ const toRestaurantDisplayId = (mongoId) => {
     if (!s) return '';
     if (/^REST\d{6}$/i.test(s)) return s.toUpperCase();
     return `REST${s.slice(-6).padStart(6, '0')}`;
+};
+
+/**
+ * The delivery partner's display ID ("DP-XXXXXXXX"), derived from the Mongo id
+ * exactly as /auth/me and the partner's own ID card do, so admin screens show
+ * the same identifier the partner sees. Returns '' when there is no id at all.
+ */
+const toDeliveryPartnerDisplayId = (partnerId) => {
+    const raw = String(partnerId?._id || partnerId || '').trim();
+    if (!raw) return '';
+    if (/^DP-[A-Z0-9]{8}$/i.test(raw)) return raw.toUpperCase();
+    return `DP-${raw.slice(-8).toUpperCase()}`;
 };
 
 const normalizeRestaurantTime = (value) => {
@@ -1456,9 +1473,20 @@ export async function getRestaurantReport(query = {}) {
         return { restaurants: [], total, page, limit };
     }
 
+    const CANCELLED_ORDER_STATUSES = [
+        'cancelled_by_user',
+        'cancelled_by_restaurant',
+        'cancelled_by_admin',
+        'cancelled'
+    ];
+
     const orderCreatedAtFilter = parseTimeRange(query.time);
     const orderMatch = {
         restaurantId: { $in: restaurantIds },
+        orderStatus: {
+            $nin: CANCELLED_ORDER_STATUSES,
+            $not: /cancel/i
+        },
         $or: [
             { "payment.method": { $in: ["cash", "wallet"] } },
             { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } },
@@ -1492,6 +1520,7 @@ export async function getRestaurantReport(query = {}) {
                     totalOrderAmount: { $sum: { $ifNull: ['$pricing.total', 0] } },
                     totalDiscountGiven: { $sum: { $ifNull: ['$pricing.discount', 0] } },
                     totalVATTAX: { $sum: { $ifNull: ['$pricing.tax', 0] } },
+                    totalAdminCommissionFromPricing: { $sum: { $ifNull: ['$pricing.restaurantCommission', 0] } },
                     totalAdminCommissionFromPlatformProfit: { $sum: { $ifNull: ['$platformProfit', 0] } },
                     totalAdminCommissionFromPlatformFee: { $sum: { $ifNull: ['$pricing.platformFee', 0] } }
                 }
@@ -1509,9 +1538,11 @@ export async function getRestaurantReport(query = {}) {
                 totalDiscountGiven: Number(x.totalDiscountGiven || 0),
                 totalVATTAX: Number(x.totalVATTAX || 0),
                 totalAdminCommission:
-                    Number(x.totalAdminCommissionFromPlatformProfit || 0) > 0
-                        ? Number(x.totalAdminCommissionFromPlatformProfit || 0)
-                        : Number(x.totalAdminCommissionFromPlatformFee || 0)
+                    Number(x.totalAdminCommissionFromPricing || 0) > 0
+                        ? Number(x.totalAdminCommissionFromPricing || 0)
+                        : Number(x.totalAdminCommissionFromPlatformProfit || 0) > 0
+                            ? Number(x.totalAdminCommissionFromPlatformProfit || 0)
+                            : Number(x.totalAdminCommissionFromPlatformFee || 0)
             }
         ])
     );
@@ -2071,23 +2102,43 @@ export async function getSupportTickets(query = {}) {
         total = userTotal + restaurantTotal;
     }
 
+    // The admin UI renders its status control from this list, so it can only
+    // ever offer moves the backend will accept.
+    tickets = tickets.map((ticket) => ({
+        ...ticket,
+        allowedStatusTransitions: getAllowedTicketTransitions('standard', ticket.status)
+    }));
+
     return { tickets, total, page, limit };
 }
 
 export async function updateSupportTicket(id, body = {}) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     const source = String(body.source || 'user').toLowerCase();
+    const model = source === 'restaurant' ? FoodRestaurantSupportTicket : FoodSupportTicket;
+
+    // Read the stored status first: a transition can only be judged against
+    // what is actually persisted, not against what the client believes.
+    const current = await model.findById(id).select('status').lean();
+    if (!current) return null;
+
     const set = {};
-    if (body.status && ['open', 'in-progress', 'resolved'].includes(String(body.status))) {
+    if (body.status !== undefined && body.status !== null && String(body.status) !== '') {
+        assertTicketStatusTransition('standard', current.status, body.status);
         set.status = String(body.status);
     }
     if (typeof body.adminResponse === 'string') {
         set.adminResponse = body.adminResponse;
     }
     if (!Object.keys(set).length) return null;
-    const model = source === 'restaurant' ? FoodRestaurantSupportTicket : FoodSupportTicket;
+
     const updated = await model.findByIdAndUpdate(id, { $set: set }, { new: true }).lean();
-    return updated || null;
+    if (!updated) return null;
+    return {
+        ...updated,
+        source: source === 'restaurant' ? 'restaurant' : 'user',
+        allowedStatusTransitions: getAllowedTicketTransitions('standard', updated.status)
+    };
 }
 
 // ----- Restaurant Commission (admin) -----
@@ -2111,7 +2162,7 @@ export async function getRestaurantCommissions() {
                 restaurantId: toRestaurantDisplayId(mongoRestaurantId),
             }
             : null,
-        defaultCommission: c.defaultCommission || { type: 'percentage', value: 18 },
+        defaultCommission: c.defaultCommission || { type: 'percentage', value: 0 },
         notes: c.notes || '',
         status: c.status !== false
     };
@@ -2161,7 +2212,7 @@ export async function getRestaurantCommissionById(id) {
             }
             : null,
         restaurantName: doc.restaurantId?.restaurantName || '',
-        defaultCommission: doc.defaultCommission || { type: 'percentage', value: 18 },
+        defaultCommission: doc.defaultCommission || { type: 'percentage', value: 0 },
         notes: doc.notes || '',
         status: doc.status !== false
     };
@@ -2174,10 +2225,11 @@ export async function createRestaurantCommission(body) {
     }
     const created = await FoodRestaurantCommission.create({
         restaurantId: body.restaurantId,
-        defaultCommission: body.defaultCommission || { type: 'percentage', value: 18 },
+        defaultCommission: body.defaultCommission || { type: 'percentage', value: 0 },
         notes: body.notes || '',
         status: true
     });
+    invalidateRestaurantCommissionRulesCache();
     return created.toObject();
 }
 
@@ -2188,12 +2240,14 @@ export async function updateRestaurantCommission(id, body) {
         { $set: { defaultCommission: body.defaultCommission, notes: body.notes || '' } },
         { new: true }
     ).lean();
+    invalidateRestaurantCommissionRulesCache();
     return updated;
 }
 
 export async function deleteRestaurantCommission(id) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     const deleted = await FoodRestaurantCommission.findByIdAndDelete(id).lean();
+    invalidateRestaurantCommissionRulesCache();
     return deleted ? { id } : null;
 }
 
@@ -2203,6 +2257,7 @@ export async function toggleRestaurantCommissionStatus(id) {
     if (!doc) return null;
     doc.status = !Boolean(doc.status);
     await doc.save();
+    invalidateRestaurantCommissionRulesCache();
     return doc.toObject();
 }
 
@@ -3182,7 +3237,10 @@ export async function updateRestaurantById(id, body = {}) {
         doc.pureVegRestaurant = parseBooleanLike(body.pureVegRestaurant, 'pureVegRestaurant');
     }
     if (body.pureVeganRestaurant !== undefined) {
-        doc.pureVeganRestaurant = parseBooleanLike(body.pureVeganRestaurant, 'pureVeganRestaurant');
+        // DISABLED: validated as before, then forced off — "Pure Vegan" is no
+        // longer a selectable menu type. Stored values are left as they are.
+        parseBooleanLike(body.pureVeganRestaurant, 'pureVeganRestaurant');
+        doc.pureVeganRestaurant = false;
     }
     if (doc.pureVeganRestaurant === true) {
         doc.pureVegRestaurant = true;
@@ -4166,8 +4224,9 @@ export async function createRestaurantByAdmin(body) {
         pureVegRestaurant: body.pureVegRestaurant !== undefined
             ? parseBooleanLike(body.pureVegRestaurant, 'pureVegRestaurant')
             : false,
+        // DISABLED: "Pure Vegan" cannot be set on create any more.
         pureVeganRestaurant: body.pureVeganRestaurant !== undefined
-            ? parseBooleanLike(body.pureVeganRestaurant, 'pureVeganRestaurant')
+            ? (parseBooleanLike(body.pureVeganRestaurant, 'pureVeganRestaurant') && false)
             : false,
         addressLine1: toStr(loc.addressLine1),
         addressLine2: toStr(loc.addressLine2),
@@ -4418,6 +4477,59 @@ async function sendDeliveryApprovalNotifications(partner, existing = {}, isChang
     }
 
     logger.info(`[APPROVE-EMAIL] Delivery ${partnerId} — email=${recipientEmail || 'MISSING'}`);
+
+    // Persist an inbox row first: push/email are best-effort, but the partner app
+    // reads this collection, so it must survive refresh and re-login.
+    try {
+        const { FoodNotification } = await import('../../../../core/notifications/models/notification.model.js');
+        const inboxRow = await FoodNotification.findOneAndUpdate(
+            {
+                ownerType: 'DELIVERY_PARTNER',
+                ownerId: partner._id,
+                source: 'DELIVERY_PARTNER_APPROVAL',
+                'metadata.approvalType': isChangesApproval ? 'changes' : 'registration'
+            },
+            {
+                $set: {
+                    title: isChangesApproval ? 'Profile Changes Approved' : 'Account Approved',
+                    message: pushBody,
+                    link: targetUrl,
+                    category: 'approval',
+                    isRead: false,
+                    readAt: null,
+                    dismissedAt: null,
+                    metadata: {
+                        partnerId,
+                        partnerName,
+                        approvalType: isChangesApproval ? 'changes' : 'registration',
+                        approvedAt: new Date().toISOString()
+                    }
+                }
+            },
+            { new: true, upsert: true, setDefaultsOnInsert: true }
+        ).lean();
+
+        logger.info(`[APPROVE-INBOX] Delivery ${partnerId} — notification ${inboxRow?._id}`);
+
+        // Nudge any open partner session to refetch the inbox immediately.
+        try {
+            const io = getIO();
+            if (io) {
+                io.to(rooms.delivery(partnerId)).emit('admin_notification', {
+                    id: String(inboxRow?._id || ''),
+                    title: inboxRow?.title,
+                    message: inboxRow?.message,
+                    link: targetUrl,
+                    type: isChangesApproval ? 'delivery_changes_approved' : 'delivery_approved',
+                    createdAt: inboxRow?.createdAt || new Date().toISOString()
+                });
+            }
+        } catch (socketError) {
+            logger.warn(`[APPROVE-INBOX] Delivery ${partnerId} — socket emit failed: ${socketError?.message || socketError}`);
+        }
+    } catch (e) {
+        logger.error(`[APPROVE-INBOX] Delivery ${partnerId} — inbox write failed: ${e?.message || e}`);
+    }
 
     try {
         const { notifyOwnerSafely, listOwnerTokens } = await import('../../../../core/notifications/firebase.service.js');
@@ -4947,6 +5059,7 @@ export async function getDeliverySupportTickets(query = {}) {
         respondedAt: t.respondedAt,
         createdAt: t.createdAt,
         updatedAt: t.updatedAt,
+        allowedStatusTransitions: getAllowedTicketTransitions('delivery', t.status),
         deliveryPartner: t.deliveryPartnerId
             ? {
                 _id: t.deliveryPartnerId._id,
@@ -4969,19 +5082,26 @@ export async function getDeliverySupportTickets(query = {}) {
 }
 
 export async function updateDeliverySupportTicket(id, body = {}) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     const ticket = await DeliverySupportTicket.findById(id);
     if (!ticket) return null;
     const { status, adminResponse } = body || {};
-    if (status !== undefined) {
-        const allowed = ['open', 'in_progress', 'resolved', 'closed'];
-        if (allowed.includes(String(status))) ticket.status = String(status);
+    if (status !== undefined && status !== null && String(status) !== '') {
+        // Judged against the persisted status, and rejected outright when the
+        // move is not part of the lifecycle — silently ignoring it used to let
+        // the UI believe a change had been saved when it had not.
+        assertTicketStatusTransition('delivery', ticket.status, status);
+        ticket.status = String(status);
     }
     if (adminResponse !== undefined) {
         ticket.adminResponse = typeof adminResponse === 'string' ? adminResponse.trim() : '';
         if (ticket.adminResponse) ticket.respondedAt = new Date();
     }
     await ticket.save();
-    return ticket.toObject();
+    return {
+        ...ticket.toObject(),
+        allowedStatusTransitions: getAllowedTicketTransitions('delivery', ticket.status)
+    };
 }
 
 // ----- Delivery partners (approved list) -----
@@ -6146,14 +6266,21 @@ export async function getDeliveryWithdrawals(query = {}) {
         FoodDeliveryWithdrawal.countDocuments(filter)
     ]);
 
-    const requests = withdrawals.map((w) => ({
-        ...w,
-        id: w._id,
-        deliveryName: w.deliveryPartnerId?.name || 'N/A',
-        deliveryPhone: w.deliveryPartnerId?.phone || 'N/A',
-        deliveryIdString: w.deliveryPartnerId?.profilePartnerId || 'N/A',
-        status: w.status.charAt(0).toUpperCase() + w.status.slice(1)
-    }));
+    const requests = withdrawals.map((w) => {
+        // `profilePartnerId` does not exist on the delivery partner model, so
+        // this column always rendered "N/A". Derive the real display id from the
+        // partner reference on this withdrawal — falling back to the raw id on
+        // the withdrawal itself when the partner record is gone (old rows).
+        const partnerRef = w.deliveryPartnerId?._id || w.deliveryPartnerId;
+        return {
+            ...w,
+            id: w._id,
+            deliveryName: w.deliveryPartnerId?.name || 'N/A',
+            deliveryPhone: w.deliveryPartnerId?.phone || 'N/A',
+            deliveryIdString: toDeliveryPartnerDisplayId(partnerRef) || 'N/A',
+            status: w.status.charAt(0).toUpperCase() + w.status.slice(1)
+        };
+    });
 
     return { requests, total, page, limit };
 }

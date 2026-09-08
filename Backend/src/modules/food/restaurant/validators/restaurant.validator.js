@@ -179,7 +179,12 @@ export const validateRestaurantRegisterDto = (body) => {
             throw new ValidationError('Closing time cannot be less than opening time');
         }
     }
-    const pureVeganRestaurant = data.pureVeganRestaurant === true;
+    // DISABLED: "Pure Vegan" is no longer a selectable restaurant menu type —
+    // only Pure Veg and Mixed are offered. The field and its schema entry are
+    // kept so existing records keep reading, but a request can no longer turn it
+    // on. Restore by using `data.pureVeganRestaurant === true` again.
+    // const pureVeganRestaurant = data.pureVeganRestaurant === true;
+    const pureVeganRestaurant = false;
     // Pure vegan restaurants are also pure veg for Pure Veg filters.
     const pureVegRestaurant = pureVeganRestaurant ? true : data.pureVegRestaurant === true;
 

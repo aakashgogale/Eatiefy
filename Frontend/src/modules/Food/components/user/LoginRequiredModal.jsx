@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { useEffect } from "react"
 
 const WarliBorder = () => (
-  <svg width="100%" height="45" viewBox="0 0 350 45" preserveAspectRatio="none" className="opacity-[0.12] dark:opacity-20 text-[#DC2626]">
+  <svg width="100%" height="45" viewBox="0 0 350 45" preserveAspectRatio="none" className="opacity-[0.12] dark:opacity-20 text-[#1F6B45]">
     {/* Chain of traditional Warli figures holding hands */}
     {Array.from({ length: 9 }).map((_, index) => {
       const x = 25 + index * 37;
@@ -63,7 +63,7 @@ export default function LoginRequiredModal({ isOpen, onClose }) {
         {/* Top-Right Close Button */}
         <button 
           onClick={onClose}
-          className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-[#EBE1CD]/40 dark:hover:bg-[#382D24]/40 text-[#DC2626] dark:text-[#EAE0D5] transition-colors"
+          className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-[#EBE1CD]/40 dark:hover:bg-[#382D24]/40 text-[#1F6B45] dark:text-[#EAE0D5] transition-colors"
           aria-label="Close modal"
         >
           <X className="w-5 h-5" />
@@ -71,16 +71,16 @@ export default function LoginRequiredModal({ isOpen, onClose }) {
 
         {/* Warli Art Top Border Decoration */}
         <div className="w-full absolute top-0 left-0 right-0 pointer-events-none select-none">
-          <div className="h-[2px] w-full bg-[#DC2626] opacity-30" />
+          <div className="h-[2px] w-full bg-[#1F6B45] opacity-30" />
         </div>
 
         {/* Icon Container (rounded box with arrow pointing out of bracket) */}
         <div className="mt-6 mb-5 flex items-center justify-center w-16 h-16 rounded-2xl bg-[#EBE1CD]/30 dark:bg-[#382D24]/30 border border-[#EBE1CD] dark:border-[#382D24] shadow-sm">
-          <LogOut className="w-7 h-7 text-[#DC2626] dark:text-[#E8AF9D]" />
+          <LogOut className="w-7 h-7 text-[#1F6B45] dark:text-[#E8AF9D]" />
         </div>
 
         {/* Heading */}
-        <h3 className="text-xl font-black tracking-wider text-[#DC2626] dark:text-[#F3D7C9] uppercase mb-3 font-serif">
+        <h3 className="text-xl font-black tracking-wider text-[#1F6B45] dark:text-[#F3D7C9] uppercase mb-3 font-serif">
           LOGIN REQUIRED
         </h3>
 
@@ -92,7 +92,7 @@ export default function LoginRequiredModal({ isOpen, onClose }) {
         {/* Action Pill Button */}
         <button
           onClick={handleLoginClick}
-          className="w-full py-3.5 px-6 rounded-full bg-[#DC2626] hover:bg-[#B91C1C] active:bg-[#991B1B] text-white font-bold tracking-widest text-sm shadow-md hover:shadow-lg transition-all transform active:scale-98 mb-6"
+          className="w-full py-3.5 px-6 rounded-full bg-[#1F6B45] hover:bg-[#1A5C3B] active:bg-[#14512F] text-white font-bold tracking-widest text-sm shadow-md hover:shadow-lg transition-all transform active:scale-98 mb-6"
         >
           LOGIN / SIGN UP
         </button>

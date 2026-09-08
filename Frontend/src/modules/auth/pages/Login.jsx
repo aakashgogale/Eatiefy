@@ -491,7 +491,7 @@ export default function UnifiedOTPFastLogin() {
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`
   }
 
-  const primaryColor = "#DC2626" // Rebranded Red color
+  const primaryColor = "#1F6B45" // Rebranded Red color
 
   // When an input is focused the mobile soft-keyboard opens and shrinks the
   // viewport. Scroll the focused field into the centre of the remaining space
@@ -530,7 +530,7 @@ export default function UnifiedOTPFastLogin() {
         <svg viewBox="0 0 1440 320" className="w-full h-full block" preserveAspectRatio="none" overflow="visible">
           <defs>
             <linearGradient id="topRedGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#B80B3D" />
+              <stop offset="0%" stopColor="#1F6B45" />
               <stop offset="100%" stopColor="#66001D" />
             </linearGradient>
           </defs>
@@ -548,7 +548,7 @@ export default function UnifiedOTPFastLogin() {
         <svg viewBox="0 0 1440 320" className="w-full h-full block" preserveAspectRatio="none" overflow="visible">
           <defs>
             <linearGradient id="botRedGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#B80B3D" />
+              <stop offset="0%" stopColor="#1F6B45" />
               <stop offset="100%" stopColor="#66001D" />
             </linearGradient>
           </defs>
@@ -592,7 +592,7 @@ export default function UnifiedOTPFastLogin() {
                   <span>We've sent a code to +91 {phoneNumber}</span>
                   <button
                     onClick={handleEditNumber}
-                    className="p-1.5 ml-1 bg-gradient-to-r from-[#B80B3D] to-[#66001D] hover:from-[#90082E] hover:to-[#4A0014] rounded-[10px] text-white shadow-md shadow-[#B80B3D]/20 transition-all hover:scale-105 active:scale-95"
+                    className="p-1.5 ml-1 bg-gradient-to-r from-[#1F6B45] to-[#66001D] hover:from-[#90082E] hover:to-[#4A0014] rounded-[10px] text-white shadow-md shadow-[#1F6B45]/20 transition-all hover:scale-105 active:scale-95"
                     aria-label="Edit phone number"
                   >
                     <Pencil className="w-4 h-4" strokeWidth={2.5} />
@@ -625,7 +625,7 @@ export default function UnifiedOTPFastLogin() {
                       value={phoneNumber}
                       onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
                       maxLength={10}
-                      className="block w-full pl-20 pr-6 py-3.5 bg-gray-50 dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 shadow-sm text-gray-900 dark:text-white rounded-full outline-none transition-all duration-300 placeholder:text-gray-400 font-medium text-base focus:bg-white dark:focus:bg-gray-900 focus:border-[#B80B3D] focus:ring-4 focus:ring-[#B80B3D]/10 hover:border-gray-400"
+                      className="block w-full pl-20 pr-6 py-3.5 bg-gray-50 dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 shadow-sm text-gray-900 dark:text-white rounded-full outline-none transition-all duration-300 placeholder:text-gray-400 font-medium text-base focus:bg-white dark:focus:bg-gray-900 focus:border-[#1F6B45] focus:ring-4 focus:ring-[#1F6B45]/10 hover:border-gray-400"
                       placeholder="Mobile number"
                     />
                   </div>
@@ -633,7 +633,7 @@ export default function UnifiedOTPFastLogin() {
                   <button
                     type="submit"
                     disabled={loading || phoneNumber.length < 10}
-                    className="w-full py-3.5 bg-gradient-to-r from-[#B80B3D] to-[#66001D] hover:from-[#A10935] hover:to-[#4F0016] disabled:opacity-50 text-white rounded-full font-medium text-base shadow-[0_8px_20px_rgba(184,11,61,0.3)] disabled:shadow-none transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                    className="w-full py-3.5 bg-gradient-to-r from-[#1F6B45] to-[#66001D] hover:from-[#A10935] hover:to-[#4F0016] disabled:opacity-50 text-white rounded-full font-medium text-base shadow-[0_8px_20px_rgba(184,11,61,0.3)] disabled:shadow-none transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                   >
                     {loading ? (
                       <Loader2 className="w-5 h-5 animate-spin" />
@@ -697,7 +697,7 @@ export default function UnifiedOTPFastLogin() {
                             }
                           }
                         }}
-                        className={`w-14 h-14 sm:w-16 sm:h-16 text-center text-2xl font-bold bg-gray-50 dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 shadow-sm rounded-[20px] outline-none transition-all duration-300 text-gray-900 dark:text-white focus:bg-white dark:focus:bg-gray-900 focus:border-[#B80B3D] focus:ring-4 focus:ring-[#B80B3D]/10 hover:border-gray-400 ${blockTimer > 0 ? "opacity-50 cursor-not-allowed border-red-400 bg-red-50 text-red-800" : ""
+                        className={`w-14 h-14 sm:w-16 sm:h-16 text-center text-2xl font-bold bg-gray-50 dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 shadow-sm rounded-[20px] outline-none transition-all duration-300 text-gray-900 dark:text-white focus:bg-white dark:focus:bg-gray-900 focus:border-[#1F6B45] focus:ring-4 focus:ring-[#1F6B45]/10 hover:border-gray-400 ${blockTimer > 0 ? "opacity-50 cursor-not-allowed border-red-400 bg-red-50 text-red-800" : ""
                           }`}
                         placeholder="•"
                       />
@@ -726,7 +726,7 @@ export default function UnifiedOTPFastLogin() {
                   <button
                     type="submit"
                     disabled={loading || otp.length < 4 || blockTimer > 0}
-                    className="w-full py-3.5 bg-gradient-to-r from-[#B80B3D] to-[#66001D] hover:from-[#A10935] hover:to-[#4F0016] disabled:opacity-50 text-white rounded-full font-medium text-base shadow-[0_8px_20px_rgba(184,11,61,0.3)] disabled:shadow-none transition-all active:scale-[0.98] flex items-center justify-center gap-2 mt-4"
+                    className="w-full py-3.5 bg-gradient-to-r from-[#1F6B45] to-[#66001D] hover:from-[#A10935] hover:to-[#4F0016] disabled:opacity-50 text-white rounded-full font-medium text-base shadow-[0_8px_20px_rgba(184,11,61,0.3)] disabled:shadow-none transition-all active:scale-[0.98] flex items-center justify-center gap-2 mt-4"
                   >
                     {loading ? (
                       <span className="flex items-center gap-2">
@@ -740,10 +740,10 @@ export default function UnifiedOTPFastLogin() {
 
                   {blockTimer > 0 && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center w-fit mx-auto px-6 py-2.5 bg-red-50 dark:bg-red-950/20 rounded-xl border border-red-100 dark:border-red-900/50 mt-4">
-                      <p className="text-[11px] font-bold text-[#B80B3D] uppercase tracking-wider">
+                      <p className="text-[11px] font-bold text-[#1F6B45] uppercase tracking-wider">
                         Too many failed attempts
                       </p>
-                      <p className="text-sm font-bold text-[#B80B3D]">
+                      <p className="text-sm font-bold text-[#1F6B45]">
                         Try again after {Math.floor((blockTimer - 1) / 60)}:{String((blockTimer - 1) % 60).padStart(2, '0')}
                       </p>
                     </motion.div>
@@ -763,7 +763,7 @@ export default function UnifiedOTPFastLogin() {
                   clearSessionData();
                   navigate('/food/user');
                 }}
-                className="flex items-center justify-center gap-1.5 px-8 py-[7.5px] bg-gradient-to-r from-[#B80B3D] to-[#66001D] hover:from-[#A10935] hover:to-[#4F0016] text-white rounded-full shadow-[0_4px_14px_rgba(184,11,61,0.3)] hover:shadow-[0_6px_20px_rgba(184,11,61,0.45)] transition-all duration-200 active:scale-95 cursor-pointer group"
+                className="flex items-center justify-center gap-1.5 px-8 py-[7.5px] bg-gradient-to-r from-[#1F6B45] to-[#66001D] hover:from-[#A10935] hover:to-[#4F0016] text-white rounded-full shadow-[0_4px_14px_rgba(184,11,61,0.3)] hover:shadow-[0_6px_20px_rgba(184,11,61,0.45)] transition-all duration-200 active:scale-95 cursor-pointer group"
               >
                 <span className="text-[13px] font-semibold tracking-wide" style={{ fontFamily: "'Poppins', sans-serif" }}>Skip for now</span>
                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-75 group-hover:translate-x-0.5 transition-transform duration-150 mt-px"><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>
@@ -776,11 +776,11 @@ export default function UnifiedOTPFastLogin() {
             <div className="mt-8 text-center">
               <p className="text-[11px] text-gray-400/80 font-medium leading-relaxed max-w-[320px] mx-auto">
                 By continuing, you agree to our <br />
-                <Link to="/user/profile/terms" state={{ from: "/user/auth/login" }} className="text-gray-400 hover:text-[#B80B3D] transition-colors uppercase tracking-wider font-semibold">TERMS</Link>
+                <Link to="/user/profile/terms" state={{ from: "/user/auth/login" }} className="text-gray-400 hover:text-[#1F6B45] transition-colors uppercase tracking-wider font-semibold">TERMS</Link>
                 <span className="mx-2 text-gray-400/80 font-bold">•</span>
-                <Link to="/user/profile/privacy" state={{ from: "/user/auth/login" }} className="text-gray-400 hover:text-[#B80B3D] transition-colors uppercase tracking-wider font-semibold">PRIVACY</Link>
+                <Link to="/user/profile/privacy" state={{ from: "/user/auth/login" }} className="text-gray-400 hover:text-[#1F6B45] transition-colors uppercase tracking-wider font-semibold">PRIVACY</Link>
                 <span className="mx-2 text-gray-400/80 font-bold">•</span>
-                <Link to="/user/profile/support-info" state={{ from: "/user/auth/login" }} className="text-gray-400 hover:text-[#B80B3D] transition-colors uppercase tracking-wider font-semibold">SUPPORT</Link>
+                <Link to="/user/profile/support-info" state={{ from: "/user/auth/login" }} className="text-gray-400 hover:text-[#1F6B45] transition-colors uppercase tracking-wider font-semibold">SUPPORT</Link>
               </p>
             </div>
           )}
@@ -801,7 +801,7 @@ export default function UnifiedOTPFastLogin() {
           className="sm:max-w-[425px] rounded-3xl border-none p-0 overflow-hidden bg-white dark:bg-[#1a1a1a]"
           showCloseButton={false}
         >
-          <div className="bg-gradient-to-br from-[#B80B3D] to-[#66001D] p-8 text-center relative">
+          <div className="bg-gradient-to-br from-[#1F6B45] to-[#66001D] p-8 text-center relative">
             <button
               onClick={handleEditNumber}
               className="absolute top-4 right-4 p-2 bg-white/20 hover:bg-white/30 backdrop-blur-md rounded-xl text-white transition-all active:scale-95 z-20"
@@ -838,7 +838,7 @@ export default function UnifiedOTPFastLogin() {
                     setNewName(filteredValue);
                   }}
                   placeholder="Enter your name"
-                  className="pl-4 h-14 bg-gray-50 dark:bg-gray-800 border-gray-100 dark:border-gray-700 rounded-2xl focus:ring-2 focus:ring-[#B80B3D] transition-all group-hover:border-[#B80B3D]/30"
+                  className="pl-4 h-14 bg-gray-50 dark:bg-gray-800 border-gray-100 dark:border-gray-700 rounded-2xl focus:ring-2 focus:ring-[#1F6B45] transition-all group-hover:border-[#1F6B45]/30"
                   autoFocus
                 />
               </div>
@@ -848,7 +848,7 @@ export default function UnifiedOTPFastLogin() {
               <Button
                 type="submit"
                 disabled={isUpdatingName}
-                className="w-full h-14 bg-gradient-to-r from-[#B80B3D] to-[#66001D] hover:from-[#90082E] hover:to-[#4A0014] text-white rounded-2xl font-bold text-lg shadow-lg shadow-[#B80B3D]/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                className="w-full h-14 bg-gradient-to-r from-[#1F6B45] to-[#66001D] hover:from-[#90082E] hover:to-[#4A0014] text-white rounded-2xl font-bold text-lg shadow-lg shadow-[#1F6B45]/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
               >
                 {isUpdatingName ? (
                   <Loader2 className="h-5 w-5 animate-spin" />
@@ -902,8 +902,8 @@ export default function UnifiedOTPFastLogin() {
                 <X className="w-5 h-5" />
               </button>
 
-              <div className="w-20 h-20 bg-[#DC2626]/10 rounded-full flex items-center justify-center mx-auto mb-6">
-                <Phone className="h-10 w-10 text-[#DC2626]" />
+              <div className="w-20 h-20 bg-[#1F6B45]/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Phone className="h-10 w-10 text-[#1F6B45]" />
               </div>
 
               <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">Account Found!</h3>
@@ -918,7 +918,7 @@ export default function UnifiedOTPFastLogin() {
                     await processVerify(phoneNumber, otp, "restore");
                     setShowRestorePopup(false);
                   }}
-                  className="w-full h-14 bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold rounded-2xl shadow-xl shadow-[#DC2626]/20 transition-all active:scale-[0.98]"
+                  className="w-full h-14 bg-[#1F6B45] hover:bg-[#1A5C3B] text-white font-bold rounded-2xl shadow-xl shadow-[#1F6B45]/20 transition-all active:scale-[0.98]"
                 >
                   Restore My Account
                 </button>

@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { getCachedNotificationIcon } from './notificationBranding.service.js';
+import { FoodNotificationDispatch } from './models/notificationDispatch.model.js';
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import mongoose from 'mongoose';
@@ -30,6 +31,113 @@ let cachedAccessTokenExpiryMs = 0;
 let cachedServiceAccount = null;
 
 const sanitizeString = (value) => String(value ?? '').trim();
+
+// In-memory sliding TTL idempotency cache for push notifications (per deviceToken + eventKey)
+const PUSH_IDEMPOTENCY_TTL_MS = 120_000;
+const pushIdempotencyCache = new Map();
+
+export const clearPushIdempotencyCache = () => {
+    pushIdempotencyCache.clear();
+};
+
+export const isPushRecentlyDispatched = (token, eventKey) => {
+    if (!token || !eventKey) return false;
+    const key = `${token}::${eventKey}`;
+    const timestamp = pushIdempotencyCache.get(key);
+    if (!timestamp) return false;
+    if (Date.now() - timestamp > PUSH_IDEMPOTENCY_TTL_MS) {
+        pushIdempotencyCache.delete(key);
+        return false;
+    }
+    return true;
+};
+
+/**
+ * Atomically claims (token, eventKey) so exactly one push per device per event
+ * goes out. The in-memory map is the fast path; the unique index on
+ * food_notification_dispatches is the authority, so a retry, a duplicated
+ * caller, or a second API instance cannot re-send the same event.
+ * Returns true when the caller owns the dispatch.
+ */
+const claimPushDispatch = async (token, eventKey) => {
+    if (!token || !eventKey) return true;
+    if (isPushRecentlyDispatched(token, eventKey)) return false;
+    markPushDispatched(token, eventKey);
+
+    try {
+        await FoodNotificationDispatch.create({ eventKey, token });
+        return true;
+    } catch (error) {
+        if (error?.code === 11000) return false;
+        // Storage unavailable — the in-memory guard above still holds for this instance.
+        logger.warn(`[FCM] Dispatch claim persistence failed (${error?.message || error})`);
+        return true;
+    }
+};
+
+/**
+ * Releases a claim when the send never reached the device, so a later retry of
+ * the same event is still allowed to deliver it once.
+ */
+const releasePushDispatch = async (token, eventKey) => {
+    if (!token || !eventKey) return;
+    pushIdempotencyCache.delete(`${token}::${eventKey}`);
+    try {
+        await FoodNotificationDispatch.deleteOne({ eventKey, token });
+    } catch {
+        // Best effort only.
+    }
+};
+
+const markPushDispatched = (token, eventKey) => {
+    if (!token || !eventKey) return;
+    const key = `${token}::${eventKey}`;
+    pushIdempotencyCache.set(key, Date.now());
+
+    // Prune stale cache entries if cache size grows large
+    if (pushIdempotencyCache.size > 2000) {
+        const now = Date.now();
+        for (const [k, ts] of pushIdempotencyCache.entries()) {
+            if (now - ts > PUSH_IDEMPOTENCY_TTL_MS) {
+                pushIdempotencyCache.delete(k);
+            }
+        }
+    }
+};
+
+export const deriveEventKey = (payload = {}) => {
+    if (payload?.idempotencyKey) return String(payload.idempotencyKey).trim();
+    if (payload?.eventId) return String(payload.eventId).trim();
+
+    const data = payload?.data || {};
+    if (data.idempotencyKey) return String(data.idempotencyKey).trim();
+    if (data.eventId) return String(data.eventId).trim();
+    if (data.notificationId) return String(data.notificationId).trim();
+    if (data.broadcastId) return `broadcast:${data.broadcastId}`;
+
+    const orderMongoId = String(data.orderMongoId || data.order_mongo_id || '').trim();
+    const orderId = String(data.orderId || data.order_id || '').trim();
+    const type = String(data.type || data.notificationType || '').trim();
+    const orderStatus = String(data.orderStatus || data.status || '').trim();
+
+    if (orderMongoId || orderId) {
+        const primaryId = orderMongoId || orderId;
+        if (type) {
+            return `order:${type}:${primaryId}${orderStatus ? `:${orderStatus}` : ''}`;
+        }
+        return `order:${primaryId}${orderStatus ? `:${orderStatus}` : ''}`;
+    }
+
+    const title = stripOwnerTitlePrefix(payload?.title || payload?.notification?.title || '');
+    const body = sanitizeString(payload?.body || payload?.notification?.body || '');
+    const link = resolveClickLink(payload, data);
+
+    if (type || title || body) {
+        return `msg:${type}:${title}:${body}:${link}`;
+    }
+
+    return null;
+};
 
 const toBase64Url = (input) =>
     Buffer.from(JSON.stringify(input))
@@ -180,14 +288,36 @@ const buildMessagePayload = (payload = {}, token, { platform } = {}) => {
         if (brandIcon) data.icon = brandIcon;
     }
 
+    const eventKey = deriveEventKey(payload);
+    const collapseRaw = sanitizeString(
+        payload.collapseKey ||
+        payload.tag ||
+        payload.data?.tag ||
+        payload.idempotencyKey ||
+        payload.eventId ||
+        payload.data?.eventId ||
+        eventKey ||
+        ''
+    );
+    const collapseKey = collapseRaw ? collapseRaw.replace(/[^a-zA-Z0-9-_.~%]/g, '_').slice(0, 64) : undefined;
+    const tag = sanitizeString(payload.tag || payload.data?.tag || collapseKey || '');
+
     // dataOnly: omit system notification blocks ONLY if caller explicitly requested silent background sync.
-    // For killed/closed app delivery (Android/iOS/Web), top-level `notification` block MUST be included.
+    // For killed/closed app delivery (Android/iOS), top-level `notification` block MUST be included.
     const message = { token };
     const isWeb = platform === 'web';
     const isDataOnly = payload.dataOnly === true;
     const androidChannel = sanitizeString(payload.channelId) || 'high_importance_channel';
 
-    if (!isDataOnly) {
+    // Web is deliberately data-only. When a web push carries a `notification`
+    // block the FCM JS SDK renders an OS banner itself *and* still invokes the
+    // app's onBackgroundMessage handler, which renders a second banner — one
+    // event, two notifications on the device. Keeping web data-only leaves
+    // rendering solely to firebase-messaging-sw.js, which reads the title/body
+    // mirrored into `data` below.
+    const includeNotificationBlock = !isDataOnly && !isWeb;
+
+    if (includeNotificationBlock) {
         message.notification = { ...notification };
         if (image) {
             message.notification.image = image;
@@ -203,6 +333,7 @@ const buildMessagePayload = (payload = {}, token, { platform } = {}) => {
     message.android = {
         priority: 'high',
         ttl: '86400s',
+        ...(collapseKey ? { collapse_key: collapseKey } : {}),
         ...(isDataOnly
             ? {}
             : {
@@ -212,6 +343,7 @@ const buildMessagePayload = (payload = {}, token, { platform } = {}) => {
                     default_vibrate_timings: true,
                     default_light_settings: true,
                     notification_priority: 'PRIORITY_HIGH',
+                    ...(tag ? { tag } : {}),
                     ...(image ? { image } : {}),
                 },
             }),
@@ -222,6 +354,7 @@ const buildMessagePayload = (payload = {}, token, { platform } = {}) => {
             'apns-priority': '10',
             'apns-push-type': isDataOnly ? 'background' : 'alert',
             'apns-expiration': String(Math.floor(Date.now() / 1000) + 86400),
+            ...(collapseKey ? { 'apns-collapse-id': collapseKey } : {}),
         },
         payload: {
             aps: isDataOnly
@@ -261,16 +394,9 @@ const buildMessagePayload = (payload = {}, token, { platform } = {}) => {
         headers: {
             Urgency: 'high',
             TTL: '86400',
+            ...(collapseKey ? { Topic: collapseKey.replace(/[^a-zA-Z0-9-_.~%]/g, '_').slice(0, 32) } : {}),
         },
-        ...(isDataOnly
-            ? {}
-            : {
-                notification: {
-                    title: notification.title,
-                    body: notification.body,
-                    ...(image ? { image, icon: image } : {}),
-                },
-            }),
+        // No `notification` here on purpose — see includeNotificationBlock above.
         fcm_options: {
             link: webLink || '/',
         },
@@ -416,8 +542,22 @@ export const sendPushNotification = async (tokens, payload = {}, { platform } = 
         return { successCount: 0, failureCount: 0, results: [] };
     }
 
+    const eventKey = deriveEventKey(payload);
+
     const results = await Promise.all(
         uniqueTokens.map(async (token) => {
+            // Claim before sending so concurrent callers (or a second instance)
+            // cannot both dispatch the same event to the same device.
+            const claimed = await claimPushDispatch(token, eventKey);
+            if (!claimed) {
+                logger.info(`[FCM] Duplicate push skipped for token ${token.slice(0, 10)}... and eventKey: ${eventKey}`);
+                return {
+                    token,
+                    ok: true,
+                    skippedDuplicate: true
+                };
+            }
+
             const message = buildMessagePayload(payload, token, { platform });
             try {
                 const response = await fetch(FCM_SEND_URL(projectId), {
@@ -431,10 +571,14 @@ export const sendPushNotification = async (tokens, payload = {}, { platform } = 
 
                 if (!response.ok) {
                     const errorJson = await parseFirebaseError(response);
+                    const remove = shouldRemoveTokenFromError(errorJson, response);
+                    // Nothing was delivered — free the claim so a retry can still
+                    // deliver this event once (unless the token itself is dead).
+                    if (!remove) await releasePushDispatch(token, eventKey);
                     return {
                         token,
                         ok: false,
-                        remove: shouldRemoveTokenFromError(errorJson, response),
+                        remove,
                         error: errorJson?.error?.message || `FCM send failed (${response.status})`
                     };
                 }
@@ -445,6 +589,7 @@ export const sendPushNotification = async (tokens, payload = {}, { platform } = 
                     response: await response.json()
                 };
             } catch (error) {
+                await releasePushDispatch(token, eventKey);
                 return {
                     token,
                     ok: false,
@@ -465,19 +610,51 @@ export const sendNotificationToOwner = async ({ ownerType, ownerId, payload, pla
     const enrichedPayload = { ...payload };
 
     try {
-        // Retrieve tokens for requested platform or combine all tokens if platform is undefined
-        const rawTokens = await listOwnerTokens({ ownerType, ownerId, platform });
-        
-        // Deduplicate token list strictly so no single FCM device token receives duplicate notifications
-        const targetTokens = normalizeTokenList(rawTokens);
+        const model = getOwnerModel(ownerType);
+        const doc = model ? await model.findById(ownerId).select('fcmTokens fcmTokenMobile').lean() : null;
 
-        if (!targetTokens.length) {
+        // Group tokens by their real platform. `platform` must be concrete when the
+        // message is built: web pushes are data-only (the service worker renders
+        // them), mobile pushes carry a notification block — sending one blended
+        // batch would give web devices both renderers and duplicate the banner.
+        const requestedPlatform = platform === 'mobile' || platform === 'web' ? platform : null;
+        const groups = (requestedPlatform ? [requestedPlatform] : ['web', 'mobile']).map(
+            (groupPlatform) => ({ platform: groupPlatform, tokens: readTokensFromDoc(doc, groupPlatform) })
+        );
+
+        // Deduplicate strictly across groups so no single device token is sent to twice.
+        const seenTokens = new Set();
+        const platformGroups = groups
+            .map(({ platform: groupPlatform, tokens }) => ({
+                platform: groupPlatform,
+                tokens: tokens.filter((token) => {
+                    if (seenTokens.has(token)) return false;
+                    seenTokens.add(token);
+                    return true;
+                })
+            }))
+            .filter((group) => group.tokens.length > 0);
+
+        if (!platformGroups.length) {
             logger.warn(`[FCM] No device tokens for ${ownerType}:${ownerId} — push skipped`);
             return { successCount: 0, failureCount: 0, results: [] };
         }
 
-        // Single dispatch call to FCM with deduplicated tokens
-        const response = await sendPushNotification(targetTokens, enrichedPayload, { platform });
+        // One dispatch call per platform, each with deduplicated tokens.
+        const groupResponses = await Promise.all(
+            platformGroups.map((group) =>
+                sendPushNotification(group.tokens, enrichedPayload, { platform: group.platform })
+            )
+        );
+
+        const response = groupResponses.reduce(
+            (acc, item) => ({
+                successCount: acc.successCount + (item.successCount || 0),
+                failureCount: acc.failureCount + (item.failureCount || 0),
+                results: acc.results.concat(item.results || [])
+            }),
+            { successCount: 0, failureCount: 0, results: [] }
+        );
 
         // Clean up any stale or unregistered tokens across both web and mobile fields
         const invalidTokens = (response.results || [])
@@ -486,16 +663,15 @@ export const sendNotificationToOwner = async ({ ownerType, ownerId, payload, pla
             .filter(Boolean);
 
         if (invalidTokens.length > 0) {
-            const model = getOwnerModel(ownerType);
-            const doc = model ? await model.findById(ownerId) : null;
-            if (doc) {
-                doc.fcmTokens = normalizeTokenList(
-                    (Array.isArray(doc.fcmTokens) ? doc.fcmTokens : []).filter((t) => !invalidTokens.includes(t))
+            const ownerDoc = model ? await model.findById(ownerId) : null;
+            if (ownerDoc) {
+                ownerDoc.fcmTokens = normalizeTokenList(
+                    (Array.isArray(ownerDoc.fcmTokens) ? ownerDoc.fcmTokens : []).filter((t) => !invalidTokens.includes(t))
                 );
-                doc.fcmTokenMobile = normalizeTokenList(
-                    (Array.isArray(doc.fcmTokenMobile) ? doc.fcmTokenMobile : []).filter((t) => !invalidTokens.includes(t))
+                ownerDoc.fcmTokenMobile = normalizeTokenList(
+                    (Array.isArray(ownerDoc.fcmTokenMobile) ? ownerDoc.fcmTokenMobile : []).filter((t) => !invalidTokens.includes(t))
                 );
-                await doc.save();
+                await ownerDoc.save();
             }
         }
 
@@ -603,7 +779,9 @@ export const broadcastPushToTargetsSafely = async (targets = [], payload = {}) =
             if (byType[type]) byType[type].push(t.ownerId);
         });
 
-        let allTokens = [];
+        // Tokens stay grouped by platform: web must be dispatched data-only so the
+        // service worker is the single renderer (see buildMessagePayload).
+        const tokensByPlatform = { web: [], mobile: [] };
 
         // 1. Bulk fetch all tokens to avoid N+1 DB queries
         for (const [type, ids] of Object.entries(byType)) {
@@ -617,14 +795,24 @@ export const broadcastPushToTargetsSafely = async (targets = [], payload = {}) =
                 const chunkIds = ids.slice(i, i + DB_CHUNK);
                 const docs = await model.find({ _id: { $in: chunkIds } }).select('fcmTokens fcmTokenMobile').lean();
                 for (const doc of docs) {
-                    const tokens = readTokensFromDoc(doc);
-                    if (tokens.length > 0) allTokens.push(...tokens);
+                    tokensByPlatform.web.push(...readTokensFromDoc(doc, 'web'));
+                    tokensByPlatform.mobile.push(...readTokensFromDoc(doc, 'mobile'));
                 }
             }
         }
 
-        allTokens = [...new Set(allTokens.filter(Boolean))];
-        logger.info(`[FCM Broadcast] Resolved ${allTokens.length} unique tokens. Dispatching to Firebase...`);
+        // Deduplicate globally so one device token is never sent to twice.
+        const seenTokens = new Set();
+        const dispatchGroups = ['web', 'mobile'].map((groupPlatform) => ({
+            platform: groupPlatform,
+            tokens: tokensByPlatform[groupPlatform].filter((token) => {
+                if (!token || seenTokens.has(token)) return false;
+                seenTokens.add(token);
+                return true;
+            })
+        }));
+
+        logger.info(`[FCM Broadcast] Resolved ${seenTokens.size} unique tokens. Dispatching to Firebase...`);
 
         // 2. Dispatch to FCM in controlled chunks
         // Firebase HTTP v1 limits: we do 50 concurrent fetch requests to avoid socket hang ups.
@@ -632,15 +820,17 @@ export const broadcastPushToTargetsSafely = async (targets = [], payload = {}) =
         let successCount = 0;
         let failureCount = 0;
 
-        for (let i = 0; i < allTokens.length; i += CHUNK_SIZE) {
-            const chunk = allTokens.slice(i, i + CHUNK_SIZE);
-            const res = await sendPushNotification(chunk, payload);
-            successCount += res.successCount || 0;
-            failureCount += res.failureCount || 0;
-            
-            // Artificial delay to prevent overwhelming network interfaces on huge broadcasts
-            if (i + CHUNK_SIZE < allTokens.length) {
-                await new Promise(resolve => setTimeout(resolve, 50));
+        for (const group of dispatchGroups) {
+            for (let i = 0; i < group.tokens.length; i += CHUNK_SIZE) {
+                const chunk = group.tokens.slice(i, i + CHUNK_SIZE);
+                const res = await sendPushNotification(chunk, payload, { platform: group.platform });
+                successCount += res.successCount || 0;
+                failureCount += res.failureCount || 0;
+
+                // Artificial delay to prevent overwhelming network interfaces on huge broadcasts
+                if (i + CHUNK_SIZE < group.tokens.length) {
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                }
             }
         }
 

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react"
+import { fetchAuthoritativeOnlineStatus } from "@food/utils/restaurantOnlineStatus"
 import TimeField from "@food/components/restaurant/TimeField"
 import { isOvernightRange, formatOpenDuration, normalizeTimeValue, OPENING_TIME_PRESETS, CLOSING_TIME_PRESETS } from "@food/utils/outletHours"
 import { useNavigate } from "react-router-dom"
@@ -106,6 +107,9 @@ export default function OutletTimings() {
       try {
         await restaurantAPI.saveOutletTimings(days)
         window.dispatchEvent(new Event("outletTimingsUpdated"))
+        // Closing (or reopening) a day can flip the outlet online/offline, so
+        // re-resolve the authoritative status and broadcast it to Home.
+        await fetchAuthoritativeOnlineStatus().catch(() => {})
       } catch (error) {
         debugError("Error saving outlet timings to backend:", error)
       }

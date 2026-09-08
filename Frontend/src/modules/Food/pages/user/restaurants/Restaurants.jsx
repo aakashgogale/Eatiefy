@@ -202,7 +202,7 @@ export default function Restaurants() {
                                   <span className="font-medium whitespace-nowrap">{restaurant.distance}</span>
                                 </div>
                               </div>
-                              <Button className="bg-[#DC2626] hover:opacity-90 dark:hover:opacity-80 text-white text-xs sm:text-sm h-7 sm:h-8 px-3 sm:px-4 flex-shrink-0 transition-opacity">
+                              <Button className="bg-[#1F6B45] hover:opacity-90 dark:hover:opacity-80 text-white text-xs sm:text-sm h-7 sm:h-8 px-3 sm:px-4 flex-shrink-0 transition-opacity">
                                 Order Now
                               </Button>
                             </div>

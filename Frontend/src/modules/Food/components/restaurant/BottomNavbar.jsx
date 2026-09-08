@@ -1,9 +1,11 @@
 import { useNavigate, useLocation } from "react-router-dom"
 import { Home, ShoppingBag, Store, Wallet, Menu } from "lucide-react"
+import useIsKeyboardOpen from "@food/hooks/useIsKeyboardOpen"
 
 export default function BottomNavbar({ onMenuClick }) {
   const navigate = useNavigate()
   const location = useLocation()
+  const isKeyboardOpen = useIsKeyboardOpen()
 
   const isActive = (path) => {
     if (path === "/food/restaurant") {
@@ -13,7 +15,13 @@ export default function BottomNavbar({ onMenuClick }) {
   }
 
   return (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-50">
+    <div
+      className={`md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-50 pb-[env(safe-area-inset-bottom,0px)] transition-all duration-300 ease-in-out ${
+        isKeyboardOpen
+          ? "pointer-events-none opacity-0 translate-y-full"
+          : "opacity-100 translate-y-0"
+      }`}
+    >
       <div className="flex items-center justify-around py-2 px-4">
         <button
           onClick={() => navigate("/food/restaurant")}

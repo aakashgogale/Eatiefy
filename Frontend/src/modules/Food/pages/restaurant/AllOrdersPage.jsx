@@ -426,17 +426,17 @@ export default function AllOrdersPage() {
     switch (status) {
       case "REJECTED":
       case "CANCELLED":
-        return "bg-red-700 text-white"
+        return "bg-red-50 text-red-700 border border-red-200"
       case "DELIVERED":
-        return "bg-green-600 text-white"
+        return "bg-emerald-50 text-emerald-700 border border-emerald-200"
       case "PREPARING":
-        return "bg-yellow-600 text-white"
+        return "bg-amber-50 text-amber-700 border border-amber-200"
       case "READY":
-        return "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white"
+        return "bg-green-50 text-green-700 border border-green-200"
       case "OUT FOR DELIVERY":
-        return "bg-purple-600 text-white"
+        return "bg-purple-50 text-purple-700 border border-purple-200"
       default:
-        return "bg-gray-600 text-white"
+        return "bg-slate-50 text-slate-700 border border-slate-200"
     }
   }
 
@@ -501,7 +501,7 @@ export default function AllOrdersPage() {
             </p>
           </div>
           <button
-            onClick={() => navigate('/food/restaurant/support')}
+            onClick={() => navigate('/food/restaurant/help-centre/support', { state: { from: '/food/restaurant/orders/all' } })}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
             aria-label="Help"
           >
@@ -631,17 +631,19 @@ export default function AllOrdersPage() {
             {/* Status and Order ID Row */}
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className={`px-2.5 py-1 rounded text-xs font-bold ${getStatusColor(order.status)}`}>
+                <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold leading-snug whitespace-nowrap ${getStatusColor(order.status)}`}>
                   {order.status}
                 </span>
                 {order.tags && order.tags.map((tag, idx) => {
-                  let badgeColor = "bg-green-600 text-white";
-                  if (tag === "TAKEAWAY") badgeColor = "bg-orange-600 text-white";
-                  else if (tag === "DINING") badgeColor = "bg-blue-600 text-white";
-                  else if (tag === "HOME DELIVERY") badgeColor = "bg-slate-600 text-white";
+                  let badgeColor = "bg-slate-50 text-slate-600 border border-slate-200";
+                  if (tag === "TAKEAWAY") badgeColor = "bg-orange-50 text-orange-700 border border-orange-200";
+                  else if (tag === "DINING") badgeColor = "bg-blue-50 text-blue-700 border border-blue-200";
+                  else if (tag === "HOME DELIVERY") badgeColor = "bg-slate-100 text-slate-700 border border-slate-200";
+                  else if (tag === "VEG ONLY") badgeColor = "bg-green-50 text-green-700 border border-green-200";
+                  else if (tag === "SCHEDULED") badgeColor = "bg-indigo-50 text-indigo-700 border border-indigo-200";
 
                   return (
-                    <span key={idx} className={`px-2.5 py-1 rounded text-xs font-bold ${badgeColor}`}>
+                    <span key={idx} className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold leading-snug whitespace-nowrap ${badgeColor}`}>
                       {tag}
                     </span>
                   );

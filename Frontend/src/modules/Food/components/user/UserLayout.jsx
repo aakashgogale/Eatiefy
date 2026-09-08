@@ -527,7 +527,7 @@ function UserLayoutContent() {
         <div className="fixed inset-0 z-[1000] bg-white/60 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-300 pointer-events-auto">
           <div className="relative">
             <div className="w-10 h-10 border-[3px] border-gray-100/30 rounded-full"></div>
-            <div className="absolute top-0 left-0 w-10 h-10 border-[3px] border-[#DC2626] border-t-transparent rounded-full animate-spin"></div>
+            <div className="absolute top-0 left-0 w-10 h-10 border-[3px] border-[#1F6B45] border-t-transparent rounded-full animate-spin"></div>
           </div>
           <p className="mt-4 text-[13px] font-bold text-gray-800 tracking-tight">Fetching Location...</p>
         </div>

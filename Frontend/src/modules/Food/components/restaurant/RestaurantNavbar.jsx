@@ -3,6 +3,11 @@ import { useNavigate, useLocation } from "react-router-dom"
 import { Search, Menu, ChevronRight, MapPin, X, Bell, HelpCircle } from "lucide-react"
 import { restaurantAPI } from "@food/api"
 import { formatRestaurantDisplayAddress } from "@food/utils/restaurantLocation"
+import {
+  fetchAuthoritativeOnlineStatus,
+  readCachedOnlineStatus,
+  subscribeToOnlineStatus,
+} from "@food/utils/restaurantOnlineStatus"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
 import useNotificationInbox from "@food/hooks/useNotificationInbox"
 import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications"
@@ -184,39 +189,55 @@ export default function RestaurantNavbar({
     }
   }, [restaurantData, propLocation])
 
-  // Load status from localStorage on mount and listen for changes
+  // Outlet online/offline status.
+  //
+  // The cached value is only a first-paint hint — the authoritative state is
+  // re-read from the backend on mount, whenever the tab becomes visible again,
+  // and whenever outlet timings change. That is why a status set on the Status
+  // or Outlet Timings screen now shows here without a reload.
   useEffect(() => {
-    const updateStatus = () => {
+    let cancelled = false
+
+    const applyStatus = (isOnline) => {
+      if (cancelled || isOnline === null || isOnline === undefined) return
+      setStatus(isOnline ? "Online" : "Offline")
+    }
+
+    const cached = readCachedOnlineStatus()
+    if (cached !== null) {
+      applyStatus(cached)
+    } else if (restaurantData?.isAcceptingOrders !== undefined) {
+      applyStatus(Boolean(restaurantData.isAcceptingOrders))
+    }
+
+    const refreshFromBackend = async () => {
       try {
-        const savedStatus = localStorage.getItem('restaurant_online_status')
-        if (savedStatus !== null) {
-          const isOnline = JSON.parse(savedStatus)
-          setStatus(isOnline ? "Online" : "Offline")
-        } else {
-          // If not stored yet, fallback to backend value (when available).
-          const isOnline = Boolean(restaurantData?.isAcceptingOrders)
-          setStatus(isOnline ? "Online" : "Offline")
-        }
+        applyStatus(await fetchAuthoritativeOnlineStatus())
       } catch (error) {
         debugError("Error loading restaurant status:", error)
-        const isOnline = Boolean(restaurantData?.isAcceptingOrders)
-        setStatus(isOnline ? "Online" : "Offline")
       }
     }
 
-    // Load initial status
-    updateStatus()
+    refreshFromBackend()
 
-    // Listen for status changes from RestaurantStatus page
-  const handleStatusChange = (event) => {
-      const isOnline = event.detail?.isOnline || false
-      setStatus(isOnline ? "Online" : "Offline")
-  }
+    const unsubscribe = subscribeToOnlineStatus((isOnline, reason) => {
+      // A timings change carries no value — go ask what the status now is.
+      if (reason === "timings" || isOnline === null) {
+        refreshFromBackend()
+        return
+      }
+      applyStatus(isOnline)
+    })
 
-    window.addEventListener('restaurantStatusChanged', handleStatusChange)
-    
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") refreshFromBackend()
+    }
+    document.addEventListener("visibilitychange", handleVisibility)
+
     return () => {
-      window.removeEventListener('restaurantStatusChanged', handleStatusChange)
+      cancelled = true
+      unsubscribe()
+      document.removeEventListener("visibilitychange", handleVisibility)
     }
   }, [restaurantData])
 
@@ -261,7 +282,10 @@ export default function RestaurantNavbar({
               {!loading && restaurantAddress && restaurantAddress.trim() !== "" && (
                 <div className="flex items-center gap-1 mt-1.5 opacity-90">
                   <MapPin className="w-2.5 h-2.5 text-white/80 shrink-0" />
-                  <p className="text-[11px] text-white/90 truncate font-medium" title={restaurantAddress}>
+                  {/* Two lines instead of a hard truncate, so the full saved
+                      address (building, street, city, pincode) is readable on a
+                      phone rather than being cut to one ellipsised line. */}
+                  <p className="text-[11px] text-white/90 font-medium leading-snug line-clamp-2 break-words" title={restaurantAddress}>
                     {restaurantAddress}
                   </p>
                 </div>
@@ -304,7 +328,7 @@ export default function RestaurantNavbar({
               >
                 <Bell className="w-5 h-5 text-white" />
                 {unreadCount > 0 && (
-                  <span className="absolute top-2 right-2.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[#2E7D52] shadow-[0_0_8px_rgba(52,211,153,0.4)]" />
+                  <span className="absolute top-2 right-2.5 w-2.5 h-2.5 rounded-full bg-red-500 border-2 border-[#2E7D52] shadow-[0_0_8px_rgba(239,68,68,0.5)]" />
                 )}
               </button>
             )}

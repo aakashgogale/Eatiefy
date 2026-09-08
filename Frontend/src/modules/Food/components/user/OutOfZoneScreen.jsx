@@ -63,7 +63,7 @@ const OutOfZoneScreen = ({ location, handleLocationClick }) => {
               state={{ from: routerLocation.pathname }}
               className="h-9 w-9 relative flex items-center justify-center rounded-full bg-[#FFF5E6] border border-white/60 shadow-2xl cursor-pointer active:scale-90 transition-all overflow-hidden"
             >
-              <span className="text-[22px] font-black text-[#DC2626] leading-none tracking-tighter">
+              <span className="text-[22px] font-black text-[#1F6B45] leading-none tracking-tighter">
                 {initials || 'U'}
               </span>
             </Link>

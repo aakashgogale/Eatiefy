@@ -3,7 +3,11 @@ import { uploadImageBuffer, deleteReplacedAssets } from '../../../../services/st
 import { ValidationError } from '../../../../core/auth/errors.js';
 import mongoose from 'mongoose';
 import { FoodZone } from '../../admin/models/zone.model.js';
-import { assertZoneCoversLocation } from '../../shared/zoneLocation.js';
+import {
+    assertZoneCoversLocation,
+    buildZoneServiceabilityClause,
+    resolveServiceZone
+} from '../../shared/zoneLocation.js';
 import { assertValidFullName } from '../validators/restaurant.validator.js';
 import { normalizeRestaurantType, getRestaurantTypeLabel } from '../../shared/restaurantTypes.js';
 import { buildOnboardingQuote } from './onboardingPricing.service.js';
@@ -66,21 +70,32 @@ async function upsertRestaurantFcmToken(restaurantId, fcmToken, platform = 'web'
     const token = String(fcmToken || '').trim();
     if (!token || !restaurantId) return;
 
-    const doc = await FoodRestaurant.findById(restaurantId);
-    if (!doc) return;
+    try {
+        const { upsertFirebaseDeviceToken } = await import('../../../../core/notifications/firebase.service.js');
+        await upsertFirebaseDeviceToken({
+            ownerType: 'RESTAURANT',
+            ownerId: String(restaurantId),
+            token,
+            platform
+        });
+    } catch (error) {
+        // Fallback to direct save if centralized service is unavailable
+        const doc = await FoodRestaurant.findById(restaurantId);
+        if (!doc) return;
 
-    const isMobile = platform === 'mobile';
-    if (isMobile) {
-        if (!doc.fcmTokenMobile) doc.fcmTokenMobile = [];
-        if (!doc.fcmTokenMobile.includes(token)) {
-            doc.fcmTokenMobile.push(token);
-            await doc.save();
-        }
-    } else {
-        if (!doc.fcmTokens) doc.fcmTokens = [];
-        if (!doc.fcmTokens.includes(token)) {
-            doc.fcmTokens.push(token);
-            await doc.save();
+        const isMobile = platform === 'mobile';
+        if (isMobile) {
+            if (!doc.fcmTokenMobile) doc.fcmTokenMobile = [];
+            if (!doc.fcmTokenMobile.includes(token)) {
+                doc.fcmTokenMobile.push(token);
+                await doc.save();
+            }
+        } else {
+            if (!doc.fcmTokens) doc.fcmTokens = [];
+            if (!doc.fcmTokens.includes(token)) {
+                doc.fcmTokens.push(token);
+                await doc.save();
+            }
         }
     }
 }
@@ -328,6 +343,13 @@ const notifyAdminsAboutRestaurantProfileReview = async (restaurantId, restaurant
     }
 };
 
+/**
+ * Multipart onboarding sends booleans as the strings "true"/"false", so a plain
+ * `=== true` check silently read every submitted flag as false.
+ */
+const isTruthyFlag = (value) =>
+    value === true || String(value ?? '').trim().toLowerCase() === 'true';
+
 export const registerRestaurant = async (payload, files) => {
     const {
         restaurantName,
@@ -456,8 +478,12 @@ export const registerRestaurant = async (payload, files) => {
             ownerPhoneDigits,
             ownerPhoneLast10,
             primaryContactNumber,
-            pureVegRestaurant: pureVeganRestaurant === true ? true : pureVegRestaurant === true,
-            pureVeganRestaurant: pureVeganRestaurant === true,
+            // Onboarding offers only "Pure Veg" or "Mixed Menu". Pure Vegan was
+            // removed from that flow, so it is never accepted here even if a
+            // stale client (or a hand-crafted request) still sends it. Existing
+            // restaurants keep whatever is already stored — only signup is gated.
+            pureVegRestaurant: isTruthyFlag(pureVegRestaurant),
+            pureVeganRestaurant: false,
             zoneId: zoneId && mongoose.Types.ObjectId.isValid(String(zoneId).trim())
                 ? new mongoose.Types.ObjectId(String(zoneId).trim())
                 : undefined,
@@ -996,6 +1022,10 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
         }
     }
 
+    // DISABLED: "Pure Vegan" is no longer a selectable restaurant menu type.
+    // The value is accepted and validated exactly as before, then forced off so
+    // it can never be newly enabled. Existing stored values are untouched.
+    if (update.pureVeganRestaurant === true) update.pureVeganRestaurant = false;
     if (update.pureVeganRestaurant === true) {
         update.pureVegRestaurant = true;
     } else if (update.pureVeganRestaurant === false && update.pureVegRestaurant === undefined) {
@@ -1558,20 +1588,56 @@ export const listApprovedRestaurants = async (query = {}) => {
         filter['diningSettings.isEnabled'] = true;
     }
 
-    const zoneIdRaw = String(query.zoneId || '').trim();
-    if (zoneIdRaw && mongoose.Types.ObjectId.isValid(zoneIdRaw)) {
-        filter.$or = [{ zoneId: new mongoose.Types.ObjectId(zoneIdRaw) }];
-        const zoneDoc = await FoodZone.findById(zoneIdRaw).select('isActive coordinates location').lean();
-        if (zoneDoc && zoneDoc.isActive) {
-            const polygon = zoneToPolygon(zoneDoc);
-            if (polygon) {
-                filter.$or.push({ location: { $geoWithin: { $geometry: polygon } } });
-            }
-        }
+    // Each of these used to assign `filter.$or` directly, so whichever ran last
+    // silently erased the ones before it (a search term plus a veg filter plus a
+    // zone kept only the zone). They are $and-ed instead, so every constraint
+    // that was asked for is actually applied.
+    if (query.pureVegan === 'true' || query.vegModeOption === 'pure-vegan') {
+        filter.$and = [...(filter.$and || []), {
+            $or: [
+                { pureVeganRestaurant: true },
+                { 'diningSettings.pureVeganRestaurant': true }
+            ]
+        }];
+    } else if (query.pureVeg === 'true' || query.vegModeOption === 'pure-veg') {
+        filter.$and = [...(filter.$and || []), {
+            $or: [
+                { pureVegRestaurant: true },
+                { pureVeganRestaurant: true },
+                { 'diningSettings.pureVegRestaurant': true },
+                { 'diningSettings.pureVeganRestaurant': true }
+            ]
+        }];
+    } else if (query.vegModeOption === 'non-veg') {
+        filter.pureVegRestaurant = { $ne: true };
     }
 
     const lat = toFiniteNumber(query.lat);
     const lng = toFiniteNumber(query.lng);
+
+    // Serviceability is decided here, at the query level, for every caller of
+    // this endpoint — the home list, search, and category browsing all go
+    // through it, so none of them can surface an out-of-zone restaurant.
+    const zoneIdRaw = String(query.zoneId || '').trim();
+    const serviceZone = await resolveServiceZone({ zoneId: zoneIdRaw, lat, lng });
+
+    if (serviceZone) {
+        filter.$and = [...(filter.$and || []), buildZoneServiceabilityClause(serviceZone)];
+    } else if (query.allowUnzoned !== 'true') {
+        // Neither a zone nor a resolvable location: the caller has no serviceable
+        // area yet. Return nothing and let the client run its existing
+        // location-selection flow instead of listing unserviceable restaurants.
+        return {
+            restaurants: [],
+            total: 0,
+            page,
+            limit,
+            totalPages: 0,
+            requiresLocation: true,
+            zoneId: null
+        };
+    }
+
     const radiusKm = toFiniteNumber(query.radiusKm) ?? toFiniteNumber(query.maxDistance);
     const sortBy = parseSortBy(query.sortBy);
 
@@ -1613,6 +1679,8 @@ export const listApprovedRestaurants = async (query = {}) => {
         isAcceptingOrders: 1,
         status: 1,
         pureVegRestaurant: 1,
+        pureVeganRestaurant: 1,
+        diningSettings: 1,
         createdAt: 1,
         location: 1,
         distance: 1,
@@ -1717,12 +1785,27 @@ export const listApprovedRestaurants = async (query = {}) => {
 
     // Attach recommended dishes
     const restaurantIds = pageDocs.map(r => r._id);
-    const allRecommended = await FoodItem.find({
+    const isVegFilter = query.isVeg === 'true' || query.vegMode === 'true' || query.pureVeg === 'true' || query.vegModeOption === 'pure-veg';
+    const isVeganFilter = query.isVegan === 'true' || query.pureVegan === 'true' || query.vegModeOption === 'pure-vegan';
+    const isNonVegFilter = query.vegModeOption === 'non-veg';
+
+    const recommendedFilter = {
         restaurantId: { $in: restaurantIds },
         isRecommended: true,
         isAvailable: true,
         approvalStatus: 'approved'
-    }).select('restaurantId name price image foodType variants variations').lean();
+    };
+
+    if (isVeganFilter) {
+        recommendedFilter.foodType = 'Vegan';
+    } else if (isVegFilter) {
+        recommendedFilter.foodType = { $in: ['Veg', 'Vegan'] };
+    } else if (isNonVegFilter) {
+        recommendedFilter.foodType = { $nin: ['Veg', 'Vegan'] };
+    }
+
+    const allRecommended = await FoodItem.find(recommendedFilter)
+        .select('restaurantId name price image foodType variants variations').lean();
 
     // Count total approved menu items per restaurant (to detect empty-menu restaurants)
     const menuCounts = await FoodItem.aggregate([
@@ -1754,6 +1837,11 @@ export const listApprovedRestaurants = async (query = {}) => {
         name: r.restaurantName || '',
         rating: normalizeRatingValue(r.rating),
         totalRatings: normalizeTotalRatingsValue(r.totalRatings),
+        pureVegRestaurant: r.pureVegRestaurant === true,
+        pureVeganRestaurant: r.pureVeganRestaurant === true,
+        isVeg: r.pureVegRestaurant === true,
+        isPureVeg: r.pureVegRestaurant === true,
+        isPureVegan: r.pureVeganRestaurant === true,
         profileImage: r.profileImage ? { url: r.profileImage } : null,
         coverImages: Array.isArray(r.coverImages) ? r.coverImages : [],
         openingTime: r.openingTime || null,
@@ -1792,7 +1880,8 @@ export const listApprovedRestaurants = async (query = {}) => {
         }
     }
 
-    return { restaurants, total, page, limit };
+    // `zoneId` tells the client which service area these results belong to.
+    return { restaurants, total, page, limit, zoneId: serviceZone ? String(serviceZone._id) : null };
 };
 
 export const getApprovedRestaurantByIdOrSlug = async (idOrSlug, userId = null, coords = {}) => {

@@ -34,6 +34,7 @@ import { restaurantAPI, diningAPI } from "@food/api";
 import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { setupPdfFonts } from "@food/utils/pdfFontUtils";
 import ResendNotificationButton from "@food/components/restaurant/ResendNotificationButton";
 import {
   getRestaurantItemLineTotal,
@@ -148,7 +149,7 @@ const transformOrderForList = (order) => {
     sortTimestamp: isTerminal
       ? new Date(getAllOrdersTimestamp(order)).getTime()
       : new Date(order.createdAt || Date.now()).getTime(),
-    restaurantNote: order.restaurantNote || null,
+    restaurantNote: order.restaurantNote || order.note || null,
     acceptedAt: order.acceptedAt || null,
   };
 };
@@ -198,6 +199,7 @@ function CompletedOrders({ onSelectOrder, refreshToken = 0 }) {
             photoAlt: order.items?.[0]?.name || "Order",
             amount: order.pricing?.total || order.total || 0,
             paymentMethod: order.paymentMethod || order.payment?.method || null,
+            restaurantNote: order.restaurantNote || order.note || null,
           }));
 
           transformedOrders.sort((a, b) => {
@@ -411,7 +413,7 @@ function CancelledOrders({ onSelectOrder, refreshToken = 0 }) {
             photoAlt: order.items?.[0]?.name || "Order",
             amount: order.pricing?.total || order.total || 0,
             paymentMethod: order.paymentMethod || order.payment?.method || null,
-            restaurantNote: order.restaurantNote || null,
+            restaurantNote: order.restaurantNote || order.note || null,
           }));
 
           transformedOrders.sort((a, b) => {
@@ -1944,7 +1946,8 @@ function OrdersMainInner() {
                 status: orderToPopup.status,
                 createdAt: orderToPopup.createdAt,
                 estimatedDeliveryTime: orderToPopup.estimatedDeliveryTime || 30,
-                note: orderToPopup.note || "",
+                note: orderToPopup.restaurantNote || orderToPopup.note || "",
+                restaurantNote: orderToPopup.restaurantNote || orderToPopup.note || "",
                 sendCutlery: orderToPopup.sendCutlery,
                 paymentMethod:
                   orderToPopup.paymentMethod ||
@@ -2429,9 +2432,10 @@ function OrdersMainInner() {
     try {
       // Create new PDF document
       const doc = new jsPDF();
+      setupPdfFonts(doc);
 
       // Set font
-      doc.setFont("helvetica", "bold");
+      doc.setFont("Roboto", "bold");
 
       // Header
       doc.setFontSize(20);
@@ -2439,16 +2443,16 @@ function OrdersMainInner() {
 
       // Restaurant name
       doc.setFontSize(14);
-      doc.setFont("helvetica", "normal");
+      doc.setFont("Roboto", "normal");
       doc.text(orderToPrint.restaurantName || "Restaurant", 105, 30, {
         align: "center",
       });
 
       // Order details
       doc.setFontSize(10);
-      doc.setFont("helvetica", "bold");
+      doc.setFont("Roboto", "bold");
       doc.text(`Order ID: ${orderToPrint.orderId || "N/A"}`, 20, 45);
-      doc.setFont("helvetica", "normal");
+      doc.setFont("Roboto", "normal");
 
       const orderDate = orderToPrint.createdAt
         ? new Date(orderToPrint.createdAt).toLocaleString("en-GB", {
@@ -2465,9 +2469,9 @@ function OrdersMainInner() {
 
       // Customer address
       if (orderToPrint.customerAddress) {
-        doc.setFont("helvetica", "bold");
+        doc.setFont("Roboto", "bold");
         doc.text("Delivery Address:", 20, 62);
-        doc.setFont("helvetica", "normal");
+        doc.setFont("Roboto", "normal");
         const addressText =
           [
             orderToPrint.customerAddress.street,
@@ -2483,7 +2487,7 @@ function OrdersMainInner() {
       // Items table
       let yPos = 85;
       if (orderToPrint.items && orderToPrint.items.length > 0) {
-        doc.setFont("helvetica", "bold");
+        doc.setFont("Roboto", "bold");
         doc.text("Items:", 20, yPos);
         yPos += 8;
 
@@ -2501,11 +2505,12 @@ function OrdersMainInner() {
           body: tableData,
           theme: "striped",
           headStyles: {
+            font: "Roboto",
             fillColor: [0, 0, 0],
             textColor: 255,
             fontStyle: "bold",
           },
-          styles: { fontSize: 9 },
+          styles: { font: "Roboto", fontSize: 9 },
           columnStyles: {
             0: { cellWidth: 80 },
             1: { cellWidth: 30, halign: "center" },
@@ -2518,14 +2523,14 @@ function OrdersMainInner() {
       }
 
       // Total
-      doc.setFont("helvetica", "bold");
+      doc.setFont("Roboto", "bold");
       doc.setFontSize(12);
       doc.text(`Total: ₹${(orderToPrint.total || 0).toFixed(2)}`, 20, yPos);
 
       // Payment status
       yPos += 10;
       doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
+      doc.setFont("Roboto", "normal");
       doc.text(
         `Payment Status: ${orderToPrint.status === "confirmed" ? "Paid" : "Pending"}`,
         20,
@@ -2545,21 +2550,22 @@ function OrdersMainInner() {
       // Delivery Note
       if (orderToPrint.note) {
         yPos += 10;
-        doc.setFont("helvetica", "bold");
+        doc.setFont("Roboto", "bold");
         doc.text("Note for Delivery:", 20, yPos);
-        doc.setFont("helvetica", "normal");
+        doc.setFont("Roboto", "normal");
         const noteLines = doc.splitTextToSize(orderToPrint.note, 170);
         doc.text(noteLines, 20, yPos + 7);
         yPos += (noteLines.length * 7);
       }
 
       // Restaurant Note
-      if (orderToPrint.restaurantNote) {
+      const noteToPrint = orderToPrint.restaurantNote || orderToPrint.note;
+      if (noteToPrint) {
         yPos += 10;
-        doc.setFont("helvetica", "bold");
+        doc.setFont("Roboto", "bold");
         doc.text("Note for Restaurant:", 20, yPos);
-        doc.setFont("helvetica", "normal");
-        const restaurantNoteLines = doc.splitTextToSize(orderToPrint.restaurantNote, 170);
+        doc.setFont("Roboto", "normal");
+        const restaurantNoteLines = doc.splitTextToSize(noteToPrint, 170);
         doc.text(restaurantNoteLines, 20, yPos + 7);
       }
 
@@ -2874,7 +2880,7 @@ function OrdersMainInner() {
       {/* Content Area - Scrollable */}
       <div
         ref={contentRef}
-        className="flex-1 overflow-y-auto px-4 pb-24 content-scroll"
+        className="flex-1 overflow-y-auto px-4 pb-[calc(6.5rem+env(safe-area-inset-bottom,16px))] content-scroll"
         style={{ WebkitOverflowScrolling: "touch" }}>
         <style>{`
           .content-scroll {
@@ -3239,7 +3245,7 @@ function OrdersMainInner() {
                   })()}
 
                   {/* Restaurant Note */}
-                  {(popupOrder || newOrder)?.restaurantNote && (
+                  {((popupOrder || newOrder)?.restaurantNote || (popupOrder || newOrder)?.note) && (
                     <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
                       <div className="flex items-center gap-2 mb-1">
                         <FileText className="w-4 h-4 text-[#2E7D52]" />
@@ -3248,7 +3254,7 @@ function OrdersMainInner() {
                         </p>
                       </div>
                       <p className="text-sm font-medium text-blue-900">
-                        {(popupOrder || newOrder).restaurantNote}
+                        {(popupOrder || newOrder).restaurantNote || (popupOrder || newOrder).note}
                       </p>
                     </div>
                   )}
@@ -4041,10 +4047,10 @@ function OrdersMainInner() {
                 </div>
               )}
 
-              {selectedOrder.restaurantNote && (
+              {(selectedOrder.restaurantNote || selectedOrder.note) && (
                 <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-xl">
                   <p className="text-[10px] font-bold text-[#2E7D52] uppercase mb-1">Note for Restaurant</p>
-                  <p className="text-xs text-blue-700 font-medium">{selectedOrder.restaurantNote}</p>
+                  <p className="text-xs text-blue-700 font-medium">{selectedOrder.restaurantNote || selectedOrder.note}</p>
                 </div>
               )}
 
@@ -4381,7 +4387,7 @@ function PreparingOrders({
               dispatchStatus: order.dispatch?.status || null,
               paymentMethod:
                 order.paymentMethod || order.payment?.method || null,
-              restaurantNote: order.restaurantNote || null,
+              restaurantNote: order.restaurantNote || order.note || null,
             };
           });
 
@@ -4686,7 +4692,7 @@ function ReadyOrders({ onSelectOrder, onVerifyTakeaway, refreshToken = 0 }) {
             paymentMethod: order.paymentMethod || order.payment?.method || null,
             deliveryPartnerId: order.deliveryPartnerId || null,
             dispatchStatus: order.dispatch?.status || null,
-            restaurantNote: order.restaurantNote || null,
+            restaurantNote: order.restaurantNote || order.note || null,
           }));
 
           if (isMounted) {
@@ -4810,7 +4816,7 @@ const OutForDeliveryOrders = ({ onSelectOrder, refreshToken = 0 }) => {
             paymentMethod: order.paymentMethod || order.payment?.method || null,
             deliveryPartnerId: order.deliveryPartnerId || null,
             dispatchStatus: order.dispatch?.status || null,
-            restaurantNote: order.restaurantNote || null,
+            restaurantNote: order.restaurantNote || order.note || null,
           }));
 
           if (isMounted) {

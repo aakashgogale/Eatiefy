@@ -43,21 +43,48 @@ export default function ShowIdCardV2() {
     return validTill.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
   };
 
-  // Get status display
-  const getStatusDisplay = () => {
-    if (!profileData) return "Active";
-    const status = profileData.status?.toLowerCase() || (profileData.isActive ? 'active' : 'inactive');
-    return status.charAt(0).toUpperCase() + status.slice(1);
+  /**
+   * The partner's real approval state. Returns null until the profile loads, so
+   * the card never claims a status it has not read — the previous default of
+   * "Active"/green showed a positive status to every partner, approved or not.
+   */
+  const resolveStatusKey = () => {
+    if (!profileData) return null;
+    const raw = String(profileData.status || "").trim().toLowerCase();
+    if (raw) return raw;
+    if (typeof profileData.isActive === "boolean") {
+      return profileData.isActive ? "active" : "inactive";
+    }
+    return null;
   };
 
-  // Get status color
-  const getStatusColor = () => {
-    if (!profileData) return "bg-green-500";
-    const status = profileData.status?.toLowerCase() || (profileData.isActive ? 'active' : 'inactive');
-    if (status === 'active' || status === 'approved') return "bg-green-500";
-    if (status === 'pending') return "bg-yellow-500";
-    if (status === 'suspended' || status === 'blocked') return "bg-red-500";
-    return "bg-gray-500";
+  /**
+   * Label + colours per status. Each entry pairs a solid background with white
+   * text so the label always has contrast, and each carries its own shadow tint
+   * (the badge previously hardcoded a green glow for every state).
+   */
+  const STATUS_STYLES = {
+    approved: { label: "Approved", bg: "bg-green-600", shadow: "shadow-green-600/30" },
+    active: { label: "Active", bg: "bg-green-600", shadow: "shadow-green-600/30" },
+    pending: { label: "Pending", bg: "bg-amber-500", shadow: "shadow-amber-500/30" },
+    rejected: { label: "Rejected", bg: "bg-red-600", shadow: "shadow-red-600/30" },
+    blocked: { label: "Blocked", bg: "bg-red-600", shadow: "shadow-red-600/30" },
+    suspended: { label: "Suspended", bg: "bg-red-600", shadow: "shadow-red-600/30" },
+    inactive: { label: "Inactive", bg: "bg-gray-500", shadow: "shadow-gray-500/30" },
+    deleted: { label: "Inactive", bg: "bg-gray-500", shadow: "shadow-gray-500/30" },
+  };
+
+  const getStatusStyle = () => {
+    const key = resolveStatusKey();
+    if (!key) return { label: "", bg: "bg-gray-400", shadow: "shadow-gray-400/30" };
+    return (
+      STATUS_STYLES[key] || {
+        // Unknown status: still show it rather than rendering an empty pill.
+        label: key.charAt(0).toUpperCase() + key.slice(1),
+        bg: "bg-gray-500",
+        shadow: "shadow-gray-500/30",
+      }
+    );
   };
 
   const getProfileImageUrl = () => {
@@ -102,8 +129,7 @@ export default function ShowIdCardV2() {
     name: profileData.name || "Delivery Partner",
     id: profileData.deliveryId || profileData._id?.toString().slice(-8).toUpperCase() || "N/A",
     phone: profileData.phone || "N/A",
-    status: getStatusDisplay(),
-    statusColor: getStatusColor(),
+    statusStyle: getStatusStyle(),
     validTill: formatValidDate(),
     vehicle: getVehicleDisplay(),
     profileImage: getProfileImageUrl()
@@ -148,12 +174,19 @@ export default function ShowIdCardV2() {
             <h1 className="text-4xl font-black text-gray-900 mb-1 leading-tight">PARTNER</h1>
             <h2 className="text-xl font-bold text-gray-400 uppercase tracking-widest mb-6">ID CARD</h2>
 
-            {/* Active Status Badge */}
-            <div className="mb-8">
-              <span className={`${idCardData.statusColor} text-white px-8 py-2.5 rounded-full text-xs font-black uppercase tracking-[0.2em] shadow-lg shadow-green-500/20`}>
-                {idCardData.status}
-              </span>
-            </div>
+            {/* Approval status badge.
+                `inline-flex` matters: as a plain inline element the vertical
+                padding did not grow the line box, so the pill collided with the
+                text above it and the label could be clipped out of view. */}
+            {idCardData.statusStyle.label ? (
+              <div className="mb-8">
+                <span
+                  className={`${idCardData.statusStyle.bg} ${idCardData.statusStyle.shadow} inline-flex items-center justify-center text-white px-8 py-2.5 rounded-full text-xs font-black uppercase tracking-[0.2em] leading-none whitespace-nowrap shadow-lg`}
+                >
+                  {idCardData.statusStyle.label}
+                </span>
+              </div>
+            ) : null}
 
             {/* Details Grid */}
             <div className="w-full space-y-8 mt-4">

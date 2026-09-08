@@ -12,10 +12,6 @@ const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
-/** Platform default = percentage. Fixed amount only when admin chooses it per restaurant. */
-const DEFAULT_COMMISSION_PERCENT = "18"
-const DEFAULT_COMMISSION_FIXED_AMOUNT = "50"
-
 export default function RestaurantCommission() {
   const [searchQuery, setSearchQuery] = useState("")
   const [commissions, setCommissions] = useState([])
@@ -32,7 +28,7 @@ export default function RestaurantCommission() {
     restaurantId: "",
     defaultCommission: {
       type: "percentage",
-      value: DEFAULT_COMMISSION_PERCENT
+      value: ""
     },
     notes: ""
   })
@@ -183,7 +179,7 @@ export default function RestaurantCommission() {
       restaurantId: "",
       defaultCommission: {
         type: "percentage",
-        value: DEFAULT_COMMISSION_PERCENT
+        value: ""
       },
       notes: ""
     })
@@ -229,11 +225,12 @@ export default function RestaurantCommission() {
           }
         }
         
+        const commValue = commissionData.defaultCommission?.value
         setFormData({
           restaurantId: restaurantId,
           defaultCommission: {
             type: commissionData.defaultCommission?.type || "percentage",
-            value: commissionData.defaultCommission?.value?.toString() || DEFAULT_COMMISSION_PERCENT
+            value: commValue !== undefined && commValue !== null ? String(commValue) : ""
           },
           notes: commissionData.notes || ""
         })
@@ -278,12 +275,13 @@ export default function RestaurantCommission() {
       errors.restaurantId = "Restaurant is required"
     }
 
-    if (!formData.defaultCommission.value || parseFloat(formData.defaultCommission.value) < 0) {
-      errors.defaultCommission = "Default commission value is required"
-    }
-
-    if (formData.defaultCommission.type === "percentage" && 
-        (parseFloat(formData.defaultCommission.value) < 0 || parseFloat(formData.defaultCommission.value) > 100)) {
+    const commVal = formData.defaultCommission?.value
+    if (commVal === "" || commVal === null || commVal === undefined || isNaN(Number(commVal)) || Number(commVal) < 0) {
+      errors.defaultCommission = "Commission value is required and must be 0 or greater"
+    } else if (
+      formData.defaultCommission?.type === "percentage" && 
+      (Number(commVal) < 0 || Number(commVal) > 100)
+    ) {
       errors.defaultCommission = "Percentage must be between 0-100"
     }
 
@@ -580,11 +578,8 @@ export default function RestaurantCommission() {
                       setFormData((prev) => ({
                         ...prev,
                         defaultCommission: {
+                          ...prev.defaultCommission,
                           type: nextType,
-                          value:
-                            nextType === "percentage"
-                              ? DEFAULT_COMMISSION_PERCENT
-                              : DEFAULT_COMMISSION_FIXED_AMOUNT,
                         },
                       }))
                     }}
@@ -607,12 +602,12 @@ export default function RestaurantCommission() {
                     className={`w-full px-3 py-2 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                       formErrors.defaultCommission ? "border-red-500" : "border-slate-300"
                     }`}
-                    placeholder={formData.defaultCommission.type === "percentage" ? "e.g., 18" : "e.g., 50"}
+                    placeholder={formData.defaultCommission.type === "percentage" ? "e.g., 10" : "e.g., 50"}
                   />
                   <p className="text-[11px] text-slate-500 mt-1">
                     {formData.defaultCommission.type === "percentage"
-                      ? "Platform default: 18%"
-                      : "Suggested default: ₹50 per order (change as needed)"}
+                      ? "Enter commission percentage (e.g., 10, or 0 for 0%)"
+                      : "Enter fixed commission amount per order"}
                   </p>
                   {formErrors.defaultCommission && (
                     <p className="text-xs text-red-500 mt-1">{formErrors.defaultCommission}</p>

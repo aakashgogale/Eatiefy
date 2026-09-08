@@ -121,7 +121,14 @@ export default function SignupStep2() {
 
     try {
       const preparedFile = await prepareSignupDocumentFile(file)
-      await saveSignupDocumentToDB(docType, preparedFile)
+      const saveResult = await saveSignupDocumentToDB(docType, preparedFile)
+
+      // The photo is only durable once it reached IndexedDB or sessionStorage.
+      // When neither worked it lives in memory alone and a refresh will lose
+      // it — say so rather than reporting a successful upload.
+      if (saveResult && saveResult.persisted === false) {
+        toast.warning("Photo saved for now, but may be lost if you refresh this page.")
+      }
 
       const nextPreviewUrl = URL.createObjectURL(preparedFile)
       const previousPreviewUrl = previewUrlsRef.current[docType]

@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react"
-import { useNavigate, useParams } from "react-router-dom"
+import { useNavigate, useParams, useLocation } from "react-router-dom"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import {
   ArrowLeft,
@@ -21,7 +20,10 @@ import { useCart } from "@food/context/CartContext"
 import { toast } from "sonner"
 import { jsPDF } from "jspdf"
 import autoTable from "jspdf-autotable"
+import { setupPdfFonts } from "@food/utils/pdfFontUtils"
 import { getCompanyNameAsync } from "@food/utils/businessSettings"
+import { isVegMenuItem } from "@food/utils/vegMode"
+import { toFoodUserPath } from "@food/utils/mainTabRoutes"
 import dishFallbackImage from "@food/assets/dish_fallback.webp"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -30,19 +32,26 @@ const debugError = (...args) => {}
 
 export default function UserOrderDetails() {
   const navigate = useNavigate()
+  const location = useLocation()
   const goBack = useAppBackNavigation()
   const { replaceCart } = useCart()
   const { orderId } = useParams()
-  const [order, setOrder] = useState(null)
+  const initialOrder = location.state?.order || null
+  const [order, setOrder] = useState(initialOrder)
   const [restaurant, setRestaurant] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(() => !initialOrder)
 
   useEffect(() => {
+    let isMounted = true
     const fetchOrderDetails = async () => {
       try {
-        setLoading(true)
+        if (!initialOrder) {
+          setLoading(true)
+        }
         // Fetch using the ID from params (which will now be the MongoDB _id)
         const response = await orderAPI.getOrderDetails(orderId)
+
+        if (!isMounted) return
 
         let orderData = null
         if (response?.data?.success && response.data.data?.order) {
@@ -51,7 +60,7 @@ export default function UserOrderDetails() {
           orderData = response.data.order
         } else {
           toast.error("Order not found")
-          navigate("/user/orders")
+          navigate(toFoodUserPath("/user/orders"))
           return
         }
 
@@ -62,6 +71,7 @@ export default function UserOrderDetails() {
         if (restaurantId && typeof restaurantId === 'string' && !orderData.restaurant) {
           try {
             const restaurantResponse = await restaurantAPI.getRestaurantById(restaurantId)
+            if (!isMounted) return
             if (restaurantResponse?.data?.success && restaurantResponse.data.data?.restaurant) {
               setRestaurant(restaurantResponse.data.data.restaurant)
             } else if (restaurantResponse?.data?.restaurant) {
@@ -74,16 +84,23 @@ export default function UserOrderDetails() {
         }
       } catch (error) {
         debugError("Error fetching order details:", error)
-        toast.error(
-          error?.response?.data?.message || "Failed to load order details"
-        )
-        navigate("/user/orders")
+        if (isMounted) {
+          toast.error(
+            error?.response?.data?.message || "Failed to load order details"
+          )
+          navigate(toFoodUserPath("/user/orders"))
+        }
       } finally {
-        setLoading(false)
+        if (isMounted) {
+          setLoading(false)
+        }
       }
     }
 
     fetchOrderDetails()
+    return () => {
+      isMounted = false
+    }
   }, [orderId, navigate])
 
   const handleCopyOrderId = async () => {
@@ -111,8 +128,8 @@ export default function UserOrderDetails() {
         <div className="text-center space-y-3">
           <p className="text-gray-700 dark:text-gray-300 text-sm font-medium">Order not found</p>
           <button
-            onClick={() => navigate("/user/orders")}
-            className="px-4 py-2 rounded-lg bg-[#DC2626] text-white text-sm font-semibold hover:bg-[#991B1B] transition-all active:scale-95 shadow-md"
+            onClick={() => navigate(toFoodUserPath("/user/orders"))}
+            className="px-4 py-2 rounded-lg bg-[#1F6B45] text-white text-sm font-semibold hover:bg-[#14512F] transition-all active:scale-95 shadow-md"
           >
             Back to Orders
           </button>
@@ -249,58 +266,59 @@ export default function UserOrderDetails() {
       const companyName = await getCompanyNameAsync()
       // Create new PDF document
       const doc = new jsPDF()
+      setupPdfFonts(doc)
 
       // Title
       doc.setFontSize(16)
-      doc.setFont('helvetica', 'bold')
+      doc.setFont('Roboto', 'bold')
       doc.text(`${companyName} Order: Summary and Receipt`, 105, 20, { align: 'center' })
 
       // Order details section
       let yPos = 35
       doc.setFontSize(10)
-      doc.setFont('helvetica', 'normal')
+      doc.setFont('Roboto', 'normal')
 
       // Order ID
-      doc.setFont('helvetica', 'bold')
+      doc.setFont('Roboto', 'bold')
       doc.text('Order ID:', 20, yPos)
-      doc.setFont('helvetica', 'normal')
+      doc.setFont('Roboto', 'normal')
       doc.text(orderIdDisplay, 60, yPos)
       yPos += 7
 
       // Order Time
-      doc.setFont('helvetica', 'bold')
+      doc.setFont('Roboto', 'bold')
       doc.text('Order Time:', 20, yPos)
-      doc.setFont('helvetica', 'normal')
+      doc.setFont('Roboto', 'normal')
       const orderTimeLines = doc.splitTextToSize(paymentDate || 'N/A', 130)
       doc.text(orderTimeLines, 60, yPos)
       yPos += orderTimeLines.length * 7
 
       // Customer Name
-      doc.setFont('helvetica', 'bold')
+      doc.setFont('Roboto', 'bold')
       doc.text('Customer Name:', 20, yPos)
-      doc.setFont('helvetica', 'normal')
+      doc.setFont('Roboto', 'normal')
       doc.text(userName || 'Customer', 60, yPos)
       yPos += 7
 
       // Delivery Address
-      doc.setFont('helvetica', 'bold')
+      doc.setFont('Roboto', 'bold')
       doc.text('Delivery Address:', 20, yPos)
-      doc.setFont('helvetica', 'normal')
+      doc.setFont('Roboto', 'normal')
       const addressLines = doc.splitTextToSize(addressText || 'N/A', 130)
       doc.text(addressLines, 60, yPos)
       yPos += addressLines.length * 7
 
       // Restaurant Name
-      doc.setFont('helvetica', 'bold')
+      doc.setFont('Roboto', 'bold')
       doc.text('Restaurant Name:', 20, yPos)
-      doc.setFont('helvetica', 'normal')
+      doc.setFont('Roboto', 'normal')
       doc.text(restaurantName, 60, yPos)
       yPos += 7
 
       // Restaurant Address
-      doc.setFont('helvetica', 'bold')
+      doc.setFont('Roboto', 'bold')
       doc.text('Restaurant Address:', 20, yPos)
-      doc.setFont('helvetica', 'normal')
+      doc.setFont('Roboto', 'normal')
       const restaurantAddressLines = doc.splitTextToSize(restaurantLocation || 'N/A', 130)
       doc.text(restaurantAddressLines, 60, yPos)
       yPos += restaurantAddressLines.length * 7 + 5
@@ -309,8 +327,8 @@ export default function UserOrderDetails() {
       const tableData = items.map(item => [
         item.variantName ? `${item.name || 'Item'} (${item.variantName})` : (item.name || 'Item'),
         String(item.quantity || item.qty || 1),
-        `?${Number(item.price || 0).toFixed(2)}`,
-        `?${Number((item.price || 0) * (item.quantity || item.qty || 1)).toFixed(2)}`
+        `₹${Number(item.price || 0).toFixed(2)}`,
+        `₹${Number((item.price || 0) * (item.quantity || item.qty || 1)).toFixed(2)}`
       ])
 
       autoTable(doc, {
@@ -318,8 +336,8 @@ export default function UserOrderDetails() {
         head: [['Item', 'Quantity', 'Unit Price', 'Total Price']],
         body: tableData,
         theme: 'striped',
-        headStyles: { fillColor: [0, 0, 0], textColor: 255, fontStyle: 'bold', fontSize: 10 },
-        styles: { fontSize: 9 },
+        headStyles: { font: 'Roboto', fontStyle: 'bold', fillColor: [0, 0, 0], textColor: 255, fontSize: 10 },
+        styles: { font: 'Roboto', fontSize: 9 },
         columnStyles: {
           0: { cellWidth: 80 },
           1: { cellWidth: 30, halign: 'center' },
@@ -333,9 +351,9 @@ export default function UserOrderDetails() {
 
       // Total
       doc.setFontSize(12)
-      doc.setFont('helvetica', 'bold')
+      doc.setFont('Roboto', 'bold')
       doc.text('Total:', 145, finalY + 10, { align: 'right' })
-      doc.text(`?${Number(pricing.total || 0).toFixed(2)}`, 195, finalY + 10, { align: 'right' })
+      doc.text(`₹${Number(pricing.total || 0).toFixed(2)}`, 195, finalY + 10, { align: 'right' })
 
       // Save PDF instantly
       const fileName = `Order_Summary_${orderIdDisplay}_${Date.now()}.pdf`
@@ -373,7 +391,7 @@ export default function UserOrderDetails() {
           restaurant: restaurantName,
           restaurantId: restaurantObj._id || restaurantObj.restaurantId || currentOrder?.restaurantId,
           description: item.description || "",
-          isVeg: item.isVeg === true || item.foodType === 'Veg',
+          isVeg: isVegMenuItem(item, restaurantObj),
           quantity: Math.max(1, Number(item.quantity || item.qty) || 1),
           reorderIndex: index,
         }
@@ -391,7 +409,7 @@ export default function UserOrderDetails() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] pb-24 font-sans relative">
+    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] pb-[calc(6.5rem+env(safe-area-inset-bottom,16px))] font-sans relative">
       {/* Header */}
       <div className="bg-white dark:bg-[#121212] p-4 flex items-center sticky top-0 z-20 shadow-sm border-b dark:border-gray-800">
         <div className="flex items-center gap-3">
@@ -419,7 +437,7 @@ export default function UserOrderDetails() {
                   isCancelled
                     ? "bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400"
                     : isDelivered
-                      ? "bg-green-50 dark:bg-green-950/20 text-green-600 dark:text-green-400"
+                      ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400"
                       : "bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400"
                 }`}>
                   {isCancelled ? (
@@ -493,7 +511,7 @@ export default function UserOrderDetails() {
             <button
               type="button"
               onClick={handleCallRestaurant}
-              className="w-8 h-8 rounded-full border border-[#DC2626]/20 flex items-center justify-center text-[#DC2626] hover:bg-[#DC2626]/5"
+              className="w-8 h-8 rounded-full border border-[#1F6B45]/20 flex items-center justify-center text-[#1F6B45] hover:bg-[#1F6B45]/5"
             >
               <Phone className="w-4 h-4" />
             </button>
@@ -533,11 +551,11 @@ export default function UserOrderDetails() {
                 <div>
                   <div className="flex items-center gap-2">
                     <div
-                      className={`w-3 h-3 border ${item.isVeg === true || item.foodType === 'Veg' ? "border-green-600" : "border-red-600"
+                      className={`w-3 h-3 border ${isVegMenuItem(item, restaurant) ? "border-green-600" : "border-red-600"
                         } flex items-center justify-center p-[1px]`}
                     >
                       <div
-                        className={`w-full h-full rounded-full ${item.isVeg === true || item.foodType === 'Veg' ? "bg-green-600" : "bg-red-600"
+                        className={`w-full h-full rounded-full ${isVegMenuItem(item, restaurant) ? "bg-green-600" : "bg-red-600"
                           }`}
                       />
                     </div>
@@ -569,7 +587,7 @@ export default function UserOrderDetails() {
                 : String(orderMongoId)
               navigate(`/user/complaints/submit/${encodeURIComponent(orderIdString)}`)
             }}
-            className="w-full bg-[#DC2626]/5 border border-[#DC2626]/20 text-[#DC2626] py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-[#DC2626]/10 transition-colors"
+            className="w-full bg-[#1F6B45]/5 border border-[#1F6B45]/20 text-[#1F6B45] py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-[#1F6B45]/10 transition-colors"
           >
             <FileText className="w-4 h-4" />
             Restaurant Complaint
@@ -586,7 +604,7 @@ export default function UserOrderDetails() {
             <button
               type="button"
               onClick={handleDownloadSummary}
-              className="w-7 h-7 rounded-full bg-[#DC2626]/10 flex items-center justify-center text-[#DC2626] hover:bg-[#DC2626]/20 transition-colors"
+              className="w-7 h-7 rounded-full bg-[#1F6B45]/10 flex items-center justify-center text-[#1F6B45] hover:bg-[#1F6B45]/20 transition-colors"
             >
               <Download className="w-4 h-4" />
             </button>
@@ -616,11 +634,11 @@ export default function UserOrderDetails() {
               <div className="flex justify-between">
                 <span className="text-gray-400 dark:text-gray-500 font-medium">Delivery fee</span>
                 {pricing.deliveryFee === 0 && (
-                  <span className="text-[#DC2626] text-[10px] font-bold border border-[#DC2626] px-1 rounded ml-1">
+                  <span className="text-[#1F6B45] text-[10px] font-bold border border-[#1F6B45] px-1 rounded ml-1">
                     FREE
                   </span>
                 )}
-                <span className="text-[#DC2626] dark:text-[#a04882] font-medium uppercase">
+                <span className="text-[#1F6B45] dark:text-[#a04882] font-medium uppercase">
                   {pricing.deliveryFee ? `₹${Number(pricing.deliveryFee).toFixed(2)}` : "Free"}
                 </span>
               </div>
@@ -669,7 +687,7 @@ export default function UserOrderDetails() {
 
           {/* Savings Banner */}
           {savings > 0 && (
-            <div className="relative bg-[#DC2626]/5 p-3 pb-4 mt-2">
+            <div className="relative bg-[#1F6B45]/5 p-3 pb-4 mt-2">
               <div className="absolute -top-1.5 left-0 w-full overflow-hidden leading-none">
                 <svg
                   className="relative block w-[calc(100%+1.3px)] h-[8px]"
@@ -685,7 +703,7 @@ export default function UserOrderDetails() {
                 </svg>
               </div>
 
-              <div className="flex items-center justify-center gap-2 pt-1 text-[#DC2626] font-bold text-sm">
+              <div className="flex items-center justify-center gap-2 pt-1 text-[#1F6B45] font-bold text-sm">
                 <span></span>
                 <span>
                   You saved ₹{Number(savings).toFixed(2)} on this order!
@@ -772,24 +790,26 @@ export default function UserOrderDetails() {
         </div>
       </div>
 
-      {/* Fixed Bottom Buttons */}
-      <div className="fixed bottom-0 w-full bg-white dark:bg-[#121212] border-t border-gray-200 dark:border-gray-800 p-4 flex gap-3 z-20">
-        <button
-          type="button"
-          onClick={() => handleReorder(order)}
-          className="flex-1 bg-[#DC2626] text-white py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-[#991B1B] transition-all active:scale-95 shadow-md"
-        >
-          <RotateCcw className="w-4 h-4" />
-          Reorder
-        </button>
-        <button
-          type="button"
-          onClick={handleDownloadSummary}
-          className="flex-1 bg-white dark:bg-[#1a1a1a] border border-[#DC2626] text-[#DC2626] py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-[#DC2626]/5 transition-colors"
-        >
-          <Download className="w-4 h-4" />
-          Invoice
-        </button>
+      {/* Fixed Bottom Action Bar with Safe Area Support */}
+      <div className="fixed bottom-0 left-0 right-0 w-full bg-white/95 dark:bg-[#121212]/95 backdrop-blur-md border-t border-gray-200 dark:border-gray-800 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom,16px))] z-30">
+        <div className="max-w-2xl mx-auto flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => handleReorder(order)}
+            className="flex-1 bg-[#1F6B45] text-white py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#14512F] transition-all active:scale-[0.98] shadow-md shadow-[#1F6B45]/20 cursor-pointer min-h-[46px]"
+          >
+            <RotateCcw className="w-4 h-4 shrink-0" />
+            <span>Reorder</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadSummary}
+            className="flex-1 bg-white dark:bg-[#1a1a1a] border border-[#1F6B45] text-[#1F6B45] hover:bg-[#1F6B45]/5 py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer min-h-[46px]"
+          >
+            <Download className="w-4 h-4 shrink-0" />
+            <span>Invoice</span>
+          </button>
+        </div>
       </div>
 
     </div>

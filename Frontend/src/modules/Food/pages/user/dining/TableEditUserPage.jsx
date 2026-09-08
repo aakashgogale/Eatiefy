@@ -73,7 +73,7 @@ export default function TableEditUserPage() {
                                 value={name}
                                 onChange={(e) => setName(e.target.value.replace(/[^a-zA-Z\s]/g, ""))}
                                 placeholder="Enter your full name"
-                                className="w-full h-14 pl-12 pr-4 bg-white dark:bg-[#1a1a1a] border border-slate-100 dark:border-white/10 rounded-2xl font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-4 focus:ring-red-500/10 focus:border-[#DC2626] transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600"
+                                className="w-full h-14 pl-12 pr-4 bg-white dark:bg-[#1a1a1a] border border-slate-100 dark:border-white/10 rounded-2xl font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-4 focus:ring-red-500/10 focus:border-[#1F6B45] transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600"
                             />
                         </div>
                     </div>
@@ -90,7 +90,7 @@ export default function TableEditUserPage() {
                                 value={phone}
                                 onChange={(e) => setPhone(e.target.value)}
                                 placeholder="Enter mobile number"
-                                className="w-full h-14 pl-12 pr-4 bg-white dark:bg-[#1a1a1a] border border-slate-100 dark:border-white/10 rounded-2xl font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-4 focus:ring-red-500/10 focus:border-[#DC2626] transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600"
+                                className="w-full h-14 pl-12 pr-4 bg-white dark:bg-[#1a1a1a] border border-slate-100 dark:border-white/10 rounded-2xl font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-4 focus:ring-red-500/10 focus:border-[#1F6B45] transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600"
                             />
                         </div>
                     </div>
@@ -102,7 +102,7 @@ export default function TableEditUserPage() {
                         disabled={saving || !hasChanged}
                         className={`w-full h-14 rounded-2xl font-black uppercase tracking-widest text-sm transition-all flex items-center justify-center gap-3 ${
                             hasChanged && !saving
-                                ? "bg-gradient-to-br from-[#DC2626] to-[#7f1010] text-white active:scale-95 shadow-[0_4px_16px_rgba(220,38,38,0.4)]"
+                                ? "bg-gradient-to-br from-[#1F6B45] to-[#7f1010] text-white active:scale-95 shadow-[0_4px_16px_rgba(220,38,38,0.4)]"
                                 : "bg-[#2a1a1a] dark:bg-[#1e1414] text-[#7a4040] cursor-not-allowed"
                         }`}
                     >

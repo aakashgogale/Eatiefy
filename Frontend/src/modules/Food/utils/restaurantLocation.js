@@ -35,36 +35,59 @@ export function normalizeRestaurantLocationFields(source = {}) {
   }
 }
 
+/** Real text only — never the strings "undefined"/"null" that leak in from bad mappings. */
+const cleanAddressPart = (value) => {
+  const text = String(value ?? "").trim()
+  if (!text) return ""
+  const lowered = text.toLowerCase()
+  if (lowered === "undefined" || lowered === "null") return ""
+  return text
+}
+
 export function formatRestaurantDisplayAddress(location, restaurantFallback = null) {
   if (!location && !restaurantFallback) return ""
 
-  const formatted = location?.formattedAddress || location?.address || ""
-  if (formatted && formatted !== "Select location" && !isCoordinateString(formatted)) {
-    return String(formatted).trim()
-  }
-
   const parts = []
-
-  if (location?.addressLine1) parts.push(String(location.addressLine1).trim())
-  if (location?.addressLine2) parts.push(String(location.addressLine2).trim())
-  if (location?.area) parts.push(String(location.area).trim())
-  if (location?.landmark) parts.push(String(location.landmark).trim())
-
-  if (location?.city) {
-    const city = String(location.city).trim()
-    const cityAlreadyIncluded = parts.some((part) => part.toLowerCase().includes(city.toLowerCase()))
-    if (!cityAlreadyIncluded) parts.push(city)
+  const addPart = (value) => {
+    const text = cleanAddressPart(value)
+    if (!text) return
+    const lowered = text.toLowerCase()
+    // Skip anything an earlier, longer part already covers (e.g. a city that is
+    // part of addressLine1) so nothing is repeated.
+    if (parts.some((part) => part.toLowerCase().includes(lowered))) return
+    parts.push(text)
   }
 
-  if (location?.state) {
-    const state = String(location.state).trim()
-    const stateAlreadyIncluded = parts.some((part) => part.toLowerCase().includes(state.toLowerCase()))
-    if (!stateAlreadyIncluded) parts.push(state)
+  addPart(location?.addressLine1)
+  addPart(location?.addressLine2)
+  addPart(location?.area)
+  addPart(location?.landmark)
+  addPart(location?.city)
+  addPart(location?.state)
+  addPart(location?.pincode)
+
+  const rawFormatted = cleanAddressPart(location?.formattedAddress || location?.address)
+  const formatted =
+    rawFormatted && rawFormatted !== "Select location" && !isCoordinateString(rawFormatted)
+      ? rawFormatted
+      : ""
+
+  if (parts.length > 0) {
+    // `formattedAddress` is a geocoder summary and is frequently shorter than
+    // what the restaurant actually saved — returning it first, as this used to,
+    // dropped the building, street and pincode from the displayed address.
+    // Prefer it only when it already contains every structured part, i.e. it is
+    // strictly the richer string.
+    const lowerFormatted = formatted.toLowerCase()
+    const formattedCoversEverything =
+      formatted && parts.every((part) => lowerFormatted.includes(part.toLowerCase()))
+    if (formattedCoversEverything && formatted.length >= parts.join(", ").length) {
+      return formatted
+    }
+    return parts.join(", ")
   }
 
-  if (location?.pincode) parts.push(String(location.pincode).trim())
-
-  if (parts.length > 0) return parts.join(", ")
+  if (formatted) return formatted
 
   if (restaurantFallback) {
     const flatParts = [restaurantFallback.area, restaurantFallback.city].filter(Boolean)

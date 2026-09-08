@@ -17,32 +17,70 @@
   -moz-osx-font-smoothing: grayscale;
   --radius: 0.625rem;
   
+  /* ------------------------------------------------------------------
+   * Eatiefy brand palette (user app).
+   * Taken from the logo: deep green banner/leaves as the primary, the gold
+   * wordmark as the accent, and its near-black ground for dark surfaces.
+   * The restaurant (.restaurant-theme), delivery (.delivery-v2-theme) and
+   * admin (.admin-module-container) shells override these, so this block is
+   * the user app's theme.
+   * ------------------------------------------------------------------ */
+  --brand-green: #1F6B45;
+  --brand-green-strong: #14512F;
+  --brand-green-mid: #1A5C3B;
+  --brand-green-deep: #0F3D24;
+  --brand-green-light: #6BAF8C;
+  --brand-green-tint: #E8F3EC;
+  --brand-gold: #D9A62E;
+  --brand-gold-strong: #B8871E;
+  --brand-gold-tint: #FBF3DF;
+  --brand-dark: #12100C;
+
   --background: #F9F9FB;
-  --foreground: #1a0505;
+  --foreground: #141A16;
   --card: #ffffff;
-  --card-foreground: #1a0505;
+  --card-foreground: #141A16;
   --popover: #ffffff;
-  --popover-foreground: #3c0f3d;
+  --popover-foreground: #14201A;
+  --primary: var(--brand-green);
+  --primary-foreground: #ffffff;
+  --secondary: var(--brand-green);
+  --secondary-foreground: #ffffff;
+  --muted: #f1f5f9;
+  --muted-foreground: #6B7A72;
+  --accent: var(--brand-green-tint);
+  --accent-foreground: var(--brand-green);
+  --destructive: #ef4444;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: var(--brand-green);
+  --sidebar: #ffffff;
+  --sidebar-foreground: #141A16;
+  --sidebar-primary: var(--brand-green);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--brand-green);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #e2e8f0;
+  --sidebar-ring: var(--brand-green);
+}
+
+/*
+ * Admin keeps the palette it already shipped with. It has no theme wrapper of
+ * its own beyond this container, and the tokens above are the user app's, so
+ * they are pinned back here rather than letting the rebrand leak into admin.
+ */
+.admin-module-container {
   --primary: #B80B3D;
   --primary-foreground: #ffffff;
   --secondary: #B80B3D;
   --secondary-foreground: #ffffff;
-  --muted: #f1f5f9;
-  --muted-foreground: #fca5a5;
   --accent: #fce7ec;
   --accent-foreground: #B80B3D;
-  --destructive: #ef4444;
-  --border: #e2e8f0;
-  --input: #e2e8f0;
   --ring: #B80B3D;
-  --sidebar: #ffffff;
-  --sidebar-foreground: #1a0505;
   --sidebar-primary: #B80B3D;
-  --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #B80B3D;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #e2e8f0;
   --sidebar-ring: #B80B3D;
+  --color-primary-orange: #B80B3D;
 }
 
 @theme inline {
@@ -78,7 +116,15 @@
   --color-sidebar-ring: var(--sidebar-ring);
   
   --color-page-bg: #F9F9FB;
-  --color-primary-orange: #B80B3D;
+  /* Legacy alias still used as "the brand colour" across the user app. */
+  --color-primary-orange: var(--brand-green);
+  --color-brand-green: var(--brand-green);
+  --color-brand-green-strong: var(--brand-green-strong);
+  --color-brand-green-tint: var(--brand-green-tint);
+  --color-brand-gold: var(--brand-gold);
+  --color-brand-gold-strong: var(--brand-gold-strong);
+  --color-brand-gold-tint: var(--brand-gold-tint);
+  --color-brand-dark: var(--brand-dark);
   --font-poppins: var(--font-poppins);
   --font-outfit: var(--font-outfit);
 }

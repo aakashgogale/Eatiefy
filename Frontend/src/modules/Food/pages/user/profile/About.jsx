@@ -202,14 +202,14 @@ export default function About() {
                     <FileText className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                   </div>
                   <div className="flex-1">
-                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#DC2626] dark:group-hover:text-[#DC2626] transition-colors">
+                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#1F6B45] dark:group-hover:text-[#1F6B45] transition-colors">
                       Terms and Conditions
                     </div>
                     <div className="text-sm text-slate-500 dark:text-slate-400">
                       Read our terms and conditions
                     </div>
                   </div>
-                  <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-[#DC2626] transition-colors" />
+                  <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-[#1F6B45] transition-colors" />
                 </Link>
 
                 <Link
@@ -220,14 +220,14 @@ export default function About() {
                     <Lock className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                   </div>
                   <div className="flex-1">
-                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#DC2626] dark:group-hover:text-[#DC2626] transition-colors">
+                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#1F6B45] dark:group-hover:text-[#1F6B45] transition-colors">
                       Privacy Policy
                     </div>
                     <div className="text-sm text-slate-500 dark:text-slate-400">
                       Learn how we protect your data
                     </div>
                   </div>
-                  <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-[#DC2626] transition-colors" />
+                  <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-[#1F6B45] transition-colors" />
                 </Link>
 
                 <Link
@@ -238,14 +238,14 @@ export default function About() {
                     <Receipt className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                   </div>
                   <div className="flex-1">
-                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#DC2626] dark:group-hover:text-[#DC2626] transition-colors">
+                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#1F6B45] dark:group-hover:text-[#1F6B45] transition-colors">
                       Refund Policy
                     </div>
                     <div className="text-sm text-slate-500 dark:text-slate-400">
                       Read our refund terms and conditions
                     </div>
                   </div>
-                  <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-[#DC2626] transition-colors" />
+                  <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-[#1F6B45] transition-colors" />
                 </Link>
 
                 <Link
@@ -256,14 +256,14 @@ export default function About() {
                     <Truck className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                   </div>
                   <div className="flex-1">
-                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#DC2626] dark:group-hover:text-[#DC2626] transition-colors">
+                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#1F6B45] dark:group-hover:text-[#1F6B45] transition-colors">
                       Shipping Policy
                     </div>
                     <div className="text-sm text-slate-500 dark:text-slate-400">
                       Learn about our shipping terms
                     </div>
                   </div>
-                  <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-[#DC2626] transition-colors" />
+                  <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-[#1F6B45] transition-colors" />
                 </Link>
 
                 <Link
@@ -274,14 +274,14 @@ export default function About() {
                     <XCircle className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                   </div>
                   <div className="flex-1">
-                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#DC2626] dark:group-hover:text-[#DC2626] transition-colors">
+                    <div className="text-base font-medium text-gray-900 dark:text-white group-hover:text-[#1F6B45] dark:group-hover:text-[#1F6B45] transition-colors">
                       Cancellation Policy
                     </div>
                     <div className="text-sm text-slate-500 dark:text-slate-400">
                       Read our cancellation terms
                     </div>
                   </div>
-                  <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-[#DC2626] transition-colors" />
+                  <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-[#1F6B45] transition-colors" />
                 </Link>
               </div>
             </CardContent>

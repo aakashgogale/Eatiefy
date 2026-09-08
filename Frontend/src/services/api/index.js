@@ -1530,6 +1530,8 @@ export const restaurantAPI = {
     restaurantAPI.updateOrderStatus(orderId, {
       orderStatus: "cancelled_by_restaurant",
       note: reason,
+      reason: reason,
+      cancellationReason: reason,
     }),
   /** Mark order ready (restaurant handoff). */
   markOrderReady: (orderId) =>

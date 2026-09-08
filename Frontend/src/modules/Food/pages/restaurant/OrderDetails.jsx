@@ -5,6 +5,8 @@ import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation
 import Lenis from "lenis"
 import { jsPDF } from "jspdf"
 import autoTable from "jspdf-autotable"
+import { setupPdfFonts, pdfFontFamily } from "@food/utils/pdfFontUtils"
+import { formatInr, formatInrDiscount, formatKm } from "@food/utils/currency"
 import { restaurantAPI } from "@food/api"
 import {
   ArrowLeft,
@@ -49,8 +51,37 @@ const firstText = (...values) => {
   return ""
 }
 
-const formatMoney = (value) => `₹${Number(value || 0).toFixed(2)}`
-const formatDiscount = (value) => `-₹${Math.abs(Number(value || 0)).toFixed(2)}`
+// One shared formatter for every INR amount on screen and in the receipt, so a
+// value that already carries a symbol can never end up double-prefixed.
+const formatMoney = (value) => formatInr(value)
+const formatDiscount = (value) => formatInrDiscount(value)
+
+/** Shown when an event happened but its timestamp was never recorded. */
+const TIME_UNAVAILABLE = "Time not recorded"
+
+/**
+ * Latest `statusHistory` entry that moved the order into any of `statuses`.
+ * Returns null when the backend never recorded that transition.
+ */
+const statusTimestamp = (order, ...statuses) => {
+  const history = Array.isArray(order?.statusHistory) ? order.statusHistory : []
+  const wanted = statuses.map((s) => String(s).toLowerCase())
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const entry = history[i]
+    if (wanted.includes(String(entry?.to || "").toLowerCase()) && entry?.at) {
+      return entry.at
+    }
+  }
+  return null
+}
+
+/** Same locale/format the rest of the order screens use. */
+const formatEventTime = (value) => {
+  if (!value) return TIME_UNAVAILABLE
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return TIME_UNAVAILABLE
+  return date.toLocaleString("en-GB")
+}
 
 
 export default function OrderDetails() {
@@ -229,7 +260,18 @@ export default function OrderDetails() {
               name: customerName,
               orderCount: order.userId?.orderCount || 1,
               location: order.orderType === 'takeaway' ? 'Self-Pickup Order' : fullAddress,
-              distance: order.orderType === 'takeaway' ? '' : (order.deliveryDistance ? `${order.deliveryDistance} km` : '')
+              // `distanceKm` is the value stored with the order when the rider
+              // earning was resolved. The old `deliveryDistance` field does not
+              // exist on the order, so the distance was always blank.
+              distance:
+                order.orderType === 'takeaway'
+                  ? ''
+                  : formatKm(
+                      order.distanceKm ??
+                        order.deliveryDistanceKm ??
+                        order.dispatch?.distanceKm ??
+                        order.deliveryDistance
+                    )
             },
             items: order.items?.map(item => ({
               name: item.name,
@@ -254,16 +296,22 @@ export default function OrderDetails() {
             },
             deliveryPartnerId: order.deliveryPartnerId || order.dispatch?.deliveryPartnerId || null,
             dispatchStatus: order.dispatch?.status || null,
-            reason: order.cancellationReason || '',
-            restaurantNote: order.restaurantNote || '',
+            reason: order.cancellationReason || order.note || '',
+            cancellationReason: order.cancellationReason || order.note || '',
+            restaurantNote: order.restaurantNote || order.note || '',
+            note: order.restaurantNote || order.note || '',
+            // Timestamps come from the order's own statusHistory, which is what
+            // the backend actually records. The previous mapping read an
+            // `order.tracking.*` object that does not exist on the order, so
+            // every step between placed and delivered printed with no time.
             timeline: [
-              { event: 'Order placed', timestamp: new Date(order.createdAt).toLocaleString('en-GB'), status: 'completed' },
-              ...(reached.confirmed ? [{ event: 'Order confirmed', timestamp: order.tracking?.confirmed?.timestamp ? new Date(order.tracking.confirmed.timestamp).toLocaleString('en-GB') : '', status: 'completed' }] : []),
-              ...(reached.preparing ? [{ event: 'Preparing', timestamp: order.tracking?.preparing?.timestamp ? new Date(order.tracking.preparing.timestamp).toLocaleString('en-GB') : '', status: 'completed' }] : []),
-              ...(reached.ready ? [{ event: 'Ready for pickup', timestamp: order.tracking?.ready?.timestamp ? new Date(order.tracking.ready.timestamp).toLocaleString('en-GB') : '', status: 'completed' }] : []),
-              ...(reached.outForDelivery ? [{ event: 'Out for delivery', timestamp: order.tracking?.outForDelivery?.timestamp ? new Date(order.tracking.outForDelivery.timestamp).toLocaleString('en-GB') : '', status: 'completed' }] : []),
-              ...(reached.delivered ? [{ event: 'Delivered', timestamp: order.tracking?.delivered?.timestamp ? new Date(order.tracking.delivered.timestamp).toLocaleString('en-GB') : '', status: 'completed' }] : []),
-              ...(statusLower === 'cancelled' ? [{ event: 'Cancelled', timestamp: order.cancelledAt ? new Date(order.cancelledAt).toLocaleString('en-GB') : '', status: 'rejected', reason: order.cancellationReason }] : [])
+              { event: 'Order placed', timestamp: formatEventTime(order.createdAt), status: 'completed' },
+              ...(reached.confirmed ? [{ event: 'Order confirmed', timestamp: formatEventTime(statusTimestamp(order, 'confirmed') ?? order.acceptedAt), status: 'completed' }] : []),
+              ...(reached.preparing ? [{ event: 'Preparing', timestamp: formatEventTime(statusTimestamp(order, 'preparing')), status: 'completed' }] : []),
+              ...(reached.ready ? [{ event: 'Ready for pickup', timestamp: formatEventTime(statusTimestamp(order, 'ready_for_pickup', 'ready')), status: 'completed' }] : []),
+              ...(reached.outForDelivery ? [{ event: 'Out for delivery', timestamp: formatEventTime(statusTimestamp(order, 'picked_up', 'out_for_delivery')), status: 'completed' }] : []),
+              ...(reached.delivered ? [{ event: 'Delivered', timestamp: formatEventTime(statusTimestamp(order, 'delivered') ?? order.deliveredAt), status: 'completed' }] : []),
+              ...(statusLower.includes('cancel') ? [{ event: 'Cancelled', timestamp: formatEventTime(order.cancelledAt ?? statusTimestamp(order, 'cancelled_by_user', 'cancelled_by_restaurant', 'cancelled_by_admin')), status: 'rejected', reason: order.cancellationReason || order.note }] : [])
             ]
           }
           
@@ -328,6 +376,10 @@ export default function OrderDetails() {
       }
       
       const doc = new jsPDF()
+      setupPdfFonts(doc)
+      // Draw every section with the registered Unicode family; the built-in
+      // fonts are WinAnsi and have no rupee glyph.
+      const pdfFont = pdfFontFamily(doc)
     const pageWidth = doc.internal.pageSize.getWidth()
     const pageHeight = doc.internal.pageSize.getHeight()
     const leftMargin = 15
@@ -344,18 +396,18 @@ export default function OrderDetails() {
 
     // Header - Restaurant Name
     doc.setFontSize(18)
-    doc.setFont("helvetica", "bold")
+    doc.setFont(pdfFont, "bold")
     doc.text(orderData.restaurant, pageWidth / 2, yPosition, { align: "center" })
     yPosition += 7
 
     doc.setFontSize(10)
-    doc.setFont("helvetica", "normal")
+    doc.setFont(pdfFont, "normal")
     doc.text(orderData.address, pageWidth / 2, yPosition, { align: "center" })
     yPosition += 15
 
     // Order Receipt Title
     doc.setFontSize(16)
-    doc.setFont("helvetica", "bold")
+    doc.setFont(pdfFont, "bold")
     doc.text("ORDER RECEIPT", pageWidth / 2, yPosition, { align: "center" })
     yPosition += 10
 
@@ -366,21 +418,23 @@ export default function OrderDetails() {
 
     // Order Information
     doc.setFontSize(11)
-    doc.setFont("helvetica", "bold")
+    doc.setFont(pdfFont, "bold")
     doc.text("Order ID:", leftMargin, yPosition)
-    doc.setFont("helvetica", "normal")
+    doc.setFont(pdfFont, "normal")
     doc.text(orderData.id, 50, yPosition)
     yPosition += 7
 
-    doc.setFont("helvetica", "bold")
+    doc.setFontSize(11)
+    doc.setFont(pdfFont, "bold")
     doc.text("Date & Time:", leftMargin, yPosition)
-    doc.setFont("helvetica", "normal")
+    doc.setFont(pdfFont, "normal")
     doc.text(`${orderData.date}, ${orderData.time}`, 50, yPosition)
     yPosition += 7
 
-    doc.setFont("helvetica", "bold")
+    doc.setFontSize(11)
+    doc.setFont(pdfFont, "bold")
     doc.text("Status:", leftMargin, yPosition)
-    doc.setFont("helvetica", "normal")
+    doc.setFont(pdfFont, "normal")
     // Set color based on status
     if (orderData.status === "REJECTED" || orderData.status === "CANCELLED") {
       doc.setTextColor(220, 38, 38) // Red
@@ -398,28 +452,30 @@ export default function OrderDetails() {
     yPosition += 8
 
     doc.setFontSize(12)
-    doc.setFont("helvetica", "bold")
+    doc.setFont(pdfFont, "bold")
     doc.text("CUSTOMER DETAILS", leftMargin, yPosition)
     yPosition += 8
 
     doc.setFontSize(10)
-    doc.setFont("helvetica", "bold")
+    doc.setFont(pdfFont, "bold")
     doc.text("Name:", leftMargin, yPosition)
-    doc.setFont("helvetica", "normal")
+    doc.setFont(pdfFont, "normal")
     doc.text(orderData.customer.name, 50, yPosition)
     yPosition += 6
 
-    doc.setFont("helvetica", "bold")
+    doc.setFontSize(10)
+    doc.setFont(pdfFont, "bold")
     doc.text("Location:", leftMargin, yPosition)
-    doc.setFont("helvetica", "normal")
+    doc.setFont(pdfFont, "normal")
     const locationLines = doc.splitTextToSize(orderData.customer.location || "-", pageWidth - 65)
     doc.text(locationLines, 50, yPosition)
     yPosition += locationLines.length * 5
 
-    doc.setFont("helvetica", "bold")
+    doc.setFontSize(10)
+    doc.setFont(pdfFont, "bold")
     doc.text("Distance:", leftMargin, yPosition)
-    doc.setFont("helvetica", "normal")
-    doc.text(orderData.customer.distance || "-", 50, yPosition)
+    doc.setFont(pdfFont, "normal")
+    doc.text(orderData.customer.distance || "Not available", 50, yPosition)
     yPosition += 10
 
     // Items Section
@@ -429,7 +485,7 @@ export default function OrderDetails() {
     yPosition += 8
 
     doc.setFontSize(12)
-    doc.setFont("helvetica", "bold")
+    doc.setFont(pdfFont, "bold")
     doc.text("ITEM DETAILS", 15, yPosition)
     yPosition += 5
 
@@ -447,13 +503,19 @@ export default function OrderDetails() {
       head: [["Qty", "Item Name", "Type", "Price"]],
       body: itemsTableData,
       theme: "grid",
+      styles: {
+        font: pdfFont,
+        fontSize: 9
+      },
       headStyles: {
+        font: pdfFont,
         fillColor: [55, 65, 81],
         textColor: [255, 255, 255],
         fontSize: 10,
         fontStyle: "bold"
       },
       bodyStyles: {
+        font: pdfFont,
         fontSize: 9
       },
       margin: { left: leftMargin, right: rightMargin }
@@ -468,12 +530,12 @@ export default function OrderDetails() {
     yPosition += 8
 
     doc.setFontSize(12)
-    doc.setFont("helvetica", "bold")
+    doc.setFont(pdfFont, "bold")
     doc.text("BILL DETAILS", 15, yPosition)
     yPosition += 8
 
     doc.setFontSize(10)
-    doc.setFont("helvetica", "normal")
+    doc.setFont(pdfFont, "normal")
     const billRows = [
       ["Item Subtotal:", formatMoney(orderData.billing.itemSubtotal)],
       ["Taxes:", formatMoney(orderData.billing.taxes)],
@@ -497,6 +559,7 @@ export default function OrderDetails() {
       billRows.push(["Referral Discount:", formatDiscount(orderData.billing.referralDiscount)])
     }
     billRows.forEach(([label, value]) => {
+      doc.setFont(pdfFont, "normal")
       doc.text(label, 15, yPosition)
       doc.text(value, pageWidth - rightMargin, yPosition, { align: "right" })
       yPosition += 6
@@ -508,13 +571,13 @@ export default function OrderDetails() {
     yPosition += 6
     doc.setLineDash([]) // Reset to solid line
 
-    doc.setFont("helvetica", "bold")
+    doc.setFont(pdfFont, "bold")
     doc.setFontSize(11)
     doc.text("Total Bill:", leftMargin, yPosition)
     doc.text(formatMoney(orderData.billing.total), pageWidth - rightMargin, yPosition, { align: "right" })
     yPosition += 6
     if (Number(orderData.billing.paidAmount) > 0) {
-      doc.setFont("helvetica", "normal")
+      doc.setFont(pdfFont, "normal")
       doc.setFontSize(10)
       doc.text("Amount Paid:", leftMargin, yPosition)
       doc.text(formatMoney(orderData.billing.paidAmount), pageWidth - rightMargin, yPosition, { align: "right" })
@@ -522,7 +585,7 @@ export default function OrderDetails() {
     }
 
     doc.setFontSize(9)
-    doc.setFont("helvetica", "normal")
+    doc.setFont(pdfFont, "normal")
     doc.text(`Payment Status: ${orderData.billing.paymentStatus}`, leftMargin, yPosition)
     yPosition += 10
 
@@ -534,13 +597,13 @@ export default function OrderDetails() {
       yPosition += 8
 
       doc.setFontSize(11)
-      doc.setFont("helvetica", "bold")
+      doc.setFont(pdfFont, "bold")
       doc.setTextColor(220, 38, 38)
       doc.text("REASON:", leftMargin, yPosition)
       yPosition += 6
 
       doc.setFontSize(9)
-      doc.setFont("helvetica", "normal")
+      doc.setFont(pdfFont, "normal")
       const reasonLines = doc.splitTextToSize(orderData.reason, pageWidth - (leftMargin + rightMargin))
       doc.text(reasonLines, leftMargin, yPosition)
       yPosition += (reasonLines.length * 5) + 5
@@ -555,14 +618,14 @@ export default function OrderDetails() {
     yPosition += 8
 
     doc.setFontSize(12)
-    doc.setFont("helvetica", "bold")
+    doc.setFont(pdfFont, "bold")
     doc.text("ORDER TIMELINE", leftMargin, yPosition)
     yPosition += 8
 
     orderData.timeline.forEach((event) => {
       ensureSpace(15)
       doc.setFontSize(10)
-      doc.setFont("helvetica", "bold")
+      doc.setFont(pdfFont, "bold")
       
       // Add status indicator
       if (event.status === "completed") {
@@ -579,9 +642,9 @@ export default function OrderDetails() {
       yPosition += 5
       
       doc.setFontSize(8)
-      doc.setFont("helvetica", "normal")
+      doc.setFont(pdfFont, "normal")
       doc.setTextColor(100, 100, 100)
-      doc.text(event.timestamp || "-", 25, yPosition)
+      doc.text(event.timestamp || TIME_UNAVAILABLE, 25, yPosition)
       yPosition += 8
       doc.setTextColor(0, 0, 0)
     })
@@ -590,7 +653,7 @@ export default function OrderDetails() {
     // Footer
     yPosition = pageHeight - bottomMargin
     doc.setFontSize(8)
-    doc.setFont("helvetica", "italic")
+    doc.setFont(pdfFont, "italic")
     doc.setTextColor(100, 100, 100)
     doc.text("Thank you for your business!", pageWidth / 2, yPosition, { align: "center" })
     yPosition += 5
@@ -827,13 +890,13 @@ export default function OrderDetails() {
           )}
 
           {/* Restaurant Note */}
-          {orderData.restaurantNote && (
+          {(orderData.restaurantNote || orderData.note) && (
             <div className="mt-3 p-3 bg-blue-50 border border-blue-100 rounded-lg">
               <div className="flex items-center gap-2 mb-1">
                 <Volume2 className="w-4 h-4 text-blue-700" />
                 <span className="text-xs font-bold text-blue-700 uppercase tracking-wider">Note for Restaurant</span>
               </div>
-              <p className="text-sm text-blue-900 font-medium">{orderData.restaurantNote}</p>
+              <p className="text-sm text-blue-900 font-medium">{orderData.restaurantNote || orderData.note}</p>
             </div>
           )}
         </div>
@@ -860,7 +923,7 @@ export default function OrderDetails() {
                 <div className="flex-1">
                   <p className="text-sm text-gray-900">{orderData.customer.location}</p>
                 </div>
-                <p className="text-sm text-gray-600">{orderData.customer.distance}</p>
+                <p className="text-sm text-gray-600">{orderData.customer.distance || "Not available"}</p>
               </div>
             )}
           </div>

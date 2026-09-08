@@ -1,4 +1,7 @@
-import { useParams, Link, useNavigate } from "react-router-dom"
+import { useParams, Link, useNavigate, useLocation } from "react-router-dom"
+import React, { useState, useEffect } from "react"
+import { toFoodUserPath } from "@food/utils/mainTabRoutes"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import {
   ArrowLeft,
   Package,
@@ -14,7 +17,10 @@ import {
   RefreshCw,
   CreditCard,
   MapPin,
-  HelpCircle
+  HelpCircle,
+  Loader2,
+  ExternalLink,
+  ChevronRight
 } from "lucide-react"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import ScrollReveal from "@food/components/user/ScrollReveal"
@@ -22,6 +28,9 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@food
 import { Button } from "@food/components/ui/button"
 import { Badge } from "@food/components/ui/badge"
 import { useOrders } from "@food/context/OrdersContext"
+import { orderAPI } from "@food/api"
+import api from "@food/api"
+import { API_ENDPOINTS } from "@food/api/config"
 
 const commonIssues = [
   {
@@ -85,7 +94,7 @@ const commonIssues = [
     ],
     actions: [
       { label: "Report Issue", path: "support" },
-      { label: "Request Refund", path: "refund" }
+      { label: "Request Refund", path: "support" }
     ]
   },
   {
@@ -124,91 +133,184 @@ const commonIssues = [
 
 export default function OrderHelp() {
   const { orderId } = useParams()
+  const location = useLocation()
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const { getOrderById } = useOrders()
-  const order = getOrderById(orderId)
+
+  const initialOrder = location?.state?.order || (orderId ? getOrderById(orderId) : null)
+  const [order, setOrder] = useState(initialOrder)
+  const [loading, setLoading] = useState(!initialOrder)
+  const [supportInfo, setSupportInfo] = useState({
+    phone: "+91 1800-123-4567",
+    email: "support@eatiefy.com"
+  })
+
+  // Load live support config if available
+  useEffect(() => {
+    let isMounted = true
+    const fetchSupportConfig = async () => {
+      try {
+        const res = await api.get(API_ENDPOINTS.ADMIN.SUPPORT_USER_PUBLIC)
+        const data = res?.data?.data || res?.data
+        if (isMounted && data && typeof data === "object") {
+          setSupportInfo({
+            phone: data.mobile || data.phone || "+91 1800-123-4567",
+            email: data.email || "support@eatiefy.com"
+          })
+        }
+      } catch (_) {}
+    }
+    fetchSupportConfig()
+    return () => { isMounted = false }
+  }, [])
+
+  // Fetch or refresh order details
+  useEffect(() => {
+    let isMounted = true
+    const effectiveId = orderId || location?.state?.orderId
+
+    if (!effectiveId) {
+      setLoading(false)
+      return
+    }
+
+    const fetchOrder = async () => {
+      try {
+        if (!order) setLoading(true)
+        const res = await orderAPI.getOrderDetails(effectiveId).catch(() => orderAPI.getOrder(effectiveId))
+        const fetched = res?.data?.data?.order || res?.data?.order || res?.data?.data || res?.data
+        if (isMounted && fetched && typeof fetched === "object") {
+          setOrder(fetched)
+        }
+      } catch (err) {
+        console.warn("[OrderHelp] Could not fetch order details:", err)
+      } finally {
+        if (isMounted) setLoading(false)
+      }
+    }
+
+    fetchOrder()
+    return () => { isMounted = false }
+  }, [orderId, location?.state?.orderId])
 
   const formatDate = (dateString) => {
-    if (!dateString) return "N/A"
-    const date = new Date(dateString)
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+    if (!dateString) return "Recently placed"
+    try {
+      const date = new Date(dateString)
+      if (isNaN(date.getTime())) return "Recently placed"
+      return date.toLocaleDateString("en-IN", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit"
+      })
+    } catch {
+      return "Recently placed"
+    }
   }
 
   const getStatusColor = (status) => {
-    switch (status) {
-      case "confirmed":
-        return "bg-[#DC2626]"
-      case "preparing":
-        return "bg-[#DC2626]"
-      case "outForDelivery":
-        return "bg-[#DC2626]"
-      case "delivered":
-        return "bg-[#DC2626]"
-      default:
-        return "bg-gray-500"
-    }
+    const s = String(status || "").toLowerCase()
+    if (s.includes("cancel") || s.includes("reject")) return "bg-red-500"
+    if (s.includes("deliver") || s.includes("completed")) return "bg-emerald-600"
+    if (s.includes("out") || s.includes("pick") || s.includes("way")) return "bg-blue-600"
+    if (s.includes("prep") || s.includes("cook") || s.includes("ready")) return "bg-amber-500"
+    if (s.includes("confirm") || s.includes("accept")) return "bg-red-600"
+    return "bg-slate-700"
   }
 
   const getStatusLabel = (status) => {
-    switch (status) {
-      case "placed":
-        return "Order Placed"
-      case "confirmed":
-        return "Confirmed"
-      case "preparing":
-        return "Preparing"
-      case "outForDelivery":
-        return "Out for Delivery"
-      case "delivered":
-        return "Delivered"
-      default:
-        return status
-    }
+    if (!status) return "Processing"
+    const s = String(status).toLowerCase()
+    if (s.includes("placed") || s.includes("pending")) return "Order Placed"
+    if (s.includes("confirm") || s.includes("accept")) return "Confirmed"
+    if (s.includes("prepar") || s.includes("cook") || s.includes("ready")) return "Preparing"
+    if (s.includes("out") || s.includes("way") || s.includes("delivery") || s.includes("picked")) return "Out for Delivery"
+    if (s.includes("deliver") || s.includes("completed")) return "Delivered"
+    if (s.includes("cancel") || s.includes("reject")) return "Cancelled"
+    return String(status).toUpperCase()
   }
+
+  const getAddressString = (addr) => {
+    if (!addr) return null
+    if (typeof addr === "string") return addr
+    if (addr.formattedAddress) return addr.formattedAddress
+    const parts = [
+      addr.street || addr.addressLine1 || addr.line1 || addr.address,
+      addr.additionalDetails || addr.landmark || addr.addressLine2,
+      [addr.city, addr.state, addr.zipCode || addr.pincode].filter(Boolean).join(" ")
+    ].filter(Boolean)
+    return parts.length > 0 ? parts.join(", ") : (addr.name || null)
+  }
+
+  const displayOrderId = order?.orderId || order?.orderNumber || order?._id || order?.id || orderId || "Order"
+  const orderTotal = Number(order?.pricing?.total ?? order?.pricing?.grandTotal ?? order?.total ?? order?.amount ?? 0)
+  const orderItems = Array.isArray(order?.items) ? order.items : (Array.isArray(order?.orderItems) ? order.orderItems : [])
+  const addressText = getAddressString(order?.deliveryAddress || order?.address)
+  const restaurantTitle = order?.restaurantName || order?.restaurantId?.restaurantName || order?.restaurant?.restaurantName || order?.restaurant?.name
 
   const handleAction = (action) => {
+    const targetOrderId = order?._id || order?.orderId || orderId || displayOrderId
     switch (action) {
       case "track":
-        navigate(`/user/orders/${orderId}`)
+        navigate(toFoodUserPath(`/user/orders/${targetOrderId}`))
         break
       case "invoice":
-        navigate(`/user/orders/${orderId}/invoice`)
+        navigate(toFoodUserPath(`/user/orders/${targetOrderId}/invoice`))
         break
       case "support":
-        // Scroll to support section or open contact modal
-        document.getElementById("contact-support")?.scrollIntoView({ behavior: "smooth" })
-        break
       case "refund":
-        alert("Refund request would be processed here. Contact support for assistance.")
+        navigate(toFoodUserPath("/user/profile/support"), {
+          state: {
+            order: order || { _id: targetOrderId, orderId: targetOrderId },
+            orderId: targetOrderId,
+            type: "order",
+            step: "order_issue"
+          }
+        })
         break
       default:
         break
     }
   }
 
-  if (!order) {
+  if (loading) {
     return (
-      <AnimatedPage className="min-h-screen bg-gradient-to-b from-yellow-50/30 via-white to-orange-50/20 p-4">
-        <div className="max-w-4xl mx-auto">
-          <Card>
-            <CardContent className="py-12 text-center">
-              <AlertCircle className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
-              <h2 className="text-2xl font-bold mb-2">Order Not Found</h2>
-              <p className="text-muted-foreground mb-6">
-                We couldn't find an order with ID: {orderId}
-              </p>
-              <div className="flex gap-4 justify-center">
-                <Link to="/user/orders">
-                  <Button variant="outline">View All Orders</Button>
+      <AnimatedPage className="min-h-screen bg-slate-50/50 dark:bg-[#0a0a0a] p-4 md:p-6 lg:p-8 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-[#1F6B45]" />
+          <p className="text-sm font-semibold text-gray-600 dark:text-gray-400">Loading Order Support...</p>
+        </div>
+      </AnimatedPage>
+    )
+  }
+
+  if (!order && !loading) {
+    return (
+      <AnimatedPage className="min-h-screen bg-gradient-to-b from-yellow-50/30 via-white to-orange-50/20 dark:from-[#0a0a0a] dark:via-[#0a0a0a] dark:to-[#0a0a0a] p-4">
+        <div className="max-w-4xl mx-auto pt-8">
+          <Card className="shadow-lg border-slate-200 dark:border-zinc-800">
+            <CardContent className="py-12 text-center space-y-4">
+              <AlertCircle className="h-14 w-14 mx-auto text-[#1F6B45]" />
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Order Support</h2>
+                <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
+                  {orderId ? `We couldn't load details for Order #${orderId}. You can still contact our support team or view other orders.` : "No order was selected for support."}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-3 justify-center pt-2">
+                <Button variant="outline" onClick={goBack} className="rounded-xl">
+                  <ArrowLeft className="w-4 h-4 mr-1.5" /> Back
+                </Button>
+                <Link to={toFoodUserPath("/user/orders")}>
+                  <Button variant="outline" className="rounded-xl">View All Orders</Button>
                 </Link>
-                <Link to="/user/help">
-                  <Button>Go to Help Center</Button>
+                <Link to={toFoodUserPath("/user/profile/support")}>
+                  <Button className="bg-[#1F6B45] hover:bg-[#1A5C3B] text-white rounded-xl">
+                    <MessageCircle className="w-4 h-4 mr-1.5" /> Contact Support
+                  </Button>
                 </Link>
               </div>
             </CardContent>
@@ -219,68 +321,76 @@ export default function OrderHelp() {
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-gradient-to-b from-yellow-50/30 via-white to-orange-50/20 dark:from-[#0a0a0a] dark:via-[#0a0a0a] dark:to-[#0a0a0a] p-4 md:p-6 lg:p-8">
+    <AnimatedPage className="min-h-screen bg-gradient-to-b from-orange-50/30 via-white to-gray-50/30 dark:from-[#0a0a0a] dark:via-[#0a0a0a] dark:to-[#0a0a0a] p-4 md:p-6 lg:p-8">
       <div className="max-w-md md:max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto space-y-4 md:space-y-5 lg:space-y-6">
         {/* Header */}
         <ScrollReveal>
           <div className="flex items-center gap-3 md:gap-4 mb-4 md:mb-6">
-            <Link to="/user/help">
-              <Button variant="ghost" size="icon" className="rounded-full h-8 w-8 md:h-10 md:w-10">
-                <ArrowLeft className="h-4 w-4 md:h-5 md:w-5" />
-              </Button>
-            </Link>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={goBack}
+              className="rounded-full h-9 w-9 md:h-10 md:w-10 bg-white dark:bg-zinc-900 shadow-sm border border-slate-200 dark:border-zinc-800"
+            >
+              <ArrowLeft className="h-4 w-4 md:h-5 md:w-5 text-gray-800 dark:text-white" />
+            </Button>
             <div>
-              <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold">Order Help</h1>
-              <p className="text-sm md:text-base text-muted-foreground">Order {order.id}</p>
+              <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-gray-900 dark:text-white">Order Help & Support</h1>
+              <p className="text-xs md:text-sm text-muted-foreground font-medium">Order #{displayOrderId}</p>
             </div>
           </div>
         </ScrollReveal>
 
-        {/* Order Summary */}
-        <ScrollReveal delay={0.1}>
-          <Card className="shadow-lg">
-            <CardHeader className="p-4 md:p-5 lg:p-6">
+        {/* Order Summary Card */}
+        <ScrollReveal delay={0.05}>
+          <Card className="shadow-md border-slate-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden rounded-2xl">
+            <CardHeader className="p-4 md:p-5 border-b border-slate-100 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50">
               <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-lg md:text-xl lg:text-2xl">
-                  <Package className="h-4 w-4 md:h-5 md:w-5 text-[#DC2626]" />
+                <CardTitle className="flex items-center gap-2 text-base md:text-lg font-bold text-gray-900 dark:text-white">
+                  <Package className="h-4 w-4 md:h-5 md:w-5 text-[#1F6B45]" />
                   Order Summary
                 </CardTitle>
-                <Badge className={`${getStatusColor(order.status)} text-white text-xs md:text-sm`}>
-                  {getStatusLabel(order.status)}
+                <Badge className={`${getStatusColor(order.orderStatus || order.status)} text-white text-xs px-2.5 py-0.5 font-semibold`}>
+                  {getStatusLabel(order.orderStatus || order.status)}
                 </Badge>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4 md:space-y-5 p-4 md:p-5 lg:p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
+            <CardContent className="space-y-4 p-4 md:p-5">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4">
                 <div>
-                  <p className="text-sm text-muted-foreground mb-1">Order ID</p>
-                  <p className="font-semibold">{order.id}</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">Order ID</p>
+                  <p className="font-semibold text-sm truncate text-gray-900 dark:text-white">#{displayOrderId}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground mb-1">Placed On</p>
-                  <p className="font-semibold">{formatDate(order.createdAt)}</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">Placed On</p>
+                  <p className="font-semibold text-sm text-gray-900 dark:text-white">{formatDate(order.createdAt || order.date)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground mb-1">Total Amount</p>
-                  <p className="font-semibold text-[#DC2626] text-xl">${order.total.toFixed(2)}</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">Total Amount</p>
+                  <p className="font-bold text-sm text-[#1F6B45]">₹{orderTotal.toFixed(2)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground mb-1">Items</p>
-                  <p className="font-semibold">{order.items?.length || 0} items</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">Items</p>
+                  <p className="font-semibold text-sm text-gray-900 dark:text-white">
+                    {orderItems.length > 0 ? `${orderItems.length} ${orderItems.length === 1 ? 'item' : 'items'}` : "Order Items"}
+                  </p>
                 </div>
               </div>
-              {order.address && (
-                <div className="pt-4 border-t">
+
+              {restaurantTitle && (
+                <div className="pt-2 text-xs text-muted-foreground">
+                  <span className="font-medium text-gray-700 dark:text-gray-300">Restaurant: </span>
+                  {restaurantTitle}
+                </div>
+              )}
+
+              {addressText && (
+                <div className="pt-3 border-t border-slate-100 dark:border-zinc-800">
                   <div className="flex items-start gap-2">
-                    <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
+                    <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
                     <div>
-                      <p className="text-sm text-muted-foreground mb-1">Delivery Address</p>
-                      <p className="text-sm">
-                        {order.address.street}
-                        {order.address.additionalDetails && `, ${order.address.additionalDetails}`}
-                        <br />
-                        {order.address.city}, {order.address.state} {order.address.zipCode}
-                      </p>
+                      <p className="text-xs text-muted-foreground font-medium">Delivery Address</p>
+                      <p className="text-xs text-gray-700 dark:text-gray-300 mt-0.5">{addressText}</p>
                     </div>
                   </div>
                 </div>
@@ -289,50 +399,98 @@ export default function OrderHelp() {
           </Card>
         </ScrollReveal>
 
-        {/* Common Issues */}
-        <ScrollReveal delay={0.2}>
-          <div className="space-y-4 md:space-y-5 lg:space-y-6">
-            <h2 className="text-xl md:text-2xl lg:text-3xl font-bold">What can we help you with?</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5 lg:gap-6">
-              {commonIssues.map((issue, index) => {
+        {/* Quick Actions */}
+        <ScrollReveal delay={0.1}>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-3 h-auto py-3 bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 rounded-xl hover:border-[#1F6B45]/40 transition-colors shadow-sm"
+              onClick={() => handleAction("track")}
+            >
+              <div className="p-2 rounded-lg bg-orange-50 dark:bg-zinc-800 text-[#1F6B45]">
+                <Truck className="h-4 w-4" />
+              </div>
+              <div className="text-left">
+                <div className="font-semibold text-sm text-gray-900 dark:text-white">Track Order</div>
+                <div className="text-[11px] text-muted-foreground">Real-time status</div>
+              </div>
+            </Button>
+
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-3 h-auto py-3 bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 rounded-xl hover:border-[#1F6B45]/40 transition-colors shadow-sm"
+              onClick={() => handleAction("invoice")}
+            >
+              <div className="p-2 rounded-lg bg-orange-50 dark:bg-zinc-800 text-[#1F6B45]">
+                <FileText className="h-4 w-4" />
+              </div>
+              <div className="text-left">
+                <div className="font-semibold text-sm text-gray-900 dark:text-white">View Invoice</div>
+                <div className="text-[11px] text-muted-foreground">Download receipt</div>
+              </div>
+            </Button>
+
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-3 h-auto py-3 bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 rounded-xl hover:border-[#1F6B45]/40 transition-colors shadow-sm"
+              onClick={() => handleAction("support")}
+            >
+              <div className="p-2 rounded-lg bg-orange-50 dark:bg-zinc-800 text-[#1F6B45]">
+                <MessageCircle className="h-4 w-4" />
+              </div>
+              <div className="text-left">
+                <div className="font-semibold text-sm text-gray-900 dark:text-white">Raise Ticket</div>
+                <div className="text-[11px] text-muted-foreground">Support assistance</div>
+              </div>
+            </Button>
+          </div>
+        </ScrollReveal>
+
+        {/* Common Issues Section */}
+        <ScrollReveal delay={0.15}>
+          <div className="space-y-3 pt-2">
+            <h2 className="text-lg md:text-xl font-bold text-gray-900 dark:text-white">What do you need help with?</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+              {commonIssues.map((issue) => {
                 const Icon = issue.icon
                 return (
                   <Card
                     key={issue.id}
+                    className="shadow-sm border-slate-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-2xl overflow-hidden flex flex-col justify-between"
                   >
-                    <CardHeader className="p-4 md:p-5 lg:p-6">
-                      <div className="flex items-start gap-3 md:gap-4">
-                        <div className="p-2 md:p-3 bg-yellow-100 rounded-lg">
-                          <Icon className="h-4 w-4 md:h-5 md:w-5 text-[#DC2626]" />
+                    <CardHeader className="p-4 pb-2">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2.5 bg-orange-50 dark:bg-zinc-800 rounded-xl flex-shrink-0">
+                          <Icon className="h-4 w-4 md:h-5 md:w-5 text-[#1F6B45]" />
                         </div>
-                        <div className="flex-1">
-                          <CardTitle className="text-base md:text-lg lg:text-xl">{issue.title}</CardTitle>
-                          <CardDescription className="mt-1 text-sm md:text-base">{issue.description}</CardDescription>
+                        <div className="flex-1 min-w-0">
+                          <CardTitle className="text-sm md:text-base font-bold text-gray-900 dark:text-white">{issue.title}</CardTitle>
+                          <CardDescription className="mt-0.5 text-xs text-muted-foreground">{issue.description}</CardDescription>
                         </div>
                       </div>
                     </CardHeader>
-                    <CardContent className="space-y-3 md:space-y-4 p-4 md:p-5 lg:p-6">
-                      <div className="space-y-2">
-                        <p className="text-sm font-semibold">What to do:</p>
-                        <ul className="space-y-1 text-sm text-muted-foreground">
+                    <CardContent className="space-y-3 p-4 pt-2">
+                      <div className="space-y-1.5">
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Recommended Steps:</p>
+                        <ul className="space-y-1 text-xs text-muted-foreground">
                           {issue.solutions.map((solution, idx) => (
-                            <li key={idx} className="flex items-start gap-2">
-                              <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                            <li key={idx} className="flex items-start gap-1.5">
+                              <CheckCircle className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" />
                               <span>{solution}</span>
                             </li>
                           ))}
                         </ul>
                       </div>
-                      <div className="flex gap-2 pt-2 border-t">
-                        {issue.actions.map((action, idx) => (
+                      <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800">
+                        {issue.actions.map((act, idx) => (
                           <Button
                             key={idx}
                             variant={idx === 0 ? "default" : "outline"}
                             size="sm"
-                            className={idx === 0 ? "bg-[#DC2626] hover:opacity-90" : ""}
-                            onClick={() => handleAction(action.path)}
+                            className={`rounded-lg text-xs h-8 ${idx === 0 ? "bg-[#1F6B45] hover:bg-[#1A5C3B] text-white" : ""}`}
+                            onClick={() => handleAction(act.path)}
                           >
-                            {action.label}
+                            {act.label}
                           </Button>
                         ))}
                       </div>
@@ -344,131 +502,82 @@ export default function OrderHelp() {
           </div>
         </ScrollReveal>
 
-        {/* Quick Actions */}
-        <ScrollReveal delay={0.3}>
-          <Card className="bg-gradient-to-br from-yellow-50 to-orange-50 border-yellow-200 shadow-lg">
-            <CardHeader className="p-4 md:p-5 lg:p-6">
-              <CardTitle className="flex items-center gap-2 text-lg md:text-xl lg:text-2xl">
-                <HelpCircle className="h-4 w-4 md:h-5 md:w-5 text-[#DC2626]" />
-                Quick Actions
+        {/* Contact Support Channels Section */}
+        <ScrollReveal delay={0.2}>
+          <Card id="contact-support" className="shadow-md border-slate-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-2xl overflow-hidden">
+            <CardHeader className="p-4 md:p-5 border-b border-slate-100 dark:border-zinc-800">
+              <CardTitle className="text-base md:text-lg font-bold flex items-center gap-2 text-gray-900 dark:text-white">
+                <MessageCircle className="h-5 w-5 text-[#1F6B45]" />
+                Direct Support for Order #{displayOrderId}
               </CardTitle>
-            </CardHeader>
-            <CardContent className="p-4 md:p-5 lg:p-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-5 lg:gap-6">
-                <Link to={`/user/orders/${orderId}`}>
-                  <Button
-                    variant="outline"
-                    className="w-full justify-start gap-2 h-auto py-3"
-                  >
-                    <Truck className="h-4 w-4" />
-                    <div className="text-left">
-                      <div className="font-semibold">Track Order</div>
-                      <div className="text-xs text-muted-foreground">View real-time status</div>
-                    </div>
-                  </Button>
-                </Link>
-                <Link to={`/user/orders/${orderId}/invoice`}>
-                  <Button
-                    variant="outline"
-                    className="w-full justify-start gap-2 h-auto py-3"
-                  >
-                    <FileText className="h-4 w-4" />
-                    <div className="text-left">
-                      <div className="font-semibold">View Invoice</div>
-                      <div className="text-xs text-muted-foreground">Download receipt</div>
-                    </div>
-                  </Button>
-                </Link>
-                <Button
-                  variant="outline"
-                  className="w-full justify-start gap-2 h-auto py-3"
-                  onClick={() => document.getElementById("contact-support")?.scrollIntoView({ behavior: "smooth" })}
-                >
-                  <MessageCircle className="h-4 w-4" />
-                  <div className="text-left">
-                    <div className="font-semibold">Contact Support</div>
-                    <div className="text-xs text-muted-foreground">Get help now</div>
-                  </div>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </ScrollReveal>
-
-        {/* Contact Support Section */}
-        <ScrollReveal delay={0.4}>
-          <Card id="contact-support" className="shadow-lg">
-            <CardHeader className="p-4 md:p-5 lg:p-6">
-              <CardTitle className="text-xl md:text-2xl lg:text-3xl flex items-center gap-2">
-                <MessageCircle className="h-5 w-5 md:h-6 md:w-6 text-[#DC2626]" />
-                Contact Support for This Order
-              </CardTitle>
-              <CardDescription className="text-sm md:text-base">
-                Our support team is ready to help you with order {order.id}
+              <CardDescription className="text-xs md:text-sm">
+                Our support team is available 24/7 to resolve any issues with this order.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4 md:space-y-5 lg:space-y-6 p-4 md:p-5 lg:p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5 lg:gap-6">
-                <div className="flex items-start gap-3 p-4 bg-muted/50 rounded-lg">
-                  <div className="p-2 bg-orange-100 rounded-lg">
-                    <Phone className="h-5 w-5 text-[#DC2626]" />
+            <CardContent className="space-y-4 p-4 md:p-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="flex items-start gap-3 p-3.5 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-100 dark:border-zinc-800">
+                  <div className="p-2 bg-orange-100 dark:bg-zinc-700 rounded-lg text-[#1F6B45]">
+                    <Phone className="h-4 w-4" />
                   </div>
                   <div>
-                    <h3 className="font-semibold mb-1">Phone Support</h3>
-                    <p className="text-sm text-muted-foreground mb-2">
-                      Mention order {order.id}
+                    <h3 className="font-bold text-sm text-gray-900 dark:text-white">Helpline</h3>
+                    <p className="text-xs text-muted-foreground mb-1.5">
+                      Mention order #{displayOrderId}
                     </p>
                     <a
-                      href="tel:+1-800-123-4567"
-                      className="text-sm text-primary hover:underline font-medium"
+                      href={`tel:${supportInfo.phone}`}
+                      className="text-xs font-semibold text-[#1F6B45] hover:underline"
                     >
-                      +1 (800) 123-4567
+                      {supportInfo.phone}
                     </a>
                   </div>
                 </div>
-                <div className="flex items-start gap-3 p-4 bg-muted/50 rounded-lg">
-                  <div className="p-2 bg-orange-100 rounded-lg">
-                    <Mail className="h-5 w-5 text-[#DC2626]" />
+
+                <div className="flex items-start gap-3 p-3.5 bg-slate-50 dark:bg-zinc-800/60 rounded-xl border border-slate-100 dark:border-zinc-800">
+                  <div className="p-2 bg-orange-100 dark:bg-zinc-700 rounded-lg text-[#1F6B45]">
+                    <Mail className="h-4 w-4" />
                   </div>
                   <div>
-                    <h3 className="font-semibold mb-1">Email Support</h3>
-                    <p className="text-sm text-muted-foreground mb-2">
-                      Include order {order.id} in subject
+                    <h3 className="font-bold text-sm text-gray-900 dark:text-white">Email Support</h3>
+                    <p className="text-xs text-muted-foreground mb-1.5">
+                      Subject auto-tagged with order ID
                     </p>
                     <a
-                      href={`mailto:support@eatiefy.com?subject=Help with Order ${order.id}`}
-                      className="text-sm text-primary hover:underline font-medium"
+                      href={`mailto:${supportInfo.email}?subject=Help with Order %23${displayOrderId}`}
+                      className="text-xs font-semibold text-[#1F6B45] hover:underline"
                     >
-                      support@eatiefy.com
+                      {supportInfo.email}
                     </a>
                   </div>
                 </div>
               </div>
-              <div className="pt-4 border-t">
+
+              <div className="pt-2">
                 <Button
-                  className="w-full bg-[#DC2626] hover:opacity-90"
-                  onClick={() => alert("Live chat would open here with order context")}
+                  className="w-full bg-[#1F6B45] hover:bg-[#1A5C3B] text-white font-semibold h-11 rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
+                  onClick={() => handleAction("support")}
                 >
-                  <MessageCircle className="h-4 w-4 mr-2" />
-                  Start Live Chat
+                  <MessageCircle className="h-4 w-4" />
+                  Create Support Ticket with Order Context
                 </Button>
               </div>
             </CardContent>
           </Card>
         </ScrollReveal>
 
-        {/* Back to Orders */}
-        <ScrollReveal delay={0.5}>
-          <div className="flex gap-4">
-            <Link to="/user/orders" className="flex-1">
-              <Button variant="outline" className="w-full">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to All Orders
+        {/* Navigation Footer */}
+        <ScrollReveal delay={0.25}>
+          <div className="flex gap-3 pt-2">
+            <Link to={toFoodUserPath("/user/orders")} className="flex-1">
+              <Button variant="outline" className="w-full rounded-xl border-slate-200 dark:border-zinc-800 text-xs sm:text-sm">
+                <ArrowLeft className="h-4 w-4 mr-1.5" />
+                All Orders
               </Button>
             </Link>
-            <Link to="/user/help" className="flex-1">
-              <Button variant="outline" className="w-full">
-                <HelpCircle className="h-4 w-4 mr-2" />
+            <Link to={toFoodUserPath("/user/help")} className="flex-1">
+              <Button variant="outline" className="w-full rounded-xl border-slate-200 dark:border-zinc-800 text-xs sm:text-sm">
+                <HelpCircle className="h-4 w-4 mr-1.5" />
                 Help Center
               </Button>
             </Link>

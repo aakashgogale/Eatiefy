@@ -5,6 +5,7 @@ import { orderAPI } from "@food/api"
 import { useCart } from "@food/context/CartContext"
 import { toast } from "sonner"
 import FloatingHomeDock from "@food/components/user/FloatingHomeDock"
+import { isVegMenuItem } from "@food/utils/vegMode"
 
 export default function Reorder() {
   const navigate = useNavigate()
@@ -267,14 +268,14 @@ export default function Reorder() {
                           {/* Veg/Non-Veg icon indicator */}
                           <span
                             className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center p-0.5 ${
-                              item.isVeg !== false
+                              isVegMenuItem(item, order.restaurantId)
                                 ? "border-emerald-600"
                                 : "border-red-600"
                             }`}
                           >
                             <span
                               className={`w-1.5 h-1.5 rounded-full ${
-                                item.isVeg !== false
+                                isVegMenuItem(item, order.restaurantId)
                                   ? "bg-emerald-600"
                                   : "bg-red-600"
                               }`}

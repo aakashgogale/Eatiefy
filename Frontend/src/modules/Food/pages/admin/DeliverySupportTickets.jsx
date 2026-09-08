@@ -8,6 +8,18 @@ const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
+const DELIVERY_TICKET_STATUS_LABELS = {
+  open: "Open",
+  in_progress: "In Progress",
+  resolved: "Resolved",
+  closed: "Closed",
+}
+
+// The backend sends the statuses this ticket may move to; the UI only offers those.
+const canMoveTo = (ticket, status) =>
+  Boolean(ticket) &&
+  ticket.status !== status &&
+  (ticket.allowedStatusTransitions || []).includes(status)
 
 export default function DeliverySupportTickets() {
   const [tickets, setTickets] = useState([])
@@ -126,12 +138,20 @@ export default function DeliverySupportTickets() {
 
       if (response?.data?.success) {
         toast.success("Ticket status updated!")
+        const saved = response?.data?.data?.ticket || response?.data?.data || null
+        if (saved?.status) {
+          setSelectedTicket((prev) =>
+            prev && String(prev._id) === String(ticketId) ? { ...prev, ...saved } : prev
+          )
+        }
         await fetchTickets()
         await fetchStats()
       }
     } catch (error) {
       debugError("Error updating status:", error)
-      toast.error("Failed to update status")
+      toast.error(error?.response?.data?.message || "Failed to update status")
+      // Rejected by the workflow — resync so the UI shows the stored status.
+      await fetchTickets()
     }
   }
 
@@ -322,19 +342,25 @@ export default function DeliverySupportTickets() {
                         >
                           <Edit className="w-4 h-4 text-blue-600" />
                         </button>
-                        {ticket.status !== 'closed' && (
-                          <select
-                            value={ticket.status}
-                            onChange={(e) => handleStatusChange(ticket._id, e.target.value)}
-                            className="text-xs px-2 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <option value="open">Open</option>
-                            <option value="in_progress">In Progress</option>
-                            <option value="resolved">Resolved</option>
-                            <option value="closed">Closed</option>
-                          </select>
-                        )}
+                        {/* Always rendered: hiding this for closed tickets left
+                            them with no way back, which is why a status could
+                            never be corrected once set. The options themselves
+                            come from the backend lifecycle. */}
+                        <select
+                          value={ticket.status}
+                          onChange={(e) => handleStatusChange(ticket._id, e.target.value)}
+                          className="text-xs px-2 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {(ticket.allowedStatusTransitions?.length
+                            ? ticket.allowedStatusTransitions
+                            : [ticket.status]
+                          ).map((status) => (
+                            <option key={status} value={status}>
+                              {DELIVERY_TICKET_STATUS_LABELS[status] || status}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     </div>
                   </div>
@@ -460,26 +486,29 @@ export default function DeliverySupportTickets() {
                 </div>
               )}
 
-              {/* Action Buttons */}
-              {selectedTicket.status !== 'closed' && (
-                <div className="flex flex-col sm:flex-row gap-3 pt-5 border-t border-gray-200">
+              {/* Action Buttons — each one is offered only when the lifecycle
+                  actually allows that move from the ticket's current status. */}
+              <div className="flex flex-col sm:flex-row gap-3 pt-5 border-t border-gray-200">
+                {selectedTicket.status !== 'closed' && (
                   <button
                     onClick={() => handleRespond(selectedTicket)}
                     className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors shadow-sm"
                   >
                     {selectedTicket.adminResponse ? "Edit Response" : "Send Response"}
                   </button>
-                  {selectedTicket.status === 'in_progress' && (
-                    <button
-                      onClick={() => {
-                        handleStatusChange(selectedTicket._id, 'resolved')
-                        setIsViewOpen(false)
-                      }}
-                      className="px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors shadow-sm"
-                    >
-                      Mark Resolved
-                    </button>
-                  )}
+                )}
+                {canMoveTo(selectedTicket, 'resolved') && (
+                  <button
+                    onClick={() => {
+                      handleStatusChange(selectedTicket._id, 'resolved')
+                      setIsViewOpen(false)
+                    }}
+                    className="px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors shadow-sm"
+                  >
+                    Mark Resolved
+                  </button>
+                )}
+                {canMoveTo(selectedTicket, 'closed') && (
                   <button
                     onClick={() => {
                       handleStatusChange(selectedTicket._id, 'closed')
@@ -489,8 +518,19 @@ export default function DeliverySupportTickets() {
                   >
                     Close Ticket
                   </button>
-                </div>
-              )}
+                )}
+                {selectedTicket.status === 'closed' && canMoveTo(selectedTicket, 'in_progress') && (
+                  <button
+                    onClick={() => {
+                      handleStatusChange(selectedTicket._id, 'in_progress')
+                      setIsViewOpen(false)
+                    }}
+                    className="px-5 py-2.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 font-medium transition-colors shadow-sm"
+                  >
+                    Reopen Ticket
+                  </button>
+                )}
+              </div>
               </div>
             </div>
           )}

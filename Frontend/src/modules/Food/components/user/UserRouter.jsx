@@ -98,7 +98,7 @@ import { Loader2 } from "lucide-react"
 
 const PageLoader = () => (
   <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center p-6 bg-white dark:bg-[#0a0a0a]">
-    <Loader2 className="h-10 w-10 animate-spin text-[#CB202D]" />
+    <Loader2 className="h-10 w-10 animate-spin text-[#1F6B45]" />
     <p className="mt-4 text-gray-500 font-bold uppercase tracking-widest text-[10px]">
       Loading...
     </p>
@@ -161,6 +161,9 @@ export default function UserRouter() {
           <Route path="profile/cancellation" element={<Suspense fallback={<PageLoader />}><Cancellation /></Suspense>} />
           <Route path="profile/support" element={<Suspense fallback={<PageLoader />}><Support /></Suspense>} />
           <Route path="profile/support-info" element={<Suspense fallback={<PageLoader />}><UserCMSHelpSupportPage /></Suspense>} />
+          <Route path="profile/help-content" element={<Suspense fallback={<PageLoader />}><UserCMSHelpSupportPage /></Suspense>} />
+          <Route path="help-content" element={<Suspense fallback={<PageLoader />}><UserCMSHelpSupportPage /></Suspense>} />
+          <Route path="help/content" element={<Suspense fallback={<PageLoader />}><UserCMSHelpSupportPage /></Suspense>} />
           
           {/* Help Center */}
           <Route path="help" element={<Help />} />

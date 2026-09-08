@@ -8,11 +8,12 @@ import {
   Clock3,
   Edit2,
   Eye,
-  EyeOff,
   Globe,
   Loader2,
   Plus,
   RefreshCw,
+  ToggleLeft,
+  ToggleRight,
   Trash2,
   Upload,
   X,
@@ -59,6 +60,7 @@ export default function MenuCategoriesPage() {
   const [imagePreview, setImagePreview] = useState(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [isPhotoPickerOpen, setIsPhotoPickerOpen] = useState(false)
+  const [viewingCategory, setViewingCategory] = useState(null)
   const fileInputRef = useRef(null)
   const refreshInFlightRef = useRef(false)
 
@@ -161,6 +163,25 @@ export default function MenuCategoriesPage() {
     setImagePreview(null)
     setShowModal(true)
   }
+
+  /**
+   * Opens the read-only details view for one category. Resolves the row against
+   * the loaded list by id so the modal always shows the current record rather
+   * than a stale copy captured in the click handler, and refuses to open on a
+   * row with no usable id instead of rendering an empty sheet.
+   */
+  const openViewModal = (category) => {
+    const categoryId = String(category?._id || category?.id || "")
+    if (!categoryId) {
+      toast.error("This category is missing its details")
+      return
+    }
+    const current =
+      categories.find((item) => String(item?._id || item?.id || "") === categoryId) || category
+    setViewingCategory(current)
+  }
+
+  const closeViewModal = () => setViewingCategory(null)
 
   const openEditModal = (category) => {
     if (!category?.canEdit) {
@@ -389,15 +410,32 @@ export default function MenuCategoriesPage() {
                   </div>
 
                   <div className="mt-4 flex items-center gap-2">
+                    {/* View: opens this category's details. It used to be wired to
+                        the activate/deactivate toggle, so tapping it silently
+                        changed the category instead of showing it — and it was
+                        disabled for admin-owned categories, which read as broken.
+                        Viewing needs no edit rights, so it is never disabled. */}
                     <button
-                      onClick={() => handleToggleActive(category)}
-                      className="rounded-xl bg-slate-100 p-2 text-slate-700 disabled:opacity-50"
-                      disabled={!isEditable}
-                      title={category?.isActive !== false ? "Deactivate" : "Activate"}
+                      type="button"
+                      onClick={() => openViewModal(category)}
+                      className="rounded-xl bg-slate-100 p-2 text-slate-700 active:scale-95 transition-transform"
+                      title="View category details"
+                      aria-label={`View details for ${category?.name || "category"}`}
                     >
-                      {category?.isActive !== false ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                      <Eye className="h-4 w-4" />
                     </button>
                     <button
+                      type="button"
+                      onClick={() => handleToggleActive(category)}
+                      className="rounded-xl bg-slate-100 p-2 text-slate-700 disabled:opacity-50 active:scale-95 transition-transform"
+                      disabled={!isEditable}
+                      title={category?.isActive !== false ? "Deactivate" : "Activate"}
+                      aria-label={category?.isActive !== false ? "Deactivate category" : "Activate category"}
+                    >
+                      {category?.isActive !== false ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => openEditModal(category)}
                       className="rounded-xl bg-blue-50 p-2 text-blue-700 disabled:opacity-50"
                       disabled={!isEditable}
@@ -418,6 +456,110 @@ export default function MenuCategoriesPage() {
           </div>
         )}
       </div>
+
+      {/* Category details (read-only). Sits above the bottom nav and below the
+          create/edit sheet, and never blocks the page when closed. */}
+      <AnimatePresence>
+        {viewingCategory && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={closeViewModal}
+              className="fixed inset-0 z-50 bg-black/50"
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 28, stiffness: 260 }}
+              className="fixed bottom-0 left-0 right-0 z-50 flex max-h-[85vh] flex-col rounded-t-3xl bg-white shadow-2xl"
+            >
+              <div className="flex items-start justify-between p-4 pb-2">
+                <div className="min-w-0">
+                  <h2 className="truncate text-lg font-bold text-slate-900">
+                    {viewingCategory?.name || "Category"}
+                  </h2>
+                  <p className="text-xs text-slate-500">Category details</p>
+                </div>
+                <button type="button" onClick={closeViewModal} aria-label="Close details" className="p-1">
+                  <X className="h-5 w-5 text-slate-600" />
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                {viewingCategory?.image ? (
+                  <img
+                    src={viewingCategory.image}
+                    alt={viewingCategory?.name || "Category"}
+                    className="mb-4 h-40 w-full rounded-2xl object-cover"
+                  />
+                ) : (
+                  <div className="mb-4 flex h-24 w-full items-center justify-center rounded-2xl bg-slate-100 text-sm font-medium text-slate-400">
+                    No image
+                  </div>
+                )}
+
+                <dl className="space-y-3">
+                  {[
+                    { label: "Name", value: viewingCategory?.name },
+                    { label: "Type", value: viewingCategory?.type },
+                    { label: "Diet Scope", value: viewingCategory?.foodTypeScope || "Both" },
+                    {
+                      label: "Approval Status",
+                      value: String(viewingCategory?.approvalStatus || "pending"),
+                    },
+                    {
+                      label: "Visibility",
+                      value: viewingCategory?.isActive !== false ? "Active" : "Inactive",
+                    },
+                    { label: "Items Linked", value: String(viewingCategory?.itemCount ?? 0) },
+                    { label: "Sort Order", value: String(viewingCategory?.sortOrder ?? 0) },
+                    { label: "Owner", value: viewingCategory?.isGlobal ? "Admin (global)" : "This restaurant" },
+                    { label: "Rejection Reason", value: viewingCategory?.rejectionReason },
+                  ].map((row) => {
+                    const value = String(row.value ?? "").trim()
+                    return (
+                      <div key={row.label} className="flex flex-col gap-0.5">
+                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                          {row.label}
+                        </dt>
+                        <dd className={`text-sm font-medium capitalize ${value ? "text-slate-800" : "text-slate-400 italic"}`}>
+                          {value || "Not set"}
+                        </dd>
+                      </div>
+                    )
+                  })}
+                </dl>
+
+                <div className="mt-5 flex gap-3 pb-2">
+                  <button
+                    type="button"
+                    onClick={closeViewModal}
+                    className="flex-1 rounded-xl border border-slate-300 py-3 font-medium text-slate-700"
+                  >
+                    Close
+                  </button>
+                  {viewingCategory?.canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = viewingCategory
+                        closeViewModal()
+                        openEditModal(target)
+                      }}
+                      className="flex-1 rounded-xl bg-blue-600 py-3 font-medium text-white"
+                    >
+                      Edit
+                    </button>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {showModal && (

@@ -89,7 +89,7 @@ export default function LocationPrompt() {
         className="w-full max-w-sm bg-white dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-[28px] p-6 shadow-2xl mx-auto my-auto relative transition-all duration-300 flex flex-col items-center"
       >
         <button
-          className="absolute right-4 top-4 text-[#DC2626] hover:text-[#B91C1C] transition-all p-1.5 rounded-full bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 shadow-sm active:scale-95 duration-200"
+          className="absolute right-4 top-4 text-[#1F6B45] hover:text-[#1A5C3B] transition-all p-1.5 rounded-full bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 shadow-sm active:scale-95 duration-200"
           onClick={handleDismiss}
         >
           <X className="h-4.5 w-4.5" strokeWidth={2.5} />
@@ -98,7 +98,7 @@ export default function LocationPrompt() {
         <div className="relative mb-5 mt-4">
           <div className="absolute inset-0 rounded-full bg-red-100 dark:bg-red-950/40 animate-ping opacity-75"></div>
           <div className="relative h-16 w-16 rounded-full bg-red-50 dark:bg-red-950/30 flex items-center justify-center ring-8 ring-red-100/50 dark:ring-red-950/10">
-            <MapPin className="h-8 w-8 text-[#DC2626]" />
+            <MapPin className="h-8 w-8 text-[#1F6B45]" />
           </div>
         </div>
 
@@ -113,7 +113,7 @@ export default function LocationPrompt() {
         <div className="flex flex-col gap-2.5 mt-6 w-full">
           <button
             onClick={handleAllow}
-            className="w-full h-12 rounded-full bg-[#DC2626] hover:bg-[#B91C1C] text-white font-semibold text-sm transition-all duration-200 shadow-lg shadow-red-600/10 flex items-center justify-center disabled:opacity-85"
+            className="w-full h-12 rounded-full bg-[#1F6B45] hover:bg-[#1A5C3B] text-white font-semibold text-sm transition-all duration-200 shadow-lg shadow-red-600/10 flex items-center justify-center disabled:opacity-85"
             disabled={loading || isRequesting}
           >
             {loading || isRequesting ? (

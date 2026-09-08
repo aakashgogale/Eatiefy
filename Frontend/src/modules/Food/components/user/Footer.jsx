@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom"
+import { toFoodUserPath } from "@food/utils/mainTabRoutes"
 import { Facebook, Twitter, Instagram, Mail, Phone, MapPin, Heart } from "lucide-react"
 import { useState, useEffect } from "react"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
@@ -153,7 +154,7 @@ export default function Footer() {
               {footerLinks.company.map((link, index) => (
                 <li key={index}>
                   <Link
-                    to={link.href}
+                    to={toFoodUserPath(link.href)}
                   >
                     {link.name}
                   </Link>
@@ -170,7 +171,7 @@ export default function Footer() {
               {footerLinks.support.map((link, index) => (
                 <li key={index}>
                   <Link
-                    to={link.href}
+                    to={toFoodUserPath(link.href)}
                   >
                     {link.name}
                   </Link>
@@ -187,7 +188,7 @@ export default function Footer() {
               {footerLinks.user.map((link, index) => (
                 <li key={index}>
                   <Link
-                    to={link.href}
+                    to={toFoodUserPath(link.href)}
                   >
                     {link.name}
                   </Link>

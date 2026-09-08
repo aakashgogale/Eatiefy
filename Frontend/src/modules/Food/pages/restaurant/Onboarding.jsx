@@ -970,7 +970,8 @@ export default function RestaurantOnboarding() {
             ...prev,
             restaurantName: s1.restaurantName || apiData.name || apiData.restaurantName || "",
             pureVegRestaurant: typeof s1.pureVegRestaurant === 'boolean' ? s1.pureVegRestaurant : (apiData.pureVegRestaurant ?? null),
-            pureVeganRestaurant: typeof s1.pureVeganRestaurant === 'boolean' ? s1.pureVeganRestaurant : (apiData.pureVeganRestaurant === true),
+            // Onboarding no longer offers Pure Vegan; a legacy draft resumes as Pure Veg.
+            pureVeganRestaurant: false,
             ownerName: s1.ownerName || apiData.ownerName || "",
             ownerEmail: s1.ownerEmail || apiData.ownerEmail || apiData.email || "",
             ownerPhone: s1.ownerPhone || apiData.ownerPhone || apiData.phone || "",
@@ -1484,8 +1485,10 @@ export default function RestaurantOnboarding() {
 
           const updatePayload = {
             restaurantName: step1.restaurantName || "",
-            pureVegRestaurant: step1.pureVegRestaurant === true || step1.pureVeganRestaurant === true,
-            pureVeganRestaurant: step1.pureVeganRestaurant === true,
+            pureVegRestaurant: step1.pureVegRestaurant === true,
+            // Onboarding no longer offers Pure Vegan, so it is never submitted from
+            // here — a restored draft cannot smuggle the removed option through.
+            pureVeganRestaurant: false,
             ownerName: step1.ownerName || "",
             ownerEmail: (step1.ownerEmail || "").trim(),
             ownerPhone: normalizePhoneDigits(step1.ownerPhone),
@@ -1551,14 +1554,9 @@ export default function RestaurantOnboarding() {
 
         // Step 1
         formData.append("restaurantName", step1.restaurantName || "")
-        formData.append(
-          "pureVegRestaurant",
-          step1.pureVegRestaurant === true || step1.pureVeganRestaurant === true ? "true" : "false",
-        )
-        formData.append(
-          "pureVeganRestaurant",
-          step1.pureVeganRestaurant === true ? "true" : "false",
-        )
+        formData.append("pureVegRestaurant", step1.pureVegRestaurant === true ? "true" : "false")
+        // Onboarding no longer offers Pure Vegan — always submitted as false.
+        formData.append("pureVeganRestaurant", "false")
         formData.append("ownerName", step1.ownerName || "")
         formData.append("ownerEmail", (step1.ownerEmail || "").trim())
         formData.append("ownerPhone", normalizePhoneDigits(step1.ownerPhone))
@@ -1728,31 +1726,14 @@ export default function RestaurantOnboarding() {
                   })
                 }
                 className={`px-3 py-1.5 text-xs rounded-full border ${
-                  step1.pureVegRestaurant === true && step1.pureVeganRestaurant !== true
+                  step1.pureVegRestaurant === true
                     ? "bg-green-600 text-white border-green-600"
                     : "bg-white text-gray-700 border-gray-200"
                 } ${!isEditing ? "opacity-70 cursor-not-allowed" : ""}`}
               >
                 Yes, Pure Veg
               </button>
-              <button
-                type="button"
-                onClick={() =>
-                  isEditing &&
-                  setStep1({
-                    ...step1,
-                    pureVegRestaurant: true,
-                    pureVeganRestaurant: true,
-                  })
-                }
-                className={`px-3 py-1.5 text-xs rounded-full border ${
-                  step1.pureVeganRestaurant === true
-                    ? "bg-emerald-700 text-white border-emerald-700"
-                    : "bg-white text-gray-700 border-gray-200"
-                } ${!isEditing ? "opacity-70 cursor-not-allowed" : ""}`}
-              >
-                Yes, Pure Vegan
-              </button>
+              {/* "Pure Vegan" is intentionally not offered during onboarding. */}
               <button
                 type="button"
                 onClick={() =>
@@ -1773,7 +1754,7 @@ export default function RestaurantOnboarding() {
               </button>
             </div>
             <p className="text-[11px] text-gray-500 mt-1">
-              Pure Veg allows dairy/ghee. Pure Vegan allows only vegan items (no dairy, ghee, or animal products).
+              Pure Veg serves only vegetarian food (dairy and ghee allowed). Choose Mixed Menu if you also serve non-veg.
             </p>
           </div>
         </div>

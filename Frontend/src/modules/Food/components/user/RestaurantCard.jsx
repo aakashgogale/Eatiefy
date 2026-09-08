@@ -127,7 +127,7 @@ const RestaurantImageCarousel = React.memo(({ restaurant, priority = false, back
       
       {/* Discount Badge if any */}
       {restaurant.discount && (
-        <div className="absolute top-2 left-0 px-2.5 py-1 bg-gradient-to-r from-[#991B1B] to-[#DC2626] text-white text-[10px] sm:text-xs font-black rounded-r-lg shadow-lg uppercase tracking-wider flex items-center gap-1">
+        <div className="absolute top-2 left-0 px-2.5 py-1 bg-gradient-to-r from-[#14512F] to-[#1F6B45] text-white text-[10px] sm:text-xs font-black rounded-r-lg shadow-lg uppercase tracking-wider flex items-center gap-1">
           <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24"><path d="M12.864 2.227l8.909 8.91a2.182 2.182 0 010 3.085l-7.364 7.364a2.182 2.182 0 01-3.085 0l-8.91-8.91A2.182 2.182 0 012 11.137V4.41A2.182 2.182 0 014.182 2.23h6.727a2.182 2.182 0 011.955-.003z" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           {restaurant.discount}
         </div>
@@ -167,7 +167,7 @@ const RestaurantCard = ({
 
       <div className="p-3 sm:p-4">
         <div className="flex justify-between items-start gap-2 mb-1.5">
-          <h3 className="text-[15px] sm:text-[17px] font-bold text-gray-900 line-clamp-1 group-hover:text-[#DC2626] transition-colors duration-200 flex-1 tracking-tight">
+          <h3 className="text-[15px] sm:text-[17px] font-bold text-gray-900 line-clamp-1 group-hover:text-[#1F6B45] transition-colors duration-200 flex-1 tracking-tight">
             {restaurant.name}
           </h3>
           <div className="flex items-center gap-1 bg-[#8CC63F] text-white px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-bold shadow-sm flex-shrink-0">
@@ -182,11 +182,11 @@ const RestaurantCard = ({
 
         <div className="flex items-center justify-between pt-2.5 border-t border-gray-100/80">
           <div className="flex items-center gap-1.5 text-gray-600 bg-gray-50 px-2 py-1 rounded-md">
-            <Clock className="w-3.5 h-3.5 text-[#DC2626]" />
+            <Clock className="w-3.5 h-3.5 text-[#1F6B45]" />
             <span className="text-[10px] sm:text-xs font-semibold">{restaurant.deliveryTime || "25-30 min"}</span>
           </div>
           <div className="flex items-center gap-1 text-gray-600 bg-gray-50 px-2 py-1 rounded-md">
-            <IndianRupee className="w-3 h-3 text-[#DC2626]" />
+            <IndianRupee className="w-3 h-3 text-[#1F6B45]" />
             <span className="text-[10px] sm:text-xs font-semibold">{restaurant.avgPrice || "₹200 for one"}</span>
           </div>
         </div>

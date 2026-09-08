@@ -46,6 +46,8 @@ export default function OrdersPage() {
         orderMongoId: newOrder.orderMongoId || newOrder._id || newOrder.id,
         total: newOrder.total ?? newOrder.pricing?.total ?? 0,
         customerAddress: newOrder.customerAddress || newOrder.deliveryAddress || newOrder.address,
+        restaurantNote: newOrder.restaurantNote || newOrder.note || "",
+        note: newOrder.restaurantNote || newOrder.note || "",
       }
     : null
 

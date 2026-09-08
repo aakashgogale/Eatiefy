@@ -93,13 +93,13 @@ export default function Categories() {
       {/* Search Bar */}
       <div className="px-4 py-6">
         <div className="relative group">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-neutral-400 dark:text-gray-500 group-focus-within:text-[#DC2626] transition-colors" />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-neutral-400 dark:text-gray-500 group-focus-within:text-[#1F6B45] transition-colors" />
           <input
             type="text"
             placeholder="Search specialties, cuisines..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-12 pr-4 py-4 bg-neutral-50 dark:bg-gray-900 border border-neutral-100 dark:border-gray-800 rounded-2xl text-sm font-medium focus:outline-none focus:ring-4 focus:ring-[#DC2626]/5 focus:border-[#DC2626] transition-all placeholder:text-neutral-400 dark:placeholder:text-gray-600 dark:text-white"
+            className="w-full pl-12 pr-4 py-4 bg-neutral-50 dark:bg-gray-900 border border-neutral-100 dark:border-gray-800 rounded-2xl text-sm font-medium focus:outline-none focus:ring-4 focus:ring-[#1F6B45]/5 focus:border-[#1F6B45] transition-all placeholder:text-neutral-400 dark:placeholder:text-gray-600 dark:text-white"
           />
         </div>
       </div>

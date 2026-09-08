@@ -27,7 +27,22 @@ const PageLoader = () => (
  * path nikalne ke baad FoodApp render karte hain. FoodApp internally BrowserRouter
  * nahi use karta (sirf Routes use karta hai), isliye ye directly kaam karta hai.
  */
-import { AppShellSkeleton, OnboardingSkeleton } from '../modules/Food/components/ui/loading-skeletons'
+import { AdminShellSkeleton, AppShellSkeleton, OnboardingSkeleton } from '../modules/Food/components/ui/loading-skeletons'
+
+/** Admin lives at /admin/* and /food/admin/*. */
+const isAdminPath = (pathname = '') =>
+  pathname.startsWith('/admin') || pathname.startsWith('/food/admin')
+
+/**
+ * Picks the loading shell that matches the app being entered. AppShellSkeleton
+ * draws the customer app, so using it everywhere flashed the user UI while the
+ * admin console was still loading.
+ */
+const ShellFallback = () => {
+  const { pathname } = useLocation()
+  if (isAdminPath(pathname)) return <AdminShellSkeleton />
+  return <AppShellSkeleton />
+}
 
 const FoodAppWrapper = () => {
   const location = useLocation();
@@ -62,7 +77,19 @@ const FoodAppWrapper = () => {
   const isOnboarding = location.pathname.startsWith('/food/restaurant/onboarding');
 
   return (
-    <Suspense fallback={isOnboarding ? <OnboardingSkeleton /> : (isPolicyPage ? <PageLoader /> : <AppShellSkeleton />)}>
+    <Suspense
+      fallback={
+        isAdminPath(location.pathname) ? (
+          <AdminShellSkeleton />
+        ) : isOnboarding ? (
+          <OnboardingSkeleton />
+        ) : isPolicyPage ? (
+          <PageLoader />
+        ) : (
+          <AppShellSkeleton />
+        )
+      }
+    >
       <FoodApp />
     </Suspense>
   )
@@ -103,7 +130,7 @@ const AppRoutes = () => {
   }, [location.pathname, location.search])
 
   return (
-    <Suspense fallback={<AppShellSkeleton />}>
+    <Suspense fallback={<ShellFallback />}>
       <MaintenanceGate>
         <Routes>
           {/* Auth Module */}
@@ -118,7 +145,7 @@ const AppRoutes = () => {
 
           {/* Global Admin Portal - AdminRouter handles its own protection for sub-routes */}
           <Route path="/admin/*" element={
-            <Suspense fallback={<AppShellSkeleton />}>
+            <Suspense fallback={<AdminShellSkeleton />}>
               <AdminRouter />
             </Suspense>
           } />
