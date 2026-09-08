@@ -23,12 +23,11 @@ export const normalizeFoodTypeForCategory = (value) => {
     return 'Non-Veg';
 };
 
-/** Canonical dish foodType: Veg | Non-Veg | Vegan */
+/** Canonical dish foodType: Veg | Non-Veg */
 export const normalizeDishFoodType = (value) => {
     const t = String(value || '').trim();
     if (!t) return 'Non-Veg';
-    if (t === 'Vegan' || t.toLowerCase() === 'vegan') return 'Vegan';
-    if (t === 'Veg' || t.toLowerCase() === 'veg') return 'Veg';
+    if (t === 'Veg' || t.toLowerCase() === 'veg' || t === 'Vegan' || t.toLowerCase() === 'vegan') return 'Veg';
     if (t === 'Non-Veg' || t.toLowerCase() === 'non-veg' || t.toLowerCase() === 'non veg' || t.toLowerCase() === 'nonveg') {
         return 'Non-Veg';
     }
@@ -38,7 +37,7 @@ export const normalizeDishFoodType = (value) => {
 
 export const isVegCompatibleFoodType = (foodType) => {
     const normalized = normalizeDishFoodType(foodType);
-    return normalized === 'Veg' || normalized === 'Vegan';
+    return normalized === 'Veg';
 };
 
 export const categoryAllowsFoodType = (scope, foodType) => {

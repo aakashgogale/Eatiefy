@@ -51,8 +51,7 @@ export default function MenuCategoriesPage() {
   const goBack = useRestaurantBackNavigation()
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [isPureVegRestaurant, setIsPureVegRestaurant] = useState(false)
+  const [restaurantFoodType, setRestaurantFoodType] = useState("Mixed")
   const [showModal, setShowModal] = useState(false)
   const [editingCategory, setEditingCategory] = useState(null)
   const [formData, setFormData] = useState(defaultFormData)
@@ -77,13 +76,14 @@ export default function MenuCategoriesPage() {
           response?.data?.restaurant ||
           response?.data?.data ||
           null
-        const pureVeg =
-          profile?.pureVeganRestaurant === true || profile?.pureVegRestaurant === true
-        setIsPureVegRestaurant(pureVeg)
-        if (pureVeg) {
-          setFormData((prev) =>
-            prev.foodTypeScope === "Veg" ? prev : { ...prev, foodTypeScope: "Veg" },
-          )
+        const ft =
+          profile?.foodType ||
+          (profile?.pureVegRestaurant === true ? "Veg" : "Mixed")
+        setRestaurantFoodType(ft)
+        if (ft === "Veg") {
+          setFormData((prev) => ({ ...prev, foodTypeScope: "Veg" }))
+        } else if (ft === "Non-Veg") {
+          setFormData((prev) => ({ ...prev, foodTypeScope: "Non-Veg" }))
         }
       } catch {
         /* ignore — keep full diet options */
@@ -607,9 +607,13 @@ export default function MenuCategoriesPage() {
 
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">Diet Scope</label>
-                  {isPureVegRestaurant ? (
+                  {restaurantFoodType === "Veg" ? (
                     <div className="w-full rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
-                      Veg (Pure veg restaurant)
+                      Veg (Veg restaurant)
+                    </div>
+                  ) : restaurantFoodType === "Non-Veg" ? (
+                    <div className="w-full rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                      Non-Veg (Non-veg restaurant)
                     </div>
                   ) : (
                     <select
@@ -619,7 +623,7 @@ export default function MenuCategoriesPage() {
                     >
                       <option value="Veg">Veg</option>
                       <option value="Non-Veg">Non-Veg</option>
-                      <option value="Both">Both</option>
+                      <option value="Both">Both (Mixed)</option>
                     </select>
                   )}
                 </div>

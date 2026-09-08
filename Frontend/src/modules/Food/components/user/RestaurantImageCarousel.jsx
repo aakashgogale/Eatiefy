@@ -1,8 +1,7 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import OptimizedImage from "@food/components/OptimizedImage";
-import { useProfile } from "@food/context/ProfileContext";
-import { isVegMenuItem, isVeganMenuItem } from "@food/utils/vegMode";
+import { isVegMenuItem } from "@food/utils/vegMode";
 import { saveBrowseScroll, saveCategoryBrowseClick } from "@food/utils/browseScrollMemory";
 import dishFallbackImage from "@food/assets/dish_fallback.webp";
 import { toFoodUserPath, getRestaurantRouteId } from "@food/utils/mainTabRoutes";
@@ -65,13 +64,7 @@ const RestaurantImageCarousel = React.memo(
       let items = [];
         if (Array.isArray(restaurant.recommendedDishes) && restaurant.recommendedDishes.length > 0) {
           restaurant.recommendedDishes.forEach((dish, idx) => {
-            if (
-              vegMode &&
-              !(vegModeOption === "pure-vegan"
-                ? isVeganMenuItem(dish)
-                : isVegMenuItem(dish))
-            )
-              return;
+            if (vegMode && !isVegMenuItem(dish)) return;
             const dishImg = dish.image || categoryFallbackImage;
             if (dishImg) {
               const finalSrc = dishImg === dishFallbackImage ? dishImg : withCacheBuster(dishImg);

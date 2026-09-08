@@ -327,7 +327,7 @@ export async function hydrateFoodCart(cartDoc) {
       image,
       imageUrl: image,
       isVeg: ['veg', 'vegan', 'vegetarian'].includes(String(doc.foodType || '').toLowerCase()) || doc.isVeg === true,
-      foodType: doc.foodType || (doc.isVeg ? 'Veg' : 'Non-Veg'),
+      foodType: doc.foodType === 'Vegan' ? 'Veg' : (doc.foodType || (doc.isVeg ? 'Veg' : 'Non-Veg')),
       orderType: 'food',
       type: 'food',
       restaurantId: String(doc.restaurantId),

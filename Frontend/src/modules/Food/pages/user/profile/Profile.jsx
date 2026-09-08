@@ -712,7 +712,7 @@ export default function Profile() {
                     <Leaf className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                   </motion.div>
                   <span className="text-base font-medium text-gray-900 dark:text-white">
-                    {vegMode && vegModeOption === "pure-vegan" ? "Vegan Mode" : "Veg Mode"}
+                    Veg Mode
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -721,11 +721,9 @@ export default function Profile() {
                     whileHover={{ scale: 1.1 }}
                     transition={{ duration: 0.2 }}>
                     {vegMode
-                      ? vegModeOption === "pure-vegan"
-                        ? "Vegan"
-                        : vegModeOption === "pure-veg"
-                          ? "Pure Veg"
-                          : "All restaurants"
+                      ? vegModeOption === "pure-veg"
+                        ? "Pure Veg"
+                        : "All restaurants"
                       : "OFF"}
                   </motion.span>
                   <motion.div
@@ -1043,7 +1041,7 @@ export default function Profile() {
         <DialogContent className="max-w-sm md:max-w-md lg:max-w-lg w-[calc(100%-2rem)] rounded-2xl p-0 overflow-hidden">
           <DialogHeader className="p-5 pb-3">
             <DialogTitle className="text-lg font-bold text-gray-900">
-              {vegMode && vegModeOption === "pure-vegan" ? "Vegan Mode" : "Veg Mode"}
+              Veg Mode
             </DialogTitle>
             <DialogDescription className="text-sm text-gray-500">
               Filter restaurants and dishes based on your dietary preferences
@@ -1161,7 +1159,7 @@ export default function Profile() {
                 </div>
                 <div className="text-left">
                   <p className="font-medium text-gray-900 text-sm">
-                    {vegModeOption === "pure-vegan" ? "Vegan Mode OFF" : "Veg Mode OFF"}
+                    Veg Mode OFF
                   </p>
                   <p className="text-xs text-gray-500">Show all options</p>
                 </div>

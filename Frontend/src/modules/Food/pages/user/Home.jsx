@@ -47,7 +47,6 @@ import { isModuleAuthenticated } from "@food/utils/auth";
 import {
   isNonVegCategoryScope,
   isVegMenuItem,
-  isVeganMenuItem,
   matchesVegRestaurantFilter,
   filterRestaurantsForVegMode,
   filterDishesForVegMode,
@@ -2440,8 +2439,6 @@ export default function Home() {
             params.vegModeOption = vegModeOption;
             if (vegModeOption === "pure-veg") {
               params.pureVeg = "true";
-            } else if (vegModeOption === "pure-vegan") {
-              params.pureVegan = "true";
             }
           }
         }

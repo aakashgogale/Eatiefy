@@ -1,25 +1,13 @@
 /**
  * Shared veg-mode helpers for the Food user module.
- * When vegMode is ON, non-veg categories/dishes must never surface in browse UI.
- * When option is "pure-vegan", only explicitly Vegan dishes / pure-vegan restaurants.
+ * Only Veg, Non-Veg and Mixed (Veg + Non-Veg) are supported.
  */
 
-/**
- * Vegan is currently DISABLED as a selectable food/menu preference.
- * Only Veg, Non-Veg and Mixed (Veg + Non-Veg) are offered.
- *
- * Nothing Vegan-related has been deleted — the matching helpers below and the
- * stored values in the database are left intact so existing Vegan records keep
- * reading correctly. Flip this back to `true` to re-enable the option.
- */
 export const VEGAN_OPTION_ENABLED = false
 
 export const normalizeVegModeOption = (value) => {
-  // A "pure-vegan" value can still be sitting in localStorage from before the
-  // option was disabled. Fold it back to "pure-veg" so it cannot reappear as a
-  // selected mode after a refresh, instead of dropping the user to "all".
-  if (!VEGAN_OPTION_ENABLED && value === "pure-vegan") return "pure-veg"
-  if (value === "pure-veg" || value === "pure-vegan" || value === "non-veg") return value
+  if (value === "pure-vegan") return "pure-veg"
+  if (value === "pure-veg" || value === "non-veg") return value
   return "all"
 }
 
@@ -112,63 +100,43 @@ export const isVegMenuItem = (item, context = {}) => {
   }
 
   const isPureVegRestaurant =
+    item.foodType === "Veg" ||
     item.pureVegRestaurant === true ||
     item.isPureVeg === true ||
-    item.pureVeganRestaurant === true ||
-    item.isPureVegan === true ||
+    item.restaurant?.foodType === "Veg" ||
     item.restaurant?.pureVegRestaurant === true ||
     item.restaurant?.isPureVeg === true ||
+    context?.foodType === "Veg" ||
     context?.pureVegRestaurant === true ||
-    context?.isPureVeg === true ||
-    context?.pureVeganRestaurant === true ||
-    context?.isPureVegan === true
+    context?.isPureVeg === true
 
   if (isPureVegRestaurant) {
     return true
   }
 
-  // Unknown diet — hide in veg mode rather than showing chicken/non-veg by mistake
   return false
 }
 
-/** Fail-closed: only explicit Vegan foodType (or isVegan true) counts. */
+/** Legacy fail-safe: maps any remaining legacy check to false or safe veg status */
 export const isVeganMenuItem = (item) => {
-  if (!item || typeof item !== "object") return false
-
-  const foodType = String(
-    item.foodType ||
-      item.categoryDishFoodType ||
-      item.matchedDishFoodType ||
-      item.type ||
-      item.food_type ||
-      "",
-  )
-    .trim()
-    .toLowerCase()
-
-  if (
-    foodType === "vegan" ||
-    foodType === "pure-vegan" ||
-    foodType === "pure vegan"
-  ) {
-    return true
-  }
-
-  if (
-    item.isVegan === true ||
-    item.isVegan === "true" ||
-    item.isVegan === 1
-  ) {
-    return true
-  }
-
   return false
 }
 
 export const getCanonicalFoodType = (item, context = {}) => {
-  if (isVeganMenuItem(item)) return "Vegan"
   if (isVegMenuItem(item, context)) return "Veg"
   return "Non-Veg"
+}
+
+export const getRestaurantFoodType = (restaurant = {}) => {
+  if (!restaurant || typeof restaurant !== "object") return "Mixed"
+  const raw = String(restaurant.foodType || "").trim().toLowerCase()
+  if (raw === "veg" || raw === "pure-veg" || raw === "pure veg" || restaurant.pureVegRestaurant === true || restaurant.isPureVeg === true) {
+    return "Veg"
+  }
+  if (raw === "non-veg" || raw === "non veg" || restaurant.hasNonVegMenuOnly === true) {
+    return "Non-Veg"
+  }
+  return "Mixed"
 }
 
 export const isNonVegCategoryScope = (cat) => {
@@ -205,9 +173,6 @@ export const filterDishesForVegMode = (
 ) => {
   if (!vegMode) return Array.isArray(dishes) ? dishes : []
   const option = normalizeVegModeOption(vegModeOption)
-  if (option === "pure-vegan") {
-    return (Array.isArray(dishes) ? dishes : []).filter(isVeganMenuItem)
-  }
   if (option === "non-veg") {
     return (Array.isArray(dishes) ? dishes : []).filter((d) => !isVegMenuItem(d))
   }
@@ -217,10 +182,9 @@ export const filterDishesForVegMode = (
 /**
  * Restaurant visibility for vegMode + vegModeOption.
  * - vegMode OFF → all restaurants
- * - option "all" → all restaurants serving vegetarian food
- * - option "pure-veg" → pure-veg OR pure-vegan restaurants
- * - option "pure-vegan" → only pure-vegan restaurants
- * - option "non-veg" → restaurants serving non-veg food
+ * - option "all" → all restaurants
+ * - option "pure-veg" → Veg restaurants and mixed restaurants serving veg dishes
+ * - option "non-veg" → Non-Veg and mixed restaurants serving non-veg dishes
  */
 export const matchesVegRestaurantFilter = (
   restaurant,
@@ -229,42 +193,19 @@ export const matchesVegRestaurantFilter = (
   if (!vegMode) return true
   if (!restaurant || typeof restaurant !== "object") return false
   const option = normalizeVegModeOption(vegModeOption)
-
-  if (option === "pure-vegan") {
-    if (restaurant?.isPureVegan === false) return false
-    if (restaurant?.isPureVegan === true) return true
-    return (
-      restaurant?.pureVeganRestaurant === true ||
-      restaurant?.diningSettings?.pureVeganRestaurant === true
-    )
-  }
+  const ft = getRestaurantFoodType(restaurant)
 
   if (option === "pure-veg") {
-    if (restaurant?.hasNonVegMenu === true) return false
-    if (restaurant?.isPureVeg === true) return true
-    if (restaurant?.isPureVegan === true) return true
-    if (restaurant?.hasNonVegMenu === false) return true
-
-    return (
-      restaurant?.pureVegRestaurant === true ||
-      restaurant?.pureVeganRestaurant === true ||
-      restaurant?.diningSettings?.pureVegRestaurant === true ||
-      restaurant?.diningSettings?.pureVeganRestaurant === true
-    )
+    if (ft === "Non-Veg" || restaurant?.hasNonVegMenuOnly === true) return false
+    if (ft === "Veg") return true
+    return restaurant?.pureVegRestaurant === true || restaurant?.isPureVeg === true
   }
 
   if (option === "non-veg") {
-    if (restaurant?.pureVegRestaurant === true) return false
-    if (restaurant?.pureVeganRestaurant === true) return false
-    if (restaurant?.isPureVeg === true) return false
-    if (restaurant?.isPureVegan === true) return false
-    if (restaurant?.diningSettings?.pureVegRestaurant === true) return false
-    if (restaurant?.diningSettings?.pureVeganRestaurant === true) return false
+    if (ft === "Veg" || restaurant?.pureVegRestaurant === true || restaurant?.isPureVeg === true) return false
     return true
   }
 
-  // option === "all": Show all restaurants offering veg options
-  if (restaurant?.hasNonVegMenuOnly === true) return false
   return true
 }
 

@@ -174,13 +174,12 @@ export async function enforceMinimumFoodItemPrices(items = [], restaurantId = nu
     if (!item.image && doc.image) item.image = doc.image;
     const docFoodType = String(doc.foodType || '').toLowerCase().trim();
     const isDocVeg = ['veg', 'vegan', 'vegetarian'].includes(docFoodType) || doc.isVeg === true;
-    const isDocVegan = docFoodType === 'vegan' || doc.isVegan === true;
     if (item.isVeg == null) {
       item.isVeg = isDocVeg;
-      item.isVegan = isDocVegan;
+      item.isVegan = false;
     }
     if (!item.foodType) {
-      item.foodType = doc.foodType || (isDocVegan ? 'Vegan' : isDocVeg ? 'Veg' : 'Non-Veg');
+      item.foodType = doc.foodType === 'Vegan' ? 'Veg' : (doc.foodType || (isDocVeg ? 'Veg' : 'Non-Veg'));
     }
   }
 

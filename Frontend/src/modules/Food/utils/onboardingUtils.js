@@ -24,7 +24,7 @@ const isStepComplete = (stepData, stepNumber) => {
   if (stepNumber === 1) {
     return (
       stepData.restaurantName &&
-      typeof stepData.pureVegRestaurant === "boolean" &&
+      (Boolean(stepData.foodType) || typeof stepData.pureVegRestaurant === "boolean") &&
       stepData.ownerName &&
       stepData.ownerEmail &&
       stepData.ownerPhone &&
@@ -93,6 +93,9 @@ const buildOnboardingLikeDataFromRestaurant = (restaurant) => {
     completedSteps: onboarding.completedSteps,
     step1: onboarding.step1 || {
       restaurantName: restaurant?.restaurantName || restaurant?.name,
+      foodType:
+        restaurant?.foodType ||
+        (restaurant?.pureVegRestaurant === true ? "Veg" : restaurant?.pureVegRestaurant === false ? "Mixed" : null),
       pureVegRestaurant:
         typeof restaurant?.pureVegRestaurant === "boolean"
           ? restaurant.pureVegRestaurant
@@ -309,7 +312,7 @@ export const hasRestaurantStep1Progress = (step1 = {}) => {
     return true
   }
 
-  return typeof step1.pureVegRestaurant === "boolean"
+  return Boolean(step1.foodType) || typeof step1.pureVegRestaurant === "boolean"
 }
 
 export const clearAllFilesFromDB = async () => {

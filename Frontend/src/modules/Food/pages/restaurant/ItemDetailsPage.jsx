@@ -82,8 +82,7 @@ export default function ItemDetailsPage() {
   const [itemSizeUnit, setItemSizeUnit] = useState("piece")
   const [itemDescription, setItemDescription] = useState("")
   const [foodType, setFoodType] = useState("Veg")
-  const [isPureVegRestaurant, setIsPureVegRestaurant] = useState(false)
-  const [isPureVeganRestaurant, setIsPureVeganRestaurant] = useState(false)
+  const [restaurantFoodType, setRestaurantFoodType] = useState("Mixed")
   const [basePrice, setBasePrice] = useState("")
   const [variants, setVariants] = useState([])
   const [preparationTime, setPreparationTime] = useState("")
@@ -166,15 +165,11 @@ export default function ItemDetailsPage() {
     setItemDescription(item.description || "")
 
     const rawFoodType = String(item.foodType || "").trim()
-    if (isPureVeganRestaurant) {
-      setFoodType("Vegan")
-    } else if (isPureVegRestaurant) {
-      // Vegan is disabled as a selectable type, so a legacy Vegan record is
-      // shown as Veg rather than leaving no diet button active.
-      setFoodType(rawFoodType === "Vegan" && VEGAN_OPTION_ENABLED ? "Vegan" : "Veg")
-    } else if (rawFoodType === "Vegan") {
-      setFoodType(VEGAN_OPTION_ENABLED ? "Vegan" : "Veg")
-    } else if (rawFoodType === "Veg") {
+    if (restaurantFoodType === "Veg") {
+      setFoodType("Veg")
+    } else if (restaurantFoodType === "Non-Veg") {
+      setFoodType("Non-Veg")
+    } else if (rawFoodType === "Veg" || rawFoodType === "Vegan") {
       setFoodType("Veg")
     } else {
       setFoodType("Non-Veg")
@@ -280,17 +275,12 @@ export default function ItemDetailsPage() {
           response?.data?.restaurant ||
           response?.data?.data ||
           null
-        const pureVegan =
-          profile?.pureVeganRestaurant === true ||
-          profile?.pureVeganRestaurant === "true"
-        const pureVeg =
-          pureVegan ||
-          profile?.pureVegRestaurant === true ||
-          profile?.pureVegRestaurant === "true"
-        setIsPureVeganRestaurant(VEGAN_OPTION_ENABLED && pureVegan)
-        setIsPureVegRestaurant(pureVeg)
-        if (pureVegan) setFoodType("Vegan")
-        else if (pureVeg) setFoodType((prev) => (prev === "Non-Veg" ? "Veg" : prev))
+        const ft =
+          profile?.foodType ||
+          (profile?.pureVegRestaurant === true ? "Veg" : "Mixed")
+        setRestaurantFoodType(ft)
+        if (ft === "Veg") setFoodType("Veg")
+        else if (ft === "Non-Veg") setFoodType("Non-Veg")
       } catch (error) {
         debugWarn("Failed to load restaurant diet type:", error)
       }
@@ -300,14 +290,12 @@ export default function ItemDetailsPage() {
 
   // Keep diet buttons aligned with restaurant type once profile loads
   useEffect(() => {
-    if (isPureVeganRestaurant) {
-      setFoodType("Vegan")
-      return
+    if (restaurantFoodType === "Veg") {
+      setFoodType("Veg")
+    } else if (restaurantFoodType === "Non-Veg") {
+      setFoodType("Non-Veg")
     }
-    if (isPureVegRestaurant) {
-      setFoodType((prev) => (prev === "Non-Veg" ? "Veg" : prev))
-    }
-  }, [isPureVegRestaurant, isPureVeganRestaurant])
+  }, [restaurantFoodType])
 
   // Fetch item data when editing — prefer food-by-id API for full prefill
   useEffect(() => {
@@ -478,13 +466,15 @@ export default function ItemDetailsPage() {
 
   const filteredCategories = useMemo(() => {
     let list = categories
-    if (isPureVegRestaurant) {
+    if (restaurantFoodType === "Veg") {
       list = list.filter((cat) => cat.foodTypeScope !== "Non-Veg")
+    } else if (restaurantFoodType === "Non-Veg") {
+      list = list.filter((cat) => cat.foodTypeScope !== "Veg")
     }
     if (!debouncedCategorySearch) return list
     const query = debouncedCategorySearch.toLowerCase()
     return list.filter((cat) => String(cat.name || "").toLowerCase().includes(query))
-  }, [categories, debouncedCategorySearch, isPureVegRestaurant])
+  }, [categories, debouncedCategorySearch, restaurantFoodType])
 
   // Keep focused form fields visible above mobile keyboard
   useEffect(() => {
@@ -735,32 +725,17 @@ export default function ItemDetailsPage() {
     if (
       matchedCategory?.foodTypeScope &&
       matchedCategory.foodTypeScope !== "Both" &&
-      !(
-        matchedCategory.foodTypeScope === "Veg" &&
-        (foodType === "Veg" || foodType === "Vegan")
-      ) &&
       matchedCategory.foodTypeScope !== foodType
     ) {
       toast.error(`This ${matchedCategory.foodTypeScope} category cannot accept ${foodType} food`)
       return
     }
 
-    const effectiveFoodType = isPureVeganRestaurant
-      ? "Vegan"
-      : isPureVegRestaurant && foodType === "Non-Veg"
-        ? "Veg"
+    const effectiveFoodType = restaurantFoodType === "Veg"
+      ? "Veg"
+      : restaurantFoodType === "Non-Veg"
+        ? "Non-Veg"
         : foodType
-
-    if (effectiveFoodType === "Vegan") {
-      const veganBlock = getVeganFoodTypeBlockReason({
-        name: itemName,
-        description: itemDescription,
-      })
-      if (veganBlock.blocked) {
-        toast.error(formatVeganBlockMessage(veganBlock))
-        return
-      }
-    }
 
     const normalizedVariants = variants
       .map((variant) => ({
@@ -1210,60 +1185,48 @@ export default function ItemDetailsPage() {
             </div>
             {/* Dietary Options */}
             <div className="flex flex-wrap gap-2 mt-3">
-              {!isPureVeganRestaurant && (
+              {restaurantFoodType !== "Non-Veg" && (
                 <button
                   type="button"
                   onClick={() => setFoodType("Veg")}
                   className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${foodType === "Veg"
-                    ? "border-green-600 border-2 text-green-600"
+                    ? "border-green-600 border-2 text-green-600 font-semibold"
                     : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                     }`}
                 >
                   {foodType === "Veg" && <Check className="w-4 h-4" />}
+                  <div className="w-2.5 h-2.5 rounded-full bg-green-600" />
                   <span>Veg</span>
                 </button>
               )}
-              {/* DISABLED: Vegan is not a selectable food type — only Veg,
-                  Non-Veg and Mixed are active. Kept (not deleted) for restore.
-              <button
-                type="button"
-                onClick={() => setFoodType("Vegan")}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${foodType === "Vegan"
-                  ? "border-emerald-700 border-2 text-emerald-700"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  }`}
-              >
-                {foodType === "Vegan" && <Check className="w-4 h-4" />}
-                <span>Vegan</span>
-              </button>
-              */}
-              {!isPureVegRestaurant && !isPureVeganRestaurant && (
+              {restaurantFoodType !== "Veg" && (
                 <button
                   type="button"
                   onClick={() => setFoodType("Non-Veg")}
                   className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${foodType === "Non-Veg"
-                    ? "border-red-600 border-2 text-[#2E7D52]"
+                    ? "border-red-600 border-2 text-red-600 font-semibold"
                     : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                     }`}
                 >
                   {foodType === "Non-Veg" && <Check className="w-4 h-4" />}
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-600" />
                   <span>Non-Veg</span>
                 </button>
               )}
             </div>
-            {isPureVeganRestaurant ? (
-              <p className="mt-2 text-xs text-emerald-700">
-                Pure vegan restaurant — only vegan items can be added (no dairy, ghee, honey, or animal products).
-              </p>
-            ) : isPureVegRestaurant ? (
+            {restaurantFoodType === "Veg" ? (
               <p className="mt-2 text-xs text-green-700">
-                Pure veg restaurant — Non-Veg is disabled. Use Veg for dairy items; Vegan only if the dish has no dairy/animal products.
+                Veg restaurant — only vegetarian items can be added.
               </p>
-            ) : foodType === "Vegan" ? (
-              <p className="mt-2 text-xs text-emerald-700">
-                Vegan items must not contain milk, butter, paneer, ghee, honey, egg, or meat.
+            ) : restaurantFoodType === "Non-Veg" ? (
+              <p className="mt-2 text-xs text-red-700">
+                Non-Veg restaurant — only non-vegetarian items can be added.
               </p>
-            ) : null}
+            ) : (
+              <p className="mt-2 text-xs text-gray-500">
+                Mixed restaurant — choose Veg or Non-Veg for this item.
+              </p>
+            )}
           </div>
 
           {/* Item Price */}

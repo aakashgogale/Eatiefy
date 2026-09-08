@@ -2,8 +2,7 @@ import { useEffect, useState, useMemo } from "react"
 import { useLocation, useNavigate, useParams } from "react-router-dom"
 import { restaurantAPI, diningAPI } from "@food/api"
 import { useProfile } from "@food/context/ProfileContext"
-import { getMenuFromResponse } from "@food/utils/menuItems"
-import { isVegMenuItem, isVeganMenuItem } from "@food/utils/vegMode"
+import { isVegMenuItem } from "@food/utils/vegMode"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { isModuleAuthenticated } from "@food/utils/auth"
 import {
@@ -69,11 +68,7 @@ const buildFeaturedSections = (menuSections, vegMode = false, vegModeOption = "a
         ...((Array.isArray(section?.subsections) ? section.subsections : []).flatMap((subsection) => subsection?.items || [])),
       ]
       const visibleItems = vegMode
-        ? items.filter((item) =>
-            vegModeOption === "pure-vegan"
-              ? isVeganMenuItem(item)
-              : isVegMenuItem(item),
-          )
+        ? items.filter((item) => isVegMenuItem(item))
         : items
       if (vegMode && visibleItems.length === 0) return null
 

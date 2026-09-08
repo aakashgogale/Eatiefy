@@ -20,8 +20,7 @@ import { restaurantAPI, adminAPI } from "@food/api"
 import { isModuleAuthenticated } from "@food/utils/auth"
 import { flattenMenuItems, getMenuFromResponse } from "@food/utils/menuItems"
 import { calculateDistance, formatDistance } from "@food/utils/common"
-import { hasFoodVariants, getDefaultFoodVariant, buildCartLineId } from "@food/utils/foodVariants"
-import { isVegMenuItem, isVeganMenuItem, isNonVegCategoryScope } from "@food/utils/vegMode"
+import { isVegMenuItem, isNonVegCategoryScope } from "@food/utils/vegMode"
 import {
   buildFoodCacheKey,
   getCachedUnder250PriceLimit,
@@ -90,25 +89,15 @@ const mapUnder250Restaurants = (restaurantsRaw, location) => {
         price: Number(item.price || 0),
         foodType: item.foodType || (item.isVeg ? "Veg" : "Non-Veg"),
         isVeg: isVegMenuItem(item),
-        isVegan: isVeganMenuItem(item),
         image: item?.image || "",
       }))
     const hasNonVegInPayload = mappedItems.some((item) => !item.isVeg)
-    const hasNonVeganInPayload = mappedItems.some((item) => !item.isVegan)
     const hasNonVegMenu =
       restaurant?.hasNonVegMenu === true || hasNonVegInPayload
         ? true
         : restaurant?.hasNonVegMenu === false
           ? false
           : undefined
-    const isPureVegan =
-      restaurant?.isPureVegan === true
-        ? true
-        : restaurant?.pureVeganRestaurant === true && !hasNonVeganInPayload
-          ? true
-          : restaurant?.isPureVegan === false
-            ? false
-            : undefined
 
     return {
       ...restaurant,
@@ -125,21 +114,16 @@ const mapUnder250Restaurants = (restaurantsRaw, location) => {
       distance: distanceInKm !== null ? formatDistance(distanceInKm) : fallbackDistance,
       distanceInKm,
       hasNonVegMenu,
-      pureVeganRestaurant: restaurant?.pureVeganRestaurant === true,
+      foodType: restaurant?.foodType || (restaurant?.pureVegRestaurant ? "Veg" : "Mixed"),
+      pureVegRestaurant: restaurant?.foodType === "Veg" || restaurant?.pureVegRestaurant === true,
       isPureVeg:
         hasNonVegMenu === true
           ? false
-          : restaurant?.isPureVeg === true ||
+          : restaurant?.foodType === "Veg" ||
+            restaurant?.isPureVeg === true ||
             (hasNonVegMenu === false &&
               (restaurant?.pureVegRestaurant === true ||
-                restaurant?.pureVeganRestaurant === true ||
                 mappedItems.some((item) => item.isVeg))),
-      isPureVegan:
-        isPureVegan === true
-          ? true
-          : isPureVegan === false
-            ? false
-            : restaurant?.pureVeganRestaurant === true && !hasNonVeganInPayload,
       menuItems: mappedItems,
     }
   })
@@ -299,41 +283,23 @@ export default function Under250({ isTabActive = true }) {
       menuItems: [...(r.menuItems || [])],
     }))
 
-    // Veg mode: pure-veg / pure-vegan restaurants only, or all restaurants with diet-filtered dishes
+    // Veg mode: pure-veg restaurants only, or all restaurants with veg dishes
     if (vegMode) {
-      if (vegModeOption === "pure-vegan") {
+      if (vegModeOption === "pure-veg") {
         filtered = filtered.filter((restaurant) => {
-          if (restaurant?.isPureVegan === true) return true
-          if (restaurant?.isPureVegan === false) return false
-          const items = restaurant.menuItems || []
-          const hasNonVeganDish = items.some((item) => !isVeganMenuItem(item))
-          return restaurant?.pureVeganRestaurant === true && !hasNonVeganDish
-        })
-      } else if (vegModeOption === "pure-veg") {
-        filtered = filtered.filter((restaurant) => {
-          // Full-menu signal from API (any price) — don't trust under-250 items alone
+          if (restaurant?.foodType === "Veg") return true
+          if (restaurant?.foodType && restaurant.foodType !== "Veg") return false
           if (restaurant?.hasNonVegMenu === true) return false
-          if (restaurant?.isPureVeg === true || restaurant?.isPureVegan === true) return true
-          if (restaurant?.hasNonVegMenu === false) {
-            // Menu scanned: no non-veg anywhere; allow even if admin flag is wrong/missing
-            return true
-          }
+          if (restaurant?.isPureVeg === true) return true
+          if (restaurant?.hasNonVegMenu === false) return true
           const items = restaurant.menuItems || []
           const hasNonVegDish = items.some((item) => !isVegMenuItem(item))
-          return (
-            (restaurant?.pureVegRestaurant === true ||
-              restaurant?.pureVeganRestaurant === true) &&
-            !hasNonVegDish
-          )
+          return restaurant?.pureVegRestaurant === true && !hasNonVegDish
         })
       }
       filtered = filtered
         .map((restaurant) => {
-          const dietItems = (restaurant.menuItems || []).filter((item) =>
-            vegModeOption === "pure-vegan"
-              ? isVeganMenuItem(item)
-              : isVegMenuItem(item),
-          )
+          const dietItems = (restaurant.menuItems || []).filter((item) => isVegMenuItem(item))
           if (dietItems.length === 0) return null
           return { ...restaurant, menuItems: dietItems }
         })

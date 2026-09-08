@@ -94,18 +94,17 @@ const getRestaurantContext = async (restaurantId) => {
     }
 
     const restaurant = await FoodRestaurant.findById(restaurantId)
-        .select('pureVegRestaurant pureVeganRestaurant')
+        .select('foodType pureVegRestaurant')
         .lean();
     if (!restaurant?._id) {
         throw new ValidationError('Restaurant not found');
     }
 
-    const pureVeganRestaurant = restaurant.pureVeganRestaurant === true;
+    const foodType = restaurant.foodType || (restaurant.pureVegRestaurant ? 'Veg' : 'Mixed');
     return {
         restaurantId: new mongoose.Types.ObjectId(String(restaurantId)),
-        pureVeganRestaurant,
-        // Pure vegan implies pure veg restrictions for categories.
-        pureVegRestaurant: pureVeganRestaurant || restaurant.pureVegRestaurant === true,
+        foodType,
+        pureVegRestaurant: foodType === 'Veg',
     };
 };
 
@@ -134,8 +133,10 @@ const resolveCategoryForRestaurant = async (context, body = {}) => {
         ...getAccessibleCategoryFilter(context),
         isActive: { $ne: false }
     };
-    if (context.pureVegRestaurant) {
+    if (context.foodType === 'Veg') {
         baseFilter.foodTypeScope = 'Veg';
+    } else if (context.foodType === 'Non-Veg') {
+        baseFilter.foodTypeScope = 'Non-Veg';
     }
 
     let category = null;
@@ -172,8 +173,11 @@ const resolveCategoryForRestaurant = async (context, body = {}) => {
     if (String(category.approvalStatus || '') !== 'approved') {
         throw new ValidationError('This category is awaiting admin approval');
     }
-    if (context.pureVegRestaurant && String(category.foodTypeScope || '') !== 'Veg') {
-        throw new ValidationError('Pure veg restaurants can only use veg categories');
+    if (context.foodType === 'Veg' && String(category.foodTypeScope || '') === 'Non-Veg') {
+        throw new ValidationError('Veg restaurants can only use veg categories');
+    }
+    if (context.foodType === 'Non-Veg' && String(category.foodTypeScope || '') === 'Veg') {
+        throw new ValidationError('Non-veg restaurants can only use non-veg categories');
     }
     if (!categoryAllowsFoodType(category.foodTypeScope, foodType)) {
         throw new ValidationError(`This ${category.foodTypeScope} category cannot accept ${foodType} food`);
@@ -217,13 +221,12 @@ export async function createRestaurantFood(restaurantId, body = {}) {
     const image = toStr(body.image);
     const isAvailable = body.isAvailable !== false;
     const foodType = normalizeFoodType(body.foodType);
-    if (context.pureVeganRestaurant && foodType !== 'Vegan') {
-        throw new ValidationError('Pure vegan restaurants can only use vegan foods');
+    if (context.foodType === 'Veg' && foodType !== 'Veg') {
+        throw new ValidationError('Veg restaurants can only add veg foods');
     }
-    if (context.pureVegRestaurant && !context.pureVeganRestaurant && foodType === 'Non-Veg') {
-        throw new ValidationError('Pure veg restaurants can only use veg or vegan foods');
+    if (context.foodType === 'Non-Veg' && foodType !== 'Non-Veg') {
+        throw new ValidationError('Non-veg restaurants can only add non-veg foods');
     }
-    assertFoodTypeAllowedForContent(foodType, { name, description });
     const preparationTime = toStr(body.preparationTime);
     const { categoryObjectId, categoryName } = await resolveCategoryForRestaurant(context, { ...body, foodType });
 
@@ -329,16 +332,12 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
     if (body.preparationTime !== undefined) update.preparationTime = toStr(body.preparationTime);
 
     const targetFoodType = body.foodType !== undefined ? normalizeFoodType(body.foodType) : normalizeFoodType(existing.foodType);
-    if (context.pureVeganRestaurant && targetFoodType !== 'Vegan') {
-        throw new ValidationError('Pure vegan restaurants can only use vegan foods');
+    if (context.foodType === 'Veg' && targetFoodType !== 'Veg') {
+        throw new ValidationError('Veg restaurants can only have veg foods');
     }
-    if (context.pureVegRestaurant && !context.pureVeganRestaurant && targetFoodType === 'Non-Veg') {
-        throw new ValidationError('Pure veg restaurants can only use veg or vegan foods');
+    if (context.foodType === 'Non-Veg' && targetFoodType !== 'Non-Veg') {
+        throw new ValidationError('Non-veg restaurants can only have non-veg foods');
     }
-    assertFoodTypeAllowedForContent(targetFoodType, {
-        name: update.name !== undefined ? update.name : existing.name,
-        description: update.description !== undefined ? update.description : existing.description,
-    });
     if (body.foodType !== undefined) update.foodType = targetFoodType;
 
     if (

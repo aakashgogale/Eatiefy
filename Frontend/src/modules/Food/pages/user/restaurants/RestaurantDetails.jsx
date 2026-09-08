@@ -62,8 +62,7 @@ import {
   hasFoodVariants,
 } from "@food/utils/foodVariants"
 import { RestaurantDetailSkeleton } from "@food/components/ui/loading-skeletons"
-import OptimizedImage from "@food/components/OptimizedImage"
-import { isVegMenuItem, isVeganMenuItem } from "@food/utils/vegMode"
+import { isVegMenuItem } from "@food/utils/vegMode"
 import dishFallbackImage from "@food/assets/dish_fallback.webp"
 
 const fssaiLogo = "/assets/images/fssai.png?v=3"
@@ -1046,8 +1045,7 @@ function RestaurantDetailsContent() {
                   const isRecommended = item.isRecommended === true || item.isRecommended === 1 || String(item.isRecommended) === "true"
                   const isSpicy = item.isSpicy === true || item.isSpicy === 1 || String(item.isSpicy) === "true"
                   const isVeg = isVegMenuItem(item, transformedRestaurant)
-                  const isVegan = isVeganMenuItem(item)
-                  const foodType = isVegan ? "Vegan" : isVeg ? "Veg" : "Non-Veg"
+                  const foodType = item.foodType || (isVeg ? "Veg" : "Non-Veg")
 
                   return {
                     ...item,
@@ -1414,7 +1412,7 @@ function RestaurantDetailsContent() {
       restaurantZoneId: restaurant.zoneId ? String(restaurant.zoneId) : "",
       description: item.description,
       isVeg: isVegMenuItem(item, restaurant),
-      foodType: item.foodType || (isVegMenuItem(item, restaurant) ? (isVeganMenuItem(item) ? 'Vegan' : 'Veg') : 'Non-Veg'),
+      foodType: item.foodType || (isVegMenuItem(item, restaurant) ? 'Veg' : 'Non-Veg'),
       preparationTime: item.preparationTime, // Add preparationTime property
       pricingScope: resolvedVariant?.pricingScope ?? item.pricingScope ?? null,
       appliedPricingType: resolvedVariant?.appliedPricingType ?? item.appliedPricingType ?? null,
@@ -1576,11 +1574,7 @@ function RestaurantDetailsContent() {
           toRenderableArray(items).filter((item) => {
             if (item?.isAvailable === false) return false
             if (vegMode) {
-              if (vegModeOption === "pure-vegan") {
-                if (!isVeganMenuItem(item)) return false
-              } else if (!isVegMenuItem(item)) {
-                return false
-              }
+              if (!isVegMenuItem(item)) return false
             }
             return true
           }).length
@@ -1955,14 +1949,10 @@ function RestaurantDetailsContent() {
         if (!itemName.includes(query)) return false
       }
 
-      // VegMode filter - when vegMode is ON, show only Veg / Vegan items
+      // VegMode filter - when vegMode is ON, show only Veg items
       // When vegMode is false/null/undefined, show all items (Veg and Non-Veg)
       if (vegMode === true) {
-        if (vegModeOption === "pure-vegan") {
-          if (!isVeganMenuItem(item)) return false
-        } else if (!isVegMenuItem(item)) {
-          return false
-        }
+        if (!isVegMenuItem(item)) return false
       }
 
       // Veg/Non-veg filter (local filter override) — Non-veg chip disabled while vegMode is ON

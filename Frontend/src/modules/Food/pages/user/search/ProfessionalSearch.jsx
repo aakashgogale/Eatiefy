@@ -22,7 +22,6 @@ import {
   filterCategoriesForVegMode,
   filterRestaurantsForVegMode,
   isVegMenuItem,
-  isVeganMenuItem,
   matchesVegRestaurantFilter,
 } from "@food/utils/vegMode"
 const CategoryPage = lazy(() => import("../CategoryPage"))
@@ -171,11 +170,7 @@ export default function ProfessionalSearch() {
         limit: 50,
         zoneId,
         orderType: searchMode,
-        ...(vegMode
-          ? vegModeOption === "pure-vegan"
-            ? { isVegan: "true" }
-            : { isVeg: "true" }
-          : {}),
+        ...(vegMode ? { isVeg: "true" } : {}),
       })
 
       const all = res.data?.success ? (res.data.data?.restaurants || []) : []
@@ -192,11 +187,8 @@ export default function ProfessionalSearch() {
           const item = {
             foodType: r.matchedDishFoodType || r.foodType,
             isVeg: r.isVeg,
-            isVegan: r.isVegan,
           }
-          return vegModeOption === "pure-vegan"
-            ? isVeganMenuItem(item)
-            : isVegMenuItem(item)
+          return isVegMenuItem(item)
         })
         .filter((r) => matchesVegRestaurantFilter(r, { vegMode, vegModeOption }))
 

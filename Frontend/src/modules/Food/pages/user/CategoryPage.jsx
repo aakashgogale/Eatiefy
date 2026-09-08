@@ -23,7 +23,6 @@ import {
   filterCategoriesForVegMode,
   isNonVegCategoryScope,
   isVegMenuItem,
-  isVeganMenuItem,
 } from "@food/utils/vegMode"
 import { useLocation } from "@food/hooks/useLocation"
 import { useZone } from "@food/hooks/useZone"
@@ -319,9 +318,8 @@ export default function CategoryPage({
         price: Number(food?.price || 0),
         originalPrice: Number(food?.originalPrice || food?.price || 0),
         image: normalizeImageUrl(food?.image),
-        foodType: isVeganMenuItem(food) ? "Vegan" : isVegMenuItem(food) ? "Veg" : (food?.foodType || "Non-Veg"),
+        foodType: isVegMenuItem(food) ? "Veg" : (food?.foodType || "Non-Veg"),
         isVeg: isVegMenuItem(food),
-        isVegan: isVeganMenuItem(food),
         isAvailable: food?.isAvailable !== false,
         categoryName: food?.categoryName || sectionName,
         category: food?.categoryName || sectionName,
@@ -412,7 +410,7 @@ export default function CategoryPage({
           categoryDishName: food?.name || "Unnamed Item",
           categoryDishPrice: Number(food?.price || 0),
           categoryDishImage: fallbackImage,
-          categoryDishFoodType: isVeganMenuItem(food) ? "Vegan" : isVegMenuItem(food) ? "Veg" : (food?.foodType || "Non-Veg"),
+          categoryDishFoodType: isVegMenuItem(food) ? "Veg" : (food?.foodType || "Non-Veg"),
         }
       })
   }
@@ -991,11 +989,7 @@ export default function CategoryPage({
       }
 
       if (vegMode) {
-        categoryDishes = categoryDishes.filter((dish) =>
-          vegModeOption === "pure-vegan"
-            ? isVeganMenuItem(dish)
-            : isVegMenuItem(dish),
-        )
+        categoryDishes = categoryDishes.filter((dish) => isVegMenuItem(dish))
       }
       const card = buildRestaurantCardWithCategoryDishes(restaurant, categoryDishes)
       if (card) cards.push(card)
@@ -1295,9 +1289,8 @@ export default function CategoryPage({
                         name: dish?.name,
                         price: Number(dish?.price || 0),
                         image: normalizeImageUrl(dish?.image) || dish?.image || null,
-                        foodType: isVeganMenuItem(dish) ? "Vegan" : isVegMenuItem(dish, restaurant) ? "Veg" : (dish?.foodType || "Non-Veg"),
+                        foodType: isVegMenuItem(dish, restaurant) ? "Veg" : (dish?.foodType || "Non-Veg"),
                         isVeg: isVegMenuItem(dish, restaurant),
-                        isVegan: isVeganMenuItem(dish),
                       }))
                       .filter((dish) => dish.name)
                   : [],
@@ -1638,17 +1631,13 @@ export default function CategoryPage({
     const sourceData = restaurantsData.length > 0 ? restaurantsData : []
     let filtered = [...sourceData]
 
-    if (vegMode && vegModeOption === "pure-vegan") {
+    if (vegMode && vegModeOption === "pure-veg") {
       filtered = filtered.filter((r) => {
-        if (r?.isPureVegan === true) return true
-        if (r?.isPureVegan === false) return false
-        return r?.pureVeganRestaurant === true
-      })
-    } else if (vegMode && vegModeOption === "pure-veg") {
-      filtered = filtered.filter((r) => {
+        if (r?.foodType === "Veg") return true
+        if (r?.foodType && r.foodType !== "Veg") return false
         if (r?.hasNonVegMenu === true) return false
-        if (r?.isPureVeg === true || r?.isPureVegan === true || r?.hasNonVegMenu === false) return true
-        return r?.pureVegRestaurant === true || r?.pureVeganRestaurant === true
+        if (r?.isPureVeg === true || r?.hasNonVegMenu === false) return true
+        return r?.pureVegRestaurant === true
       })
     }
 
@@ -1683,11 +1672,7 @@ export default function CategoryPage({
         if (categoryDishes.length === 0) return
 
         const validDishes = vegMode
-          ? categoryDishes.filter((dish) =>
-              vegModeOption === "pure-vegan"
-                ? isVeganMenuItem(dish)
-                : isVegMenuItem(dish),
-            )
+          ? categoryDishes.filter((dish) => isVegMenuItem(dish))
           : categoryDishes
 
         const sourceRestaurantId = r.id || r.restaurantId || r.mongoId || r.slug
@@ -1713,25 +1698,21 @@ export default function CategoryPage({
         const fallbackDishes = getCategoryFallbackDishesFromApprovedFoods(selectedCategory, sourceData)
         filtered = vegMode
           ? fallbackDishes.filter((dish) =>
-              vegModeOption === "pure-vegan"
-                ? dish.categoryDishFoodType === "Vegan" ||
-                  isVeganMenuItem({ foodType: dish.categoryDishFoodType })
-                : dish.categoryDishFoodType === "Veg" ||
-                  dish.categoryDishFoodType === "Vegan" ||
-                  isVegMenuItem({ foodType: dish.categoryDishFoodType }),
+              dish.categoryDishFoodType === "Veg" ||
+              isVegMenuItem({ foodType: dish.categoryDishFoodType }),
             )
           : fallbackDishes
         filtered = filtered.map((row) => ({
           ...row,
           sourceRestaurantId: row.restaurantId || row.mongoId || row.slug || row.id,
         }))
-        if (vegMode && vegModeOption === "pure-vegan") {
-          filtered = filtered.filter((r) => r?.pureVeganRestaurant === true || r?.isPureVegan === true)
-        } else if (vegMode && vegModeOption === "pure-veg") {
+        if (vegMode && vegModeOption === "pure-veg") {
           filtered = filtered.filter((r) => {
+            if (r?.foodType === "Veg") return true
+            if (r?.foodType && r.foodType !== "Veg") return false
             if (r?.hasNonVegMenu === true) return false
-            if (r?.isPureVeg === true || r?.isPureVegan === true || r?.hasNonVegMenu === false) return true
-            return r?.pureVegRestaurant === true || r?.pureVeganRestaurant === true
+            if (r?.isPureVeg === true || r?.hasNonVegMenu === false) return true
+            return r?.pureVegRestaurant === true
           })
         }
       }
@@ -1744,17 +1725,13 @@ export default function CategoryPage({
     const sourceData = restaurantsData.length > 0 ? restaurantsData : []
     let filtered = [...sourceData]
 
-    if (vegMode && vegModeOption === "pure-vegan") {
+    if (vegMode && vegModeOption === "pure-veg") {
       filtered = filtered.filter((r) => {
-        if (r?.isPureVegan === true) return true
-        if (r?.isPureVegan === false) return false
-        return r?.pureVeganRestaurant === true
-      })
-    } else if (vegMode && vegModeOption === "pure-veg") {
-      filtered = filtered.filter((r) => {
+        if (r?.foodType === "Veg") return true
+        if (r?.foodType && r.foodType !== "Veg") return false
         if (r?.hasNonVegMenu === true) return false
-        if (r?.isPureVeg === true || r?.isPureVegan === true || r?.hasNonVegMenu === false) return true
-        return r?.pureVegRestaurant === true || r?.pureVeganRestaurant === true
+        if (r?.isPureVeg === true || r?.hasNonVegMenu === false) return true
+        return r?.pureVegRestaurant === true
       })
     }
 
@@ -1765,22 +1742,18 @@ export default function CategoryPage({
         const fallbackDishes = getCategoryFallbackDishesFromApprovedFoods(selectedCategory, sourceData)
         const vegFiltered = vegMode
           ? fallbackDishes.filter((dish) =>
-              vegModeOption === "pure-vegan"
-                ? dish.categoryDishFoodType === "Vegan" ||
-                  isVeganMenuItem({ foodType: dish.categoryDishFoodType })
-                : dish.categoryDishFoodType === "Veg" ||
-                  dish.categoryDishFoodType === "Vegan" ||
-                  isVegMenuItem({ foodType: dish.categoryDishFoodType }),
+              dish.categoryDishFoodType === "Veg" ||
+              isVegMenuItem({ foodType: dish.categoryDishFoodType }),
             )
           : fallbackDishes
         filtered = groupFallbackDishesByRestaurant(vegFiltered)
-        if (vegMode && vegModeOption === "pure-vegan") {
-          filtered = filtered.filter((r) => r?.pureVeganRestaurant === true || r?.isPureVegan === true)
-        } else if (vegMode && vegModeOption === "pure-veg") {
+        if (vegMode && vegModeOption === "pure-veg") {
           filtered = filtered.filter((r) => {
+            if (r?.foodType === "Veg") return true
+            if (r?.foodType && r.foodType !== "Veg") return false
             if (r?.hasNonVegMenu === true) return false
-            if (r?.isPureVeg === true || r?.isPureVegan === true || r?.hasNonVegMenu === false) return true
-            return r?.pureVegRestaurant === true || r?.pureVeganRestaurant === true
+            if (r?.isPureVeg === true || r?.hasNonVegMenu === false) return true
+            return r?.pureVegRestaurant === true
           })
         }
       }

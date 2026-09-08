@@ -79,6 +79,12 @@ const restaurantSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    foodType: {
+      type: String,
+      enum: ['Veg', 'Non-Veg', 'Mixed'],
+      default: 'Mixed',
+      index: true,
+    },
     pureVegRestaurant: {
       type: Boolean,
       required: true,
@@ -324,6 +330,27 @@ restaurantSchema.pre("validate", function normalizeDerivedFields(next) {
   const digits = phoneRaw.replace(/\D/g, "").slice(-15); // guard against country prefixes
   this.ownerPhoneDigits = digits || undefined;
   this.ownerPhoneLast10 = digits ? digits.slice(-10) : undefined;
+
+  // Food type normalization and legacy sync
+  if (this.foodType) {
+    const rawFt = String(this.foodType).trim();
+    if (rawFt.toLowerCase() === 'veg' || rawFt.toLowerCase() === 'pure-veg' || rawFt.toLowerCase() === 'pure veg') {
+      this.foodType = 'Veg';
+      this.pureVegRestaurant = true;
+    } else if (rawFt.toLowerCase() === 'non-veg' || rawFt.toLowerCase() === 'non veg') {
+      this.foodType = 'Non-Veg';
+      this.pureVegRestaurant = false;
+    } else {
+      this.foodType = 'Mixed';
+      this.pureVegRestaurant = false;
+    }
+  } else if (typeof this.pureVegRestaurant === 'boolean') {
+    this.foodType = this.pureVegRestaurant ? 'Veg' : 'Mixed';
+  } else {
+    this.foodType = 'Mixed';
+    this.pureVegRestaurant = false;
+  }
+  this.pureVeganRestaurant = false;
 
   // Keep `location` in sync when flat address fields exist (backward-compatible migration).
   // Prefer explicit location.* fields if provided.

@@ -246,8 +246,9 @@ const toRestaurantProfile = (doc) => {
         accountType: doc.accountType || '',
         upiId: doc.upiId || '',
         upiQrImage: doc.upiQrImage ? { url: doc.upiQrImage } : null,
-        pureVegRestaurant: Boolean(doc.pureVegRestaurant),
-        pureVeganRestaurant: Boolean(doc.pureVeganRestaurant),
+        foodType: doc.foodType || (doc.pureVegRestaurant ? 'Veg' : 'Mixed'),
+        pureVegRestaurant: doc.foodType === 'Veg' || Boolean(doc.pureVegRestaurant),
+        pureVeganRestaurant: false,
         profileImage: doc.profileImage ? { url: doc.profileImage } : null,
         menuImages,
         coverImages,
@@ -357,6 +358,7 @@ export const registerRestaurant = async (payload, files) => {
         ownerEmail,
         ownerPhone,
         primaryContactNumber,
+        foodType,
         pureVegRestaurant,
         pureVeganRestaurant,
         addressLine1,
@@ -478,11 +480,10 @@ export const registerRestaurant = async (payload, files) => {
             ownerPhoneDigits,
             ownerPhoneLast10,
             primaryContactNumber,
-            // Onboarding offers only "Pure Veg" or "Mixed Menu". Pure Vegan was
-            // removed from that flow, so it is never accepted here even if a
-            // stale client (or a hand-crafted request) still sends it. Existing
-            // restaurants keep whatever is already stored — only signup is gated.
-            pureVegRestaurant: isTruthyFlag(pureVegRestaurant),
+            foodType: foodType
+                ? (foodType === 'Veg' ? 'Veg' : foodType === 'Non-Veg' ? 'Non-Veg' : 'Mixed')
+                : (isTruthyFlag(pureVegRestaurant) ? 'Veg' : 'Mixed'),
+            pureVegRestaurant: foodType ? (foodType === 'Veg') : isTruthyFlag(pureVegRestaurant),
             pureVeganRestaurant: false,
             zoneId: zoneId && mongoose.Types.ObjectId.isValid(String(zoneId).trim())
                 ? new mongoose.Types.ObjectId(String(zoneId).trim())
@@ -988,7 +989,22 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
         }
     }
 
-    if (body.pureVegRestaurant !== undefined) {
+    if (body.foodType !== undefined) {
+        const ft = String(body.foodType).trim().toLowerCase();
+        if (ft === 'veg' || ft === 'pure-veg' || ft === 'pure veg') {
+            update.foodType = 'Veg';
+            update.pureVegRestaurant = true;
+        } else if (ft === 'non-veg' || ft === 'non veg') {
+            update.foodType = 'Non-Veg';
+            update.pureVegRestaurant = false;
+        } else if (ft === 'mixed' || ft === 'mixed menu') {
+            update.foodType = 'Mixed';
+            update.pureVegRestaurant = false;
+        } else {
+            throw new ValidationError('foodType must be Veg, Non-Veg, or Mixed');
+        }
+        update.pureVeganRestaurant = false;
+    } else if (body.pureVegRestaurant !== undefined) {
         if (typeof body.pureVegRestaurant === 'boolean') {
             update.pureVegRestaurant = body.pureVegRestaurant;
         } else if (typeof body.pureVegRestaurant === 'string') {
@@ -1003,33 +1019,8 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
         } else {
             throw new ValidationError('pureVegRestaurant must be a boolean');
         }
-    }
-
-    if (body.pureVeganRestaurant !== undefined) {
-        if (typeof body.pureVeganRestaurant === 'boolean') {
-            update.pureVeganRestaurant = body.pureVeganRestaurant;
-        } else if (typeof body.pureVeganRestaurant === 'string') {
-            const normalized = body.pureVeganRestaurant.trim().toLowerCase();
-            if (normalized === 'true' || normalized === '1' || normalized === 'yes') {
-                update.pureVeganRestaurant = true;
-            } else if (normalized === 'false' || normalized === '0' || normalized === 'no') {
-                update.pureVeganRestaurant = false;
-            } else {
-                throw new ValidationError('pureVeganRestaurant must be a boolean');
-            }
-        } else {
-            throw new ValidationError('pureVeganRestaurant must be a boolean');
-        }
-    }
-
-    // DISABLED: "Pure Vegan" is no longer a selectable restaurant menu type.
-    // The value is accepted and validated exactly as before, then forced off so
-    // it can never be newly enabled. Existing stored values are untouched.
-    if (update.pureVeganRestaurant === true) update.pureVeganRestaurant = false;
-    if (update.pureVeganRestaurant === true) {
-        update.pureVegRestaurant = true;
-    } else if (update.pureVeganRestaurant === false && update.pureVegRestaurant === undefined) {
-        // clearing vegan does not force mixed; keep existing pureVeg unless also sent
+        update.foodType = update.pureVegRestaurant ? 'Veg' : 'Mixed';
+        update.pureVeganRestaurant = false;
     }
 
     if (body.zoneId !== undefined) {
@@ -1588,28 +1579,47 @@ export const listApprovedRestaurants = async (query = {}) => {
         filter['diningSettings.isEnabled'] = true;
     }
 
-    // Each of these used to assign `filter.$or` directly, so whichever ran last
-    // silently erased the ones before it (a search term plus a veg filter plus a
-    // zone kept only the zone). They are $and-ed instead, so every constraint
-    // that was asked for is actually applied.
-    if (query.pureVegan === 'true' || query.vegModeOption === 'pure-vegan') {
+    if (query.foodType) {
+        const ft = String(query.foodType).trim().toLowerCase();
+        if (ft === 'veg' || ft === 'pure-veg' || ft === 'pure veg') {
+            filter.$and = [...(filter.$and || []), {
+                $or: [
+                    { foodType: 'Veg' },
+                    { pureVegRestaurant: true }
+                ]
+            }];
+        } else if (ft === 'non-veg' || ft === 'non veg') {
+            filter.$and = [...(filter.$and || []), {
+                $or: [
+                    { foodType: 'Non-Veg' },
+                    { foodType: 'Mixed' },
+                    { pureVegRestaurant: false }
+                ]
+            }];
+        } else if (ft === 'mixed') {
+            filter.$and = [...(filter.$and || []), {
+                $or: [
+                    { foodType: 'Mixed' },
+                    { $and: [{ foodType: { $exists: false } }, { pureVegRestaurant: false }] }
+                ]
+            }];
+        }
+    } else if (query.pureVeg === 'true' || query.vegModeOption === 'pure-veg' || query.isVeg === 'true') {
         filter.$and = [...(filter.$and || []), {
             $or: [
-                { pureVeganRestaurant: true },
-                { 'diningSettings.pureVeganRestaurant': true }
-            ]
-        }];
-    } else if (query.pureVeg === 'true' || query.vegModeOption === 'pure-veg') {
-        filter.$and = [...(filter.$and || []), {
-            $or: [
+                { foodType: 'Veg' },
                 { pureVegRestaurant: true },
-                { pureVeganRestaurant: true },
-                { 'diningSettings.pureVegRestaurant': true },
-                { 'diningSettings.pureVeganRestaurant': true }
+                { 'diningSettings.pureVegRestaurant': true }
             ]
         }];
-    } else if (query.vegModeOption === 'non-veg') {
-        filter.pureVegRestaurant = { $ne: true };
+    } else if (query.vegModeOption === 'non-veg' || query.isNonVeg === 'true') {
+        filter.$and = [...(filter.$and || []), {
+            $or: [
+                { foodType: 'Non-Veg' },
+                { foodType: 'Mixed' },
+                { pureVegRestaurant: false }
+            ]
+        }];
     }
 
     const lat = toFiniteNumber(query.lat);
@@ -1785,9 +1795,8 @@ export const listApprovedRestaurants = async (query = {}) => {
 
     // Attach recommended dishes
     const restaurantIds = pageDocs.map(r => r._id);
-    const isVegFilter = query.isVeg === 'true' || query.vegMode === 'true' || query.pureVeg === 'true' || query.vegModeOption === 'pure-veg';
-    const isVeganFilter = query.isVegan === 'true' || query.pureVegan === 'true' || query.vegModeOption === 'pure-vegan';
-    const isNonVegFilter = query.vegModeOption === 'non-veg';
+    const isVegFilter = query.isVeg === 'true' || query.vegMode === 'true' || query.pureVeg === 'true' || query.vegModeOption === 'pure-veg' || query.foodType === 'Veg';
+    const isNonVegFilter = query.vegModeOption === 'non-veg' || query.foodType === 'Non-Veg';
 
     const recommendedFilter = {
         restaurantId: { $in: restaurantIds },
@@ -1796,9 +1805,7 @@ export const listApprovedRestaurants = async (query = {}) => {
         approvalStatus: 'approved'
     };
 
-    if (isVeganFilter) {
-        recommendedFilter.foodType = 'Vegan';
-    } else if (isVegFilter) {
+    if (isVegFilter) {
         recommendedFilter.foodType = { $in: ['Veg', 'Vegan'] };
     } else if (isNonVegFilter) {
         recommendedFilter.foodType = { $nin: ['Veg', 'Vegan'] };
@@ -1825,37 +1832,41 @@ export const listApprovedRestaurants = async (query = {}) => {
             name: item.name,
             price: getFoodDisplayPrice(item),
             image: item.image,
-            foodType: item.foodType
+            foodType: item.foodType === 'Vegan' ? 'Veg' : (item.foodType || 'Non-Veg')
         });
         return acc;
     }, {});
 
-    const restaurants = pageDocs.map(r => ({
-        ...r,
-        restaurantId: r._id,
-        id: r._id,
-        name: r.restaurantName || '',
-        rating: normalizeRatingValue(r.rating),
-        totalRatings: normalizeTotalRatingsValue(r.totalRatings),
-        pureVegRestaurant: r.pureVegRestaurant === true,
-        pureVeganRestaurant: r.pureVeganRestaurant === true,
-        isVeg: r.pureVegRestaurant === true,
-        isPureVeg: r.pureVegRestaurant === true,
-        isPureVegan: r.pureVeganRestaurant === true,
-        profileImage: r.profileImage ? { url: r.profileImage } : null,
-        coverImages: Array.isArray(r.coverImages) ? r.coverImages : [],
-        openingTime: r.openingTime || null,
-        closingTime: r.closingTime || null,
-        openDays: Array.isArray(r.openDays) ? r.openDays : [],
-        menuImages: Array.isArray(r.menuImages) ? r.menuImages : [],
-        recommendedDishes: recommendedMap[String(r._id)] || [],
-        totalMenuItems: menuCountMap[String(r._id)] || 0,
-        hasDishes: (menuCountMap[String(r._id)] || 0) > 0,
-        image: r.coverImages?.[0] || r.profileImage || (r.menuImages?.length > 0 ? r.menuImages[0] : null) || null,
-        images: Array.isArray(r.coverImages) && r.coverImages.length > 0
-            ? r.coverImages
-            : (r.profileImage ? [r.profileImage] : [])
-    }));
+    const restaurants = pageDocs.map(r => {
+        const foodType = r.foodType || (r.pureVegRestaurant === true ? 'Veg' : 'Mixed');
+        return {
+            ...r,
+            restaurantId: r._id,
+            id: r._id,
+            name: r.restaurantName || '',
+            rating: normalizeRatingValue(r.rating),
+            totalRatings: normalizeTotalRatingsValue(r.totalRatings),
+            foodType,
+            pureVegRestaurant: foodType === 'Veg',
+            pureVeganRestaurant: false,
+            isVeg: foodType === 'Veg',
+            isPureVeg: foodType === 'Veg',
+            isPureVegan: false,
+            profileImage: r.profileImage ? { url: r.profileImage } : null,
+            coverImages: Array.isArray(r.coverImages) ? r.coverImages : [],
+            openingTime: r.openingTime || null,
+            closingTime: r.closingTime || null,
+            openDays: Array.isArray(r.openDays) ? r.openDays : [],
+            menuImages: Array.isArray(r.menuImages) ? r.menuImages : [],
+            recommendedDishes: recommendedMap[String(r._id)] || [],
+            totalMenuItems: menuCountMap[String(r._id)] || 0,
+            hasDishes: (menuCountMap[String(r._id)] || 0) > 0,
+            image: r.coverImages?.[0] || r.profileImage || (r.menuImages?.length > 0 ? r.menuImages[0] : null) || null,
+            images: Array.isArray(r.coverImages) && r.coverImages.length > 0
+                ? r.coverImages
+                : (r.profileImage ? [r.profileImage] : [])
+        };
+    });
 
     // Replace geoNear air distance with Google driving/road distance (same as cart bill).
     // Keep air distance as fallback if Matrix API fails for a restaurant.
@@ -2078,8 +2089,9 @@ export const listRestaurantsUnderPriceLimit = async (query = {}, priceLimit = 25
         return {
             ...item,
             id: String(item._id),
+            foodType: ft === 'vegan' ? 'Veg' : (item.foodType || 'Non-Veg'),
             isVeg,
-            isVegan: ft === 'vegan',
+            isVegan: false,
         };
     };
 
@@ -2126,25 +2138,20 @@ export const listRestaurantsUnderPriceLimit = async (query = {}, priceLimit = 25
                 const rid = String(r._id);
                 const items = restaurantItemsMap[rid] || [];
                 const hasNonVegInItems = items.some((item) => !item.isVeg);
-                const hasNonVeganInItems = items.some((item) => item.isVegan !== true);
-                const hasNonVegMenu =
-                    hasNonVegInItems || r.pureVegRestaurant === false
-                        ? true
-                        : r.pureVegRestaurant === true
-                          ? false
-                          : hasNonVegInItems;
-                const isPureVegan =
-                    r.pureVeganRestaurant === true && !hasNonVeganInItems && !hasNonVegInItems;
+                const foodType = r.foodType || (r.pureVegRestaurant === true ? 'Veg' : 'Mixed');
+                const hasNonVegMenu = foodType !== 'Veg';
                 return {
                     ...r,
                     id: rid,
                     restaurantId: rid,
                     name: r.restaurantName,
                     menuItems: items,
+                    foodType,
                     hasNonVegMenu,
-                    isPureVeg: !hasNonVegMenu,
-                    pureVeganRestaurant: r.pureVeganRestaurant === true,
-                    isPureVegan,
+                    isPureVeg: foodType === 'Veg',
+                    pureVegRestaurant: foodType === 'Veg',
+                    pureVeganRestaurant: false,
+                    isPureVegan: false,
                     outletTimings: { timings: [] },
                     image:
                         r.coverImages?.[0] ||

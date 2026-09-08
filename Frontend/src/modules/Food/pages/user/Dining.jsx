@@ -469,26 +469,17 @@ export default function Dining({ isTabActive = true }) {
       (restaurant) => restaurant?.diningSettings?.isEnabled === true,
     )
 
-    // Pure veg / pure vegan restaurant scope
-    if (vegMode && vegModeOption === "pure-vegan") {
+    // Pure veg restaurant scope
+    if (vegMode && vegModeOption === "pure-veg") {
       filtered = filtered.filter((restaurant) => {
-        if (restaurant?.isPureVegan === true) return true
-        if (restaurant?.isPureVegan === false) return false
-        return (
-          restaurant?.pureVeganRestaurant === true ||
-          restaurant?.diningSettings?.pureVeganRestaurant === true
-        )
-      })
-    } else if (vegMode && vegModeOption === "pure-veg") {
-      filtered = filtered.filter((restaurant) => {
+        if (restaurant?.foodType === 'Veg' || restaurant?.diningSettings?.foodType === 'Veg') return true
+        if (restaurant?.foodType && restaurant.foodType !== 'Veg') return false
         if (restaurant?.hasNonVegMenu === true) return false
-        if (restaurant?.isPureVeg === true || restaurant?.isPureVegan === true) return true
+        if (restaurant?.isPureVeg === true) return true
         if (restaurant?.hasNonVegMenu === false) return true
         return (
           restaurant?.pureVegRestaurant === true ||
-          restaurant?.pureVeganRestaurant === true ||
-          restaurant?.diningSettings?.pureVegRestaurant === true ||
-          restaurant?.diningSettings?.pureVeganRestaurant === true
+          restaurant?.diningSettings?.pureVegRestaurant === true
         )
       })
     }

@@ -103,8 +103,9 @@ export function normalizeRestaurantProfile(apiData) {
     profileImage: toImageUrl(apiData.profileImage),
 
     restaurantName: apiData.restaurantName || apiData.name || "",
-    pureVegRestaurant: Boolean(apiData.pureVegRestaurant) || Boolean(apiData.pureVeganRestaurant),
-    pureVeganRestaurant: Boolean(apiData.pureVeganRestaurant),
+    foodType: apiData.foodType || (apiData.pureVegRestaurant ? "Veg" : "Mixed"),
+    pureVegRestaurant: apiData.foodType === "Veg" || Boolean(apiData.pureVegRestaurant),
+    pureVeganRestaurant: false,
     primaryContactNumber: toDigits10(apiData.primaryContactNumber),
     zoneId: apiData.zoneId ? String(apiData.zoneId) : "",
     location: normalizeLocation(apiData.location || {}),

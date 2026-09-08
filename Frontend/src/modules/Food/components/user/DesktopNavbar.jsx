@@ -312,7 +312,7 @@ export default function DesktopNavbar({ showLogo = true }) {
                             <div className="flex items-center gap-2 flex-shrink-0">
                                 <div className="flex flex-col items-end">
                                     <span className="text-[10px] font-bold text-gray-700 dark:text-gray-300 leading-none">
-                                      {vegMode && vegModeOption === "pure-vegan" ? "VEGAN" : "VEG"}
+                                      VEG
                                     </span>
                                     <span className="text-[8px] font-bold text-gray-500 dark:text-gray-400 leading-none">MODE</span>
                                 </div>

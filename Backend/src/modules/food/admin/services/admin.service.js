@@ -3958,7 +3958,7 @@ export async function getFoods(query) {
     return { foods, total, page, limit };
 }
 
-const resolveAdminFoodCategory = async ({ categoryId, categoryName, foodType, pureVegRestaurant, pureVeganRestaurant }) => {
+const resolveAdminFoodCategory = async ({ categoryId, categoryName, foodType, restaurantFoodType }) => {
     let resolvedCategoryId = null;
     let resolvedCategoryName = typeof categoryName === 'string' ? categoryName.trim() : '';
     let categoryDoc = null;
@@ -3982,12 +3982,11 @@ const resolveAdminFoodCategory = async ({ categoryId, categoryName, foodType, pu
     }
 
     if (categoryDoc?.foodTypeScope) {
-        if ((pureVegRestaurant || pureVeganRestaurant) && String(categoryDoc.foodTypeScope || '') !== 'Veg') {
-            throw new ValidationError(
-                pureVeganRestaurant
-                    ? 'Pure vegan restaurants can only use veg categories'
-                    : 'Pure veg restaurants can only use veg categories'
-            );
+        if (restaurantFoodType === 'Veg' && String(categoryDoc.foodTypeScope || '') === 'Non-Veg') {
+            throw new ValidationError('Veg restaurants can only use veg categories');
+        }
+        if (restaurantFoodType === 'Non-Veg' && String(categoryDoc.foodTypeScope || '') === 'Veg') {
+            throw new ValidationError('Non-veg restaurants can only use non-veg categories');
         }
         if (!categoryAllowsFoodType(categoryDoc.foodTypeScope, foodType)) {
             throw new ValidationError(`This ${categoryDoc.foodTypeScope} category cannot accept ${foodType} food`);
@@ -4057,7 +4056,7 @@ export async function createFood(body) {
         throw new ValidationError('Valid restaurantId is required');
     }
     const restaurant = await FoodRestaurant.findById(restaurantId)
-        .select('pureVegRestaurant pureVeganRestaurant')
+        .select('foodType pureVegRestaurant')
         .lean();
     if (!restaurant?._id) {
         throw new ValidationError('Restaurant not found');
@@ -4065,22 +4064,12 @@ export async function createFood(body) {
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     if (!name) throw new ValidationError('Food name is required');
     const foodType = normalizeDishFoodType(body.foodType);
-    const pureVeganRestaurant = restaurant.pureVeganRestaurant === true;
-    const pureVegRestaurant = pureVeganRestaurant || restaurant.pureVegRestaurant === true;
-    if (pureVeganRestaurant && foodType !== 'Vegan') {
-        throw new ValidationError('Pure vegan restaurants can only use vegan foods');
+    const restaurantFoodType = restaurant.foodType || (restaurant.pureVegRestaurant ? 'Veg' : 'Mixed');
+    if (restaurantFoodType === 'Veg' && foodType !== 'Veg') {
+        throw new ValidationError('Veg restaurants can only add veg foods');
     }
-    if (pureVegRestaurant && !pureVeganRestaurant && foodType === 'Non-Veg') {
-        throw new ValidationError('Pure veg restaurants can only use veg or vegan foods');
-    }
-    if (foodType === 'Vegan') {
-        const veganBlock = getVeganFoodTypeBlockReason({
-            name,
-            description: typeof body.description === 'string' ? body.description.trim() : '',
-        });
-        if (veganBlock.blocked) {
-            throw new ValidationError(formatVeganBlockMessage(veganBlock));
-        }
+    if (restaurantFoodType === 'Non-Veg' && foodType !== 'Non-Veg') {
+        throw new ValidationError('Non-veg restaurants can only add non-veg foods');
     }
     const { price, variants } = getAdminFoodCreatePricing(body);
     const image = typeof body.image === 'string' ? body.image.trim() : '';
@@ -4091,8 +4080,7 @@ export async function createFood(body) {
         categoryId: body.categoryId,
         categoryName,
         foodType,
-        pureVegRestaurant,
-        pureVeganRestaurant,
+        restaurantFoodType,
     });
 
     const doc = new FoodItem({
@@ -4123,36 +4111,22 @@ export async function updateFood(id, body) {
     const doc = await FoodItem.findById(id);
     if (!doc) return null;
     const restaurant = await FoodRestaurant.findById(doc.restaurantId)
-        .select('pureVegRestaurant pureVeganRestaurant')
+        .select('foodType pureVegRestaurant')
         .lean();
     if (!restaurant?._id) {
         throw new ValidationError('Restaurant not found');
     }
     if (body.name !== undefined) doc.name = String(body.name || '').trim();
     if (body.description !== undefined) doc.description = String(body.description || '').trim();
-    const pureVeganRestaurant = restaurant.pureVeganRestaurant === true;
-    const pureVegRestaurant = pureVeganRestaurant || restaurant.pureVegRestaurant === true;
+    const restaurantFoodType = restaurant.foodType || (restaurant.pureVegRestaurant ? 'Veg' : 'Mixed');
     const targetFoodType = body.foodType !== undefined
         ? normalizeDishFoodType(body.foodType)
         : normalizeDishFoodType(doc.foodType);
-    if (pureVeganRestaurant && targetFoodType !== 'Vegan') {
-        throw new ValidationError('Pure vegan restaurants can only use vegan foods');
+    if (restaurantFoodType === 'Veg' && targetFoodType !== 'Veg') {
+        throw new ValidationError('Veg restaurants can only have veg foods');
     }
-    if (pureVegRestaurant && !pureVeganRestaurant && targetFoodType === 'Non-Veg') {
-        throw new ValidationError('Pure veg restaurants can only use veg or vegan foods');
-    }
-    if (targetFoodType === 'Vegan') {
-        const nextName = body.name !== undefined ? String(body.name || '').trim() : doc.name;
-        const nextDescription = body.description !== undefined
-            ? String(body.description || '').trim()
-            : doc.description;
-        const veganBlock = getVeganFoodTypeBlockReason({
-            name: nextName,
-            description: nextDescription,
-        });
-        if (veganBlock.blocked) {
-            throw new ValidationError(formatVeganBlockMessage(veganBlock));
-        }
+    if (restaurantFoodType === 'Non-Veg' && targetFoodType !== 'Non-Veg') {
+        throw new ValidationError('Non-veg restaurants can only have non-veg foods');
     }
     const pricingUpdate = getAdminFoodUpdatedPricing(doc.toObject(), body);
     if (pricingUpdate.price !== undefined) doc.price = pricingUpdate.price;

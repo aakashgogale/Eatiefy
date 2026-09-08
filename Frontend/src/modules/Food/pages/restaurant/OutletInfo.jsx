@@ -180,10 +180,9 @@ export default function OutletInfo() {
         .filter(Boolean)
         .join(", ") || loc.formattedAddress
 
-    const dietary = [
-      p.pureVeganRestaurant ? "Pure Vegan" : null,
-      p.pureVegRestaurant && !p.pureVeganRestaurant ? "Pure Veg" : null,
-    ].filter(Boolean)
+    const dietary = p.foodType
+      ? (p.foodType === "Veg" ? "Pure Veg" : p.foodType === "Non-Veg" ? "Non-Veg" : "Mixed (Veg + Non-Veg)")
+      : (p.pureVegRestaurant ? "Pure Veg" : "Mixed (Veg + Non-Veg)")
 
     return [
       {
@@ -191,7 +190,7 @@ export default function OutletInfo() {
         fields: [
           { label: "Restaurant Name", value: p.restaurantName },
           { label: "Cuisines", value: p.cuisines.join(", ") },
-          { label: "Dietary", value: dietary.join(", ") },
+          { label: "Dietary", value: dietary },
           { label: "Primary Contact", value: p.primaryContactNumber },
           { label: "Estimated Delivery Time", value: p.estimatedDeliveryTime },
         ],

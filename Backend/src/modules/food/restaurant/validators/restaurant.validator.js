@@ -102,8 +102,24 @@ const restaurantRegisterSchema = z.object({
     ownerName: z.string().min(1, 'Owner name is required'),
     ownerEmail: emailSchema,
     ownerPhone: phoneSchema.optional(),
-    primaryContactNumber: phoneSchema.optional(),
-    pureVegRestaurant: requiredBooleanSchema,
+    foodType: z.preprocess((value) => {
+        if (value === undefined || value === null || value === '') return undefined;
+        const s = String(value).trim();
+        if (s.toLowerCase() === 'veg' || s.toLowerCase() === 'pure-veg' || s.toLowerCase() === 'pure veg') return 'Veg';
+        if (s.toLowerCase() === 'non-veg' || s.toLowerCase() === 'non veg') return 'Non-Veg';
+        if (s.toLowerCase() === 'mixed' || s.toLowerCase() === 'mixed menu') return 'Mixed';
+        return s;
+    }, z.enum(['Veg', 'Non-Veg', 'Mixed']).optional()),
+    pureVegRestaurant: z.preprocess((value) => {
+        if (value === undefined || value === null || value === '') return undefined;
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'string') {
+            const normalized = value.trim().toLowerCase();
+            if (normalized === 'true' || normalized === '1' || normalized === 'yes') return true;
+            if (normalized === 'false' || normalized === '0' || normalized === 'no') return false;
+        }
+        return value;
+    }, z.boolean().optional()),
     pureVeganRestaurant: z.preprocess((value) => {
         if (value === undefined || value === null || value === '') return undefined;
         if (typeof value === 'boolean') return value;
@@ -179,17 +195,20 @@ export const validateRestaurantRegisterDto = (body) => {
             throw new ValidationError('Closing time cannot be less than opening time');
         }
     }
-    // DISABLED: "Pure Vegan" is no longer a selectable restaurant menu type —
-    // only Pure Veg and Mixed are offered. The field and its schema entry are
-    // kept so existing records keep reading, but a request can no longer turn it
-    // on. Restore by using `data.pureVeganRestaurant === true` again.
-    // const pureVeganRestaurant = data.pureVeganRestaurant === true;
+    let foodType = data.foodType;
+    if (!foodType) {
+        if (data.pureVegRestaurant === true) {
+            foodType = 'Veg';
+        } else {
+            foodType = 'Mixed';
+        }
+    }
+    const pureVegRestaurant = foodType === 'Veg';
     const pureVeganRestaurant = false;
-    // Pure vegan restaurants are also pure veg for Pure Veg filters.
-    const pureVegRestaurant = pureVeganRestaurant ? true : data.pureVegRestaurant === true;
 
     return {
         ...data,
+        foodType,
         pureVegRestaurant,
         pureVeganRestaurant,
         gstRegistered: data.gstRegistered ?? false

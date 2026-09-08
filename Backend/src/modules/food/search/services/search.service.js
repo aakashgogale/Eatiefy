@@ -56,7 +56,8 @@ export const searchUnified = async (query = {}, options = {}) => {
         minRating, 
         maxDeliveryTime, 
         isVeg,
-        isVegan,
+        isNonVeg,
+        foodType,
         page = 1,
         limit = 20,
         zoneId,
@@ -88,10 +89,19 @@ export const searchUnified = async (query = {}, options = {}) => {
     const zoneCondition = await buildZoneCondition(zoneId);
     if (zoneCondition) baseConditions.push(zoneCondition);
 
-    if (isVegan === 'true') {
-        baseConditions.push({ pureVeganRestaurant: true });
+    if (foodType) {
+        const ft = String(foodType).trim().toLowerCase();
+        if (ft === 'veg' || ft === 'pure-veg' || ft === 'pure veg') {
+            baseConditions.push({ $or: [{ foodType: 'Veg' }, { pureVegRestaurant: true }] });
+        } else if (ft === 'non-veg' || ft === 'non veg') {
+            baseConditions.push({ $or: [{ foodType: 'Non-Veg' }, { foodType: 'Mixed' }, { pureVegRestaurant: false }] });
+        } else if (ft === 'mixed') {
+            baseConditions.push({ foodType: 'Mixed' });
+        }
     } else if (isVeg === 'true') {
-        baseConditions.push({ pureVegRestaurant: true });
+        baseConditions.push({ $or: [{ foodType: 'Veg' }, { pureVegRestaurant: true }] });
+    } else if (isNonVeg === 'true') {
+        baseConditions.push({ $or: [{ foodType: 'Non-Veg' }, { foodType: 'Mixed' }, { pureVegRestaurant: false }] });
     }
 
     if (minRating) {
@@ -220,8 +230,8 @@ export const searchUnified = async (query = {}, options = {}) => {
                 { 'variants.name': { $regex: regex } }
             ]
         };
-        if (isVegan === 'true') foodFilters.foodType = 'Vegan';
-        else if (isVeg === 'true') foodFilters.foodType = { $in: ['Veg', 'Vegan'] };
+        if (isVeg === 'true' || foodType === 'Veg') foodFilters.foodType = { $in: ['Veg', 'Vegan'] };
+        else if (isNonVeg === 'true' || foodType === 'Non-Veg') foodFilters.foodType = { $nin: ['Veg', 'Vegan'] };
 
         const matchedFoods = await FoodItem.find(foodFilters)
             .limit(Math.max(limit * 6, 60))
@@ -244,10 +254,10 @@ export const searchUnified = async (query = {}, options = {}) => {
                     matchedDish: food.name,
                     matchedDishImage: food.image,
                     matchedDishId: food._id,
-                    matchedDishFoodType: food.foodType || null,
-                    foodType: food.foodType || null,
+                    matchedDishFoodType: food.foodType === 'Vegan' ? 'Veg' : (food.foodType || null),
+                    foodType: food.foodType === 'Vegan' ? 'Veg' : (food.foodType || null),
                     isVeg: ['veg', 'vegan'].includes(String(food.foodType || '').toLowerCase()),
-                    isVegan: String(food.foodType || '').toLowerCase() === 'vegan',
+                    isVegan: false,
                 });
                 return;
             }
@@ -273,10 +283,10 @@ export const searchUnified = async (query = {}, options = {}) => {
                     matchedDish: food.name,
                     matchedDishImage: food.image,
                     matchedDishId: food._id,
-                    matchedDishFoodType: food.foodType || null,
-                    foodType: food.foodType || null,
+                    matchedDishFoodType: food.foodType === 'Vegan' ? 'Veg' : (food.foodType || null),
+                    foodType: food.foodType === 'Vegan' ? 'Veg' : (food.foodType || null),
                     isVeg: ['veg', 'vegan'].includes(String(food.foodType || '').toLowerCase()),
-                    isVegan: String(food.foodType || '').toLowerCase() === 'vegan',
+                    isVegan: false,
                 });
             });
         }
@@ -363,10 +373,10 @@ export const searchUnified = async (query = {}, options = {}) => {
                 matchedDish: first.name,
                 matchedDishImage: first.image,
                 matchedDishId: first._id,
-                matchedDishFoodType: first.foodType || null,
-                foodType: first.foodType || null,
+                matchedDishFoodType: first.foodType === 'Vegan' ? 'Veg' : (first.foodType || null),
+                foodType: first.foodType === 'Vegan' ? 'Veg' : (first.foodType || null),
                 isVeg: ['veg', 'vegan'].includes(String(first.foodType || '').toLowerCase()),
-                isVegan: String(first.foodType || '').toLowerCase() === 'vegan',
+                isVegan: false,
             };
         });
     }

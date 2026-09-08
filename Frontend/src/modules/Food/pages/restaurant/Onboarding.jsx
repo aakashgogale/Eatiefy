@@ -607,6 +607,7 @@ export default function RestaurantOnboarding() {
 
   const [step1, setStep1] = useState({
     restaurantName: "",
+    foodType: null,
     pureVegRestaurant: null,
     pureVeganRestaurant: false,
     ownerName: "",
@@ -966,11 +967,12 @@ export default function RestaurantOnboarding() {
           const loc = s1.location || apiData.location || {}
           const pay = s3.bank || apiData.bankAccount || {}
 
+          const rawFoodType = s1.foodType || apiData.foodType || (typeof s1.pureVegRestaurant === 'boolean' ? (s1.pureVegRestaurant ? 'Veg' : 'Mixed') : (typeof apiData.pureVegRestaurant === 'boolean' ? (apiData.pureVegRestaurant ? 'Veg' : 'Mixed') : null))
           setStep1(prev => ({
             ...prev,
             restaurantName: s1.restaurantName || apiData.name || apiData.restaurantName || "",
-            pureVegRestaurant: typeof s1.pureVegRestaurant === 'boolean' ? s1.pureVegRestaurant : (apiData.pureVegRestaurant ?? null),
-            // Onboarding no longer offers Pure Vegan; a legacy draft resumes as Pure Veg.
+            foodType: rawFoodType,
+            pureVegRestaurant: rawFoodType === 'Veg' ? true : (rawFoodType ? false : null),
             pureVeganRestaurant: false,
             ownerName: s1.ownerName || apiData.ownerName || "",
             ownerEmail: s1.ownerEmail || apiData.ownerEmail || apiData.email || "",
@@ -1214,8 +1216,8 @@ export default function RestaurantOnboarding() {
     } else if (/[\/-]/.test(step1.restaurantName)) {
       errors.push("Restaurant name cannot contain slashes (/) or hyphens (-)")
     }
-    if (typeof step1.pureVegRestaurant !== "boolean") {
-      errors.push("Please select whether your restaurant is pure veg")
+    if (!step1.foodType && typeof step1.pureVegRestaurant !== "boolean") {
+      errors.push("Please select your restaurant diet type (Veg, Non-Veg, or Mixed)")
     }
     if (!step1.ownerName?.trim()) {
       errors.push("Owner name is required")
@@ -1483,11 +1485,11 @@ export default function RestaurantOnboarding() {
             resolveImageForProfileUpdate(step3.fssaiImage, "food/restaurants/fssai"),
           ])
 
+          const effectiveFoodType = step1.foodType || (step1.pureVegRestaurant === true ? "Veg" : "Mixed")
           const updatePayload = {
             restaurantName: step1.restaurantName || "",
-            pureVegRestaurant: step1.pureVegRestaurant === true,
-            // Onboarding no longer offers Pure Vegan, so it is never submitted from
-            // here — a restored draft cannot smuggle the removed option through.
+            foodType: effectiveFoodType,
+            pureVegRestaurant: effectiveFoodType === "Veg",
             pureVeganRestaurant: false,
             ownerName: step1.ownerName || "",
             ownerEmail: (step1.ownerEmail || "").trim(),
@@ -1553,9 +1555,10 @@ export default function RestaurantOnboarding() {
         const formData = new FormData()
 
         // Step 1
+        const effectiveFoodType = step1.foodType || (step1.pureVegRestaurant === true ? "Veg" : "Mixed")
         formData.append("restaurantName", step1.restaurantName || "")
-        formData.append("pureVegRestaurant", step1.pureVegRestaurant === true ? "true" : "false")
-        // Onboarding no longer offers Pure Vegan — always submitted as false.
+        formData.append("foodType", effectiveFoodType)
+        formData.append("pureVegRestaurant", effectiveFoodType === "Veg" ? "true" : "false")
         formData.append("pureVeganRestaurant", "false")
         formData.append("ownerName", step1.ownerName || "")
         formData.append("ownerEmail", (step1.ownerEmail || "").trim())
@@ -1714,47 +1717,74 @@ export default function RestaurantOnboarding() {
           </div>
           <div>
             <Label className="text-xs text-gray-700">Restaurant diet type?*</Label>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div className="mt-2 grid grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() =>
                   isEditing &&
                   setStep1({
                     ...step1,
+                    foodType: "Veg",
                     pureVegRestaurant: true,
                     pureVeganRestaurant: false,
                   })
                 }
-                className={`px-3 py-1.5 text-xs rounded-full border ${
-                  step1.pureVegRestaurant === true
-                    ? "bg-green-600 text-white border-green-600"
-                    : "bg-white text-gray-700 border-gray-200"
+                className={`flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border transition-all ${
+                  (step1.foodType === "Veg" || (step1.foodType == null && step1.pureVegRestaurant === true))
+                    ? "bg-green-600 text-white border-green-600 shadow-sm"
+                    : "bg-white text-gray-700 border-gray-200 hover:border-green-400"
                 } ${!isEditing ? "opacity-70 cursor-not-allowed" : ""}`}
               >
-                Yes, Pure Veg
+                <div className="w-2.5 h-2.5 rounded-full bg-green-500 border border-white" />
+                Veg
               </button>
-              {/* "Pure Vegan" is intentionally not offered during onboarding. */}
               <button
                 type="button"
                 onClick={() =>
                   isEditing &&
                   setStep1({
                     ...step1,
+                    foodType: "Non-Veg",
                     pureVegRestaurant: false,
                     pureVeganRestaurant: false,
                   })
                 }
-                className={`px-3 py-1.5 text-xs rounded-full border ${
-                  step1.pureVegRestaurant === false
-                    ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white border-gray-900"
-                    : "bg-white text-gray-700 border-gray-200"
+                className={`flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border transition-all ${
+                  step1.foodType === "Non-Veg"
+                    ? "bg-red-600 text-white border-red-600 shadow-sm"
+                    : "bg-white text-gray-700 border-gray-200 hover:border-red-400"
                 } ${!isEditing ? "opacity-70 cursor-not-allowed" : ""}`}
               >
-                No, Mixed Menu
+                <div className="w-2.5 h-2.5 rounded-full bg-red-500 border border-white" />
+                Non-Veg
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  isEditing &&
+                  setStep1({
+                    ...step1,
+                    foodType: "Mixed",
+                    pureVegRestaurant: false,
+                    pureVeganRestaurant: false,
+                  })
+                }
+                className={`flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border transition-all ${
+                  (step1.foodType === "Mixed" || (step1.foodType == null && step1.pureVegRestaurant === false))
+                    ? "bg-[#2E7D52] text-white border-[#2E7D52] shadow-sm"
+                    : "bg-white text-gray-700 border-gray-200 hover:border-[#2E7D52]"
+                } ${!isEditing ? "opacity-70 cursor-not-allowed" : ""}`}
+              >
+                <div className="w-2.5 h-2.5 rounded-full bg-amber-400 border border-white" />
+                Mixed (Both)
               </button>
             </div>
-            <p className="text-[11px] text-gray-500 mt-1">
-              Pure Veg serves only vegetarian food (dairy and ghee allowed). Choose Mixed Menu if you also serve non-veg.
+            <p className="text-[11px] text-gray-500 mt-1.5">
+              {step1.foodType === "Veg"
+                ? "Veg: Serves only vegetarian dishes."
+                : step1.foodType === "Non-Veg"
+                  ? "Non-Veg: Serves only non-vegetarian dishes."
+                  : "Mixed: Serves both vegetarian and non-vegetarian dishes."}
             </p>
           </div>
         </div>
