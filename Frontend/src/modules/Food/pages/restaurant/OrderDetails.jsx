@@ -780,7 +780,7 @@ export default function OrderDetails() {
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Order Not Found</h2>
           <p className="text-gray-600 mb-6">The order you're looking for doesn't exist.</p>
           <button
-            onClick={() => navigate('/restaurant/orders')}
+            onClick={() => navigate('/food/restaurant/orders/all')}
             className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-6 rounded-lg transition-colors"
           >
             Back to Orders

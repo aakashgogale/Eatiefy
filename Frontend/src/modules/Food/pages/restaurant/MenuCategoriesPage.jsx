@@ -51,6 +51,7 @@ export default function MenuCategoriesPage() {
   const goBack = useRestaurantBackNavigation()
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [restaurantFoodType, setRestaurantFoodType] = useState("Mixed")
   const [showModal, setShowModal] = useState(false)
   const [editingCategory, setEditingCategory] = useState(null)
@@ -62,6 +63,8 @@ export default function MenuCategoriesPage() {
   const [viewingCategory, setViewingCategory] = useState(null)
   const fileInputRef = useRef(null)
   const refreshInFlightRef = useRef(false)
+
+  const isPureVegRestaurant = restaurantFoodType === "Veg"
 
   useEffect(() => {
     fetchCategories()

@@ -55,7 +55,9 @@ const FoodAppWrapper = () => {
   const isNonUserModulePath = 
     location.pathname.startsWith('/food/restaurant') ||
     location.pathname.startsWith('/food/delivery') ||
-    location.pathname.startsWith('/food/admin');
+    location.pathname.startsWith('/food/admin') ||
+    location.pathname.startsWith('/restaurant') ||
+    location.pathname.startsWith('/delivery');
 
   const isUserPath = !isNonUserModulePath && (
                      location.pathname.startsWith('/home') ||
@@ -74,7 +76,7 @@ const FoodAppWrapper = () => {
     return <Navigate to="/user/auth/login" replace />;
   }
 
-  const isOnboarding = location.pathname.startsWith('/food/restaurant/onboarding');
+  const isOnboarding = location.pathname.startsWith('/food/restaurant/onboarding') || location.pathname.startsWith('/restaurant/onboarding');
 
   return (
     <Suspense
@@ -156,6 +158,10 @@ const AppRoutes = () => {
               <MasterLandingPage />
             </Suspense>
           } />
+
+          {/* Direct legacy aliases for restaurant & delivery */}
+          <Route path="/restaurant/*" element={<RedirectToFood />} />
+          <Route path="/delivery/*" element={<RedirectToFood />} />
 
           {/* Handle root and other paths via FoodAppWrapper */}
           <Route path="/*" element={<FoodAppWrapper />} />

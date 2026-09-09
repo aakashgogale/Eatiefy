@@ -1420,7 +1420,7 @@ export default function ItemDetailsPage() {
                   <button
                     onClick={() => {
                       setIsCategoryPopupOpen(false)
-                      navigate('/restaurant/menu-categories', {
+                      navigate('/food/restaurant/menu-categories', {
                         state: { backTo: location.pathname, openCategoryPopup: true }
                       })
                     }}
@@ -1472,7 +1472,7 @@ export default function ItemDetailsPage() {
                     <button
                       onClick={() => {
                         setIsCategoryPopupOpen(false)
-                        navigate('/restaurant/menu-categories', {
+                        navigate('/food/restaurant/menu-categories', {
                           state: { backTo: location.pathname, openCategoryPopup: true }
                         })
                       }}
