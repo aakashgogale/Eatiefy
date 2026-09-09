@@ -64,6 +64,7 @@ import {
 import { RestaurantDetailSkeleton } from "@food/components/ui/loading-skeletons"
 import { isVegMenuItem } from "@food/utils/vegMode"
 import dishFallbackImage from "@food/assets/dish_fallback.webp"
+import OptimizedImage from "@food/components/OptimizedImage"
 
 const fssaiLogo = "/assets/images/fssai.png?v=3"
 
@@ -1045,6 +1046,7 @@ function RestaurantDetailsContent() {
                   const isRecommended = item.isRecommended === true || item.isRecommended === 1 || String(item.isRecommended) === "true"
                   const isSpicy = item.isSpicy === true || item.isSpicy === 1 || String(item.isSpicy) === "true"
                   const isVeg = isVegMenuItem(item, transformedRestaurant)
+                  const isVegan = item?.isVegan === true || String(item?.foodType || "").toLowerCase() === "vegan"
                   const foodType = item.foodType || (isVeg ? "Veg" : "Non-Veg")
 
                   return {
@@ -1514,7 +1516,7 @@ function RestaurantDetailsContent() {
   }
 
   const isRecommendedItem = (item) => {
-    return item.isRecommended === true && typeof item.isRecommended === "boolean"
+    return item?.isRecommended === true || item?.isRecommended === 1 || String(item?.isRecommended) === "true"
   }
 
   const getSectionDisplayName = (section) => {
@@ -4594,7 +4596,7 @@ class RestaurantDetailsErrorBoundary extends Component {
   }
 
   componentDidCatch(error, info) {
-    debugError("RestaurantDetails crashed:", error, info)
+    console.error("RestaurantDetails crashed:", error, info)
   }
 
   render() {
