@@ -1,11 +1,12 @@
 import { Link, useNavigate } from "react-router-dom"
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
-import { Star, Clock, MapPin, ArrowDownUp, Timer, ArrowRight, ChevronDown, Bookmark, Share2, Plus, Minus, X, Check, Utensils, UtensilsCrossed, Wallet } from "lucide-react"
+import { Star, Clock, MapPin, ArrowDownUp, Timer, ArrowLeft, ArrowRight, ChevronDown, Bookmark, Share2, Plus, Minus, X, Check, Utensils, UtensilsCrossed, Wallet } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { toast } from "sonner"
 import { Card, CardContent } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
 import { useLocation } from "@food/hooks/useLocation"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { useZone } from "@food/hooks/useZone"
 import { useCart } from "@food/context/CartContext"
 import { useProfile } from "@food/context/ProfileContext"
@@ -28,6 +29,14 @@ import {
   getLandingSettingsPublic,
   setFoodPageCache,
 } from "@food/utils/foodPageCache"
+import {
+  buildCartLineId,
+  getDefaultFoodVariant,
+  getFoodVariants,
+  hasFoodVariants,
+  getFoodDisplayPrice,
+  getFoodPriceLabel,
+} from "@food/utils/foodVariants"
 const getLineItemIdForDish = (item, variant = null) =>
   buildCartLineId(item?.id || item?._id || "", variant?.id || variant?._id || "")
 
@@ -171,6 +180,7 @@ export default function Under250({ isTabActive = true }) {
   const { userProfile, vegMode, vegModeOption } = useProfile()
 
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const { addToCart, updateQuantity, removeFromCart, getCartItem, cart } = useCart()
   const [activeCategory, setActiveCategory] = useState(initialFiltersRef.current.activeCategory)
   const [showSortPopup, setShowSortPopup] = useState(false)
@@ -1235,26 +1245,28 @@ export default function Under250({ isTabActive = true }) {
   return (
 
     <div className={`relative min-h-screen bg-white dark:bg-[#0a0a0a] ${shouldShowGrayscale ? 'grayscale opacity-75' : ''}`}>
+      {/* Banner Section */}
       <div
-        ref={stickyHeaderRef}
-        className="fixed top-0 left-0 right-0 z-40 w-full px-4 py-2 sm:py-3 rounded-b-[2rem] shadow-lg bg-[#D91F3A]"
+        ref={bannerShellRef}
+        data-banner-shell="true"
+        className="relative w-full overflow-hidden h-[clamp(220px,36vw,440px)] animate-fade-in"
       >
-        <div className="relative z-10 max-w-7xl mx-auto flex items-center justify-between">
-          {/* Left: Takeaway-style heading (location only changeable from Delivery home) */}
-          <div className="flex flex-col min-w-0">
-            <span className="text-[10px] font-bold text-white/80 uppercase tracking-[0.2em] drop-shadow-md">
-              Budget Meals
-            </span>
-            <h1 className="text-xl font-bold text-white flex items-center gap-2 drop-shadow-md">
-              Under {RUPEE_SYMBOL}{under250PriceLimit}
-            </h1>
-          </div>
+        {/* Floating Top Header Controls */}
+        <div className="absolute top-3 left-3 right-3 sm:top-4 sm:left-4 sm:right-4 z-30 flex items-center justify-between pointer-events-auto">
+          {/* Back Button */}
+          <button
+            onClick={goBack}
+            type="button"
+            aria-label="Go Back"
+            className="w-10 h-10 md:w-11 md:h-11 bg-black/50 backdrop-blur-md rounded-full flex items-center justify-center hover:bg-black/70 active:scale-90 transition-all text-white shadow-md border border-white/10"
+          >
+            <ArrowLeft className="h-5 w-5 text-white" />
+          </button>
 
-          {/* Right: Wallet & Profile Actions */}
-          <div className="flex items-center gap-3 flex-shrink-0">
-            {/* Wallet Button */}
-            <Link 
-              to="/food/user/wallet" 
+          {/* Right Actions: Wallet & Profile */}
+          <div className="flex items-center gap-2.5">
+            <Link
+              to="/food/user/wallet"
               state={{ from: "/food/user/under-250" }}
               onClick={(e) => {
                 if (!isModuleAuthenticated('user')) {
@@ -1262,14 +1274,13 @@ export default function Under250({ isTabActive = true }) {
                   window.dispatchEvent(new CustomEvent('show-login-required'));
                 }
               }}
-              className="p-1.5 active:scale-90 transition-all flex items-center justify-center text-white"
+              className="w-10 h-10 md:w-11 md:h-11 bg-black/50 backdrop-blur-md rounded-full flex items-center justify-center hover:bg-black/70 active:scale-90 transition-all text-white shadow-md border border-white/10"
             >
-              <Wallet className="h-[26px] w-[26px] antialiased" strokeWidth={2.2} />
+              <Wallet className="h-5 w-5" strokeWidth={2.2} />
             </Link>
 
-            {/* Profile Avatar */}
-            <Link 
-              to="/food/user/profile" 
+            <Link
+              to="/food/user/profile"
               state={{ from: "/food/user/under-250" }}
               onClick={(e) => {
                 if (!isModuleAuthenticated('user')) {
@@ -1277,12 +1288,12 @@ export default function Under250({ isTabActive = true }) {
                   window.dispatchEvent(new CustomEvent('show-login-required'));
                 }
               }}
-              className="h-9 w-9 relative flex items-center justify-center rounded-full border-[1.5px] border-white ring-1 ring-red-500/80 cursor-pointer active:scale-95 transition-all overflow-hidden"
+              className="h-10 w-10 md:h-11 md:w-11 relative flex items-center justify-center rounded-full border-2 border-white/80 shadow-md cursor-pointer active:scale-95 transition-all overflow-hidden"
             >
               <Avatar className="h-full w-full bg-[#FFF5E6] dark:bg-gray-800">
-                <AvatarImage 
-                  src={userProfile?.profileImage || "/assets/images/profile_avatar.webp"} 
-                  alt="Profile" 
+                <AvatarImage
+                  src={userProfile?.profileImage || "/assets/images/profile_avatar.webp"}
+                  alt="Profile"
                   className="object-cover"
                 />
                 <AvatarFallback className="bg-[#FFF5E6] dark:bg-gray-800 text-[20px] font-black text-[#1F6B45] leading-none tracking-tighter antialiased">
@@ -1292,14 +1303,7 @@ export default function Under250({ isTabActive = true }) {
             </Link>
           </div>
         </div>
-      </div>
 
-      {/* Banner Section */}
-      <div
-        ref={bannerShellRef}
-        data-banner-shell="true"
-        className="relative w-full overflow-hidden h-[clamp(210px,34vw,430px)] animate-fade-in"
-      >
         {/* Sliding Banner Container */}
         <div
           className="flex w-full h-full"
