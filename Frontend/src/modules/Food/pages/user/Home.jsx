@@ -58,6 +58,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import Footer from "@food/components/user/Footer";
 import FoodFilterBar from "@food/components/user/FoodFilterBar";
 import AddToCartButton from "@food/components/user/AddToCartButton";
+import DishDetailModal from "@food/components/user/DishDetailModal";
 import FloatingHomeDock from "@food/components/user/FloatingHomeDock";
 import BackToTopButton from "@food/components/user/BackToTopButton";
 import {
@@ -965,6 +966,7 @@ export default function Home() {
   const headerBannerRef = useRef(null);
   const [mealsUnder99, setMealsUnder99] = useState([]);
   const [loadingMealsUnder99, setLoadingMealsUnder99] = useState(true);
+  const [selectedDishForModal, setSelectedDishForModal] = useState(null);
   const [meals99SortBy, setMeals99SortBy] = useState("relevance");
   const [meals99IsVeg, setMeals99IsVeg] = useState(false);
   const [meals99IsNonVeg, setMeals99IsNonVeg] = useState(false);
@@ -3764,7 +3766,8 @@ export default function Home() {
                         return (
                           <div
                             key={dish.id}
-                            className="flex-shrink-0 w-[145px] sm:w-[155px] flex flex-col justify-between group cursor-pointer"
+                            onClick={() => setSelectedDishForModal(dish)}
+                            className="flex-shrink-0 w-[145px] sm:w-[155px] flex flex-col justify-between group cursor-pointer transition-transform duration-200 active:scale-[0.98]"
                           >
                             <div className="flex flex-col h-full justify-between">
                               {/* Image container with subtle light border */}
@@ -5478,6 +5481,20 @@ export default function Home() {
         }}
         voiceSearch={voiceSearch}
         autoStart={false}
+      />
+
+      <DishDetailModal
+        isOpen={Boolean(selectedDishForModal)}
+        dish={selectedDishForModal}
+        onClose={() => setSelectedDishForModal(null)}
+        onAddToCart={(dishItem, event, variant, qty) => {
+          const itemToAdd = variant
+            ? { ...dishItem, price: variant.price, variants: [variant] }
+            : dishItem;
+          for (let i = 0; i < (qty || 1); i++) {
+            handleIncreaseQuantity(itemToAdd, event);
+          }
+        }}
       />
 
       <FloatingHomeDock hasBottomNav />
