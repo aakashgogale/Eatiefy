@@ -1558,10 +1558,17 @@ export default function Home() {
     // Required food categories requested by user
     const requiredItems = [
       { id: "cat-pizza", name: "Pizza", slug: "pizza", image: pizzaImg },
-      { id: "cat-biryani", name: "Biryani", slug: "biryani", image: "https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=400&h=400&fit=crop" },
+      { id: "cat-chatpata", name: "Chatpata", slug: "chatpata", image: "https://images.unsplash.com/photo-1601050690597-df0568f70950?w=500&auto=format&fit=crop&q=85" },
+      { id: "cat-chaat", name: "Chaat", slug: "chaat", image: "https://images.unsplash.com/photo-1601050690597-df0568f70950?w=500&auto=format&fit=crop&q=85" },
+      { id: "cat-biryani", name: "Biryani", slug: "biryani", image: "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=500&auto=format&fit=crop&q=85" },
       { id: "cat-paneer", name: "paneer", slug: "paneer", image: paneerImg },
+      { id: "cat-beverages", name: "Beverages", slug: "beverages", image: "https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=500&auto=format&fit=crop&q=85" },
+      { id: "cat-drinks", name: "Drinks", slug: "drinks", image: "https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=500&auto=format&fit=crop&q=85" },
       { id: "cat-burger", name: "Burger", slug: "burger", image: burgerImg },
       { id: "cat-rolls", name: "Rolls", slug: "rolls", image: rollsImg },
+      { id: "cat-kebabs", name: "Kebabs", slug: "kebabs", image: "https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?w=500&auto=format&fit=crop&q=85" },
+      { id: "cat-main-course", name: "Main Course", slug: "main-course", image: "https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=500&auto=format&fit=crop&q=85" },
+      { id: "cat-combo", name: "Combo", slug: "combo", image: "https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=500&auto=format&fit=crop&q=85" },
       { id: "cat-fried-rice", name: "Fried Rice", slug: "fried-rice", image: friedRiceImg },
       { id: "cat-sandwich", name: "Sandwich", slug: "sandwich", image: sandwichImg },
       { id: "cat-momos", name: "Momos", slug: "momos", image: momosImg },
@@ -1570,16 +1577,21 @@ export default function Home() {
       { id: "cat-pasta", name: "Pasta", slug: "pasta", image: pastaImg },
       { id: "cat-chole-bhature", name: "Chole Bhature", slug: "chole-bhature", image: choleBhatureImg },
       { id: "cat-cake", name: "Cake", slug: "cake", image: cakeImg },
+      { id: "cat-desserts", name: "Desserts", slug: "desserts", image: "https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=500&auto=format&fit=crop&q=85" },
       { id: "cat-paratha", name: "Paratha", slug: "paratha", image: parathaImg },
       { id: "cat-noodles", name: "Noodles", slug: "noodles", image: noodlesImg },
+      { id: "cat-chinese", name: "Chinese", slug: "chinese", image: "https://images.unsplash.com/photo-1585032226651-759b368d7246?w=500&auto=format&fit=crop&q=85" },
       { id: "cat-thali", name: "Thali", slug: "thali", image: thaliImg },
       { id: "cat-north-indian", name: "North Indian", slug: "north-indian", image: northIndianImg },
+      { id: "cat-south-indian", name: "South Indian", slug: "south-indian", image: "https://images.unsplash.com/photo-1668236543090-82eba5ee5976?w=500&auto=format&fit=crop&q=85" },
     ];
 
     // Ensure required items are present if missing from API, or update image if item exists
     requiredItems.forEach((req) => {
       const idx = list.findIndex(
-        (c) => (c.name || c.label || "").toLowerCase() === req.name.toLowerCase()
+        (c) =>
+          (c.name || c.label || "").toLowerCase() === req.name.toLowerCase() ||
+          (c.slug || "").toLowerCase() === req.slug.toLowerCase()
       );
       if (idx !== -1) {
         list[idx] = { ...list[idx], image: req.image };
@@ -3441,10 +3453,15 @@ export default function Home() {
                         }`}
                     >
                       <img
-                        src={category.image}
+                        src={category.image || "https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=500&auto=format&fit=crop&q=85"}
                         alt={catName}
                         className="w-full h-full object-cover bg-white rounded-full transition-transform duration-300 group-hover:scale-110"
                         loading="lazy"
+                        onError={(e) => {
+                          if (!e.target.src.includes("photo-1546833999-b9f581a1996d")) {
+                            e.target.src = "https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=500&auto=format&fit=crop&q=85";
+                          }
+                        }}
                       />
                     </div>
                     <span
@@ -5013,7 +5030,7 @@ export default function Home() {
                       }}
                       whileTap={{ scale: 0.95 }}>
                       <Link
-                        to={`/user/category/${categoryData.slug || categoryData.name.toLowerCase().replace(/\s+/g, "-")}`}
+                        to={`/food/user/category/${categoryData.slug || categoryData.name.toLowerCase().replace(/\s+/g, "-")}`}
                         onClick={() => setShowAllCategoriesModal(false)}
                         className="block">
                         <div className="flex flex-col items-center gap-2 sm:gap-2.5 cursor-pointer w-full">
@@ -5425,10 +5442,15 @@ export default function Home() {
                         >
                           <div className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full overflow-hidden shadow-md border border-gray-100 dark:border-gray-800 bg-white transition-transform duration-300 group-hover:scale-110 group-active:scale-95">
                             <img
-                              src={category.image}
+                              src={category.image || "https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=500&auto=format&fit=crop&q=85"}
                               alt={category.name}
                               className="w-full h-full object-cover rounded-full bg-white transition-transform duration-300 group-hover:scale-105"
                               loading="lazy"
+                              onError={(e) => {
+                                if (!e.target.src.includes("photo-1546833999-b9f581a1996d")) {
+                                  e.target.src = "https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=500&auto=format&fit=crop&q=85";
+                                }
+                              }}
                             />
                           </div>
                           <span className="text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-200 text-center leading-tight whitespace-nowrap group-hover:text-[#659116] transition-colors">

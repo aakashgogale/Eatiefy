@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import OptimizedImage from "@food/components/OptimizedImage";
+import { useProfile } from "@food/context/ProfileContext";
 import { isVegMenuItem } from "@food/utils/vegMode";
 import { saveBrowseScroll, saveCategoryBrowseClick } from "@food/utils/browseScrollMemory";
 import dishFallbackImage from "@food/assets/dish_fallback.webp";

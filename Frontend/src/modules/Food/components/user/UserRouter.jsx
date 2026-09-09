@@ -170,6 +170,7 @@ export default function UserRouter() {
           <Route path="help/orders/:orderId" element={<OrderHelp />} />
 
           {/* Auth Redirects & Callbacks */}
+          <Route path="login" element={<Navigate to="/user/auth/login" replace />} />
           <Route path="auth/login" element={
             <AuthRedirect module="user">
               <Navigate to="/user/auth/login" replace />
@@ -285,6 +286,9 @@ export default function UserRouter() {
             {/* Complaints */}
             <Route path="complaints/submit/:orderId" element={<SubmitComplaint />} />
           </Route>
+
+          {/* Catch-all fallback */}
+          <Route path="*" element={<Navigate to="/food/user" replace />} />
         </Route>
       </Routes>
     </Suspense>

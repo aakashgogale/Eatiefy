@@ -164,20 +164,21 @@ export default function CategoryPage({
   }, [vegMode, selectedCategory, categories])
 
   const activeCategory = useMemo(() => {
-    if (!selectedCategory || selectedCategory === 'all' || !categories) return null;
+    if (!selectedCategory || selectedCategory === 'all' || !Array.isArray(categories)) return null;
     return categories.find(c =>
-      c.slug === selectedCategory ||
-      c.id === selectedCategory ||
-      c.name?.toLowerCase().replace(/\s+/g, '-') === selectedCategory
+      c?.slug === selectedCategory ||
+      c?.id === selectedCategory ||
+      (c?.name && c.name.toLowerCase().replace(/\s+/g, '-') === selectedCategory)
     );
   }, [selectedCategory, categories]);
 
   const activeCategoryIds = useMemo(() => {
-    if (!activeCategory || !categories) return [];
-    const targetName = activeCategory.name?.toLowerCase();
+    if (!activeCategory || !Array.isArray(categories)) return [];
+    const targetName = activeCategory?.name?.toLowerCase();
+    if (!targetName) return [];
     return categories
-      .filter(c => c.name?.toLowerCase() === targetName)
-      .map(c => c.id)
+      .filter(c => c?.name?.toLowerCase() === targetName)
+      .map(c => c?.id)
       .filter(Boolean);
   }, [activeCategory, categories]);
 
@@ -703,20 +704,23 @@ export default function CategoryPage({
 
           const transformedCategories = [
             { id: 'all', name: "All", image: null, slug: 'all' },
-            ...categoriesArray.map((cat) => ({
-              id: String(cat._id || cat.id || ''),
-              name: cat.name,
-              image: cat.image || foodImages[0],
-              slug: cat.slug || cat.name.toLowerCase().replace(/\s+/g, '-'),
-              type: cat.type,
-              foodTypeScope: cat.foodTypeScope || cat.type || "",
-            }))
+            ...categoriesArray.map((cat) => {
+              const name = String(cat?.name || cat?.label || "Category")
+              return {
+                id: String(cat?._id || cat?.id || ''),
+                name,
+                image: cat?.image || foodImages[0],
+                slug: cat?.slug || name.toLowerCase().replace(/\s+/g, '-'),
+                type: cat?.type,
+                foodTypeScope: cat?.foodTypeScope || cat?.type || "",
+              }
+            })
           ]
 
           const keywordsMap = {}
           categoriesArray.forEach((cat) => {
-            const categoryId = String(cat._id || cat.id || '')
-            const categoryName = cat.name.toLowerCase()
+            const categoryId = String(cat?._id || cat?.id || '')
+            const categoryName = String(cat?.name || '').toLowerCase()
             const words = categoryName.split(/[\s-]+/).filter(w => w.length > 0)
             keywordsMap[categoryId] = [categoryName, ...words]
           })
@@ -1114,11 +1118,11 @@ export default function CategoryPage({
         }
 
         // Compute active category inside the effect to avoid it as a dependency
-        const resolvedCategory = (selectedCategory && selectedCategory !== 'all' && categories?.length > 0)
+        const resolvedCategory = (selectedCategory && selectedCategory !== 'all' && Array.isArray(categories) && categories.length > 0)
           ? categories.find(c =>
-              c.slug === selectedCategory ||
-              c.id === selectedCategory ||
-              c.name?.toLowerCase().replace(/\s+/g, '-') === selectedCategory
+              c?.slug === selectedCategory ||
+              c?.id === selectedCategory ||
+              (c?.name && c.name.toLowerCase().replace(/\s+/g, '-') === selectedCategory)
             )
           : null
 
@@ -1485,9 +1489,9 @@ export default function CategoryPage({
     if (category && categories && categories.length > 0) {
       const categorySlug = category.toLowerCase()
       const matchedCategory = categories.find(cat =>
-        cat.slug === categorySlug ||
-        cat.id === categorySlug ||
-        cat.name.toLowerCase().replace(/\s+/g, '-') === categorySlug
+        cat?.slug === categorySlug ||
+        cat?.id === categorySlug ||
+        (cat?.name && cat.name.toLowerCase().replace(/\s+/g, '-') === categorySlug)
       )
       // Prefer URL slug (stable cache key) over mongo id
       nextSlug = matchedCategory?.slug
@@ -2047,13 +2051,13 @@ export default function CategoryPage({
               {showCategorySkeleton || ((loadingCategories || loadingZone) && displayCategories.length <= 1) ? (
                 <CategoryChipRowSkeleton className="py-3" />
               ) : displayCategories.length > 0 ? (
-                displayCategories.map((cat) => {
-                  const categorySlug = cat.slug || cat.id
-                  const isSelected = selectedCategory === categorySlug || selectedCategory === cat.id
-                  const isAllCategory = categorySlug === "all" || cat.id === "all"
+                displayCategories.map((cat, catIdx) => {
+                  const categorySlug = cat?.slug || cat?.id || `cat-${catIdx}`
+                  const isSelected = selectedCategory === categorySlug || selectedCategory === cat?.id
+                  const isAllCategory = categorySlug === "all" || cat?.id === "all"
                   return (
                     <button
-                      key={cat.id}
+                      key={cat?.id || catIdx}
                       onClick={() => handleCategorySelect(cat)}
                       data-category-selected={isSelected ? "true" : "false"}
                       className={`flex flex-col items-center gap-1.5 flex-shrink-0 pb-2 transition-all ${isSelected ? 'border-b-2 border-[#1F6B45]' : ''
@@ -2063,12 +2067,12 @@ export default function CategoryPage({
                         <div className={`w-16 h-16 md:w-20 md:h-20 rounded-full border-2 transition-all flex items-center justify-center ${isSelected ? 'border-[#1F6B45] shadow-lg bg-[#1F6B45]/10 dark:bg-[#1F6B45]/20' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-[#222222]'}`}>
                           <Grid2x2 className={`h-6 w-6 md:h-7 md:w-7 ${isSelected ? 'text-[#1F6B45]' : 'text-gray-500 dark:text-gray-400'}`} />
                         </div>
-                      ) : cat.image ? (
+                      ) : cat?.image ? (
                     <div className={`w-16 h-16 md:w-20 md:h-20 rounded-full overflow-hidden border-2 transition-all ${isSelected ? 'border-[#1F6B45] shadow-lg' : 'border-transparent'
                           }`}>
                           <img
                             src={cat.image}
-                            alt={cat.name}
+                            alt={cat?.name || "Category"}
                             className="w-full h-full object-cover"
                             onError={(e) => {
                               // If the backend image is missing/broken, show initials instead of fake assets.
@@ -2080,16 +2084,16 @@ export default function CategoryPage({
                         <div
                           className={`w-16 h-16 md:w-20 md:h-20 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center border-2 transition-all ${isSelected ? 'border-[#1F6B45] shadow-lg bg-[#1F6B45]/10 dark:bg-[#1F6B45]/20' : 'border-transparent'
                             }`}
-                          aria-label={`${cat.name} category`}
+                          aria-label={`${cat?.name || "Category"} category`}
                         >
                           <span className="text-sm md:text-base font-semibold text-gray-600 dark:text-gray-300">
-                            {String(cat.name || "?").trim().slice(0, 2).toUpperCase()}
+                            {String(cat?.name || "?").trim().slice(0, 2).toUpperCase()}
                           </span>
                         </div>
                       )}
                       <span className={`text-xs md:text-sm font-medium whitespace-nowrap ${isSelected ? 'text-[#1F6B45] dark:text-[#1F6B45]' : 'text-gray-600 dark:text-gray-400'
                         }`}>
-                        {cat.name}
+                        {cat?.name || "Category"}
                       </span>
                     </button>
                   )
