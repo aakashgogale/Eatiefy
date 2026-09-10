@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react"
+import { getModuleToken, getUserIdFromToken } from "@food/utils/auth"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   Search,
@@ -30,6 +31,23 @@ const debugError = (...args) => {}
 
 
 const INVENTORY_STORAGE_KEY = "restaurant_inventory_state"
+
+/** Id of the restaurant this browser is signed in as, or "" when signed out. */
+const getActiveRestaurantId = () => {
+  try {
+    const token = getModuleToken("restaurant")
+    return token ? String(getUserIdFromToken(token) || "") : ""
+  } catch {
+    return ""
+  }
+}
+
+/**
+ * Cache key for the menu snapshot, scoped per restaurant so one account can
+ * never render another account's items.
+ */
+const inventoryCacheKey = (restaurantId) =>
+  restaurantId ? `${INVENTORY_STORAGE_KEY}:${restaurantId}` : ""
 const INVENTORY_RECOMMENDED_KEY = "restaurant_inventory_recommended_map"
 const ADDON_FORM_STORAGE_KEY = "restaurant_addon_form_data"
 const INVENTORY_ACTIVE_TAB_KEY = "restaurant_inventory_active_tab"
@@ -750,10 +768,19 @@ export default function Inventory() {
   const [selectedFilter, setSelectedFilter] = useState("all")
   const [isLoading, setIsLoading] = useState(false)
   const [loadingInventory, setLoadingInventory] = useState(false)
+  // The restaurant this page belongs to, resolved from the session token before
+  // any request is made. Empty means "no restaurant session yet".
+  const activeRestaurantIdRef = useRef(getActiveRestaurantId())
+  // Monotonic id so only the newest menu request may write state.
+  const menuRequestSeqRef = useRef(0)
   const [categories, setCategories] = useState(() => {
     try {
       if (typeof window === "undefined") return []
-      const saved = localStorage.getItem(INVENTORY_STORAGE_KEY)
+      // The pre-scoping global snapshot could belong to any restaurant.
+      localStorage.removeItem(INVENTORY_STORAGE_KEY)
+      const key = inventoryCacheKey(getActiveRestaurantId())
+      if (!key) return []
+      const saved = localStorage.getItem(key)
       if (saved) {
         const parsed = JSON.parse(saved)
         if (Array.isArray(parsed)) {
@@ -765,6 +792,8 @@ export default function Inventory() {
     }
     return []
   })
+  // Set when a load fails, so a failed request is not rendered as "no items".
+  const [inventoryError, setInventoryError] = useState("")
   const [expandedCategories, setExpandedCategories] = useState([])
   const [togglePopupOpen, setTogglePopupOpen] = useState(false)
   const [toggleTarget, setToggleTarget] = useState(null)
@@ -853,11 +882,36 @@ export default function Inventory() {
   // Fetch menu items from API and convert to inventory format
   useEffect(() => {
     const fetchMenuData = async () => {
+      // The menu endpoint is restaurant-scoped. Firing it before the session is
+      // readable produced a 401 whose catch below cleared the list, which is why
+      // a refresh could leave the page empty until it was remounted.
+      const restaurantId = getActiveRestaurantId()
+      if (!getModuleToken("restaurant")) {
+        setLoadingInventory(false)
+        return
+      }
+
+      // A different restaurant than the cached snapshot: drop it so no other
+      // account's items are ever shown.
+      if (restaurantId && activeRestaurantIdRef.current !== restaurantId) {
+        activeRestaurantIdRef.current = restaurantId
+        setCategories([])
+        setExpandedCategories([])
+      }
+
+      // Only the newest request may write state, so an earlier slow response
+      // cannot overwrite a newer one.
+      const requestId = menuRequestSeqRef.current + 1
+      menuRequestSeqRef.current = requestId
+      const isCurrent = () => menuRequestSeqRef.current === requestId
+
       try {
         setLoadingInventory(true)
-        
+        setInventoryError("")
+
         // Fetch menu from API
         const menuResponse = await restaurantAPI.getMenu()
+        if (!isCurrent()) return
         
         if (menuResponse.data && menuResponse.data.success && menuResponse.data.data && menuResponse.data.data.menu) {
           const menuSections = menuResponse.data.data.menu.sections || []
@@ -985,7 +1039,9 @@ export default function Inventory() {
           setCategories([])
           setExpandedCategories([])
         }
+        setInventoryError("")
       } catch (error) {
+        if (!isCurrent()) return
         // Only log and show toast if it's not a network/timeout error
         if (error.code !== 'ERR_NETWORK' && error.code !== 'ECONNABORTED' && !error.message?.includes('timeout')) {
         debugError('Error fetching menu data:', error)
@@ -994,10 +1050,13 @@ export default function Inventory() {
           // Silently handle network errors - backend is not running
           // The axios interceptor already handles these with proper error messages
         }
-        setCategories([])
-        setExpandedCategories([])
+        // Keep the last known menu on screen. Wiping it here turned a temporary
+        // failure into a permanently blank page until the route was remounted.
+        setInventoryError(
+          error?.response?.data?.message || 'Could not load your menu. Showing the last saved copy.',
+        )
       } finally {
-        setLoadingInventory(false)
+        if (isCurrent()) setLoadingInventory(false)
       }
     }
     
@@ -1265,7 +1324,9 @@ export default function Inventory() {
   useEffect(() => {
     try {
       if (typeof window === "undefined") return
-      localStorage.setItem(INVENTORY_STORAGE_KEY, JSON.stringify(categories))
+      const key = inventoryCacheKey(activeRestaurantIdRef.current)
+      if (!key) return
+      localStorage.setItem(key, JSON.stringify(categories))
     } catch (error) {
       debugError("Error saving inventory to storage:", error)
     }
@@ -2234,7 +2295,15 @@ export default function Inventory() {
               )}
             </>
           )}
-          {activeTab !== "add-ons" && !loadingInventory && listToRender.length === 0 && (
+          {/* A failed load is reported separately, so it is never mistaken for
+              an empty menu. The last known items stay on screen underneath. */}
+          {activeTab !== "add-ons" && !loadingInventory && inventoryError && (
+            <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <p className="text-sm font-semibold text-amber-900">{inventoryError}</p>
+            </div>
+          )}
+
+          {activeTab !== "add-ons" && !loadingInventory && !inventoryError && listToRender.length === 0 && (
             <div className="rounded-[28px] border border-dashed border-slate-200 bg-white/70 px-6 py-16 text-center shadow-[0_18px_40px_-34px_rgba(15,23,42,0.35)]">
               <p className="text-lg font-semibold text-slate-700">
                 {hasActiveTools ? "No matching categories or items found" : "No menu categories available"}

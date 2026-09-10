@@ -603,6 +603,9 @@ export default function RestaurantOnboarding() {
   const [zones, setZones] = useState([])
   const [zonesLoading, setZonesLoading] = useState(false)
   const [isOnboardingHydrated, setIsOnboardingHydrated] = useState(false)
+  // Set once the IndexedDB image restore has actually run. Guards the delete
+  // branch in the save effect below.
+  const imagesRestoredRef = useRef(false)
   const isHydratingRef = useRef(false)
 
   const [step1, setStep1] = useState({
@@ -944,7 +947,17 @@ export default function RestaurantOnboarding() {
 
         const currentPhone = getVerifiedPhoneFromStoredRestaurant()
         let localData = loadOnboardingFromLocalStorage()
-        
+
+        // Kick the stored-file reads off now; they are local and do not need to
+        // queue behind the network request below.
+        const storedFilesPromise = Promise.all([
+          getFileFromDB("profileImage"),
+          getFileFromDB("panImage"),
+          getFileFromDB("gstImage"),
+          getFileFromDB("fssaiImage"),
+          Promise.all(Array.from({ length: 10 }, (_, i) => getFileFromDB(`menuImage_${i}`))),
+        ]).catch(() => [null, null, null, null, []])
+
         // 1. First fetch API data to have the latest backend state
         let apiData = null;
         try {
@@ -1069,27 +1082,23 @@ export default function RestaurantOnboarding() {
         // 4. Finally re-hydrate heavy files from IndexedDB if they exist 
         // (IndexedDB is reliable for large files which don't fit in localStorage)
         // Optimization: Only attempt this if we have existing local or API data to restore.
-        if (localData || apiData) {
-          debugLog("? Checking IndexedDB for saved files...")
-          const [prof, pan, gst, fs] = await Promise.all([
-            getFileFromDB("profileImage"),
-            getFileFromDB("panImage"),
-            getFileFromDB("gstImage"),
-            getFileFromDB("fssaiImage"),
-          ]);
+        {
+          debugLog("? Restoring saved files...")
+          const [prof, pan, gst, fs, menuFiles] = await storedFilesPromise
 
           if (prof) setStep2(p => ({ ...p, profileImage: prof }));
           if (pan) setStep3(p => ({ ...p, panImage: pan }));
           if (gst) setStep3(p => ({ ...p, gstImage: gst }));
           if (fs) setStep3(p => ({ ...p, fssaiImage: fs }));
 
-          // Parallelize menu images hydration
-          const menuPromises = Array.from({ length: 10 }, (_, i) => getFileFromDB(`menuImage_${i}`))
-          const restoredMenuImages = (await Promise.all(menuPromises)).filter(Boolean)
-          
+          const restoredMenuImages = (menuFiles || []).filter(Boolean)
           if (restoredMenuImages.length) {
             setStep2(p => ({ ...p, menuImages: [...p.menuImages.filter(im => !isUploadableFile(im)), ...restoredMenuImages] }));
           }
+
+          // Only now is an empty image field a real "no image", so the save
+          // effect is allowed to delete.
+          imagesRestoredRef.current = true
         }
 
         // If step is explicitly in URL, use it
@@ -1146,7 +1155,7 @@ export default function RestaurantOnboarding() {
     const saveFiles = async () => {
       if (step2.profileImage && isUploadableFile(step2.profileImage)) {
         await saveFileToDB("profileImage", step2.profileImage)
-      } else if (!step2.profileImage) {
+      } else if (!step2.profileImage && imagesRestoredRef.current) {
         await deleteFileFromDB("profileImage")
       }
       if (step3.panImage && isUploadableFile(step3.panImage)) {
@@ -2732,6 +2741,7 @@ export default function RestaurantOnboarding() {
                 })
               }
               className="mt-1 bg-white text-sm"
+              placeholder="Full name as printed on PAN card"
             />
           </div>
         </div>
@@ -3157,7 +3167,7 @@ export default function RestaurantOnboarding() {
         <OnboardingSkeleton />
       ) : (
         <div className="min-h-screen bg-gray-100 flex flex-col">
-          <header className="px-4 py-4 sm:px-6 sm:py-5 bg-white flex items-center justify-between border-b">
+          <header className="sticky top-0 z-40 px-4 py-4 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:py-5 sm:pt-[max(1.25rem,env(safe-area-inset-top))] bg-white flex items-center justify-between border-b">
             <div className="flex items-center gap-3">
               {step === 1 ? (
                 <button

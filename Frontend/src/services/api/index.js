@@ -2065,6 +2065,17 @@ export const deliveryAPI = {
         data: { profile: res.data?.data?.user ?? res.data?.data },
       },
     })),
+  /**
+   * Force-refresh the delivery partner profile, bypassing the short-lived cache.
+   * Approval status is read through this so a partner approved moments ago is
+   * not shown a stale "pending" from the cached response.
+   */
+  refreshMe: () => {
+    deliveryMeCached = null;
+    deliveryMeCacheTime = 0;
+    deliveryMeInFlight = null;
+    return getDeliveryMeOnce();
+  },
   getReferralStats: () =>
     apiClient.get("/food/delivery/referrals/stats", {
       contextModule: "delivery",

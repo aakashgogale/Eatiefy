@@ -61,6 +61,7 @@ export default function MenuCategoriesPage() {
   const [uploadingImage, setUploadingImage] = useState(false)
   const [isPhotoPickerOpen, setIsPhotoPickerOpen] = useState(false)
   const [viewingCategory, setViewingCategory] = useState(null)
+  const [loadError, setLoadError] = useState("")
   const fileInputRef = useRef(null)
   const refreshInFlightRef = useRef(false)
 
@@ -107,7 +108,10 @@ export default function MenuCategoriesPage() {
   }, [location.pathname, location.state, navigate])
 
   const ownCategories = useMemo(
-    () => categories.filter((category) => category.ownedByRestaurant),
+    () =>
+      (Array.isArray(categories) ? categories : []).filter(
+        (category) => category && typeof category === "object" && category.ownedByRestaurant,
+      ),
     [categories],
   )
 
@@ -129,11 +133,16 @@ export default function MenuCategoriesPage() {
       const response = await restaurantAPI.getAllCategories()
       const list = response?.data?.data?.categories || []
       setCategories(Array.isArray(list) ? list : [])
+      setLoadError("")
       if (isRefresh) toast.success("Categories updated")
     } catch (error) {
-      toast.error(error?.response?.data?.message || "Failed to load categories")
+      const message = error?.response?.data?.message || "Failed to load categories"
+      toast.error(message)
       // Keep whatever is already on screen when a manual refresh fails.
-      if (!isRefresh) setCategories([])
+      if (!isRefresh) {
+        setCategories([])
+        setLoadError(message)
+      }
     } finally {
       if (isRefresh) {
         refreshInFlightRef.current = false
@@ -344,6 +353,20 @@ export default function MenuCategoriesPage() {
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-slate-500" />
           </div>
+        ) : loadError ? (
+          /* A failed load is not the same as "you have none" — say so and let
+             the restaurant retry instead of showing a misleading empty state. */
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-6 py-12 text-center">
+            <p className="text-lg font-semibold text-rose-900">Could not load categories</p>
+            <p className="mt-2 text-sm text-rose-700">{loadError}</p>
+            <button
+              type="button"
+              onClick={() => fetchCategories()}
+              className="mt-5 rounded-xl bg-rose-600 px-5 py-2.5 text-sm font-semibold text-white active:scale-95"
+            >
+              Try again
+            </button>
+          </div>
         ) : ownCategories.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
             <p className="text-lg font-semibold text-slate-900">No restaurant categories yet</p>
@@ -357,7 +380,7 @@ export default function MenuCategoriesPage() {
         ) : (
           <div className="space-y-3">
             {ownCategories.map((category) => {
-              const status = category?.approvalStatus || "pending"
+              const status = String(category?.approvalStatus || "pending")
               const isEditable = category?.canEdit
               const isGlobal = category?.isGlobal
 

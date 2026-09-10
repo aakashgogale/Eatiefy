@@ -68,6 +68,7 @@ import { onboardingAuthMiddleware } from '../../../../core/auth/onboardingToken.
 
 import { cacheResponse, invalidateCache, invalidateFoodBrowseCaches } from '../../../../middleware/cache.js';
 import { listPublicFoodsController } from '../controllers/publicFoods.controller.js';
+import { requireDiningEnabled } from '../../dining/middleware/requireDiningEnabled.js';
 
 const router = express.Router();
 
@@ -140,19 +141,27 @@ router.patch('/profile', authMiddleware, requireRestaurant, async (req, res, nex
 router.patch('/availability', authMiddleware, requireApprovedRestaurant, async (req, res, next) => {
     await invalidateCache('restaurants:*');
     await invalidateCache('search:*');
+    // Dish rails (e.g. "Meals under 99") read from public_foods; without this a
+    // restaurant that just went offline keeps showing dishes for the cache TTL.
+    await invalidateCache('public_foods:*');
     next();
 }, updateRestaurantAcceptingOrdersController);
-// DINING DISABLED — re-enable with Frontend DINING_ENABLED
-// router.patch('/dining-settings', authMiddleware, requireApprovedRestaurant, updateCurrentRestaurantDiningSettingsController);
+// Restaurant-side dining settings. Gated on the same admin toggle as every
+// other dining endpoint, so the restaurant panel cannot manage a disabled module.
+router.patch('/dining-settings', authMiddleware, requireApprovedRestaurant, requireDiningEnabled, async (req, res, next) => {
+    await invalidateCache('restaurants:*');
+    await invalidateCache('restaurant_detail:*');
+    await invalidateCache('search:*');
+    next();
+}, updateCurrentRestaurantDiningSettingsController);
 router.patch('/takeaway-settings', authMiddleware, requireApprovedRestaurant, async (req, res, next) => {
     await invalidateCache('restaurants:*');
     await invalidateCache('restaurant_detail:*');
     await invalidateCache('search:*');
     next();
 }, updateCurrentRestaurantTakeawaySettingsController);
-// DINING DISABLED
-// router.post('/dining-settings/request', authMiddleware, requireApprovedRestaurant, createDiningRequestController);
-// router.get('/dining-settings/pending', authMiddleware, requireApprovedRestaurant, getPendingDiningRequestController);
+router.post('/dining-settings/request', authMiddleware, requireApprovedRestaurant, requireDiningEnabled, createDiningRequestController);
+router.get('/dining-settings/pending', authMiddleware, requireApprovedRestaurant, requireDiningEnabled, getPendingDiningRequestController);
 router.get('/outlet-timings', authMiddleware, requireApprovedRestaurant, getCurrentRestaurantOutletTimingsController);
 router.put('/outlet-timings', authMiddleware, requireApprovedRestaurant, async (req, res, next) => {
     await invalidateCache('restaurants:*');

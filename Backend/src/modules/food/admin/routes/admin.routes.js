@@ -7,8 +7,8 @@ import * as addonsApprovalController from '../controllers/addonsApproval.control
 import * as businessSettingsController from '../controllers/businessSettings.controller.js';
 import * as feedbackExperienceController from '../controllers/feedbackExperience.controller.js';
 import * as notificationBroadcastController from '../controllers/notificationBroadcast.controller.js';
-// DINING DISABLED — re-enable with Frontend DINING_ENABLED + uncomment dining admin routes below
-// import * as diningAdminController from '../../dining/controllers/diningAdmin.controller.js';
+import * as diningAdminController from '../../dining/controllers/diningAdmin.controller.js';
+import { requireDiningEnabled } from '../../dining/middleware/requireDiningEnabled.js';
 import * as orderController from '../../orders/controllers/order.controller.js';
 import * as subAdminController from '../controllers/subAdmin.controller.js';
 import { getAdminPageController, upsertAdminPageController } from '../controllers/pageContent.controller.js';
@@ -241,16 +241,19 @@ router.post('/zones', adminController.createZone);
 router.patch('/zones/:id', adminController.updateZone);
 router.delete('/zones/:id', adminController.deleteZone);
 
-// ----- Dining (DISABLED — re-enable with Frontend DINING_ENABLED) -----
-// router.get('/dining/categories', diningAdminController.getDiningCategories);
-// router.post('/dining/categories', diningAdminController.createDiningCategory);
-// router.patch('/dining/categories/:id', diningAdminController.updateDiningCategory);
-// router.delete('/dining/categories/:id', diningAdminController.deleteDiningCategory);
-// router.get('/dining/restaurants', diningAdminController.getDiningRestaurants);
-// router.patch('/dining/restaurants/:restaurantId', diningAdminController.updateDiningRestaurant);
-// router.get('/dining/requests', diningAdminController.listAllDiningRequests);
-// router.patch('/dining/requests/:id/approve', diningAdminController.approveDiningRequest);
-// router.patch('/dining/requests/:id/reject', diningAdminController.rejectDiningRequest);
+// ----- Dining -----
+// Admin dining management. The router is already behind ADMIN/SUB_ADMIN auth in
+// routes/index.js; requireDiningEnabled adds the feature gate on top, so these
+// endpoints exist only while the module is switched on.
+router.get('/dining/categories', requireDiningEnabled, diningAdminController.getDiningCategories);
+router.post('/dining/categories', requireDiningEnabled, diningAdminController.createDiningCategory);
+router.patch('/dining/categories/:id', requireDiningEnabled, diningAdminController.updateDiningCategory);
+router.delete('/dining/categories/:id', requireDiningEnabled, diningAdminController.deleteDiningCategory);
+router.get('/dining/restaurants', requireDiningEnabled, diningAdminController.getDiningRestaurants);
+router.patch('/dining/restaurants/:restaurantId', requireDiningEnabled, diningAdminController.updateDiningRestaurant);
+router.get('/dining/requests', requireDiningEnabled, diningAdminController.listAllDiningRequests);
+router.patch('/dining/requests/:id/approve', requireDiningEnabled, diningAdminController.approveDiningRequest);
+router.patch('/dining/requests/:id/reject', requireDiningEnabled, diningAdminController.rejectDiningRequest);
 
 // ----- Orders -----
 router.get('/orders', orderController.listOrdersAdminController);

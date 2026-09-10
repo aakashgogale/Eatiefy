@@ -1,4 +1,5 @@
 import express from 'express';
+import { requireDiningEnabled } from '../../dining/middleware/requireDiningEnabled.js';
 import { upload } from '../../../../middleware/upload.js';
 import {
     listHeroBannersController,
@@ -100,16 +101,17 @@ router.delete('/hero-banners/under-250/:id', deleteUnder250BannerController);
 router.patch('/hero-banners/under-250/:id/order', updateUnder250BannerOrderController);
 router.patch('/hero-banners/under-250/:id/status', toggleUnder250BannerStatusController);
 
-// Admin dining banners (DISABLED — re-enable with Frontend DINING_ENABLED)
-// router.get('/hero-banners/dining', listDiningBannersController);
-// router.post(
-//     '/hero-banners/dining/multiple',
-//     upload.array('files'),
-//     uploadDiningBannersController
-// );
-// router.delete('/hero-banners/dining/:id', deleteDiningBannerController);
-// router.patch('/hero-banners/dining/:id/order', updateDiningBannerOrderController);
-// router.patch('/hero-banners/dining/:id/status', toggleDiningBannerStatusController);
+// Admin dining banners — gated on the same dining toggle as the rest of the module.
+router.get('/hero-banners/dining', requireDiningEnabled, listDiningBannersController);
+router.post(
+    '/hero-banners/dining/multiple',
+    requireDiningEnabled,
+    upload.array('files'),
+    uploadDiningBannersController
+);
+router.delete('/hero-banners/dining/:id', requireDiningEnabled, deleteDiningBannerController);
+router.patch('/hero-banners/dining/:id/order', requireDiningEnabled, updateDiningBannerOrderController);
+router.patch('/hero-banners/dining/:id/status', requireDiningEnabled, toggleDiningBannerStatusController);
 
 // Admin home promotion banners (user home carousel)
 router.get('/hero-banners/home-promotion', listHomePromotionBannersController);
@@ -156,8 +158,7 @@ router.get('/hero-banners/public', getPublicHeroBannersController);
 router.get('/hero-banners/under-250/public', getPublicUnder250BannersController);
 router.get('/hero-banners/home-promotion/public', getPublicHomePromotionBannersController);
 router.get('/home-promotion-banners/public', getPublicHomePromotionBannersController);
-// DINING DISABLED
-// router.get('/hero-banners/dining/public', getPublicDiningBannersController);
+router.get('/hero-banners/dining/public', requireDiningEnabled, getPublicDiningBannersController);
 router.get('/explore-icons/public', getPublicExploreIconsController);
 router.get('/hero-banners/gourmet/public', getPublicGourmetController);
 router.get('/landing/settings/public', getPublicLandingSettingsController);

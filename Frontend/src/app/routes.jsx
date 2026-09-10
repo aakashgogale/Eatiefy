@@ -27,11 +27,36 @@ const PageLoader = () => (
  * path nikalne ke baad FoodApp render karte hain. FoodApp internally BrowserRouter
  * nahi use karta (sirf Routes use karta hai), isliye ye directly kaam karta hai.
  */
-import { AdminShellSkeleton, AppShellSkeleton, OnboardingSkeleton } from '../modules/Food/components/ui/loading-skeletons'
+import { AdminShellSkeleton, AppShellSkeleton, OnboardingSkeleton, RestaurantShellSkeleton } from '../modules/Food/components/ui/loading-skeletons'
 
 /** Admin lives at /admin/* and /food/admin/*. */
 const isAdminPath = (pathname = '') =>
   pathname.startsWith('/admin') || pathname.startsWith('/food/admin')
+
+/** Restaurant lives at /food/restaurant/* (and the bare /restaurant/* alias). */
+const isRestaurantPath = (pathname = '') =>
+  pathname.startsWith('/food/restaurant') || pathname.startsWith('/restaurant')
+
+/** Delivery lives at /food/delivery/* (and the bare /delivery/* alias). */
+const isDeliveryPath = (pathname = '') =>
+  pathname.startsWith('/food/delivery') || pathname.startsWith('/delivery')
+
+/**
+ * The loading shell for a path, chosen from the route itself so it is decided
+ * before any module code has loaded — no role lookup, no flash of the wrong app.
+ * AppShellSkeleton draws the *customer* app, so it is only ever used for
+ * customer routes.
+ */
+const shellFallbackFor = (pathname = '') => {
+  if (isAdminPath(pathname)) return <AdminShellSkeleton />
+  if (pathname.startsWith('/food/restaurant/onboarding') || pathname.startsWith('/restaurant/onboarding')) {
+    return <OnboardingSkeleton />
+  }
+  // Restaurant and delivery both get the restaurant-style dashboard shell rather
+  // than the customer one; neither should ever see the user app's skeleton.
+  if (isRestaurantPath(pathname) || isDeliveryPath(pathname)) return <RestaurantShellSkeleton />
+  return <AppShellSkeleton />
+}
 
 /**
  * Picks the loading shell that matches the app being entered. AppShellSkeleton
@@ -40,8 +65,7 @@ const isAdminPath = (pathname = '') =>
  */
 const ShellFallback = () => {
   const { pathname } = useLocation()
-  if (isAdminPath(pathname)) return <AdminShellSkeleton />
-  return <AppShellSkeleton />
+  return shellFallbackFor(pathname)
 }
 
 const FoodAppWrapper = () => {
@@ -80,17 +104,7 @@ const FoodAppWrapper = () => {
 
   return (
     <Suspense
-      fallback={
-        isAdminPath(location.pathname) ? (
-          <AdminShellSkeleton />
-        ) : isOnboarding ? (
-          <OnboardingSkeleton />
-        ) : isPolicyPage ? (
-          <PageLoader />
-        ) : (
-          <AppShellSkeleton />
-        )
-      }
+      fallback={isPolicyPage ? <PageLoader /> : shellFallbackFor(location.pathname)}
     >
       <FoodApp />
     </Suspense>

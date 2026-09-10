@@ -547,7 +547,12 @@ function UserLayoutContent() {
           handleLocationClick={openLocationSelector} 
         />
       ) : (
-        <main className={`${showBottomNav ? "md:pt-40" : ""} min-h-screen flex flex-col`}>
+        <main
+          className={`${showBottomNav ? "md:pt-40" : ""} min-h-screen flex flex-col`}
+          /* Clears the device gesture bar so the last row of content is never
+             hidden under it. Pages keep their own nav-height padding. */
+          style={showBottomNav ? { paddingBottom: "env(safe-area-inset-bottom)" } : undefined}
+        >
           {keepAliveTab ? (
             <div
               style={{ display: pathMainTab ? "block" : "none" }}

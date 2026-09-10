@@ -410,6 +410,71 @@ function AdminShellSkeleton({ className }) {
   )
 }
 
+/**
+ * Restaurant app loading state.
+ *
+ * Kept separate from AppShellSkeleton, which draws the *customer* app (hero
+ * banner, cuisine chips, restaurant grid). Showing that to a restaurant user
+ * while their own app loaded made it look like they had landed in the wrong
+ * product.
+ */
+function RestaurantShellSkeleton({ className }) {
+  return (
+    <LoadingSkeletonRegion
+      label="Loading restaurant dashboard"
+      className={cn("min-h-screen bg-gray-100 dark:bg-[#0a0a0a]", className)}
+    >
+      {/* Brand header band, matching the restaurant app's top bar */}
+      <div className="bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-5">
+        <div className="flex items-center justify-between">
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-5 w-44 rounded-full bg-white/25" />
+            <Skeleton className="h-3 w-56 rounded-full bg-white/20" />
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-9 rounded-full bg-white/25" />
+            <Skeleton className="h-9 w-9 rounded-full bg-white/25" />
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4 p-4">
+        {/* Status / summary tiles */}
+        <div className="grid grid-cols-2 gap-3">
+          {Array.from({ length: 2 }).map((_, index) => (
+            <div
+              key={index}
+              className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-[#141414]"
+            >
+              <Skeleton className="mb-3 h-3 w-20 rounded-full" />
+              <Skeleton className="h-6 w-24 rounded-md" />
+            </div>
+          ))}
+        </div>
+
+        {/* Order cards */}
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div
+            key={index}
+            className="space-y-3 rounded-2xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-[#141414]"
+          >
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-3 w-28 rounded-full" />
+              <Skeleton className="h-3 w-20 rounded-full" />
+            </div>
+            <Skeleton className="h-4 w-40 rounded-md" />
+            <Skeleton className="h-12 w-full rounded-xl" />
+            <div className="flex gap-3">
+              <Skeleton className="h-10 flex-1 rounded-xl" />
+              <Skeleton className="h-10 flex-1 rounded-xl" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </LoadingSkeletonRegion>
+  )
+}
+
 function OnboardingSkeleton({ className }) {
   return (
     <LoadingSkeletonRegion label="Loading onboarding" className={cn("min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex flex-col", className)}>
@@ -507,6 +572,7 @@ export {
   OnboardingSkeleton,
   OrdersDashboardSkeleton,
   RestaurantCardSkeleton,
+  RestaurantShellSkeleton,
   RestaurantDetailSkeleton,
   RestaurantGridSkeleton,
   SkeletonLines,

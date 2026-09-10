@@ -330,9 +330,19 @@ export default function OnboardingPayment() {
         <div className="mx-auto flex max-w-2xl items-center gap-3 px-4 py-3">
           <button
             type="button"
-            onClick={() => navigate(-1)}
+            /*
+             * This page is always entered with { replace: true } (from the last
+             * onboarding step, and from OTP on relaunch), so there is no
+             * onboarding entry left in history — navigate(-1) fell through to
+             * whatever preceded onboarding (login/home), or left the app after a
+             * refresh. Go to the onboarding route explicitly instead; it restores
+             * the saved step and all previously entered data from storage.
+             * `replace` swaps this page rather than stacking a new entry, so
+             * back/forward cannot loop between payment and the step.
+             */
+            onClick={() => navigate("/food/restaurant/onboarding", { replace: true })}
             className="rounded-full p-1 hover:bg-gray-100"
-            aria-label="Go back"
+            aria-label="Go back to onboarding"
           >
             <ArrowLeft className="h-5 w-5 text-gray-700" />
           </button>

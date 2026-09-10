@@ -4,8 +4,7 @@ import authRoutes from '../core/auth/auth.routes.js';
 import deliveryRoutes from '../modules/food/delivery/routes/delivery.routes.js';
 import restaurantRoutes from '../modules/food/restaurant/routes/restaurant.routes.js';
 import landingRoutes from '../modules/food/landing/routes/landing.routes.js';
-// DINING DISABLED — re-enable with Frontend DINING_ENABLED + uncomment below
-// import { getPublicDiningCategories, getPublicDiningRestaurants } from '../modules/food/dining/controllers/diningPublic.controller.js';
+import { getPublicDiningCategories, getPublicDiningRestaurants } from '../modules/food/dining/controllers/diningPublic.controller.js';
 import uploadRoutes from '../modules/uploads/routes/upload.routes.js';
 import restaurantAdminRoutes from '../modules/food/admin/routes/admin.routes.js';
 import userRoutes from '../modules/food/user/routes/user.routes.js';
@@ -22,8 +21,8 @@ import { getQueuesController } from '../controllers/admin.controller.js';
 import { getPublicEnvController } from '../modules/food/landing/controllers/publicEnv.controller.js';
 import webhookRoutes from '../core/payments/routes/webhook.routes.js'; // ✅ NEW
 import searchRoutes from '../modules/food/search/routes/search.routes.js';
-// DINING DISABLED — re-enable with Frontend DINING_ENABLED + uncomment below
-// import diningBookingRoutes from '../modules/food/dining/routes/diningBooking.routes.js';
+import diningBookingRoutes from '../modules/food/dining/routes/diningBooking.routes.js';
+import { requireDiningEnabled } from '../modules/food/dining/middleware/requireDiningEnabled.js';
 import { maintenanceModeMiddleware } from '../modules/food/admin/middleware/maintenanceMode.middleware.js';
 
 const router = express.Router();
@@ -52,10 +51,11 @@ router.use('/v1/food/restaurant', restaurantRoutes);
 // Landing & hero-banners for Food user app (paths start with /food/hero-banners/...)
 router.use('/v1/food', landingRoutes);
 router.use('/v1/food/search', searchRoutes);
-// DINING DISABLED — public categories/restaurants/bookings
-// router.get('/v1/food/dining/categories/public', getPublicDiningCategories);
-// router.get('/v1/food/dining/restaurants/public', getPublicDiningRestaurants);
-// router.use('/v1/food/dining/bookings', diningBookingRoutes);
+// Dining. Every route sits behind requireDiningEnabled, so the admin toggle
+// switches the whole feature off at the API too — not just in the UI.
+router.get('/v1/food/dining/categories/public', requireDiningEnabled, getPublicDiningCategories);
+router.get('/v1/food/dining/restaurants/public', requireDiningEnabled, getPublicDiningRestaurants);
+router.use('/v1/food/dining/bookings', requireDiningEnabled, diningBookingRoutes);
 router.use('/v1/uploads', uploadRoutes);
 
 router.use('/v1/food/admin', authMiddleware, requireRoles('ADMIN', 'SUB_ADMIN'), restaurantAdminRoutes);

@@ -1,4 +1,5 @@
 import React, { Suspense, lazy } from "react"
+import RouteErrorBoundary from "@/shared/components/RouteErrorBoundary"
 import RestaurantOfflineGate from "./RestaurantOfflineGate"
 import { Routes, Route, Navigate, Outlet, useLocation, useNavigate } from "react-router-dom"
 import ProtectedRoute from "@food/components/ProtectedRoute"
@@ -89,6 +90,9 @@ export default function RestaurantRouter() {
 
   return (
     <div className="restaurant-theme">
+      {/* A runtime error in any screen used to blank the whole app. The boundary
+          keeps the shell alive and shows a recoverable error state instead. */}
+      <RouteErrorBoundary>
       {/* One offline state for every Restaurant screen. It overlays rather than
           replaces the tree, so in-progress form input survives a dropout. */}
       <RestaurantOfflineGate>
@@ -165,6 +169,7 @@ export default function RestaurantRouter() {
         </Routes>
       </Suspense>
       </RestaurantOfflineGate>
+      </RouteErrorBoundary>
     </div>
   )
 }

@@ -47,6 +47,8 @@ export default function SignupStep2() {
   const [previewUrls, setPreviewUrls] = useState(createEmptyPreviewState)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [uploading, setUploading] = useState({})
+  // True only while previously uploaded documents are being restored on load.
+  const [restoringDocs, setRestoringDocs] = useState(true)
 
   useEffect(() => {
     prefetchModuleFcmToken("delivery")
@@ -63,7 +65,13 @@ export default function SignupStep2() {
 
     const hydrateDocuments = async () => {
       try {
-        const previews = await loadSignupDocumentPreviews()
+        const previews = await loadSignupDocumentPreviews((docType, url) => {
+          // Show each restored photo as soon as it is ready instead of waiting
+          // for every document to finish.
+          if (cancelled) return
+          previewUrlsRef.current = { ...previewUrlsRef.current, [docType]: url }
+          setPreviewUrls((prev) => ({ ...prev, [docType]: url }))
+        })
         if (cancelled) {
           Object.values(previews).forEach((url) => {
             if (url) URL.revokeObjectURL(url)
@@ -75,6 +83,8 @@ export default function SignupStep2() {
         setPreviewUrls(previews)
       } catch (error) {
         debugError("Failed to hydrate signup documents:", error)
+      } finally {
+        if (!cancelled) setRestoringDocs(false)
       }
     }
 
@@ -306,7 +316,14 @@ export default function SignupStep2() {
           {label} {required && <span className="text-red-500">*</span>}
         </label>
 
-        {uploaded ? (
+        {!uploaded && restoringDocs ? (
+          /* Restoring a previously uploaded photo — show that it is coming back
+             rather than an empty "upload" box the user might tap again. */
+          <div className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-200 rounded-lg bg-gray-50 gap-2">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-green-600" />
+            <p className="text-xs font-medium text-gray-500">Restoring your upload…</p>
+          </div>
+        ) : uploaded ? (
           <div className="relative">
             <img
               src={getPreviewSrc(docType)}
@@ -395,7 +412,7 @@ export default function SignupStep2() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <div className="bg-white px-4 py-3 flex items-center gap-4 border-b border-gray-200">
+      <div className="sticky top-0 z-30 bg-white px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] flex items-center gap-4 border-b border-gray-200">
         <button
           onClick={handleBack}
           className="p-2 hover:bg-gray-100 rounded-full transition-colors"

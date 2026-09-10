@@ -40,7 +40,14 @@ export async function listPublicFoods(query = {}) {
     const isEatiefyPromo = promo === 'eatiefy' || promo === 'under-250' || promo === 'under250';
     const promoMaxPrice = resolvePromoMaxPrice(query.maxPrice);
 
-    const restaurantFilter = { status: 'approved' };
+    // Only approved restaurants that are live right now. `$ne: false` (rather
+    // than `=== true`) keeps legacy records that never had the flag set, so an
+    // open restaurant is never hidden by missing data.
+    const restaurantFilter = {
+        status: 'approved',
+        isActive: { $ne: false },
+        isAcceptingOrders: { $ne: false }
+    };
 
     // Same serviceability rule as the restaurant listing: only restaurants in the
     // caller's service zone, and nothing at all when no zone can be resolved —

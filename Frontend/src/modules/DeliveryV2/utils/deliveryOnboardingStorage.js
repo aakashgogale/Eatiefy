@@ -440,6 +440,35 @@ const deserializeLegacySignupDocument = (stored) => {
   }
 }
 
+/**
+ * Synchronously pulls any session-stored documents into the in-memory cache.
+ *
+ * This is a plain base64 decode — no IndexedDB round trip and no image
+ * re-encoding — so a refresh can show the already-uploaded photos right away
+ * instead of waiting on the store-to-store migration.
+ */
+const hydrateSessionDocumentsIntoMemory = () => {
+  if (typeof sessionStorage === "undefined") return
+  let parsed = null
+  try {
+    const saved = sessionStorage.getItem(LEGACY_DOCS_KEY)
+    if (!saved) return
+    parsed = JSON.parse(saved)
+  } catch {
+    return
+  }
+
+  for (const docType of DELIVERY_SIGNUP_DOC_TYPES) {
+    if (isUploadableFile(signupDocumentMemory[docType])) continue
+    try {
+      const file = deserializeLegacySignupDocument(parsed?.[docType])
+      if (file) signupDocumentMemory[docType] = file
+    } catch {
+      // A single unreadable entry must not stop the others.
+    }
+  }
+}
+
 const migrateLegacySignupDocsToIndexedDB = async () => {
   if (typeof sessionStorage === "undefined") return
 
@@ -453,8 +482,8 @@ const migrateLegacySignupDocsToIndexedDB = async () => {
     for (const docType of DELIVERY_SIGNUP_DOC_TYPES) {
       const legacyFile = deserializeLegacySignupDocument(parsed?.[docType])
       if (legacyFile) {
-        const prepared = await prepareSignupDocumentFile(legacyFile)
-        const result = await saveSignupDocumentToDB(docType, prepared)
+        // Already compressed at upload time — store as-is.
+        const result = await saveSignupDocumentToDB(docType, legacyFile)
         // Only IndexedDB supersedes the session copy. When it is unavailable
         // the session entry is the durable one and must survive.
         if (result?.storage === "indexeddb") migrated = true
@@ -469,8 +498,22 @@ const migrateLegacySignupDocsToIndexedDB = async () => {
   }
 }
 
-export const loadSignupDocumentPreviews = async () => {
-  await migrateLegacySignupDocsToIndexedDB()
+/**
+ * Restores previews for every already-uploaded document.
+ *
+ * Reads whatever is stored (memory -> IndexedDB -> session copy) and hands back
+ * object URLs immediately. Nothing is re-uploaded and nothing is re-encoded;
+ * the store-to-store migration runs afterwards in the background so it can
+ * never delay the image appearing.
+ *
+ * @param {(docType: string, url: string) => void} [onPreview]
+ *   Called as each document resolves, so the UI can show the first image
+ *   without waiting for the rest.
+ */
+export const loadSignupDocumentPreviews = async (onPreview) => {
+  // Pull the session copy into memory first — a plain base64 decode, no
+  // compression — so a refresh can paint straight away.
+  hydrateSessionDocumentsIntoMemory()
 
   const documents = await getAllSignupDocumentsFromDB()
   const previews = {}
@@ -478,9 +521,20 @@ export const loadSignupDocumentPreviews = async () => {
   for (const docType of DELIVERY_SIGNUP_DOC_TYPES) {
     const file = documents[docType]
     if (file) {
-      previews[docType] = URL.createObjectURL(file)
+      const url = URL.createObjectURL(file)
+      previews[docType] = url
+      if (typeof onPreview === "function") {
+        try {
+          onPreview(docType, url)
+        } catch {
+          // A rendering callback must never break restore.
+        }
+      }
     }
   }
+
+  // Background only: never awaited by the caller.
+  void migrateLegacySignupDocsToIndexedDB()
 
   return previews
 }

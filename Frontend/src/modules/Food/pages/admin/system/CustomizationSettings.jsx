@@ -5,6 +5,14 @@ import { adminAPI } from "@food/api";
 import { Card, CardHeader, CardTitle, CardContent } from "@food/components/ui/card";
 import { Label } from "@food/components/ui/label";
 import { Switch } from "@food/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@food/components/ui/dialog";
 import { isDiningEnabled } from "@food/config/featureFlags";
 
 const CUSTOMIZATION_TOGGLES = [
@@ -81,6 +89,26 @@ const CUSTOMIZATION_TOGGLES = [
     description:
       "Global toggle to enable/disable the automatic COD blocking feature (blocks COD for users with 4 consecutive COD cancellations).",
     defaultValue: true,
+  },
+  {
+    key: "restaurant_onboarding_razorpay_enabled",
+    label: "Restaurant Onboarding Payment",
+    description:
+      "Require restaurants to complete the one-time Razorpay payment during registration. When OFF, registration skips payment entirely — admin approval is still required. Customer, order, delivery and refund payments are unaffected.",
+    defaultValue: true,
+    // Changing how money is collected deserves an explicit confirmation.
+    confirm: {
+      on: {
+        title: "Enable Restaurant Onboarding Payment?",
+        body: "New restaurants will be required to complete Razorpay payment during onboarding.",
+        action: "Enable Payment",
+      },
+      off: {
+        title: "Disable Restaurant Onboarding Payment?",
+        body: "New restaurants will no longer be required to make a Razorpay payment during onboarding. Admin approval will still be required.",
+        action: "Disable Payment",
+      },
+    },
   },
   {
     key: "maintenance_mode_enabled",
@@ -160,6 +188,17 @@ export default function CustomizationSettings() {
       } catch {}
     };
   }, []);
+
+  // Toggles that declare `confirm` ask first; everything else is unchanged.
+  const [pendingConfirm, setPendingConfirm] = useState(null);
+
+  const requestToggle = (toggle, checked) => {
+    if (toggle?.confirm) {
+      setPendingConfirm({ toggle, checked });
+      return;
+    }
+    handleToggle(toggle.key, checked);
+  };
 
   const handleToggle = async (key, checked) => {
     const prevValue = settings[key];
@@ -283,7 +322,7 @@ export default function CustomizationSettings() {
                   ) : (
                     <Switch
                       checked={settings[t.key] === true}
-                      onCheckedChange={(checked) => handleToggle(t.key, checked)}
+                      onCheckedChange={(checked) => requestToggle(t, checked)}
                       disabled={savingByKey[t.key] === true}
                       className="scale-90 data-[state=checked]:bg-[#16a34a] data-[state=unchecked]:bg-zinc-400 shadow-sm"
                     />
@@ -294,6 +333,62 @@ export default function CustomizationSettings() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Confirmation for settings that change how money is collected. */}
+      <Dialog
+        open={Boolean(pendingConfirm)}
+        onOpenChange={(open) => {
+          if (!open) setPendingConfirm(null);
+        }}
+      >
+        <DialogContent className="max-w-md bg-white p-0 overflow-hidden gap-0">
+          {pendingConfirm ? (
+            <>
+              <DialogHeader className="px-5 pt-5 pb-3 pr-14 sm:px-6 sm:pt-6 border-b border-slate-100 text-left">
+                <DialogTitle className="text-base font-bold text-slate-900">
+                  {(pendingConfirm.checked
+                    ? pendingConfirm.toggle.confirm.on
+                    : pendingConfirm.toggle.confirm.off
+                  ).title}
+                </DialogTitle>
+                <DialogDescription className="mt-2 text-sm text-slate-600">
+                  {(pendingConfirm.checked
+                    ? pendingConfirm.toggle.confirm.on
+                    : pendingConfirm.toggle.confirm.off
+                  ).body}
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="gap-2 px-5 py-4 sm:px-6 sm:gap-3">
+                <button
+                  type="button"
+                  onClick={() => setPendingConfirm(null)}
+                  className="flex-1 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const { toggle, checked } = pendingConfirm;
+                    setPendingConfirm(null);
+                    handleToggle(toggle.key, checked);
+                  }}
+                  className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white ${
+                    pendingConfirm.checked
+                      ? "bg-[#16a34a] hover:bg-[#15803d]"
+                      : "bg-rose-600 hover:bg-rose-700"
+                  }`}
+                >
+                  {(pendingConfirm.checked
+                    ? pendingConfirm.toggle.confirm.on
+                    : pendingConfirm.toggle.confirm.off
+                  ).action}
+                </button>
+              </DialogFooter>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

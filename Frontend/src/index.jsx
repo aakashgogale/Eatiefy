@@ -65,14 +65,39 @@ function resolveNativeInitialRoute() {
   if (pathname.startsWith('/delivery')) return `/food${pathname}`
   if (pathname.startsWith('/user')) return `/food${pathname}`
   if (pathname.startsWith('/admin')) return pathname
-  if (storedRoute.startsWith('/food/') || storedRoute.startsWith('/admin')) {
+  // Which module a remembered route belongs to, so a stale one from a previous
+  // session cannot drop the current account into the wrong app.
+  const moduleOfRoute = (route) => {
+    if (route.startsWith('/admin') || route.startsWith('/food/admin')) return 'admin'
+    if (route.startsWith('/food/restaurant')) return 'restaurant'
+    if (route.startsWith('/food/delivery')) return 'delivery'
+    if (route.startsWith('/food/user') || route.startsWith('/food')) return 'user'
+    return ''
+  }
+
+  // The role currently signed in decides the landing app. Checked before the
+  // remembered route so a restaurant account is never sent to the user app just
+  // because this device browsed it earlier.
+  const authenticatedModule =
+    (isModuleAuthenticated('restaurant') && 'restaurant') ||
+    (isModuleAuthenticated('delivery') && 'delivery') ||
+    (isModuleAuthenticated('admin') && 'admin') ||
+    (isModuleAuthenticated('user') && 'user') ||
+    ''
+
+  // A remembered route is only honoured when it belongs to the signed-in module,
+  // which keeps deep links (e.g. a specific order) working on relaunch.
+  if (
+    (storedRoute.startsWith('/food/') || storedRoute.startsWith('/admin')) &&
+    (!authenticatedModule || moduleOfRoute(storedRoute) === authenticatedModule)
+  ) {
     return storedRoute
   }
 
-  if (isModuleAuthenticated('restaurant')) return '/food/restaurant'
-  if (isModuleAuthenticated('delivery')) return '/food/delivery'
-  if (isModuleAuthenticated('admin')) return '/admin'
-  if (isModuleAuthenticated('user')) return '/food/user'
+  if (authenticatedModule === 'restaurant') return '/food/restaurant'
+  if (authenticatedModule === 'delivery') return '/food/delivery'
+  if (authenticatedModule === 'admin') return '/admin'
+  if (authenticatedModule === 'user') return '/food/user'
 
   return '/food/user'
 }

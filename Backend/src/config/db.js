@@ -55,7 +55,12 @@ const ensureSrvResolvable = async (uri) => {
     logger.info(`SRV lookup recovered using public DNS (${PUBLIC_DNS.join(', ')})`);
 };
 
-export const connectDB = async () => {
+/**
+ * @param {import('mongoose').ConnectOptions} [extraOptions]
+ *   Merged over the defaults. Worker processes pass a small maxPoolSize so
+ *   several of them do not exhaust the Atlas connection limit.
+ */
+export const connectDB = async (extraOptions = {}) => {
     pruneUnusableDnsServers();
 
     for (let attempt = 1; attempt <= CONNECT_RETRIES; attempt += 1) {
@@ -67,6 +72,7 @@ export const connectDB = async () => {
                 heartbeatFrequencyMS: 10000,      // Ping Atlas every 10s to keep connection alive
                 maxIdleTimeMS: 30000,             // Drop idle connections after 30s
                 retryWrites: true,
+                ...extraOptions,
             });
             logger.info(`MongoDB connected: ${conn.connection.host}`);
             return;
