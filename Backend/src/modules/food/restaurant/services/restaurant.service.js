@@ -17,6 +17,7 @@ import { FoodOffer } from '../../admin/models/offer.model.js';
 import { FoodDiningRestaurant } from '../../dining/models/diningRestaurant.model.js';
 import { FoodItem } from '../../admin/models/food.model.js';
 import { getFoodDisplayPrice } from '../../admin/services/foodVariant.service.js';
+import { isRestaurantOnboardingPaymentEnabled } from '../../admin/services/moduleAccess.service.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
 import { FoodRestaurantOutletTimings } from '../models/outletTimings.model.js';
 import { seedOutletTimingsForRestaurant } from './outletTimings.service.js';
@@ -427,7 +428,14 @@ export const registerRestaurant = async (payload, files) => {
             restaurantType: normalizedRestaurantType
         });
     }
-    const onboardingFeeDue = Number(onboardingQuote?.finalAmount) > 0;
+    // The admin toggle decides whether the onboarding fee is collected at all.
+    // When it is off there is no quote to charge, so the existing "no fee due"
+    // path runs: the restaurant is created as `pending` with an onboarding
+    // payment status of `not_required` and goes straight into the admin
+    // approval queue — approval is still mandatory, nothing is auto-approved.
+    const onboardingPaymentEnabled = await isRestaurantOnboardingPaymentEnabled();
+    const onboardingFeeDue =
+        onboardingPaymentEnabled && Number(onboardingQuote?.finalAmount) > 0;
 
     const images = {};
 

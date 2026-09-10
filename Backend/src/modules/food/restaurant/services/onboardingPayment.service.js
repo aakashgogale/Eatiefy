@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { isRestaurantOnboardingPaymentEnabled } from '../../admin/services/moduleAccess.service.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
 import { logger } from '../../../../utils/logger.js';
 import { config } from '../../../../config/env.js';
@@ -39,6 +40,22 @@ const loadOnboardingRestaurant = async (restaurantId) => {
         .lean();
     if (!restaurant) throw new NotFoundError('Restaurant not found');
     return restaurant;
+};
+
+/**
+ * Refuses to start a new onboarding charge while the admin toggle is off.
+ *
+ * Hiding the checkout in the UI is not enough: without this, a stale client or a
+ * hand-made request could still mint a Razorpay order for a fee the platform is
+ * no longer collecting. Verification is deliberately NOT gated — if a restaurant
+ * already paid while the toggle was on, that payment must still be confirmable
+ * so the money is never taken without being credited.
+ */
+const assertOnboardingPaymentEnabled = async () => {
+    const enabled = await isRestaurantOnboardingPaymentEnabled();
+    if (!enabled) {
+        throw new ValidationError('Onboarding payment is not required at the moment');
+    }
 };
 
 const assertPayable = (restaurant) => {
@@ -196,6 +213,8 @@ export const getOnboardingPaymentQuote = async (restaurantId) => {
         };
     }
 
+    // Nothing to quote while onboarding payment is switched off.
+    await assertOnboardingPaymentEnabled();
     assertPayable(restaurant);
 
     const pending = await FoodOnboardingPayment.findOne({
@@ -246,6 +265,8 @@ export const createOnboardingPaymentOrder = async (restaurantId) => {
         return { alreadyPaid: true, payment: toOnboardingPaymentView(alreadyPaid) };
     }
 
+    // No new Razorpay order may be created while onboarding payment is off.
+    await assertOnboardingPaymentEnabled();
     assertPayable(restaurant);
 
     // Reuse a live order instead of minting a new one on every click — this makes

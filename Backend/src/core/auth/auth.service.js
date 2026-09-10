@@ -505,6 +505,34 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
   // Onboarding saved but the one-time fee was never completed: send the partner back
   // to the payment step with a fresh scoped token instead of the pending screen.
   if (restaurantStatus === "payment_pending") {
+    const { isRestaurantOnboardingPaymentEnabled } = await import(
+      "../../modules/food/admin/services/moduleAccess.service.js"
+    );
+
+    // The admin may have switched the onboarding fee off after this restaurant
+    // was left mid-payment. Sending it back to a checkout the API now refuses
+    // would be a dead end, so move it into the approval queue instead. It lands
+    // on "pending", so admin approval is as required as ever, and any existing
+    // onboarding payment rows are deliberately left untouched.
+    if (!(await isRestaurantOnboardingPaymentEnabled())) {
+      await FoodRestaurant.updateOne(
+        { _id: restaurant._id, status: "payment_pending" },
+        {
+          $set: {
+            status: "pending",
+            "onboardingPayment.status": "not_required",
+            submittedForApprovalAt: new Date(),
+          },
+        },
+      );
+      return {
+        pendingApproval: true,
+        restaurantId: String(restaurant._id),
+        message:
+          "Your restaurant registration is pending admin approval. You will be able to access your account once your request is approved.",
+      };
+    }
+
     const { signOnboardingToken } = await import("./onboardingToken.js");
     return {
       onboardingPaymentPending: true,

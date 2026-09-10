@@ -5,7 +5,11 @@ const CACHE_TTL_MS = 3000;
 // Mirrors the admin customization toggles and their shipped defaults.
 const MODULE_KEYS = {
     takeaway: { key: 'takeaway_enabled', defaultValue: true },
-    dining: { key: 'dining_enabled', defaultValue: false }
+    dining: { key: 'dining_enabled', defaultValue: false },
+    // Onboarding fee collection. Defaults to true and readFlag also falls back to
+    // the default on a config read error, so a DB blip can never silently waive
+    // a fee that is meant to be charged.
+    restaurantOnboardingPayment: { key: 'restaurant_onboarding_razorpay_enabled', defaultValue: true }
 };
 
 const cache = new Map();
@@ -42,6 +46,14 @@ const readFlag = async ({ key, defaultValue }) => {
 
 export const isTakeawayEnabled = () => readFlag(MODULE_KEYS.takeaway);
 export const isDiningEnabled = () => readFlag(MODULE_KEYS.dining);
+
+/**
+ * Whether restaurants must complete the one-time Razorpay onboarding payment.
+ * Only the restaurant onboarding fee depends on this — customer, order,
+ * delivery and refund payments are untouched by it.
+ */
+export const isRestaurantOnboardingPaymentEnabled = () =>
+    readFlag(MODULE_KEYS.restaurantOnboardingPayment);
 
 /** Called after an admin update so the next read reflects the new value. */
 export const invalidateModuleAccessCache = () => {

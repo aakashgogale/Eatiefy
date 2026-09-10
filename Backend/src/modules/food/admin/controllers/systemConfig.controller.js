@@ -61,6 +61,13 @@ const CUSTOMIZATION_TOGGLES = [
         // Dining shipped switched off via the old build-time flag; keep that default.
         defaultValue: false,
         description: 'When disabled, dining routes, tabs and entry points are hidden across every app'
+    },
+    {
+        key: 'restaurant_onboarding_razorpay_enabled',
+        // Defaults to ON. A missing row (or a failed read) must never let a
+        // restaurant skip a fee that is actually being charged.
+        defaultValue: true,
+        description: 'When disabled, restaurants are not asked for the one-time Razorpay onboarding payment. Admin approval is still required.'
     }
 ];
 
@@ -129,7 +136,11 @@ export async function updateCustomizationSettings(req, res) {
         )
     );
 
-    if (updates.some((u) => u.key === 'takeaway_enabled' || u.key === 'dining_enabled')) {
+    if (updates.some((u) =>
+        u.key === 'takeaway_enabled' ||
+        u.key === 'dining_enabled' ||
+        u.key === 'restaurant_onboarding_razorpay_enabled'
+    )) {
         invalidateModuleAccessCache();
     }
 
