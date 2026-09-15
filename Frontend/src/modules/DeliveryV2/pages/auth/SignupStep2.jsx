@@ -20,6 +20,7 @@ import {
   loadSignupDocumentPreviews,
   prepareSignupDocumentFile,
   saveSignupDocumentToDB,
+  isHeicImageFile,
 } from "../../utils/deliveryOnboardingStorage"
 import {
   collectFcmTokenForSignup,
@@ -67,6 +68,170 @@ const hasDeliveryAuthSession = () =>
   localStorage.getItem("delivery_authenticated") === "true" &&
   Boolean(localStorage.getItem("delivery_accessToken"))
 
+// Off-screen instead of display:none; some iOS WebViews ignore programmatic clicks on
+// hidden file inputs.
+const VISUALLY_HIDDEN_INPUT_STYLE = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  opacity: 0,
+  overflow: "hidden",
+  pointerEvents: "none",
+  clip: "rect(0 0 0 0)",
+}
+
+/**
+ * One document card. Defined at module level on purpose: when it was declared
+ * inside SignupStep2's render, every state change created a new component type,
+ * so React replaced the card — including its hidden file input — on each render.
+ * If anything re-rendered the page while the photo picker was open (common when
+ * iOS backgrounds the page), the picked file was delivered to the old, removed
+ * input and silently lost. The input is also kept mounted in every card state.
+ */
+function DocumentUploadCard({
+  docType,
+  label,
+  required = true,
+  restoringDocs,
+  previewSrc,
+  uploaded,
+  isOnServer,
+  uploadProgress,
+  uploadError,
+  inputRef,
+  onFileChange,
+  onTakePhoto,
+  onPickGallery,
+  onRemove,
+  onRetry,
+  onPreviewLoad,
+  onPreviewError,
+}) {
+  const isUploading = uploadProgress !== undefined
+
+  return (
+    <div className="bg-white rounded-lg p-4 border border-gray-200">
+      <label className="block text-sm font-medium text-gray-700 mb-2">
+        {label} {required && <span className="text-red-500">*</span>}
+      </label>
+
+      {!uploaded && restoringDocs ? (
+        /* Restoring a previously uploaded photo — show that it is coming back
+           rather than an empty "upload" box the user might tap again. */
+        <div className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-200 rounded-lg bg-gray-50 gap-2">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-green-600" />
+          <p className="text-xs font-medium text-gray-500">Restoring your upload…</p>
+        </div>
+      ) : uploaded ? (
+        <div className="relative">
+          <img
+            src={previewSrc}
+            alt={label}
+            className="w-full h-48 object-cover rounded-lg bg-gray-100"
+            onLoad={(e) => onPreviewLoad(docType, e.currentTarget.getAttribute("src"))}
+            onError={(e) => onPreviewError(docType, e.currentTarget.getAttribute("src"))}
+          />
+          {!isUploading && (
+            <button
+              type="button"
+              onClick={() => onRemove(docType)}
+              className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full hover:bg-red-600 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+          {isUploading ? (
+            <div className="absolute inset-0 rounded-lg bg-black/45 flex flex-col items-center justify-center gap-2 text-white">
+              <div className="animate-spin rounded-full h-8 w-8 border-2 border-white/30 border-t-white" />
+              <p className="text-sm font-semibold">
+                Uploading{uploadProgress > 0 ? ` ${uploadProgress}%` : "..."}
+              </p>
+            </div>
+          ) : uploadError ? (
+            <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2 rounded-lg bg-black/75 px-3 py-2 text-white">
+              <span className="text-xs font-medium line-clamp-2">{uploadError}</span>
+              <button
+                type="button"
+                onClick={() => onRetry(docType)}
+                className="shrink-0 flex items-center gap-1 rounded-md bg-white px-2.5 py-1.5 text-xs font-bold text-gray-900 active:scale-95"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Retry
+              </button>
+            </div>
+          ) : (
+            <div
+              className="absolute bottom-2 left-2 text-white px-2.5 py-1 rounded-full flex items-center gap-1 text-xs font-semibold shadow-md"
+              style={{ backgroundColor: isOnServer ? "#00B761" : "#D97706" }}
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>{isOnServer ? "Uploaded" : "Saved on device"}</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-300 rounded-lg hover:border-green-500 transition-colors px-4">
+          <div className="flex flex-col items-center justify-center pt-5 pb-3">
+            {isUploading ? (
+              <>
+                <div className="animate-spin rounded-full h-8 w-8 border-2 border-transparent mb-2" style={{ borderBottomColor: "#00B761" }}></div>
+                <p className="text-sm text-gray-500">Processing...</p>
+              </>
+            ) : (
+              <>
+                <Upload className="w-8 h-8 text-gray-400 mb-2" />
+                <p className="text-sm text-gray-500 mb-1">Upload document</p>
+                <p className="text-xs text-gray-400">JPG, PNG or WebP photo</p>
+              </>
+            )}
+          </div>
+
+          {!isUploading && (
+            <div className="w-full grid grid-cols-2 gap-2 pb-4">
+              <button
+                type="button"
+                onClick={() => onTakePhoto(docType)}
+                className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-bold cursor-pointer hover:bg-black transition-all active:scale-95"
+              >
+                <Camera className="w-4 h-4" />
+                <span>Take Photo</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onPickGallery(docType)}
+                className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-[#00B761] text-white text-xs font-bold cursor-pointer hover:bg-[#00A055] transition-all active:scale-95"
+              >
+                <ImageIcon className="w-4 h-4" />
+                <span>Gallery</span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Always mounted so a pick returning from the OS picker has a live target.
+          Visually hidden (not display:none), which iOS WebViews open reliably.
+          Listing only JPG/PNG/WebP makes iOS hand over a JPEG instead of HEIC. */}
+      <input
+        ref={inputRef}
+        type="file"
+        tabIndex={-1}
+        aria-hidden="true"
+        style={VISUALLY_HIDDEN_INPUT_STYLE}
+        accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+        onClick={(e) => {
+          e.currentTarget.value = ""
+        }}
+        onChange={(e) => {
+          const selectedFile = e.currentTarget.files?.[0]
+          e.currentTarget.value = ""
+          if (selectedFile) onFileChange(docType, selectedFile)
+        }}
+      />
+    </div>
+  )
+}
+
 export default function SignupStep2() {
   const navigate = useNavigate()
   const { handleBack } = useDeliveryOnboardingExitGuard("documents")
@@ -76,6 +241,15 @@ export default function SignupStep2() {
     panPhoto: null,
     drivingLicensePhoto: null,
   })
+  // Stable ref callbacks so the inputs are never detached/reattached on re-render.
+  const inputRefSetters = useRef(
+    DELIVERY_SIGNUP_DOC_TYPES.reduce((acc, docType) => {
+      acc[docType] = (node) => {
+        fileInputRefs.current[docType] = node
+      }
+      return acc
+    }, {}),
+  ).current
   // Local blob previews, used only until the server copy exists.
   const previewUrlsRef = useRef(createEmptyDocState())
   const [previewUrls, setPreviewUrls] = useState(createEmptyDocState)
@@ -305,8 +479,12 @@ export default function SignupStep2() {
 
   const handleFileSelect = async (docType, pickedFile) => {
     if (!pickedFile) return
-    // Ignore a second pick while this document is still being processed/uploaded.
-    if (uploadInFlightRef.current[docType]) return
+    // A second pick while this document is still processing/uploading is ignored,
+    // but never silently.
+    if (uploadInFlightRef.current[docType] || uploading[docType] !== undefined) {
+      toast.info(`${DOC_LABELS[docType]} is still uploading. Please wait.`)
+      return
+    }
 
     const { file, error } = ensureUploadableImageFile(pickedFile, { maxBytes: MAX_PICKED_IMAGE_BYTES })
     if (error) {
@@ -315,32 +493,52 @@ export default function SignupStep2() {
     }
 
     uploadInFlightRef.current = { ...uploadInFlightRef.current, [docType]: true }
-    setUploadErrors((prev) => ({ ...prev, [docType]: "" }))
-    setServerImageFailed((prev) => ({ ...prev, [docType]: false }))
-    // Show the picked photo straight away instead of a "Processing…" placeholder.
-    setLocalPreview(docType, URL.createObjectURL(file))
-    setUploading((prev) => ({ ...prev, [docType]: 0 }))
-
-    let preparedFile = file
+    let handedToUpload = false
     try {
-      preparedFile = await prepareSignupDocumentFile(file)
-    } catch (err) {
-      debugError("Failed to process document image:", err)
-      preparedFile = file
-    }
+      setUploadErrors((prev) => ({ ...prev, [docType]: "" }))
+      setServerImageFailed((prev) => ({ ...prev, [docType]: false }))
+      // Show the picked photo straight away instead of a "Processing…" placeholder.
+      setLocalPreview(docType, URL.createObjectURL(file))
+      setUploading((prev) => ({ ...prev, [docType]: 0 }))
 
-    if (preparedFile.size > MAX_UPLOAD_IMAGE_BYTES) {
-      clearUploading(docType)
-      const message = "This photo is too large. Please retake it or choose a smaller photo."
+      let preparedFile = file
+      try {
+        preparedFile = await prepareSignupDocumentFile(file)
+      } catch (err) {
+        debugError("Failed to process document image:", err)
+        preparedFile = file
+      }
+
+      // The server cannot decode HEIC; if this device could not convert it to
+      // JPEG, say so instead of sending a file that will be rejected.
+      if (isHeicImageFile(preparedFile)) {
+        const message = "This HEIC photo could not be converted. Please choose a JPG or PNG photo."
+        setUploadErrors((prev) => ({ ...prev, [docType]: message }))
+        toast.error(message)
+        return
+      }
+
+      if (preparedFile.size > MAX_UPLOAD_IMAGE_BYTES) {
+        const message = "This photo is too large. Please retake it or choose a smaller photo."
+        setUploadErrors((prev) => ({ ...prev, [docType]: message }))
+        toast.error(message)
+        return
+      }
+
+      // Device copy is only a safety net until the server upload succeeds.
+      void saveSignupDocumentToDB(docType, preparedFile)
+      handedToUpload = true
+      uploadInFlightRef.current = { ...uploadInFlightRef.current, [docType]: false }
+      await startUpload(docType, preparedFile)
+    } catch (err) {
+      debugError("Document selection failed:", err)
+      const message = "Could not use this photo. Please try another one."
       setUploadErrors((prev) => ({ ...prev, [docType]: message }))
       toast.error(message)
-      return
+    } finally {
+      // Never leave the card stuck in "Processing…" / blocked for new picks.
+      if (!handedToUpload) clearUploading(docType)
     }
-
-    // Device copy is only a safety net until the server upload succeeds.
-    void saveSignupDocumentToDB(docType, preparedFile)
-    uploadInFlightRef.current = { ...uploadInFlightRef.current, [docType]: false }
-    await startUpload(docType, preparedFile)
   }
 
   const handleRetry = async (docType) => {
@@ -521,136 +719,6 @@ export default function SignupStep2() {
     }
   }
 
-  const DocumentUpload = ({ docType, label, required = true }) => {
-    const uploadProgress = uploading[docType]
-    const isUploading = uploadProgress !== undefined
-    const uploaded = hasUploadedDoc(docType)
-    const isOnServer = Boolean(serverUrls[docType])
-    const uploadError = uploadErrors[docType]
-
-    return (
-      <div className="bg-white rounded-lg p-4 border border-gray-200">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          {label} {required && <span className="text-red-500">*</span>}
-        </label>
-
-        {!uploaded && restoringDocs ? (
-          /* Restoring a previously uploaded photo — show that it is coming back
-             rather than an empty "upload" box the user might tap again. */
-          <div className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-200 rounded-lg bg-gray-50 gap-2">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-green-600" />
-            <p className="text-xs font-medium text-gray-500">Restoring your upload…</p>
-          </div>
-        ) : uploaded ? (
-          <div className="relative">
-            <img
-              src={getPreviewSrc(docType)}
-              alt={label}
-              className="w-full h-48 object-cover rounded-lg bg-gray-100"
-              onLoad={(e) => handlePreviewLoad(docType, e.currentTarget.getAttribute("src"))}
-              onError={(e) => handlePreviewError(docType, e.currentTarget.getAttribute("src"))}
-            />
-            {!isUploading && (
-              <button
-                type="button"
-                onClick={() => handleRemove(docType)}
-                className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full hover:bg-red-600 transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-            {isUploading ? (
-              <div className="absolute inset-0 rounded-lg bg-black/45 flex flex-col items-center justify-center gap-2 text-white">
-                <div className="animate-spin rounded-full h-8 w-8 border-2 border-white/30 border-t-white" />
-                <p className="text-sm font-semibold">
-                  Uploading{uploadProgress > 0 ? ` ${uploadProgress}%` : "..."}
-                </p>
-              </div>
-            ) : uploadError ? (
-              <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2 rounded-lg bg-black/75 px-3 py-2 text-white">
-                <span className="text-xs font-medium line-clamp-2">{uploadError}</span>
-                <button
-                  type="button"
-                  onClick={() => handleRetry(docType)}
-                  className="shrink-0 flex items-center gap-1 rounded-md bg-white px-2.5 py-1.5 text-xs font-bold text-gray-900 active:scale-95"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Retry
-                </button>
-              </div>
-            ) : (
-              <div
-                className="absolute bottom-2 left-2 text-white px-2.5 py-1 rounded-full flex items-center gap-1 text-xs font-semibold shadow-md"
-                style={{ backgroundColor: isOnServer ? "#00B761" : "#D97706" }}
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>{isOnServer ? "Uploaded" : "Saved on device"}</span>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-300 rounded-lg hover:border-green-500 transition-colors px-4">
-            <div className="flex flex-col items-center justify-center pt-5 pb-3">
-              {isUploading ? (
-                <>
-                  <div className="animate-spin rounded-full h-8 w-8 border-2 border-transparent mb-2" style={{ borderBottomColor: "#00B761" }}></div>
-                  <p className="text-sm text-gray-500">Processing...</p>
-                </>
-              ) : (
-                <>
-                  <Upload className="w-8 h-8 text-gray-400 mb-2" />
-                  <p className="text-sm text-gray-500 mb-1">Upload document</p>
-                  <p className="text-xs text-gray-400">JPG, PNG or WebP photo</p>
-                </>
-              )}
-            </div>
-
-            {!isUploading && (
-              <div className="w-full grid grid-cols-2 gap-2 pb-4">
-                <button
-                  type="button"
-                  onClick={() => handleTakeCameraPhoto(docType)}
-                  className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-bold cursor-pointer hover:bg-black transition-all active:scale-95"
-                >
-                  <Camera className="w-4 h-4" />
-                  <span>Take Photo</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handlePickFromGallery(docType)}
-                  className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-[#00B761] text-white text-xs font-bold cursor-pointer hover:bg-[#00A055] transition-all active:scale-95"
-                >
-                  <ImageIcon className="w-4 h-4" />
-                  <span>Gallery</span>
-                </button>
-              </div>
-            )}
-
-            <input
-              ref={(node) => {
-                fileInputRefs.current[docType] = node
-              }}
-              type="file"
-              className="hidden"
-              accept=".jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif"
-              onClick={(e) => {
-                e.target.value = ""
-              }}
-              onChange={(e) => {
-                const selectedFile = e.target.files[0]
-                if (selectedFile) {
-                  handleFileSelect(docType, selectedFile)
-                }
-                e.target.value = ""
-              }}
-              disabled={isUploading}
-            />
-          </div>
-        )}
-      </div>
-    )
-  }
-
   const allDocumentsUploaded = DELIVERY_SIGNUP_DOC_TYPES.every((docType) => hasUploadedDoc(docType))
   const anyUploading = Object.keys(uploading).length > 0
 
@@ -673,10 +741,82 @@ export default function SignupStep2() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <DocumentUpload docType="profilePhoto" label="Profile Photo" required={true} />
-          <DocumentUpload docType="aadharPhoto" label="Aadhar Card Photo" required={true} />
-          <DocumentUpload docType="panPhoto" label="PAN Card Photo" required={true} />
-          <DocumentUpload docType="drivingLicensePhoto" label="Driving License Photo" required={true} />
+          <DocumentUploadCard
+            docType="profilePhoto"
+            label="Profile Photo"
+            required={true}
+            restoringDocs={restoringDocs}
+            previewSrc={getPreviewSrc("profilePhoto")}
+            uploaded={hasUploadedDoc("profilePhoto")}
+            isOnServer={Boolean(serverUrls.profilePhoto)}
+            uploadProgress={uploading.profilePhoto}
+            uploadError={uploadErrors.profilePhoto}
+            inputRef={inputRefSetters.profilePhoto}
+            onFileChange={handleFileSelect}
+            onTakePhoto={handleTakeCameraPhoto}
+            onPickGallery={handlePickFromGallery}
+            onRemove={handleRemove}
+            onRetry={handleRetry}
+            onPreviewLoad={handlePreviewLoad}
+            onPreviewError={handlePreviewError}
+          />
+          <DocumentUploadCard
+            docType="aadharPhoto"
+            label="Aadhar Card Photo"
+            required={true}
+            restoringDocs={restoringDocs}
+            previewSrc={getPreviewSrc("aadharPhoto")}
+            uploaded={hasUploadedDoc("aadharPhoto")}
+            isOnServer={Boolean(serverUrls.aadharPhoto)}
+            uploadProgress={uploading.aadharPhoto}
+            uploadError={uploadErrors.aadharPhoto}
+            inputRef={inputRefSetters.aadharPhoto}
+            onFileChange={handleFileSelect}
+            onTakePhoto={handleTakeCameraPhoto}
+            onPickGallery={handlePickFromGallery}
+            onRemove={handleRemove}
+            onRetry={handleRetry}
+            onPreviewLoad={handlePreviewLoad}
+            onPreviewError={handlePreviewError}
+          />
+          <DocumentUploadCard
+            docType="panPhoto"
+            label="PAN Card Photo"
+            required={true}
+            restoringDocs={restoringDocs}
+            previewSrc={getPreviewSrc("panPhoto")}
+            uploaded={hasUploadedDoc("panPhoto")}
+            isOnServer={Boolean(serverUrls.panPhoto)}
+            uploadProgress={uploading.panPhoto}
+            uploadError={uploadErrors.panPhoto}
+            inputRef={inputRefSetters.panPhoto}
+            onFileChange={handleFileSelect}
+            onTakePhoto={handleTakeCameraPhoto}
+            onPickGallery={handlePickFromGallery}
+            onRemove={handleRemove}
+            onRetry={handleRetry}
+            onPreviewLoad={handlePreviewLoad}
+            onPreviewError={handlePreviewError}
+          />
+          <DocumentUploadCard
+            docType="drivingLicensePhoto"
+            label="Driving License Photo"
+            required={true}
+            restoringDocs={restoringDocs}
+            previewSrc={getPreviewSrc("drivingLicensePhoto")}
+            uploaded={hasUploadedDoc("drivingLicensePhoto")}
+            isOnServer={Boolean(serverUrls.drivingLicensePhoto)}
+            uploadProgress={uploading.drivingLicensePhoto}
+            uploadError={uploadErrors.drivingLicensePhoto}
+            inputRef={inputRefSetters.drivingLicensePhoto}
+            onFileChange={handleFileSelect}
+            onTakePhoto={handleTakeCameraPhoto}
+            onPickGallery={handlePickFromGallery}
+            onRemove={handleRemove}
+            onRetry={handleRetry}
+            onPreviewLoad={handlePreviewLoad}
+            onPreviewError={handlePreviewError}
+          />
 
           <button
             type="submit"

@@ -28,6 +28,14 @@ const DOC_LABELS = {
     drivingLicensePhoto: 'driving license photo'
 };
 
+/** ISO-BMFF `ftyp` box with a HEIC/HEIF brand (AVIF, which decodes fine, is excluded). */
+const HEIC_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1']);
+const isHeicBuffer = (buffer) => {
+    if (!buffer || buffer.length < 12) return false;
+    if (buffer.toString('latin1', 4, 8) !== 'ftyp') return false;
+    return HEIC_BRANDS.has(buffer.toString('latin1', 8, 12));
+};
+
 const nextExpiry = () =>
     new Date(Date.now() + DELIVERY_ONBOARDING_DRAFT_TTL_DAYS * 24 * 60 * 60 * 1000);
 
@@ -68,11 +76,21 @@ export const addDeliveryDraftUpload = async (phoneLast10, rawField, file) => {
         throw new ValidationError('No file uploaded');
     }
 
-    const stored = await storeImageBuffer(file.buffer, DELIVERY_DOC_FOLDERS[field], {
-        originalName: file.originalname,
-        mimeType: file.mimetype,
-        maxWidth: DELIVERY_DOC_MAX_WIDTH
-    });
+    let stored;
+    try {
+        stored = await storeImageBuffer(file.buffer, DELIVERY_DOC_FOLDERS[field], {
+            originalName: file.originalname,
+            mimeType: file.mimetype,
+            maxWidth: DELIVERY_DOC_MAX_WIDTH
+        });
+    } catch (error) {
+        // The server's image library cannot decode iPhone HEIC; give an actionable
+        // message instead of the generic "could not convert" one.
+        if (isHeicBuffer(file.buffer)) {
+            throw new ValidationError('HEIC photos are not supported. Please upload a JPG, PNG or WebP photo.');
+        }
+        throw error;
+    }
     const url = stored.url || stored.secure_url;
     if (!url) {
         throw new ValidationError('Upload failed: storage returned no URL');

@@ -203,7 +203,8 @@ const compressSignupDocumentFile = async (file) => {
     const blob = await canvasToJpegBlob(canvas, 0.82)
     // Use the compressed copy whenever it is smaller; the server resizes anyway,
     // so a larger-than-ideal result is still better than the original.
-    if (!blob || blob.size >= original.size) {
+    // A HEIC original is never kept, even if the JPEG is larger.
+    if (!blob || (blob.size >= original.size && !isHeicImageFile(original))) {
       return original
     }
 
@@ -214,6 +215,13 @@ const compressSignupDocumentFile = async (file) => {
   }
 }
 
+/** iPhone HEIC/HEIF photos. The server cannot decode them, so they must become JPEG. */
+export const isHeicImageFile = (file) => {
+  const type = String(file?.type || "").toLowerCase()
+  const name = String(file?.name || "").toLowerCase()
+  return type.includes("heic") || type.includes("heif") || /\.(heic|heif)$/.test(name)
+}
+
 export const prepareSignupDocumentFile = async (file) => {
   if (!isUploadableFile(file) || !String(file.type || "").startsWith("image/")) {
     throw new Error("Invalid image file")
@@ -222,7 +230,8 @@ export const prepareSignupDocumentFile = async (file) => {
   const original = toSignupFile(file)
 
   // Keep small images as-is (including webp) — avoid canvas/toBlob hangs.
-  if (original.size <= 400 * 1024) {
+  // HEIC is always converted, however small, because the server rejects it.
+  if (original.size <= 400 * 1024 && !isHeicImageFile(original)) {
     return original
   }
 
