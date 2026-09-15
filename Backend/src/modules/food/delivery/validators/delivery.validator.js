@@ -76,19 +76,55 @@ export const validateDeliveryProfileUpdateDto = (body) => {
     return result.data;
 };
 
+/*
+ * Bank details are normalised before validation so valid details from any bank are
+ * accepted: spaces/hyphens people type into account numbers and IFSC codes are
+ * stripped, case is fixed, and the rules follow the RBI/NPCI formats rather than
+ * one bank's conventions (account numbers vary from 6 to 20 characters by bank).
+ * An empty string still clears a field.
+ */
+export const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+export const BANK_ACCOUNT_NUMBER_REGEX = /^[A-Z0-9]{6,20}$/;
+export const UPI_ID_REGEX = /^[A-Za-z0-9._-]{2,256}@[A-Za-z][A-Za-z0-9.-]{1,64}$/;
+
+export const normalizeBankAccountNumber = (value) =>
+    String(value ?? '').replace(/[\s-]/g, '').toUpperCase();
+export const normalizeIfscCode = (value) =>
+    String(value ?? '').replace(/\s/g, '').toUpperCase();
+const normalizeText = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+
+const optionalNormalized = (normalize) =>
+    z.preprocess((value) => (value === undefined || value === null ? undefined : normalize(value)), z.string().optional());
+
 const bankDetailsSchema = z.object({
-    accountHolderName: z.string().min(1, 'Account holder name is required').optional().or(z.literal('')),
-    accountNumber: z.string().min(1, 'Account number is required').optional().or(z.literal('')),
-    ifscCode: z.string().min(1, 'IFSC code is required').optional().or(z.literal('')),
-    bankName: z.string().min(1, 'Bank name is required').optional().or(z.literal('')),
-    upiId: z.string().optional().or(z.literal('')),
+    accountHolderName: optionalNormalized(normalizeText)
+        .refine((v) => !v || (v.length >= 2 && v.length <= 100 && /[A-Za-z]/.test(v)), 'Enter a valid account holder name'),
+    accountNumber: optionalNormalized(normalizeBankAccountNumber)
+        .refine((v) => !v || (BANK_ACCOUNT_NUMBER_REGEX.test(v) && /\d/.test(v)), 'Enter a valid bank account number (6-20 characters)'),
+    ifscCode: optionalNormalized(normalizeIfscCode)
+        .refine((v) => !v || IFSC_REGEX.test(v), 'Enter a valid 11-character IFSC code (e.g. SBIN0001234)'),
+    bankName: optionalNormalized(normalizeText)
+        .refine((v) => !v || v.length <= 100, 'Bank name is too long'),
+    upiId: optionalNormalized((v) => String(v).trim())
+        .refine((v) => !v || UPI_ID_REGEX.test(v), 'Enter a valid UPI ID (e.g. name@bank)'),
     upiQrCode: z.string().optional().or(z.literal(''))
+}).superRefine((b, ctx) => {
+    // A payout needs both the account number and the branch IFSC.
+    if (b.accountNumber && b.ifscCode === '') {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'IFSC code is required with the account number' });
+    }
+    if (b.ifscCode && b.accountNumber === '') {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Account number is required with the IFSC code' });
+    }
 });
 
 const bankDetailsUpdateSchema = z.object({
     documents: z.object({
         bankDetails: bankDetailsSchema.optional(),
-        pan: z.object({ number: z.string().optional() }).optional()
+        pan: z.object({
+            number: optionalNormalized((v) => String(v).replace(/\s/g, '').toUpperCase())
+                .refine((v) => !v || panRegex.test(v), 'Enter a valid PAN number (e.g. ABCDE1234F)')
+        }).optional()
     }).optional()
 }).optional();
 
@@ -102,7 +138,8 @@ export const validateDeliveryBankDetailsDto = (body) => {
             accountNumber: body['documents[bankDetails][accountNumber]'],
             ifscCode: body['documents[bankDetails][ifscCode]'],
             bankName: body['documents[bankDetails][bankName]'],
-            upiId: body['documents[bankDetails][upiId]']
+            upiId: body['documents[bankDetails][upiId]'],
+            upiQrCode: body['documents[bankDetails][upiQrCode]']
         };
     }
     if (!processed.documents.pan && body['documents[pan][number]']) {

@@ -1,6 +1,66 @@
 import { toast } from "sonner"
 import { compressImageForUpload } from "../../../shared/utils/imageCompressor.js"
 
+const IMAGE_EXTENSION_MIME = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  jfif: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  avif: "image/avif",
+  heic: "image/heic",
+  heif: "image/heif",
+  bmp: "image/bmp",
+}
+
+const IMAGE_MIME_ALIASES = {
+  "image/jpg": "image/jpeg",
+  "image/x-png": "image/png",
+}
+
+export const MAX_IMAGE_UPLOAD_BYTES = 15 * 1024 * 1024
+
+/**
+ * Validates a picked image and repairs its MIME type before upload.
+ *
+ * Gallery pickers and WebView camera bridges often hand back photos with an
+ * empty type, `application/octet-stream` or `image/jpg`, which the server's
+ * upload filter rejected — the upload then failed with no obvious reason.
+ * Returns `{ file }` on success or `{ error }` with a user-facing message.
+ */
+export const ensureUploadableImageFile = (file, { maxBytes = MAX_IMAGE_UPLOAD_BYTES } = {}) => {
+  if (!file || typeof file !== "object" || typeof file.size !== "number") {
+    return { error: "No image was selected" }
+  }
+  if (file.size === 0) {
+    return { error: "The selected image is empty. Please choose another photo." }
+  }
+  if (file.size > maxBytes) {
+    return { error: `Image is too large. Maximum size is ${Math.round(maxBytes / (1024 * 1024))}MB.` }
+  }
+
+  const rawType = String(file.type || "").toLowerCase().trim()
+  const extension = String(file.name || "").split(".").pop().toLowerCase()
+  let type = IMAGE_MIME_ALIASES[rawType] || rawType
+  if (!type || type === "application/octet-stream") {
+    type = IMAGE_EXTENSION_MIME[extension] || ""
+  }
+  if (!type.startsWith("image/")) {
+    return { error: "Please select an image file (JPG, PNG or WebP)." }
+  }
+  if (type === rawType) {
+    return { file }
+  }
+
+  try {
+    const safeName = file.name || `image-${Date.now()}.${type.split("/")[1] || "jpg"}`
+    return { file: new File([file], safeName, { type, lastModified: file.lastModified || Date.now() }) }
+  } catch {
+    return { file }
+  }
+}
+
 const openTransientImageInput = ({
   onSelectFile,
   accept = "image/*",

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Eye, Edit2, Loader2, Camera, X, Plus, FileText, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Eye, Edit2, Loader2, Camera, X, Plus, FileText, Image as ImageIcon, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
-import { openCamera, openGallery } from "@food/utils/imageUploadUtils";
+import { openCamera, openGallery, ensureUploadableImageFile } from "@food/utils/imageUploadUtils";
+import { getUserFacingApiError } from "@/shared/utils/apiError";
 import { prepareUploadFile } from "@/shared/utils/imageCompressor";
 import useDeliveryBackNavigation from '../../hooks/useDeliveryBackNavigation';
 
@@ -14,7 +15,10 @@ export const ProfileDocsV2 = () => {
   const goBack = useDeliveryBackNavigation();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [isUpdating, setIsUpdating] = useState(false);
+  // field -> upload progress (0-100) while that document is uploading
+  const [uploadingDocs, setUploadingDocs] = useState({});
+  // field -> { message, file } for a failed upload that can be retried
+  const [failedUploads, setFailedUploads] = useState({});
   const [showViewer, setShowViewer] = useState(null); // { title: string, url: string }
   const [uploadField, setUploadField] = useState(null)
   const fileInputRef = useRef(null);
@@ -30,23 +34,53 @@ export const ProfileDocsV2 = () => {
     fetchProfile();
   }, []);
 
-  const handleUpdate = async (field, file) => {
-     if (!file) return;
-     setIsUpdating(true);
-     const formData = new FormData();
-     formData.append(
-       field,
-       await prepareUploadFile(file, field === "profilePhoto" ? { preset: "profile" } : {}),
-     );
+  /*
+   * Uploads one document photo to server storage and reloads the profile from the
+   * API, so what is shown is what the database now holds. The backend previously
+   * saved only the profile photo from this endpoint, so these uploads "succeeded"
+   * but disappeared on refresh.
+   */
+  const handleUpdate = async (field, pickedFile) => {
+     if (!pickedFile) return;
+     if (uploadingDocs[field] !== undefined) return;
+
+     const { file, error } = ensureUploadableImageFile(pickedFile, { maxBytes: 25 * 1024 * 1024 });
+     if (error) {
+        toast.error(error);
+        return;
+     }
+
+     setFailedUploads((prev) => ({ ...prev, [field]: undefined }));
+     setUploadingDocs((prev) => ({ ...prev, [field]: 0 }));
      try {
-        const res = await deliveryAPI.updateProfileMultipart(formData);
-        if (res?.data?.success) {
-           toast.success("Document updated successfully");
-           const updated = await deliveryAPI.getProfile();
-           setProfile(updated.data.data.profile);
+        const prepared = await prepareUploadFile(file, field === "profilePhoto" ? { preset: "profile" } : {});
+        const formData = new FormData();
+        formData.append(field, prepared);
+        const res = await deliveryAPI.updateProfileMultipart(formData, {
+           onUploadProgress: (event) => {
+              if (!event?.total) return;
+              const progress = Math.min(99, Math.round((event.loaded / event.total) * 100));
+              setUploadingDocs((prev) => (prev[field] === undefined ? prev : { ...prev, [field]: progress }));
+           },
+        });
+        if (!res?.data?.success || !res?.data?.data?.partner?.[field]) {
+           throw new Error(res?.data?.message || "The document was not saved. Please try again.");
         }
-     } catch (e) { toast.error("Upload failed"); }
-     finally { setIsUpdating(false); }
+        const updated = await deliveryAPI.refreshMe();
+        const nextProfile = updated?.data?.data?.user ?? updated?.data?.data;
+        if (nextProfile) setProfile(nextProfile);
+        toast.success("Document updated successfully");
+     } catch (e) {
+        const message = getUserFacingApiError(e, "Upload failed. Please try again.");
+        setFailedUploads((prev) => ({ ...prev, [field]: { message, file } }));
+        toast.error(message);
+     } finally {
+        setUploadingDocs((prev) => {
+           const next = { ...prev };
+           delete next[field];
+           return next;
+        });
+     }
   };
 
   const handleTakeCameraPhoto = (field) => {
@@ -109,18 +143,40 @@ export const ProfileDocsV2 = () => {
                          )}
                          <button 
                             onClick={() => handleTakeCameraPhoto(doc.field)}
-                            className="p-3 bg-gray-900 rounded-xl text-white hover:bg-black active:scale-95 transition-all cursor-pointer relative"
+                            disabled={uploadingDocs[doc.field] !== undefined}
+                            className="p-3 bg-gray-900 rounded-xl text-white hover:bg-black active:scale-95 transition-all cursor-pointer relative disabled:opacity-50"
                          >
                             <Camera className="w-5 h-5" />
                          </button>
                          <button 
                             onClick={() => handlePickFromGallery(doc.field)}
-                            className="p-3 bg-orange-50 rounded-xl text-orange-600 hover:bg-orange-100 active:scale-95 transition-all cursor-pointer relative"
+                            disabled={uploadingDocs[doc.field] !== undefined}
+                            className="p-3 bg-orange-50 rounded-xl text-orange-600 hover:bg-orange-100 active:scale-95 transition-all cursor-pointer relative disabled:opacity-50"
                          >
                             <ImageIcon className="w-5 h-5" />
                          </button>
                       </div>
                    </div>
+                   {uploadingDocs[doc.field] !== undefined && (
+                      <div className="flex items-center gap-3">
+                         <Loader2 className="w-4 h-4 animate-spin text-orange-500" />
+                         <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-orange-500 transition-all" style={{ width: `${Math.max(5, uploadingDocs[doc.field])}%` }} />
+                         </div>
+                         <span className="text-[10px] font-bold text-gray-500">{uploadingDocs[doc.field] > 0 ? `${uploadingDocs[doc.field]}%` : "Uploading"}</span>
+                      </div>
+                   )}
+                   {failedUploads[doc.field] && uploadingDocs[doc.field] === undefined && (
+                      <div className="flex items-center justify-between gap-3 rounded-xl bg-red-50 border border-red-100 px-3 py-2">
+                         <p className="text-xs font-semibold text-red-600">{failedUploads[doc.field].message}</p>
+                         <button
+                            onClick={() => handleUpdate(doc.field, failedUploads[doc.field].file)}
+                            className="shrink-0 flex items-center gap-1 rounded-lg bg-white border border-red-200 px-2.5 py-1.5 text-[11px] font-bold text-red-600 active:scale-95"
+                         >
+                            <RefreshCw className="w-3.5 h-3.5" /> Retry
+                         </button>
+                      </div>
+                   )}
                    {doc.data?.document && (
                       <div className="mt-2 w-24 h-16 rounded-xl border border-gray-100 overflow-hidden shadow-inner bg-gray-50 flex items-center justify-center">
                          <img src={doc.data.document} className="w-full h-full object-cover opacity-50 grayscale" alt="Preview" />

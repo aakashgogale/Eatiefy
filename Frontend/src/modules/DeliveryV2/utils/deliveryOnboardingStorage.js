@@ -1,4 +1,4 @@
-import { clearModuleAuth } from "@food/utils/auth"
+import { clearModuleAuth, clearDeliveryRegistrationToken } from "@food/utils/auth"
 import { clearOnboardingFcmLocal } from "@food/utils/firebaseMessaging"
 
 export const DELIVERY_SIGNUP_DOC_TYPES = [
@@ -594,4 +594,5 @@ export async function clearDeliveryOnboardingData() {
   await clearSignupDocumentsFromDB()
   clearOnboardingFcmLocal("delivery")
   clearModuleAuth("delivery")
+  clearDeliveryRegistrationToken()
 }

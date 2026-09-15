@@ -25,7 +25,16 @@ import { sendResponse } from '../../../../utils/response.js';
 export const registerRestaurantController = async (req, res, next) => {
     try {
         const validated = validateRestaurantRegisterDto(req.body);
-        const restaurant = await registerRestaurant(validated, req.files);
+        // Images uploaded earlier through the onboarding draft arrive as URLs
+        // (the DTO strips unknown keys, so they are passed separately).
+        const draftImageRefs = {
+            profileImageUrl: req.body?.profileImageUrl,
+            panImageUrl: req.body?.panImageUrl,
+            gstImageUrl: req.body?.gstImageUrl,
+            fssaiImageUrl: req.body?.fssaiImageUrl,
+            menuImageUrls: req.body?.menuImageUrls
+        };
+        const restaurant = await registerRestaurant(validated, req.files, draftImageRefs);
         const message = restaurant?.onboarding?.paymentRequired
             ? 'Restaurant details saved. Complete the onboarding payment to submit for approval.'
             : 'Restaurant registered successfully';

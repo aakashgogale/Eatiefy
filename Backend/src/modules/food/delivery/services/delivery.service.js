@@ -6,6 +6,12 @@ import { FoodEarningAddon } from '../../admin/models/earningAddon.model.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
 import { uploadImageBuffer, deleteReplacedAssets } from '../../../../services/storage.service.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
+import {
+    DELIVERY_DOC_FOLDERS,
+    DELIVERY_DRAFT_FIELDS,
+    resolveDeliveryDraftImagesForRegistration,
+    clearDeliveryDraft
+} from './deliveryOnboardingDraft.service.js';
 import { getDeliveryCashLimitSettings } from '../../admin/services/admin.service.js';
 import { logger } from '../../../../utils/logger.js';
 import {
@@ -98,7 +104,7 @@ function appendPartnerFcmToken(partner, fcmToken, platform = 'web') {
     partner[field] = [...existing, token].slice(-10);
 }
 
-export const registerDeliveryPartner = async (payload, files) => {
+export const registerDeliveryPartner = async (payload, files, draftImageRefs = {}) => {
     const { 
         name, phone, email, countryCode, address, city, state, 
         vehicleType, vehicleName, vehicleNumber, drivingLicenseNumber, panNumber, aadharNumber,
@@ -140,22 +146,17 @@ export const registerDeliveryPartner = async (payload, files) => {
         }
     }
 
-    const images = {};
+    // Photos already stored through the signup draft; only URLs recorded for this
+    // phone are accepted. A multipart file for the same field still takes priority.
+    const draftImages = await resolveDeliveryDraftImagesForRegistration(normalizedPhone, draftImageRefs);
 
-    if (files?.profilePhoto?.[0]) {
-        images.profilePhoto = await uploadImageBuffer(files.profilePhoto[0].buffer, 'food/delivery/profile');
-    }
-    if (files?.aadharPhoto?.[0]) {
-        images.aadharPhoto = await uploadImageBuffer(files.aadharPhoto[0].buffer, 'food/delivery/aadhar');
-    }
-    if (files?.panPhoto?.[0]) {
-        images.panPhoto = await uploadImageBuffer(files.panPhoto[0].buffer, 'food/delivery/pan');
-    }
-    if (files?.drivingLicensePhoto?.[0]) {
-        images.drivingLicensePhoto = await uploadImageBuffer(
-            files.drivingLicensePhoto[0].buffer,
-            'food/delivery/license'
-        );
+    const images = {};
+    for (const field of DELIVERY_DRAFT_FIELDS) {
+        if (files?.[field]?.[0]) {
+            images[field] = await uploadImageBuffer(files[field][0].buffer, DELIVERY_DOC_FOLDERS[field]);
+        } else if (draftImages[field]) {
+            images[field] = draftImages[field];
+        }
     }
 
     const normalizedEmail =
@@ -193,6 +194,9 @@ export const registerDeliveryPartner = async (payload, files) => {
         }
         throw err;
     }
+
+    // The partner record now references the uploaded photos.
+    await clearDeliveryDraft(normalizedPhone);
 
     const postCreateSet = {};
     if (!partner.referralCode) {
@@ -282,15 +286,28 @@ export const updateDeliveryPartnerProfile = async (userId, payload, files) => {
         appendPartnerFcmToken(partner, fcmToken, platform);
     }
 
-    let updatedDocsRequiringReapproval = false;
-
-    if (files?.profilePhoto?.[0]) {
-        partner.profilePhoto = await uploadImageBuffer(files.profilePhoto[0].buffer, 'food/delivery/profile', {
-            replaceUrl: partner.profilePhoto
-        });
+    // Every document photo sent to this endpoint is stored. Only profilePhoto used to
+    // be handled, so Aadhar/PAN/licence uploads returned success but were discarded
+    // and the old (or missing) document came back after a refresh.
+    const previousDocUrls = {};
+    for (const field of DELIVERY_DRAFT_FIELDS) {
+        if (!files?.[field]?.[0]) continue;
+        previousDocUrls[field] = partner[field];
+        partner[field] = await uploadImageBuffer(files[field][0].buffer, DELIVERY_DOC_FOLDERS[field]);
     }
 
     await partner.save();
+
+    // Remove replaced files only once the new references are saved.
+    await Promise.all(
+        Object.entries(previousDocUrls).map(([field, previousUrl]) =>
+            previousUrl && previousUrl !== partner[field]
+                ? deleteReplacedAssets(previousUrl, partner[field]).catch((err) =>
+                    logger.warn(`[DeliveryProfile] Failed to delete replaced ${field}: ${err?.message || err}`)
+                )
+                : null
+        )
+    );
     return {
         partner: partner.toObject(),
         requiresReapproval: false
@@ -384,13 +401,23 @@ export const updateDeliveryPartnerBankDetails = async (userId, payload, files) =
         partner.panNumber = panDetails.number ? String(panDetails.number).trim().toUpperCase() : '';
     }
 
+    const previousUpiQrCode = partner.upiQrCode;
     if (files?.upiQrCode?.[0]) {
-        partner.upiQrCode = await uploadImageBuffer(files.upiQrCode[0].buffer, 'food/delivery/upi', {
-            replaceUrl: partner.upiQrCode
-        });
+        partner.upiQrCode = await uploadImageBuffer(files.upiQrCode[0].buffer, 'food/delivery/upi');
+    } else if (bankDetails?.upiQrCode === '') {
+        // Explicit removal of the saved UPI QR image.
+        partner.upiQrCode = '';
     }
 
     await partner.save();
+
+    // Delete the old QR file only after the new reference is saved, so a failed
+    // save never leaves the profile pointing at a deleted image.
+    if (previousUpiQrCode && previousUpiQrCode !== partner.upiQrCode) {
+        await deleteReplacedAssets(previousUpiQrCode, partner.upiQrCode).catch((err) =>
+            logger.warn(`[DeliveryBank] Failed to delete replaced UPI QR: ${err?.message || err}`)
+        );
+    }
     return partner.toObject();
 };
 

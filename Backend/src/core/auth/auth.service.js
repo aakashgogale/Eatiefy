@@ -477,9 +477,12 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
   if (!restaurant) {
     // Phone has been successfully verified, but no restaurant exists yet.
     // Frontend will use this to redirect into registration/onboarding.
+    const { signRegistrationToken } = await import("./onboardingToken.js");
     return {
       needsRegistration: true,
       phone,
+      // Lets the onboarding form store uploads server-side before the restaurant exists.
+      registrationToken: signRegistrationToken(phone),
     };
   }
 
@@ -638,7 +641,13 @@ export const verifyDeliveryOtpAndLogin = async (phone, otp, fcmToken, platform, 
   }
 
   if (!deliveryPartner) {
-    return { needsRegistration: true, phone };
+    const { signRegistrationToken, DELIVERY_REGISTRATION_TOKEN_SCOPE } = await import("./onboardingToken.js");
+    return {
+      needsRegistration: true,
+      phone,
+      // Lets signup store document photos server-side before the partner exists.
+      registrationToken: signRegistrationToken(phone, DELIVERY_REGISTRATION_TOKEN_SCOPE),
+    };
   }
 
   // Update FCM token if provided - CRITICAL: do this BEFORE returning pendingApproval

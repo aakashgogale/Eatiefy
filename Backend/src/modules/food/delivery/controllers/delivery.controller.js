@@ -8,11 +8,54 @@ import { FoodDeliveryCashDeposit } from '../models/foodDeliveryCashDeposit.model
 import { validateDeliveryRegisterDto, validateDeliveryProfileUpdateDto, validateDeliveryBankDetailsDto } from '../validators/delivery.validator.js';
 import { sendResponse } from '../../../../utils/response.js';
 import { getDeliveryReferralStats } from '../services/deliveryReferral.service.js';
+import {
+    DELIVERY_DRAFT_FIELDS,
+    getDeliveryDraftUploads,
+    addDeliveryDraftUpload,
+    removeDeliveryDraftUpload
+} from '../services/deliveryOnboardingDraft.service.js';
+
+export const getDeliveryDraftUploadsController = async (req, res, next) => {
+    try {
+        const uploads = await getDeliveryDraftUploads(req.registration.phoneLast10);
+        return sendResponse(res, 200, 'Signup documents fetched successfully', { uploads });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const addDeliveryDraftUploadController = async (req, res, next) => {
+    try {
+        const result = await addDeliveryDraftUpload(req.registration.phoneLast10, req.body?.field, req.file);
+        return sendResponse(res, 201, 'Document uploaded successfully', result);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const removeDeliveryDraftUploadController = async (req, res, next) => {
+    try {
+        const uploads = await removeDeliveryDraftUpload(
+            req.registration.phoneLast10,
+            req.body?.field ?? req.query?.field,
+            req.body?.url ?? req.query?.url
+        );
+        return sendResponse(res, 200, 'Document removed successfully', { uploads });
+    } catch (error) {
+        next(error);
+    }
+};
 
 export const registerDeliveryPartnerController = async (req, res, next) => {
     try {
         const validated = validateDeliveryRegisterDto(req.body);
-        const partner = await registerDeliveryPartner(validated, req.files);
+        // Photos uploaded earlier through the signup draft arrive as `<field>Url`
+        // (the DTO strips unknown keys, so they are passed separately).
+        const draftImageRefs = DELIVERY_DRAFT_FIELDS.reduce((acc, field) => {
+            acc[`${field}Url`] = req.body?.[`${field}Url`];
+            return acc;
+        }, {});
+        const partner = await registerDeliveryPartner(validated, req.files, draftImageRefs);
         return sendResponse(res, 201, 'Delivery partner registered successfully', partner);
     } catch (error) {
         next(error);

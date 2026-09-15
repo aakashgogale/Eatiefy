@@ -116,6 +116,107 @@ export function useKeyboardInset() {
   return inset
 }
 
+const NON_TEXT_INPUT_TYPES = ["checkbox", "radio", "submit", "button", "file", "image", "reset", "range", "color"]
+
+const isKeyboardField = (el) =>
+  Boolean(el) &&
+  (el.tagName === "TEXTAREA" ||
+    el.tagName === "SELECT" ||
+    el.isContentEditable ||
+    (el.tagName === "INPUT" && !NON_TEXT_INPUT_TYPES.includes(String(el.type || "").toLowerCase())))
+
+/**
+ * Keyboard handling for fixed bottom sheets / modals that contain inputs.
+ *
+ * Modern Android Chrome/WebView and iOS Safari shrink only the *visual* viewport
+ * when the keyboard opens, so an element pinned with `bottom: 0` stays under the
+ * keyboard and its inputs cannot be reached. This lifts the sheet by the covered
+ * height, caps its height to the visible area, and scrolls the focused field to
+ * the middle of the sheet's own scroll area (never the page), so normal
+ * one-finger scrolling inside the sheet keeps working.
+ *
+ * Usage: spread `sheetProps` onto the sheet element that scrolls (overflow-y-auto).
+ */
+export function useKeyboardAwareSheet({ gap = 8, minHeight = 220 } = {}) {
+  const sheetRef = useRef(null)
+  const [metrics, setMetrics] = useState({ inset: 0, viewportHeight: 0 })
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.visualViewport) return undefined
+    const viewport = window.visualViewport
+
+    const update = () => {
+      const covered = window.innerHeight - viewport.height - viewport.offsetTop
+      const inset = covered > 100 ? Math.round(covered) : 0
+      const viewportHeight = Math.round(viewport.height)
+      setMetrics((prev) =>
+        prev.inset === inset && prev.viewportHeight === viewportHeight ? prev : { inset, viewportHeight },
+      )
+    }
+
+    update()
+    viewport.addEventListener("resize", update)
+    viewport.addEventListener("scroll", update)
+    return () => {
+      viewport.removeEventListener("resize", update)
+      viewport.removeEventListener("scroll", update)
+    }
+  }, [])
+
+  const centerField = (field) => {
+    const sheet = sheetRef.current
+    if (!sheet || !field || !sheet.contains(field)) return
+    // Scroll whichever element inside the sheet actually scrolls (sheets often
+    // keep a fixed header and scroll an inner body).
+    let container = sheet
+    for (let node = field.parentElement; node && node !== sheet; node = node.parentElement) {
+      const overflowY = window.getComputedStyle(node).overflowY
+      if ((overflowY === "auto" || overflowY === "scroll") && node.scrollHeight > node.clientHeight) {
+        container = node
+        break
+      }
+    }
+    const fieldRect = field.getBoundingClientRect()
+    const containerRect = container.getBoundingClientRect()
+    const offset = fieldRect.top - containerRect.top - (containerRect.height - fieldRect.height) / 2
+    if (Math.abs(offset) < 4) return
+    container.scrollBy({ top: offset, behavior: "smooth" })
+  }
+
+  // The keyboard animates in after focus; re-center once the sheet has resized.
+  useEffect(() => {
+    if (!metrics.inset) return undefined
+    const timer = window.setTimeout(() => {
+      if (isKeyboardField(document.activeElement)) centerField(document.activeElement)
+    }, 60)
+    return () => window.clearTimeout(timer)
+  }, [metrics.inset, metrics.viewportHeight])
+
+  const onFocusCapture = (event) => {
+    const target = event.target
+    if (!isKeyboardField(target)) return
+    window.setTimeout(() => centerField(target), 320)
+  }
+
+  const keyboardOpen = metrics.inset > 0
+  const sheetStyle = keyboardOpen
+    ? {
+        bottom: `${metrics.inset}px`,
+        maxHeight: `${Math.max(minHeight, metrics.viewportHeight - gap)}px`,
+      }
+    : undefined
+
+  return {
+    keyboardInset: metrics.inset,
+    keyboardOpen,
+    sheetProps: {
+      ref: sheetRef,
+      style: sheetStyle,
+      onFocusCapture,
+    },
+  }
+}
+
 /**
  * Keeps the focused field visible when the keyboard opens.
  *

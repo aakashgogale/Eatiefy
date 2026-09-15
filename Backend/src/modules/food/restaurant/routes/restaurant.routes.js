@@ -64,7 +64,12 @@ import {
     verifyOnboardingPaymentController,
     cancelOnboardingPaymentController
 } from '../controllers/onboardingPayment.controller.js';
-import { onboardingAuthMiddleware } from '../../../../core/auth/onboardingToken.js';
+import { onboardingAuthMiddleware, registrationAuthMiddleware } from '../../../../core/auth/onboardingToken.js';
+import {
+    getOnboardingDraftUploadsController,
+    addOnboardingDraftUploadController,
+    removeOnboardingDraftUploadController
+} from '../controllers/onboardingDraft.controller.js';
 
 import { cacheResponse, invalidateCache, invalidateFoodBrowseCaches } from '../../../../middleware/cache.js';
 import { listPublicFoodsController } from '../controllers/publicFoods.controller.js';
@@ -110,6 +115,13 @@ const uploadFields = upload.fields([
 ]);
 
 router.post('/register', uploadFields, registerRestaurantController);
+
+// Onboarding draft uploads. The restaurant does not exist until /register, so these
+// use the registration token issued when the phone was OTP-verified. Files are
+// stored immediately, which is what lets the form survive a page refresh.
+router.get('/onboarding/uploads', registrationAuthMiddleware, getOnboardingDraftUploadsController);
+router.post('/onboarding/uploads', registrationAuthMiddleware, upload.single('file'), addOnboardingDraftUploadController);
+router.delete('/onboarding/uploads', registrationAuthMiddleware, removeOnboardingDraftUploadController);
 
 // One-time onboarding payment. A restaurant has no access token until it is approved,
 // so these use the short-lived onboarding-scoped token issued by /register.

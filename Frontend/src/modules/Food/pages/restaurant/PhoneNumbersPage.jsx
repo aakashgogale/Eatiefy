@@ -3,11 +3,16 @@ import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import { motion, AnimatePresence } from "framer-motion"
 import { ArrowLeft, Edit, Phone, Users, ChevronDown, X } from "lucide-react"
+import { useKeyboardAwareSheet } from "@food/hooks/useIsKeyboardOpen"
 
 export default function PhoneNumbersPage() {
   const navigate = useNavigate()
   const goBack = useRestaurantBackNavigation()
   const [editingNumber, setEditingNumber] = useState(null) // { type: 'orderReminder1' | 'orderReminder2' | 'restaurantPage' }
+  // Keep each input sheet above the on-screen keyboard.
+  const { sheetProps: editSheetProps } = useKeyboardAwareSheet()
+  const { sheetProps: countryCodeSheetProps } = useKeyboardAwareSheet()
+  const { sheetProps: otpSheetProps } = useKeyboardAwareSheet()
   const [countryCode, setCountryCode] = useState("+91")
   const [phoneNumber, setPhoneNumber] = useState("")
   const [isCountryCodeOpen, setIsCountryCodeOpen] = useState(false)
@@ -237,6 +242,7 @@ export default function PhoneNumbersPage() {
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              {...editSheetProps}
               className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 max-h-[70vh] flex flex-col"
               onClick={(e) => e.stopPropagation()}
             >
@@ -325,6 +331,7 @@ export default function PhoneNumbersPage() {
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              {...countryCodeSheetProps}
               className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-[60] max-h-[60vh] flex flex-col"
               onClick={(e) => e.stopPropagation()}
             >
@@ -382,6 +389,7 @@ export default function PhoneNumbersPage() {
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              {...otpSheetProps}
               className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 max-h-[70vh] flex flex-col"
               onClick={(e) => e.stopPropagation()}
             >

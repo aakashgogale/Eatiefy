@@ -333,6 +333,67 @@ export function clearRestaurantPendingPhone() {
   localStorage.removeItem("restaurant_pendingPhone");
 }
 
+const RESTAURANT_REGISTRATION_TOKEN_KEY = "restaurant_registrationToken";
+
+/**
+ * Registration token issued by OTP verification for a phone with no restaurant yet.
+ * It only authorises the onboarding draft-upload endpoints.
+ */
+export function setRestaurantRegistrationToken(token) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    if (!token) {
+      localStorage.removeItem(RESTAURANT_REGISTRATION_TOKEN_KEY);
+      return;
+    }
+    localStorage.setItem(RESTAURANT_REGISTRATION_TOKEN_KEY, String(token));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+export function getRestaurantRegistrationToken() {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    return localStorage.getItem(RESTAURANT_REGISTRATION_TOKEN_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearRestaurantRegistrationToken() {
+  setRestaurantRegistrationToken(null);
+}
+
+const DELIVERY_REGISTRATION_TOKEN_KEY = "delivery_registrationToken";
+
+/** Registration token for a delivery partner who verified OTP but has no account yet. */
+export function setDeliveryRegistrationToken(token) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    if (!token) {
+      localStorage.removeItem(DELIVERY_REGISTRATION_TOKEN_KEY);
+      return;
+    }
+    localStorage.setItem(DELIVERY_REGISTRATION_TOKEN_KEY, String(token));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+export function getDeliveryRegistrationToken() {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    return localStorage.getItem(DELIVERY_REGISTRATION_TOKEN_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearDeliveryRegistrationToken() {
+  setDeliveryRegistrationToken(null);
+}
+
 /**
  * Clear all authentication data for all modules
  */

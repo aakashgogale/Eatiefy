@@ -1461,6 +1461,12 @@ function OrdersMainInner() {
   const acceptSliderRef = useRef(null);
   const acceptSwipeStartXRef = useRef(0);
   const acceptSwipeActiveRef = useRef(false);
+  // Latest drag progress, readable synchronously from pointer handlers (state lags a render).
+  const acceptSwipeProgressRef = useRef(0);
+  const acceptPointerIdRef = useRef(null);
+  // Claimed synchronously so a release + click or a double gesture cannot accept twice.
+  const acceptInFlightRef = useRef(false);
+  const [isAcceptSwipeDragging, setIsAcceptSwipeDragging] = useState(false);
   const [restaurantStatus, setRestaurantStatus] = useState({
     isActive: null,
     rejectionReason: null,
@@ -2094,6 +2100,9 @@ function OrdersMainInner() {
       const orderToReject = popupOrder || newOrder;
       const orderId = resolveOrderActionId(orderToReject);
 
+      // A slide that already claimed acceptance must never be auto-rejected or closed.
+      if (acceptInFlightRef.current) return;
+
       if (orderId && !isAcceptingOrder) {
         if (autoRejectInitiatedRef.current) return;
 
@@ -2160,8 +2169,12 @@ function OrdersMainInner() {
     if (!showNewOrderPopup) {
       setAcceptSwipeProgress(0);
       setIsAcceptingOrder(false);
+      setIsAcceptSwipeDragging(false);
       acceptSwipeActiveRef.current = false;
       acceptSwipeStartXRef.current = 0;
+      acceptSwipeProgressRef.current = 0;
+      acceptPointerIdRef.current = null;
+      acceptInFlightRef.current = false;
       autoRejectInitiatedRef.current = false;
     }
   }, [showNewOrderPopup]);
@@ -2189,43 +2202,6 @@ function OrdersMainInner() {
     return () => clearTimeout(timer);
   }, [showNewOrderPopup, popupOrder, newOrder]);
 
-  useEffect(() => {
-    const handleMouseMove = (event) => {
-      if (acceptSwipeActiveRef.current) {
-        handleAcceptSwipeMove(event.clientX);
-      }
-    };
-
-    const handleTouchMove = (event) => {
-      if (acceptSwipeActiveRef.current && event.touches[0]) {
-        // Prevent page scroll while swiping the slider
-        if (typeof event.preventDefault === "function") event.preventDefault();
-        handleAcceptSwipeMove(event.touches[0].clientX);
-      }
-    };
-
-    const handlePointerEnd = () => {
-      if (acceptSwipeActiveRef.current) {
-        handleAcceptSwipeEnd();
-      }
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handlePointerEnd);
-    // passive: false is required to allow preventDefault() during swipe
-    window.addEventListener("touchmove", handleTouchMove, { passive: false });
-    window.addEventListener("touchend", handlePointerEnd);
-    window.addEventListener("touchcancel", handlePointerEnd);
-
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handlePointerEnd);
-      window.removeEventListener("touchmove", handleTouchMove);
-      window.removeEventListener("touchend", handlePointerEnd);
-      window.removeEventListener("touchcancel", handlePointerEnd);
-    };
-  }, [isAcceptingOrder]);
-
   // Format countdown time
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -2233,58 +2209,105 @@ function OrdersMainInner() {
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
+  // Handle is h-10 w-10 inside a track with 8px (left-2) inset on each side.
+  const ACCEPT_HANDLE_SIZE = 40;
+  const ACCEPT_TRACK_INSET = 8;
+  const ACCEPT_SWIPE_THRESHOLD = 0.7;
+
   const getAcceptSliderMetrics = () => {
     const sliderWidth = acceptSliderRef.current?.offsetWidth || 320;
-    const handleWidth = 56;
-    const horizontalPadding = 8;
     const maxTravel = Math.max(
-      sliderWidth - handleWidth - horizontalPadding * 2,
+      sliderWidth - ACCEPT_HANDLE_SIZE - ACCEPT_TRACK_INSET * 2,
       1,
     );
     return { maxTravel };
   };
 
+  const setAcceptSwipeProgressValue = (value) => {
+    acceptSwipeProgressRef.current = value;
+    setAcceptSwipeProgress(value);
+  };
+
   const triggerSwipeAccept = () => {
-    if (isAcceptingOrder) return;
+    if (acceptInFlightRef.current || isAcceptingOrder) return;
+    acceptInFlightRef.current = true;
     const activeOrder = popupOrder || newOrder;
     const orderId = activeOrder?.orderMongoId || activeOrder?.orderId || activeOrder?._id || activeOrder?.id;
     if (stopSound) stopSound();
     if (clearNewOrder) clearNewOrder(orderId);
 
-    setAcceptSwipeProgress(1);
+    setAcceptSwipeProgressValue(1);
     setTimeout(() => {
-      handleAcceptOrder();
+      handleAcceptOrder({ alreadyClaimed: true });
     }, 160);
   };
 
-  const handleAcceptSwipeStart = (clientX) => {
-    if (isAcceptingOrder) return;
-    acceptSwipeStartXRef.current = clientX;
-    acceptSwipeActiveRef.current = true;
+  /*
+   * Slide-to-accept uses Pointer Events with pointer capture. The old touch
+   * handlers let the browser claim the gesture (touch-pan-y), which fired
+   * touchcancel mid-swipe, and the window listeners read a stale progress value,
+   * so a completed slide usually snapped back without accepting.
+   */
+  const releaseAcceptPointer = (event) => {
+    try {
+      if (event?.currentTarget?.hasPointerCapture?.(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    } catch {
+      /* capture already released */
+    }
   };
 
-  const handleAcceptSwipeMove = (clientX) => {
-    if (!acceptSwipeActiveRef.current || isAcceptingOrder) return;
-    const deltaX = Math.max(clientX - acceptSwipeStartXRef.current, 0);
+  const handleAcceptSwipePointerDown = (event) => {
+    if (acceptInFlightRef.current || isAcceptingOrder) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (acceptSwipeActiveRef.current) return;
+
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      /* capture unsupported: events still arrive while over the track */
+    }
     const { maxTravel } = getAcceptSliderMetrics();
-    setAcceptSwipeProgress(Math.min(deltaX / maxTravel, 1));
+    acceptPointerIdRef.current = event.pointerId;
+    acceptSwipeStartXRef.current = event.clientX - acceptSwipeProgressRef.current * maxTravel;
+    acceptSwipeActiveRef.current = true;
+    setIsAcceptSwipeDragging(true);
   };
 
-  const handleAcceptSwipeEnd = () => {
-    if (!acceptSwipeActiveRef.current || isAcceptingOrder) return;
-    acceptSwipeActiveRef.current = false;
+  const handleAcceptSwipePointerMove = (event) => {
+    if (!acceptSwipeActiveRef.current || event.pointerId !== acceptPointerIdRef.current) return;
+    if (acceptInFlightRef.current) return;
+    event.preventDefault();
+    const { maxTravel } = getAcceptSliderMetrics();
+    const deltaX = Math.min(Math.max(event.clientX - acceptSwipeStartXRef.current, 0), maxTravel);
+    setAcceptSwipeProgressValue(deltaX / maxTravel);
+  };
 
-    if (acceptSwipeProgress >= 0.45) {
+  const endAcceptSwipe = (event, { cancelled = false } = {}) => {
+    if (!acceptSwipeActiveRef.current) return;
+    if (acceptPointerIdRef.current !== null && event?.pointerId !== acceptPointerIdRef.current) return;
+
+    acceptSwipeActiveRef.current = false;
+    acceptPointerIdRef.current = null;
+    setIsAcceptSwipeDragging(false);
+    releaseAcceptPointer(event);
+
+    if (!cancelled && acceptSwipeProgressRef.current >= ACCEPT_SWIPE_THRESHOLD) {
       triggerSwipeAccept();
       return;
     }
-
-    setAcceptSwipeProgress(0);
+    if (!acceptInFlightRef.current) {
+      setAcceptSwipeProgressValue(0);
+    }
   };
 
   // Handle accept order
-  const handleAcceptOrder = async () => {
-    if (isAcceptingOrder) return;
+  const handleAcceptOrder = async ({ alreadyClaimed = false } = {}) => {
+    if (!alreadyClaimed) {
+      if (acceptInFlightRef.current || isAcceptingOrder) return;
+      acceptInFlightRef.current = true;
+    }
     setIsAcceptingOrder(true);
 
     if (stopSound) {
@@ -2323,19 +2346,22 @@ function OrdersMainInner() {
         } else if (error.response?.status === 404) {
           toast.error("Order not found. It may have been cancelled or already processed.");
           setIsAcceptingOrder(false);
-          setAcceptSwipeProgress(0);
+          setAcceptSwipeProgressValue(0);
+          acceptInFlightRef.current = false;
           return;
         } else {
           toast.error(errorMessage || "Failed to accept order. Please try again.");
           setIsAcceptingOrder(false);
-          setAcceptSwipeProgress(0);
+          setAcceptSwipeProgressValue(0);
+          acceptInFlightRef.current = false;
           return;
         }
       }
     } else {
       toast.error("Unable to accept this order: order id missing");
       setIsAcceptingOrder(false);
-      setAcceptSwipeProgress(0);
+      setAcceptSwipeProgressValue(0);
+      acceptInFlightRef.current = false;
       return;
     }
 
@@ -2345,8 +2371,9 @@ function OrdersMainInner() {
     clearNewOrder(orderId);
     setCountdown(0);
     setPrepTime(11);
-    setAcceptSwipeProgress(0);
+    setAcceptSwipeProgressValue(0);
     setIsAcceptingOrder(false);
+    acceptInFlightRef.current = false;
 
     // Note: PreparingOrders component will automatically refresh orders via its own useEffect
     // No need to manually refresh here as the component polls every 10 seconds
@@ -3633,7 +3660,15 @@ function OrdersMainInner() {
                       <div className="space-y-3">
                         <div
                           ref={acceptSliderRef}
-                          className="relative h-14 rounded-2xl bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] overflow-hidden select-none touch-pan-y">
+                          role="presentation"
+                          onPointerDown={handleAcceptSwipePointerDown}
+                          onPointerMove={handleAcceptSwipePointerMove}
+                          onPointerUp={(e) => endAcceptSwipe(e)}
+                          onPointerCancel={(e) => endAcceptSwipe(e, { cancelled: true })}
+                          onLostPointerCapture={(e) => endAcceptSwipe(e)}
+                          onContextMenu={(e) => e.preventDefault()}
+                          style={{ touchAction: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" }}
+                          className={`relative h-14 rounded-2xl bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] overflow-hidden select-none ${isAcceptingOrder ? "cursor-wait" : "cursor-grab active:cursor-grabbing"}`}>
                           <motion.div
                             className="absolute inset-y-0 left-0 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]"
                             initial={{ width: "100%" }}
@@ -3649,36 +3684,28 @@ function OrdersMainInner() {
                           </div>
                           <motion.button
                             type="button"
+                            aria-label="Slide to accept order"
                             className="absolute left-2 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-xl bg-white text-gray-900 shadow-md disabled:cursor-not-allowed"
-                            style={{
-                              x: (() => {
-                                const sliderWidth =
-                                  acceptSliderRef.current?.offsetWidth || 320;
-                                const handleWidth = 40;
-                                const maxTravel = Math.max(
-                                  sliderWidth - handleWidth - 16,
-                                  0,
-                                );
-                                return acceptSwipeProgress * maxTravel;
-                              })(),
+                            style={{ touchAction: "none" }}
+                            initial={false}
+                            animate={{
+                              x: acceptSwipeProgress * getAcceptSliderMetrics().maxTravel,
                             }}
-                            onMouseDown={(e) => handleAcceptSwipeStart(e.clientX)}
-                            onTouchStart={(e) =>
-                              handleAcceptSwipeStart(e.touches[0].clientX)
+                            transition={
+                              isAcceptSwipeDragging
+                                ? { duration: 0 }
+                                : { type: "spring", stiffness: 520, damping: 38 }
                             }
-                            onMouseMove={(e) => {
-                              if (acceptSwipeActiveRef.current)
-                                handleAcceptSwipeMove(e.clientX);
+                            onClick={(e) => {
+                              // Pointer input must slide; only keyboard activation (detail 0) accepts directly.
+                              if (e.detail === 0) triggerSwipeAccept();
                             }}
-                            onTouchMove={(e) =>
-                              handleAcceptSwipeMove(e.touches[0].clientX)
-                            }
-                            onMouseUp={handleAcceptSwipeEnd}
-                            onTouchEnd={handleAcceptSwipeEnd}
-                            onTouchCancel={handleAcceptSwipeEnd}
-                            onClick={triggerSwipeAccept}
                             disabled={isAcceptingOrder}>
-                            <span className="text-lg font-bold">›</span>
+                            {isAcceptingOrder ? (
+                              <Loader2 className="h-5 w-5 animate-spin" />
+                            ) : (
+                              <span className="text-lg font-bold">›</span>
+                            )}
                           </motion.button>
                         </div>
 

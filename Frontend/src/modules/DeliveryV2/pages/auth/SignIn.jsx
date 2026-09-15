@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import { Loader2, Pencil, X, ShieldCheck } from "lucide-react"
 import { toast } from "sonner"
 import { deliveryAPI } from "@food/api"
-import { setAuthData as storeAuthData, clearModuleAuth } from "@food/utils/auth"
+import { setAuthData as storeAuthData, clearModuleAuth , setDeliveryRegistrationToken } from "@food/utils/auth"
 import { collectFcmTokenFast, persistModuleFcmToken, finalizeDeliveryPendingSubmission, prefetchModuleFcmToken } from "@food/utils/firebaseMessaging"
 import { getUserFacingApiError, showUserFacingApiError } from "@/shared/utils/apiError"
 
@@ -346,6 +346,7 @@ export default function DeliverySignIn() {
       const needsRegistration = data.needsRegistration === true
 
       if (needsRegistration) {
+        setDeliveryRegistrationToken(data.registrationToken)
         sessionStorage.removeItem("deliveryAuthData")
         sessionStorage.removeItem(getBlockKey(phoneVal))
         sessionStorage.removeItem(getResendKey(phoneVal))

@@ -22,6 +22,7 @@ import { restaurantAPI, uploadAPI } from "@food/api"
 import { toast } from "sonner"
 import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
 import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
+import { useKeyboardAwareSheet } from "@food/hooks/useIsKeyboardOpen"
 
 const defaultFormData = {
   name: "",
@@ -64,6 +65,8 @@ export default function MenuCategoriesPage() {
   const [loadError, setLoadError] = useState("")
   const fileInputRef = useRef(null)
   const refreshInFlightRef = useRef(false)
+  // Keeps the create/edit sheet above the on-screen keyboard.
+  const { sheetProps: categorySheetProps } = useKeyboardAwareSheet()
 
   const isPureVegRestaurant = restaurantFoodType === "Veg"
 
@@ -601,7 +604,8 @@ export default function MenuCategoriesPage() {
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
-              className="fixed bottom-0 left-0 right-0 z-50 max-h-[90vh] overflow-y-auto rounded-t-3xl bg-white p-4 shadow-2xl"
+              {...categorySheetProps}
+              className="fixed bottom-0 left-0 right-0 z-50 max-h-[90vh] overflow-y-auto overscroll-contain rounded-t-3xl bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl"
             >
               <div className="mb-4 flex items-center justify-between">
                 <div>

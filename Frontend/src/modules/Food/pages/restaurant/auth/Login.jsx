@@ -7,6 +7,7 @@ import { restaurantAPI } from "@food/api"
 import {
   setAuthData as setRestaurantAuthData,
   setRestaurantPendingPhone,
+  setRestaurantRegistrationToken,
 } from "@food/utils/auth"
 import { clearOnboardingFromLocalStorage, clearAllFilesFromDB, checkOnboardingStatus, isRestaurantOnboardingComplete } from "@/modules/Food/utils/onboardingUtils"
 import { collectFcmTokenFast, persistModuleFcmToken } from "@food/utils/firebaseMessaging"
@@ -334,6 +335,7 @@ export default function RestaurantLogin() {
       } else if (data.needsRegistration === true) {
         isSuccessRef.current = true
         setRestaurantPendingPhone(phoneVal)
+        setRestaurantRegistrationToken(data.registrationToken)
         sessionStorage.removeItem("restaurantAuthData")
         sessionStorage.removeItem(getBlockKey(phoneVal))
         sessionStorage.removeItem(getResendKey(phoneVal))

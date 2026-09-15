@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { X, ChevronDown } from "lucide-react"
+import { useKeyboardAwareSheet } from "@food/hooks/useIsKeyboardOpen"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -44,6 +45,14 @@ export default function BottomPopup({
   const [dragY, setDragY] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(false)
+  // Lifts the popup above the on-screen keyboard when one of its inputs is focused.
+  const { keyboardOpen: isAnyKeyboardOpen, sheetProps: keyboardSheetProps } = useKeyboardAwareSheet({ gap: 8 })
+  // Only move this popup for its own inputs, not for a keyboard opened elsewhere
+  // (e.g. the OTP sheet shown above a collapsed order popup).
+  const keyboardOpen =
+    isAnyKeyboardOpen &&
+    typeof document !== "undefined" &&
+    Boolean(popupRef.current?.contains(document.activeElement))
 
   // Reset drag state when popup closes
   useEffect(() => {
@@ -296,8 +305,13 @@ export default function BottomPopup({
             }}
             className="fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl z-110 overflow-hidden flex flex-col"
             style={{
-              maxHeight: isCollapsed ? "120px" : maxHeight,
-              touchAction: disableSwipeToClose ? 'auto' : 'none'
+              maxHeight: isCollapsed
+                ? "120px"
+                : keyboardOpen
+                  ? `min(${maxHeight}, ${keyboardSheetProps.style.maxHeight})`
+                  : maxHeight,
+              touchAction: disableSwipeToClose ? 'auto' : 'none',
+              ...(keyboardOpen ? { bottom: keyboardSheetProps.style.bottom } : {})
             }}
           >
             {/* Top Drag Handle Bar - Always visible for dragging */}
@@ -370,7 +384,11 @@ export default function BottomPopup({
 
             {/* Content */}
             {!isCollapsed ? (
-              <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 sm:py-4">
+              <div
+                ref={keyboardSheetProps.ref}
+                onFocusCapture={keyboardSheetProps.onFocusCapture}
+                className="flex-1 overflow-y-auto overscroll-contain px-3 sm:px-4 py-3 sm:py-4"
+              >
                 {children}
               </div>
             ) : (

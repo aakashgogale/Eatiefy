@@ -3,6 +3,8 @@ import { ArrowLeft, Edit2, Loader2, Save } from 'lucide-react';
 import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
 import useDeliveryBackNavigation from '../../hooks/useDeliveryBackNavigation';
+import { showUserFacingApiError } from '@/shared/utils/apiError';
+import { normalizeBankDetails, validateBankDetails, lookupIfsc, IFSC_REGEX } from '../../utils/bankDetails';
 
 /**
  * ProfileBankV2 - Restored Old UI for Bank Details.
@@ -19,20 +21,24 @@ export const ProfileBankV2 = () => {
     panNumber: ""
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [errors, setErrors] = useState({});
+
+  const applyProfile = (profile) => {
+    setForm({
+      accountHolderName: profile?.documents?.bankDetails?.accountHolderName || "",
+      accountNumber: profile?.documents?.bankDetails?.accountNumber || "",
+      ifscCode: profile?.documents?.bankDetails?.ifscCode || "",
+      bankName: profile?.documents?.bankDetails?.bankName || "",
+      panNumber: profile?.documents?.pan?.number || ""
+    });
+  };
 
   useEffect(() => {
     const fetchProfile = async () => {
       try {
         const response = await deliveryAPI.getProfile();
         if (response?.data?.success) {
-           const profile = response.data.data.profile;
-           setForm({
-              accountHolderName: profile?.documents?.bankDetails?.accountHolderName || "",
-              accountNumber: profile?.documents?.bankDetails?.accountNumber || "",
-              ifscCode: profile?.documents?.bankDetails?.ifscCode || "",
-              bankName: profile?.documents?.bankDetails?.bankName || "",
-              panNumber: profile?.documents?.pan?.number || ""
-           });
+           applyProfile(response.data.data.profile);
         }
       } catch (e) { toast.error("Failed to load details"); }
       finally { setLoading(false); }
@@ -40,28 +46,64 @@ export const ProfileBankV2 = () => {
     fetchProfile();
   }, []);
 
+  /*
+   * Saves through PATCH /profile/bank-details. This page used to post to
+   * /profile/details, which only handles vehicle/photo fields, so the success
+   * toast showed while nothing was stored and the old details returned on refresh.
+   */
   const handleSave = async () => {
-     if (!form.accountNumber || !form.ifscCode) return toast.error("Missing mandatory fields");
+     if (!form.accountNumber || !form.ifscCode) {
+        setErrors({
+           ...(form.accountNumber ? {} : { accountNumber: "Account number is required" }),
+           ...(form.ifscCode ? {} : { ifscCode: "IFSC code is required" }),
+        });
+        return toast.error("Account number and IFSC code are required");
+     }
+     const validationErrors = validateBankDetails(form);
+     setErrors(validationErrors);
+     const firstError = Object.values(validationErrors)[0];
+     if (firstError) return toast.error(firstError);
+
+     const normalized = normalizeBankDetails(form);
      setIsSaving(true);
      try {
         const payload = {
            documents: {
               bankDetails: {
-                 accountHolderName: form.accountHolderName,
-                 accountNumber: form.accountNumber,
-                 ifscCode: form.ifscCode,
-                 bankName: form.bankName
+                 accountHolderName: normalized.accountHolderName,
+                 accountNumber: normalized.accountNumber,
+                 ifscCode: normalized.ifscCode,
+                 bankName: normalized.bankName
               },
-              pan: { number: form.panNumber }
+              pan: { number: normalized.panNumber }
            }
         };
-        const response = await deliveryAPI.updateProfileDetails(payload);
-        if (response?.data?.success) {
-           toast.success("Bank details updated");
-           setIsEditing(false);
+        const response = await deliveryAPI.updateProfile(payload);
+        if (!response?.data?.success) {
+           throw new Error(response?.data?.message || "Update failed");
         }
-     } catch (e) { toast.error("Update failed"); }
+        // Show exactly what the server stored.
+        const fresh = await deliveryAPI.refreshMe();
+        applyProfile(fresh?.data?.data?.user ?? fresh?.data?.data);
+        toast.success("Bank details updated");
+        setIsEditing(false);
+     } catch (e) { showUserFacingApiError(e, "Update failed"); }
      finally { setIsSaving(false); }
+  };
+
+  const handleChange = (key, rawValue) => {
+     let value = rawValue;
+     if (key === "accountNumber") value = value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 20);
+     if (key === "ifscCode") value = value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 11);
+     if (key === "panNumber") value = value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 10);
+     setForm((prev) => ({ ...prev, [key]: value }));
+     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: undefined }));
+     if (key === "ifscCode" && IFSC_REGEX.test(value)) {
+        void lookupIfsc(value).then((info) => {
+           if (!info?.bankName) return;
+           setForm((prev) => (prev.ifscCode === value && !prev.bankName.trim() ? { ...prev, bankName: info.bankName } : prev));
+        });
+     }
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><Loader2 className="w-8 h-8 animate-spin text-orange-500" /></div>;
@@ -88,12 +130,18 @@ export const ProfileBankV2 = () => {
                 <div key={key} className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">{label}</label>
                    {isEditing ? (
-                      <input 
-                         type="text" 
-                         value={form[key]}
-                         onChange={(e) => setForm({...form, [key]: e.target.value})}
-                         className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-sm font-bold text-gray-950 focus:ring-2 focus:ring-orange-500/20"
-                      />
+                      <>
+                        <input
+                           type="text"
+                           inputMode={key === "accountNumber" ? "numeric" : undefined}
+                           autoComplete="off"
+                           autoCapitalize={key === "ifscCode" || key === "panNumber" ? "characters" : undefined}
+                           value={form[key]}
+                           onChange={(e) => handleChange(key, e.target.value)}
+                           className={`w-full bg-gray-50 border rounded-xl px-4 py-3 text-sm font-bold text-gray-950 focus:ring-2 focus:ring-orange-500/20 ${errors[key] ? "border-red-300" : "border-gray-100"}`}
+                        />
+                        {errors[key] && <p className="mt-1.5 text-[11px] font-semibold text-red-500">{errors[key]}</p>}
+                      </>
                    ) : (
                       <p className="text-sm font-bold text-gray-950">{form[key] || "Not provided"}</p>
                    )}

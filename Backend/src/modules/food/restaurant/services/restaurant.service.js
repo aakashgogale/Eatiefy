@@ -12,6 +12,11 @@ import { assertValidFullName } from '../validators/restaurant.validator.js';
 import { normalizeRestaurantType, getRestaurantTypeLabel } from '../../shared/restaurantTypes.js';
 import { buildOnboardingQuote } from './onboardingPricing.service.js';
 import { signOnboardingToken } from '../../../../core/auth/onboardingToken.js';
+import {
+    resolveDraftImagesForRegistration,
+    clearOnboardingDraft,
+    MAX_DRAFT_MENU_IMAGES
+} from './onboardingDraft.service.js';
 import { FoodTopRestaurant } from '../../admin/models/topRestaurant.model.js';
 import { FoodOffer } from '../../admin/models/offer.model.js';
 import { FoodDiningRestaurant } from '../../dining/models/diningRestaurant.model.js';
@@ -352,7 +357,7 @@ const notifyAdminsAboutRestaurantProfileReview = async (restaurantId, restaurant
 const isTruthyFlag = (value) =>
     value === true || String(value ?? '').trim().toLowerCase() === 'true';
 
-export const registerRestaurant = async (payload, files) => {
+export const registerRestaurant = async (payload, files, draftImageRefs = {}) => {
     const {
         restaurantName,
         ownerName,
@@ -437,27 +442,41 @@ export const registerRestaurant = async (payload, files) => {
     const onboardingFeeDue =
         onboardingPaymentEnabled && Number(onboardingQuote?.finalAmount) > 0;
 
+    // URLs the onboarding form already stored server-side; only ones recorded in
+    // this phone's draft are accepted.
+    const draftImages = await resolveDraftImagesForRegistration(ownerPhoneLast10, draftImageRefs);
+
     const images = {};
 
     if (files?.profileImage?.[0]) {
         images.profileImage = await uploadImageBuffer(files.profileImage[0].buffer, 'food/restaurants/profile');
+    } else if (draftImages.profileImage) {
+        images.profileImage = draftImages.profileImage;
     }
     if (files?.panImage?.[0]) {
         images.panImage = await uploadImageBuffer(files.panImage[0].buffer, 'food/restaurants/pan');
+    } else if (draftImages.panImage) {
+        images.panImage = draftImages.panImage;
     }
     if (files?.gstImage?.[0]) {
         images.gstImage = await uploadImageBuffer(files.gstImage[0].buffer, 'food/restaurants/gst');
+    } else if (draftImages.gstImage) {
+        images.gstImage = draftImages.gstImage;
     }
     if (files?.fssaiImage?.[0]) {
         images.fssaiImage = await uploadImageBuffer(files.fssaiImage[0].buffer, 'food/restaurants/fssai');
+    } else if (draftImages.fssaiImage) {
+        images.fssaiImage = draftImages.fssaiImage;
     }
 
-    let menuImages = [];
+    let menuImages = [...draftImages.menuImages];
     if (files?.menuImages?.length) {
-        menuImages = await Promise.all(
+        const uploadedMenuImages = await Promise.all(
             files.menuImages.map((file) => uploadImageBuffer(file.buffer, 'food/restaurants/menu'))
         );
+        menuImages = [...menuImages, ...uploadedMenuImages];
     }
+    menuImages = [...new Set(menuImages.filter(Boolean))].slice(0, MAX_DRAFT_MENU_IMAGES);
 
 
     const normalizedOpeningTime = normalizeRestaurantTime(openingTime);
@@ -548,6 +567,9 @@ export const registerRestaurant = async (payload, files) => {
                 : {}),
             ...images
         });
+
+        // The restaurant now owns the uploaded files; the draft is no longer needed.
+        await clearOnboardingDraft(ownerPhoneLast10);
 
         if (fcmToken) {
             try {

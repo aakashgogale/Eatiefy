@@ -1644,6 +1644,41 @@ export const restaurantAPI = {
     return apiClient.post("/food/restaurant/register", formData);
   },
   /**
+   * Onboarding draft uploads (before the restaurant exists). Authorised by the
+   * registration token returned from OTP verification, not an access token.
+   * `_retry` keeps a rejected registration token from triggering the access-token
+   * refresh/logout flow in the axios interceptor.
+   */
+  getOnboardingUploads: (registrationToken) =>
+    apiClient.get("/food/restaurant/onboarding/uploads", {
+      headers: { "X-Registration-Token": registrationToken },
+      contextModule: "restaurant",
+      _retry: true,
+    }),
+  uploadOnboardingFile: async (registrationToken, field, file, options = {}) => {
+    if (!file) {
+      return Promise.reject(new Error("File is required for upload"));
+    }
+    const prepared = await prepareUploadFile(file, options.compress);
+    const formData = new FormData();
+    formData.append("field", field);
+    formData.append("file", prepared);
+    return apiClient.post("/food/restaurant/onboarding/uploads", formData, {
+      headers: { "X-Registration-Token": registrationToken },
+      contextModule: "restaurant",
+      timeout: 60000,
+      onUploadProgress: options.onUploadProgress,
+      _retry: true,
+    });
+  },
+  removeOnboardingUpload: (registrationToken, field, url) =>
+    apiClient.delete("/food/restaurant/onboarding/uploads", {
+      headers: { "X-Registration-Token": registrationToken },
+      data: { field, url },
+      contextModule: "restaurant",
+      _retry: true,
+    }),
+  /**
    * One-time onboarding payment.
    * A restaurant has no access token before approval, so these calls carry the
    * short-lived onboarding token returned by register()/OTP login instead.
@@ -2096,6 +2131,27 @@ const getDeliveryMeOnce = () => {
   return deliveryMeInFlight;
 };
 
+/**
+ * Profile writes must drop the short-lived /me cache; otherwise the screen re-reads
+ * the pre-save profile right after a successful upload/save and looks unsaved.
+ */
+const invalidateDeliveryMeCache = () => {
+  deliveryMeCached = null;
+  deliveryMeCacheTime = 0;
+  deliveryMeInFlight = null;
+};
+
+const afterDeliveryProfileWrite = (promise) =>
+  promise.then((res) => {
+    invalidateDeliveryMeCache();
+    return res;
+  });
+
+const withUploadProgress = (options = {}) =>
+  typeof options.onUploadProgress === "function"
+    ? { onUploadProgress: options.onUploadProgress, timeout: 90000 }
+    : { timeout: 90000 };
+
 /** Delivery API - OTP login + registration via new backend. */
 export const deliveryAPI = {
   sendOTP: (phone, _purpose = "login") => {
@@ -2153,7 +2209,8 @@ export const deliveryAPI = {
         new Error("FormData with details and document files is required"),
       );
     }
-    return apiClient.post("/food/delivery/register", formData);
+    // Several document photos in one request can outlast the 30s default on mobile data.
+    return apiClient.post("/food/delivery/register", formData, { timeout: 90000 });
   },
   /** PATCH /food/delivery/profile - complete profile after OTP (Bearer token required). */
   completeProfile: (formData) => {
@@ -2162,43 +2219,76 @@ export const deliveryAPI = {
         new Error("FormData with details and document files is required"),
       );
     }
-    return apiClient.patch("/food/delivery/profile", formData, {
+    return afterDeliveryProfileWrite(apiClient.patch("/food/delivery/profile", formData, {
       contextModule: "delivery",
-    });
+      timeout: 90000,
+    }));
   },
   /** PATCH /food/delivery/profile/details - JSON updates (vehicle number, etc). */
   updateProfileDetails: (payload) =>
-    apiClient.patch("/food/delivery/profile/details", payload ?? {}, {
+    afterDeliveryProfileWrite(apiClient.patch("/food/delivery/profile/details", payload ?? {}, {
       contextModule: "delivery",
-    }),
+    })),
   /** PATCH /food/delivery/profile - multipart updates for photos/documents (uses same endpoint). */
-  updateProfileMultipart: (formData) => {
+  updateProfileMultipart: (formData, options = {}) => {
     if (!formData || !(formData instanceof FormData)) {
       return Promise.reject(new Error("FormData is required"));
     }
-    return apiClient.patch("/food/delivery/profile", formData, {
+    return afterDeliveryProfileWrite(apiClient.patch("/food/delivery/profile", formData, {
       contextModule: "delivery",
-    });
+      ...withUploadProgress(options),
+    }));
   },
   /** POST /food/delivery/profile/photo-base64 - Flutter in-app camera base64 upload. */
   updateProfilePhotoBase64: (payload) =>
-    apiClient.post("/food/delivery/profile/photo-base64", payload ?? {}, {
+    afterDeliveryProfileWrite(apiClient.post("/food/delivery/profile/photo-base64", payload ?? {}, {
       contextModule: "delivery",
-    }),
+    })),
   /** PATCH /food/delivery/profile/bank-details - update bank details + PAN (JSON, Bearer required). */
   updateProfile: (payload) =>
-    apiClient.patch("/food/delivery/profile/bank-details", payload ?? {}, {
+    afterDeliveryProfileWrite(apiClient.patch("/food/delivery/profile/bank-details", payload ?? {}, {
       contextModule: "delivery",
-    }),
+    })),
   /** PATCH /food/delivery/profile/bank-details - multipart updates for bank details + UPI QR (FormData required). */
-  updateBankDetailsMultipart: (formData) => {
+  updateBankDetailsMultipart: (formData, options = {}) => {
     if (!formData || !(formData instanceof FormData)) {
       return Promise.reject(new Error("FormData is required"));
     }
-    return apiClient.patch("/food/delivery/profile/bank-details", formData, {
+    return afterDeliveryProfileWrite(apiClient.patch("/food/delivery/profile/bank-details", formData, {
       contextModule: "delivery",
+      ...withUploadProgress(options),
+    }));
+  },
+  /**
+   * Signup document uploads before the partner exists, authorised by the
+   * registration token from OTP verification. `_retry` keeps a rejected token
+   * away from the access-token refresh/logout flow.
+   */
+  getOnboardingUploads: (registrationToken) =>
+    apiClient.get("/food/delivery/onboarding/uploads", {
+      headers: { "X-Registration-Token": registrationToken },
+      contextModule: "delivery",
+      _retry: true,
+    }),
+  uploadOnboardingDocument: (registrationToken, field, file, options = {}) => {
+    if (!file) return Promise.reject(new Error("File is required for upload"));
+    const formData = new FormData();
+    formData.append("field", field);
+    formData.append("file", file);
+    return apiClient.post("/food/delivery/onboarding/uploads", formData, {
+      headers: { "X-Registration-Token": registrationToken },
+      contextModule: "delivery",
+      _retry: true,
+      ...withUploadProgress(options),
     });
   },
+  removeOnboardingDocument: (registrationToken, field, url) =>
+    apiClient.delete("/food/delivery/onboarding/uploads", {
+      headers: { "X-Registration-Token": registrationToken },
+      data: { field, url },
+      contextModule: "delivery",
+      _retry: true,
+    }),
   saveFcmToken: (token, platform = "web") => {
     if (!token) return Promise.reject(new Error("FCM token is required"));
     const path =
@@ -2759,6 +2849,9 @@ export const uploadAPI = {
     return apiClient.post("/uploads/image", formData, {
       headers: { "Content-Type": "multipart/form-data" },
       timeout: 60000,
+      ...(typeof options.onUploadProgress === "function"
+        ? { onUploadProgress: options.onUploadProgress }
+        : {}),
     });
   },
   deleteMedia: (url) => {

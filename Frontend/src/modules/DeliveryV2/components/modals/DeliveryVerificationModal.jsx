@@ -8,6 +8,7 @@ import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
 import { showUserFacingApiError } from '@/shared/utils/apiError';
 import { ActionSlider } from '@/modules/DeliveryV2/components/ui/ActionSlider';
+import { useKeyboardAwareSheet } from '@food/hooks/useIsKeyboardOpen';
 
 const Backdrop = ({ onClose }) => (
   <motion.div
@@ -54,6 +55,8 @@ const OtpModal = ({ order, onVerified, onClose }) => {
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [isOtpVerified, setIsOtpVerified] = useState(false);
   const inputRefs = [useRef(), useRef(), useRef(), useRef()];
+  // Keeps the handover-code inputs above the on-screen keyboard.
+  const { keyboardOpen, sheetProps } = useKeyboardAwareSheet({ gap: 12 });
 
   useEffect(() => {
     const savedCode = order?.deliveryVerification?.dropOtp?.code;
@@ -68,8 +71,18 @@ const OtpModal = ({ order, onVerified, onClose }) => {
 
   const orderId = order.orderId || order._id || 'ORD';
 
-  const handleOtpChange = (index, value) => {
-    if (value && !/^\d+$/.test(value)) return;
+  const handleOtpChange = (index, rawValue) => {
+    const value = String(rawValue || '').replace(/\D/g, '');
+    // Pasted or autofilled full code: spread it across the boxes.
+    if (value.length > 1) {
+      const digits = value.slice(0, 4 - index).split('');
+      const newOtp = [...otp];
+      digits.forEach((d, i) => { newOtp[index + i] = d; });
+      setOtp(newOtp);
+      inputRefs[Math.min(index + digits.length, 3)].current?.focus();
+      return;
+    }
+    if (rawValue && !value) return;
     const newOtp = [...otp];
     newOtp[index] = value.substring(value.length - 1);
     setOtp(newOtp);
@@ -102,11 +115,18 @@ const OtpModal = ({ order, onVerified, onClose }) => {
   const isAlreadyVerified = order?.deliveryVerification?.dropOtp?.verified;
 
   return (
-    <div className="fixed inset-0 z-120 p-0 sm:p-4 flex items-end justify-center pointer-events-none">
+    <div
+      className="fixed inset-0 z-120 p-0 sm:p-4 flex items-end justify-center pointer-events-none"
+      // Shrink the overlay to the area above the keyboard so the sheet sits on top of it.
+      style={keyboardOpen ? { bottom: sheetProps.style.bottom } : undefined}
+    >
       <Backdrop onClose={onClose} />
       <motion.div
+        ref={sheetProps.ref}
+        onFocusCapture={sheetProps.onFocusCapture}
         initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-        className="w-full max-w-md sm:max-w-lg bg-white rounded-t-3xl sm:rounded-t-[2.5rem] shadow-[0_-20px_60px_rgba(0,0,0,0.3)] p-4 sm:p-6 pb-6 sm:pb-12 pointer-events-auto max-h-[84vh] overflow-y-auto"
+        style={keyboardOpen ? { maxHeight: sheetProps.style.maxHeight } : undefined}
+        className="w-full max-w-md sm:max-w-lg bg-white rounded-t-3xl sm:rounded-t-[2.5rem] shadow-[0_-20px_60px_rgba(0,0,0,0.3)] p-4 sm:p-6 pb-6 sm:pb-12 pointer-events-auto max-h-[84vh] overflow-y-auto overscroll-contain"
       >
         <div className="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-6" />
         <div className="flex justify-between items-center mb-6">
@@ -129,7 +149,11 @@ const OtpModal = ({ order, onVerified, onClose }) => {
             <input
               key={i}
               ref={inputRefs[i]}
-              type="number"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              autoComplete={i === 0 ? 'one-time-code' : 'off'}
+              aria-label={`Handover code digit ${i + 1}`}
               disabled={isOtpVerified}
               value={digit}
               onChange={(e) => handleOtpChange(i, e.target.value)}

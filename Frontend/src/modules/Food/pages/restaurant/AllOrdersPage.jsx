@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import { DateRangeCalendar } from "@food/components/ui/date-range-calendar"
 import { restaurantAPI } from "@food/api"
+import { useKeyboardAwareSheet } from "@food/hooks/useIsKeyboardOpen"
 import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -123,6 +124,8 @@ export default function AllOrdersPage() {
   
   // Filter states
   const [showFilterPopup, setShowFilterPopup] = useState(false)
+  // Filter sheet (with its search field) stays above the on-screen keyboard.
+  const { sheetProps: filterSheetProps } = useKeyboardAwareSheet()
   const [activeFilterCategory, setActiveFilterCategory] = useState("Order status")
   const [filterSearch, setFilterSearch] = useState("")
   const [isApplyingFilters, setIsApplyingFilters] = useState(false)
@@ -844,8 +847,10 @@ export default function AllOrdersPage() {
                 damping: 30,
                 stiffness: 300
               }}
+              ref={filterSheetProps.ref}
+              onFocusCapture={filterSheetProps.onFocusCapture}
               className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 flex flex-col"
-              style={{ height: '65vh' }}
+              style={{ height: '65vh', ...filterSheetProps.style }}
               onClick={(e) => e.stopPropagation()}
             >
               {/* Drag Handle */}

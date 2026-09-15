@@ -24,7 +24,8 @@ import api from "@food/api"
 import { restaurantAPI, uploadAPI } from "@food/api"
 import { toast } from "sonner"
 import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
-import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
+import { isFlutterBridgeAvailable, ensureUploadableImageFile } from "@food/utils/imageUploadUtils"
+import { useKeyboardAwareSheet } from "@food/hooks/useIsKeyboardOpen"
 import { getFoodVariants } from "@food/utils/foodVariants"
 import {
   getVeganFoodTypeBlockReason,
@@ -36,6 +37,7 @@ const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
 const INVENTORY_RECOMMENDED_KEY = "restaurant_inventory_recommended_map"
+const MENU_ITEM_IMAGE_FOLDER = "eatiefy/restaurant/menu-items"
 
 
 const getUploadErrorMessage = (error, fileName = "image") => {
@@ -101,6 +103,14 @@ export default function ItemDetailsPage() {
   const [images, setImages] = useState([])
   const [imageFiles, setImageFiles] = useState(new Map()) // Track File objects by preview URL
   const [uploadingImages, setUploadingImages] = useState(false)
+  // Upload of the picked photo, started as soon as it is selected.
+  const [imageUpload, setImageUpload] = useState({ status: "idle", progress: 0, error: "" })
+  const activeImageUploadRef = useRef(null)
+  // True once the user picks/removes a photo, so a late item fetch cannot overwrite it.
+  const imageTouchedRef = useRef(false)
+  // Files uploaded in this session that the item does not reference yet.
+  const unsavedUploadUrlsRef = useRef(new Set())
+  const itemSavedRef = useRef(false)
   const [isPhotoPickerOpen, setIsPhotoPickerOpen] = useState(false)
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
   const [touchStart, setTouchStart] = useState(null)
@@ -122,6 +132,8 @@ export default function ItemDetailsPage() {
   const [loadingCategories, setLoadingCategories] = useState(true)
   const [loadingItem, setLoadingItem] = useState(false)
   const [keyboardInset, setKeyboardInset] = useState(0)
+  // Category search sheet stays above the on-screen keyboard.
+  const { sheetProps: categorySheetProps } = useKeyboardAwareSheet()
 
   const handleDeleteItem = async () => {
     if (isNewItem) return
@@ -224,7 +236,9 @@ export default function ItemDetailsPage() {
     const existingImages = Array.isArray(item.images) && item.images.length > 0
       ? item.images.filter(Boolean)
       : (item.image ? [item.image] : [])
-    setImages(existingImages)
+    if (!imageTouchedRef.current) {
+      setImages(existingImages)
+    }
 
     setWeightPerServing("")
     setCalorieCount("")
@@ -558,10 +572,83 @@ export default function ItemDetailsPage() {
     }
   ]
 
-  const handleImageAdd = (file) => {
-    if (!file) return
+  /** Deletes files uploaded in this session that the saved item does not use. */
+  const discardUnsavedUploads = (keepUrl = "") => {
+    unsavedUploadUrlsRef.current.forEach((url) => {
+      if (url && url !== keepUrl) {
+        uploadAPI.deleteMedia(url).catch(() => {})
+      }
+    })
+    unsavedUploadUrlsRef.current = new Set()
+  }
 
-    // Single-image mode: keep only the first selected valid file
+  /**
+   * Uploads the picked photo right away and swaps the local preview for the
+   * stored URL, so the user sees progress and any error before pressing Save.
+   * If it fails, the file stays queued and Save retries the upload.
+   */
+  const uploadPickedImage = async (file, previewUrl) => {
+    const uploadId = previewUrl
+    activeImageUploadRef.current = uploadId
+    setImageUpload({ status: "uploading", progress: 0, error: "" })
+
+    try {
+      const response = await uploadAPI.uploadMedia(file, {
+        folder: MENU_ITEM_IMAGE_FOLDER,
+        onUploadProgress: (event) => {
+          if (activeImageUploadRef.current !== uploadId || !event?.total) return
+          const progress = Math.min(99, Math.round((event.loaded / event.total) * 100))
+          setImageUpload((prev) => (prev.status === "uploading" ? { ...prev, progress } : prev))
+        },
+      })
+      const imageUrl = response?.data?.data?.url || response?.data?.url
+      if (!imageUrl) {
+        throw new Error("The server did not return the image URL")
+      }
+
+      if (activeImageUploadRef.current !== uploadId) {
+        // A newer photo was picked (or this one removed) while uploading.
+        uploadAPI.deleteMedia(imageUrl).catch(() => {})
+        return
+      }
+
+      discardUnsavedUploads()
+      unsavedUploadUrlsRef.current.add(imageUrl)
+      setImages((prev) => (prev[0] === previewUrl ? [imageUrl] : prev))
+      setImageFiles((prev) => {
+        if (!prev.has(previewUrl)) return prev
+        const next = new Map(prev)
+        next.delete(previewUrl)
+        return next
+      })
+      setImageUpload({ status: "done", progress: 100, error: "" })
+      // Keep the blob preview alive a moment so the swap to the URL does not flash.
+      window.setTimeout(() => URL.revokeObjectURL(previewUrl), 1500)
+    } catch (uploadError) {
+      if (activeImageUploadRef.current !== uploadId) return
+      debugError("Item image upload failed:", uploadError)
+      const message = getUploadErrorMessage(uploadError, "image")
+      setImageUpload({ status: "error", progress: 0, error: message })
+      toast.error(message)
+    }
+  }
+
+  const handleImageAdd = (pickedFile) => {
+    if (!pickedFile) return
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""
+    }
+
+    const { file, error } = ensureUploadableImageFile(pickedFile)
+    if (error) {
+      toast.error(error)
+      return
+    }
+
+    imageTouchedRef.current = true
+
+    // Single-image mode: keep only the latest selected file
     const previewUrl = URL.createObjectURL(file)
 
     images.forEach((img) => {
@@ -577,10 +664,26 @@ export default function ItemDetailsPage() {
     setImageFiles(newImageFilesMap)
     setCurrentImageIndex(0)
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ""
-    }
+    void uploadPickedImage(file, previewUrl)
   }
+
+  const handleRetryImageUpload = () => {
+    const entry = Array.from(imageFiles.entries())[0]
+    if (!entry) return
+    const [previewUrl, file] = entry
+    void uploadPickedImage(file, previewUrl)
+  }
+
+  // Leaving without saving must not strand uploaded files on the server.
+  useEffect(() => {
+    return () => {
+      activeImageUploadRef.current = null
+      if (!itemSavedRef.current) {
+        discardUnsavedUploads()
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleCameraClick = () => {
     setIsPhotoPickerOpen(true)
@@ -704,6 +807,11 @@ export default function ItemDetailsPage() {
   }
 
   const handleSave = async () => {
+    if (imageUpload.status === "uploading") {
+      toast.info("Please wait for the image to finish uploading")
+      return
+    }
+
     if (!itemName.trim()) {
       toast.error("Please enter an item name")
       return
@@ -795,19 +903,16 @@ export default function ItemDetailsPage() {
           const file = filesToUpload[i]
           try {
             debugLog(`Uploading image ${i + 1}/${filesToUpload.length}:`, file.name)
-            let uploadResponse
-            try {
-              uploadResponse = await uploadAPI.uploadMedia(file, {
-                folder: 'eatiefy/restaurant/menu-items'
-              })
-            } catch (folderUploadError) {
-              // Fallback: retry without folder in case provider/account rejects custom folder.
-              debugWarn(`Retrying upload without folder for ${file.name}:`, folderUploadError)
-              uploadResponse = await uploadAPI.uploadMedia(file)
-            }
+            // Only reached when the upload started at selection time failed.
+            setImageUpload({ status: "uploading", progress: 0, error: "" })
+            const uploadResponse = await uploadAPI.uploadMedia(file, {
+              folder: MENU_ITEM_IMAGE_FOLDER,
+            })
             const imageUrl = uploadResponse?.data?.data?.url || uploadResponse?.data?.url
             if (imageUrl) {
               uploadedImageUrls.push(imageUrl)
+              unsavedUploadUrlsRef.current.add(imageUrl)
+              setImageUpload({ status: "done", progress: 100, error: "" })
               debugLog(`Successfully uploaded image ${i + 1}:`, imageUrl)
             } else {
               debugError('Upload response:', uploadResponse)
@@ -815,7 +920,9 @@ export default function ItemDetailsPage() {
             }
           } catch (uploadError) {
             debugError(`Error uploading image ${i + 1} (${file.name}):`, uploadError)
-            toast.error(getUploadErrorMessage(uploadError, file.name))
+            const message = getUploadErrorMessage(uploadError, file.name || "image")
+            setImageUpload({ status: "error", progress: 0, error: message })
+            toast.error(message)
             setUploadingImages(false)
             return
           }
@@ -880,6 +987,10 @@ export default function ItemDetailsPage() {
           categoryName,
         })
       }
+
+      // The item now references its image; any other upload from this session is unused.
+      itemSavedRef.current = true
+      discardUnsavedUploads(allImageUrls[0] || "")
 
       try {
         const nextRecommendedMap = (() => {
@@ -1010,10 +1121,38 @@ export default function ItemDetailsPage() {
                         src={images[currentImageIndex]}
                         alt={`${itemName} - Image ${currentImageIndex + 1}`}
                         className="w-full h-full object-cover"
+                        onError={(e) => {
+                          // Stored URL missing or an undecodable preview (e.g. HEIC).
+                          if (e.currentTarget.src !== dishFallbackImage) {
+                            e.currentTarget.src = dishFallbackImage
+                          }
+                        }}
                       />
                     ) : null}
                   </motion.div>
                 </AnimatePresence>
+
+                {imageUpload.status === "uploading" && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/40 text-white">
+                    <Loader2 className="w-7 h-7 animate-spin" />
+                    <span className="text-sm font-semibold">
+                      Uploading{imageUpload.progress > 0 ? ` ${imageUpload.progress}%` : "..."}
+                    </span>
+                  </div>
+                )}
+
+                {imageUpload.status === "error" && imageFiles.size > 0 && (
+                  <div className="absolute inset-x-3 bottom-3 z-10 flex items-center justify-between gap-3 rounded-xl bg-black/70 px-3 py-2 text-white">
+                    <span className="text-xs font-medium line-clamp-2">Image upload failed</span>
+                    <button
+                      type="button"
+                      onClick={handleRetryImageUpload}
+                      className="shrink-0 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-gray-900 active:scale-95"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
 
                 {/* Navigation arrows */}
                 {images.length > 1 && (
@@ -1103,8 +1242,10 @@ export default function ItemDetailsPage() {
               className="hidden"
             />
             <button
+              type="button"
               onClick={handleCameraClick}
-              className="w-full flex items-center justify-center gap-2.5 px-6 py-3.5 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-xl text-sm font-semibold cursor-pointer hover:from-gray-800 hover:to-gray-700 transition-all shadow-md hover:shadow-lg active:scale-95"
+              disabled={imageUpload.status === "uploading"}
+              className="w-full flex items-center justify-center gap-2.5 px-6 py-3.5 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-xl text-sm font-semibold cursor-pointer hover:from-gray-800 hover:to-gray-700 transition-all shadow-md hover:shadow-lg active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center">
                 <Plus className="w-4 h-4" />
@@ -1411,6 +1552,7 @@ export default function ItemDetailsPage() {
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              {...categorySheetProps}
               className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 h-[85vh] flex flex-col"
               onClick={(e) => e.stopPropagation()}
             >
@@ -1612,7 +1754,7 @@ export default function ItemDetailsPage() {
           </button>
           <button
             onClick={handleSave}
-            disabled={uploadingImages}
+            disabled={uploadingImages || imageUpload.status === "uploading"}
             className="flex-1 py-3 px-4 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 uppercase bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
           >
             {uploadingImages ? (
@@ -1657,6 +1799,10 @@ export default function ItemDetailsPage() {
                 <button
                   type="button"
                   onClick={() => {
+                    imageTouchedRef.current = true;
+                    // Ignore the result of an upload still in flight for this photo.
+                    activeImageUploadRef.current = null;
+                    setImageUpload({ status: "idle", progress: 0, error: "" });
                     setImages([]);
                     setImageFiles(new Map());
                     setCurrentImageIndex(0);

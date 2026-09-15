@@ -8,8 +8,9 @@ import {
 } from "lucide-react"
 import BottomPopup from "@delivery/components/BottomPopup"
 import { toast } from "sonner"
-import { showUserFacingApiError } from "@/shared/utils/apiError"
-import { openCamera, openGallery, isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
+import { showUserFacingApiError, getUserFacingApiError } from "@/shared/utils/apiError"
+import { openCamera, openGallery, isFlutterBridgeAvailable, ensureUploadableImageFile } from "@food/utils/imageUploadUtils"
+import { normalizeBankDetails, validateBankDetails, lookupIfsc, IFSC_REGEX } from "../../utils/bankDetails"
 import { prepareUploadFile } from "@/shared/utils/imageCompressor"
 import { deliveryAPI } from "@food/api"
 import { motion, AnimatePresence } from "framer-motion"
@@ -48,6 +49,11 @@ export const ProfileDetailsV2 = () => {
   const [upiQrFile, setUpiQrFile] = useState(null)
   const [upiQrPreview, setUpiQrPreview] = useState(null)
   const upiQrInputRef = useRef(null)
+  // UPI QR goes to server storage as soon as it is picked.
+  const [upiQrUploadProgress, setUpiQrUploadProgress] = useState(null)
+  const [upiQrUploadError, setUpiQrUploadError] = useState("")
+  const [isRemovingUpiQr, setIsRemovingUpiQr] = useState(false)
+  const upiQrUploadIdRef = useRef(0)
 
   const [bankDetailsErrors, setBankDetailsErrors] = useState({})
   const [isUpdatingBankDetails, setIsUpdatingBankDetails] = useState(false)
@@ -348,53 +354,141 @@ export const ProfileDetailsV2 = () => {
     if (upiQrCameraInputRef.current) upiQrCameraInputRef.current.value = ""
   }
 
-  const uploadUpiQrFile = (file) => {
-    if (!file) return
+  const setSavedUpiQrCode = (url) => {
+    setBankDetails((prev) => ({ ...prev, upiQrCode: url || null }))
+    setProfile((prev) =>
+      prev
+        ? {
+            ...prev,
+            documents: {
+              ...(prev.documents || {}),
+              bankDetails: { ...(prev.documents?.bankDetails || {}), upiQrCode: url || null },
+            },
+          }
+        : prev,
+    )
+  }
 
-    if (!String(file.type || "").startsWith("image/")) {
-      toast.error("Please select an image file")
+  /**
+   * Uploads the UPI QR image immediately (it used to wait for "Update" and was
+   * lost if the form was closed or failed validation). Only the QR field is sent,
+   * so unsaved text edits in the popup are left untouched.
+   */
+  const uploadUpiQrFile = async (pickedFile) => {
+    if (!pickedFile) return
+
+    const { file, error } = ensureUploadableImageFile(pickedFile, { maxBytes: 25 * 1024 * 1024 })
+    if (error) {
+      toast.error(error)
       return
     }
 
+    const uploadId = upiQrUploadIdRef.current + 1
+    upiQrUploadIdRef.current = uploadId
     setUpiQrFile(file)
-    setUpiQrPreview(URL.createObjectURL(file))
-    toast.success("UPI QR selected")
+    setUpiQrPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return URL.createObjectURL(file)
+    })
+    setUpiQrUploadError("")
+    setUpiQrUploadProgress(0)
+
+    try {
+      const formData = new FormData()
+      formData.append("upiQrCode", await prepareUploadFile(file))
+      const res = await deliveryAPI.updateBankDetailsMultipart(formData, {
+        onUploadProgress: (event) => {
+          if (!event?.total || upiQrUploadIdRef.current !== uploadId) return
+          setUpiQrUploadProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)))
+        },
+      })
+      const url = res?.data?.data?.bankDetails?.upiQrCode
+      if (!url) throw new Error("The QR image was not saved. Please try again.")
+      if (upiQrUploadIdRef.current !== uploadId) return
+      setSavedUpiQrCode(url)
+      setUpiQrFile(null)
+      setUpiQrPreview((prev) => {
+        if (prev) URL.revokeObjectURL(prev)
+        return null
+      })
+      toast.success("UPI QR uploaded")
+    } catch (err) {
+      if (upiQrUploadIdRef.current !== uploadId) return
+      const message = getUserFacingApiError(err, "QR upload failed. Please retry.")
+      setUpiQrUploadError(message)
+      toast.error(message)
+    } finally {
+      if (upiQrUploadIdRef.current === uploadId) setUpiQrUploadProgress(null)
+    }
+  }
+
+  const handleRemoveUpiQr = async () => {
+    // An unsaved pick (failed upload) is only local.
+    if (upiQrFile || upiQrPreview) {
+      upiQrUploadIdRef.current += 1
+      setUpiQrFile(null)
+      setUpiQrPreview((prev) => {
+        if (prev) URL.revokeObjectURL(prev)
+        return null
+      })
+      setUpiQrUploadError("")
+      setUpiQrUploadProgress(null)
+      return
+    }
+    if (!bankDetails.upiQrCode) return
+
+    setIsRemovingUpiQr(true)
+    try {
+      const formData = new FormData()
+      formData.append("documents[bankDetails][upiQrCode]", "")
+      await deliveryAPI.updateBankDetailsMultipart(formData)
+      setSavedUpiQrCode(null)
+      toast.success("UPI QR removed")
+    } catch (err) {
+      showUserFacingApiError(err, "Could not remove the QR image")
+    } finally {
+      setIsRemovingUpiQr(false)
+    }
+  }
+
+  // Fill the bank name from the IFSC when the partner has not typed one.
+  const handleIfscLookup = async (ifscValue) => {
+    if (!IFSC_REGEX.test(ifscValue)) return
+    const info = await lookupIfsc(ifscValue)
+    if (!info?.bankName) return
+    setBankDetails((prev) =>
+      prev.ifscCode === ifscValue && !String(prev.bankName || "").trim()
+        ? { ...prev, bankName: info.bankName }
+        : prev,
+    )
   }
 
   const submitBankDetails = async () => {
     setIsUpdatingBankDetails(true)
     try {
-      // Validation
-      const { accountNumber, ifscCode, panNumber, upiId } = bankDetails
-
-      if (accountNumber && !/^\d{9,18}$/.test(accountNumber.trim())) {
-        return toast.error("Invalid Account Number (9-18 digits)")
+      if (upiQrUploadProgress !== null) {
+        return toast.info("Please wait for the QR image to finish uploading")
       }
 
-      const ifscRegex = /^[A-Z]{4}0[A-Z0-9]{6}$/
-      if (ifscCode && !ifscRegex.test(ifscCode.trim().toUpperCase())) {
-        return toast.error("Invalid IFSC Code (e.g. SBIN0001234)")
+      // Same rules as the server, applied to normalised values (spaces/case fixed).
+      const errors = validateBankDetails(bankDetails)
+      setBankDetailsErrors(errors)
+      const firstError = Object.values(errors)[0]
+      if (firstError) {
+        return toast.error(firstError)
       }
-
-      const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/
-      if (panNumber && !panRegex.test(panNumber.trim().toUpperCase())) {
-        return toast.error("Invalid PAN Card format (e.g. ABCDE1234F)")
-      }
-
-      const upiRegex = /^[\w\.-]+@[\w\.-]+$/
-      if (upiId && !upiRegex.test(upiId.trim())) {
-        return toast.error("Invalid UPI ID (e.g. user@bank)")
-      }
+      const normalized = normalizeBankDetails(bankDetails)
 
       // Send as FormData to support optional QR upload
       const formData = new FormData()
-      formData.append("documents[bankDetails][accountHolderName]", (bankDetails.accountHolderName || "").trim())
-      formData.append("documents[bankDetails][accountNumber]", (bankDetails.accountNumber || "").trim())
-      formData.append("documents[bankDetails][ifscCode]", (bankDetails.ifscCode || "").trim().toUpperCase())
-      formData.append("documents[bankDetails][bankName]", (bankDetails.bankName || "").trim())
-      formData.append("documents[bankDetails][upiId]", (bankDetails.upiId || "").trim())
-      formData.append("documents[pan][number]", (bankDetails.panNumber || "").trim().toUpperCase())
+      formData.append("documents[bankDetails][accountHolderName]", normalized.accountHolderName)
+      formData.append("documents[bankDetails][accountNumber]", normalized.accountNumber)
+      formData.append("documents[bankDetails][ifscCode]", normalized.ifscCode)
+      formData.append("documents[bankDetails][bankName]", normalized.bankName)
+      formData.append("documents[bankDetails][upiId]", normalized.upiId)
+      formData.append("documents[pan][number]", normalized.panNumber)
 
+      // A QR whose immediate upload failed is retried with the details.
       if (upiQrFile) {
         formData.append("upiQrCode", await prepareUploadFile(upiQrFile))
       }
@@ -402,8 +496,10 @@ export const ProfileDetailsV2 = () => {
       await deliveryAPI.updateBankDetailsMultipart(formData)
       toast.success("Bank details updated")
       setShowBankDetailsPopup(false)
+      setBankDetailsErrors({})
       setUpiQrFile(null)
       setUpiQrPreview(null)
+      setUpiQrUploadError("")
       await refreshProfile()
     } catch (error) {
       showUserFacingApiError(error, "Update failed")
@@ -590,6 +686,8 @@ export const ProfileDetailsV2 = () => {
                   })
                   setUpiQrFile(null)
                   setUpiQrPreview(null)
+                  setUpiQrUploadError("")
+                  setBankDetailsErrors({})
                   setShowBankDetailsPopup(true)
                 }} 
                 className="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline"
@@ -854,8 +952,8 @@ export const ProfileDetailsV2 = () => {
           <div className="grid gap-4">
              {[
                { label: "Account Holder", key: "accountHolderName", icon: User, maxLength: 60 },
-               { label: "Account Number", key: "accountNumber", icon: Banknote, maxLength: 20, isNumeric: true },
-               { label: "IFSC Code", key: "ifscCode", icon: Shield, format: (v) => v.toUpperCase(), maxLength: 11 },
+               { label: "Account Number", key: "accountNumber", icon: Banknote, maxLength: 20, format: (v) => v.replace(/[^A-Za-z0-9]/g, "").toUpperCase(), inputMode: "numeric" },
+               { label: "IFSC Code", key: "ifscCode", icon: Shield, format: (v) => v.replace(/[^A-Za-z0-9]/g, "").toUpperCase(), maxLength: 11 },
                { label: "Bank Name", key: "bankName", icon: MapPin, maxLength: 60 },
                { label: "PAN Number", key: "panNumber", icon: FileText, format: (v) => v.toUpperCase(), maxLength: 10 },
                { label: "UPI ID", key: "upiId", icon: Smartphone, maxLength: 60 }
@@ -864,19 +962,29 @@ export const ProfileDetailsV2 = () => {
                   <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2 mb-2">
                      <field.icon className="w-3.5 h-3.5" /> {field.label}
                   </label>
-                  <input 
-                    type="text" 
-                    value={bankDetails[field.key]} 
+                  <input
+                    type="text"
+                    inputMode={field.inputMode}
+                    autoComplete="off"
+                    autoCapitalize={field.format ? "characters" : undefined}
+                    value={bankDetails[field.key] || ""}
                     onChange={(e) => {
                         let val = e.target.value;
-                        if (field.isNumeric) val = val.replace(/\D/g, "");
-                        if (field.maxLength && val.length > field.maxLength) return;
                         if (field.format) val = field.format(val);
-                        setBankDetails({...bankDetails, [field.key]: val})
-                    }} 
+                        // Trim pasted overflow instead of ignoring the whole keystroke.
+                        if (field.maxLength && val.length > field.maxLength) val = val.slice(0, field.maxLength);
+                        setBankDetails((prev) => ({ ...prev, [field.key]: val }))
+                        if (bankDetailsErrors[field.key]) {
+                          setBankDetailsErrors((prev) => ({ ...prev, [field.key]: undefined }))
+                        }
+                        if (field.key === "ifscCode" && val.length === 11) void handleIfscLookup(val)
+                    }}
                     className="w-full bg-transparent text-sm font-bold text-gray-950 outline-none"
                     placeholder={`Enter ${field.label.toLowerCase()}`}
                   />
+                  {bankDetailsErrors[field.key] && (
+                    <p className="mt-1.5 text-[11px] font-semibold text-red-500">{bankDetailsErrors[field.key]}</p>
+                  )}
                </div>
              ))}
 
@@ -885,14 +993,39 @@ export const ProfileDetailsV2 = () => {
                 <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest">UPI Payment QR Scanner</p>
                 
                 {upiQrPreview || bankDetails.upiQrCode ? (
-                  <div className="relative">
-                    <img src={upiQrPreview || bankDetails.upiQrCode} alt="QR Preview" className="w-32 h-32 rounded-xl object-cover border-4 border-white shadow-xl" />
-                    <button 
-                      onClick={() => { setUpiQrFile(null); setUpiQrPreview(null); }}
-                      className="absolute -top-3 -right-3 bg-red-500 text-white p-1.5 rounded-full shadow-lg"
-                    >
-                       <X className="w-3.5 h-3.5" />
-                    </button>
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="relative">
+                      <img src={upiQrPreview || bankDetails.upiQrCode} alt="QR Preview" className="w-32 h-32 rounded-xl object-cover border-4 border-white shadow-xl" />
+                      {upiQrUploadProgress !== null && (
+                        <div className="absolute inset-0 rounded-xl bg-black/50 flex flex-col items-center justify-center text-white gap-1">
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          <span className="text-[10px] font-bold">{upiQrUploadProgress > 0 ? `${upiQrUploadProgress}%` : "Uploading"}</span>
+                        </div>
+                      )}
+                      {upiQrUploadProgress === null && (
+                        <button
+                          type="button"
+                          onClick={handleRemoveUpiQr}
+                          disabled={isRemovingUpiQr}
+                          className="absolute -top-3 -right-3 bg-red-500 text-white p-1.5 rounded-full shadow-lg disabled:opacity-60"
+                          aria-label="Remove UPI QR"
+                        >
+                           {isRemovingUpiQr ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
+                        </button>
+                      )}
+                    </div>
+                    {upiQrUploadError && upiQrUploadProgress === null && upiQrFile && (
+                      <div className="flex items-center gap-2">
+                        <p className="text-[10px] font-semibold text-red-500">{upiQrUploadError}</p>
+                        <button
+                          type="button"
+                          onClick={() => uploadUpiQrFile(upiQrFile)}
+                          className="text-[10px] font-black uppercase text-purple-700 underline"
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="w-full flex gap-3">
@@ -920,7 +1053,7 @@ export const ProfileDetailsV2 = () => {
 
           <button 
             onClick={submitBankDetails} 
-            disabled={isUpdatingBankDetails} 
+            disabled={isUpdatingBankDetails || upiQrUploadProgress !== null} 
             className="w-full bg-blue-600 text-white py-5 rounded-[1.5rem] font-black uppercase tracking-[0.2em] shadow-xl hover:bg-blue-700 transition-all active:scale-95 flex items-center justify-center gap-3 disabled:opacity-50"
           >
             {isUpdatingBankDetails ? <><Loader2 className="w-5 h-5 animate-spin" /> saving...</> : "Update Systems"}

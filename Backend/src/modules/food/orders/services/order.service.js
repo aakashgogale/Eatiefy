@@ -1504,7 +1504,33 @@ export async function updateOrderStatusRestaurant(
     to: orderStatus,
     note: note || ""
   });
-  await order.save();
+  // Only persist if nobody moved the order meanwhile. Two accepts fired together
+  // (double tap, two devices) used to both save and both run dispatch and
+  // notifications; now the second one resolves to the already-updated order.
+  order.$where = { orderStatus: from };
+  try {
+    await order.save();
+    // Later re-saves in this function (refund bookkeeping) must not re-check the old status.
+    order.$where = null;
+  } catch (err) {
+    // DocumentNotFoundError: the status guard failed. VersionError: the history
+    // array changed underneath us. Both mean another update won the race.
+    if (err?.name !== "DocumentNotFoundError" && err?.name !== "VersionError") throw err;
+    const latest = await FoodOrder.findOne({
+      ...identity,
+      restaurantId: new mongoose.Types.ObjectId(restaurantId),
+    });
+    if (!latest) throw new NotFoundError("Order not found");
+    if (
+      latest.orderStatus === orderStatus ||
+      STATUS_PRIORITY[latest.orderStatus] > STATUS_PRIORITY[orderStatus]
+    ) {
+      return toRestaurantFacingOrder(latest);
+    }
+    throw new ValidationError(
+      `Order status changed to '${latest.orderStatus}' while updating. Please refresh and try again.`
+    );
+  }
 
   // If takeaway and in an active status, emit the OTP to the user
   if (["preparing", "ready_for_pickup"].includes(orderStatus) && order.orderType === "takeaway" && order.deliveryOtp) {

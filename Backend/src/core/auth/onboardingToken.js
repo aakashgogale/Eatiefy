@@ -39,6 +39,67 @@ const readToken = (req) => {
 };
 
 /**
+ * A partner whose phone was just OTP-verified but who has no restaurant record yet
+ * gets no access token either, so the registration form could never persist its
+ * uploads server-side. This token proves "this phone was verified" and only
+ * authorises the onboarding draft endpoints for that phone.
+ */
+export const REGISTRATION_TOKEN_SCOPE = 'restaurant_registration';
+export const DELIVERY_REGISTRATION_TOKEN_SCOPE = 'delivery_registration';
+const REGISTRATION_TOKEN_TTL = '7d';
+
+const toPhoneLast10 = (phone) => String(phone || '').replace(/\D/g, '').slice(-10);
+
+export const signRegistrationToken = (phone, scope = REGISTRATION_TOKEN_SCOPE) => {
+    const phoneLast10 = toPhoneLast10(phone);
+    if (phoneLast10.length !== 10) return null;
+    return jwt.sign(
+        { phoneLast10, scope },
+        config.jwtAccessSecret,
+        { expiresIn: REGISTRATION_TOKEN_TTL }
+    );
+};
+
+export const verifyRegistrationToken = (token, scope = REGISTRATION_TOKEN_SCOPE) => {
+    const decoded = jwt.verify(String(token || ''), config.jwtAccessSecret);
+    if (decoded?.scope !== scope) {
+        throw new Error('Token is not a registration token');
+    }
+    if (toPhoneLast10(decoded?.phoneLast10).length !== 10) {
+        throw new Error('Registration token has no valid phone');
+    }
+    return decoded;
+};
+
+/**
+ * Builds middleware that populates `req.registration = { phoneLast10 }` from the
+ * `X-Registration-Token` header. Scopes keep a restaurant token from authorising
+ * delivery-partner uploads and vice versa.
+ */
+export const createRegistrationAuthMiddleware = (scope = REGISTRATION_TOKEN_SCOPE) => (req, res, next) => {
+    const token = String(req.headers['x-registration-token'] || '').trim();
+    if (!token) {
+        return sendError(res, 401, 'Registration session token is required');
+    }
+    try {
+        const decoded = verifyRegistrationToken(token, scope);
+        req.registration = { phoneLast10: toPhoneLast10(decoded.phoneLast10) };
+        return next();
+    } catch (error) {
+        return sendError(
+            res,
+            401,
+            error?.name === 'TokenExpiredError'
+                ? 'Your registration session expired. Please verify your phone again.'
+                : 'Invalid registration session'
+        );
+    }
+};
+
+export const registrationAuthMiddleware = createRegistrationAuthMiddleware(REGISTRATION_TOKEN_SCOPE);
+export const deliveryRegistrationAuthMiddleware = createRegistrationAuthMiddleware(DELIVERY_REGISTRATION_TOKEN_SCOPE);
+
+/**
  * Populates `req.onboarding = { restaurantId }`. Rejects anything that is not a
  * valid, unexpired onboarding-scoped token — an ordinary restaurant access token
  * will not pass, because its payload carries no onboarding scope.

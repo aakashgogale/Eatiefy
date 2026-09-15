@@ -322,9 +322,10 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
     }
     if (body.description !== undefined) update.description = toStr(body.description);
     if (body.image !== undefined) {
-        const image = toStr(body.image);
-        await deleteReplacedAssets(existing.image, image);
-        update.image = image;
+        // The previous file is deleted only after the update below succeeds;
+        // deleting it first left the item pointing at a missing image whenever a
+        // later validation (diet/category) rejected the save.
+        update.image = toStr(body.image);
     }
     Object.assign(update, getUpdatedFoodPricing(existing, body));
     if (body.isAvailable !== undefined) update.isAvailable = body.isAvailable !== false;
@@ -390,6 +391,14 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
         { $set: update },
         { new: true }
     ).lean();
+
+    if (updated && update.image !== undefined && existing.image !== update.image) {
+        try {
+            await deleteReplacedAssets(existing.image, update.image);
+        } catch (e) {
+            console.error('Failed to delete replaced food image:', e);
+        }
+    }
 
     if (updated && shouldResubmitForApproval) {
         try {

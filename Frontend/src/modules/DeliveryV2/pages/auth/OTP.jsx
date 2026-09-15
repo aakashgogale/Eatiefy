@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import { ArrowLeft, Loader2, Pencil, X, ShieldCheck } from "lucide-react"
 import { toast } from "sonner"
 import { deliveryAPI } from "@food/api"
-import { setAuthData as storeAuthData } from "@food/utils/auth"
+import { setAuthData as storeAuthData , setDeliveryRegistrationToken } from "@food/utils/auth"
 import { collectFcmTokenFast, persistModuleFcmToken, finalizeDeliveryPendingSubmission, prefetchModuleFcmToken } from "@food/utils/firebaseMessaging"
 import { getUserFacingApiError, showUserFacingApiError } from "@/shared/utils/apiError"
 
@@ -246,6 +246,7 @@ export default function DeliveryOTP() {
       const needsRegistration = data.needsRegistration === true
 
       if (needsRegistration) {
+        setDeliveryRegistrationToken(data.registrationToken)
         sessionStorage.removeItem("deliveryAuthData")
         sessionStorage.removeItem(getBlockKey())
         sessionStorage.removeItem(getResendKey())

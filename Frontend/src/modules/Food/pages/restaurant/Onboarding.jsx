@@ -6,7 +6,7 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 import { Input } from "@food/components/ui/input"
 import { Button } from "@food/components/ui/button"
 import { Label } from "@food/components/ui/label"
-import { Image as ImageIcon, Upload, Clock, Calendar as CalendarIcon, Sparkles, X, LogOut, FileText, ShoppingBag, ArrowLeft } from "lucide-react"
+import { Image as ImageIcon, Upload, Clock, Calendar as CalendarIcon, Sparkles, X, LogOut, FileText, ShoppingBag, ArrowLeft, Loader2 } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@food/components/ui/popover"
 import { Calendar } from "@food/components/ui/calendar"
 import {
@@ -23,7 +23,7 @@ import { determineStepToShow, clearOnboardingFromLocalStorage, clearAllFilesFrom
 import { toast } from "sonner"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
-import { clearModuleAuth, clearAuthData, isModuleAuthenticated, getModuleToken } from "@food/utils/auth"
+import { clearModuleAuth, clearAuthData, isModuleAuthenticated, getModuleToken, getRestaurantRegistrationToken, clearRestaurantRegistrationToken } from "@food/utils/auth"
 import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
 import { prepareUploadFile, prepareUploadFiles } from "@/shared/utils/imageCompressor"
 import { EMAIL_REGEX } from "@/shared/utils/emailValidation"
@@ -149,7 +149,33 @@ let onboardingFileCache = {
 const ONBOARDING_FILES_DB = "RestaurantOnboardingFiles"
 const FILES_STORE = "files"
 
+// One shared connection: the file-sync effect runs on every form change, and
+// opening a fresh connection for each read/write leaked handles and could block
+// clearAllFilesFromDB (deleteDatabase waits for open connections to close).
+let onboardingFilesDBPromise = null
+
 const openOnboardingFilesDB = () => {
+  if (!onboardingFilesDBPromise) {
+    onboardingFilesDBPromise = openOnboardingFilesDBConnection()
+      .then((db) => {
+        db.onversionchange = () => {
+          db.close()
+          onboardingFilesDBPromise = null
+        }
+        db.onclose = () => {
+          onboardingFilesDBPromise = null
+        }
+        return db
+      })
+      .catch((err) => {
+        onboardingFilesDBPromise = null
+        throw err
+      })
+  }
+  return onboardingFilesDBPromise
+}
+
+const openOnboardingFilesDBConnection = () => {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error("IndexedDB connection timeout"))
@@ -261,6 +287,28 @@ const isUploadableFile = (value) => {
     (typeof value.slice === "function" || typeof value.arrayBuffer === "function")
   )
 }
+
+// Onboarding images that are uploaded to the server as soon as they are picked.
+const MAX_MENU_IMAGES = 10
+const DOCUMENT_IMAGE_FIELDS = ["panImage", "gstImage", "fssaiImage"]
+const IMAGE_FIELD_FOLDERS = {
+  menuImages: "food/restaurants/menu",
+  profileImage: "food/restaurants/profile",
+  panImage: "food/restaurants/pan",
+  gstImage: "food/restaurants/gst",
+  fssaiImage: "food/restaurants/fssai",
+}
+
+const getStoredImageUrl = (value) => {
+  if (!value || isUploadableFile(value)) return ""
+  if (typeof value === "string") return value.trim()
+  return typeof value?.url === "string" ? value.url.trim() : ""
+}
+
+const toStoredImageValue = (url) => (url ? { url, publicId: null } : null)
+
+const getUploadErrorText = (err) =>
+  err?.response?.data?.message || err?.response?.data?.error || err?.message || "Upload failed"
 
 const normalizePincode = (value) => String(value || "").replace(/\D/g, "").slice(0, 6)
 
@@ -552,6 +600,7 @@ export default function RestaurantOnboarding() {
       try {
         clearOnboardingFcmLocal("restaurant")
         clearOnboardingFromLocalStorage()
+        clearRestaurantRegistrationToken()
         clearOnboardingFileCache()
         await clearAllFilesFromDB()
 
@@ -582,6 +631,7 @@ export default function RestaurantOnboarding() {
       clearAuthData()
       // Clear onboarding data and files
       clearOnboardingFromLocalStorage()
+      clearRestaurantRegistrationToken()
       await clearAllFilesFromDB()
       
       window.dispatchEvent(new Event("restaurantAuthChanged"))
@@ -778,40 +828,165 @@ export default function RestaurantOnboarding() {
     setSourcePicker((prev) => ({ ...prev, isOpen: false }))
   }
 
+  /*
+   * Images are uploaded the moment they are picked, so they survive a refresh.
+   * New registrants (no restaurant yet) upload into a server-side draft using the
+   * registration token from OTP verification; an existing restaurant session
+   * uploads through the normal media endpoint. The picked File stays in state
+   * (and IndexedDB) only until the upload succeeds, and is still submitted as a
+   * multipart file if uploading is not possible.
+   */
+  // File -> field for every upload in flight.
+  const [pendingUploads, setPendingUploads] = useState(() => new Map())
+  const step2Ref = useRef(null)
+  const step3Ref = useRef(null)
+  step2Ref.current = step2
+  step3Ref.current = step3
+
+  const isUploadPending = (value) => Boolean(value) && pendingUploads.has(value)
+  const isFieldUploading = (field) => [...pendingUploads.values()].includes(field)
+
+  const getDraftUploadToken = () =>
+    hasExistingRestaurantProfile ? null : getRestaurantRegistrationToken()
+
+  const uploadImageForField = async (field, file) => {
+    const draftToken = getDraftUploadToken()
+    if (draftToken) {
+      try {
+        const response = await restaurantAPI.uploadOnboardingFile(draftToken, field, file)
+        const uploaded = response?.data?.data
+        if (!uploaded?.url) throw new Error("Uploaded image URL was not returned")
+        return { url: uploaded.url, publicId: uploaded.publicId || null }
+      } catch (err) {
+        // An expired registration session cannot be refreshed here; fall back to
+        // submitting the file with the form instead of retrying forever.
+        if (err?.response?.status === 401) clearRestaurantRegistrationToken()
+        throw err
+      }
+    }
+    if (hasExistingRestaurantProfile && getModuleToken("restaurant")) {
+      const uploaded = await handleUpload(file, IMAGE_FIELD_FOLDERS[field])
+      return { url: uploaded.url, publicId: uploaded.publicId || uploaded.public_id || null }
+    }
+    return null
+  }
+
+  const isFileStillSelected = (field, file) => {
+    if (field === "menuImages") return (step2Ref.current?.menuImages || []).includes(file)
+    if (field === "profileImage") return step2Ref.current?.profileImage === file
+    return step3Ref.current?.[field] === file
+  }
+
+  const startImageUpload = async (field, file, { silent = false } = {}) => {
+    if (!isUploadableFile(file)) return
+    setPendingUploads((prev) => new Map(prev).set(file, field))
+    try {
+      const uploaded = await uploadImageForField(field, file)
+      if (!uploaded) return
+
+      if (!isFileStillSelected(field, file)) {
+        // Removed while uploading: do not leave an orphan in the draft. The server
+        // only removes it if it is still the recorded value for this field.
+        const draftToken = getDraftUploadToken()
+        if (draftToken) {
+          restaurantAPI.removeOnboardingUpload(draftToken, field, uploaded.url).catch(() => {})
+        }
+        return
+      }
+
+      if (field === "menuImages") {
+        setStep2((prev) => ({
+          ...prev,
+          menuImages: (prev.menuImages || []).map((img) => (img === file ? uploaded : img)),
+        }))
+      } else if (field === "profileImage") {
+        setStep2((prev) => (prev.profileImage === file ? { ...prev, profileImage: uploaded } : prev))
+        void deleteFileFromDB("profileImage")
+      } else {
+        setStep3((prev) => (prev[field] === file ? { ...prev, [field]: uploaded } : prev))
+        void deleteFileFromDB(field)
+      }
+    } catch (err) {
+      debugError(`Onboarding ${field} upload failed:`, err)
+      if (!silent) {
+        toast.error(`Image upload failed: ${getUploadErrorText(err)}. It will be sent when you submit.`)
+      }
+    } finally {
+      setPendingUploads((prev) => {
+        const next = new Map(prev)
+        next.delete(file)
+        return next
+      })
+    }
+  }
+
   const handleMenuImagesSelected = (files = []) => {
     if (!files.length) return
-    const nextMenuImages = [...(step2.menuImages || []), ...files]
+    const current = step2Ref.current?.menuImages || []
+    const room = Math.max(0, MAX_MENU_IMAGES - current.length)
+    if (room === 0) {
+      toast.error(`You can upload up to ${MAX_MENU_IMAGES} menu images`)
+      return
+    }
+    const accepted = files.slice(0, room)
+    if (accepted.length < files.length) {
+      toast.error(`Only ${MAX_MENU_IMAGES} menu images are allowed; extra images were skipped`)
+    }
+    const nextMenuImages = [...current, ...accepted]
     setStep2((prev) => ({
       ...prev,
       menuImages: nextMenuImages,
     }))
     void persistMenuImagesToDB(nextMenuImages)
+    accepted.forEach((file) => void startImageUpload("menuImages", file))
   }
-
-
 
   const handleProfileImageSelected = (file) => {
     if (!file) return
+    if (isFieldUploading("profileImage")) {
+      toast.info("Please wait for the current image to finish uploading")
+      return
+    }
     setStep2((prev) => ({
       ...prev,
       profileImage: file,
     }))
     void saveFileToDB("profileImage", file)
+    void startImageUpload("profileImage", file)
   }
 
-  const handlePanImageSelected = (file) => {
+  const handleDocumentImageSelected = (field, file) => {
     if (!file) return
-    setStep3((prev) => ({ ...prev, panImage: file }))
+    if (isFieldUploading(field)) {
+      toast.info("Please wait for the current image to finish uploading")
+      return
+    }
+    setStep3((prev) => ({ ...prev, [field]: file }))
+    void saveFileToDB(field, file)
+    void startImageUpload(field, file)
   }
 
-  const handleGstImageSelected = (file) => {
-    if (!file) return
-    setStep3((prev) => ({ ...prev, gstImage: file }))
-  }
+  const handlePanImageSelected = (file) => handleDocumentImageSelected("panImage", file)
 
-  const handleFssaiImageSelected = (file) => {
-    if (!file) return
-    setStep3((prev) => ({ ...prev, fssaiImage: file }))
+  const handleGstImageSelected = (file) => handleDocumentImageSelected("gstImage", file)
+
+  const handleFssaiImageSelected = (file) => handleDocumentImageSelected("fssaiImage", file)
+
+  const handleRemoveDocumentImage = async (field) => {
+    const currentImage = step3Ref.current?.[field]
+    setStep3((prev) => ({ ...prev, [field]: null }))
+    void deleteFileFromDB(field)
+
+    const url = getStoredImageUrl(currentImage)
+    const draftToken = getDraftUploadToken()
+    if (!url || !draftToken) return
+
+    try {
+      await restaurantAPI.removeOnboardingUpload(draftToken, field, url)
+    } catch (error) {
+      setStep3((prev) => (prev[field] ? prev : { ...prev, [field]: currentImage }))
+      toast.error(getUploadErrorText(error) || "Failed to remove image")
+    }
   }
 
   const isPersistedImageValue = (value) =>
@@ -862,9 +1037,21 @@ export default function RestaurantOnboarding() {
     }
 
     try {
-      await restaurantAPI.updateProfile({
-        menuImages: toPersistedMenuImagesPayload(nextMenuImages),
-      })
+      if (hasExistingRestaurantProfile) {
+        await restaurantAPI.updateProfile({
+          menuImages: toPersistedMenuImagesPayload(nextMenuImages),
+        })
+      } else {
+        // A new registrant has no profile to update; the image lives in the draft.
+        const draftToken = getDraftUploadToken()
+        if (draftToken) {
+          await restaurantAPI.removeOnboardingUpload(
+            draftToken,
+            "menuImages",
+            getStoredImageUrl(imageToRemove),
+          )
+        }
+      }
     } catch (error) {
       setStep2((prev) => ({
         ...prev,
@@ -887,7 +1074,18 @@ export default function RestaurantOnboarding() {
     }
 
     try {
-      await restaurantAPI.updateProfile({ profileImage: "" })
+      if (hasExistingRestaurantProfile) {
+        await restaurantAPI.updateProfile({ profileImage: "" })
+      } else {
+        const draftToken = getDraftUploadToken()
+        if (draftToken) {
+          await restaurantAPI.removeOnboardingUpload(
+            draftToken,
+            "profileImage",
+            getStoredImageUrl(currentProfileImage),
+          )
+        }
+      }
     } catch (error) {
       setStep2((prev) => ({
         ...prev,
@@ -957,6 +1155,20 @@ export default function RestaurantOnboarding() {
           getFileFromDB("fssaiImage"),
           Promise.all(Array.from({ length: 10 }, (_, i) => getFileFromDB(`menuImage_${i}`))),
         ]).catch(() => [null, null, null, null, []])
+
+        // Images a new registrant already uploaded are stored server-side; fetch
+        // them in parallel so a refresh restores them from the backend.
+        const registrationToken = getRestaurantRegistrationToken()
+        const draftUploadsPromise = registrationToken
+          ? restaurantAPI
+              .getOnboardingUploads(registrationToken)
+              .then((res) => res?.data?.data?.uploads || null)
+              .catch((err) => {
+                if (err?.response?.status === 401) clearRestaurantRegistrationToken()
+                debugError("Onboarding draft fetch failed:", err)
+                return null
+              })
+          : Promise.resolve(null)
 
         // 1. First fetch API data to have the latest backend state
         let apiData = null;
@@ -1079,7 +1291,25 @@ export default function RestaurantOnboarding() {
           }
         }
 
-        // 4. Finally re-hydrate heavy files from IndexedDB if they exist 
+        // 3b. The server draft is the source of truth for already-uploaded images of a
+        // new registrant (it also reflects removals made before the refresh).
+        const draftUploads = apiData ? null : await draftUploadsPromise
+        if (draftUploads) {
+          setStep2((prev) => ({
+            ...prev,
+            menuImages: (draftUploads.menuImages || []).map(toStoredImageValue).filter(Boolean),
+            profileImage: toStoredImageValue(draftUploads.profileImage),
+          }))
+          setStep3((prev) => ({
+            ...prev,
+            panImage: toStoredImageValue(draftUploads.panImage),
+            gstImage: toStoredImageValue(draftUploads.gstImage),
+            fssaiImage: toStoredImageValue(draftUploads.fssaiImage),
+          }))
+        }
+
+        // 4. Finally re-hydrate heavy files from IndexedDB if they exist
+        // (files still in IndexedDB are picks whose upload had not completed)
         // (IndexedDB is reliable for large files which don't fit in localStorage)
         // Optimization: Only attempt this if we have existing local or API data to restore.
         {
@@ -1152,23 +1382,26 @@ export default function RestaurantOnboarding() {
     saveOnboardingToLocalStorage(step1, step2, step3, step)
     
     // Save images to IndexedDB
+    // IndexedDB only holds picks that are not stored on the server yet. Once a
+    // field is empty or holds an uploaded URL its cached file is dropped, otherwise
+    // a removed or already-uploaded image came back on the next refresh.
+    const syncSingleFile = async (key, value) => {
+      if (isUploadableFile(value)) {
+        await saveFileToDB(key, value)
+      } else if (imagesRestoredRef.current) {
+        await deleteFileFromDB(key)
+      }
+    }
+
     const saveFiles = async () => {
-      if (step2.profileImage && isUploadableFile(step2.profileImage)) {
-        await saveFileToDB("profileImage", step2.profileImage)
-      } else if (!step2.profileImage && imagesRestoredRef.current) {
-        await deleteFileFromDB("profileImage")
+      await syncSingleFile("profileImage", step2.profileImage)
+      await syncSingleFile("panImage", step3.panImage)
+      await syncSingleFile("gstImage", step3.gstImage)
+      await syncSingleFile("fssaiImage", step3.fssaiImage)
+
+      if (imagesRestoredRef.current) {
+        await persistMenuImagesToDB(step2.menuImages || [])
       }
-      if (step3.panImage && isUploadableFile(step3.panImage)) {
-        await saveFileToDB("panImage", step3.panImage)
-      }
-      if (step3.gstImage && isUploadableFile(step3.gstImage)) {
-        await saveFileToDB("gstImage", step3.gstImage)
-      }
-      if (step3.fssaiImage && isUploadableFile(step3.fssaiImage)) {
-        await saveFileToDB("fssaiImage", step3.fssaiImage)
-      }
-      
-      await persistMenuImagesToDB(step2.menuImages || [])
     }
     saveFiles()
   }, [isOnboardingHydrated, step1, step2, step3, step])
@@ -1176,6 +1409,30 @@ export default function RestaurantOnboarding() {
   useEffect(() => {
     syncOnboardingFileCache(step2, step3)
   }, [step2, step3])
+
+  // Picks restored from IndexedDB never reached the server (offline, app closed
+  // mid-upload). Retry them once after hydration so they get persisted too.
+  const pendingUploadRetryDoneRef = useRef(false)
+  useEffect(() => {
+    if (!isOnboardingHydrated || pendingUploadRetryDoneRef.current) return
+    pendingUploadRetryDoneRef.current = true
+    if (!getDraftUploadToken()) return
+
+    const current2 = step2Ref.current || {}
+    const current3 = step3Ref.current || {}
+    ;(current2.menuImages || [])
+      .filter((img) => isUploadableFile(img))
+      .forEach((file) => void startImageUpload("menuImages", file, { silent: true }))
+    if (isUploadableFile(current2.profileImage)) {
+      void startImageUpload("profileImage", current2.profileImage, { silent: true })
+    }
+    DOCUMENT_IMAGE_FIELDS.forEach((field) => {
+      if (isUploadableFile(current3[field])) {
+        void startImageUpload(field, current3[field], { silent: true })
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnboardingHydrated])
 
   useEffect(() => {
     return () => {
@@ -1449,6 +1706,11 @@ export default function RestaurantOnboarding() {
   const handleNext = async () => {
     setError("")
 
+    if (pendingUploads.size > 0) {
+      toast.info("Please wait for your images to finish uploading")
+      return
+    }
+
     // Validate current step before proceeding
     let validationErrors = []
     if (step === 1) {
@@ -1595,46 +1857,57 @@ export default function RestaurantOnboarding() {
         formData.append("isTakeawayEnabled", step2.isTakeawayEnabled ? "true" : "false")
         formData.append("isTakeawayCodEnabled", step2.isTakeawayCodEnabled ? "true" : "false")
 
-        const menuFiles = (step2.menuImages || []).filter((f) => isUploadableFile(f))
-        if (menuFiles.length === 0) {
+        // Images already uploaded to the onboarding draft are sent by URL; picks
+        // that could not be uploaded yet still go as multipart files.
+        const appendSingleImage = async (fieldName, value, missingMessage, prepareOptions) => {
+          if (isUploadableFile(value)) {
+            formData.append(fieldName, await prepareUploadFile(value, prepareOptions))
+            return
+          }
+          const storedUrl = getStoredImageUrl(value)
+          if (!storedUrl) {
+            throw new Error(missingMessage)
+          }
+          formData.append(`${fieldName}Url`, storedUrl)
+        }
+
+        const menuItems = step2.menuImages || []
+        const menuFiles = menuItems.filter((f) => isUploadableFile(f))
+        const menuUrls = menuItems.map(getStoredImageUrl).filter(Boolean)
+        if (menuFiles.length === 0 && menuUrls.length === 0) {
           throw new Error("At least one menu image must be uploaded")
         }
-        const preparedMenuFiles = await prepareUploadFiles(menuFiles)
-        preparedMenuFiles.forEach((file) => formData.append("menuImages", file))
-
-        if (!isUploadableFile(step2.profileImage)) {
-          throw new Error("Restaurant profile image is required")
+        if (menuFiles.length) {
+          const preparedMenuFiles = await prepareUploadFiles(menuFiles)
+          preparedMenuFiles.forEach((file) => formData.append("menuImages", file))
         }
-        formData.append(
+        if (menuUrls.length) {
+          formData.append("menuImageUrls", JSON.stringify(menuUrls))
+        }
+
+        await appendSingleImage(
           "profileImage",
-          await prepareUploadFile(step2.profileImage, { preset: "profile" }),
+          step2.profileImage,
+          "Restaurant profile image is required",
+          { preset: "profile" },
         )
 
         // Step 3
         formData.append("panNumber", step3.panNumber || "")
         formData.append("nameOnPan", normalizeFullName(step3.nameOnPan))
-        if (!isUploadableFile(step3.panImage)) {
-          throw new Error("PAN image is required")
-        }
-        formData.append("panImage", await prepareUploadFile(step3.panImage))
+        await appendSingleImage("panImage", step3.panImage, "PAN image is required")
 
         formData.append("gstRegistered", step3.gstRegistered ? "true" : "false")
         if (step3.gstRegistered) {
           formData.append("gstNumber", step3.gstNumber || "")
           formData.append("gstLegalName", step3.gstLegalName || "")
           formData.append("gstAddress", step3.gstAddress || "")
-          if (!isUploadableFile(step3.gstImage)) {
-            throw new Error("GST image is required when GST registered")
-          }
-          formData.append("gstImage", await prepareUploadFile(step3.gstImage))
+          await appendSingleImage("gstImage", step3.gstImage, "GST image is required when GST registered")
         }
 
         formData.append("fssaiNumber", step3.fssaiNumber || "")
         formData.append("fssaiExpiry", step3.fssaiExpiry || "")
-        if (!isUploadableFile(step3.fssaiImage)) {
-          throw new Error("FSSAI image is required")
-        }
-        formData.append("fssaiImage", await prepareUploadFile(step3.fssaiImage))
+        await appendSingleImage("fssaiImage", step3.fssaiImage, "FSSAI image is required")
 
         formData.append("accountNumber", step3.accountNumber || "")
         formData.append("ifscCode", (step3.ifscCode || "").toUpperCase())
@@ -1653,6 +1926,7 @@ export default function RestaurantOnboarding() {
 
         // Clear localStorage when onboarding is complete
         clearOnboardingFromLocalStorage()
+        clearRestaurantRegistrationToken()
         clearOnboardingFileCache()
         try {
           await clearAllFilesFromDB()
@@ -2507,6 +2781,12 @@ export default function RestaurantOnboarding() {
                         Preview unavailable
                       </div>
                     )}
+                    {isUploadPending(file) && (
+                      <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-1 bg-black/40 text-white">
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span className="text-[10px] font-medium">Uploading...</span>
+                      </div>
+                    )}
                     <div className="absolute bottom-0 inset-x-0 bg-black/60 px-2 py-1">
                       <p className="text-[10px] text-white truncate">
                         {imageName}
@@ -2543,6 +2823,11 @@ export default function RestaurantOnboarding() {
                 ) : (
                   <ImageIcon className="w-6 h-6 text-gray-500" />
                 )}
+                {isUploadPending(step2.profileImage) && (
+                  <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40">
+                    <Loader2 className="w-5 h-5 animate-spin text-white" />
+                  </div>
+                )}
               </div>
               {step2.profileImage && (
                 <button
@@ -2573,6 +2858,7 @@ export default function RestaurantOnboarding() {
             type="button"
             variant="outline"
             className="w-full text-xs"
+            disabled={isFieldUploading("profileImage")}
             onClick={() =>
               openImageSourcePicker({
                 title: "Upload profile image",
@@ -2751,6 +3037,7 @@ export default function RestaurantOnboarding() {
             type="button"
             variant="outline"
             className="mt-2 w-full text-xs"
+            disabled={isFieldUploading("panImage")}
             onClick={() =>
               openImageSourcePicker({
                 title: "Upload PAN image",
@@ -2786,12 +3073,18 @@ export default function RestaurantOnboarding() {
                   Preview unavailable
                 </div>
               )}
+              {isUploadPending(step3.panImage) && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/40 text-white">
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                  <span className="text-xs font-medium">Uploading...</span>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={(e) => {
                   e.preventDefault()
                   e.stopPropagation()
-                  setStep3((prev) => ({ ...prev, panImage: null }))
+                  void handleRemoveDocumentImage("panImage")
                 }}
                 className="absolute top-2 right-2 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-full p-1 shadow-md hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] transition-colors"
               >
@@ -2852,6 +3145,7 @@ export default function RestaurantOnboarding() {
               type="button"
               variant="outline"
               className="w-full text-xs"
+              disabled={isFieldUploading("gstImage")}
               onClick={() =>
                 openImageSourcePicker({
                   title: "Upload GST image",
@@ -2887,12 +3181,18 @@ export default function RestaurantOnboarding() {
                     Preview unavailable
                   </div>
                 )}
+                {isUploadPending(step3.gstImage) && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/40 text-white">
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                    <span className="text-xs font-medium">Uploading...</span>
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
-                    setStep3((prev) => ({ ...prev, gstImage: null }))
+                    void handleRemoveDocumentImage("gstImage")
                   }}
                   className="absolute top-2 right-2 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-full p-1 shadow-md hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] transition-colors"
                 >
@@ -2963,6 +3263,7 @@ export default function RestaurantOnboarding() {
           type="button"
           variant="outline"
           className="w-full text-xs"
+          disabled={isFieldUploading("fssaiImage")}
           onClick={() =>
             openImageSourcePicker({
               title: "Upload FSSAI image",
@@ -2998,12 +3299,18 @@ export default function RestaurantOnboarding() {
                 Preview unavailable
               </div>
             )}
+            {isUploadPending(step3.fssaiImage) && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/40 text-white">
+                <Loader2 className="w-6 h-6 animate-spin" />
+                <span className="text-xs font-medium">Uploading...</span>
+              </div>
+            )}
             <button
               type="button"
               onClick={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
-                setStep3((prev) => ({ ...prev, fssaiImage: null }))
+                void handleRemoveDocumentImage("fssaiImage")
               }}
               className="absolute top-2 right-2 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white rounded-full p-1 shadow-md hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] transition-colors"
             >

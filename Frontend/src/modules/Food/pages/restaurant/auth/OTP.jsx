@@ -7,6 +7,7 @@ import { restaurantAPI } from "@food/api"
 import {
   setAuthData as setRestaurantAuthData,
   setRestaurantPendingPhone,
+  setRestaurantRegistrationToken,
 } from "@food/utils/auth"
 import { checkOnboardingStatus, isRestaurantOnboardingComplete } from "@food/utils/onboardingUtils"
 import { collectFcmTokenFast, persistModuleFcmToken, syncPendingPartnerFcmQuick } from "@food/utils/firebaseMessaging"
@@ -235,6 +236,7 @@ export default function RestaurantOTP() {
       } else if (data.needsRegistration === true) {
         isSuccessRef.current = true
         setRestaurantPendingPhone(phone)
+        setRestaurantRegistrationToken(data.registrationToken)
         sessionStorage.removeItem("restaurantAuthData")
         sessionStorage.removeItem(getBlockKey())
         sessionStorage.removeItem(getResendKey())
