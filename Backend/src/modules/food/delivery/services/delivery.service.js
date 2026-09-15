@@ -9,6 +9,7 @@ import { ValidationError } from '../../../../core/auth/errors.js';
 import {
     DELIVERY_DOC_FOLDERS,
     DELIVERY_DRAFT_FIELDS,
+    DELIVERY_DOC_MAX_WIDTH,
     resolveDeliveryDraftImagesForRegistration,
     clearDeliveryDraft
 } from './deliveryOnboardingDraft.service.js';
@@ -153,7 +154,7 @@ export const registerDeliveryPartner = async (payload, files, draftImageRefs = {
     const images = {};
     for (const field of DELIVERY_DRAFT_FIELDS) {
         if (files?.[field]?.[0]) {
-            images[field] = await uploadImageBuffer(files[field][0].buffer, DELIVERY_DOC_FOLDERS[field]);
+            images[field] = await uploadImageBuffer(files[field][0].buffer, DELIVERY_DOC_FOLDERS[field], { maxWidth: DELIVERY_DOC_MAX_WIDTH });
         } else if (draftImages[field]) {
             images[field] = draftImages[field];
         }
@@ -293,7 +294,7 @@ export const updateDeliveryPartnerProfile = async (userId, payload, files) => {
     for (const field of DELIVERY_DRAFT_FIELDS) {
         if (!files?.[field]?.[0]) continue;
         previousDocUrls[field] = partner[field];
-        partner[field] = await uploadImageBuffer(files[field][0].buffer, DELIVERY_DOC_FOLDERS[field]);
+        partner[field] = await uploadImageBuffer(files[field][0].buffer, DELIVERY_DOC_FOLDERS[field], { maxWidth: DELIVERY_DOC_MAX_WIDTH });
     }
 
     await partner.save();

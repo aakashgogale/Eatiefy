@@ -29,10 +29,25 @@ import {
 
 const debugError = (...args) => { }
 
-// Camera photos are often larger than the old 5MB cap and were silently ignored;
-// accept them and compress before upload instead.
+// Matches the server's per-file limit. Phone-side compression is best effort only:
+// on iOS WebViews it can fail for large camera photos, and rejecting the original
+// then made the card fall back to empty after "Processing…". The server resizes.
 const MAX_PICKED_IMAGE_BYTES = 25 * 1024 * 1024
-const MAX_UPLOAD_IMAGE_BYTES = 10 * 1024 * 1024
+const MAX_UPLOAD_IMAGE_BYTES = 25 * 1024 * 1024
+
+const NO_UPLOAD_SESSION = "NO_UPLOAD_SESSION"
+
+const getDocumentUploadErrorMessage = (error) => {
+  if (error?.code === NO_UPLOAD_SESSION) {
+    return "Verification session expired. Verify your phone again, or the photo will be sent when you submit."
+  }
+  const status = Number(error?.response?.status || 0)
+  if (status === 413) return "This photo is too large. Please retake it or choose a smaller photo."
+  if (!error?.response && (error?.code === "ECONNABORTED" || error?.code === "ERR_NETWORK")) {
+    return "Network problem while uploading. Check your connection and retry."
+  }
+  return getUserFacingApiError(error, "Upload failed. Please retry.")
+}
 
 const DOC_LABELS = {
   profilePhoto: "Profile Photo",
@@ -71,6 +86,10 @@ export default function SignupStep2() {
   const [uploading, setUploading] = useState({})
   const [uploadErrors, setUploadErrors] = useState({})
   const pendingFilesRef = useRef({})
+  // docType -> true while a pick is being processed/uploaded (synchronous guard).
+  const uploadInFlightRef = useRef({})
+  // docType -> true when the stored image URL could not be displayed.
+  const [serverImageFailed, setServerImageFailed] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   // True only while previously uploaded documents are being restored on load.
   const [restoringDocs, setRestoringDocs] = useState(true)
@@ -138,10 +157,28 @@ export default function SignupStep2() {
       return url
     }
 
-    return null
+    // No way to reach server storage (e.g. OTP verified before registration
+    // tokens existed, or the token expired). Surface it instead of quietly
+    // keeping the photo on the device only.
+    const sessionError = new Error("No upload session")
+    sessionError.code = NO_UPLOAD_SESSION
+    throw sessionError
+  }
+
+  const clearUploading = (docType) => {
+    uploadInFlightRef.current = { ...uploadInFlightRef.current, [docType]: false }
+    setUploading((prev) => {
+      if (prev[docType] === undefined) return prev
+      const next = { ...prev }
+      delete next[docType]
+      return next
+    })
   }
 
   const startUpload = async (docType, file, { silent = false } = {}) => {
+    // One upload per document at a time (double taps, retry while uploading).
+    if (uploadInFlightRef.current[docType] && pendingFilesRef.current[docType] === file) return
+    uploadInFlightRef.current = { ...uploadInFlightRef.current, [docType]: true }
     pendingFilesRef.current = { ...pendingFilesRef.current, [docType]: file }
     setUploadErrors((prev) => ({ ...prev, [docType]: "" }))
     setUploading((prev) => ({ ...prev, [docType]: 0 }))
@@ -149,28 +186,20 @@ export default function SignupStep2() {
       const url = await uploadDocumentToServer(docType, file)
       // A newer photo replaced this one while it was uploading.
       if (pendingFilesRef.current[docType] !== file) return
-      if (!url) {
-        if (!silent) {
-          toast.warning("Photo saved on this device. It will be uploaded when you submit.")
-        }
-        return
-      }
       setServerUrl(docType, url)
-      setLocalPreview(docType, null)
+      setServerImageFailed((prev) => ({ ...prev, [docType]: false }))
+      // The device copy is no longer needed; the local preview is released once
+      // the server image has actually loaded (see onLoad), so nothing flickers away.
       await deleteSignupDocumentFromDB(docType)
     } catch (error) {
       if (pendingFilesRef.current[docType] !== file) return
       debugError("Document upload failed:", error)
-      const message = getUserFacingApiError(error, "Upload failed. Please retry.")
+      const message = getDocumentUploadErrorMessage(error)
       setUploadErrors((prev) => ({ ...prev, [docType]: message }))
       if (!silent) toast.error(`${DOC_LABELS[docType]}: ${message}`)
     } finally {
       if (pendingFilesRef.current[docType] === file) {
-        setUploading((prev) => {
-          const next = { ...prev }
-          delete next[docType]
-          return next
-        })
+        clearUploading(docType)
       }
     }
   }
@@ -252,12 +281,32 @@ export default function SignupStep2() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const getPreviewSrc = (docType) => serverUrls[docType] || previewUrls[docType] || null
+  const getPreviewSrc = (docType) => {
+    const serverUrl = serverUrls[docType]
+    const localUrl = previewUrls[docType]
+    // Keep the on-device preview visible until the stored image is loadable.
+    if (serverUrl && serverImageFailed[docType] && localUrl) return localUrl
+    return serverUrl || localUrl || null
+  }
 
-  const hasUploadedDoc = (docType) => Boolean(getPreviewSrc(docType))
+  const hasUploadedDoc = (docType) => Boolean(serverUrls[docType] || previewUrls[docType])
+
+  const handlePreviewLoad = (docType, src) => {
+    if (src && src === serverUrlsRef.current[docType] && previewUrlsRef.current[docType]) {
+      setLocalPreview(docType, null)
+    }
+  }
+
+  const handlePreviewError = (docType, src) => {
+    if (src && src === serverUrlsRef.current[docType]) {
+      setServerImageFailed((prev) => (prev[docType] ? prev : { ...prev, [docType]: true }))
+    }
+  }
 
   const handleFileSelect = async (docType, pickedFile) => {
     if (!pickedFile) return
+    // Ignore a second pick while this document is still being processed/uploaded.
+    if (uploadInFlightRef.current[docType]) return
 
     const { file, error } = ensureUploadableImageFile(pickedFile, { maxBytes: MAX_PICKED_IMAGE_BYTES })
     if (error) {
@@ -265,10 +314,14 @@ export default function SignupStep2() {
       return
     }
 
+    uploadInFlightRef.current = { ...uploadInFlightRef.current, [docType]: true }
     setUploadErrors((prev) => ({ ...prev, [docType]: "" }))
+    setServerImageFailed((prev) => ({ ...prev, [docType]: false }))
+    // Show the picked photo straight away instead of a "Processing…" placeholder.
+    setLocalPreview(docType, URL.createObjectURL(file))
     setUploading((prev) => ({ ...prev, [docType]: 0 }))
 
-    let preparedFile
+    let preparedFile = file
     try {
       preparedFile = await prepareSignupDocumentFile(file)
     } catch (err) {
@@ -277,18 +330,16 @@ export default function SignupStep2() {
     }
 
     if (preparedFile.size > MAX_UPLOAD_IMAGE_BYTES) {
-      setUploading((prev) => {
-        const next = { ...prev }
-        delete next[docType]
-        return next
-      })
-      toast.error("This photo is too large even after compression. Please retake it.")
+      clearUploading(docType)
+      const message = "This photo is too large. Please retake it or choose a smaller photo."
+      setUploadErrors((prev) => ({ ...prev, [docType]: message }))
+      toast.error(message)
       return
     }
 
-    setLocalPreview(docType, URL.createObjectURL(preparedFile))
     // Device copy is only a safety net until the server upload succeeds.
     void saveSignupDocumentToDB(docType, preparedFile)
+    uploadInFlightRef.current = { ...uploadInFlightRef.current, [docType]: false }
     await startUpload(docType, preparedFile)
   }
 
@@ -302,10 +353,14 @@ export default function SignupStep2() {
     await startUpload(docType, file)
   }
 
+  // compress: false — the picker's extra canvas pass had no timeout and could stall
+  // on large iPhone photos before this screen even received the file.
+  // prepareSignupDocumentFile compresses once, with a timeout.
   const handleTakeCameraPhoto = (docType) => {
     openCamera({
       onSelectFile: (file) => handleFileSelect(docType, file),
       fileNamePrefix: `signup-${docType}`,
+      compress: false,
     })
   }
 
@@ -314,6 +369,7 @@ export default function SignupStep2() {
       onSelectFile: (file) => handleFileSelect(docType, file),
       fileNamePrefix: `signup-${docType}`,
       fallbackInputRef: { current: fileInputRefs.current[docType] },
+      compress: false,
     })
   }
 
@@ -331,12 +387,9 @@ export default function SignupStep2() {
     }
 
     pendingFilesRef.current = { ...pendingFilesRef.current, [docType]: undefined }
-    setUploading((prev) => {
-      const next = { ...prev }
-      delete next[docType]
-      return next
-    })
+    clearUploading(docType)
     setUploadErrors((prev) => ({ ...prev, [docType]: "" }))
+    setServerImageFailed((prev) => ({ ...prev, [docType]: false }))
     await deleteSignupDocumentFromDB(docType)
     setServerUrl(docType, "")
     setLocalPreview(docType, null)
@@ -493,7 +546,9 @@ export default function SignupStep2() {
             <img
               src={getPreviewSrc(docType)}
               alt={label}
-              className="w-full h-48 object-cover rounded-lg"
+              className="w-full h-48 object-cover rounded-lg bg-gray-100"
+              onLoad={(e) => handlePreviewLoad(docType, e.currentTarget.getAttribute("src"))}
+              onError={(e) => handlePreviewError(docType, e.currentTarget.getAttribute("src"))}
             />
             {!isUploading && (
               <button

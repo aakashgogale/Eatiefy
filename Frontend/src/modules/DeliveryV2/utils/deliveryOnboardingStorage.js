@@ -150,16 +150,47 @@ const canvasToJpegBlob = (canvas, quality) =>
     }
   })
 
+/**
+ * Decodes through an <img> element. iOS WebKit downsamples large photos while
+ * decoding into an image element, whereas createImageBitmap allocates the full
+ * bitmap (~190MB for a 48MP iPhone photo) and fails or stalls in WKWebView.
+ */
+const loadImageElement = (file) =>
+  new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => resolve({
+      source: img,
+      width: img.naturalWidth || img.width,
+      height: img.naturalHeight || img.height,
+      release: () => URL.revokeObjectURL(url),
+    })
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error("Could not read image"))
+    }
+    img.src = url
+  })
+
+const loadDecodedImage = async (file) => {
+  try {
+    return await loadImageElement(file)
+  } catch {
+    const bitmap = await createImageBitmap(file)
+    return { source: bitmap, width: bitmap.width, height: bitmap.height, release: () => bitmap.close?.() }
+  }
+}
+
 const compressSignupDocumentFile = async (file) => {
-  const maxBytes = 1.5 * 1024 * 1024
   const maxDimension = 1600
   const original = toSignupFile(file)
 
-  const bitmap = await createImageBitmap(original)
+  const decoded = await loadDecodedImage(original)
   try {
-    const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height, 1))
-    const targetWidth = Math.max(1, Math.round(bitmap.width * scale))
-    const targetHeight = Math.max(1, Math.round(bitmap.height * scale))
+    if (!decoded.width || !decoded.height) return original
+    const scale = Math.min(1, maxDimension / Math.max(decoded.width, decoded.height, 1))
+    const targetWidth = Math.max(1, Math.round(decoded.width * scale))
+    const targetHeight = Math.max(1, Math.round(decoded.height * scale))
 
     const canvas = document.createElement("canvas")
     canvas.width = targetWidth
@@ -167,17 +198,19 @@ const compressSignupDocumentFile = async (file) => {
     const context = canvas.getContext("2d")
     if (!context) return original
 
-    context.drawImage(bitmap, 0, 0, targetWidth, targetHeight)
+    context.drawImage(decoded.source, 0, 0, targetWidth, targetHeight)
 
     const blob = await canvasToJpegBlob(canvas, 0.82)
-    if (!blob || blob.size >= original.size || blob.size > maxBytes) {
+    // Use the compressed copy whenever it is smaller; the server resizes anyway,
+    // so a larger-than-ideal result is still better than the original.
+    if (!blob || blob.size >= original.size) {
       return original
     }
 
     const baseName = String(original.name || "document").replace(/\.[^.]+$/, "")
     return new File([blob], `${baseName}.jpg`, { type: "image/jpeg", lastModified: Date.now() })
   } finally {
-    bitmap.close?.()
+    decoded.release()
   }
 }
 

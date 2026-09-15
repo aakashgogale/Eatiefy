@@ -16,6 +16,11 @@ export const DELIVERY_DOC_FOLDERS = {
 
 export const DELIVERY_DRAFT_FIELDS = Object.keys(DELIVERY_DOC_FOLDERS);
 
+// Phone photos arrive at full camera resolution when on-device compression fails
+// (common on iOS WebViews). Downscale on the server so every document is stored at a
+// readable, consistent size regardless of what the device managed to do.
+export const DELIVERY_DOC_MAX_WIDTH = 2048;
+
 const DOC_LABELS = {
     profilePhoto: 'profile photo',
     aadharPhoto: 'Aadhar card photo',
@@ -65,7 +70,8 @@ export const addDeliveryDraftUpload = async (phoneLast10, rawField, file) => {
 
     const stored = await storeImageBuffer(file.buffer, DELIVERY_DOC_FOLDERS[field], {
         originalName: file.originalname,
-        mimeType: file.mimetype
+        mimeType: file.mimetype,
+        maxWidth: DELIVERY_DOC_MAX_WIDTH
     });
     const url = stored.url || stored.secure_url;
     if (!url) {
