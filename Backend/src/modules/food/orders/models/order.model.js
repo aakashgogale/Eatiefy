@@ -134,7 +134,18 @@ const dispatchSchema = new mongoose.Schema(
         offeredTo: [{
             partnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliveryPartner' },
             at: { type: Date, default: Date.now },
+            /** Creation stamp. Same instant as `at`, under the canonical name. */
+            createdAt: { type: Date, default: Date.now },
             action: { type: String, enum: ['offered', 'rejected', 'timeout'], default: 'offered' },
+            /**
+             * When this offer stops being acceptable. The backend - not a
+             * frontend timer - is the authority: the available-orders query,
+             * the atomic accept guard and the expiry sweeper all read it
+             * through delivery-offer.util.js, which also caps every offer at
+             * ten minutes from creation and treats a row with no stamp at all
+             * as already expired rather than as immortal.
+             */
+            expiresAt: { type: Date },
             allowOverLimit: { type: Boolean, default: false },
             requiredCashForOrder: { type: Number, default: 0 }
         }],
@@ -349,6 +360,11 @@ orderSchema.index({ 'dispatch.deliveryPartnerId': 1, orderStatus: 1 });
 orderSchema.index({ 'dispatch.status': 1, orderStatus: 1 });
 orderSchema.index({ 'dispatch.status': 1, orderStatus: 1, updatedAt: -1 });
 orderSchema.index({ 'dispatch.deliveryPartnerId': 1, 'dispatch.status': 1, updatedAt: -1 });
+// Serves the rider-facing "orders offered to me" query, which filters on the
+// offer sub-document rather than on zone.
+orderSchema.index({ 'dispatch.offeredTo.partnerId': 1, 'dispatch.status': 1, orderStatus: 1 });
+// Drives the offer-expiry sweeper, which scans for pending offers past their window.
+orderSchema.index({ 'dispatch.offeredTo.action': 1, 'dispatch.offeredTo.expiresAt': 1 });
 orderSchema.index({ 'payment.status': 1, createdAt: -1 });
 orderSchema.index({ 'payment.method': 1, createdAt: -1 });
 

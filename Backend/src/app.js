@@ -146,6 +146,22 @@ if (config.serveUploadsFromNode) {
     );
 }
 
+/*
+ * API responses must never be cached by the browser.
+ *
+ * Express adds an ETag to every JSON response but no Cache-Control, so the
+ * browser applied heuristic freshness, revalidated with If-None-Match and got
+ * a bodyless 304. Axios rejects 304 (validateStatus is 2xx only), so callers
+ * saw a thrown error instead of their data - e.g. "Failed to load shipping
+ * policy" in admin. no-store also keeps authenticated payloads out of the
+ * shared HTTP cache, and stops stale reads from undercutting live refresh.
+ */
+app.set('etag', false);
+app.use('/api', (_req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+});
+
 // Rate limit: public free · auth routes use authRateLimiter · private = user+IP
 app.use('/api', apiRateLimitMiddleware);
 

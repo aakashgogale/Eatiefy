@@ -2215,9 +2215,9 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
   // If showing address form, render full-screen address form
   if (showAddressForm) {
     return (
-      <div className="fixed inset-0 z-[10000] bg-white dark:bg-[#0a0a0a] flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden">
+      <div className="fixed inset-0 z-[10000] bg-white dark:bg-[#141414] flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden">
         {/* Header */}
-        <div className="flex-shrink-0 bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 px-4 py-3">
+        <div className="flex-shrink-0 bg-white dark:bg-[#242424] border-b border-gray-100 dark:border-gray-800 px-4 py-3">
           <div className="flex items-center gap-4">
             <Button
               type="button"
@@ -2250,7 +2250,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
 
           {/* Loading State */}
           {mapLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-100 dark:bg-gray-900 bg-opacity-75 z-20">
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-100 dark:bg-[#2e2e2e] bg-opacity-75 z-20">
               <div className="text-center">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-2"></div>
                 <p className="text-sm text-gray-600 dark:text-gray-400">Loading map...</p>
@@ -2260,7 +2260,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
 
           {/* API Key Missing Error */}
           {!GOOGLE_MAPS_API_KEY && !mapLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-100 dark:bg-gray-900 z-20">
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-100 dark:bg-[#2e2e2e] z-20">
               <div className="text-center p-4">
                 <MapPin className="h-12 w-12 text-gray-400 mx-auto mb-2" />
                 <p className="text-sm text-gray-600 dark:text-gray-400">Google Maps API key not found</p>
@@ -2274,7 +2274,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
             <Button
               onClick={handleUseCurrentLocationForAddress}
               disabled={mapLoading}
-              className="bg-white dark:bg-[#1a1a1a] border-2 border-green-600 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 shadow-lg disabled:opacity-50 flex items-center gap-2 px-4 py-2"
+              className="bg-white dark:bg-[#242424] border-2 border-green-600 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 shadow-lg disabled:opacity-50 flex items-center gap-2 px-4 py-2"
             >
               <Crosshair className="h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0" strokeWidth={2.5} />
               <span className="text-green-600 dark:text-green-400 font-medium">Use current location</span>
@@ -2283,7 +2283,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
         </div>
 
         {/* Form Section - Scrollable */}
-        <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0a0a0a] min-h-0 overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <div className="flex-1 overflow-y-auto bg-white dark:bg-[#141414] min-h-0 overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
           <div className="px-4 py-4 space-y-4 pb-48">
             {/* Autocomplete address selection */}
             <div>
@@ -2295,12 +2295,12 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
                   value={addressAutocompleteValue}
                   onChange={(e) => setAddressAutocompleteValue(e.target.value)}
                   placeholder="Type a keyword (area, street, landmark)..."
-                  className="bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-700"
+                  className="bg-white dark:bg-[#242424] border-gray-200 dark:border-gray-700"
                 />
 
                 {addressAutocompleteValue.trim().length > 0 &&
                   (keywordAddressSuggestions.length > 0 || addressAutocompleteSuggestions.length > 0) && (
-                  <div className="absolute z-50 left-0 right-0 mt-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1a1a1a] shadow-xl overflow-hidden">
+                  <div className="absolute z-50 left-0 right-0 mt-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#242424] shadow-xl overflow-hidden">
                     {isKeywordSearching && (
                       <div className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
                         Searching…
@@ -2417,7 +2417,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
                 placeholder="E.g. Floor, House no."
                 value={addressFormData.additionalDetails}
                 onChange={handleAddressFormChange}
-                className="bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-700"
+                className="bg-white dark:bg-[#242424] border-gray-200 dark:border-gray-700"
               />
             </div>
 
@@ -2426,7 +2426,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
               <Label className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 block">
                 Receiver details for this address
               </Label>
-              <div className="bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-700 rounded-lg p-3 flex items-center gap-3">
+              <div className="bg-white dark:bg-[#242424] border border-gray-200 dark:border-gray-700 rounded-lg p-3 flex items-center gap-3">
                 <Phone className="h-5 w-5 text-gray-600 dark:text-gray-400 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 dark:text-white">
@@ -2451,7 +2451,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
                     variant={addressFormData.label === label ? "default" : "outline"}
                     className={`flex-1 ${addressFormData.label === label
                       ? "bg-green-600 hover:bg-green-700 text-white"
-                      : "bg-white dark:bg-[#1a1a1a]"
+                      : "bg-white dark:bg-[#242424]"
                       }`}
                   >
                     {label}
@@ -2470,7 +2470,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
                 placeholder="Street / Area *"
                 value={addressFormData.street}
                 onChange={handleAddressFormChange}
-                className="bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-700"
+                className="bg-white dark:bg-[#242424] border-gray-200 dark:border-gray-700"
                 required
               />
               <div className="grid grid-cols-2 gap-2">
@@ -2479,7 +2479,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
                   placeholder="City *"
                   value={addressFormData.city}
                   onChange={handleAddressFormChange}
-                  className="bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-700"
+                  className="bg-white dark:bg-[#242424] border-gray-200 dark:border-gray-700"
                   required
                 />
                 <Input
@@ -2487,7 +2487,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
                   placeholder="State *"
                   value={addressFormData.state}
                   onChange={handleAddressFormChange}
-                  className="bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-700"
+                  className="bg-white dark:bg-[#242424] border-gray-200 dark:border-gray-700"
                   required
                 />
               </div>
@@ -2496,7 +2496,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
                 placeholder="Pincode (optional)"
                 value={addressFormData.zipCode || ""}
                 onChange={handleAddressFormChange}
-                className="bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-700"
+                className="bg-white dark:bg-[#242424] border-gray-200 dark:border-gray-700"
               />
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Tip: Use map/current location for auto-detection, or type details manually.
@@ -2506,7 +2506,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
         </div>
 
         {/* Save Address Button */}
-        <div className="flex-shrink-0 bg-white dark:bg-[#1a1a1a] border-t border-gray-200 dark:border-gray-800 px-4 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+        <div className="flex-shrink-0 bg-white dark:bg-[#242424] border-t border-gray-200 dark:border-gray-800 px-4 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
           <form onSubmit={handleAddressFormSubmit}>
             <Button
               type="submit"
@@ -2523,13 +2523,13 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex flex-col bg-white dark:bg-[#0a0a0a]"
+      className="fixed inset-0 z-[9999] flex flex-col bg-white dark:bg-[#141414]"
       style={{
         animation: 'fadeIn 0.3s ease-out'
       }}
     >
       {/* Header */}
-      <div className="flex-shrink-0 bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 shadow-sm">
+      <div className="flex-shrink-0 bg-white dark:bg-[#242424] border-b border-gray-100 dark:border-gray-800 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center gap-4">
             <Button
@@ -2553,7 +2553,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
         <div className="max-w-7xl mx-auto w-full pb-6">
           {/* Use Current Location */}
           <div
-            className="px-4 sm:px-6 lg:px-8 py-2 bg-white dark:bg-[#1a1a1a]"
+            className="px-4 sm:px-6 lg:px-8 py-2 bg-white dark:bg-[#242424]"
             style={{ animation: 'slideDown 0.3s ease-out 0.1s both' }}
           >
             <button
@@ -2601,7 +2601,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
                   Saved Addresses
                 </h2>
               </div>
-              <div className="bg-white dark:bg-[#1a1a1a]">
+              <div className="bg-white dark:bg-[#242424]">
                 {addresses
                   .filter((address, index, self) => {
                     // Filter out duplicate addresses with same label - keep only first occurrence

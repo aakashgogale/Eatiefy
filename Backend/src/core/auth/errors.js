@@ -1,8 +1,11 @@
 export class ValidationError extends Error {
-    constructor(message) {
+    // `code` lets clients branch on a specific failure (e.g. RESTAURANT_MISMATCH)
+    // instead of pattern-matching the human-readable message.
+    constructor(message, code) {
         super(message);
         this.name = 'ValidationError';
         this.statusCode = 400;
+        if (code) this.code = code;
     }
 }
 

@@ -278,7 +278,7 @@ export default function OrderHelp() {
 
   if (loading) {
     return (
-      <AnimatedPage className="min-h-screen bg-slate-50/50 dark:bg-[#0a0a0a] p-4 md:p-6 lg:p-8 flex items-center justify-center">
+      <AnimatedPage className="min-h-screen bg-slate-50/50 dark:bg-[#141414] p-4 md:p-6 lg:p-8 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-center">
           <Loader2 className="h-8 w-8 animate-spin text-[#1F6B45]" />
           <p className="text-sm font-semibold text-gray-600 dark:text-gray-400">Loading Order Support...</p>
@@ -289,7 +289,7 @@ export default function OrderHelp() {
 
   if (!order && !loading) {
     return (
-      <AnimatedPage className="min-h-screen bg-gradient-to-b from-yellow-50/30 via-white to-orange-50/20 dark:from-[#0a0a0a] dark:via-[#0a0a0a] dark:to-[#0a0a0a] p-4">
+      <AnimatedPage className="min-h-screen bg-gradient-to-b from-yellow-50/30 via-white to-orange-50/20 dark:from-[#141414] dark:via-[#141414] dark:to-[#141414] p-4">
         <div className="max-w-4xl mx-auto pt-8">
           <Card className="shadow-lg border-slate-200 dark:border-zinc-800">
             <CardContent className="py-12 text-center space-y-4">
@@ -321,7 +321,7 @@ export default function OrderHelp() {
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-gradient-to-b from-orange-50/30 via-white to-gray-50/30 dark:from-[#0a0a0a] dark:via-[#0a0a0a] dark:to-[#0a0a0a] p-4 md:p-6 lg:p-8">
+    <AnimatedPage className="min-h-screen bg-gradient-to-b from-orange-50/30 via-white to-gray-50/30 dark:from-[#141414] dark:via-[#141414] dark:to-[#141414] p-4 md:p-6 lg:p-8">
       <div className="max-w-md md:max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto space-y-4 md:space-y-5 lg:space-y-6">
         {/* Header */}
         <ScrollReveal>

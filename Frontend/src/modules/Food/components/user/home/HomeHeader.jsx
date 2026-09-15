@@ -61,7 +61,7 @@ export function SearchBarRow({
         data-interactive="true"
         className={`relative z-[60] flex-1 rounded-[1.5rem] flex items-center px-4 border cursor-pointer active:scale-[0.98] group pointer-events-auto transition-all duration-200 ${
           isCompact
-            ? "py-1.5 bg-white/95 dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-800 shadow-sm"
+            ? "py-1.5 bg-white/95 dark:bg-[#242424] border-gray-200 dark:border-gray-800 shadow-sm"
             : "py-2 bg-black/25 backdrop-blur-md border-white/20 shadow-md text-white"
         }`}
         onClick={(e) => {
@@ -699,7 +699,7 @@ export default function HomeHeader({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
-              className="absolute top-[84px] right-3 w-[calc(100vw-24px)] max-w-80 rounded-2xl overflow-hidden shadow-2xl bg-white dark:bg-gray-900"
+              className="absolute top-[84px] right-3 w-[calc(100vw-24px)] max-w-80 rounded-2xl overflow-hidden shadow-2xl bg-white dark:bg-[#2e2e2e]"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between bg-gray-50/50 dark:bg-gray-800/50">

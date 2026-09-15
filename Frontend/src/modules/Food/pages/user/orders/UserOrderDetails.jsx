@@ -117,7 +117,7 @@ export default function UserOrderDetails() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 dark:bg-[#141414] flex items-center justify-center">
         <p className="text-gray-600 dark:text-gray-400 text-sm">Loading order details...</p>
       </div>
     )
@@ -125,7 +125,7 @@ export default function UserOrderDetails() {
 
   if (!order) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 dark:bg-[#141414] flex items-center justify-center">
         <div className="text-center space-y-3">
           <p className="text-gray-700 dark:text-gray-300 text-sm font-medium">Order not found</p>
           <button
@@ -410,7 +410,7 @@ export default function UserOrderDetails() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] pb-[calc(6.5rem+env(safe-area-inset-bottom,16px))] font-sans relative">
+    <div className="min-h-screen bg-gray-50 dark:bg-[#141414] pb-[calc(6.5rem+env(safe-area-inset-bottom,16px))] font-sans relative">
       {/* Header */}
       <div className="bg-white dark:bg-[#121212] p-4 flex items-center sticky top-0 z-20 shadow-sm border-b dark:border-gray-800">
         <div className="flex items-center gap-3">
@@ -805,7 +805,7 @@ export default function UserOrderDetails() {
           <button
             type="button"
             onClick={handleDownloadSummary}
-            className="flex-1 bg-white dark:bg-[#1a1a1a] border border-[#1F6B45] text-[#1F6B45] hover:bg-[#1F6B45]/5 py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer min-h-[46px]"
+            className="flex-1 bg-white dark:bg-[#242424] border border-[#1F6B45] text-[#1F6B45] hover:bg-[#1F6B45]/5 py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer min-h-[46px]"
           >
             <Download className="w-4 h-4 shrink-0" />
             <span>Invoice</span>

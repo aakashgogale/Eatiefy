@@ -1,10 +1,64 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { mapOrderLocations } from '@/modules/DeliveryV2/utils/orderMapping';
 import {
   isOrderWithinOfferRange,
   sanitizeOrderDispatchMetrics,
 } from '@/modules/DeliveryV2/utils/pickupMetrics';
+
+export const DELIVERY_STORE_BASE_KEY = 'delivery-v2-online-pref';
+
+/** Id of the rider currently logged in on this device, or '' when signed out. */
+const currentDeliveryAccountId = () => {
+  try {
+    const raw = localStorage.getItem('delivery_user');
+    if (!raw) return '';
+    const parsed = JSON.parse(raw);
+    return String(
+      parsed?.id ||
+        parsed?._id ||
+        parsed?.userId ||
+        parsed?.deliveryId ||
+        parsed?.deliveryPartnerId ||
+        '',
+    );
+  } catch {
+    return '';
+  }
+};
+
+/**
+ * Per-account storage key. Signed-out state falls back to a guest bucket so it
+ * can never be read back by the next rider who signs in.
+ */
+export const scopedStoreKey = (baseName = DELIVERY_STORE_BASE_KEY) => {
+  const accountId = currentDeliveryAccountId();
+  return accountId ? `${baseName}:${accountId}` : `${baseName}:guest`;
+};
+
+const safeStorageGet = (key) => {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+
+const safeStorageSet = (key, value) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* quota or private mode - state simply does not survive reload */
+  }
+};
+
+const safeStorageRemove = (key) => {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* ignore */
+  }
+};
 
 const collectOrderKeys = (order) => {
   if (!order) return [];
@@ -52,6 +106,27 @@ const dedupeOrdersByIdentity = (orders = []) => {
 };
 
 const defaultCapacity = () => ({ max: 1, active: 0, remaining: 1 });
+
+/**
+ * The offer window the backend stamped on this request.
+ *
+ * Every field is server-issued; nothing here invents an expiry. An offer with
+ * no stamp at all is treated as already dead rather than as permanent - a card
+ * with no backing expiry is exactly the stale request that survived logouts and
+ * reinstalls.
+ */
+const offerExpiryMs = (order) => {
+  const raw =
+    order?.offerExpiresAt ||
+    order?.dispatch?.offeredTo?.[0]?.expiresAt ||
+    null;
+  if (!raw) return 0;
+  const ms = new Date(raw).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+};
+
+/** True while the backend's own expiry for this offer is still in the future. */
+export const isOfferStillValid = (order, now = Date.now()) => offerExpiryMs(order) > now;
 
 const mapDeliveryPhaseToTripStatus = (order) => {
   const backendStatus = String(
@@ -140,6 +215,10 @@ export const useDeliveryStore = create(
         const normalized = sanitizeOrderDispatchMetrics(mapOrderLocations(order) || order);
         const incomingKeys = collectOrderKeys(normalized);
         if (!incomingKeys.length) return;
+        // An offer the backend has already expired never enters the queue, so a
+        // late socket frame or a push opened minutes later cannot resurrect a
+        // dead request.
+        if (!isOfferStillValid(normalized)) return;
         const riderLocation = get().riderLocation;
         if (!isOrderWithinOfferRange(normalized, riderLocation)) return;
         set((state) => {
@@ -171,7 +250,50 @@ export const useDeliveryStore = create(
         }));
       },
 
-      setNewOrders: (orders) => set({ newOrders: dedupeOrdersByIdentity(Array.isArray(orders) ? orders : []) }),
+      setNewOrders: (orders) =>
+        set({
+          newOrders: dedupeOrdersByIdentity(
+            (Array.isArray(orders) ? orders : []).filter((order) => isOfferStillValid(order)),
+          ),
+        }),
+
+      /**
+       * Drops offers whose server-issued window has closed.
+       *
+       * Called on a ticker and on every wake-up, so a request that expires while
+       * the app sits open or backgrounded leaves the screen on its own rather
+       * than waiting for the rider to tap a card the backend will refuse.
+       *
+       * @returns {object[]} the offers that were just removed
+       */
+      pruneExpiredOffers: () => {
+        const now = Date.now();
+        const current = get().newOrders || [];
+        const expired = current.filter((order) => !isOfferStillValid(order, now));
+        if (!expired.length) return [];
+        set({ newOrders: current.filter((order) => isOfferStillValid(order, now)) });
+        return expired;
+      },
+
+      /**
+       * Wipes every trace of the previous rider from this device's memory.
+       *
+       * The persisted slice is already namespaced per account, but this store is
+       * a module singleton: on a logout/login inside one app session the live
+       * in-memory queues, sessions and capacity were simply carried over, so the
+       * next rider opened the app looking at the previous rider's orders. Called
+       * on logout, on account switch and whenever the authenticated id changes.
+       */
+      resetAccountState: () =>
+        set({
+          newOrders: [],
+          acceptedOrders: [],
+          orderSessions: {},
+          focusedOrderId: null,
+          capacity: defaultCapacity(),
+          riderLocation: null,
+          isOnline: false,
+        }),
 
       acceptOrderToQueue: (order) => {
         const orderId = resolveOrderKey(order);
@@ -354,7 +476,18 @@ export const useDeliveryStore = create(
       },
     }),
     {
-      name: 'delivery-v2-online-pref',
+      name: DELIVERY_STORE_BASE_KEY,
+      // Namespaced per rider. The key used to be shared by every account on the
+      // device, so after a logout/login the next rider rehydrated the previous
+      // rider's focusedOrderId (their active order) and isOnline - and because
+      // isOnline is pushed to the server on mount, the new rider was silently
+      // put online and started receiving offers. Resolved at call time, not at
+      // module load, because this store is created before anyone logs in.
+      storage: createJSONStorage(() => ({
+        getItem: (name) => safeStorageGet(scopedStoreKey(name)),
+        setItem: (name, value) => safeStorageSet(scopedStoreKey(name), value),
+        removeItem: (name) => safeStorageRemove(scopedStoreKey(name)),
+      })),
       partialize: (state) => ({
         isOnline: state.isOnline,
         focusedOrderId: state.focusedOrderId,
@@ -362,6 +495,25 @@ export const useDeliveryStore = create(
     },
   ),
 );
+
+/*
+ * Wipe the store whenever a rider session ends.
+ *
+ * Subscribed at module load, not from a component, because logout can happen
+ * from a screen where no delivery hook is mounted - and this store is a
+ * singleton, so anything left in it is what the next rider to sign in sees.
+ * The auth layer fires this event on logout, account switch and forced session
+ * teardown.
+ */
+if (typeof window !== 'undefined') {
+  window.addEventListener('deliverySessionReset', () => {
+    try {
+      useDeliveryStore.getState().resetAccountState();
+    } catch {
+      /* nothing to reset */
+    }
+  });
+}
 
 export { resolveOrderKey, mapDeliveryPhaseToTripStatus, collectOrderKeys, ordersShareIdentity, dedupeOrdersByIdentity };
 

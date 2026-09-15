@@ -96,6 +96,22 @@ export const config = {
     serveUploadsFromNode: process.env.SERVE_UPLOADS_FROM_NODE === 'true',
 
     // Redis
+    /*
+     * How long a delivery offer stays acceptable, in seconds.
+     *
+     * This is the authority for BOTH the offer's `expiresAt` and the delay
+     * before the dispatch engine re-checks and moves to the next candidates -
+     * they must stay equal, or riders get a dead window where the offer has
+     * expired but no new one has been sent yet.
+     *
+     * Default 60 matches the cadence the engine already ran at. Lower it (e.g.
+     * 20) for a snappier hand-off; both sides follow automatically.
+     */
+    deliveryOfferTtlSeconds: (() => {
+        const raw = Number(process.env.DELIVERY_OFFER_TTL_SECONDS);
+        return Number.isFinite(raw) && raw >= 5 ? Math.floor(raw) : 60;
+    })(),
+
     redisEnabled: process.env.REDIS_ENABLED === 'true',
     redisUrl: process.env.REDIS_URL,
 

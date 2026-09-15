@@ -84,7 +84,7 @@ export default function EditPayment() {
 
   if (!payment) {
     return (
-      <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a] p-4 sm:p-6 md:p-8 lg:p-10">
+      <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#141414] p-4 sm:p-6 md:p-8 lg:p-10">
         <div className="max-w-2xl md:max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto">
           <Card>
             <CardContent className="py-8 text-center">
@@ -100,7 +100,7 @@ export default function EditPayment() {
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a] p-4 sm:p-6 md:p-8 lg:p-10">
+    <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#141414] p-4 sm:p-6 md:p-8 lg:p-10">
       <div className="max-w-2xl md:max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto space-y-6 md:space-y-8 lg:space-y-10">
         <Card>
           <CardHeader>

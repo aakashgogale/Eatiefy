@@ -248,7 +248,7 @@ function WalletSkeleton({ className }) {
 
 function ContentPageSkeleton({ className, hero = true }) {
   return (
-    <LoadingSkeletonRegion label="Loading page" className={cn("min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-[#0a0a0a] dark:to-[#151515]", className)}>
+    <LoadingSkeletonRegion label="Loading page" className={cn("min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-[#141414] dark:to-[#151515]", className)}>
       <div className="mx-auto max-w-4xl px-4 py-6 md:px-6 md:py-8 lg:px-8">
         <div className="mb-8 flex items-center gap-4">
           <Skeleton className="h-10 w-10 rounded-full" />
@@ -276,7 +276,7 @@ function ContentPageSkeleton({ className, hero = true }) {
 
 function RestaurantDetailSkeleton({ className }) {
   return (
-    <LoadingSkeletonRegion label="Loading restaurant details" className={cn("min-h-screen bg-white dark:bg-[#0a0a0a]", className)}>
+    <LoadingSkeletonRegion label="Loading restaurant details" className={cn("min-h-screen bg-white dark:bg-[#141414]", className)}>
       <div className="mx-auto max-w-6xl px-4 pb-10 pt-3">
         <div className="flex items-center justify-between">
           <Skeleton className="h-11 w-11 rounded-full" />
@@ -422,7 +422,7 @@ function RestaurantShellSkeleton({ className }) {
   return (
     <LoadingSkeletonRegion
       label="Loading restaurant dashboard"
-      className={cn("min-h-screen bg-gray-100 dark:bg-[#0a0a0a]", className)}
+      className={cn("min-h-screen bg-gray-100 dark:bg-[#141414]", className)}
     >
       {/* Brand header band, matching the restaurant app's top bar */}
       <div className="bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-5">
@@ -477,7 +477,7 @@ function RestaurantShellSkeleton({ className }) {
 
 function OnboardingSkeleton({ className }) {
   return (
-    <LoadingSkeletonRegion label="Loading onboarding" className={cn("min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex flex-col", className)}>
+    <LoadingSkeletonRegion label="Loading onboarding" className={cn("min-h-screen bg-gray-50 dark:bg-[#141414] flex flex-col", className)}>
       {/* Header */}
       <header className="px-4 py-4 sm:px-6 sm:py-5 bg-white dark:bg-[#121212] flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
         <div className="flex items-center gap-3">

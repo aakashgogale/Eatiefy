@@ -348,7 +348,7 @@ export default function OrderInvoice() {
 
   if (loading) {
     return (
-      <AnimatedPage className="min-h-screen bg-slate-50/50 dark:bg-[#0a0a0a] p-4 flex items-center justify-center">
+      <AnimatedPage className="min-h-screen bg-slate-50/50 dark:bg-[#141414] p-4 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-center">
           <Loader2 className="h-8 w-8 animate-spin text-[#1F6B45]" />
           <p className="text-sm font-semibold text-gray-600 dark:text-gray-400">Loading invoice details...</p>
@@ -359,7 +359,7 @@ export default function OrderInvoice() {
 
   if (error || !order) {
     return (
-      <AnimatedPage className="min-h-screen bg-gradient-to-b from-yellow-50/30 via-white to-orange-50/20 dark:from-[#0a0a0a] dark:via-[#0a0a0a] dark:to-[#0a0a0a] p-4">
+      <AnimatedPage className="min-h-screen bg-gradient-to-b from-yellow-50/30 via-white to-orange-50/20 dark:from-[#141414] dark:via-[#141414] dark:to-[#141414] p-4">
         <div className="max-w-md mx-auto pt-16 text-center">
           <Card className="shadow-lg border-slate-200 dark:border-zinc-800">
             <CardContent className="py-10 px-6 space-y-4">
@@ -393,7 +393,7 @@ export default function OrderInvoice() {
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-gradient-to-b from-orange-50/30 via-white to-gray-50/30 dark:from-[#0a0a0a] dark:via-[#141414] dark:to-[#0a0a0a] p-3 sm:p-4 md:p-6 lg:p-8">
+    <AnimatedPage className="min-h-screen bg-gradient-to-b from-orange-50/30 via-white to-gray-50/30 dark:from-[#141414] dark:via-[#141414] dark:to-[#141414] p-3 sm:p-4 md:p-6 lg:p-8">
       <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6">
         {/* Navigation & Action Bar */}
         <ScrollReveal>

@@ -5,7 +5,14 @@ import { deliveryAPI } from '@food/api';
 const alertSound = '/assets/media/restaurant_alert.mp3';
 const originalSound = '/assets/media/restaurant_alert.mp3';
 import { dispatchNotificationInboxRefresh } from '@food/hooks/useNotificationInbox';
-import { useDeliveryStore, resolveOrderKey, ordersShareIdentity } from '@/modules/DeliveryV2/store/useDeliveryStore';
+import {
+  useDeliveryStore,
+  resolveOrderKey,
+  ordersShareIdentity,
+  collectOrderKeys,
+  isOfferStillValid,
+} from '@/modules/DeliveryV2/store/useDeliveryStore';
+import { DELIVERY_SESSION_RESET_EVENT } from '@food/utils/auth';
 import { mapOrderLocations } from '@/modules/DeliveryV2/utils/orderMapping';
 import {
   isOrderWithinOfferRange,
@@ -311,6 +318,31 @@ export const useDeliveryNotifications = () => {
     [saveMutedOrderIds],
   );
 
+  /**
+   * Is this event addressed to the rider currently signed in on this device?
+   *
+   * The server addresses every delivery event to a single partner room, but a
+   * socket opened by the previous account can still be alive for a moment after
+   * a switch, and a push can be opened long after it was sent. The backend now
+   * stamps `targetPartnerId` on every offer, expiry and claim event, so the
+   * client can refuse anything that is not its own instead of trusting delivery.
+   *
+   * Events with no addressee (older server, or genuinely broadcast events) are
+   * allowed through - this is a safety net on top of server-side scoping, not a
+   * replacement for it.
+   */
+  const isEventForCurrentAccount = useCallback((data) => {
+    const target = String(
+      data?.targetPartnerId ||
+      data?.deliveryPartnerId ||
+      data?.delivery_partner_id ||
+      '',
+    ).trim();
+    if (!target) return true;
+    if (!deliveryPartnerId) return false;
+    return target === String(deliveryPartnerId);
+  }, [deliveryPartnerId]);
+
   const isProcessedOrder = useCallback((orderData) => {
     if (!orderData) return false;
     const ids = [
@@ -510,6 +542,13 @@ export const useDeliveryNotifications = () => {
     const target = orderData || activeOrderRef.current || newOrder;
     if (!target) return;
     if (isOrderAlertMuted(target)) return;
+    /*
+     * The ringtone rings for currently valid requests only. Callers such as the
+     * Orders tab re-trigger it on mount and whenever the queue grows, and
+     * without this an expired card left on screen would ring again every time
+     * the rider opened that tab.
+     */
+    if (!isOfferStillValid(target)) return;
 
     activeOrderRef.current = target;
     playNotificationSound(target);
@@ -619,6 +658,27 @@ export const useDeliveryNotifications = () => {
   }, []);
 
   const handleIncomingOrderAlert = useCallback((orderData = {}) => {
+    // Ownership first: never ring for a request addressed to another account.
+    if (!isEventForCurrentAccount(orderData)) {
+      debugWarn('Ignored delivery offer addressed to another account', {
+        target: orderData?.targetPartnerId,
+        current: deliveryPartnerId,
+      });
+      return;
+    }
+    /*
+     * Validity second: the ringtone is only ever for a request the backend
+     * still considers acceptable. A push opened minutes later, or a socket
+     * frame that arrives after the window closed, must stay silent rather than
+     * put a card on screen that the server will refuse.
+     */
+    if (!isOfferStillValid(orderData)) {
+      debugLog('Ignored expired delivery offer', {
+        orderId: orderData?.orderId || orderData?.orderMongoId,
+        offerExpiresAt: orderData?.offerExpiresAt,
+      });
+      return;
+    }
     if (isOrderInAcceptedQueue(orderData)) {
       return;
     }
@@ -646,7 +706,7 @@ export const useDeliveryNotifications = () => {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
       showBackgroundOrderNotification(orderData);
     }
-  }, [isOrderInAcceptedQueue, isProcessedOrder, playNotificationSound, showBackgroundOrderNotification, startAlertLoop]);
+  }, [deliveryPartnerId, isEventForCurrentAccount, isOrderInAcceptedQueue, isProcessedOrder, playNotificationSound, showBackgroundOrderNotification, startAlertLoop]);
 
   const recoverDeliveryState = useCallback(async () => {
     if (!deliveryPartnerId) return;
@@ -697,39 +757,59 @@ export const useDeliveryNotifications = () => {
             availableResult.value?.data ??
             {}
           : {};
-      const availableOrders = Array.isArray(availablePayload?.docs)
-        ? availablePayload.docs
-        : Array.isArray(availablePayload?.items)
-          ? availablePayload.items
-          : Array.isArray(availablePayload)
-            ? availablePayload
-            : [];
-
-      const recoverableOrder = availableOrders.find((order) => {
-        const dispatchStatus = order?.dispatch?.status;
-        const isEligibleStatus = ['unassigned', 'assigned'].includes(dispatchStatus) &&
-          ['preparing', 'ready_for_pickup'].includes(order?.orderStatus);
-          
-        if (!isEligibleStatus) return false;
-        
-        // Ignore stale test/bugged orders older than 2 hours to prevent sound playing repeatedly on login
-        const createdAt = new Date(order.createdAt || order.updatedAt).getTime();
-        if (Date.now() - createdAt > 2 * 60 * 60 * 1000) {
-          return false;
-        }
-        
-        return true;
-      });
-
       if (availablePayload?.capacity) {
         useDeliveryStore.getState().setCapacity(availablePayload.capacity);
       }
 
-      const newOffers = Array.isArray(availablePayload?.newOffers)
-        ? availablePayload.newOffers
-        : [];
+      /*
+       * `newOffers` is the ONLY list that may produce a request card.
+       *
+       * Recovery used to scan the raw `docs` page for anything unassigned and
+       * ring for it, gated by nothing but a two-hour age cut-off. That is how a
+       * rider opening the app was greeted by a pile of long-dead requests: the
+       * docs page is a paginated order listing, not an authorisation, and a
+       * two-hour window is not an expiry. `newOffers` is built per-rider from
+       * live `offeredTo` rows and carries each offer's own `offerExpiresAt`.
+       */
+      const newOffers = (
+        Array.isArray(availablePayload?.newOffers) ? availablePayload.newOffers : []
+      ).filter((order) => isEventForCurrentAccount(order) && isOfferStillValid(order));
 
       newOffers.forEach((order) => useDeliveryStore.getState().addNewOrder(order));
+
+      const recoverableOrder = newOffers.find((order) => !isProcessedOrder(order)) || null;
+
+      /*
+       * Reconcile, don't just append.
+       *
+       * This recovery used to only add offers, so a request that expired or was
+       * taken by someone else while this app was backgrounded stayed on screen
+       * after reconnect. The available-orders endpoint is authorized per rider
+       * and already excludes expired, rejected and claimed offers, so it is the
+       * authority on what should still be showing.
+       *
+       * Only prune when the call actually succeeded - a failed request yields an
+       * empty list, and pruning against that would wipe every live offer.
+       *
+       * Reconciled against `newOffers` alone. Including the raw `docs` page here
+       * kept a card alive whenever the order appeared in that listing but was
+       * dropped from `newOffers` by the server's own zone, distance or expiry
+       * checks - which is the stale-card case this prune exists to catch.
+       */
+      if (availableResult.status === 'fulfilled') {
+        const liveKeys = new Set(
+          newOffers.flatMap((order) => collectOrderKeys(order)).map((key) => String(key)),
+        );
+        const store = useDeliveryStore.getState();
+        (store.newOrders || []).forEach((offer) => {
+          const keys = collectOrderKeys(offer).map((key) => String(key));
+          const stillLive = keys.some((key) => liveKeys.has(key));
+          if (!stillLive) {
+            debugLog('Pruning stale delivery offer after resync:', keys[0]);
+            store.removeNewOrder(offer);
+          }
+        });
+      }
 
       if (recoverableOrder && !isProcessedOrder(recoverableOrder)) {
         debugLog('Recovered available delivery order after reconnect/focus:', recoverableOrder);
@@ -740,7 +820,7 @@ export const useDeliveryNotifications = () => {
     } catch (error) {
       debugWarn('Delivery recovery sync failed:', error?.message || error);
     }
-  }, [deliveryPartnerId, handleIncomingOrderAlert, isProcessedOrder]);
+  }, [deliveryPartnerId, handleIncomingOrderAlert, isEventForCurrentAccount, isProcessedOrder]);
 
   const joinDeliveryRoomIfPossible = useCallback(() => {
     if (!socketRef.current?.connected || !deliveryPartnerId) {
@@ -841,6 +921,12 @@ export const useDeliveryNotifications = () => {
       if (typeof document === 'undefined') return;
       if (document.visibilityState !== 'hidden') return;
       if (!activeOrderRef.current) return;
+      // Don't re-announce a request whose window closed while the app sat open.
+      if (!isOfferStillValid(activeOrderRef.current)) {
+        stopAlertLoop();
+        activeOrderRef.current = null;
+        return;
+      }
 
       playNotificationSound(activeOrderRef.current);
       showBackgroundOrderNotification(activeOrderRef.current);
@@ -850,7 +936,7 @@ export const useDeliveryNotifications = () => {
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [playNotificationSound, showBackgroundOrderNotification]);
+  }, [playNotificationSound, showBackgroundOrderNotification, stopAlertLoop]);
 
   // Track user interaction for autoplay policy (one-time audio unlock)
   useEffect(() => {
@@ -1180,31 +1266,44 @@ export const useDeliveryNotifications = () => {
       void recoverDeliveryState();
     });
 
-    socketRef.current.on('new_order', (orderData) => {
-      debugLog('New order received via socket', {
+    /*
+     * Every offer event passes the same two gates before it can reach the UI:
+     * it must be addressed to the account signed in right now, and its
+     * server-issued window must still be open. Without the first, a socket left
+     * over from the previous account can put that rider's request on this
+     * screen; without the second, a frame delivered late can revive a request
+     * the backend has already expired.
+     */
+    const handleOfferEvent = (orderData, label) => {
+      debugLog(`${label} received via socket`, {
         orderId: orderData?.orderId || orderData?.orderMongoId || orderData?._id,
-        dispatchStatus: orderData?.dispatch?.status,
+        targetPartnerId: orderData?.targetPartnerId,
+        offerExpiresAt: orderData?.offerExpiresAt,
       });
+      if (!isEventForCurrentAccount(orderData)) {
+        debugWarn(`${label} ignored - addressed to another account`, {
+          target: orderData?.targetPartnerId,
+          current: deliveryPartnerId,
+        });
+        return;
+      }
+      if (!isOfferStillValid(orderData)) {
+        debugLog(`${label} ignored - offer window already closed`);
+        return;
+      }
       if (isOrderInAcceptedQueue(orderData) || isProcessedOrder(orderData)) {
         return;
       }
       setNewOrder(orderData);
       handleIncomingOrderAlert(orderData);
-    });
+    };
+
+    socketRef.current.on('new_order', (orderData) => handleOfferEvent(orderData, 'new_order'));
 
     // Same payload as new_order — also ring so retry-only offers are not silent
-    socketRef.current.on('new_order_available', (orderData) => {
-      debugLog('New order available received via socket', {
-        orderId: orderData?.orderId || orderData?.orderMongoId || orderData?._id,
-        phase: orderData?.phase || 'unknown',
-        dispatchStatus: orderData?.dispatch?.status,
-      });
-      if (isOrderInAcceptedQueue(orderData) || isProcessedOrder(orderData)) {
-        return;
-      }
-      setNewOrder(orderData);
-      handleIncomingOrderAlert(orderData);
-    });
+    socketRef.current.on('new_order_available', (orderData) =>
+      handleOfferEvent(orderData, 'new_order_available'),
+    );
 
     socketRef.current.on('active_orders', (orders = []) => {
       if (!Array.isArray(orders) || orders.length === 0) return;
@@ -1221,6 +1320,7 @@ export const useDeliveryNotifications = () => {
 
     socketRef.current.on('active_order', (orderData) => {
       if (!orderData) return;
+      if (!isEventForCurrentAccount(orderData)) return;
       const mapped = mapOrderLocations(orderData);
       if (mapped) {
         markOrderIdsProcessed(mapped);
@@ -1241,6 +1341,7 @@ export const useDeliveryNotifications = () => {
         orderMongoId: data?.orderMongoId || data?.order_mongo_id,
         ...data
       };
+      if (!isEventForCurrentAccount(normalizedData)) return;
       if (isOrderAlertMuted(normalizedData) || isOrderInAcceptedQueue(normalizedData) || isProcessedOrder(normalizedData)) {
         return;
       }
@@ -1277,12 +1378,18 @@ export const useDeliveryNotifications = () => {
     });
 
     const handleOfferTakenElsewhere = (data, { showToast }) => {
+      // A dismissal meant for another rider must not clear this rider's card.
+      if (!isEventForCurrentAccount(data)) return;
       const claimedId = data?.orderId || data?.orderMongoId || data?.order_id;
-      const claimedBy = String(data?.claimedBy || '');
+      // The server flags the winner's own copy instead of broadcasting the
+      // winning rider's id to the whole fleet. `claimedBy` is the pre-split
+      // form, kept so a client running against an older server still works.
+      const legacyClaimedBy = String(data?.claimedBy || '');
       const isSelf =
-        Boolean(claimedBy) &&
-        Boolean(deliveryPartnerId) &&
-        claimedBy === String(deliveryPartnerId);
+        data?.claimedByYou === true ||
+        (Boolean(legacyClaimedBy) &&
+          Boolean(deliveryPartnerId) &&
+          legacyClaimedBy === String(deliveryPartnerId));
 
       if (claimedId) {
         markOrderIdsProcessed({ _id: claimedId, orderId: claimedId, orderMongoId: claimedId });
@@ -1319,6 +1426,14 @@ export const useDeliveryNotifications = () => {
     socketRef.current.on('order_reassigned_elsewhere', (data) => {
       debugLog('?? Order reassigned to another partner:', data);
       handleOfferTakenElsewhere(data, { showToast: true });
+    });
+
+    // The backend expired this rider's offer (server-side expiresAt, not a
+    // frontend timer). Clear the card and stop the ringtone so a dead request
+    // cannot sit on screen until the rider taps it and gets an error.
+    socketRef.current.on('delivery_request_expired', (data) => {
+      debugLog('?? Delivery request expired:', data);
+      handleOfferTakenElsewhere(data, { showToast: false });
     });
 
     // Backend emits 'order_claimed' when another delivery boy accepts an offered order
@@ -1385,7 +1500,139 @@ export const useDeliveryNotifications = () => {
         socketRef.current = null;
       }
     };
-  }, [deliveryPartnerId, handleIncomingOrderAlert, isOrderAlertMuted, isOrderInAcceptedQueue, isProcessedOrder, joinDeliveryRoomIfPossible, markOrderIdsProcessed, clearOrderMuteState, playNotificationSound, recoverDeliveryState, showBackgroundOrderNotification, startAlertLoop, stopAlertLoop]);
+  }, [deliveryPartnerId, handleIncomingOrderAlert, isEventForCurrentAccount, isOrderAlertMuted, isOrderInAcceptedQueue, isProcessedOrder, joinDeliveryRoomIfPossible, markOrderIdsProcessed, clearOrderMuteState, playNotificationSound, recoverDeliveryState, showBackgroundOrderNotification, startAlertLoop, stopAlertLoop]);
+
+  /**
+   * Expire offers locally, on a ticker, between server events.
+   *
+   * The backend is the authority and emits `delivery_request_expired`, but that
+   * event only lands if a socket is connected at that instant. While the app is
+   * backgrounded, offline, or reconnecting, an expired request would otherwise
+   * sit on screen - still ringing - until something else cleared it. Each offer
+   * carries the server's own `offerExpiresAt`, so the tick only enforces a
+   * decision the backend already made; it never invents an expiry.
+   */
+  useEffect(() => {
+    const enforceOfferExpiry = () => {
+      const expired = useDeliveryStore.getState().pruneExpiredOffers();
+      if (!expired.length) return;
+
+      debugLog('Expired delivery offers removed locally', {
+        count: expired.length,
+      });
+
+      // Stop the ringtone if what it was ringing for is one of the dead ones.
+      const ringingFor = activeOrderRef.current;
+      const ringingExpired =
+        ringingFor && expired.some((order) => ordersShareIdentity(order, ringingFor));
+      if (ringingExpired || !ringingFor) {
+        stopAlertLoop();
+        activeOrderRef.current = null;
+        setNewOrder((current) =>
+          current && expired.some((order) => ordersShareIdentity(order, current))
+            ? null
+            : current,
+        );
+      }
+      stopAlertsWhenQueueEmpty();
+    };
+
+    const timer = setInterval(enforceOfferExpiry, 2000);
+    // Also run the moment the app is brought back, so a request that died while
+    // backgrounded is gone by the time the first frame is painted.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') enforceOfferExpiry();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', enforceOfferExpiry);
+    enforceOfferExpiry();
+
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', enforceOfferExpiry);
+    };
+  }, [stopAlertLoop, stopAlertsWhenQueueEmpty]);
+
+  /**
+   * Tear down everything account-specific when the rider session ends.
+   *
+   * Logout and account switch both clear storage, but this hook's own state -
+   * the ringtone, the processed/muted/dedupe maps, the pending offer, the
+   * socket's room membership - lives in refs that survive a route change. Left
+   * alone, the next rider to sign in inside the same app session inherits all
+   * of it: the previous rider's offer still on screen, their ringtone still
+   * playing, their mutes still suppressing alerts.
+   */
+  useEffect(() => {
+    const handleSessionReset = () => {
+      debugLog('Delivery session reset - clearing local rider state');
+      stopAlertLoop();
+      activeOrderRef.current = null;
+      setNewOrder(null);
+      setOrderReady(null);
+      setOrderStatusUpdate(null);
+      setClaimedOrderId(null);
+      setAdminNotification(null);
+      processedOrderIdsRef.current.clear();
+      mutedOrderIdsRef.current.clear();
+      lastAlertAtByOrderRef.current.clear();
+      lastBrowserNotificationAtByOrderRef.current.clear();
+      joinedDeliveryRoomRef.current = null;
+      // Re-read rather than hard-null: storage was just cleared, so this is
+      // null on a logout, but on an account switch the incoming rider may
+      // already be stored and we pick them up without waiting for a remount.
+      setDeliveryPartnerId(resolveDeliveryPartnerIdFromClient());
+
+      try {
+        useDeliveryStore.getState().resetAccountState();
+      } catch (_) {}
+
+      // Drop the socket: it authenticated as the previous rider and is still
+      // joined to their private room. The next sign-in opens a fresh one.
+      if (socketRef.current) {
+        try {
+          socketRef.current.removeAllListeners();
+          socketRef.current.disconnect();
+        } catch (_) {}
+        socketRef.current = null;
+      }
+      setIsConnected(false);
+    };
+
+    window.addEventListener(DELIVERY_SESSION_RESET_EVENT, handleSessionReset);
+    return () => window.removeEventListener(DELIVERY_SESSION_RESET_EVENT, handleSessionReset);
+  }, [stopAlertLoop]);
+
+  /**
+   * A change of authenticated rider is itself a reset.
+   *
+   * Belt-and-braces alongside the session-reset event: if an account switch ever
+   * happens without that event firing, the id changing is still enough to drop
+   * the previous rider's offers and silence their ringtone.
+   */
+  const previousPartnerIdRef = useRef(null);
+  useEffect(() => {
+    const previous = previousPartnerIdRef.current;
+    previousPartnerIdRef.current = deliveryPartnerId;
+    if (!previous || !deliveryPartnerId || previous === deliveryPartnerId) return;
+
+    debugLog('Delivery account changed - dropping previous rider state', {
+      previous,
+      next: deliveryPartnerId,
+    });
+    stopAlertLoop();
+    activeOrderRef.current = null;
+    setNewOrder(null);
+    processedOrderIdsRef.current.clear();
+    mutedOrderIdsRef.current.clear();
+    lastAlertAtByOrderRef.current.clear();
+    lastBrowserNotificationAtByOrderRef.current.clear();
+    joinedDeliveryRoomRef.current = null;
+    try {
+      useDeliveryStore.getState().resetAccountState();
+    } catch (_) {}
+  }, [deliveryPartnerId, stopAlertLoop]);
 
   useEffect(() => {
     if (!deliveryPartnerId) {

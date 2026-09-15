@@ -147,14 +147,14 @@ export function removeFoodPageCache(key) {
   }
 }
 
-export function clearFoodSessionCaches() {
+export function clearFoodSessionCaches({ keepFcmSync = false } = {}) {
   MEMORY.clear();
   if (typeof sessionStorage === "undefined") return;
   try {
     Object.keys(sessionStorage).forEach((key) => {
       if (
         key.startsWith(CACHE_PREFIX) ||
-        key.startsWith("fcm_backend_synced_") ||
+        (!keepFcmSync && key.startsWith("fcm_backend_synced_")) ||
         LEGACY_PREFIXES.some((prefix) => key.startsWith(prefix))
       ) {
         sessionStorage.removeItem(key);
@@ -168,7 +168,9 @@ export function clearFoodSessionCaches() {
 export function invalidateFoodPages(detail = {}) {
   if (typeof window === "undefined") return;
   if (detail.clearCache !== false) {
-    clearFoodSessionCaches();
+    // A catalog refresh must not invalidate the push-token sync flag - that
+    // would re-register FCM every time a restaurant edits something.
+    clearFoodSessionCaches({ keepFcmSync: detail.keepFcmSync === true });
   }
   window.dispatchEvent(
     new CustomEvent(FOOD_PAGE_INVALIDATE_EVENT, { detail }),

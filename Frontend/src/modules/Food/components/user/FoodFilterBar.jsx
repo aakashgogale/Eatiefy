@@ -104,7 +104,7 @@ export default function FoodFilterBar({
           className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm active:scale-95 ${
             countActiveFilters > 0
               ? "bg-[#24963F] text-white border-[#24963F]"
-              : "bg-white dark:bg-[#1a1a1a] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
+              : "bg-white dark:bg-[#242424] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
           }`}
         >
           <SlidersHorizontal className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.2]" />
@@ -122,8 +122,8 @@ export default function FoodFilterBar({
           onClick={handleOpenSort}
           className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm active:scale-95 ${
             isSortActive
-              ? "bg-white dark:bg-[#1a1a1a] text-[#24963F] border-[#24963F] dark:border-emerald-600 font-extrabold"
-              : "bg-white dark:bg-[#1a1a1a] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
+              ? "bg-white dark:bg-[#242424] text-[#24963F] border-[#24963F] dark:border-emerald-600 font-extrabold"
+              : "bg-white dark:bg-[#242424] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
           }`}
         >
           <span>{isSortActive ? activeSortLabel : "Sort by"}</span>
@@ -148,8 +148,8 @@ export default function FoodFilterBar({
             onClick={onStore99Toggle}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm active:scale-95 ${
               store99Filter
-                ? "bg-white dark:bg-[#1a1a1a] text-[#24963F] border-[#24963F] font-extrabold"
-                : "bg-white dark:bg-[#1a1a1a] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
+                ? "bg-white dark:bg-[#242424] text-[#24963F] border-[#24963F] font-extrabold"
+                : "bg-white dark:bg-[#242424] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
             }`}
           >
             <span className="bg-[#24963F] text-white text-[10px] font-black px-1.5 py-0.2 rounded-md">
@@ -166,8 +166,8 @@ export default function FoodFilterBar({
             onClick={onOffersToggle}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm active:scale-95 ${
               hasOffers
-                ? "bg-white dark:bg-[#1a1a1a] text-[#24963F] border-[#24963F] font-extrabold"
-                : "bg-white dark:bg-[#1a1a1a] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
+                ? "bg-white dark:bg-[#242424] text-[#24963F] border-[#24963F] font-extrabold"
+                : "bg-white dark:bg-[#242424] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
             }`}
           >
             <BadgePercent className="w-3.5 h-3.5 text-[#24963F]" />
@@ -182,8 +182,8 @@ export default function FoodFilterBar({
             onClick={onRating4PlusToggle}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm active:scale-95 ${
               rating4Plus
-                ? "bg-white dark:bg-[#1a1a1a] text-[#24963F] border-[#24963F] font-extrabold"
-                : "bg-white dark:bg-[#1a1a1a] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
+                ? "bg-white dark:bg-[#242424] text-[#24963F] border-[#24963F] font-extrabold"
+                : "bg-white dark:bg-[#242424] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
             }`}
           >
             <Star className="w-3.5 h-3.5 fill-[#24963F] text-[#24963F]" />
@@ -198,8 +198,8 @@ export default function FoodFilterBar({
             onClick={onUnder30MinsToggle}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm active:scale-95 ${
               under30Mins
-                ? "bg-white dark:bg-[#1a1a1a] text-[#24963F] border-[#24963F] font-extrabold"
-                : "bg-white dark:bg-[#1a1a1a] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
+                ? "bg-white dark:bg-[#242424] text-[#24963F] border-[#24963F] font-extrabold"
+                : "bg-white dark:bg-[#242424] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
             }`}
           >
             <Timer className="w-3.5 h-3.5 text-[#24963F]" />
@@ -214,8 +214,8 @@ export default function FoodFilterBar({
             onClick={onVegToggle}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm active:scale-95 ${
               isVeg
-                ? "bg-white dark:bg-[#1a1a1a] text-[#16A34A] border-[#16A34A] font-extrabold"
-                : "bg-white dark:bg-[#1a1a1a] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
+                ? "bg-white dark:bg-[#242424] text-[#16A34A] border-[#16A34A] font-extrabold"
+                : "bg-white dark:bg-[#242424] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
             }`}
           >
             <span>Pure Veg</span>
@@ -229,8 +229,8 @@ export default function FoodFilterBar({
             onClick={onNonVegToggle}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs sm:text-sm font-bold whitespace-nowrap transition-all flex-shrink-0 shadow-sm active:scale-95 ${
               isNonVeg
-                ? "bg-white dark:bg-[#1a1a1a] text-red-600 dark:text-red-400 border-red-500 font-extrabold"
-                : "bg-white dark:bg-[#1a1a1a] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
+                ? "bg-white dark:bg-[#242424] text-red-600 dark:text-red-400 border-red-500 font-extrabold"
+                : "bg-white dark:bg-[#242424] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
             }`}
           >
             <span>Non Veg</span>
@@ -256,7 +256,7 @@ export default function FoodFilterBar({
                 top: `${dropdownCoords.top}px`,
                 left: `${dropdownCoords.left}px`,
               }}
-              className="fixed z-10 w-56 bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 p-2 sm:p-2.5 animate-in fade-in zoom-in-95 duration-150 space-y-0.5"
+              className="fixed z-10 w-56 bg-white dark:bg-[#242424] rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 p-2 sm:p-2.5 animate-in fade-in zoom-in-95 duration-150 space-y-0.5"
             >
               {SORT_OPTIONS.map((option) => {
                 const isSelected = (sortBy || "relevance") === option.id;

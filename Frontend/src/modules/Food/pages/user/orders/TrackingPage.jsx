@@ -37,7 +37,7 @@ const TrackingPage = () => {
         </div>
 
         {/* Arrival Time Card */}
-        <div className="absolute bottom-[50vh] left-4 right-4 z-10 bg-white dark:bg-[#1a1a1a] rounded-xl p-4 shadow-lg border border-gray-200 dark:border-gray-800">
+        <div className="absolute bottom-[50vh] left-4 right-4 z-10 bg-white dark:bg-[#242424] rounded-xl p-4 shadow-lg border border-gray-200 dark:border-gray-800">
           <p className="text-xs text-gray-600 dark:text-gray-400 mb-1 uppercase">ARRIVING IN</p>
           <p className="text-3xl font-bold text-red-600 mb-1">80 mins</p>
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">45.1 km away</p>

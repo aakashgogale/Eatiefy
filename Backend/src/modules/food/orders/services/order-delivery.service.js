@@ -39,6 +39,13 @@ import {
   isStatusAdvance,
 } from './order.helpers.js';
 import { detectZoneIdForPoint, getActiveZoneById, isPointInZonePolygon } from '../../utils/zoneGeo.js';
+import {
+  MAX_OFFER_VALIDITY_MS,
+  expireStaleOffers,
+  findLiveOfferForPartner,
+  liveOfferElemMatch,
+  offerExpiresAt,
+} from './delivery-offer.util.js';
 
 /** Match dispatch hard cap — never list/accept cross-city absurd distances. */
 const HARD_MAX_OFFER_DISTANCE_KM = 40;
@@ -226,6 +233,9 @@ function emitOrderUpdate(order, deliveryPartnerId, options = {}) {
         orderStatus: order.orderStatus,
         deliveryState: order.deliveryState,
         deliveryVerification: dv,
+        dispatchStatus: order.dispatch?.status,
+        deliveryPartnerId: String(deliveryPartnerId || order.dispatch?.deliveryPartnerId || ''),
+        updatedAt: new Date().toISOString(),
       };
       io.to(rooms.delivery(deliveryPartnerId)).emit(
         'order_status_update',
@@ -374,11 +384,25 @@ async function syncRazorpayQrPayment(orderDoc) {
 
 export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
   const { page, limit, skip } = buildPaginationOptions(query);
+  const now = new Date();
+  /*
+   * Retire this rider's dead offers before answering.
+   *
+   * The scheduled timeout check runs on BullMQ, so with Redis off it never
+   * fires and offers stay `offered` forever - which is how a request from
+   * hours ago survives a logout and reappears on the next login. Expiring on
+   * read makes the API self-correcting: whatever the queue did or did not do,
+   * this endpoint can only ever return offers still inside their window, and
+   * the riders whose offers just died are told so their cards and ringtones
+   * stop.
+   */
+  await expireStaleOffersForPartner(deliveryPartnerId, now);
+
   const [partnerCapacity, orderCapacity, partner] = await Promise.all([
     getPartnerCashCapacity(deliveryPartnerId),
     getPartnerOrderCapacity(deliveryPartnerId),
     FoodDeliveryPartner.findById(deliveryPartnerId)
-      .select('lastLat lastLng lastLocationAt')
+      .select('lastLat lastLng lastLocationAt createdAt')
       .lean(),
   ]);
   const cashLimit = {
@@ -414,11 +438,28 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
     orderCapacity.remaining > 0 &&
     partnerZoneId
   ) {
+    /*
+     * Authorization is the OFFER, not the zone.
+     *
+     * This used to match every unassigned order in the partner's zone, so any
+     * rider in the zone could pull a job the assignment engine never offered
+     * them - the REST equivalent of a zone-wide broadcast, undoing the
+     * per-partner socket targeting. Zone stays on only as a secondary guard.
+     *
+     * `liveOfferElemMatch` requires an offer addressed to THIS partner that is
+     * still pending and inside its window. Rows with no `expiresAt` used to be
+     * waved through as non-expiring - the single biggest source of "old orders
+     * are back after login" - and now fall back to their creation stamp, with
+     * every offer capped at ten minutes from creation regardless.
+     */
     unassignedOfferFilter = {
       orderType: 'delivery',
       'dispatch.status': 'unassigned',
       orderStatus: { $in: ['preparing', 'ready_for_pickup'] },
       zoneId: new mongoose.Types.ObjectId(partnerZoneId),
+      'dispatch.offeredTo': {
+        $elemMatch: liveOfferElemMatch(deliveryPartnerId, now),
+      },
     };
   }
 
@@ -475,20 +516,59 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
     return Number.isFinite(d) && d <= HARD_MAX_OFFER_DISTANCE_KM;
   };
 
-  const newOffers = enriched.filter((order) => {
-    const dispatchStatus = String(order?.dispatch?.status || '').toLowerCase();
-    const orderStatus = String(order?.orderStatus || '').toLowerCase();
-    const isOwnAccepted =
-      String(order?.dispatch?.deliveryPartnerId || '') === String(deliveryPartnerId);
-    if (isOwnAccepted) return false;
-    return (
-      partnerZoneId &&
-      isRestaurantInPartnerZone(order) &&
-      isWithinOfferDistance(order) &&
-      ['unassigned', 'assigned'].includes(dispatchStatus) &&
-      ['preparing', 'ready_for_pickup'].includes(orderStatus)
-    );
-  });
+  /*
+   * Account floor: an offer made before this rider's account existed cannot be
+   * theirs. Offers are already per-partner so this should never fire - it is
+   * here so a brand-new account is provably incapable of inheriting anything,
+   * whatever a recycled id or a restored backup might do to `offeredTo`.
+   */
+  const accountCreatedAt = partner?.createdAt ? new Date(partner.createdAt) : null;
+
+  const newOffers = enriched
+    .filter((order) => {
+      const orderStatus = String(order?.orderStatus || '').toLowerCase();
+      const isOwnAccepted =
+        String(order?.dispatch?.deliveryPartnerId || '') === String(deliveryPartnerId);
+      if (isOwnAccepted) return false;
+
+      // Ownership: a live offer addressed to this rider, re-checked in memory
+      // so the response can never widen past what the query authorised.
+      const liveOffer = findLiveOfferForPartner(order, deliveryPartnerId, now);
+      if (!liveOffer) return false;
+      if (accountCreatedAt && offerExpiresAt(liveOffer) <= accountCreatedAt) return false;
+
+      return (
+        partnerZoneId &&
+        isRestaurantInPartnerZone(order) &&
+        isWithinOfferDistance(order) &&
+        ['preparing', 'ready_for_pickup'].includes(orderStatus)
+      );
+    })
+    .map((order) => {
+      const liveOffer = findLiveOfferForPartner(order, deliveryPartnerId, now);
+      const expiresAt = offerExpiresAt(liveOffer);
+      return {
+        ...order,
+        // Per-recipient offer window, so the client can hide an expiring card
+        // on its own between polls instead of waiting for a socket event.
+        targetPartnerId: String(deliveryPartnerId),
+        offerCreatedAt: liveOffer?.createdAt || liveOffer?.at || null,
+        offerExpiresAt: expiresAt,
+        offerExpiresInMs: Math.max(0, expiresAt.getTime() - now.getTime()),
+        // Never ship the full offer roster - it names every other rider.
+        dispatch: {
+          status: order?.dispatch?.status,
+          offeredTo: [
+            {
+              partnerId: String(deliveryPartnerId),
+              action: 'offered',
+              createdAt: liveOffer?.createdAt || liveOffer?.at || null,
+              expiresAt,
+            },
+          ],
+        },
+      };
+    });
 
   const acceptedOrders = enriched.filter((order) => {
     const dispatchStatus = String(order?.dispatch?.status || '').toLowerCase();
@@ -497,13 +577,77 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
     return dispatchStatus === 'accepted' && partnerMatch;
   });
 
+  /*
+   * The raw `docs` list is what older clients read, and it carried the full
+   * `offeredTo` roster - every other rider's id, plus dead offers this rider
+   * could no longer accept. Each doc is reduced to this rider's own offer row
+   * so no response from this endpoint describes anybody else's request.
+   */
+  const scopedDocs = enriched.map((order) => {
+    const ownOffer = (order?.dispatch?.offeredTo || []).find(
+      (entry) => String(entry?.partnerId || '') === String(deliveryPartnerId),
+    );
+    return {
+      ...order,
+      targetPartnerId: String(deliveryPartnerId),
+      dispatch: {
+        ...(order?.dispatch || {}),
+        offeredTo: ownOffer
+          ? [
+              {
+                partnerId: String(deliveryPartnerId),
+                action: ownOffer.action,
+                createdAt: ownOffer.createdAt || ownOffer.at || null,
+                expiresAt: offerExpiresAt(ownOffer),
+              },
+            ]
+          : [],
+      },
+    };
+  });
+
   return {
-    ...buildPaginatedResult({ docs: enriched, total, page, limit }),
+    ...buildPaginatedResult({ docs: scopedDocs, total, page, limit }),
     cashLimit,
     capacity: orderCapacity,
     newOffers,
     acceptedOrders,
   };
+}
+
+/**
+ * Marks this rider's expired offers as timed out and tells them, on read.
+ *
+ * Bounded to orders this partner actually holds a pending offer on, so it stays
+ * a cheap indexed lookup on every available-orders poll rather than a scan.
+ */
+async function expireStaleOffersForPartner(deliveryPartnerId, now = new Date()) {
+  try {
+    const cutoff = new Date(now.getTime() - MAX_OFFER_VALIDITY_MS);
+    const stale = await FoodOrder.find({
+      'dispatch.status': { $ne: 'accepted' },
+      'dispatch.offeredTo': {
+        $elemMatch: {
+          partnerId: new mongoose.Types.ObjectId(String(deliveryPartnerId)),
+          action: 'offered',
+          $or: [{ expiresAt: { $lte: now } }, { expiresAt: null, at: { $lte: cutoff } }],
+        },
+      },
+    })
+      .select('dispatch')
+      .limit(50);
+
+    for (const order of stale) {
+      const expiredPartnerIds = expireStaleOffers(order, now);
+      if (!expiredPartnerIds.length) continue;
+      await order.save();
+      dispatchService.notifyOffersExpired(order, expiredPartnerIds);
+    }
+  } catch (err) {
+    // Never fail the rider's feed because the cleanup pass tripped; the
+    // read-side filter already refuses to return an expired offer.
+    logger.warn(`expireStaleOffersForPartner failed: ${err?.message || err}`);
+  }
 }
 
 export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
@@ -606,7 +750,16 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
       orderType: 'delivery',
       orderStatus: { $in: acceptedStatuses },
       $or: [
-        { 'dispatch.status': 'unassigned' },
+        {
+          'dispatch.status': 'unassigned',
+          /*
+           * A rider may only claim an order actually offered to them, and only
+           * while that offer is live. Kept inside the same atomic filter as the
+           * status guard so the concurrency guarantee is unchanged: two riders
+           * racing still produce exactly one winner.
+           */
+          'dispatch.offeredTo': { $elemMatch: liveOfferElemMatch(deliveryPartnerId, now) },
+        },
         {
           'dispatch.status': 'assigned',
           'dispatch.deliveryPartnerId': partnerId,
@@ -659,6 +812,20 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
       throw new ForbiddenError('Order already accepted by another partner');
     }
 
+    // Still unassigned means the claim failed on the offer guard, not the race.
+    if (existing.dispatch?.status === 'unassigned') {
+      const offer = (existing.dispatch?.offeredTo || []).find(
+        (entry) => String(entry?.partnerId || '') === String(deliveryPartnerId),
+      );
+      if (!offer) {
+        throw new ForbiddenError('This order was not offered to you');
+      }
+      if (offer.action === 'rejected') {
+        throw new ValidationError('You already declined this order');
+      }
+      throw new ValidationError('This delivery request has expired');
+    }
+
     throw new ValidationError('Order is no longer available to accept');
   }
 
@@ -678,22 +845,60 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
   try {
     const io = getIO();
     if (io) {
+      /*
+       * Only the riders this order was actually offered to need to drop the
+       * card, and each is told in their own room.
+       *
+       * This used to go to `all_delivery` - a fleet-wide room every delivery
+       * socket joins - which handed the id of an order to hundreds of riders it
+       * was never offered to. Same failure mode as a zone broadcast: visibility
+       * decided by membership of a shared room rather than by who holds the
+       * offer. The recipient list now comes from `dispatch.offeredTo`.
+       *
+       * The payload stays anonymous (it used to name the winning rider to the
+       * whole fleet); only the winner's own copy is flagged `claimedByYou`,
+       * which is what suppresses their "accepted by another rider" toast.
+       */
+      const winnerId = String(deliveryPartnerId);
       const claimedPayload = {
         orderId: order._id.toString(),
         orderMongoId: order._id?.toString?.(),
-        claimedBy: deliveryPartnerId.toString(),
         message: 'This request accepted by another rider',
       };
-      io.to('all_delivery').emit('order_claimed', claimedPayload);
+      const offeredPartnerIds = new Set(
+        (order.dispatch?.offeredTo || [])
+          .map((entry) => String(entry?.partnerId || ''))
+          .filter(Boolean),
+      );
+      offeredPartnerIds.delete(winnerId);
+      for (const partnerId of offeredPartnerIds) {
+        io.to(rooms.delivery(partnerId)).emit('order_claimed', {
+          ...claimedPayload,
+          targetPartnerId: partnerId,
+        });
+      }
+      io.to(rooms.delivery(winnerId)).emit('order_claimed', {
+        ...claimedPayload,
+        targetPartnerId: winnerId,
+        claimedByYou: true,
+      });
       logger.info(
         `[DeliveryDispatch] Broadcasted order_claimed immediately for order ${order._id.toString()}`,
       );
 
+      // Carries the assignment itself, not just the order status: the order is
+      // still `preparing` at this point, so without dispatch/rider fields the
+      // customer's tracking screen had no way to show "rider assigned" until
+      // its next poll.
       const payload = {
         orderMongoId: order._id?.toString?.(),
         orderId: order._id.toString(),
+        displayOrderId: order.order_id || order._id.toString(),
         orderStatus: order.orderStatus,
         dispatchStatus: order.dispatch?.status,
+        deliveryPartnerId: String(deliveryPartnerId),
+        deliveryState: order.deliveryState,
+        updatedAt: new Date().toISOString(),
       };
       io.to(rooms.delivery(deliveryPartnerId)).emit('order_status_update', payload);
       io.to(rooms.restaurant(order.restaurantId)).emit('order_status_update', payload);
@@ -819,21 +1024,43 @@ export async function rejectOrderDelivery(orderId, deliveryPartnerId) {
 
   const order = await FoodOrder.findOne(identity).select('+deliveryOtp');
   if (!order) throw new NotFoundError('Order not found');
-  if (order.dispatch.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) {
-    throw new ForbiddenError('Not your order');
-  }
 
+  const isAssignedToPartner =
+    order.dispatch.deliveryPartnerId?.toString() === deliveryPartnerId.toString();
   const offer = order.dispatch.offeredTo.find(
     (item) =>
       String(item.partnerId) === String(deliveryPartnerId) &&
       item.action === 'offered',
   );
+
+  /*
+   * A rider may decline any order offered to them, not only one formally
+   * assigned to them.
+   *
+   * During the normal phase-1/phase-2 hunt `dispatch.status` stays `unassigned`
+   * and `deliveryPartnerId` stays null, so the old assignment-only check threw
+   * "Not your order" for every decline made from the offer card. The reject
+   * never reached the database, the offer stayed `offered`, and the request came
+   * straight back on the next poll or refresh - a dismissed card that would not
+   * stay dismissed.
+   */
+  if (!isAssignedToPartner && !offer) {
+    throw new ForbiddenError('Not your order');
+  }
+  if (order.dispatch.status === 'accepted' && !isAssignedToPartner) {
+    throw new ForbiddenError('Order already accepted by another partner');
+  }
+
   if (offer) offer.action = 'rejected';
 
-  order.dispatch.status = 'unassigned';
-  order.dispatch.deliveryPartnerId = undefined;
-  order.dispatch.assignedAt = undefined;
-  order.dispatch.acceptedAt = undefined;
+  // Only surrender the assignment if this rider actually held it; clearing it
+  // for an offer-stage decline would wipe another rider's acceptance.
+  if (isAssignedToPartner) {
+    order.dispatch.status = 'unassigned';
+    order.dispatch.deliveryPartnerId = undefined;
+    order.dispatch.assignedAt = undefined;
+    order.dispatch.acceptedAt = undefined;
+  }
   pushStatusHistory(order, {
     byRole: 'DELIVERY_PARTNER',
     byId: deliveryPartnerId,
@@ -848,6 +1075,29 @@ export async function rejectOrderDelivery(orderId, deliveryPartnerId) {
     orderId: order._id.toString(),
     deliveryPartnerId,
   });
+
+  // A rider dropping an order they had accepted moves the customer's screen
+  // back from "rider arriving" to "preparing"; tell them now rather than on
+  // their next poll. Offer-stage declines change nothing the customer sees.
+  if (isAssignedToPartner) {
+    try {
+      const io = getIO();
+      if (io && order.userId) {
+        io.to(rooms.user(order.userId)).emit('order_status_update', {
+          orderMongoId: order._id.toString(),
+          orderId: order._id.toString(),
+          displayOrderId: order.order_id || order._id.toString(),
+          orderStatus: order.orderStatus,
+          dispatchStatus: order.dispatch.status,
+          deliveryPartnerId: null,
+          deliveryState: order.deliveryState,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      logger.warn(`reject user emit failed: ${err?.message || err}`);
+    }
+  }
 
   void dispatchService
     .tryAutoAssign(order._id)

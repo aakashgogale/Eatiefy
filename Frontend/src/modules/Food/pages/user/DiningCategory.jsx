@@ -130,14 +130,14 @@ export default function DiningCategory() {
   }, [openLocationSelector])
 
   return (
-    <AnimatedPage className="min-h-screen bg-[#fffaf4] pb-24 dark:bg-[#0a0a0a]">
+    <AnimatedPage className="min-h-screen bg-[#fffaf4] pb-24 dark:bg-[#141414]">
       <div className="sticky top-0 z-30 border-b border-[#efe2d2] bg-[rgba(255,250,244,0.95)] backdrop-blur-xl dark:border-gray-800 dark:bg-[rgba(10,10,10,0.95)]">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-4 sm:px-6">
           <Button
             variant="ghost"
             size="icon"
             onClick={goBack}
-            className="h-10 w-10 rounded-full border border-[#e7d8c5] bg-white text-[#2f2215] hover:bg-[#fff1df] dark:border-gray-700 dark:bg-[#1a1a1a] dark:text-white dark:hover:bg-gray-800"
+            className="h-10 w-10 rounded-full border border-[#e7d8c5] bg-white text-[#2f2215] hover:bg-[#fff1df] dark:border-gray-700 dark:bg-[#242424] dark:text-white dark:hover:bg-gray-800"
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
@@ -145,7 +145,7 @@ export default function DiningCategory() {
           <Button
             variant="ghost"
             onClick={handleLocationClick}
-            className="h-auto rounded-full border border-[#e7d8c5] bg-white px-4 py-2 text-left hover:bg-[#fff3e6] dark:border-gray-700 dark:bg-[#1a1a1a] dark:hover:bg-gray-800"
+            className="h-auto rounded-full border border-[#e7d8c5] bg-white px-4 py-2 text-left hover:bg-[#fff3e6] dark:border-gray-700 dark:bg-[#242424] dark:hover:bg-gray-800"
           >
             <div className="flex items-center gap-2">
               <FaLocationDot className="h-4 w-4 text-[#1F6B45]" />
@@ -159,7 +159,7 @@ export default function DiningCategory() {
       </div>
 
       <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
-        <div className="mb-6 rounded-[28px] border border-[#f0dfca] bg-gradient-to-br from-[#fff4e7] via-white to-[#fff9f3] p-6 shadow-[0_18px_60px_rgba(90,55,20,0.08)] dark:border-gray-800 dark:bg-gradient-to-br dark:from-[#161616] dark:via-[#101010] dark:to-[#1a1a1a] dark:shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
+        <div className="mb-6 rounded-[28px] border border-[#f0dfca] bg-gradient-to-br from-[#fff4e7] via-white to-[#fff9f3] p-6 shadow-[0_18px_60px_rgba(90,55,20,0.08)] dark:border-gray-800 dark:bg-gradient-to-br dark:from-[#161616] dark:via-[#101010] dark:to-[#242424] dark:shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-[0.34em] text-[#c07a3a] dark:text-orange-300">Dining Category</p>
@@ -168,7 +168,7 @@ export default function DiningCategory() {
                 Explore all restaurants linked to this dining category, check their timings, preview the menu, and jump straight into table booking.
               </p>
             </div>
-            <div className="inline-flex items-center gap-2 self-start rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#6b5641] shadow-sm dark:border dark:border-gray-700 dark:bg-[#1a1a1a] dark:text-gray-300">
+            <div className="inline-flex items-center gap-2 self-start rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#6b5641] shadow-sm dark:border dark:border-gray-700 dark:bg-[#242424] dark:text-gray-300">
               <MapPin className="h-4 w-4 text-[#1F6B45]" />
               <span>{visibleRestaurants.length} places found</span>
             </div>

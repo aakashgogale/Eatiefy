@@ -62,7 +62,7 @@ import { useLocation as useUserLocation } from "@food/hooks/useLocation"
 import DeliveryTrackingMap from "@food/components/user/DeliveryTrackingMap"
 import { orderAPI, restaurantAPI } from "@food/api"
 import { useCompanyName } from "@food/hooks/useCompanyName"
-import { useUserNotifications } from "@food/hooks/useUserNotifications"
+import { useUserNotifications, ORDER_REALTIME_RESYNC_EVENT } from "@food/hooks/useUserNotifications"
 import circleIcon from "@food/assets/circleicon.webp"
 import { RESTAURANT_PIN_SVG, CUSTOMER_PIN_SVG, RIDER_BIKE_SVG } from "@food/constants/mapIcons"
 
@@ -426,12 +426,31 @@ function mapOrderToTrackingUiStatus(orderLike) {
   if (statusRaw === "delivered" || statusRaw === "completed") return "delivered"
 
   // Live Ride / Phase-based mapping (Highest priority for precision)
-  const isRiderAccepted = orderLike.dispatch?.status === "accepted" || orderLike.assignmentInfo?.status === "accepted" || orderLike.deliveryPartner?.status === "accepted";
+  const isRiderAccepted =
+    orderLike.dispatch?.status === "accepted" ||
+    orderLike.dispatchStatus === "accepted" ||
+    orderLike.assignmentInfo?.status === "accepted" ||
+    orderLike.deliveryPartner?.status === "accepted";
+  const hasRider = Boolean(orderLike.deliveryPartnerId || orderLike.dispatch?.deliveryPartnerId)
 
   if (phase === "reached_drop" || phase === "at_drop" || statusRaw === "at_drop") return "at_drop"
   if (phase === "en_route_to_delivery" || statusRaw === "picked_up" || statusRaw === "out_for_delivery") return "on_way"
-  if (phase === "at_pickup" && orderLike.deliveryPartnerId && isRiderAccepted) return "at_pickup"
-  if (phase === "en_route_to_pickup" && orderLike.deliveryPartnerId && isRiderAccepted) return "assigned"
+  if (phase === "at_pickup" && hasRider && isRiderAccepted) return "at_pickup"
+  if (phase === "en_route_to_pickup" && hasRider && isRiderAccepted) return "assigned"
+
+  /*
+   * Rider accepted but has not reported a pickup phase yet.
+   *
+   * Accepting never writes `deliveryState.currentPhase` on the backend, so the
+   * phase check above could not fire and "Rider is arriving" was unreachable -
+   * the screen sat on "Cooking" from rider acceptance right up to pickup. The
+   * assignment itself is the signal.
+   */
+  if (isRiderAccepted && hasRider) {
+    const s = String(statusRaw || "").toLowerCase()
+    if (s === "ready_for_pickup" || s === "ready") return "ready"
+    if (s === "preparing" || s === "confirmed") return "assigned"
+  }
 
   // Fallback to basic status mapping
   return mapBackendOrderStatusToUi(statusRaw)
@@ -441,6 +460,25 @@ function mapOrderToTrackingUiStatus(orderLike) {
 function isFoodOrderCancelledStatus(statusRaw) {
   const s = String(statusRaw || "").toLowerCase()
   return s === "cancelled" || s.includes("cancelled")
+}
+
+/**
+ * Apply a fetched order without letting it undo a newer live update.
+ *
+ * If a socket status landed after this fetch was sent, the response describes
+ * an older moment - keep the live status fields from the current state and
+ * take everything else (rider details, map, pricing) from the response.
+ */
+function mergeFetchedOrder(fetched, prev, requestStartedAt, lastRealtimeAt) {
+  if (!prev || !fetched || !(lastRealtimeAt > requestStartedAt)) return fetched
+  return {
+    ...fetched,
+    status: prev.status,
+    deliveryState: prev.deliveryState,
+    dispatch: prev.dispatch,
+    deliveryPartnerId: prev.deliveryPartnerId,
+    deliveryPartner: fetched.deliveryPartner || prev.deliveryPartner,
+  }
 }
 
 function normalizeLookupId(value) {
@@ -654,6 +692,14 @@ export default function OrderTracking() {
   const [timerNow, setTimerNow] = useState(Date.now())
   const handleEtaUpdate = useCallback((newEta) => setEstimatedTime(newEta), [])
   const lastRealtimeRefreshRef = useRef(0)
+  /**
+   * When the last live status was applied from the socket. A fetch that was
+   * already in flight when that happened carries older data, and applying its
+   * status would briefly move the timeline backwards (e.g. "On Way" -> "Cooking").
+   */
+  const lastRealtimeAtRef = useRef(0)
+  const handleRefreshRef = useRef(null)
+  const trailingRefreshTimerRef = useRef(null)
   const trackingOrderIdsRef = useRef(new Set())
   const terminalPollStopRef = useRef(false)
   const lookupIdsRef = useRef([])
@@ -952,6 +998,9 @@ export default function OrderTracking() {
     order?.status,
     order?.deliveryState?.currentPhase,
     order?.deliveryState?.status,
+    // Rider assignment changes the screen without changing orderStatus.
+    order?.dispatch?.status,
+    order?.deliveryPartnerId,
   ])
 
   const acceptedAtMs = useMemo(() => {
@@ -1152,6 +1201,7 @@ export default function OrderTracking() {
       }
 
       requestInProgress = true;
+      const requestStartedAt = Date.now();
       try {
         const response = await fetchOrderDetailsWithFallback({ force: isInitial });
         if (!isSubscribed) return;
@@ -1167,7 +1217,12 @@ export default function OrderTracking() {
 
         if (finalOrderData) {
           setOrder(prev => {
-            const transformedOrder = transformOrderForTracking(finalOrderData, prev);
+            const transformedOrder = mergeFetchedOrder(
+              transformOrderForTracking(finalOrderData, prev),
+              prev,
+              requestStartedAt,
+              lastRealtimeAtRef.current,
+            );
             const ui = mapOrderToTrackingUiStatus(transformedOrder);
             terminalPollStopRef.current = ui === 'delivered' || ui === 'cancelled';
             return transformedOrder;
@@ -1290,39 +1345,85 @@ export default function OrderTracking() {
       const { message, status, estimatedDeliveryTime, orderId: evtOrderId, orderMongoId } = payload;
 
       const evtKeys = [evtOrderId, orderMongoId, payload?._id].filter(Boolean).map(String)
+      /*
+       * Strict match. An event with no id used to match EVERY open tracking
+       * screen, so with two active orders one order's status could overwrite
+       * the other's timeline.
+       */
       const idMatches =
-        evtKeys.length === 0 ||
-        evtKeys.some((k) => String(k) === String(orderId)) ||
-        evtKeys.some((k) => trackingOrderIdsRef.current.has(k))
+        evtKeys.length > 0 &&
+        (evtKeys.some((k) => String(k) === String(orderId)) ||
+          evtKeys.some((k) => trackingOrderIdsRef.current.has(k)))
 
       debugLog('?? Order status notification received:', { message, status, idMatches });
 
-      if (idMatches) {
-        const next = mapOrderToTrackingUiStatus({
-          status,
-          orderStatus: payload.orderStatus || status,
-          deliveryState: payload.deliveryState,
-        });
-        setOrderStatus(next);
-        
-        // Optimistically update order state from socket payload
-        if (payload.note || payload.orderStatus || payload.status) {
-          setOrder(prev => {
-            if (!prev) return prev;
-            return {
-              ...prev,
-              status: payload.orderStatus || payload.status || prev.status,
-              note: payload.note || prev.note
-            };
-          });
-        }
+      // Toasts are app-wide (UserLayout); this screen only reacts to its own order.
+      if (!idMatches) return
 
-        // Pull latest order state without refresh spam on bursty socket events.
-        const now = Date.now();
-        if (now - lastRealtimeRefreshRef.current > 1500 && !isRefreshing) {
-          lastRealtimeRefreshRef.current = now;
-          handleRefresh();
-        }
+      const incomingStatus = payload.orderStatus || status
+      const hasStatusInfo = Boolean(
+        incomingStatus || payload.deliveryState || payload.dispatchStatus,
+      )
+
+      if (hasStatusInfo) {
+        lastRealtimeAtRef.current = Date.now()
+        /*
+         * Merge into the order and let the single status effect derive the
+         * timeline. This used to call setOrderStatus() straight from the partial
+         * payload, and a payload without orderStatus mapped to "placed" - so any
+         * update that carried only a phase or a message snapped the timeline
+         * back to the first step.
+         */
+        setOrder((prev) => {
+          if (!prev) return prev
+          const next = { ...prev }
+          if (incomingStatus) next.status = incomingStatus
+          if (payload.deliveryState) {
+            next.deliveryState = { ...(prev.deliveryState || {}), ...payload.deliveryState }
+          }
+          if (payload.dispatchStatus) {
+            next.dispatch = { ...(prev.dispatch || {}), status: payload.dispatchStatus }
+          }
+          if (payload.deliveryPartnerId !== undefined) {
+            next.deliveryPartnerId = payload.deliveryPartnerId || null
+            if (!payload.deliveryPartnerId) next.deliveryPartner = null
+          }
+          if (payload.deliveryVerification) {
+            next.deliveryVerification = {
+              ...(prev.deliveryVerification || {}),
+              ...payload.deliveryVerification,
+              dropOtp: {
+                ...(prev.deliveryVerification?.dropOtp || {}),
+                ...(payload.deliveryVerification?.dropOtp || {}),
+                // The socket copy never carries the secret; keep the one we have.
+                code: prev.deliveryVerification?.dropOtp?.code ?? null,
+              },
+            }
+          }
+          if (payload.note) next.note = payload.note
+          return next
+        })
+      }
+
+      /*
+       * Then pull the full order (rider name/phone, map coordinates, ETA).
+       * Leading call plus a trailing one: bursts (accept -> reached pickup ->
+       * picked up) used to be throttled into a single early fetch, and the last
+       * transition in the burst was only picked up by the next 25s poll.
+       */
+      const runRefresh = () => {
+        lastRealtimeRefreshRef.current = Date.now()
+        handleRefreshRef.current?.()
+      }
+      const now = Date.now()
+      if (now - lastRealtimeRefreshRef.current > 1500) {
+        runRefresh()
+      } else {
+        if (trailingRefreshTimerRef.current) clearTimeout(trailingRefreshTimerRef.current)
+        trailingRefreshTimerRef.current = setTimeout(() => {
+          trailingRefreshTimerRef.current = null
+          runRefresh()
+        }, 1600)
       }
 
       // Show notification toast
@@ -1347,7 +1448,44 @@ export default function OrderTracking() {
 
     return () => {
       window.removeEventListener('orderStatusNotification', handleOrderStatusNotification);
+      if (trailingRefreshTimerRef.current) {
+        clearTimeout(trailingRefreshTimerRef.current);
+        trailingRefreshTimerRef.current = null;
+      }
     };
+  }, [orderId])
+
+  /*
+   * Catch up whenever live delivery may have been interrupted: socket
+   * (re)connect, tab brought back, window refocused.
+   *
+   * Polling skips hidden tabs and runs every 25s while the socket is up, and a
+   * socket delivers nothing for the time it was down - so a customer returning
+   * to this screen could look at a stale step for up to half a minute after the
+   * restaurant or rider had already moved the order on.
+   */
+  useEffect(() => {
+    if (!orderId) return
+    let lastAt = 0
+    const catchUp = () => {
+      if (terminalPollStopRef.current) return
+      if (typeof document !== 'undefined' && document.hidden) return
+      const now = Date.now()
+      if (now - lastAt < 1000) return
+      lastAt = now
+      pollRef.current?.(false)
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') catchUp()
+    }
+    window.addEventListener(ORDER_REALTIME_RESYNC_EVENT, catchUp)
+    window.addEventListener('focus', catchUp)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener(ORDER_REALTIME_RESYNC_EVENT, catchUp)
+      window.removeEventListener('focus', catchUp)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [orderId])
 
   const handleCancelOrder = () => {
@@ -1449,6 +1587,7 @@ export default function OrderTracking() {
 
   const handleRefresh = async () => {
     setIsRefreshing(true)
+    const requestStartedAt = Date.now()
     try {
       const response = await fetchOrderDetailsWithFallback({ force: true })
       if (response.data?.success && response.data.data?.order) {
@@ -1494,7 +1633,14 @@ export default function OrderTracking() {
           }
         }
 
-        setOrder(transformOrderForTracking(apiOrder, order, restaurantCoords, restaurantAddress))
+        setOrder((prev) =>
+          mergeFetchedOrder(
+            transformOrderForTracking(apiOrder, prev, restaurantCoords, restaurantAddress),
+            prev,
+            requestStartedAt,
+            lastRealtimeAtRef.current,
+          ),
+        )
       }
     } catch (err) {
       debugError('Error refreshing order:', err)
@@ -1502,6 +1648,10 @@ export default function OrderTracking() {
       setIsRefreshing(false)
     }
   }
+  // The socket listener is registered once per order, so it reaches the refresh
+  // through this ref; calling the function it closed over ran the first
+  // render's copy, bound to that render's (usually empty) order state.
+  handleRefreshRef.current = handleRefresh
 
   // --------------------------------------------------------------------------
   // RENDER (Final JSX)
@@ -1510,7 +1660,7 @@ export default function OrderTracking() {
   // Loading state (moved after hooks)
   if (loading) {
     return (
-      <AnimatedPage className="min-h-screen bg-gray-50 dark:bg-zinc-950 p-4">
+      <AnimatedPage className="min-h-screen bg-gray-50 dark:bg-[#141414] p-4">
         <div className="max-w-lg mx-auto text-center py-20">
           <Loader2 className="w-8 h-8 animate-spin text-gray-600 dark:text-gray-400 mx-auto mb-4" />
           <p className="text-gray-600 dark:text-gray-400">Loading order details...</p>
@@ -1522,7 +1672,7 @@ export default function OrderTracking() {
   // Error state (moved after hooks)
   if (error || !order) {
     return (
-      <AnimatedPage className="min-h-screen bg-gray-50 dark:bg-zinc-950 p-4">
+      <AnimatedPage className="min-h-screen bg-gray-50 dark:bg-[#141414] p-4">
         <div className="max-w-lg mx-auto text-center py-20">
           <h1 className="text-lg sm:text-xl md:text-2xl font-bold mb-4 dark:text-white">Order Not Found</h1>
           <p className="text-gray-600 dark:text-gray-400 mb-6">{error || 'The order you\'re looking for doesn\'t exist.'}</p>
@@ -1706,7 +1856,7 @@ export default function OrderTracking() {
     };
 
     return (
-      <div className="min-h-screen w-full flex flex-col bg-slate-50/70 dark:bg-zinc-950 text-gray-900 dark:text-white relative overflow-y-auto pb-12">
+      <div className="min-h-screen w-full flex flex-col bg-slate-50/70 dark:bg-[#141414] text-gray-900 dark:text-white relative overflow-y-auto pb-12">
         {/* Top Header */}
         <div className="sticky top-0 z-40 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md px-4 py-3.5 border-b border-gray-100 dark:border-zinc-800 flex items-center justify-between shadow-xs">
           <button
@@ -2096,7 +2246,7 @@ export default function OrderTracking() {
   }
 
   return (
-    <div className="relative h-[100dvh] w-full flex flex-col overflow-hidden bg-gray-50 dark:bg-zinc-950">
+    <div className="relative h-[100dvh] w-full flex flex-col overflow-hidden bg-gray-50 dark:bg-[#141414]">
       {/* Order Confirmed Modal */}
       <AnimatePresence>
         {showConfirmation && (
@@ -2104,7 +2254,7 @@ export default function OrderTracking() {
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 bg-white dark:bg-[#0a0a0a] flex flex-col items-center justify-center"
+              className="fixed inset-0 z-50 bg-white dark:bg-[#141414] flex flex-col items-center justify-center"
           >
             <motion.div
               initial={{ scale: 0.8, opacity: 0 }}
@@ -2253,7 +2403,7 @@ export default function OrderTracking() {
       )}
 
       {/* DESKTOP VIEW: Floating Responsive Sidebar (Visible on lg+ screens) */}
-      <div className="hidden lg:flex flex-col absolute top-18 left-6 bottom-6 w-[450px] z-40 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-2xl rounded-3xl shadow-[0_20px_60px_rgba(0,0,0,0.2)] border border-gray-200/80 dark:border-zinc-800 overflow-hidden">
+      <div className="hidden lg:flex flex-col absolute top-18 left-6 bottom-6 w-[450px] z-40 bg-white/95 dark:bg-[#141414]/95 backdrop-blur-2xl rounded-3xl shadow-[0_20px_60px_rgba(0,0,0,0.2)] border border-gray-200/80 dark:border-zinc-800 overflow-hidden">
         {/* Desktop Sidebar Header */}
         <div className="px-6 py-4 border-b border-gray-100 dark:border-zinc-800 flex items-center justify-between shrink-0 bg-white/50 dark:bg-zinc-900/50">
           <div className="flex items-center gap-2">
@@ -2569,7 +2719,7 @@ export default function OrderTracking() {
             '90vh',
         }}
         transition={{ type: "spring", damping: 28, stiffness: 290 }}
-        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-2xl rounded-t-[2.5rem] shadow-[0_-20px_50px_rgba(0,0,0,0.22)] flex flex-col overflow-hidden border-t border-white/60 dark:border-zinc-800"
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#141414]/95 backdrop-blur-2xl rounded-t-[2.5rem] shadow-[0_-20px_50px_rgba(0,0,0,0.22)] flex flex-col overflow-hidden border-t border-white/60 dark:border-zinc-800"
       >
         {/* Interactive Handle Bar with Mode Toggle */}
         <div className="w-full pt-3 pb-2 flex flex-col items-center shrink-0 select-none bg-white/50 dark:bg-zinc-900/50 border-b border-gray-100/80 dark:border-zinc-800/80">

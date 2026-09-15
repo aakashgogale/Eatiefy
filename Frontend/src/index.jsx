@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { Toaster } from 'sonner'
 import App from './app/App.jsx'
 import { isModuleAuthenticated } from './modules/Food/utils/auth.js'
+import { applyThemeForPath } from './shared/utils/appTheme.js'
 import './shared/styles/global.css'
 
 const NATIVE_LAST_ROUTE_KEY = 'native_last_route'
@@ -14,13 +15,9 @@ import('./modules/Food/utils/businessSettings.js')
   .then(({ loadBusinessSettings }) => loadBusinessSettings())
   .catch(() => { /* Silently fail — settings load when admin authenticates */ })
 
-// Apply saved theme
-const savedTheme = localStorage.getItem('appTheme') || 'light'
-if (savedTheme === 'dark') {
-  document.documentElement.classList.add('dark')
-} else {
-  document.documentElement.classList.remove('dark')
-}
+// Apply saved theme before first paint. Scoped to the user app - the other
+// panels are light-only, so a dark preference must not follow the user there.
+applyThemeForPath(window.location.pathname)
 
 // Track user interaction for navigator.vibrate / audio autoplay
 if (typeof window !== 'undefined') {

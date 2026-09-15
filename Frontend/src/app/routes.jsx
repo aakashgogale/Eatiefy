@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useEffect } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import MaintenanceGate from '../modules/Food/components/MaintenanceGate'
+import { applyThemeForPath } from '../shared/utils/appTheme'
 
 const NATIVE_LAST_ROUTE_KEY = 'native_last_route'
 
@@ -11,7 +12,7 @@ const AuthApp = lazy(() => import('../modules/auth/routes'))
 import ProtectedRoute from '@food/components/ProtectedRoute'
 
 const PageLoader = () => (
-  <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center p-6 bg-white dark:bg-[#0a0a0a]">
+  <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center p-6 bg-white dark:bg-[#141414]">
     <Loader2 className="h-10 w-10 animate-spin text-[#CB202D]" />
     <p className="mt-4 text-gray-500 font-bold uppercase tracking-widest text-[10px]">
       Loading...
@@ -144,6 +145,13 @@ const AppRoutes = () => {
       localStorage.setItem(NATIVE_LAST_ROUTE_KEY, route)
     }
   }, [location.pathname, location.search])
+
+  // Dark mode belongs to the user app only. Re-apply on every navigation so
+  // leaving it (to restaurant, delivery or admin) drops the dark class, and
+  // coming back restores it.
+  useEffect(() => {
+    applyThemeForPath(location.pathname)
+  }, [location.pathname])
 
   return (
     <Suspense fallback={<ShellFallback />}>

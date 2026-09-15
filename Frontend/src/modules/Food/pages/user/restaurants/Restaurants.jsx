@@ -113,7 +113,7 @@ export default function Restaurants() {
   const hasRestaurants = useMemo(() => visibleRestaurants.length > 0, [visibleRestaurants.length])
 
   return (
-    <AnimatedPage className="min-h-screen bg-gradient-to-b from-yellow-50/30 dark:from-[#0a0a0a] via-white dark:via-[#0a0a0a] to-orange-50/20 dark:to-[#0a0a0a]">
+    <AnimatedPage className="min-h-screen bg-gradient-to-b from-yellow-50/30 dark:from-[#141414] via-white dark:via-[#141414] to-orange-50/20 dark:to-[#141414]">
       <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 xl:px-12 py-4 sm:py-6 md:py-8 lg:py-10 space-y-4 sm:space-y-6 lg:space-y-8">
         <ScrollReveal>
           <div className="flex items-center gap-3 sm:gap-4 lg:gap-5 mb-4 lg:mb-6">
@@ -161,7 +161,7 @@ export default function Restaurants() {
               return (
                 <ScrollReveal key={restaurant.id} delay={index * 0.05}>
                   <Link to={`/restaurants/${restaurant.slug}`} className="h-full flex">
-                    <Card className="overflow-hidden cursor-pointer border border-gray-200 dark:border-gray-800 group bg-white dark:bg-[#1a1a1a] hover:shadow-lg dark:hover:shadow-xl dark:hover:shadow-gray-900/50 pb-1 sm:pb-2 lg:pb-3 flex flex-col h-full w-full transition-all duration-300">
+                    <Card className="overflow-hidden cursor-pointer border border-gray-200 dark:border-gray-800 group bg-white dark:bg-[#242424] hover:shadow-lg dark:hover:shadow-xl dark:hover:shadow-gray-900/50 pb-1 sm:pb-2 lg:pb-3 flex flex-col h-full w-full transition-all duration-300">
                       <div className="flex flex-row min-h-[120px] sm:min-h-[140px] md:min-h-[160px] lg:min-h-[180px] flex-1">
                         <CardContent className="flex-1 flex flex-col justify-between p-3 sm:p-4 md:p-5 lg:p-6 min-w-0 overflow-hidden">
                           <div className="flex-1 flex flex-col justify-between gap-2">

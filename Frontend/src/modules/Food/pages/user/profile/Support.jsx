@@ -203,7 +203,7 @@ export default function Support() {
   }
 
   const TicketList = () => (
-    <Card className="bg-white dark:bg-[#1a1a1a] rounded-xl shadow-sm border border-slate-200 dark:border-gray-800">
+    <Card className="bg-white dark:bg-[#242424] rounded-xl shadow-sm border border-slate-200 dark:border-gray-800">
       <CardContent className="p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-base font-semibold text-gray-900 dark:text-white">My Tickets</h3>
@@ -243,20 +243,20 @@ export default function Support() {
   )
 
   return (
-    <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a]">
+    <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#141414]">
       <div className="max-w-md md:max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 py-4 sm:py-6 md:py-8 pb-20">
         {/* Header */}
         <div className="flex items-center mb-6 md:mb-8">
           <div
             onClick={handleTopBack}
-            className="h-10 w-10 md:h-11 md:w-11 flex items-center justify-center bg-white dark:bg-[#1a1a1a] rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.05)] hover:shadow-[0_4px_15px_rgba(0,0,0,0.08)] active:scale-95 transition-all cursor-pointer border border-slate-100 dark:border-gray-800"
+            className="h-10 w-10 md:h-11 md:w-11 flex items-center justify-center bg-white dark:bg-[#242424] rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.05)] hover:shadow-[0_4px_15px_rgba(0,0,0,0.08)] active:scale-95 transition-all cursor-pointer border border-slate-100 dark:border-gray-800"
           >
             <ArrowLeft className="h-5 w-5 text-slate-800 dark:text-white" />
           </div>
           <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-slate-900 dark:text-white ml-4">Help & Support</h1>
         </div>
 
-        <Card className="bg-gradient-to-br from-[#1F6B45]/5 to-white dark:from-[#1F6B45]/10 dark:to-[#1a1a1a] rounded-2xl shadow-sm border border-[#1F6B45]/10 dark:border-gray-800 mb-5 md:mb-6 overflow-hidden">
+        <Card className="bg-gradient-to-br from-[#1F6B45]/5 to-white dark:from-[#1F6B45]/10 dark:to-[#242424] rounded-2xl shadow-sm border border-[#1F6B45]/10 dark:border-gray-800 mb-5 md:mb-6 overflow-hidden">
           <CardContent className="p-5 md:p-6 relative">
             <div className="absolute top-0 right-0 w-32 h-32 bg-[#1F6B45]/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
             <div className="relative z-10">
@@ -266,11 +266,11 @@ export default function Support() {
           </CardContent>
         </Card>
 
-        <Card className="bg-white dark:bg-[#1a1a1a] rounded-xl shadow-sm border border-slate-200 dark:border-gray-800 mb-3">
+        <Card className="bg-white dark:bg-[#242424] rounded-xl shadow-sm border border-slate-200 dark:border-gray-800 mb-3">
           <CardContent className="p-4 space-y-4">
             {step === "pick" && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <button onClick={() => handlePick("order")} className="group w-full bg-white dark:bg-[#1a1a1a] border border-slate-100 dark:border-gray-800 rounded-2xl p-5 text-left hover:border-[#1F6B45]/30 dark:hover:border-[#1F6B45]/50 hover:shadow-[0_8px_20px_rgba(220,38,38,0.06)] transition-all">
+                <button onClick={() => handlePick("order")} className="group w-full bg-white dark:bg-[#242424] border border-slate-100 dark:border-gray-800 rounded-2xl p-5 text-left hover:border-[#1F6B45]/30 dark:hover:border-[#1F6B45]/50 hover:shadow-[0_8px_20px_rgba(220,38,38,0.06)] transition-all">
                   <div className="flex items-center justify-between">
                     <div className="bg-slate-50 dark:bg-gray-800/80 rounded-full p-3 group-hover:bg-[#1F6B45]/10 transition-colors">
                       <ShoppingBag className="h-5 w-5 md:h-6 md:w-6 text-slate-700 dark:text-slate-300 group-hover:text-[#1F6B45] transition-colors" />
@@ -281,7 +281,7 @@ export default function Support() {
                   <p className="text-sm text-slate-500 dark:text-gray-400 mt-1.5 leading-relaxed">Missing item, wrong item, delivery issue</p>
                 </button>
 
-                <button onClick={() => handlePick("restaurant")} className="group w-full bg-white dark:bg-[#1a1a1a] border border-slate-100 dark:border-gray-800 rounded-2xl p-5 text-left hover:border-[#1F6B45]/30 dark:hover:border-[#1F6B45]/50 hover:shadow-[0_8px_20px_rgba(220,38,38,0.06)] transition-all">
+                <button onClick={() => handlePick("restaurant")} className="group w-full bg-white dark:bg-[#242424] border border-slate-100 dark:border-gray-800 rounded-2xl p-5 text-left hover:border-[#1F6B45]/30 dark:hover:border-[#1F6B45]/50 hover:shadow-[0_8px_20px_rgba(220,38,38,0.06)] transition-all">
                   <div className="flex items-center justify-between">
                     <div className="bg-slate-50 dark:bg-gray-800/80 rounded-full p-3 group-hover:bg-[#1F6B45]/10 transition-colors">
                       <Building2 className="h-5 w-5 md:h-6 md:w-6 text-slate-700 dark:text-slate-300 group-hover:text-[#1F6B45] transition-colors" />
@@ -292,7 +292,7 @@ export default function Support() {
                   <p className="text-sm text-slate-500 dark:text-gray-400 mt-1.5 leading-relaxed">Service, listing info, behavior report</p>
                 </button>
 
-                <button onClick={() => handlePick("other")} className="group w-full bg-white dark:bg-[#1a1a1a] border border-slate-100 dark:border-gray-800 rounded-2xl p-5 text-left hover:border-[#1F6B45]/30 dark:hover:border-[#1F6B45]/50 hover:shadow-[0_8px_20px_rgba(220,38,38,0.06)] transition-all">
+                <button onClick={() => handlePick("other")} className="group w-full bg-white dark:bg-[#242424] border border-slate-100 dark:border-gray-800 rounded-2xl p-5 text-left hover:border-[#1F6B45]/30 dark:hover:border-[#1F6B45]/50 hover:shadow-[0_8px_20px_rgba(220,38,38,0.06)] transition-all">
                   <div className="flex items-center justify-between">
                     <div className="bg-slate-50 dark:bg-gray-800/80 rounded-full p-3 group-hover:bg-[#1F6B45]/10 transition-colors">
                       <HelpCircle className="h-5 w-5 md:h-6 md:w-6 text-slate-700 dark:text-slate-300 group-hover:text-[#1F6B45] transition-colors" />
@@ -312,7 +312,7 @@ export default function Support() {
                   <p className="text-sm text-slate-500 dark:text-gray-400 mt-1">Select an order below to report your issue</p>
                 </div>
                 {loadingOrders ? (
-                  <p className="text-sm text-slate-500 bg-slate-50 dark:bg-[#111] p-4 rounded-xl text-center border border-slate-100 dark:border-gray-800">Loading orders...</p>
+                  <p className="text-sm text-slate-500 bg-slate-50 dark:bg-[#1c1c1c] p-4 rounded-xl text-center border border-slate-100 dark:border-gray-800">Loading orders...</p>
                 ) : orders.length > 0 ? (
                   <div className="space-y-2">
                     <Input
@@ -321,10 +321,10 @@ export default function Support() {
                       onFocus={() => setOrderSearchFocused(true)}
                       onBlur={() => setTimeout(() => setOrderSearchFocused(false), 200)}
                       placeholder="Search order"
-                      className="mb-3 h-12 bg-slate-50 dark:bg-[#111] border-slate-200 dark:border-gray-800 focus-visible:ring-2 focus-visible:ring-slate-200 dark:focus-visible:ring-slate-800 focus-visible:border-transparent rounded-xl text-base placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-white"
+                      className="mb-3 h-12 bg-slate-50 dark:bg-[#1c1c1c] border-slate-200 dark:border-gray-800 focus-visible:ring-2 focus-visible:ring-slate-200 dark:focus-visible:ring-slate-800 focus-visible:border-transparent rounded-xl text-base placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-white"
                     />
                     {orderSearchFocused && orderSearch.trim().length > 0 && (
-                      <div className="max-h-[250px] overflow-y-auto space-y-1 border border-slate-200 dark:border-gray-800 rounded-lg p-1.5 bg-slate-50 dark:bg-[#111111]">
+                      <div className="max-h-[250px] overflow-y-auto space-y-1 border border-slate-200 dark:border-gray-800 rounded-lg p-1.5 bg-slate-50 dark:bg-[#1c1c1c]">
                       {filteredOrders.map((o) => (
                         <div
                           key={o._id || o.id}
@@ -344,7 +344,7 @@ export default function Support() {
                     )}
                   </div>
                 ) : (
-                  <p className="text-sm text-slate-500 bg-slate-50 dark:bg-[#111] p-4 rounded-xl text-center border border-slate-100 dark:border-gray-800">No recent orders found</p>
+                  <p className="text-sm text-slate-500 bg-slate-50 dark:bg-[#1c1c1c] p-4 rounded-xl text-center border border-slate-100 dark:border-gray-800">No recent orders found</p>
                 )}
                 <div className="pt-4 mt-2 border-t border-slate-100 dark:border-gray-800">
                   <Button variant="outline" onClick={() => setStep("pick")} className="w-full h-12 rounded-xl font-semibold border-slate-200 dark:border-gray-800 hover:bg-slate-50 dark:hover:bg-[#222] text-slate-700 dark:text-slate-300 transition-all">Go Back</Button>
@@ -363,7 +363,7 @@ export default function Support() {
                     <Button key={it} variant={issueType === it ? "default" : "outline"} onClick={() => setIssueType(it)}>{it}</Button>
                   ))}
                 </div>
-                <Textarea placeholder="Describe the issue (optional)" value={description} onChange={(e) => setDescription(e.target.value)} className="min-h-[100px] placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-white bg-slate-50 dark:bg-[#111] border-slate-200 dark:border-gray-800 focus-visible:ring-2 focus-visible:ring-slate-200 dark:focus-visible:ring-slate-800 focus-visible:border-transparent rounded-xl text-base p-4" />
+                <Textarea placeholder="Describe the issue (optional)" value={description} onChange={(e) => setDescription(e.target.value)} className="min-h-[100px] placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-white bg-slate-50 dark:bg-[#1c1c1c] border-slate-200 dark:border-gray-800 focus-visible:ring-2 focus-visible:ring-slate-200 dark:focus-visible:ring-slate-800 focus-visible:border-transparent rounded-xl text-base p-4" />
                 <div className="flex flex-col sm:flex-row gap-3 mt-4">
                   <Button 
                     onClick={() => submitTicket({ type: "order", orderId: selectedOrder._id || selectedOrder.id || selectedOrder.orderId, issueType, description })} 
@@ -384,7 +384,7 @@ export default function Support() {
                   <p className="text-sm text-slate-500 dark:text-gray-400 mt-1">Select a restaurant below to report your issue</p>
                 </div>
                 {loadingRestaurants ? (
-                  <p className="text-sm text-slate-500 bg-slate-50 dark:bg-[#111] p-4 rounded-xl text-center border border-slate-100 dark:border-gray-800">Loading restaurants...</p>
+                  <p className="text-sm text-slate-500 bg-slate-50 dark:bg-[#1c1c1c] p-4 rounded-xl text-center border border-slate-100 dark:border-gray-800">Loading restaurants...</p>
                 ) : restaurants.length > 0 ? (
                   <div className="space-y-2">
                     <Input
@@ -393,10 +393,10 @@ export default function Support() {
                       onFocus={() => setRestaurantSearchFocused(true)}
                       onBlur={() => setTimeout(() => setRestaurantSearchFocused(false), 200)}
                       placeholder="Search restaurant"
-                      className="mb-3 h-12 bg-slate-50 dark:bg-[#111] border-slate-200 dark:border-gray-800 focus-visible:ring-2 focus-visible:ring-slate-200 dark:focus-visible:ring-slate-800 focus-visible:border-transparent rounded-xl text-base placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-white"
+                      className="mb-3 h-12 bg-slate-50 dark:bg-[#1c1c1c] border-slate-200 dark:border-gray-800 focus-visible:ring-2 focus-visible:ring-slate-200 dark:focus-visible:ring-slate-800 focus-visible:border-transparent rounded-xl text-base placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-white"
                     />
                     {restaurantSearchFocused && restaurantSearch.trim().length > 0 && (
-                      <div className="max-h-[250px] overflow-y-auto space-y-1 border border-slate-200 dark:border-gray-800 rounded-lg p-1.5 bg-slate-50 dark:bg-[#111111]">
+                      <div className="max-h-[250px] overflow-y-auto space-y-1 border border-slate-200 dark:border-gray-800 rounded-lg p-1.5 bg-slate-50 dark:bg-[#1c1c1c]">
                       {filteredRestaurants.map((r) => (
                         <div 
                           key={r._id || r.id} 
@@ -416,7 +416,7 @@ export default function Support() {
                     )}
                   </div>
                 ) : (
-                  <p className="text-sm text-slate-500 bg-slate-50 dark:bg-[#111] p-4 rounded-xl text-center border border-slate-100 dark:border-gray-800">No restaurants found</p>
+                  <p className="text-sm text-slate-500 bg-slate-50 dark:bg-[#1c1c1c] p-4 rounded-xl text-center border border-slate-100 dark:border-gray-800">No restaurants found</p>
                 )}
                 <div className="pt-4 mt-2 border-t border-slate-100 dark:border-gray-800">
                   <Button variant="outline" onClick={() => setStep("pick")} className="w-full h-12 rounded-xl font-semibold border-slate-200 dark:border-gray-800 hover:bg-slate-50 dark:hover:bg-[#222] text-slate-700 dark:text-slate-300 transition-all">Go Back</Button>
@@ -435,7 +435,7 @@ export default function Support() {
                     <Button key={it} variant={issueType === it ? "default" : "outline"} onClick={() => setIssueType(it)}>{it}</Button>
                   ))}
                 </div>
-                <Textarea placeholder="Describe the issue (optional)" value={description} onChange={(e) => setDescription(e.target.value)} className="min-h-[100px] placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-white bg-slate-50 dark:bg-[#111] border-slate-200 dark:border-gray-800 focus-visible:ring-2 focus-visible:ring-slate-200 dark:focus-visible:ring-slate-800 focus-visible:border-transparent rounded-xl text-base p-4" />
+                <Textarea placeholder="Describe the issue (optional)" value={description} onChange={(e) => setDescription(e.target.value)} className="min-h-[100px] placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-white bg-slate-50 dark:bg-[#1c1c1c] border-slate-200 dark:border-gray-800 focus-visible:ring-2 focus-visible:ring-slate-200 dark:focus-visible:ring-slate-800 focus-visible:border-transparent rounded-xl text-base p-4" />
                 <div className="flex flex-col sm:flex-row gap-3 mt-4">
                   <Button 
                     onClick={() => submitTicket({ type: "restaurant", restaurantId: selectedRestaurant._id || selectedRestaurant.id, issueType, description })} 
@@ -452,8 +452,8 @@ export default function Support() {
             {step === "other_form" && (
               <div className="space-y-4">
                 <h3 className="font-semibold text-slate-900 dark:text-white">Other Issue Details</h3>
-                <Input placeholder="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} className="h-12 bg-slate-50 dark:bg-[#111] border-slate-200 dark:border-gray-800 focus-visible:ring-2 focus-visible:ring-slate-200 dark:focus-visible:ring-slate-800 focus-visible:border-transparent rounded-xl text-base placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-white" />
-                <Textarea placeholder="Describe your issue" value={description} onChange={(e) => setDescription(e.target.value)} className="min-h-[120px] bg-slate-50 dark:bg-[#111] border-slate-200 dark:border-gray-800 focus-visible:ring-2 focus-visible:ring-slate-200 dark:focus-visible:ring-slate-800 focus-visible:border-transparent rounded-xl p-4 text-base placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-white" />
+                <Input placeholder="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} className="h-12 bg-slate-50 dark:bg-[#1c1c1c] border-slate-200 dark:border-gray-800 focus-visible:ring-2 focus-visible:ring-slate-200 dark:focus-visible:ring-slate-800 focus-visible:border-transparent rounded-xl text-base placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-white" />
+                <Textarea placeholder="Describe your issue" value={description} onChange={(e) => setDescription(e.target.value)} className="min-h-[120px] bg-slate-50 dark:bg-[#1c1c1c] border-slate-200 dark:border-gray-800 focus-visible:ring-2 focus-visible:ring-slate-200 dark:focus-visible:ring-slate-800 focus-visible:border-transparent rounded-xl p-4 text-base placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-white" />
                 <div className="flex flex-col sm:flex-row gap-3 mt-4">
                   <Button 
                     onClick={() => submitTicket({ type: "other", issueType: subject || "Other", description })} 

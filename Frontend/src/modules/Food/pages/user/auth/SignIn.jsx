@@ -115,18 +115,18 @@ export default function SignIn() {
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex items-center justify-center p-4">
+    <AnimatedPage className="min-h-screen bg-gray-50 dark:bg-[#141414] flex items-center justify-center p-4">
       {/* Background decoration (desktop only) */}
       <div className="fixed inset-0 z-0 hidden md:block opacity-40">
         <img src={loginBanner} alt="" className="w-full h-full object-cover blur-sm" />
         <div className="absolute inset-0 bg-white/60 dark:bg-black/80" />
       </div>
 
-      <div className="w-full max-w-[450px] bg-white dark:bg-[#1a1a1a] rounded-xl shadow-2xl relative z-10 overflow-hidden border border-gray-100 dark:border-gray-800">
+      <div className="w-full max-w-[450px] bg-white dark:bg-[#242424] rounded-xl shadow-2xl relative z-10 overflow-hidden border border-gray-100 dark:border-gray-800">
         {/* Banner (Mobile Only) */}
         <div className="md:hidden w-full h-[180px] relative">
           <img src={loginBanner} alt="Food Banner" className="w-full h-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-white dark:from-[#1a1a1a] to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-white dark:from-[#242424] to-transparent" />
         </div>
 
         <div className="p-6 sm:p-8 md:p-10 space-y-6 md:space-y-8">
@@ -155,7 +155,7 @@ export default function SignIn() {
                   placeholder="Phone number"
                   value={formData.phone}
                   onChange={handleChange}
-                  className={`flex-1 h-12 md:h-14 text-lg bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-white border-gray-300 dark:border-gray-700 rounded-lg rounded-l-none focus-visible:ring-1 focus-visible:ring-primary focus-visible:border-primary ${error ? "border-red-500" : ""} transition-all`}
+                  className={`flex-1 h-12 md:h-14 text-lg bg-white dark:bg-[#242424] text-gray-900 dark:text-white border-gray-300 dark:border-gray-700 rounded-lg rounded-l-none focus-visible:ring-1 focus-visible:ring-primary focus-visible:border-primary ${error ? "border-red-500" : ""} transition-all`}
                   aria-invalid={error ? "true" : "false"}
                 />
               </div>
@@ -191,7 +191,7 @@ export default function SignIn() {
               <span className="w-full border-t border-gray-200 dark:border-gray-800" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-white dark:bg-[#1a1a1a] px-3 text-gray-500 dark:text-gray-400 font-medium">
+              <span className="bg-white dark:bg-[#242424] px-3 text-gray-500 dark:text-gray-400 font-medium">
                 or
               </span>
             </div>

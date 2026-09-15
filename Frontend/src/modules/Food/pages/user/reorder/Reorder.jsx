@@ -124,9 +124,9 @@ export default function Reorder() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f8f9fa] dark:bg-[#0a0a0a] pb-32 transition-colors duration-200">
+    <div className="min-h-screen bg-[#f8f9fa] dark:bg-[#141414] pb-32 transition-colors duration-200">
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 px-4 py-3.5 flex items-center justify-between shadow-xs">
+      <header className="sticky top-0 z-40 bg-white dark:bg-[#242424] border-b border-gray-100 dark:border-gray-800 px-4 py-3.5 flex items-center justify-between shadow-xs">
         <button
           onClick={() => navigate(-1)}
           className="p-2 -ml-1 rounded-full text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
@@ -234,7 +234,7 @@ export default function Reorder() {
               return (
                 <div
                   key={order.id || order._id || idx}
-                  className="bg-white dark:bg-[#1a1a1a] rounded-2xl p-4 shadow-sm border border-gray-100 dark:border-gray-800 hover:shadow-md transition-all"
+                  className="bg-white dark:bg-[#242424] rounded-2xl p-4 shadow-sm border border-gray-100 dark:border-gray-800 hover:shadow-md transition-all"
                 >
                   {/* Restaurant & Date Header */}
                   <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">

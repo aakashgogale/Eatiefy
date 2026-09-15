@@ -38,7 +38,7 @@ const FilterSidebar = ({
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="relative w-full max-w-sm bg-white dark:bg-[#111111] h-full shadow-2xl flex flex-col"
+            className="relative w-full max-w-sm bg-white dark:bg-[#1c1c1c] h-full shadow-2xl flex flex-col"
           >
             <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
               <h2 className="text-lg font-bold flex items-center gap-2">
@@ -62,7 +62,7 @@ const FilterSidebar = ({
                     onClick={() => setActiveTab(tab.id)}
                     className={`w-full p-4 flex flex-col items-center gap-1 transition-all duration-200 ${
                       activeTab === tab.id 
-                        ? 'bg-white dark:bg-[#1a1a1a] text-[#1F6B45] border-r-2 border-[#1F6B45]' 
+                        ? 'bg-white dark:bg-[#242424] text-[#1F6B45] border-r-2 border-[#1F6B45]' 
                         : 'text-gray-500 hover:text-gray-700'
                     }`}
                   >
@@ -122,7 +122,7 @@ const FilterSidebar = ({
               </div>
             </div>
 
-            <div className="p-4 border-t border-gray-100 dark:border-gray-800 flex gap-3 bg-white dark:bg-[#111111]">
+            <div className="p-4 border-t border-gray-100 dark:border-gray-800 flex gap-3 bg-white dark:bg-[#1c1c1c]">
               <button 
                 onClick={onReset}
                 className="flex-1 py-3 text-sm font-bold text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all"

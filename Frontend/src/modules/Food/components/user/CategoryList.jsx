@@ -32,7 +32,7 @@ const CategoryList = ({ loading, categories, onCategoryClick }) => {
               onClick={() => onCategoryClick(category)}
               className="flex-shrink-0 flex flex-col items-center gap-2 sm:gap-3 cursor-pointer group"
             >
-              <div className="relative w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 lg:w-28 lg:h-28 rounded-full bg-white dark:bg-[#1a1a1a] shadow-md group-hover:shadow-xl transition-all duration-300 p-1 ring-2 ring-transparent group-hover:ring-[#1F6B45]/20 overflow-hidden">
+              <div className="relative w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 lg:w-28 lg:h-28 rounded-full bg-white dark:bg-[#242424] shadow-md group-hover:shadow-xl transition-all duration-300 p-1 ring-2 ring-transparent group-hover:ring-[#1F6B45]/20 overflow-hidden">
                 <OptimizedImage
                   src={category.image}
                   alt={category.name}

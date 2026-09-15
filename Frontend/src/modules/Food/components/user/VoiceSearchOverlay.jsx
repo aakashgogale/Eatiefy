@@ -66,7 +66,7 @@ const VoiceSearchOverlay = ({
             initial={{ scale: 0.9, y: 20, opacity: 0 }}
             animate={{ scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.9, y: 20, opacity: 0 }}
-            className="w-full max-w-sm bg-white dark:bg-[#1a1a1a] rounded-[2.5rem] p-10 flex flex-col items-center relative overflow-hidden shadow-2xl"
+            className="w-full max-w-sm bg-white dark:bg-[#242424] rounded-[2.5rem] p-10 flex flex-col items-center relative overflow-hidden shadow-2xl"
           >
             <button
               onClick={handleClose}

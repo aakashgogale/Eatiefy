@@ -46,7 +46,7 @@ function BackToTopButtonInner({
           transition={{ duration: 0.2, ease: "easeOut" }}
           onClick={handleClick}
           aria-label="Back to top"
-          className={`fixed right-4 z-[60] ${bottomClassName} flex h-11 w-11 items-center justify-center rounded-full border border-white/40 bg-white/90 text-gray-800 shadow-[0_8px_24px_rgba(0,0,0,0.14)] backdrop-blur-md transition-colors hover:bg-white active:scale-95 dark:border-white/10 dark:bg-[#1a1a1a]/90 dark:text-white md:right-6`}
+          className={`fixed right-4 z-[60] ${bottomClassName} flex h-11 w-11 items-center justify-center rounded-full border border-white/40 bg-white/90 text-gray-800 shadow-[0_8px_24px_rgba(0,0,0,0.14)] backdrop-blur-md transition-colors hover:bg-white active:scale-95 dark:border-white/10 dark:bg-[#242424]/90 dark:text-white md:right-6`}
           style={{
             boxShadow:
               "0 8px 24px rgba(0,0,0,0.14), 0 0 0 1px rgba(var(--module-theme-rgb,226,173,75),0.08)",

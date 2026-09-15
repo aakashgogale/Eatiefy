@@ -59,7 +59,7 @@ export default function OnboardingExitModal({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.98, y: 8 }}
             transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="w-full max-w-[320px] bg-white dark:bg-[#1a1a1a] rounded-3xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-800 relative z-10"
+            className="w-full max-w-[320px] bg-white dark:bg-[#242424] rounded-3xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-800 relative z-10"
             onClick={(event) => event.stopPropagation()}
           >
             <div className={`${palette.header} p-6 text-center relative`}>
@@ -71,7 +71,7 @@ export default function OnboardingExitModal({
               <p className="text-white/85 text-[13px] leading-relaxed">{message}</p>
             </div>
 
-            <div className="p-6 pt-5 space-y-3 bg-white dark:bg-[#1a1a1a]">
+            <div className="p-6 pt-5 space-y-3 bg-white dark:bg-[#242424]">
               <button
                 type="button"
                 onClick={onStay}

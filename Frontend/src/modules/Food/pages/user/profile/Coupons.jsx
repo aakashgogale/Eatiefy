@@ -51,7 +51,7 @@ export default function Coupons() {
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a]">
+    <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#141414]">
       <div className="max-w-md mx-auto px-4 py-4">
         {/* Header */}
         <div className="flex items-center gap-3 mb-8">
@@ -82,7 +82,7 @@ export default function Coupons() {
               return (
                 <div
                   key={offer?.id || offer?.offerId || code}
-                  className="bg-white dark:bg-[#1a1a1a] rounded-2xl border border-gray-200 dark:border-gray-800 p-4"
+                  className="bg-white dark:bg-[#242424] rounded-2xl border border-gray-200 dark:border-gray-800 p-4"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3 min-w-0">

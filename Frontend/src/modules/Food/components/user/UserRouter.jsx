@@ -97,7 +97,7 @@ import { AppShellSkeleton } from "@food/components/ui/loading-skeletons"
 import { Loader2 } from "lucide-react"
 
 const PageLoader = () => (
-  <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center p-6 bg-white dark:bg-[#0a0a0a]">
+  <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center p-6 bg-white dark:bg-[#141414]">
     <Loader2 className="h-10 w-10 animate-spin text-[#1F6B45]" />
     <p className="mt-4 text-gray-500 font-bold uppercase tracking-widest text-[10px]">
       Loading...

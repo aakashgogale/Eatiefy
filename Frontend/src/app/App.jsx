@@ -18,7 +18,7 @@ function App() {
   // Normal Loading Spinner (if needed in future)
   if (isLoading) {
     return (
-      <div className="fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-white dark:bg-[#0a0a0a]">
+      <div className="fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-white dark:bg-[#141414]">
         <div className="relative w-16 h-16 flex items-center justify-center">
           <div className="absolute inset-0 border-4 border-[#DC2626]/10 rounded-full" />
           <div className="absolute inset-0 border-4 border-t-[#DC2626] rounded-full animate-spin" />

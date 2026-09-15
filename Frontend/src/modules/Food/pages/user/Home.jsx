@@ -120,6 +120,7 @@ import { usePublicAppConfig } from "@food/context/PublicAppConfigContext";
 import { API_BASE_URL } from "@food/api/config";
 import OptimizedImage from "@food/components/OptimizedImage";
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability";
+import { useFoodPageInvalidation } from "@food/hooks/useFoodPageInvalidation";
 import HomeHeader, { SearchBarRow } from "@food/components/user/home/HomeHeader";
 import QuickSection from "@food/components/user/home/QuickSection";
 import PromoRow from "@food/components/user/home/PromoRow";
@@ -717,7 +718,7 @@ const RestaurantCard = React.memo(({
       }}>
       <div className="h-full group">
         <Card
-          className={`overflow-hidden gap-0 border-0 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] border-background transition-all duration-500 py-0 rounded-[28px] flex flex-col h-full w-full relative shadow-sm hover:shadow-xl ${isOutOfService || !availability.isOpen
+          className={`overflow-hidden gap-0 border-0 dark:border-gray-800 bg-white dark:bg-[#242424] border-background transition-all duration-500 py-0 rounded-[28px] flex flex-col h-full w-full relative shadow-sm hover:shadow-xl ${isOutOfService || !availability.isOpen
               ? "grayscale opacity-75"
               : ""
             }`}>
@@ -2083,7 +2084,7 @@ export default function Home() {
     return item ? item.quantity : 0;
   };
 
-  const handleIncreaseQuantity = (dish, event = null) => {
+  const handleIncreaseQuantity = async (dish, event = null) => {
     // Check authentication
     if (!isModuleAuthenticated('user')) {
       toast.error("Please login to add items to cart");
@@ -2094,7 +2095,6 @@ export default function Home() {
     const variants = dish.variants || [];
     const resolvedVariant = variants.length > 0 ? variants[0] : null;
     const lineItemId = buildCartLineId(dish.id || dish._id || "", resolvedVariant?.id || resolvedVariant?._id || "");
-    const existingCartItem = getCartItem(lineItemId);
 
     if (isOutOfService) {
       toast.error('You are outside the service zone. Please select a location within the service area.');
@@ -2134,14 +2134,10 @@ export default function Home() {
       }
     }
 
-    if (existingCartItem) {
-      addToCart(cartItem, sourcePosition, { quantity: 1 });
-    } else {
-      const result = addToCart(cartItem, sourcePosition, { quantity: 1 });
-      if (result?.ok === false) {
-        if (result.needsConfirmation) return;
-        toast.error(result.error || 'Cannot add item from different restaurant. Please clear cart first.');
-      }
+    const result = await addToCart(cartItem, sourcePosition, { quantity: 1 });
+    // Cancelled replace prompts are a user choice, not an error worth a toast.
+    if (result?.ok === false && !result.cancelled) {
+      toast.error(result.error || 'Cannot add item from different restaurant. Please clear cart first.');
     }
   };
 
@@ -2740,6 +2736,14 @@ export default function Home() {
     fetchRestaurants(appliedFilters);
   }, [appliedFilters, fetchRestaurants]);
 
+  // Live refresh: pull restaurants again when the catalog changes (a restaurant
+  // went online, edited timings, added a dish) instead of waiting for a reload.
+  useFoodPageInvalidation(
+    useCallback(() => {
+      fetchRestaurants(appliedFilters);
+    }, [fetchRestaurants, appliedFilters]),
+  );
+
   // Recalculate distances when user location updates
   // Menu categories are resolved from admin categories / landing config without N+1 menu network requests
   useEffect(() => {
@@ -3282,7 +3286,7 @@ export default function Home() {
         <div
           ref={heroShellRef}
           data-home-hero-shell="true"
-          className="relative w-full overflow-hidden aspect-[1.85/1] sm:aspect-[2/1] rounded-3xl sm:rounded-[2.4rem] shadow-xl shadow-gray-200/80 dark:shadow-black/60 border border-gray-100 dark:border-gray-800/90 group cursor-pointer bg-white dark:bg-gray-900 transition-all duration-300 hover:shadow-2xl hover:scale-[1.005]"
+          className="relative w-full overflow-hidden aspect-[1.85/1] sm:aspect-[2/1] rounded-3xl sm:rounded-[2.4rem] shadow-xl shadow-gray-200/80 dark:shadow-black/60 border border-gray-100 dark:border-gray-800/90 group cursor-pointer bg-white dark:bg-[#2e2e2e] transition-all duration-300 hover:shadow-2xl hover:scale-[1.005]"
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
@@ -3524,12 +3528,12 @@ export default function Home() {
 
   return (
 
-    <div className="relative min-h-screen bg-white dark:bg-[#0a0a0a] pb-[140px] md:pb-6 overflow-x-clip">
+    <div className="relative min-h-screen bg-white dark:bg-[#141414] pb-[140px] md:pb-6 overflow-x-clip">
       <div className="transition-all duration-300">
         {/* Unified Background for Entire Page - Vibrant Food Theme */}
         <div className="absolute top-0 left-0 right-0 bottom-0 pointer-events-none overflow-hidden z-0">
           {/* Main Background */}
-          <div className="absolute inset-0 bg-white dark:bg-[#0a0a0a]"></div>
+          <div className="absolute inset-0 bg-white dark:bg-[#141414]"></div>
           {/* Background Elements - Reduced to 2 blobs with CSS animations for better performance */}
           <div className="absolute inset-0 overflow-hidden opacity-20">
             {/* Top right blob - CSS animation */}
@@ -3644,7 +3648,7 @@ export default function Home() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -25 }}
               transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-              className="fixed top-0 left-0 right-0 z-[100] bg-white/95 dark:bg-[#1a1a1a]/95 backdrop-blur-xl border-b border-gray-100/60 dark:border-gray-800/80 rounded-b-3xl sm:rounded-b-[2rem] shadow-xl overflow-hidden py-1.5"
+              className="fixed top-0 left-0 right-0 z-[100] bg-white/95 dark:bg-[#242424]/95 backdrop-blur-xl border-b border-gray-100/60 dark:border-gray-800/80 rounded-b-3xl sm:rounded-b-[2rem] shadow-xl overflow-hidden py-1.5"
             >
               {CategoryRailSection}
             </motion.div>
@@ -3781,7 +3785,7 @@ export default function Home() {
                                 />
 
                                 {/* Rating Badge Overlay */}
-                                <div className="absolute bottom-2 left-2 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md px-2 py-0.5 rounded-full shadow-md border border-gray-200/80 dark:border-gray-700/70 flex items-center gap-0.5 text-gray-900 dark:text-white text-[10.5px] font-extrabold z-10">
+                                <div className="absolute bottom-2 left-2 bg-white/95 dark:bg-[#2e2e2e]/95 backdrop-blur-md px-2 py-0.5 rounded-full shadow-md border border-gray-200/80 dark:border-gray-700/70 flex items-center gap-0.5 text-gray-900 dark:text-white text-[10.5px] font-extrabold z-10">
                                   <span className="text-[#24963F] text-[10.5px] leading-none">★</span>
                                   <span className="leading-none">{dish.rating || 4.2}</span>
                                 </div>
@@ -3797,7 +3801,7 @@ export default function Home() {
                                 {/* Plus Button or Quantity Selector Overlay */}
                                 {totalQty > 0 ? (
                                   <div
-                                    className="absolute bottom-2 right-2 h-8 rounded-full bg-white dark:bg-gray-900 shadow-md flex items-center justify-between border px-1.5 gap-1.5 border-gray-200/90 dark:border-gray-700/80 z-10"
+                                    className="absolute bottom-2 right-2 h-8 rounded-full bg-white dark:bg-[#2e2e2e] shadow-md flex items-center justify-between border px-1.5 gap-1.5 border-gray-200/90 dark:border-gray-700/80 z-10"
                                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                   >
                                     <button
@@ -3822,7 +3826,7 @@ export default function Home() {
                                   <button
                                     type="button"
                                     onClick={(e) => handleIncreaseQuantity(dish, e)}
-                                    className="absolute bottom-2 right-2 w-8 h-8 rounded-full bg-white dark:bg-gray-900 shadow-md flex items-center justify-center border transition-all active:scale-90 border-gray-200/90 dark:border-gray-700/80 hover:bg-gray-50 z-10"
+                                    className="absolute bottom-2 right-2 w-8 h-8 rounded-full bg-white dark:bg-[#2e2e2e] shadow-md flex items-center justify-center border transition-all active:scale-90 border-gray-200/90 dark:border-gray-700/80 hover:bg-gray-50 z-10"
                                   >
                                     <Plus className="h-4 w-4 text-[#24963F]" strokeWidth={3} />
                                   </button>
@@ -4025,7 +4029,7 @@ export default function Home() {
                           transition={{ duration: 0.35, delay: index * 0.05 }}
                         >
                           <div
-                            className="group relative flex flex-col rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] shadow-sm hover:shadow-lg transition-all duration-300 cursor-pointer h-full"
+                            className="group relative flex flex-col rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-800 bg-white dark:bg-[#242424] shadow-sm hover:shadow-lg transition-all duration-300 cursor-pointer h-full"
                             onClick={(e) => {
                               if (e.defaultPrevented) return;
                               try { captureHomeScrollBeforeLeave(); } catch (_) { }
@@ -4070,7 +4074,7 @@ export default function Home() {
                             </div>
 
                             {/* Overlapping Restaurant Logo Circle */}
-                            <div className="relative z-10 -mt-5 ml-3 w-9 h-9 sm:w-10 sm:h-10 rounded-full border-2 border-white dark:border-[#1a1a1a] shadow-md bg-white dark:bg-gray-800 overflow-hidden flex items-center justify-center shrink-0">
+                            <div className="relative z-10 -mt-5 ml-3 w-9 h-9 sm:w-10 sm:h-10 rounded-full border-2 border-white dark:border-[#242424] shadow-md bg-white dark:bg-gray-800 overflow-hidden flex items-center justify-center shrink-0">
                               {resolvedLogo ? (
                                 <img
                                   src={resolvedLogo}
@@ -4183,7 +4187,7 @@ export default function Home() {
                   <AnimatePresence>
                     {showRestaurantSkeleton && (
                       <motion.div
-                        className="absolute inset-0 z-10 rounded-lg bg-white/94 dark:bg-[#1a1a1a]/94"
+                        className="absolute inset-0 z-10 rounded-lg bg-white/94 dark:bg-[#242424]/94"
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
@@ -4324,7 +4328,7 @@ export default function Home() {
 
             {/* Modal Content */}
             <motion.div
-              className="absolute bottom-0 left-0 right-0 bg-white dark:bg-[#1a1a1a] rounded-t-3xl max-h-[85vh] flex flex-col"
+              className="absolute bottom-0 left-0 right-0 bg-white dark:bg-[#242424] rounded-t-3xl max-h-[85vh] flex flex-col"
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
@@ -4353,7 +4357,7 @@ export default function Home() {
               {/* Body */}
               <div className="flex flex-1 overflow-hidden">
                 {/* Left Sidebar - Tabs */}
-                <div className="w-24 sm:w-28 bg-gray-50 dark:bg-[#0a0a0a] border-r dark:border-gray-800 flex flex-col">
+                <div className="w-24 sm:w-28 bg-gray-50 dark:bg-[#141414] border-r dark:border-gray-800 flex flex-col">
                   {[
                     { id: "sort", label: "Sort By", icon: ArrowDownUp },
                     { id: "time", label: "Time", icon: Timer },
@@ -4388,7 +4392,7 @@ export default function Home() {
                           }, 800);
                         }}
                         className={`flex flex-col items-center gap-1 py-4 px-2 text-center relative transition-colors ${isActive
-                            ? "bg-white dark:bg-[#1a1a1a] text-[#659116] font-bold"
+                            ? "bg-white dark:bg-[#242424] text-[#659116] font-bold"
                             : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
                           }`}>
                         {isActive && (
@@ -4676,7 +4680,7 @@ export default function Home() {
               </div>
 
               {/* Footer */}
-              <div className="flex items-center gap-4 px-4 py-4 border-t dark:border-gray-800 bg-white dark:bg-[#1a1a1a]">
+              <div className="flex items-center gap-4 px-4 py-4 border-t dark:border-gray-800 bg-white dark:bg-[#242424]">
                 <button
                   onClick={() => setIsFilterOpen(false)}
                   className="flex-1 py-3 text-center font-semibold text-gray-700 dark:text-gray-300">
@@ -4740,7 +4744,7 @@ export default function Home() {
             className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl p-6 pt-7 w-[85%] max-w-xs relative border border-gray-100 dark:border-gray-800">
+            <div className="bg-white dark:bg-[#242424] rounded-2xl shadow-2xl p-6 pt-7 w-[85%] max-w-xs relative border border-gray-100 dark:border-gray-800">
               {/* Food Illustration in Top Right Corner */}
               <div className="absolute top-2.5 right-10 w-16 h-16 pointer-events-none select-none z-10">
                 <img
@@ -4996,7 +5000,7 @@ export default function Home() {
               damping: 30,
               stiffness: 300,
             }}
-            className="fixed inset-x-0 bottom-0 top-12 sm:top-16 md:top-20 z-[9999] bg-white dark:bg-[#1a1a1a] rounded-t-3xl shadow-2xl overflow-hidden flex flex-col"
+            className="fixed inset-x-0 bottom-0 top-12 sm:top-16 md:top-20 z-[9999] bg-white dark:bg-[#242424] rounded-t-3xl shadow-2xl overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}>
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 sm:px-6 sm:py-5 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
@@ -5070,7 +5074,7 @@ export default function Home() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="fixed inset-0 z-[10000] bg-white dark:bg-[#0a0a0a] flex flex-col items-center justify-center gap-12">
+            className="fixed inset-0 z-[10000] bg-white dark:bg-[#141414] flex flex-col items-center justify-center gap-12">
             <div className="relative w-32 h-32 flex items-center justify-center">
               {/* Animated circles - positioned absolutely at the center */}
               {[...Array(8)].map((_, i) => {
@@ -5119,7 +5123,7 @@ export default function Home() {
                   damping: 15,
                   delay: 0.1,
                 }}
-                className={`absolute z-10 w-28 h-28 rounded-full border-2 bg-white dark:bg-[#1a1a1a] flex flex-col items-center justify-center shadow-sm ${
+                className={`absolute z-10 w-28 h-28 rounded-full border-2 bg-white dark:bg-[#242424] flex flex-col items-center justify-center shadow-sm ${
                   vegModeOption === "non-veg"
                     ? "border-red-600 dark:border-red-500"
                     : vegModeOption === "all"
@@ -5178,7 +5182,7 @@ export default function Home() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="fixed inset-0 z-[10000] bg-white dark:bg-[#0a0a0a] flex items-center justify-center">
+            className="fixed inset-0 z-[10000] bg-white dark:bg-[#141414] flex items-center justify-center">
             <div className="flex flex-col items-center gap-6">
               {/* Two Circles Spinning in Opposite Directions */}
               <motion.div
@@ -5407,10 +5411,10 @@ export default function Home() {
                     damping: 28,
                     stiffness: 300,
                   }}
-                  className="fixed left-0 right-0 bottom-0 z-[10000] bg-white dark:bg-gray-900 rounded-t-3xl sm:rounded-t-[2.5rem] max-h-[85vh] flex flex-col overflow-hidden shadow-2xl border-t border-gray-100 dark:border-gray-800"
+                  className="fixed left-0 right-0 bottom-0 z-[10000] bg-white dark:bg-[#2e2e2e] rounded-t-3xl sm:rounded-t-[2.5rem] max-h-[85vh] flex flex-col overflow-hidden shadow-2xl border-t border-gray-100 dark:border-gray-800"
                 >
                   {/* Handle & Header */}
-                  <div className="relative pt-3 pb-3.5 px-5 sm:px-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between bg-white dark:bg-gray-900 sticky top-0 z-10">
+                  <div className="relative pt-3 pb-3.5 px-5 sm:px-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between bg-white dark:bg-[#2e2e2e] sticky top-0 z-10">
                     <div className="absolute left-1/2 -translate-x-1/2 top-2.5 w-12 h-1.5 bg-gray-300 dark:bg-gray-700 rounded-full" />
 
                     <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white tracking-tight mt-3">

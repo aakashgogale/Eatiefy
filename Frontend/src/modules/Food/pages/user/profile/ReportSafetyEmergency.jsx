@@ -128,13 +128,13 @@ export default function ReportSafetyEmergency() {
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a] pb-24 md:pb-0">
+    <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#141414] pb-24 md:pb-0">
       <div className="max-w-5xl mx-auto px-4 md:px-6 lg:px-8 py-4 md:py-6 lg:py-8">
         {/* Header */}
         <div className="flex items-center mb-6 md:mb-8">
           <div
             onClick={goBack}
-            className="h-10 w-10 md:h-11 md:w-11 flex items-center justify-center bg-white dark:bg-[#1a1a1a] rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.05)] hover:shadow-[0_4px_15px_rgba(0,0,0,0.08)] active:scale-95 transition-all cursor-pointer border border-slate-100 dark:border-gray-800"
+            className="h-10 w-10 md:h-11 md:w-11 flex items-center justify-center bg-white dark:bg-[#242424] rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.05)] hover:shadow-[0_4px_15px_rgba(0,0,0,0.08)] active:scale-95 transition-all cursor-pointer border border-slate-100 dark:border-gray-800"
           >
             <ArrowLeft className="h-5 w-5 text-slate-800 dark:text-white" />
           </div>
@@ -142,7 +142,7 @@ export default function ReportSafetyEmergency() {
         </div>
 
         {/* Emergency Contact Card */}
-        <Card className="bg-gradient-to-br from-red-50 to-white dark:from-red-950/30 dark:to-[#1a1a1a] border border-red-100 dark:border-red-900/50 rounded-2xl shadow-sm mb-5 md:mb-6 overflow-hidden">
+        <Card className="bg-gradient-to-br from-red-50 to-white dark:from-red-950/30 dark:to-[#242424] border border-red-100 dark:border-red-900/50 rounded-2xl shadow-sm mb-5 md:mb-6 overflow-hidden">
           <CardContent className="p-5 md:p-6 relative">
             <div className="absolute top-0 right-0 w-32 h-32 bg-red-100 dark:bg-red-900/20 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
             <div className="flex items-start gap-4 relative z-10">
@@ -171,7 +171,7 @@ export default function ReportSafetyEmergency() {
         {!isSubmitted ? (
           <>
             {/* Info Card */}
-            <Card className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800 mb-5 md:mb-6">
+            <Card className="bg-white dark:bg-[#242424] rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800 mb-5 md:mb-6">
               <CardContent className="p-5 md:p-6">
                 <div className="flex items-start gap-4">
                   <div className="bg-slate-50 dark:bg-gray-800/80 rounded-full p-3 mt-0.5 border border-slate-100 dark:border-gray-700">
@@ -190,7 +190,7 @@ export default function ReportSafetyEmergency() {
             </Card>
 
             {/* Report Form */}
-            <Card className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-[0_2px_15px_rgba(0,0,0,0.02)] border border-slate-100 dark:border-gray-800 mb-5 md:mb-6">
+            <Card className="bg-white dark:bg-[#242424] rounded-2xl shadow-[0_2px_15px_rgba(0,0,0,0.02)] border border-slate-100 dark:border-gray-800 mb-5 md:mb-6">
               <CardContent className="p-5 md:p-6">
                 <label className="block text-sm md:text-base font-semibold text-slate-900 dark:text-white mb-3">
                   Describe the safety concern or emergency
@@ -199,7 +199,7 @@ export default function ReportSafetyEmergency() {
                   placeholder="Please provide details about the safety issue..."
                   value={report}
                   onChange={(e) => setReport(e.target.value)}
-                  className="min-h-[160px] md:min-h-[200px] w-full resize-y text-sm md:text-base leading-relaxed bg-slate-50 dark:bg-[#111] border-slate-200 dark:border-gray-800 focus-visible:ring-2 focus-visible:ring-slate-200 dark:focus-visible:ring-slate-800 focus-visible:border-transparent rounded-xl p-4 transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-white"
+                  className="min-h-[160px] md:min-h-[200px] w-full resize-y text-sm md:text-base leading-relaxed bg-slate-50 dark:bg-[#1c1c1c] border-slate-200 dark:border-gray-800 focus-visible:ring-2 focus-visible:ring-slate-200 dark:focus-visible:ring-slate-800 focus-visible:border-transparent rounded-xl p-4 transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-white"
                   dir="ltr"
                   style={{
                     direction: 'ltr',
@@ -233,7 +233,7 @@ export default function ReportSafetyEmergency() {
             </Button>
 
             {/* History */}
-            <Card className="bg-white dark:bg-[#1a1a1a] rounded-xl shadow-sm border-0 dark:border-gray-800 mt-5 md:mt-6">
+            <Card className="bg-white dark:bg-[#242424] rounded-xl shadow-sm border-0 dark:border-gray-800 mt-5 md:mt-6">
               <CardContent className="p-4 md:p-5 lg:p-6">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-base md:text-lg font-semibold text-gray-900 dark:text-white">
@@ -319,7 +319,7 @@ export default function ReportSafetyEmergency() {
                       ) : null}
                     </div>
 
-                    <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#0f0f0f] p-4">
+                    <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#181818] p-4">
                       <p className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap leading-relaxed">
                         {selectedHistoryItem?.message || "—"}
                       </p>
@@ -347,7 +347,7 @@ export default function ReportSafetyEmergency() {
           </>
         ) : (
           /* Success State */
-          <Card className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-md border-0 dark:border-gray-800 overflow-hidden">
+          <Card className="bg-white dark:bg-[#242424] rounded-2xl shadow-md border-0 dark:border-gray-800 overflow-hidden">
             <CardContent className="p-6 md:p-8 lg:p-10 text-center">
               <div className="w-16 h-16 md:w-20 md:h-20 lg:w-24 lg:h-24 bg-red-100 dark:bg-red-900/40 rounded-full flex items-center justify-center mx-auto mb-4 md:mb-5 lg:mb-6">
                 <AlertTriangle className="h-8 w-8 md:h-10 md:w-10 lg:h-12 lg:w-12 text-red-600 dark:text-red-400" />

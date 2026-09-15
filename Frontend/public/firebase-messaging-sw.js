@@ -243,9 +243,12 @@ async function showOsNotificationFromPayload(payload) {
     badge: DEFAULT_NOTIFICATION_ICON,
     image,
     tag: osTag,
-    renotify: data.type === "admin_broadcast",
+    // A delivery offer is time-critical and short-lived: keep the banner up
+    // until the rider acts instead of letting it auto-dismiss, and re-alert on
+    // a repeat so a second offer is not swallowed silently by the shared tag.
+    renotify: data.type === "admin_broadcast" || data.type === "new_order",
     silent: false,
-    requireInteraction: data.type === "admin_broadcast",
+    requireInteraction: data.type === "admin_broadcast" || data.type === "new_order",
     vibrate: [200, 100, 200, 100, 300],
     data: { ...data, link, title, body },
   });

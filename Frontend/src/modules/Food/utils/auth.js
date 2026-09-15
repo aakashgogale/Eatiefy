@@ -6,6 +6,13 @@
 import { clearCategoryBrowseStorage } from "./categoryCache.js";
 
 /**
+ * Fired whenever a rider session is torn down (logout, account switch, expired
+ * token). Live delivery hooks listen for it to drop in-memory offers, stop the
+ * ringtone and reset socket subscriptions.
+ */
+export const DELIVERY_SESSION_RESET_EVENT = "deliverySessionReset";
+
+/**
  * Decode JWT token without verification (client-side only)
  * @param {string} token - JWT token
  * @returns {Object|null} - Decoded token payload or null if invalid
@@ -147,6 +154,63 @@ export function isModuleAuthenticated(module) {
  * Clear authentication data for a specific module
  * @param {string} module - Module name (admin, restaurant, delivery, user)
  */
+/**
+ * Drops the delivery app's persisted runtime state on logout.
+ *
+ * Cleared by prefix rather than by exact key, so it also removes the legacy
+ * unscoped `delivery-v2-online-pref` still sitting on devices from before the
+ * key was namespaced per rider. Leaving it behind meant the next rider to sign
+ * in on this device rehydrated the previous rider's active order and online
+ * status - and since online status is pushed to the server on mount, they were
+ * silently put online and started receiving delivery offers.
+ */
+function clearDeliveryRuntimeState() {
+  const PREFIX = "delivery-v2-online-pref";
+  try {
+    Object.keys(localStorage)
+      .filter((key) => key === PREFIX || key.startsWith(`${PREFIX}:`))
+      .forEach((key) => localStorage.removeItem(key));
+  } catch {
+    /* ignore */
+  }
+
+  /*
+   * Delivery state that was never namespaced per rider.
+   *
+   * Unlike the prefixed bucket above, each of these is a single device-wide key
+   * written by whoever was signed in at the time and read straight back by
+   * whoever signs in next: the muted-request list silences the new rider's
+   * ringtone for order ids they have never seen, and the cached GPS puts them
+   * on duty at the previous rider's last known position.
+   */
+  const UNSCOPED_KEYS = [
+    "delivery_muted_order_ids",
+    "delivery_notifications_muted",
+    "deliveryBoyLastLocation",
+    "deliveryUser",
+  ];
+  UNSCOPED_KEYS.forEach((key) => {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      /* ignore */
+    }
+  });
+
+  /*
+   * localStorage is only half the state. The delivery store is a module
+   * singleton, so on a logout/login inside one app session its in-memory offer
+   * and trip queues are simply carried over - the next rider opens the app
+   * already looking at the previous rider's orders, ringtone included. This
+   * event is what tells the live socket hook and the store to stand down.
+   */
+  try {
+    window.dispatchEvent(new CustomEvent(DELIVERY_SESSION_RESET_EVENT));
+  } catch {
+    /* no window (SSR) or CustomEvent unsupported */
+  }
+}
+
 export function clearModuleAuth(module) {
   localStorage.removeItem(`${module}_accessToken`);
   localStorage.removeItem(`${module}_refreshToken`);
@@ -174,6 +238,7 @@ export function clearModuleAuth(module) {
 
   if (module === "delivery") {
     sessionStorage.removeItem("deliveryAuthData");
+    clearDeliveryRuntimeState();
   }
 
   if (module === "admin") {
@@ -318,6 +383,16 @@ export function setAuthData(module, token, user, refreshToken = null) {
       clearUserSession();
     } else if (module === "restaurant") {
       clearRestaurantSessionCache();
+    } else if (module === "delivery") {
+      /*
+       * Sign-in is the second choke point, and the one that catches what logout
+       * cannot: an account switch where the previous session was never cleanly
+       * ended (app killed, token expired, a different rider simply signs in).
+       * Clearing here, before the new token is written, guarantees the incoming
+       * rider cannot inherit the previous rider's offers, ringtone mutes or
+       * online flag no matter how the previous session ended.
+       */
+      clearDeliveryRuntimeState();
     }
 
     localStorage.setItem(tokenKey, token);

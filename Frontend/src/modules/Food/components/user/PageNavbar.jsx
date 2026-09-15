@@ -1121,7 +1121,7 @@ export default function PageNavbar({
                   <ShoppingCart className={`h-5 w-5 sm:h-6 sm:w-6 ${finalIconColor}`} strokeWidth={2.5} />
                 </div>
                 {cartCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-[#1F6B45] text-white text-[10px] font-bold h-4 w-4 sm:h-5 sm:w-5 rounded-full flex items-center justify-center border-2 border-white dark:border-[#1a1a1a]">
+                  <span className="absolute -top-1 -right-1 bg-[#1F6B45] text-white text-[10px] font-bold h-4 w-4 sm:h-5 sm:w-5 rounded-full flex items-center justify-center border-2 border-white dark:border-[#242424]">
                     {cartCount > 99 ? "99+" : cartCount}
                   </span>
                 )}

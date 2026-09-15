@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from "react"
 import { createPortal } from "react-dom"
 import { Link, useNavigate, useLocation } from "react-router-dom"
-import { Plus, Minus, ArrowLeft, ChevronRight, Clock, MapPin, Phone, FileText, Utensils, Tag, Percent, Share2, Share, ChevronUp, ChevronDown, X, Check, Settings, CreditCard, Wallet, Building2, Sparkles, Banknote, Zap, CheckCircle2, MessageCircle, Send, Mail, Copy, ShoppingBag, AlertTriangle } from "lucide-react"
+import { Plus, Minus, Trash2, ArrowLeft, ChevronRight, Clock, MapPin, Phone, FileText, Utensils, Tag, Percent, Share2, Share, ChevronUp, ChevronDown, X, Check, Settings, CreditCard, Wallet, Building2, Sparkles, Banknote, Zap, CheckCircle2, MessageCircle, Send, Mail, Copy, ShoppingBag, AlertTriangle } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import confetti from "canvas-confetti"
 
@@ -20,6 +20,7 @@ import { toast } from "sonner"
 import { getCompanyNameAsync } from "@food/utils/businessSettings"
 import { calculateDistance, removePlusCode } from "@food/utils/common"
 import { useCompanyName } from "@food/hooks/useCompanyName"
+import { useCompanyLogo } from "@food/hooks/useCompanyLogo"
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { filterPublicOffers, mapPublicOfferToCartCoupon } from "@food/utils/offerUtils"
@@ -84,8 +85,32 @@ const RUPEE_SYMBOL = "\u20B9"
 const CART_RECIPIENT_DETAILS_STORAGE_KEY = "food-cart-recipient-details-v1"
 const CART_ORDER_NOTE_STORAGE_KEY = "food-cart-order-note-v1"
 
+/*
+ * Confetti for the order-success screen, generated once at module load.
+ *
+ * These used to call Math.random() inline inside the JSX, so every re-render of
+ * the cart (and it re-renders often - cart context, polling, page refresh
+ * events) produced a new `left`, duration and delay for all 50 pieces. Changing
+ * the `animation` shorthand restarts a CSS animation from 0%, so the pieces
+ * never completed a fall: they jumped to fresh random spots each render and
+ * read as a static, messy scatter instead of falling confetti.
+ */
+const CONFETTI_COLORS = ['#1F6B45', '#3b82f6', '#f59e0b', '#ef4444', '#14512F', '#ec4899']
+const CONFETTI_PIECES = Array.from({ length: 36 }, (_, i) => ({
+  id: i,
+  left: Math.random() * 100,
+  color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+  duration: 2 + Math.random() * 2,
+  delay: Math.random() * 2,
+  spin: Math.random() * 360,
+}))
+
+/** Six sparkle directions radiating from the success tick. */
+const SPARKLE_ANGLES = Array.from({ length: 6 }, (_, i) => i * 60)
+
 export default function Cart() {
   const companyName = useCompanyName()
+  const successLogoUrl = useCompanyLogo("user")
   const navigate = useNavigate()
   const location = useLocation()
   const goBack = useAppBackNavigation()
@@ -101,7 +126,7 @@ export default function Cart() {
     debugError('? CartProvider not found. Make sure Cart component is rendered within UserLayout.');
     // Return early with error message
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f5f5f5] dark:bg-[#0a0a0a]">
+      <div className="min-h-screen flex items-center justify-center bg-[#f5f5f5] dark:bg-[#141414]">
         <div className="text-center p-8">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">Cart Error</h2>
           <p className="text-gray-600 dark:text-gray-400">
@@ -118,7 +143,7 @@ export default function Cart() {
     );
   }
 
-  const { cart, updateQuantity, addToCart, getCartCount, clearCart, cleanCartForRestaurant } = cartContext;
+  const { cart, updateQuantity, removeFromCart, addToCart, getCartCount, clearCart, cleanCartForRestaurant } = cartContext;
   const { getDefaultAddress, getDefaultPaymentMethod, setDefaultAddress, addresses, paymentMethods, userProfile, orderType, setOrderType } = useProfile()
   const { createOrder } = useOrders()
   const { openLocationSelector } = useLocationSelector()
@@ -212,6 +237,7 @@ export default function Cart() {
   const [congratsSavingsPercentage, setCongratssSavingsPercentage] = useState(0)
   const [congratsSavingsItems, setCongratssSavingsItems] = useState([])
   const [showOrderSuccess, setShowOrderSuccess] = useState(false)
+  const [successLogoFailed, setSuccessLogoFailed] = useState(false)
   const [orderSuccessSavingsAmount, setOrderSuccessSavingsAmount] = useState(0)
   const [placedOrderId, setPlacedOrderId] = useState(null)
   const [placedOrderObj, setPlacedOrderObj] = useState(null)
@@ -482,7 +508,7 @@ export default function Cart() {
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="inline-block text-[10px] font-bold text-[#1F6B45] uppercase tracking-wider bg-white dark:bg-gray-900 border border-dashed border-[#1F6B45]/30 px-2 py-0.5 rounded shadow-sm">
+              <span className="inline-block text-[10px] font-bold text-[#1F6B45] uppercase tracking-wider bg-white dark:bg-[#2e2e2e] border border-dashed border-[#1F6B45]/30 px-2 py-0.5 rounded shadow-sm">
                 {coupon.code}
               </span>
               <span className="text-xs font-black text-gray-900 dark:text-gray-100">
@@ -512,8 +538,8 @@ export default function Cart() {
           }}
           className={`text-xs font-black px-4 py-1.5 rounded-lg shadow-sm active:scale-95 transition-all flex-shrink-0 uppercase tracking-wider ${
             isApplicable
-              ? "text-[#1F6B45] bg-white dark:bg-gray-900 border border-[#1F6B45]/20 hover:bg-[#1F6B45]/5"
-              : "text-gray-400 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-800 cursor-not-allowed"
+              ? "text-[#1F6B45] bg-white dark:bg-[#2e2e2e] border border-[#1F6B45]/20 hover:bg-[#1F6B45]/5"
+              : "text-gray-400 bg-gray-50 dark:bg-[#2e2e2e]/50 border border-gray-200 dark:border-gray-800 cursor-not-allowed"
           }`}
         >
           Apply
@@ -2417,8 +2443,8 @@ export default function Cart() {
   // Empty cart state - but don't show if order success or placing order modal is active
   if (cart.length === 0 && !showOrderSuccess && !showPlacingOrder && !showSavingsCongrats) {
     return (
-      <AnimatedPage className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a]">
-        <div className="bg-white dark:bg-[#1a1a1a] border-b dark:border-gray-800 sticky top-0 z-10">
+      <AnimatedPage className="min-h-screen bg-gray-50 dark:bg-[#141414]">
+        <div className="bg-white dark:bg-[#242424] border-b dark:border-gray-800 sticky top-0 z-10">
           <div className="flex items-center gap-3 px-4 py-3">
             <Button 
               variant="ghost" 
@@ -2446,9 +2472,9 @@ export default function Cart() {
   }
 
   return (
-    <div className="relative min-h-screen bg-slate-50 dark:bg-[#0a0a0a]">
+    <div className="relative min-h-screen bg-slate-50 dark:bg-[#141414]">
       {/* Header - Sticky at top */}
-      <div className="bg-white dark:bg-[#1a1a1a] border-b border-gray-100/80 dark:border-gray-800/80 sticky top-0 z-20 flex-shrink-0">
+      <div className="bg-white dark:bg-[#242424] border-b border-gray-100/80 dark:border-gray-800/80 sticky top-0 z-20 flex-shrink-0">
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-between px-4 md:px-6 py-2.5">
             <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -2485,7 +2511,7 @@ export default function Cart() {
         {isCartZoneMismatch && (
           <div className="px-4 md:px-6 pt-4 pb-1 flex-shrink-0">
             <div className="max-w-7xl mx-auto">
-              <div className="relative overflow-hidden rounded-2xl border border-amber-200/80 dark:border-amber-800/50 bg-gradient-to-br from-amber-50 via-orange-50/80 to-white dark:from-amber-950/40 dark:via-[#1a1a1a] dark:to-[#1a1a1a] shadow-[0_8px_24px_rgba(245,158,11,0.08)]">
+              <div className="relative overflow-hidden rounded-2xl border border-amber-200/80 dark:border-amber-800/50 bg-gradient-to-br from-amber-50 via-orange-50/80 to-white dark:from-amber-950/40 dark:via-[#242424] dark:to-[#242424] shadow-[0_8px_24px_rgba(245,158,11,0.08)]">
                 <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-amber-400 to-orange-500" />
                 <div className="p-4 pl-5 flex items-start gap-3.5">
                   <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/40 border border-amber-200/70 dark:border-amber-800/60 flex items-center justify-center flex-shrink-0 shadow-sm">
@@ -2513,7 +2539,7 @@ export default function Cart() {
                           clearCart()
                           toast.success("Cart cleared")
                         }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-800/70 text-amber-800 dark:text-amber-200 text-[11px] font-bold tracking-wide hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors active:scale-[0.98]"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-[#2e2e2e] border border-amber-200 dark:border-amber-800/70 text-amber-800 dark:text-amber-200 text-[11px] font-bold tracking-wide hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors active:scale-[0.98]"
                       >
                         Clear cart
                       </button>
@@ -2544,11 +2570,11 @@ export default function Cart() {
             {/* Main Cart Content */}
             <div className="space-y-2 md:space-y-4">
               {/* Cart Items */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-4 md:py-5 rounded-2xl md:rounded-3xl shadow-sm border border-slate-100 dark:border-gray-800">
+              <div className="bg-white dark:bg-[#242424] px-4 md:px-6 py-4 md:py-5 rounded-2xl md:rounded-3xl shadow-sm border border-slate-100 dark:border-gray-800">
                 <div className="space-y-3 md:space-y-4">
                   <div className="space-y-6">
                     {cart.map((item, index) => (
-                      <div key={item.id} className={isCartUnavailable ? "opacity-60 grayscale transition-all duration-300" : ""}>
+                      <div key={item.id} className="transition-all duration-300">
                         <div className="flex items-center gap-4">
                           {/* Veg/Non-veg indicator */}
                           <div className={`w-4 h-4 border-2 ${isVegMenuItem(item, restaurantData) ? 'border-green-600' : 'border-red-600'} flex items-center justify-center flex-shrink-0 rounded-[2px]`}>
@@ -2574,8 +2600,8 @@ export default function Cart() {
                                 </p>
                               ) : null}
                               {isRestaurantClosed && (
-                                <p className="text-[11px] text-red-500 dark:text-red-400 font-semibold mt-1">
-                                  Remove this dish to order available dishes
+                                <p className="text-[11px] text-red-600 dark:text-red-400 font-semibold mt-1">
+                                  This restaurant is closed. Remove this dish to continue.
                                 </p>
                               )}
                               {isCartZoneMismatch && !isRestaurantClosed && (
@@ -2587,23 +2613,36 @@ export default function Cart() {
                           </div>
 
                           <div className="flex flex-col items-end gap-2.5 flex-shrink-0">
-                            <div className="flex items-center border border-[#1F6B45]/30 dark:border-[#1F6B45]/40 rounded-lg overflow-hidden bg-white dark:bg-gray-900 shadow-sm">
+                            <div className={`flex items-center border rounded-lg overflow-hidden bg-white dark:bg-[#2e2e2e] shadow-sm ${isRestaurantClosed ? "border-red-200 dark:border-red-900/60" : "border-[#1F6B45]/30 dark:border-[#1F6B45]/40"}`}>
                               <button
                                 onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                                className="px-2.5 py-1.5 hover:bg-[#1F6B45]/5 text-[#1F6B45] transition-colors"
+                                aria-label={item.quantity > 1 ? `Decrease ${item.name} quantity` : `Remove ${item.name}`}
+                                className={`px-2.5 py-1.5 transition-colors ${isRestaurantClosed ? "text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30" : "text-[#1F6B45] hover:bg-[#1F6B45]/5"}`}
                               >
-                                <Minus className="w-3.5 h-3.5" />
+                                {isRestaurantClosed && item.quantity === 1 ? <Trash2 className="w-3.5 h-3.5" /> : <Minus className="w-3.5 h-3.5" />}
                               </button>
                               <span className="px-2 text-sm md:text-base font-black text-[#1F6B45] min-w-[28px] text-center">
                                 {item.quantity}
                               </span>
                               <button
                                 onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                                className="px-2.5 py-1.5 hover:bg-[#1F6B45]/5 text-[#1F6B45] transition-colors"
+                                disabled={isRestaurantClosed}
+                                aria-label={`Increase ${item.name} quantity`}
+                                className="px-2.5 py-1.5 text-[#1F6B45] transition-colors hover:bg-[#1F6B45]/5 disabled:cursor-not-allowed disabled:opacity-30"
                               >
                                 <Plus className="w-3.5 h-3.5" />
                               </button>
                             </div>
+                            {isRestaurantClosed && (
+                              <button
+                                type="button"
+                                onClick={() => removeFromCart(item.id)}
+                                className="inline-flex items-center gap-1 text-[11px] font-bold text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                Remove
+                              </button>
+                            )}
                             <p className="text-sm md:text-base font-black text-gray-900 dark:text-gray-100">
                               {RUPEE_SYMBOL}{((item.price || 0) * (item.quantity || 1)).toFixed(0)}
                             </p>
@@ -2628,7 +2667,7 @@ export default function Cart() {
               </div>
 
               {/* Note for restaurant */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-4 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
+              <div className="bg-white dark:bg-[#242424] px-4 md:px-6 py-4 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
                 <button
                   onClick={() => setShowRestaurantNoteInput(!showRestaurantNoteInput)}
                   className="w-full flex items-center gap-2 px-3 md:px-4 py-2 md:py-3 border border-gray-200 dark:border-gray-700 rounded-lg md:rounded-xl text-sm md:text-base text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
@@ -2640,7 +2679,7 @@ export default function Cart() {
 
               {/* Restaurant Note Input */}
               {showRestaurantNoteInput && (
-                <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-3 md:py-4 rounded-lg md:rounded-xl border border-slate-100 dark:border-gray-800">
+                <div className="bg-white dark:bg-[#242424] px-4 md:px-6 py-3 md:py-4 rounded-lg md:rounded-xl border border-slate-100 dark:border-gray-800">
                   <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
                     Restaurant instructions
                   </p>
@@ -2648,7 +2687,7 @@ export default function Cart() {
                     value={restaurantNote}
                     onChange={(e) => setRestaurantNote(e.target.value)}
                     placeholder="Eg. Don't add onions, make it extra spicy, etc."
-                     className="w-full border border-gray-200 dark:border-gray-700 rounded-lg md:rounded-xl p-3 md:p-4 text-sm md:text-base resize-none h-20 md:h-24 focus:outline-none focus:border-[#1F6B45] dark:focus:border-[#1F6B45] bg-white dark:bg-[#0a0a0a] text-gray-900 dark:text-gray-100"
+                     className="w-full border border-gray-200 dark:border-gray-700 rounded-lg md:rounded-xl p-3 md:p-4 text-sm md:text-base resize-none h-20 md:h-24 focus:outline-none focus:border-[#1F6B45] dark:focus:border-[#1F6B45] bg-white dark:bg-[#141414] text-gray-900 dark:text-gray-100"
                     maxLength={240}
                   />
                   <div className="mt-2 flex items-center justify-between gap-3">
@@ -2664,7 +2703,7 @@ export default function Cart() {
 
               {/* Complete your meal section - Approved Addons */}
               {addons.length > 0 && (
-                <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
+                <div className="bg-white dark:bg-[#242424] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
                   <div className="flex items-center gap-2 md:gap-3 mb-3 md:mb-4">
                     <div className="w-6 h-6 md:w-8 md:h-8 bg-gray-100 dark:bg-gray-800 rounded flex items-center justify-center">
                        <Sparkles className="h-4 w-4 md:h-5 md:w-5 text-[#1F6B45]" />
@@ -2747,7 +2786,7 @@ export default function Cart() {
               )}
 
               {/* Simplified Coupon Section */}
-              <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl overflow-hidden border border-slate-100 dark:border-gray-800 shadow-sm">
+              <div className="bg-white dark:bg-[#242424] rounded-2xl overflow-hidden border border-slate-100 dark:border-gray-800 shadow-sm">
                 <div className="w-full px-4 py-4 md:px-6 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <Tag className="h-5 w-5 text-gray-400" />
@@ -2777,7 +2816,7 @@ export default function Cart() {
                             }
                             setShowCouponSheet(true)
                           }}
-                          className={`w-full py-2.5 px-4 bg-gray-50/50 hover:bg-gray-50 dark:bg-gray-900/30 dark:hover:bg-gray-900/50 border border-dashed border-gray-200 dark:border-gray-800 rounded-xl text-xs font-bold text-[#1F6B45] flex items-center justify-between transition-all active:scale-[0.98] mt-2.5 ${
+                          className={`w-full py-2.5 px-4 bg-gray-50/50 hover:bg-gray-50 dark:bg-[#2e2e2e]/30 dark:hover:bg-[#2e2e2e]/50 border border-dashed border-gray-200 dark:border-gray-800 rounded-xl text-xs font-bold text-[#1F6B45] flex items-center justify-between transition-all active:scale-[0.98] mt-2.5 ${
                             isCartUnavailable ? "opacity-60 grayscale pointer-events-auto" : ""
                           }`}
                         >
@@ -2805,7 +2844,7 @@ export default function Cart() {
                           }
                           setShowCouponSheet(true)
                         }}
-                        className={`w-full py-2.5 px-4 bg-gray-50/50 hover:bg-gray-50 dark:bg-gray-900/30 dark:hover:bg-gray-900/50 border border-dashed border-gray-200 dark:border-gray-800 rounded-xl text-xs font-bold text-[#1F6B45] flex items-center justify-between transition-all active:scale-[0.98] ${
+                        className={`w-full py-2.5 px-4 bg-gray-50/50 hover:bg-gray-50 dark:bg-[#2e2e2e]/30 dark:hover:bg-[#2e2e2e]/50 border border-dashed border-gray-200 dark:border-gray-800 rounded-xl text-xs font-bold text-[#1F6B45] flex items-center justify-between transition-all active:scale-[0.98] ${
                           isCartUnavailable ? "opacity-60 grayscale" : ""
                         }`}
                       >
@@ -2860,7 +2899,7 @@ export default function Cart() {
 
               {/* Delivery Time - Hidden in Takeaway */}
               {orderType !== "takeaway" && (
-                <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
+                <div className="bg-white dark:bg-[#242424] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
                   <div className="flex items-start gap-3 md:gap-4">
                     <div className="mt-0.5">
                       <Zap className="h-5 w-5 text-green-600 fill-green-600/20" />
@@ -2900,7 +2939,7 @@ export default function Cart() {
                           max={new Date(Date.now() + 86400000).toLocaleDateString('en-CA')}
                           value={scheduledDate}
                           onChange={(e) => setScheduledDate(e.target.value)}
-                          className="w-full text-sm p-2 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-[#0a0a0a] text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[#1F6B45]"
+                          className="w-full text-sm p-2 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-[#141414] text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[#1F6B45]"
                         />
                       </div>
                       <div className="flex-1">
@@ -2910,7 +2949,7 @@ export default function Cart() {
                             <select
                               value={scheduledTime}
                               onChange={(e) => setScheduledTime(e.target.value)}
-                               className="w-full text-sm p-2 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-[#0a0a0a] text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[#1F6B45] appearance-none pr-8"
+                               className="w-full text-sm p-2 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-[#141414] text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[#1F6B45] appearance-none pr-8"
                             >
                               {availableTimeSlots.map(slot => (
                                 <option key={slot.value} value={slot.value}>{slot.label}</option>
@@ -2931,7 +2970,7 @@ export default function Cart() {
               )}
 
               {/* Delivery Address or Pickup Info */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
+              <div className="bg-white dark:bg-[#242424] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
                 {orderType === "takeaway" ? (
                   <div className="flex items-start gap-4">
                     <div className="bg-[#1F6B4505] dark:bg-[#1F6B4510] p-3.5 rounded-2xl border border-[#1F6B4515] dark:border-[#1F6B4530]">
@@ -3014,7 +3053,7 @@ export default function Cart() {
                                   disabled={!addressExists}
                                   className={`text-xs px-4 py-1.5 rounded-full font-semibold transition-all ${addressExists
                                     ? 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-gray-800 dark:text-gray-300'
-                                    : 'bg-gray-50 text-gray-400 border border-gray-100 cursor-not-allowed dark:bg-gray-900'
+                                    : 'bg-gray-50 text-gray-400 border border-gray-100 cursor-not-allowed dark:bg-[#2e2e2e]'
                                     }`}
                                 >
                                   {label}
@@ -3076,7 +3115,7 @@ export default function Cart() {
               </div>
 
               {/* Contact */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-4 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
+              <div className="bg-white dark:bg-[#242424] px-4 md:px-6 py-4 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3 md:gap-4 flex-1 min-w-0">
                     <Phone className="h-4 w-4 md:h-5 md:w-5 text-gray-500 dark:text-gray-400 mt-0.5" />
@@ -3114,7 +3153,7 @@ export default function Cart() {
                           }))
                         }
                         placeholder="Enter recipient name"
-                         className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#111111] px-3 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#1F6B45]"
+                         className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1c1c1c] px-3 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#1F6B45]"
                       />
                     </div>
                     <div>
@@ -3131,7 +3170,7 @@ export default function Cart() {
                           }))
                         }
                         placeholder="Enter recipient phone"
-                         className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#111111] px-3 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#1F6B45]"
+                         className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1c1c1c] px-3 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#1F6B45]"
                       />
                     </div>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400">
@@ -3141,7 +3180,7 @@ export default function Cart() {
                 )}
               </div>
 {/* Bill Details */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
+              <div className="bg-white dark:bg-[#242424] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
                 <button
                   onClick={() => setShowBillDetails(!showBillDetails)}
                   className="flex items-center justify-between w-full group focus:outline-none"
@@ -3259,7 +3298,7 @@ export default function Cart() {
 
       {/* Bottom Sticky - Place Order */}
       <div
-        className="bg-white dark:bg-[#1a1a1a] border-t dark:border-gray-800 shadow-lg z-30 flex-shrink-0 fixed bottom-0 left-0 right-0"
+        className="bg-white dark:bg-[#242424] border-t dark:border-gray-800 shadow-lg z-30 flex-shrink-0 fixed bottom-0 left-0 right-0"
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
       >
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 md:py-4">
@@ -3445,22 +3484,25 @@ export default function Cart() {
           {/* Order Success Celebration Page */}
           {showOrderSuccess && (
             <div
-              className="fixed inset-0 z-[70] bg-white dark:bg-[#0a0a0a] flex flex-col items-center justify-center h-screen w-screen overflow-hidden"
+              className="fixed inset-0 z-[70] bg-white dark:bg-[#141414] flex flex-col items-center justify-center h-screen w-screen overflow-hidden"
               style={{ animation: 'fadeIn 0.3s ease-out' }}
             >
               {/* Confetti Background */}
               <div className="absolute inset-0 overflow-hidden pointer-events-none">
                 {/* Animated confetti pieces */}
-                {[...Array(50)].map((_, i) => (
+                {CONFETTI_PIECES.map((piece) => (
                   <div
-                    key={i}
+                    key={piece.id}
                     className="absolute w-3 h-3 rounded-sm"
                     style={{
-                      left: `${Math.random() * 100}%`,
+                      left: `${piece.left}%`,
                       top: `-10%`,
-                      backgroundColor: ['#1F6B45', '#3b82f6', '#f59e0b', '#ef4444', '#14512F', '#ec4899'][Math.floor(Math.random() * 6)],
-                      animation: `confettiFall ${2 + Math.random() * 2}s linear ${Math.random() * 2}s infinite`,
-                      transform: `rotate(${Math.random() * 360}deg)`,
+                      backgroundColor: piece.color,
+                      // Start angle goes through a custom property: an inline
+                      // `transform` here would be dead, because the animation
+                      // also drives transform and wins.
+                      '--confetti-spin': `${piece.spin}deg`,
+                      animation: `confettiFall ${piece.duration}s linear ${piece.delay}s infinite`,
                     }}
                   />
                 ))}
@@ -3471,7 +3513,21 @@ export default function Cart() {
                 {/* Success Tick Circle */}
                 <div
                   className="relative mb-8"
-                  style={{ animation: 'scaleIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.2s both' }}
+                  /*
+                   * No `both` fill-mode and no delay, on purpose.
+                   *
+                   * scaleIn starts at scale(0)/opacity(0). With `... 0.2s both`
+                   * the tick was invisible for the whole delay AND from frame 0
+                   * of every restart, so anything that re-ran the animation (a
+                   * re-render that remounts this node, an interrupted paint)
+                   * left a blank circle sitting there - the surrounding text
+                   * uses different delays, which is why only the tick vanished.
+                   *
+                   * Without a fill-mode the element's resting state is its
+                   * natural one (fully visible), so the animation can only ever
+                   * add the pop - never hide the tick.
+                   */
+                  style={{ animation: 'scaleIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
                 >
                   {/* Outer ring animation */}
                   <div
@@ -3481,31 +3537,51 @@ export default function Cart() {
                       opacity: 0.3
                     }}
                   />
-                  {/* Main circle */}
-                  <div className="w-32 h-32 bg-gradient-to-br from-green-500 to-green-600 dark:from-green-500 dark:to-emerald-500 rounded-full flex items-center justify-center shadow-2xl shadow-green-200/60 dark:shadow-green-900/40">
-                    <svg
-                      className="w-16 h-16 text-white"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      style={{ animation: 'checkDraw 0.5s ease-out 0.5s both' }}
-                    >
-                      <path d="M5 12l5 5L19 7" className="check-path" />
-                    </svg>
+                  {/* Brand badge - the company logo from admin business settings */}
+                  <div className="w-32 h-32 bg-white dark:bg-[#242424] rounded-full flex items-center justify-center shadow-2xl shadow-green-200/60 dark:shadow-green-900/40 ring-2 ring-[#1F6B45]/15 dark:ring-[#1F6B45]/30 overflow-hidden p-1.5">
+                    {successLogoFailed ? (
+                      /* Logo missing or failed to load - never leave the badge
+                         empty, fall back to the success tick. */
+                      <svg
+                        className="w-16 h-16 text-[#1F6B45] dark:text-green-400"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        style={{ animation: 'checkDraw 0.5s ease-out' }}
+                      >
+                        <path d="M5 12l5 5L19 7" className="check-path" />
+                      </svg>
+                    ) : (
+                      /* object-cover so the logo fills the medallion instead of
+                         sitting as a square inside a white disc. Both the admin
+                         logo and the bundled fallback are square (1:1 and
+                         0.96:1), so nothing meaningful is cropped. */
+                      <img
+                        src={successLogoUrl}
+                        alt={companyName}
+                        className="w-full h-full object-cover rounded-full"
+                        onError={() => setSuccessLogoFailed(true)}
+                      />
+                    )}
                   </div>
                   {/* Sparkles */}
-                  {[...Array(6)].map((_, i) => (
+                  {SPARKLE_ANGLES.map((angle, i) => (
                     <div
-                      key={i}
+                      key={angle}
                       className="absolute w-2 h-2 bg-yellow-400 dark:bg-yellow-300 rounded-full"
                       style={{
                         top: '50%',
                         left: '50%',
+                        // The `sparkle` keyframes read --rotation, which nothing
+                        // ever set, so all six sparkles used the 0deg fallback
+                        // and shot straight up on top of each other instead of
+                        // radiating. The inline transform below it was dead for
+                        // the same reason the confetti's was.
+                        '--rotation': `${angle}deg`,
                         animation: `sparkle 0.6s ease-out ${0.3 + i * 0.1}s both`,
-                        transform: `rotate(${i * 60}deg) translateY(-80px)`,
                       }}
                     />
                   ))}
@@ -3585,7 +3661,7 @@ export default function Cart() {
                   animate={{ y: 0 }}
                   exit={{ y: "100%" }}
                   transition={{ type: "spring", damping: 30, stiffness: 350 }}
-                  className="fixed bottom-0 left-0 right-0 bg-white dark:bg-[#1a1a1a] rounded-t-[2rem] z-[101] shadow-2xl overflow-hidden max-h-[82vh] md:max-h-[60vh] flex flex-col"
+                  className="fixed bottom-0 left-0 right-0 bg-white dark:bg-[#242424] rounded-t-[2rem] z-[101] shadow-2xl overflow-hidden max-h-[82vh] md:max-h-[60vh] flex flex-col"
                   style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
                 >
                   <div className="p-5 md:p-6 flex flex-col h-full min-h-0">
@@ -3711,7 +3787,7 @@ export default function Cart() {
                     </div>
 
                     <div
-                      className="mt-auto pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center gap-4 bg-white dark:bg-[#1a1a1a]"
+                      className="mt-auto pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center gap-4 bg-white dark:bg-[#242424]"
                       style={{ paddingBottom: "max(0.25rem, env(safe-area-inset-bottom, 0px))" }}
                     >
                       <div className="flex-shrink-0">
@@ -3802,8 +3878,8 @@ export default function Cart() {
           to { transform: translateY(0); opacity: 1; }
         }
         @keyframes confettiFall {
-          0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
-          100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+          0% { transform: translateY(-10vh) rotate(var(--confetti-spin, 0deg)); opacity: 1; }
+          100% { transform: translateY(110vh) rotate(calc(var(--confetti-spin, 0deg) + 720deg)); opacity: 0; }
         }
         .animate-slideUpFull {
           animation: slideUpFull 0.3s ease-out;
@@ -3829,7 +3905,7 @@ export default function Cart() {
                 />
                 <div className="fixed inset-0 flex items-end justify-center z-[10021] pointer-events-none p-0">
                   <motion.div
-                    className="relative w-full max-w-lg pointer-events-auto bg-white dark:bg-[#1a1a1a] rounded-t-3xl shadow-2xl border border-gray-100 dark:border-gray-800 flex flex-col max-h-[85vh]"
+                    className="relative w-full max-w-lg pointer-events-auto bg-white dark:bg-[#242424] rounded-t-3xl shadow-2xl border border-gray-100 dark:border-gray-800 flex flex-col max-h-[85vh]"
                     initial={{ y: "100%" }}
                     animate={{ y: 0 }}
                     exit={{ y: "100%" }}
@@ -3852,9 +3928,9 @@ export default function Cart() {
                       </button>
                     </div>
 
-                    <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-900/30">
+                    <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-[#2e2e2e]/30">
                       <div className="flex items-center gap-3">
-                        <div className="flex-1 bg-white dark:bg-gray-950 rounded-xl px-4 h-11 border border-gray-200 dark:border-gray-800 flex items-center focus-within:border-[#1F6B45] focus-within:ring-1 focus-within:ring-[#1F6B45]/20 transition-all">
+                        <div className="flex-1 bg-white dark:bg-[#1c1c1c] rounded-xl px-4 h-11 border border-gray-200 dark:border-gray-800 flex items-center focus-within:border-[#1F6B45] focus-within:ring-1 focus-within:ring-[#1F6B45]/20 transition-all">
                           <input
                             type="text"
                             value={manualCouponCode}
@@ -3908,7 +3984,7 @@ export default function Cart() {
                   onClick={() => setShowShareModal(false)}
                 />
                 <motion.div
-                  className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[10021] w-[92vw] max-w-md bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl"
+                  className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[10021] w-[92vw] max-w-md bg-white dark:bg-[#242424] rounded-2xl shadow-2xl"
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.95 }}
@@ -3991,7 +4067,7 @@ export default function Cart() {
                 <div className="fixed inset-0 flex items-end sm:items-center justify-center z-[10021] pointer-events-none sm:p-4">
                   {/* Modal Card */}
                   <motion.div
-                    className="w-full sm:max-w-md bg-white dark:bg-[#1a1a1a] rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 flex flex-col items-center justify-between pb-8 sm:pb-6 relative pointer-events-auto"
+                    className="w-full sm:max-w-md bg-white dark:bg-[#242424] rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 flex flex-col items-center justify-between pb-8 sm:pb-6 relative pointer-events-auto"
                     initial={{ y: "100%", opacity: 0.5 }}
                     animate={{ y: 0, opacity: 1 }}
                     exit={{ y: "100%", opacity: 0.5 }}

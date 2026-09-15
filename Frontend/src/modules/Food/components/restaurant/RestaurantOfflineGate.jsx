@@ -91,7 +91,7 @@ export default function RestaurantOfflineGate({ children }) {
           role="alertdialog"
           aria-modal="true"
           aria-labelledby="restaurant-offline-title"
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-white px-6 dark:bg-[#0a0a0a]"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-white px-6 dark:bg-[#141414]"
         >
           <div className="w-full max-w-sm text-center">
             <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 dark:bg-white/10">

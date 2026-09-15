@@ -53,7 +53,7 @@ export default function TableEditUserPage() {
 
             <div className="max-w-lg mx-auto px-4 py-8 space-y-8">
                 <div className="text-center space-y-2">
-                    <div className="w-20 h-20 bg-red-50 dark:bg-red-900/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-white dark:border-[#1a1a1a] shadow-xl shadow-red-100 dark:shadow-none">
+                    <div className="w-20 h-20 bg-red-50 dark:bg-red-900/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-white dark:border-[#242424] shadow-xl shadow-red-100 dark:shadow-none">
                         <User className="w-10 h-10" />
                     </div>
                     <h2 className="text-2xl font-black text-slate-900 dark:text-white">Personalize Booking</h2>
@@ -73,7 +73,7 @@ export default function TableEditUserPage() {
                                 value={name}
                                 onChange={(e) => setName(e.target.value.replace(/[^a-zA-Z\s]/g, ""))}
                                 placeholder="Enter your full name"
-                                className="w-full h-14 pl-12 pr-4 bg-white dark:bg-[#1a1a1a] border border-slate-100 dark:border-white/10 rounded-2xl font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-4 focus:ring-red-500/10 focus:border-[#1F6B45] transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600"
+                                className="w-full h-14 pl-12 pr-4 bg-white dark:bg-[#242424] border border-slate-100 dark:border-white/10 rounded-2xl font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-4 focus:ring-red-500/10 focus:border-[#1F6B45] transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600"
                             />
                         </div>
                     </div>
@@ -90,7 +90,7 @@ export default function TableEditUserPage() {
                                 value={phone}
                                 onChange={(e) => setPhone(e.target.value)}
                                 placeholder="Enter mobile number"
-                                className="w-full h-14 pl-12 pr-4 bg-white dark:bg-[#1a1a1a] border border-slate-100 dark:border-white/10 rounded-2xl font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-4 focus:ring-red-500/10 focus:border-[#1F6B45] transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600"
+                                className="w-full h-14 pl-12 pr-4 bg-white dark:bg-[#242424] border border-slate-100 dark:border-white/10 rounded-2xl font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-4 focus:ring-red-500/10 focus:border-[#1F6B45] transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600"
                             />
                         </div>
                     </div>

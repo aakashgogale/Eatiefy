@@ -2,7 +2,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { deliveryAPI } from '@food/api';
-import { useDeliveryStore, resolveOrderKey, dedupeOrdersByIdentity } from '@/modules/DeliveryV2/store/useDeliveryStore';
+import {
+  useDeliveryStore,
+  resolveOrderKey,
+  dedupeOrdersByIdentity,
+  collectOrderKeys,
+  isOfferStillValid,
+} from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { useOrderManager } from '@/modules/DeliveryV2/hooks/useOrderManager';
 import { mapOrderLocations } from '@/modules/DeliveryV2/utils/orderMapping';
 import { useDeliveryNotificationsContext } from '@/modules/DeliveryV2/components/DeliveryRealtimeShell';
@@ -55,9 +61,31 @@ export default function OrdersV2() {
         setCapacity(availablePayload.capacity);
       }
 
-      const offers = Array.isArray(availablePayload.newOffers)
-        ? availablePayload.newOffers
-        : [];
+      /*
+       * Replace, don't append.
+       *
+       * This used to only add whatever the server returned, so any card already
+       * on screen stayed there forever - an offer that expired, was rejected or
+       * was taken by another rider survived every refresh and every revisit to
+       * this tab. `newOffers` is authorized per rider and carries each offer's
+       * server-issued expiry, so it is the complete and current answer to "what
+       * may this account see right now"; anything absent from it is gone.
+       */
+      const offers = (
+        Array.isArray(availablePayload.newOffers) ? availablePayload.newOffers : []
+      ).filter((order) => isOfferStillValid(order));
+
+      // Prune first: anything the server no longer lists is expired, rejected
+      // or already taken. Then add through addNewOrder so each offer still gets
+      // the location mapping, distance sanitising and range check.
+      const liveKeys = new Set(
+        offers.flatMap((order) => collectOrderKeys(order)).map((key) => String(key)),
+      );
+      const store = useDeliveryStore.getState();
+      (store.newOrders || []).forEach((offer) => {
+        const stillLive = collectOrderKeys(offer).some((key) => liveKeys.has(String(key)));
+        if (!stillLive) store.removeNewOrder(offer);
+      });
 
       offers.forEach((order) => addNewOrder(order));
     } catch (error) {

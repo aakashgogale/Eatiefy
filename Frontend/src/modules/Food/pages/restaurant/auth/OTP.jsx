@@ -389,7 +389,7 @@ export default function RestaurantOTP() {
   if (!authData) return null
 
   return (
-    <div className="min-h-screen bg-white dark:bg-[#0a0a0a] flex flex-col relative overflow-hidden font-['Poppins']">
+    <div className="min-h-screen bg-white dark:bg-[#141414] flex flex-col relative overflow-hidden font-['Poppins']">
       <style>
         {`
           @keyframes floatDish1 {
@@ -572,7 +572,7 @@ export default function RestaurantOTP() {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               transition={{ type: "spring", damping: 25, stiffness: 300 }}
-              className="w-full max-w-sm bg-white dark:bg-[#1a1a1a] rounded-3xl shadow-2xl overflow-hidden p-8 text-center border border-gray-100 dark:border-gray-800 relative z-10"
+              className="w-full max-w-sm bg-white dark:bg-[#242424] rounded-3xl shadow-2xl overflow-hidden p-8 text-center border border-gray-100 dark:border-gray-800 relative z-10"
               onClick={(e) => e.stopPropagation()}
             >
               <button

@@ -40,14 +40,14 @@ export default function Settings() {
   };
 
   return (
-    <AnimatedPage className="min-h-screen bg-white dark:bg-[#0a0a0a]">
+    <AnimatedPage className="min-h-screen bg-white dark:bg-[#141414]">
       <div className="max-w-md md:max-w-2xl mx-auto px-6 py-6 pb-20">
         
         {/* Header: Back Arrow & Title */}
         <div className="flex items-center gap-4 mb-8">
           <button 
             onClick={() => navigate(-1)} 
-            className="h-11 w-11 flex items-center justify-center bg-white/70 dark:bg-[#1a1a1a]/70 backdrop-blur-md rounded-full shadow-[0_2px_12px_rgba(0,0,0,0.08)] hover:bg-white/90 dark:hover:bg-[#222]/90 active:scale-95 transition-all outline-none border border-black/10 dark:border-white/10"
+            className="h-11 w-11 flex items-center justify-center bg-white/70 dark:bg-[#242424]/70 backdrop-blur-md rounded-full shadow-[0_2px_12px_rgba(0,0,0,0.08)] hover:bg-white/90 dark:hover:bg-[#222]/90 active:scale-95 transition-all outline-none border border-black/10 dark:border-white/10"
           >
             <ArrowLeft className="h-6 w-6 text-black dark:text-white" />
           </button>
@@ -110,7 +110,7 @@ export default function Settings() {
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#1a1a1a] shadow-2xl border border-red-100 dark:border-red-900/30 overflow-hidden p-6">
+              className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#242424] shadow-2xl border border-red-100 dark:border-red-900/30 overflow-hidden p-6">
               
               <div className="flex flex-col items-center text-center mb-4">
                 <div className="w-14 h-14 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mb-3">

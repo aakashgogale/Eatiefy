@@ -19,7 +19,7 @@ export default function CartReplaceDialog({
       <DialogContent
         showCloseButton={false}
         overlayClassName="z-[10050]"
-        className="z-[10050] w-[calc(100%-1.5rem)] max-w-[22rem] sm:max-w-sm rounded-3xl p-0 overflow-hidden border-0 shadow-2xl bg-white dark:bg-[#1a1a1a]"
+        className="z-[10050] w-[calc(100%-1.5rem)] max-w-[22rem] sm:max-w-sm rounded-3xl p-0 overflow-hidden border-0 shadow-2xl bg-white dark:bg-[#242424]"
       >
         <div className="px-5 pt-6 pb-5 sm:px-6 sm:pt-7 sm:pb-6">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-50 dark:bg-orange-950/40 ring-1 ring-orange-100 dark:ring-orange-900/50">
@@ -36,12 +36,12 @@ export default function CartReplaceDialog({
           </DialogDescription>
 
           <div className="mt-5 space-y-3">
-            <div className="rounded-2xl border border-gray-100 bg-gray-50/80 p-3.5 dark:border-gray-800 dark:bg-[#111111]">
+            <div className="rounded-2xl border border-gray-100 bg-gray-50/80 p-3.5 dark:border-gray-800 dark:bg-[#1c1c1c]">
               <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
                 Current cart
               </p>
               <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-gray-100 dark:bg-[#1a1a1a] dark:ring-gray-800">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-gray-100 dark:bg-[#242424] dark:ring-gray-800">
                   <Store className="h-4 w-4 text-gray-500 dark:text-gray-400" />
                 </div>
                 <p className="min-w-0 flex-1 text-sm font-semibold text-gray-900 dark:text-white line-clamp-2">
@@ -61,7 +61,7 @@ export default function CartReplaceDialog({
                 New restaurant
               </p>
               <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-orange-100 dark:bg-[#1a1a1a] dark:ring-orange-900/40">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-orange-100 dark:bg-[#242424] dark:ring-orange-900/40">
                   <Store className="h-4 w-4 text-[#EB590E]" />
                 </div>
                 <p className="min-w-0 flex-1 text-sm font-semibold text-gray-900 dark:text-white line-clamp-2">
@@ -75,7 +75,7 @@ export default function CartReplaceDialog({
             <Button
               type="button"
               variant="outline"
-              className="h-11 rounded-xl border-gray-200 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-[#111111] dark:text-gray-200 dark:hover:bg-[#1f1f1f]"
+              className="h-11 rounded-xl border-gray-200 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-[#1c1c1c] dark:text-gray-200 dark:hover:bg-[#1f1f1f]"
               onClick={onCancel}
             >
               Cancel

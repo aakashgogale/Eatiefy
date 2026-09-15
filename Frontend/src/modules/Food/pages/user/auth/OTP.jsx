@@ -375,14 +375,14 @@ export default function OTP() {
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex items-center justify-center p-4">
+    <AnimatedPage className="min-h-screen bg-gray-50 dark:bg-[#141414] flex items-center justify-center p-4">
       {/* Background decoration (desktop only) */}
       <div className="fixed inset-0 z-0 hidden md:block opacity-40">
         <img src={loginBanner} alt="" className="w-full h-full object-cover blur-sm" />
         <div className="absolute inset-0 bg-white/60 dark:bg-black/80" />
       </div>
 
-      <div className="w-full max-w-[450px] bg-white dark:bg-[#1a1a1a] rounded-xl shadow-2xl relative z-10 overflow-hidden border border-gray-100 dark:border-gray-800">
+      <div className="w-full max-w-[450px] bg-white dark:bg-[#242424] rounded-xl shadow-2xl relative z-10 overflow-hidden border border-gray-100 dark:border-gray-800">
         {/* Header */}
         <div className="flex items-center px-6 py-4 border-b border-gray-100 dark:border-gray-800">
           <button
@@ -496,7 +496,7 @@ export default function OTP() {
                   }}
                   disabled={isLoading}
                   placeholder="Full Name"
-                  className={`h-12 md:h-14 text-lg bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-white border-gray-300 dark:border-gray-700 rounded-xl focus-visible:ring-1 focus-visible:ring-primary focus-visible:border-primary ${nameError ? "border-red-500" : ""} transition-all`}
+                  className={`h-12 md:h-14 text-lg bg-white dark:bg-[#242424] text-gray-900 dark:text-white border-gray-300 dark:border-gray-700 rounded-xl focus-visible:ring-1 focus-visible:ring-primary focus-visible:border-primary ${nameError ? "border-red-500" : ""} transition-all`}
                 />
                 {nameError && (
                   <p className="text-xs text-red-500 pl-1">
@@ -535,7 +535,7 @@ export default function OTP() {
       {showRestorePopup && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 overflow-y-auto py-10">
           <div 
-            className="w-full max-w-sm bg-white dark:bg-[#1a1a1a] rounded-3xl shadow-2xl overflow-hidden p-6 text-center border border-gray-100 dark:border-gray-800"
+            className="w-full max-w-sm bg-white dark:bg-[#242424] rounded-3xl shadow-2xl overflow-hidden p-6 text-center border border-gray-100 dark:border-gray-800"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">

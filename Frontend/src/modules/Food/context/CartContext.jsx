@@ -10,6 +10,7 @@ import {
 } from "react"
 import { foodCartAPI } from "@food/api"
 import { buildCartLineId } from "@food/utils/foodVariants"
+import CartReplaceDialog from "@food/components/user/CartReplaceDialog"
 
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -91,6 +92,63 @@ const getItemSourceId = (item, orderType) =>
         ? item?.quickStoreId || item?.storeId || item?.sellerId || item?.restaurantId || ""
         : item?.restaurantId || item?.sourceRestaurantId || ""),
   )
+
+const getRestaurantKey = (item) => {
+  const id =
+    item?.restaurantId ||
+    item?.restaurant_id ||
+    item?.restaurant?._id ||
+    item?.restaurant?.id ||
+    item?.sourceId ||
+    ""
+  return String(id).trim()
+}
+
+const getRestaurantLabel = (item) => {
+  const name =
+    (typeof item?.restaurant === "string" ? item.restaurant : item?.restaurant?.name) ||
+    item?.restaurantName ||
+    item?.sourceName ||
+    ""
+  return String(name).trim()
+}
+
+const normalizeName = (value) => String(value || "").trim().toLowerCase()
+
+// Zomato-style single-restaurant cart: returns null when the item can join the
+// current cart, otherwise the two restaurant names shown in the replace dialog.
+const detectRestaurantConflict = (items, nextItem) => {
+  if (!nextItem || getItemOrderType(nextItem) !== "food") return null
+
+  const existing = (Array.isArray(items) ? items : []).find(
+    (item) => item && getItemOrderType(item) === "food",
+  )
+  if (!existing) return null
+
+  const existingId = getRestaurantKey(existing)
+  const nextId = getRestaurantKey(nextItem)
+  const existingName = getRestaurantLabel(existing)
+  const nextName = getRestaurantLabel(nextItem)
+
+  let conflicting = false
+  if (existingId && nextId) {
+    conflicting = existingId !== nextId
+  } else if (existingName && nextName) {
+    conflicting = normalizeName(existingName) !== normalizeName(nextName)
+  }
+
+  if (!conflicting) return null
+  return {
+    existingName: existingName || "your current restaurant",
+    newName: nextName || "this restaurant",
+  }
+}
+
+// Server message: Cart already contains items from "Some Place". ...
+const parseExistingRestaurantName = (message) => {
+  const match = /from\s+"([^"]+)"/i.exec(String(message || ""))
+  return match?.[1]?.trim() || ""
+}
 
 const normalizeCartData = (rawCart) => {
   if (!Array.isArray(rawCart)) return []
@@ -299,7 +357,9 @@ export function CartProvider({ children }) {
   const [cartReady, setCartReady] = useState(false)
   const [lastAddEvent, setLastAddEvent] = useState(null)
   const [lastRemoveEvent, setLastRemoveEvent] = useState(null)
+  const [replacePrompt, setReplacePrompt] = useState(null)
 
+  const pendingReplaceRef = useRef(null)
   const authRef = useRef(isUserAuthenticated())
   const loadSeqRef = useRef(0)
   const mutationSeqRef = useRef(0)
@@ -420,41 +480,67 @@ export function CartProvider({ children }) {
     setTimeout(() => setLastRemoveEvent(null), 1500)
   }
 
-  const addToCart = useCallback(
-    async (item, sourcePosition = null) => {
-      if (!item) return { ok: false, error: "Invalid item" }
+  const clearCart = useCallback(async () => {
+    if (!isUserAuthenticated()) {
+      setCart([])
+      clearGuestCartStorage()
+      return { ok: true }
+    }
+    const seq = ++mutationSeqRef.current
+    try {
+      const response = await foodCartAPI.clearCart()
+      if (seq !== mutationSeqRef.current) return { ok: true }
+      applyServerCart(extractCartPayload(response))
+      return { ok: true }
+    } catch (err) {
+      debugError("clearCart failed", err)
+      return { ok: false, error: apiErrorMessage(err) }
+    }
+  }, [applyServerCart])
 
+  // Opens the replace dialog and resolves with the user's answer.
+  const requestReplaceConfirmation = useCallback(
+    (existingRestaurantName, newRestaurantName) =>
+      new Promise((resolve) => {
+        const previous = pendingReplaceRef.current
+        if (previous) previous.resolve(false)
+        pendingReplaceRef.current = { resolve }
+        setReplacePrompt({ existingRestaurantName, newRestaurantName })
+      }),
+    [],
+  )
+
+  const settleReplacePrompt = useCallback((confirmed) => {
+    const pending = pendingReplaceRef.current
+    pendingReplaceRef.current = null
+    setReplacePrompt(null)
+    if (pending) pending.resolve(confirmed)
+  }, [])
+
+  const handleReplaceConfirm = useCallback(
+    () => settleReplacePrompt(true),
+    [settleReplacePrompt],
+  )
+  const handleReplaceCancel = useCallback(
+    () => settleReplacePrompt(false),
+    [settleReplacePrompt],
+  )
+
+  // Never leave an awaited add hanging if the provider unmounts mid-prompt.
+  useEffect(
+    () => () => {
+      const pending = pendingReplaceRef.current
+      pendingReplaceRef.current = null
+      if (pending) pending.resolve(false)
+    },
+    [],
+  )
+
+  const performAdd = useCallback(
+    async (item, sourcePosition = null) => {
       const authed = isUserAuthenticated()
       if (!authed) {
         // Guest path (local only)
-        if (normalizedCart.length > 0) {
-          const currentOrderType = getItemOrderType(normalizedCart[0])
-          const nextOrderType = getItemOrderType(item)
-          if (currentOrderType === "food" && nextOrderType === "food") {
-            const firstName = String(normalizedCart[0]?.restaurant || "")
-              .trim()
-              .toLowerCase()
-            const nextName = String(item?.restaurant || "")
-              .trim()
-              .toLowerCase()
-            const firstId = normalizedCart[0]?.restaurantId
-            const nextId = item?.restaurantId
-            if (
-              (firstName && nextName && firstName !== nextName) ||
-              (!firstName &&
-                !nextName &&
-                firstId &&
-                nextId &&
-                String(firstId) !== String(nextId))
-            ) {
-              return {
-                ok: false,
-                error: `Cart already contains items from "${normalizedCart[0]?.restaurant || "another restaurant"}". Please clear cart or complete order first.`,
-                code: "RESTAURANT_MISMATCH",
-              }
-            }
-          }
-        }
         if (!item?.restaurantId && !item?.restaurant) {
           return {
             ok: false,
@@ -514,7 +600,61 @@ export function CartProvider({ children }) {
         return { ok: false, error: message }
       }
     },
-    [applyServerCart, normalizedCart],
+    [applyServerCart],
+  )
+
+  // Single-restaurant cart rule: adding from a different restaurant asks the
+  // user to replace the cart instead of silently mixing (or silently failing).
+  const addToCart = useCallback(
+    async (item, sourcePosition = null) => {
+      if (!item) return { ok: false, error: "Invalid item" }
+
+      const conflict = detectRestaurantConflict(normalizedCart, item)
+      if (conflict) {
+        const confirmed = await requestReplaceConfirmation(
+          conflict.existingName,
+          conflict.newName,
+        )
+        if (!confirmed) {
+          return { ok: false, cancelled: true, code: "CART_REPLACE_CANCELLED" }
+        }
+        const cleared = await clearCart()
+        if (!cleared?.ok) {
+          return {
+            ok: false,
+            error: cleared?.error || "Could not clear the existing cart. Please try again.",
+          }
+        }
+        return performAdd(item, sourcePosition)
+      }
+
+      const result = await performAdd(item, sourcePosition)
+
+      // Local cart can be stale (another tab/device): honour the server verdict too.
+      if (result?.code === "RESTAURANT_MISMATCH") {
+        const confirmed = await requestReplaceConfirmation(
+          parseExistingRestaurantName(result.error) ||
+            restaurantName ||
+            getRestaurantLabel(normalizedCart[0]) ||
+            "your current restaurant",
+          getRestaurantLabel(item) || "this restaurant",
+        )
+        if (!confirmed) {
+          return { ok: false, cancelled: true, code: "CART_REPLACE_CANCELLED" }
+        }
+        const cleared = await clearCart()
+        if (!cleared?.ok) {
+          return {
+            ok: false,
+            error: cleared?.error || "Could not clear the existing cart. Please try again.",
+          }
+        }
+        return performAdd(item, sourcePosition)
+      }
+
+      return result
+    },
+    [clearCart, normalizedCart, performAdd, requestReplaceConfirmation, restaurantName],
   )
 
   const removeFromCart = useCallback(
@@ -627,24 +767,6 @@ export function CartProvider({ children }) {
     },
     [normalizedCart],
   )
-
-  const clearCart = useCallback(async () => {
-    if (!isUserAuthenticated()) {
-      setCart([])
-      clearGuestCartStorage()
-      return { ok: true }
-    }
-    const seq = ++mutationSeqRef.current
-    try {
-      const response = await foodCartAPI.clearCart()
-      if (seq !== mutationSeqRef.current) return { ok: true }
-      applyServerCart(extractCartPayload(response))
-      return { ok: true }
-    } catch (err) {
-      debugError("clearCart failed", err)
-      return { ok: false, error: apiErrorMessage(err) }
-    }
-  }, [applyServerCart])
 
   const replaceCart = useCallback(
     async (items) => {
@@ -816,7 +938,18 @@ export function CartProvider({ children }) {
     ],
   )
 
-  return <CartContext.Provider value={value}>{children}</CartContext.Provider>
+  return (
+    <CartContext.Provider value={value}>
+      {children}
+      <CartReplaceDialog
+        open={Boolean(replacePrompt)}
+        existingRestaurantName={replacePrompt?.existingRestaurantName || "your current restaurant"}
+        newRestaurantName={replacePrompt?.newRestaurantName || "this restaurant"}
+        onConfirm={handleReplaceConfirm}
+        onCancel={handleReplaceCancel}
+      />
+    </CartContext.Provider>
+  )
 }
 
 export function useCart() {

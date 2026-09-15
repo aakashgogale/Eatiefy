@@ -62,7 +62,7 @@ export default function Collections() {
   }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-[#0a0a0a]">
+    <div className="min-h-screen bg-white dark:bg-[#141414]">
       {/* Back Button */}
       <button
         onClick={goBack}
@@ -83,7 +83,7 @@ export default function Collections() {
       </div>
 
       {/* Tabs */}
-      <div className="sticky top-0 bg-white dark:bg-[#1a1a1a] z-10 border-b dark:border-gray-800">
+      <div className="sticky top-0 bg-white dark:bg-[#242424] z-10 border-b dark:border-gray-800">
         <div className="flex">
           <button
             onClick={() => setActiveTab("delivery")}
@@ -174,7 +174,7 @@ export default function Collections() {
             {/* Create New Collection Card */}
             <button
               onClick={() => setIsCreateDialogOpen(true)}
-              className="bg-white dark:bg-[#1a1a1a] border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-2xl p-4 h-48 flex flex-col items-center justify-center gap-3 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              className="bg-white dark:bg-[#242424] border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-2xl p-4 h-48 flex flex-col items-center justify-center gap-3 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
             >
               <div className="w-12 h-12 rounded-full bg-[#F9F9FB] dark:bg-[#1F6B45]/20 flex items-center justify-center border-2 border-[#1F6B45]/30 dark:border-[#1F6B45]/40">
                 <Plus className="h-6 w-6 text-[#1F6B45] dark:text-[#1F6B45]" />
@@ -201,7 +201,7 @@ export default function Collections() {
           />
 
           {/* Modal */}
-          <div className="relative bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl w-[90%] max-w-sm mx-4 overflow-hidden animate-[slideUp_0.3s_ease-out]">
+          <div className="relative bg-white dark:bg-[#242424] rounded-2xl shadow-2xl w-[90%] max-w-sm mx-4 overflow-hidden animate-[slideUp_0.3s_ease-out]">
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b dark:border-gray-800">
               <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Create New Collection</h2>

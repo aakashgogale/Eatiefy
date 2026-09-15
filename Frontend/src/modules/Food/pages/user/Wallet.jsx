@@ -130,8 +130,8 @@ export default function Wallet() {
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-white dark:bg-[#0a0a0a]">
-      <div className="bg-white dark:bg-[#1a1a1a] sticky top-0 z-10 border-b border-gray-100 dark:border-gray-800">
+    <AnimatedPage className="min-h-screen bg-white dark:bg-[#141414]">
+      <div className="bg-white dark:bg-[#242424] sticky top-0 z-10 border-b border-gray-100 dark:border-gray-800">
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center gap-3 px-4 sm:px-6 md:px-8 lg:px-10 py-4 md:py-5">
             <button
@@ -218,8 +218,8 @@ export default function Wallet() {
                         onClick={() => setSelectedFilter(filter.id)}
                         className={`px-4 md:px-5 lg:px-6 py-2 md:py-2.5 lg:py-3 rounded-lg md:rounded-xl text-xs md:text-sm lg:text-base font-medium whitespace-nowrap flex-shrink-0 transition-all ${
                           isSelected
-                            ? "bg-white dark:bg-[#1a1a1a] border-2 border-green-600 dark:border-green-500 text-green-600 dark:text-green-400 shadow-sm"
-                            : "bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-700 hover:shadow-sm"
+                            ? "bg-white dark:bg-[#242424] border-2 border-green-600 dark:border-green-500 text-green-600 dark:text-green-400 shadow-sm"
+                            : "bg-white dark:bg-[#242424] border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-700 hover:shadow-sm"
                         }`}
                       >
                         {filter.label}
@@ -234,7 +234,7 @@ export default function Wallet() {
                   {filteredTransactions.map((transaction) => (
                     <Card
                       key={transaction.id}
-                      className="py-0 border border-gray-100 dark:border-gray-800 shadow-sm dark:bg-[#1a1a1a] hover:shadow-md transition-all duration-200 cursor-pointer"
+                      className="py-0 border border-gray-100 dark:border-gray-800 shadow-sm dark:bg-[#242424] hover:shadow-md transition-all duration-200 cursor-pointer"
                     >
                       <CardContent className="p-4 md:p-5 lg:p-6">
                         <div className="flex items-center justify-between gap-4 md:gap-6">
@@ -266,7 +266,7 @@ export default function Wallet() {
                 </div>
               ) : (
                 <div className="py-16 md:py-20 flex flex-col items-center justify-center text-center px-4">
-                  <div className="w-16 h-16 md:w-20 md:h-20 rounded-2xl bg-gray-50 dark:bg-[#1a1a1a] flex items-center justify-center mb-5 border border-gray-100 dark:border-gray-800 shadow-sm">
+                  <div className="w-16 h-16 md:w-20 md:h-20 rounded-2xl bg-gray-50 dark:bg-[#242424] flex items-center justify-center mb-5 border border-gray-100 dark:border-gray-800 shadow-sm">
                     <History className="w-8 h-8 md:w-10 md:h-10 text-gray-300 dark:text-gray-600" />
                   </div>
                   <h3 className="text-gray-900 dark:text-white font-bold text-base md:text-lg mb-2">

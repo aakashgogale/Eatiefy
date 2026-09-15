@@ -132,16 +132,19 @@ export default function ProductDetail() {
     return Math.round((sum / reviews.length) * 10) / 10
   }, [reviews, product])
 
-  const handleAddToCart = () => {
+  const handleAddToCart = async () => {
     if (!isModuleAuthenticated('user')) {
       window.dispatchEvent(new CustomEvent('show-login-required'))
       return
     }
     if (product) {
       for (let i = 0; i < quantity; i++) {
-        const result = addToCart(product)
+        const result = await addToCart(product)
         if (result?.ok === false) {
-          alert(result.error || "Cannot add item from different restaurant. Please clear cart first.")
+          // A cancelled replace prompt is a deliberate choice, not a failure.
+          if (!result.cancelled) {
+            alert(result.error || "Cannot add item from different restaurant. Please clear cart first.")
+          }
           break
         }
       }
@@ -263,7 +266,7 @@ export default function ProductDetail() {
 
   if (!product) {
     return (
-      <AnimatedPage className="min-h-screen bg-gradient-to-b from-yellow-50/30 via-white to-orange-50/20 dark:from-[#0a0a0a] dark:via-[#0a0a0a] dark:to-[#0a0a0a]">
+      <AnimatedPage className="min-h-screen bg-gradient-to-b from-yellow-50/30 via-white to-orange-50/20 dark:from-[#141414] dark:via-[#141414] dark:to-[#141414]">
         <div className="max-w-4xl mx-auto px-4 py-20 text-center">
           <h1 className="text-2xl font-bold mb-4">Product Not Found</h1>
           <Link to="/user">
@@ -275,7 +278,7 @@ export default function ProductDetail() {
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-gradient-to-b from-yellow-50/30 via-white to-orange-50/20 dark:from-[#0a0a0a] dark:via-[#0a0a0a] dark:to-[#0a0a0a]">
+    <AnimatedPage className="min-h-screen bg-gradient-to-b from-yellow-50/30 via-white to-orange-50/20 dark:from-[#141414] dark:via-[#141414] dark:to-[#141414]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12">
 
         {/* Hero Image Section */}
@@ -306,7 +309,7 @@ export default function ProductDetail() {
           </div>
 
           {/* Product Info Card Overlay */}
-          <div className="absolute bottom-0 left-0 right-0 bg-white dark:bg-[#1a1a1a] rounded-t-3xl p-4 sm:p-5 md:p-6 lg:p-8">
+          <div className="absolute bottom-0 left-0 right-0 bg-white dark:bg-[#242424] rounded-t-3xl p-4 sm:p-5 md:p-6 lg:p-8">
             <div className="flex items-start gap-4 md:gap-6 lg:gap-8">
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between mb-2 md:mb-3">

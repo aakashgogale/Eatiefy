@@ -28,12 +28,13 @@ export default function RefundPolicy() {
       const response = await api.get(API_ENDPOINTS.ADMIN.REFUND, { contextModule: "admin" })
       if (response.data.success) {
         // Convert HTML to plain text for textarea
-        const content = response.data.data.content || ''
-        const textContent = legalHtmlToPlainText(content)
-        setRefundData({
-          ...response.data.data,
+        const page = response.data.data || {}
+        const textContent = legalHtmlToPlainText(page.content || '')
+        setRefundData((prev) => ({
+          ...prev,
+          ...page,
           content: textContent
-        })
+        }))
       }
     } catch (error) {
       debugError('Error fetching refund data:', error)
@@ -58,12 +59,13 @@ export default function RefundPolicy() {
       if (response.data.success) {
         toast.success('Refund policy updated successfully')
         // Convert HTML to plain text for display in textarea
-        const content = response.data.data.content || ''
-        const textContent = legalHtmlToPlainText(content)
-        setRefundData({
-          ...response.data.data,
+        const page = response.data.data || {}
+        const textContent = legalHtmlToPlainText(page.content || '')
+        setRefundData((prev) => ({
+          ...prev,
+          ...page,
           content: textContent
-        })
+        }))
       }
     } catch (error) {
       debugError('Error saving refund policy:', error)

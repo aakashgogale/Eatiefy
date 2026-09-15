@@ -78,9 +78,9 @@ export default function Categories() {
   });
 
   return (
-    <div className="min-h-screen bg-white dark:bg-[#0a0a0a] pb-10">
+    <div className="min-h-screen bg-white dark:bg-[#141414] pb-10">
       {/* Header */}
-      <div className="sticky top-0 z-50 bg-white/80 dark:bg-[#0a0a0a]/80 backdrop-blur-md border-b border-neutral-100 dark:border-gray-800 px-4 py-4 flex items-center gap-4">
+      <div className="sticky top-0 z-50 bg-white/80 dark:bg-[#141414]/80 backdrop-blur-md border-b border-neutral-100 dark:border-gray-800 px-4 py-4 flex items-center gap-4">
         <button onClick={goBack} type="button" className="p-2 hover:bg-neutral-100 dark:hover:bg-gray-800 rounded-full transition-colors active:scale-95 touch-manipulation relative z-50">
           <ArrowLeft className="h-6 w-6 text-neutral-800 dark:text-white" />
         </button>
@@ -99,7 +99,7 @@ export default function Categories() {
             placeholder="Search specialties, cuisines..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-12 pr-4 py-4 bg-neutral-50 dark:bg-gray-900 border border-neutral-100 dark:border-gray-800 rounded-2xl text-sm font-medium focus:outline-none focus:ring-4 focus:ring-[#1F6B45]/5 focus:border-[#1F6B45] transition-all placeholder:text-neutral-400 dark:placeholder:text-gray-600 dark:text-white"
+            className="w-full pl-12 pr-4 py-4 bg-neutral-50 dark:bg-[#2e2e2e] border border-neutral-100 dark:border-gray-800 rounded-2xl text-sm font-medium focus:outline-none focus:ring-4 focus:ring-[#1F6B45]/5 focus:border-[#1F6B45] transition-all placeholder:text-neutral-400 dark:placeholder:text-gray-600 dark:text-white"
           />
         </div>
       </div>
@@ -129,7 +129,7 @@ export default function Categories() {
                     to={`/food/user/category/${category.slug}`}
                     className="flex flex-col items-center gap-2.5 group"
                   >
-                    <div className="relative w-full aspect-square rounded-full overflow-hidden shadow-sm border border-neutral-100 dark:border-gray-800 bg-white dark:bg-gray-900 group-active:scale-90 transition-all duration-300">
+                    <div className="relative w-full aspect-square rounded-full overflow-hidden shadow-sm border border-neutral-100 dark:border-gray-800 bg-white dark:bg-[#2e2e2e] group-active:scale-90 transition-all duration-300">
                       <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/5 opacity-0 group-hover:opacity-100 transition-opacity z-10" />
                       <OptimizedImage
                         src={category.image}
@@ -150,7 +150,7 @@ export default function Categories() {
 
         {filteredCategories.length === 0 && !loading && (
           <div className="py-20 flex flex-col items-center text-center px-6">
-            <div className="h-20 w-20 bg-neutral-50 dark:bg-gray-900 rounded-full flex items-center justify-center mb-6">
+            <div className="h-20 w-20 bg-neutral-50 dark:bg-[#2e2e2e] rounded-full flex items-center justify-center mb-6">
               <Grid2x2 className="h-10 w-10 text-neutral-300 dark:text-gray-700" />
             </div>
             <h3 className="text-lg font-bold text-neutral-900 dark:text-white">No results found</h3>

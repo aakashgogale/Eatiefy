@@ -87,7 +87,7 @@ export default function CMSPage({
 
   if (loading) {
     return (
-      <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center p-6 bg-white dark:bg-[#0a0a0a]">
+      <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center p-6 bg-white dark:bg-[#141414]">
         <Loader2 className="h-10 w-10 animate-spin text-[#1F6B45]" />
         <p className="mt-4 text-gray-500 font-bold uppercase tracking-widest text-[10px]">
           Loading...
@@ -97,9 +97,9 @@ export default function CMSPage({
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-white dark:bg-[#0a0a0a] pb-10">
+    <AnimatedPage className="min-h-screen bg-white dark:bg-[#141414] pb-10">
       {/* Premium Sticky Header */}
-      <div className="sticky top-0 z-50 bg-white/80 dark:bg-[#0a0a0a]/80 backdrop-blur-xl border-b border-gray-100 dark:border-gray-900">
+      <div className="sticky top-0 z-50 bg-white/80 dark:bg-[#141414]/80 backdrop-blur-xl border-b border-gray-100 dark:border-gray-900">
         <div className="max-w-4xl mx-auto px-4 h-16 md:h-20 flex items-center gap-4">
           <button
             onClick={handleBack}
@@ -121,12 +121,12 @@ export default function CMSPage({
         <motion.div
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white dark:bg-[#111] rounded-[2rem] p-6 md:p-10 shadow-sm border border-gray-50 dark:border-gray-900"
+          className="bg-white dark:bg-[#1c1c1c] rounded-[2rem] p-6 md:p-10 shadow-sm border border-gray-50 dark:border-gray-900"
         >
           {/* Support Contact Cards */}
           {isSupport && (
             <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${hasActualContent ? "mb-10" : "mb-0"}`}>
-              <div className="bg-gray-50 dark:bg-gray-900/50 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 flex flex-col items-center text-center group transition-all hover:border-[#1F6B45]/30">
+              <div className="bg-gray-50 dark:bg-[#2e2e2e]/50 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 flex flex-col items-center text-center group transition-all hover:border-[#1F6B45]/30">
                 <div className="w-12 h-12 bg-white dark:bg-gray-800 rounded-2xl flex items-center justify-center mb-4 shadow-sm group-hover:scale-110 transition-transform">
                   <Mail className="w-6 h-6 text-[#1F6B45]" />
                 </div>
@@ -143,7 +143,7 @@ export default function CMSPage({
                   Send Message
                 </a>
               </div>
-              <div className="bg-gray-50 dark:bg-gray-900/50 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 flex flex-col items-center text-center group transition-all hover:border-[#1F6B45]/30">
+              <div className="bg-gray-50 dark:bg-[#2e2e2e]/50 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 flex flex-col items-center text-center group transition-all hover:border-[#1F6B45]/30">
                 <div className="w-12 h-12 bg-white dark:bg-gray-800 rounded-2xl flex items-center justify-center mb-4 shadow-sm group-hover:scale-110 transition-transform">
                   <Phone className="w-6 h-6 text-[#1F6B45]" />
                 </div>
@@ -228,7 +228,7 @@ export default function CMSPage({
                   return faqsToRender.map((faq, idx) => (
                     <div
                       key={idx}
-                      className="flex items-start gap-4 p-5 rounded-3xl bg-gray-50 dark:bg-gray-900/30 border border-gray-100/50 dark:border-gray-800/50"
+                      className="flex items-start gap-4 p-5 rounded-3xl bg-gray-50 dark:bg-[#2e2e2e]/30 border border-gray-100/50 dark:border-gray-800/50"
                     >
                       <MessageSquare className="w-5 h-5 text-[#1F6B45] shrink-0 mt-0.5" />
                       <div className="space-y-1">
@@ -262,7 +262,7 @@ export default function CMSPage({
 
                   return (
                     <>
-                      <div className="flex items-start gap-4 p-5 rounded-3xl bg-gray-50 dark:bg-gray-900/30 border border-gray-100/50 dark:border-gray-800/50">
+                      <div className="flex items-start gap-4 p-5 rounded-3xl bg-gray-50 dark:bg-[#2e2e2e]/30 border border-gray-100/50 dark:border-gray-800/50">
                         <Clock className="w-5 h-5 text-[#1F6B45] shrink-0 mt-0.5" />
                         <div className="space-y-1">
                           <h4 className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-wider">
@@ -273,7 +273,7 @@ export default function CMSPage({
                           </p>
                         </div>
                       </div>
-                      <div className="flex items-start gap-4 p-5 rounded-3xl bg-gray-50 dark:bg-gray-900/30 border border-gray-100/50 dark:border-gray-800/50">
+                      <div className="flex items-start gap-4 p-5 rounded-3xl bg-gray-50 dark:bg-[#2e2e2e]/30 border border-gray-100/50 dark:border-gray-800/50">
                         <ShieldCheck className="w-5 h-5 text-[#1F6B45] shrink-0 mt-0.5" />
                         <div className="space-y-1">
                           <h4 className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-wider">

@@ -676,7 +676,7 @@ export default function DeliverySignIn() {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-white dark:bg-[#0a0a0a] flex flex-col relative overflow-hidden font-['Poppins']">
+    <div className="min-h-[100dvh] bg-white dark:bg-[#141414] flex flex-col relative overflow-hidden font-['Poppins']">
       <style>
         {`
           @keyframes floatDish1 {
@@ -838,7 +838,7 @@ export default function DeliverySignIn() {
                             {pendingMessage}
                           </p>
                           {isRejected && rejectionReason && (
-                            <div className="mt-3 p-4 bg-white/70 dark:bg-[#1a1a1a]/70 rounded-2xl border border-red-100 dark:border-red-900/30">
+                            <div className="mt-3 p-4 bg-white/70 dark:bg-[#242424]/70 rounded-2xl border border-red-100 dark:border-red-900/30">
                               <p className="text-[10px] font-black text-red-600 uppercase tracking-widest mb-1">Reason</p>
                               <p className="text-sm text-red-800 dark:text-red-300 italic font-medium">"{rejectionReason}"</p>
                             </div>
@@ -1061,7 +1061,7 @@ export default function DeliverySignIn() {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               transition={{ type: "spring", damping: 25, stiffness: 300 }}
-              className="w-full max-w-sm bg-white dark:bg-[#1a1a1a] rounded-3xl shadow-2xl overflow-hidden p-8 text-center border border-gray-100 dark:border-gray-800 relative z-10"
+              className="w-full max-w-sm bg-white dark:bg-[#242424] rounded-3xl shadow-2xl overflow-hidden p-8 text-center border border-gray-100 dark:border-gray-800 relative z-10"
               onClick={(e) => e.stopPropagation()}
             >
               <button

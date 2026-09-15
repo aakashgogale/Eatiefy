@@ -117,7 +117,7 @@ export default function AuthCallback() {
   }
 
   return (
-    <AnimatedPage className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50/30 via-white to-orange-100/20 dark:from-gray-900 dark:via-[#0a0a0a] dark:to-gray-900 p-4 sm:p-6 md:p-8 lg:p-10 xl:p-12">
+    <AnimatedPage className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50/30 via-white to-orange-100/20 dark:from-gray-900 dark:via-[#141414] dark:to-gray-900 p-4 sm:p-6 md:p-8 lg:p-10 xl:p-12">
       <Card className="w-full max-w-md sm:max-w-lg md:max-w-xl lg:max-w-2xl xl:max-w-3xl shadow-xl dark:shadow-2xl border-0 md:border md:border-gray-200 dark:md:border-gray-800">
         <CardHeader className="text-center space-y-2 md:space-y-3 lg:space-y-4 p-6 md:p-8 lg:p-10">
           <CardTitle className="text-2xl md:text-3xl lg:text-4xl font-bold text-black dark:text-white">

@@ -33,7 +33,9 @@ const errorHandler = (err, req, res, next) => {
     res.status(statusCode).json({
         success: false,
         error: message,
-        message
+        message,
+        // Only app-defined codes travel to the client; multer codes stay internal.
+        ...(typeof err.code === 'string' && !MULTER_STATUS[err.code] ? { code: err.code } : {})
     });
 };
 

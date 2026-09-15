@@ -45,7 +45,7 @@ export default function Refund() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-white dark:bg-[#0a0a0a] flex items-center justify-center p-6">
+      <div className="min-h-screen bg-white dark:bg-[#141414] flex items-center justify-center p-6">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-10 w-10 animate-spin text-[#1F6B45]" />
           <p className="text-gray-500 font-bold uppercase tracking-widest text-xs">Loading...</p>
@@ -55,15 +55,15 @@ export default function Refund() {
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-white dark:bg-[#0a0a0a] pb-10">
+    <AnimatedPage className="min-h-screen bg-white dark:bg-[#141414] pb-10">
       {/* Premium Sticky Header */}
-      <div className="sticky top-0 z-50 bg-white/80 dark:bg-[#0a0a0a]/80 backdrop-blur-xl border-b border-gray-100 dark:border-gray-900">
+      <div className="sticky top-0 z-50 bg-white/80 dark:bg-[#141414]/80 backdrop-blur-xl border-b border-gray-100 dark:border-gray-900">
         <div className="max-w-4xl mx-auto px-4 h-16 md:h-20 flex items-center gap-4">
           <Button 
             variant="ghost" 
             size="icon" 
             onClick={handleBack}
-            className="h-10 w-10 rounded-full hover:bg-gray-100 dark:hover:bg-gray-900 transition-all active:scale-95"
+            className="h-10 w-10 rounded-full hover:bg-gray-100 dark:hover:bg-[#2e2e2e] transition-all active:scale-95"
           >
             <ArrowLeft className="h-6 w-6 text-gray-900 dark:text-white" />
           </Button>
@@ -80,7 +80,7 @@ export default function Refund() {
         <motion.div
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white dark:bg-[#111] rounded-[2rem] p-6 md:p-10 shadow-sm border border-gray-50 dark:border-gray-900"
+          className="bg-white dark:bg-[#1c1c1c] rounded-[2rem] p-6 md:p-10 shadow-sm border border-gray-50 dark:border-gray-900"
         >
           {refundData.content ? (
             <div

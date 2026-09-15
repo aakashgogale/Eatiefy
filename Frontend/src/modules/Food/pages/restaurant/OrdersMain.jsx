@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, memo, Component } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, memo, Component } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   checkOnboardingStatus,
@@ -159,12 +159,12 @@ function CompletedOrders({ onSelectOrder, refreshToken = 0 }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let isMounted = true;
 
-    const fetchOrders = async () => {
+    const fetchOrders = async (primed) => {
       try {
-        const response = await restaurantAPI.getOrders();
+        const response = primed || (await restaurantAPI.getOrders());
 
         if (!isMounted) return;
 
@@ -226,12 +226,18 @@ function CompletedOrders({ onSelectOrder, refreshToken = 0 }) {
         }
 
         if (isMounted) {
-          setOrders([]);
+          // Keep what is on screen: one failed refresh (network blip, server restart)
+          // used to wipe the list and flash an empty state until the next success.
           setLoading(false);
         }
       }
     };
 
+    // Paint the last known list immediately (layout effect: before first paint),
+    // then revalidate. Switching tabs used to show a blank "Loading..." every
+    // time even though the same orders were already in memory.
+    const primedResponse = restaurantAPI.peekOrdersCache?.();
+    if (primedResponse) fetchOrders(primedResponse);
     fetchOrders();
 
     return () => {
@@ -370,12 +376,12 @@ function CancelledOrders({ onSelectOrder, refreshToken = 0 }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let isMounted = true;
 
-    const fetchOrders = async () => {
+    const fetchOrders = async (primed) => {
       try {
-        const response = await restaurantAPI.getOrders();
+        const response = primed || (await restaurantAPI.getOrders());
 
         if (!isMounted) return;
 
@@ -440,12 +446,18 @@ function CancelledOrders({ onSelectOrder, refreshToken = 0 }) {
         }
 
         if (isMounted) {
-          setOrders([]);
+          // Keep what is on screen: one failed refresh (network blip, server restart)
+          // used to wipe the list and flash an empty state until the next success.
           setLoading(false);
         }
       }
     };
 
+    // Paint the last known list immediately (layout effect: before first paint),
+    // then revalidate. Switching tabs used to show a blank "Loading..." every
+    // time even though the same orders were already in memory.
+    const primedResponse = restaurantAPI.peekOrdersCache?.();
+    if (primedResponse) fetchOrders(primedResponse);
     fetchOrders();
 
     return () => {
@@ -818,14 +830,14 @@ function AllOrders({ onSelectOrder, onCancel, onVerifyTakeaway, refreshToken = 0
   const [currentTime, setCurrentTime] = useState(new Date());
   const [markingReadyOrderIds, setMarkingReadyOrderIds] = useState({});
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let isMounted = true;
     let intervalId = null;
     let countdownIntervalId = null;
 
-    const fetchOrders = async () => {
+    const fetchOrders = async (primed) => {
       try {
-        const response = await restaurantAPI.getOrders();
+        const response = primed || (await restaurantAPI.getOrders());
 
         if (!isMounted) return;
 
@@ -867,7 +879,8 @@ function AllOrders({ onSelectOrder, onCancel, onVerifyTakeaway, refreshToken = 0
           debugError("Error fetching all orders:", error);
         }
 
-        setOrders([]);
+        // Keep what is on screen: one failed refresh (network blip, server restart)
+        // used to wipe the list and flash an empty state until the next success.
       } finally {
         if (isMounted) {
           setLoading(false);
@@ -875,6 +888,11 @@ function AllOrders({ onSelectOrder, onCancel, onVerifyTakeaway, refreshToken = 0
       }
     };
 
+    // Paint the last known list immediately (layout effect: before first paint),
+    // then revalidate. Switching tabs used to show a blank "Loading..." every
+    // time even though the same orders were already in memory.
+    const primedResponse = restaurantAPI.peekOrdersCache?.();
+    if (primedResponse) fetchOrders(primedResponse);
     fetchOrders();
     intervalId = setInterval(fetchOrders, 10000);
 
@@ -1012,14 +1030,14 @@ function TakeawayOrders({ onSelectOrder, onCancel, onVerifyTakeaway, refreshToke
   const [currentTime, setCurrentTime] = useState(new Date());
   const [markingReadyOrderIds, setMarkingReadyOrderIds] = useState({});
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let isMounted = true;
     let intervalId = null;
     let countdownIntervalId = null;
 
-    const fetchOrders = async () => {
+    const fetchOrders = async (primed) => {
       try {
-        const response = await restaurantAPI.getOrders();
+        const response = primed || (await restaurantAPI.getOrders());
         if (!isMounted) return;
 
         if (response.data?.success && response.data.data?.orders) {
@@ -1049,12 +1067,18 @@ function TakeawayOrders({ onSelectOrder, onCancel, onVerifyTakeaway, refreshToke
         if (error.code !== 'ERR_NETWORK' && error.response?.status !== 404 && error.response?.status !== 401) {
           debugError('Error fetching takeaway orders:', error);
         }
-        setOrders([]);
+        // Keep what is on screen: one failed refresh (network blip, server restart)
+        // used to wipe the list and flash an empty state until the next success.
       } finally {
         if (isMounted) setLoading(false);
       }
     };
 
+    // Paint the last known list immediately (layout effect: before first paint),
+    // then revalidate. Switching tabs used to show a blank "Loading..." every
+    // time even though the same orders were already in memory.
+    const primedResponse = restaurantAPI.peekOrdersCache?.();
+    if (primedResponse) fetchOrders(primedResponse);
     fetchOrders();
     intervalId = setInterval(fetchOrders, 10000);
     const handleVisibility = () => { if (!document.hidden) fetchOrders(); };
@@ -1875,6 +1899,61 @@ function OrdersMainInner() {
     };
   }, [popupOrder, newOrder]);
 
+  /*
+   * Keep the order tabs live when someone ELSE moves an order.
+   *
+   * The restaurant's own actions already refresh the list, but a rider
+   * accepting, picking up or delivering - or an admin override - only arrived as
+   * a socket event that closed popups. Preparing, Ready and Out for delivery
+   * have no polling of their own, so they stayed wrong until the restaurant
+   * tapped something. Bursty events (accept -> reached pickup -> picked up) are
+   * coalesced into one fetch.
+   */
+  useEffect(() => {
+    let timer = null;
+    const onStatusUpdate = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        requestOrdersRefreshRef.current();
+      }, 400);
+    };
+    window.addEventListener("restaurantOrderStatusUpdate", onStatusUpdate);
+    return () => {
+      window.removeEventListener("restaurantOrderStatusUpdate", onStatusUpdate);
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+
+  // Events sent while the socket was down are gone for good; catch up on reconnect.
+  const wasConnectedRef = useRef(isConnected);
+  useEffect(() => {
+    if (isConnected && !wasConnectedRef.current) requestOrdersRefreshRef.current();
+    wasConnectedRef.current = isConnected;
+  }, [isConnected]);
+
+  /*
+   * Safety net for tabs without their own polling (All and Takeaway already poll
+   * every 10s). Visibility-aware so a backgrounded dashboard costs nothing, and
+   * an immediate catch-up when the tab comes back into view.
+   */
+  useEffect(() => {
+    const selfPolling = activeFilter === "all" || activeFilter === "takeaway-orders";
+    if (selfPolling || activeFilter === "table-booking") return undefined;
+    const tick = () => {
+      if (!document.hidden) requestOrdersRefreshRef.current();
+    };
+    const interval = setInterval(tick, 15000);
+    const onVisible = () => {
+      if (!document.hidden) tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [activeFilter]);
+
   // Keep refs in sync to avoid stale state inside one-time event handlers.
   useEffect(() => {
     showNewOrderPopupRef.current = showNewOrderPopup;
@@ -1910,7 +1989,21 @@ function OrdersMainInner() {
   }, []);
 
   const [ordersRefreshToken, setOrdersRefreshToken] = useState(0);
-  const requestOrdersRefresh = () => setOrdersRefreshToken((t) => t + 1);
+  /*
+   * A refresh must actually reach the server.
+   *
+   * getOrders() answers from a 3s cache, and most refreshes fire right after a
+   * fetch (new-order socket event, accept, cancel) - so the "refresh" handed back
+   * the list from before the change and the new order or status move did not
+   * show until some unrelated later fetch. Invalidate first; tabs still paint the
+   * last snapshot instantly while the fresh request runs.
+   */
+  const requestOrdersRefresh = () => {
+    restaurantAPI.invalidateOrdersCache();
+    setOrdersRefreshToken((t) => t + 1);
+  };
+  const requestOrdersRefreshRef = useRef(requestOrdersRefresh);
+  requestOrdersRefreshRef.current = requestOrdersRefresh;
 
   // Check for confirmed orders that haven't been shown in popup yet
   useEffect(() => {
@@ -3815,7 +3908,7 @@ function OrdersMainInner() {
             className="fixed inset-0 z-[110] bg-black/70 flex items-center justify-center p-4"
             onClick={handleVerifyTakeawayClose}>
             <div
-              className="w-[95%] max-w-sm bg-white dark:bg-[#1a1a1a] rounded-3xl shadow-2xl overflow-hidden"
+              className="w-[95%] max-w-sm bg-white dark:bg-[#242424] rounded-3xl shadow-2xl overflow-hidden"
               onClick={(e) => e.stopPropagation()}>
 
               {/* Gradient Header */}
@@ -4327,17 +4420,14 @@ function PreparingOrders({
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [markingReadyOrderIds, setMarkingReadyOrderIds] = useState({});
-  const isFetchingRef = useRef(false);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let isMounted = true;
 
-    const fetchOrders = async () => {
-      if (isFetchingRef.current) return;
-      isFetchingRef.current = true;
+    const fetchOrders = async (primed) => {
       try {
         // Fetch all orders and filter for 'preparing' status on frontend
-        const response = await restaurantAPI.getOrders();
+        const response = primed || (await restaurantAPI.getOrders());
 
         if (!isMounted) return;
 
@@ -4417,16 +4507,18 @@ function PreparingOrders({
         }
 
         if (isMounted) {
-          setOrders([]);
+          // Keep what is on screen: one failed refresh (network blip, server restart)
+          // used to wipe the list and flash an empty state until the next success.
           setLoading(false);
-        }
-      } finally {
-        if (isMounted) {
-          isFetchingRef.current = false;
         }
       }
     };
 
+    // Paint the last known list immediately (layout effect: before first paint),
+    // then revalidate. Switching tabs used to show a blank "Loading..." every
+    // time even though the same orders were already in memory.
+    const primedResponse = restaurantAPI.peekOrdersCache?.();
+    if (primedResponse) fetchOrders(primedResponse);
     fetchOrders();
 
     // Update countdown every second
@@ -4648,13 +4740,13 @@ function ReadyOrders({ onSelectOrder, onVerifyTakeaway, refreshToken = 0 }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let isMounted = true;
 
-    const fetchOrders = async () => {
+    const fetchOrders = async (primed) => {
       try {
         // Fetch all orders and filter for 'ready' status on frontend
-        const response = await restaurantAPI.getOrders();
+        const response = primed || (await restaurantAPI.getOrders());
 
         if (!isMounted) return;
 
@@ -4714,12 +4806,18 @@ function ReadyOrders({ onSelectOrder, onVerifyTakeaway, refreshToken = 0 }) {
         }
 
         if (isMounted) {
-          setOrders([]);
+          // Keep what is on screen: one failed refresh (network blip, server restart)
+          // used to wipe the list and flash an empty state until the next success.
           setLoading(false);
         }
       }
     };
 
+    // Paint the last known list immediately (layout effect: before first paint),
+    // then revalidate. Switching tabs used to show a blank "Loading..." every
+    // time even though the same orders were already in memory.
+    const primedResponse = restaurantAPI.peekOrdersCache?.();
+    if (primedResponse) fetchOrders(primedResponse);
     fetchOrders();
 
     return () => {
@@ -4772,13 +4870,13 @@ const OutForDeliveryOrders = ({ onSelectOrder, refreshToken = 0 }) => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let isMounted = true;
 
-    const fetchOrders = async () => {
+    const fetchOrders = async (primed) => {
       try {
         // Fetch all orders and filter for 'out_for_delivery' status on frontend
-        const response = await restaurantAPI.getOrders();
+        const response = primed || (await restaurantAPI.getOrders());
 
         if (!isMounted) return;
 
@@ -4838,12 +4936,18 @@ const OutForDeliveryOrders = ({ onSelectOrder, refreshToken = 0 }) => {
         }
 
         if (isMounted) {
-          setOrders([]);
+          // Keep what is on screen: one failed refresh (network blip, server restart)
+          // used to wipe the list and flash an empty state until the next success.
           setLoading(false);
         }
       }
     };
 
+    // Paint the last known list immediately (layout effect: before first paint),
+    // then revalidate. Switching tabs used to show a blank "Loading..." every
+    // time even though the same orders were already in memory.
+    const primedResponse = restaurantAPI.peekOrdersCache?.();
+    if (primedResponse) fetchOrders(primedResponse);
     fetchOrders();
 
     return () => {

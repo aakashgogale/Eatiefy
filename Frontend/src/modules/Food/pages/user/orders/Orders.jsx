@@ -606,7 +606,7 @@ Order again from this restaurant in the ${companyName} app.`
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] pb-10">
+      <div className="min-h-screen bg-gray-50 dark:bg-[#141414] pb-10">
         <div className="bg-white dark:bg-[#121212] p-4 flex items-center shadow-sm sticky top-0 z-10 border-b dark:border-gray-800">
           <ArrowLeft className="w-6 h-6 text-gray-700 dark:text-gray-300 cursor-pointer" onClick={goBack} />
           <h1 className="ml-4 text-xl font-semibold text-gray-800 dark:text-gray-100">Your Orders</h1>
@@ -620,7 +620,7 @@ Order again from this restaurant in the ${companyName} app.`
 
   if (orders.length === 0) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] pb-10">
+      <div className="min-h-screen bg-gray-50 dark:bg-[#141414] pb-10">
         <div className="bg-white dark:bg-[#121212] p-4 flex items-center shadow-sm sticky top-0 z-10 border-b dark:border-gray-800">
           <ArrowLeft className="w-6 h-6 text-gray-700 dark:text-gray-300 cursor-pointer" onClick={goBack} />
           <h1 className="ml-4 text-xl font-semibold text-gray-800 dark:text-gray-100">Your Orders</h1>
@@ -636,7 +636,7 @@ Order again from this restaurant in the ${companyName} app.`
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] pb-10 font-sans">
+    <div className="min-h-screen bg-gray-50 dark:bg-[#141414] pb-10 font-sans">
       {/* Header */}
       <div className="bg-white dark:bg-[#121212] p-4 flex items-center shadow-sm sticky top-0 z-10 border-b dark:border-gray-800">
         <ArrowLeft className="w-6 h-6 text-gray-700 dark:text-gray-300 cursor-pointer" onClick={goBack} />
@@ -645,7 +645,7 @@ Order again from this restaurant in the ${companyName} app.`
 
       {/* Search Bar */}
       <div className="p-4 bg-white dark:bg-[#121212] mt-1 border-b dark:border-gray-800">
-        <div className="flex items-center bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 shadow-sm">
+        <div className="flex items-center bg-white dark:bg-[#242424] border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 shadow-sm">
           <Search className="w-5 h-5 text-[#1F6B45]" />
           <input
             type="text"
@@ -751,7 +751,7 @@ Order again from this restaurant in the ${companyName} app.`
 
                 {/* Three-dots dropdown menu */}
                 {activeMenuOrderId === order.id && (
-                  <div className="absolute right-3 top-10 z-20 w-40 rounded-xl bg-white dark:bg-[#1a1a1a] shadow-lg border border-gray-100 dark:border-gray-800 py-1 text-xs">
+                  <div className="absolute right-3 top-10 z-20 w-40 rounded-xl bg-white dark:bg-[#242424] shadow-lg border border-gray-100 dark:border-gray-800 py-1 text-xs">
                     <button
                       type="button"
                       onClick={() => handleShareRestaurant(order)}
@@ -833,7 +833,7 @@ Order again from this restaurant in the ${companyName} app.`
                 </div>
 
                 {/* Order Summary Section */}
-                <div className="px-3 sm:px-4 py-2 sm:py-3 bg-gray-50 dark:bg-[#1a1a1a] rounded-lg mx-3 sm:mx-4 mb-2">
+                <div className="px-3 sm:px-4 py-2 sm:py-3 bg-gray-50 dark:bg-[#242424] rounded-lg mx-3 sm:mx-4 mb-2">
                   <div className="space-y-1">
                     {order.subtotal > 0 && (
                       <div className="hidden sm:flex justify-between text-xs">
@@ -1086,7 +1086,7 @@ Order again from this restaurant in the ${companyName} app.`
                   rows={2}
                   value={restaurantFeedbackText}
                   onChange={(e) => setRestaurantFeedbackText(e.target.value)}
-                  className="w-full rounded-xl border-2 border-gray-200 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] px-4 py-2 text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#1F6B45] focus:border-[#1F6B45] resize-none transition-all"
+                  className="w-full rounded-xl border-2 border-gray-200 dark:border-gray-800 bg-white dark:bg-[#242424] px-4 py-2 text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#1F6B45] focus:border-[#1F6B45] resize-none transition-all"
                   placeholder="Restaurant feedback (optional)"
                 />
               </div>
@@ -1120,7 +1120,7 @@ Order again from this restaurant in the ${companyName} app.`
                     rows={2}
                     value={deliveryFeedbackText}
                     onChange={(e) => setDeliveryFeedbackText(e.target.value)}
-                    className="w-full rounded-xl border-2 border-gray-200 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] px-4 py-2 text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#1F6B45] focus:border-[#1F6B45] resize-none transition-all"
+                    className="w-full rounded-xl border-2 border-gray-200 dark:border-gray-800 bg-white dark:bg-[#242424] px-4 py-2 text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#1F6B45] focus:border-[#1F6B45] resize-none transition-all"
                     placeholder="Delivery partner feedback (optional)"
                   />
                 </div>

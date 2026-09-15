@@ -8,7 +8,7 @@ export default function AnimatedBorder({ children, className = "" }) {
           backgroundSize: "200% 200%",
         }}
       />
-      <div className="absolute inset-[2px] bg-white dark:bg-gray-900 rounded-3xl" />
+      <div className="absolute inset-[2px] bg-white dark:bg-[#2e2e2e] rounded-3xl" />
       <div className="relative z-10">{children}</div>
       <style>{`
         @keyframes borderGradient {

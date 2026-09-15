@@ -15,7 +15,7 @@ const RestaurantDishCard = ({
       layout
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="bg-white dark:bg-[#111111] rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 dark:border-gray-800 group relative"
+      className="bg-white dark:bg-[#1c1c1c] rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 dark:border-gray-800 group relative"
       onClick={onClick}
     >
       <div className="relative h-48 sm:h-56 overflow-hidden">

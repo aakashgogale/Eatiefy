@@ -94,7 +94,7 @@ export default function StickyCartCard() {
           variants={cardVariants}
         >
           <div className="max-w-7xl md:max-w-none mx-auto md:mx-0 pointer-events-auto">
-            <div className="bg-white dark:bg-[#0a0a0a] dark:text-white rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden md:max-w-md md:w-[400px]">
+            <div className="bg-white dark:bg-[#141414] dark:text-white rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden md:max-w-md md:w-[400px]">
               <div className="flex items-center gap-3 p-3 md:p-4">
                 {/* Restaurant Image */}
                 <div className="flex-shrink-0">

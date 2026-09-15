@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Component, useMemo } from "react"
+import { useState, useEffect, useRef, Component, useMemo, useCallback } from "react"
 import { createPortal } from "react-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { useParams, useNavigate, useSearchParams, useLocation as useRouterLocation } from "react-router-dom"
@@ -51,6 +51,7 @@ import AddToCartAnimation from "@food/components/user/AddToCartAnimation"
 import { getCompanyNameAsync } from "@food/utils/businessSettings"
 import { isModuleAuthenticated } from "@food/utils/auth"
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability"
+import { useFoodPageInvalidation } from "@food/hooks/useFoodPageInvalidation"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { isMongoObjectId, toRestaurantUrlSlug } from "@food/utils/mainTabRoutes"
 import {
@@ -393,6 +394,16 @@ function RestaurantDetailsContent() {
   const [restaurantError, setRestaurantError] = useState(null)
   const fetchedRestaurantRef = useRef(false) // Track if restaurant has been fetched for current slug
   const fetchedSlugRef = useRef(null)
+
+  // Live refresh: a restaurant-side change (online/offline, timings, menu)
+  // must land here without the user reloading the page.
+  const [refreshNonce, setRefreshNonce] = useState(0)
+  useFoodPageInvalidation(
+    useCallback(() => {
+      fetchedRestaurantRef.current = false
+      setRefreshNonce((n) => n + 1)
+    }, []),
+  )
 
   const coupons = useMemo(() => {
     if (!allOffers || allOffers.length === 0) return []
@@ -1287,7 +1298,7 @@ function RestaurantDetailsContent() {
     }
 
     fetchRestaurant()
-  }, [slug, zoneId, seededMongoId, distanceOrigin?.latitude, distanceOrigin?.longitude])
+  }, [slug, zoneId, seededMongoId, distanceOrigin?.latitude, distanceOrigin?.longitude, refreshNonce])
 
   // Track previous values to prevent unnecessary recalculations
   const prevCoordsRef = useRef({ userLat: null, userLng: null, restaurantLat: null, restaurantLng: null })
@@ -1309,11 +1320,37 @@ function RestaurantDetailsContent() {
   useEffect(() => {
     if (!restaurant || !restaurant.name) return
 
+    /*
+     * Key by dish+variant, never by the cart line's own id.
+     *
+     * For a signed-in user the server's line id is the Mongo _id of the cart
+     * sub-document, while every lookup on this page uses
+     * buildCartLineId(dishId, variantId) ("<dishId>::base"). Keying the map by
+     * item.id therefore never matched: the optimistic update in
+     * updateItemQuantity set the right key, then this sync overwrote the map
+     * with unmatchable ones, so the +/- stepper flipped straight back to ADD
+     * even though the item was in the cart. (Guests happened to work, because
+     * the guest cart stores the id this page generated.)
+     */
     const cartQuantities = {}
+    const restaurantIdsForPage = [
+      restaurant?.restaurantId,
+      restaurant?._id,
+      restaurant?.id,
+    ]
+      .filter(Boolean)
+      .map((value) => String(value))
+
     cart.forEach((item) => {
-      if (item.restaurant === restaurant.name) {
-        cartQuantities[item.id] = item.quantity || 0
-      }
+      const belongsToThisRestaurant =
+        (item.restaurantId && restaurantIdsForPage.includes(String(item.restaurantId))) ||
+        item.restaurant === restaurant.name
+      if (!belongsToThisRestaurant) return
+
+      const dishId = item.itemId || item.productId || item.id
+      if (!dishId) return
+      const lineItemId = buildCartLineId(dishId, item.variantId || "")
+      cartQuantities[lineItemId] = (cartQuantities[lineItemId] || 0) + (item.quantity || 0)
     })
     setQuantities(cartQuantities)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1339,7 +1376,7 @@ function RestaurantDetailsContent() {
   }, [selectedItem, quantities])
 
   // Helper function to update item quantity in both local state and cart
-  const updateItemQuantity = (item, newQuantity, event = null, preferredVariant = null) => {
+  const updateItemQuantity = async (item, newQuantity, event = null, preferredVariant = null) => {
     // Check authentication
     if (!isModuleAuthenticated('user')) {
       window.dispatchEvent(new CustomEvent('show-login-required'))
@@ -1476,9 +1513,11 @@ function RestaurantDetailsContent() {
 
         // If incrementing quantity, trigger add animation with sourcePosition
         if (newQuantity > existingCartItem.quantity && sourcePosition) {
-          const result = addToCart(cartItem, sourcePosition)
+          const result = await addToCart(cartItem, sourcePosition)
           if (result?.ok === false) {
-            toast.error(result.error || 'Cannot add item from different restaurant. Please clear cart first.')
+            if (!result.cancelled) {
+              toast.error(result.error || 'Cannot add item from different restaurant. Please clear cart first.')
+            }
             return
           }
           if (newQuantity > existingCartItem.quantity + 1) {
@@ -1496,9 +1535,11 @@ function RestaurantDetailsContent() {
       } else {
         // Add to cart first (adds with quantity 1), then update to desired quantity
         // Pass sourcePosition when adding a new item
-        const result = addToCart(cartItem, sourcePosition)
+        const result = await addToCart(cartItem, sourcePosition)
         if (result?.ok === false) {
-          toast.error(result.error || 'Cannot add item from different restaurant. Please clear cart first.')
+          if (!result.cancelled) {
+            toast.error(result.error || 'Cannot add item from different restaurant. Please clear cart first.')
+          }
           return
         }
         if (newQuantity > 1) {
@@ -2362,15 +2403,15 @@ function RestaurantDetailsContent() {
 
     return (
       <AnimatedPage
-        className="min-h-screen bg-gray-50 dark:bg-[#0f0f0f] flex flex-col transition-all duration-300"
+        className="min-h-screen bg-gray-50 dark:bg-[#181818] flex flex-col transition-all duration-300"
       >
         {/* Header - Back arrow */}
-        <div className="px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 pt-4 pb-4 bg-gray-50 dark:bg-[#0f0f0f]">
+        <div className="px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 pt-4 pb-4 bg-gray-50 dark:bg-[#181818]">
           <div className="max-w-xl mx-auto flex items-center">
             <Button
               variant="outline"
               size="icon"
-              className="rounded-full h-10 w-10 border-gray-200 dark:border-gray-800 shadow-sm bg-white dark:bg-[#1a1a1a]"
+              className="rounded-full h-10 w-10 border-gray-200 dark:border-gray-800 shadow-sm bg-white dark:bg-[#242424]"
               onClick={() => setShowMoreInfo(false)}
             >
               <ArrowLeft className="h-5 w-5 text-gray-900 dark:text-white" />
@@ -2381,7 +2422,7 @@ function RestaurantDetailsContent() {
         {/* Content Section */}
         <div className="flex-1 max-w-xl mx-auto w-full px-4 sm:px-6 pt-2 pb-12">
           {/* Card 1: Restaurant Info & Call Button & Timings */}
-          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm">
+          <div className="bg-white dark:bg-[#242424] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm">
             <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
               {restaurant?.name || "Restaurant Name"}
             </h1>
@@ -2441,7 +2482,7 @@ function RestaurantDetailsContent() {
           </div>
 
           {/* Card 2: Legal Details Card */}
-          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm mt-4 space-y-4">
+          <div className="bg-white dark:bg-[#242424] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm mt-4 space-y-4">
             {/* Legal Name */}
             <div className="pb-3 border-b border-gray-100 dark:border-gray-800 last:border-b-0 last:pb-0">
               <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500 font-medium">
@@ -2500,18 +2541,18 @@ function RestaurantDetailsContent() {
     <AnimatedPage
       instant
       id="scrollingelement"
-      className={`min-h-screen bg-white dark:bg-[#0a0a0a] flex flex-col ${shouldShowGrayscale ? 'grayscale opacity-75' : ''
+      className={`min-h-screen bg-white dark:bg-[#141414] flex flex-col ${shouldShowGrayscale ? 'grayscale opacity-75' : ''
         }`}
     >
       {/* Header - Back, Search, Menu (like reference image) */}
-      <div className="px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 pt-3 md:pt-4 lg:pt-5 pb-2 md:pb-3 bg-white dark:bg-[#0a0a0a]">
+      <div className="px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 pt-3 md:pt-4 lg:pt-5 pb-2 md:pb-3 bg-white dark:bg-[#141414]">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           {/* Back Button */}
           <Button
             type="button"
             variant="outline"
             size="icon"
-            className="rounded-full h-10 w-10 border-gray-200 dark:border-gray-800 shadow-sm bg-white dark:bg-[#1a1a1a] relative z-50 touch-manipulation"
+            className="rounded-full h-10 w-10 border-gray-200 dark:border-gray-800 shadow-sm bg-white dark:bg-[#242424] relative z-50 touch-manipulation"
             onClick={goBack}
           >
             <ArrowLeft className="h-5 w-5 text-gray-900 dark:text-white" />
@@ -2522,7 +2563,7 @@ function RestaurantDetailsContent() {
             {!showSearch ? (
               <Button
                 variant="outline"
-                className="rounded-full h-10 px-4 border-gray-200 dark:border-gray-800 shadow-sm bg-white dark:bg-[#1a1a1a] flex items-center gap-2 text-gray-900 dark:text-white"
+                className="rounded-full h-10 px-4 border-gray-200 dark:border-gray-800 shadow-sm bg-white dark:bg-[#242424] flex items-center gap-2 text-gray-900 dark:text-white"
                 onClick={() => setShowSearch(true)}
               >
                 <Search className="h-4 w-4" />
@@ -2537,7 +2578,7 @@ function RestaurantDetailsContent() {
                     placeholder="Search for dishes..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-10 py-2 rounded-full border border-gray-200 dark:border-gray-800 shadow-sm bg-white dark:bg-[#1a1a1a] text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1F6B45] focus:border-transparent"
+                    className="w-full pl-10 pr-10 py-2 rounded-full border border-gray-200 dark:border-gray-800 shadow-sm bg-white dark:bg-[#242424] text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1F6B45] focus:border-transparent"
                     autoFocus
                     onBlur={() => {
                       if (!searchQuery) {
@@ -2562,7 +2603,7 @@ function RestaurantDetailsContent() {
             <Button
               variant="outline"
               size="icon"
-              className="rounded-full h-10 w-10 border-gray-200 dark:border-gray-800 shadow-sm bg-white dark:bg-[#1a1a1a]"
+              className="rounded-full h-10 w-10 border-gray-200 dark:border-gray-800 shadow-sm bg-white dark:bg-[#242424]"
               onClick={() => setShowMenuOptionsSheet(true)}
             >
               <MoreVertical className="h-5 w-5 text-gray-900 dark:text-white" />
@@ -2572,11 +2613,11 @@ function RestaurantDetailsContent() {
       </div>
 
       {/* Main Content Card */}
-      <div className="bg-white dark:bg-[#0a0a0a] rounded-t-3xl relative z-10 min-h-[40vh]">
+      <div className="bg-white dark:bg-[#141414] rounded-t-3xl relative z-10 min-h-[40vh]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 py-4 sm:py-5 md:py-6 lg:py-8 space-y-3 md:space-y-4 lg:space-y-5 pb-0">
           {/* Restaurant Summary */}
           <div className="relative">
-            <div className="relative rounded-3xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] shadow-[0_16px_40px_rgba(15,23,42,0.08)] p-4 sm:p-5 space-y-4 overflow-hidden">
+            <div className="relative rounded-3xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-[#242424] shadow-[0_16px_40px_rgba(15,23,42,0.08)] p-4 sm:p-5 space-y-4 overflow-hidden">
               <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-[#1F6B45] via-[#8a4b77] to-[#b36b8f]" />
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
@@ -2657,7 +2698,7 @@ function RestaurantDetailsContent() {
 
             if (loadingOffers) return (
               // Skeleton placeholder - shows immediately while offers load
-              <div className="flex items-center justify-between border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] px-3.5 py-2.5 rounded-xl mb-3 shadow-sm">
+              <div className="flex items-center justify-between border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#242424] px-3.5 py-2.5 rounded-xl mb-3 shadow-sm">
                 <div className="flex items-center gap-2 flex-1 mr-4">
                   <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-700 animate-pulse flex-shrink-0" />
                   <div className="h-3.5 w-40 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
@@ -2671,7 +2712,7 @@ function RestaurantDetailsContent() {
             return (
               <div
                 onClick={() => setShowOffersSheet(true)}
-                className="flex items-center justify-between border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] px-3.5 py-2.5 rounded-xl cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all duration-200 mb-3 shadow-sm"
+                className="flex items-center justify-between border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#242424] px-3.5 py-2.5 rounded-xl cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all duration-200 mb-3 shadow-sm"
               >
                 <div className="flex items-center gap-2 overflow-hidden flex-1 mr-4">
                   <div className="flex-shrink-0 flex items-center justify-center w-6 h-6">
@@ -2709,7 +2750,7 @@ function RestaurantDetailsContent() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="flex items-center gap-1.5 whitespace-nowrap border-gray-300 dark:border-gray-700 bg-white dark:bg-[#1a1a1a] relative"
+                    className="flex items-center gap-1.5 whitespace-nowrap border-gray-300 dark:border-gray-700 bg-white dark:bg-[#242424] relative"
                     onClick={() => setShowFilterSheet(true)}
                   >
                     <SlidersHorizontal className="h-4 w-4" />
@@ -2724,7 +2765,7 @@ function RestaurantDetailsContent() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className={`flex items-center gap-1.5 whitespace-nowrap border-gray-300 dark:border-gray-700 bg-white dark:bg-[#1a1a1a] dark:text-white rounded-full ${filters.vegNonVeg === "veg" ? "border-green-600 bg-green-50 text-green-700 font-bold dark:border-green-500 dark:bg-green-900/20 dark:text-green-400" : ""
+                    className={`flex items-center gap-1.5 whitespace-nowrap border-gray-300 dark:border-gray-700 bg-white dark:bg-[#242424] dark:text-white rounded-full ${filters.vegNonVeg === "veg" ? "border-green-600 bg-green-50 text-green-700 font-bold dark:border-green-500 dark:bg-green-900/20 dark:text-green-400" : ""
                       }`}
                     onClick={() =>
                       setFilters((prev) => ({
@@ -2743,7 +2784,7 @@ function RestaurantDetailsContent() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className={`flex items-center gap-1.5 whitespace-nowrap border-gray-300 dark:border-gray-700 bg-white dark:bg-[#1a1a1a] dark:text-white rounded-full ${filters.vegNonVeg === "non-veg" ? "border-red-600 bg-red-50 text-red-600 dark:border-red-500 dark:bg-red-900/20 dark:text-red-400" : ""
+                    className={`flex items-center gap-1.5 whitespace-nowrap border-gray-300 dark:border-gray-700 bg-white dark:bg-[#242424] dark:text-white rounded-full ${filters.vegNonVeg === "non-veg" ? "border-red-600 bg-red-50 text-red-600 dark:border-red-500 dark:bg-red-900/20 dark:text-red-400" : ""
                       }`}
                     onClick={() =>
                       setFilters((prev) => ({
@@ -2768,7 +2809,7 @@ function RestaurantDetailsContent() {
                       onClick={() => setSelectedMenuCategory("all")}
                       className={`flex items-center gap-2 whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors ${selectedMenuCategory === "all"
                           ? "border-[#1F6B45] bg-[#1F6B4515] text-[#1F6B45]"
-                          : "border-gray-300 dark:border-gray-700 bg-white dark:bg-[#1a1a1a] text-gray-700 dark:text-gray-300"
+                          : "border-gray-300 dark:border-gray-700 bg-white dark:bg-[#242424] text-gray-700 dark:text-gray-300"
                         }`}
                     >
                       All
@@ -2780,7 +2821,7 @@ function RestaurantDetailsContent() {
                         onClick={() => setSelectedMenuCategory(category.id)}
                         className={`flex items-center gap-2 whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors ${selectedMenuCategory === category.id
                             ? "border-[#1F6B45] bg-[#1F6B4515] text-[#1F6B45]"
-                            : "border-gray-300 dark:border-gray-700 bg-white dark:bg-[#1a1a1a] text-gray-700 dark:text-gray-300"
+                            : "border-gray-300 dark:border-gray-700 bg-white dark:bg-[#242424] text-gray-700 dark:text-gray-300"
                           }`}
                       >
                         {category.image ? (
@@ -2811,7 +2852,7 @@ function RestaurantDetailsContent() {
         {restaurant && (
           <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 py-6 sm:py-8 md:py-10 lg:py-12 space-y-6 md:space-y-8 lg:space-y-10">
             {filteredSections.length === 0 && hasUserAppliedFilters && (
-              <div className="rounded-2xl border border-dashed border-gray-300 dark:border-gray-700 bg-white dark:bg-[#1a1a1a] px-5 py-8 text-center">
+              <div className="rounded-2xl border border-dashed border-gray-300 dark:border-gray-700 bg-white dark:bg-[#242424] px-5 py-8 text-center">
                 <p className="text-sm md:text-base font-medium text-gray-700 dark:text-gray-300">
                   No dishes match the selected filters.
                 </p>
@@ -3491,7 +3532,7 @@ function RestaurantDetailsContent() {
 
                 {/* Menu Sheet */}
                 <motion.div
-                  className="fixed left-0 right-0 bottom-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:bottom-auto md:top-1/2 md:-translate-y-1/2 z-[10000] bg-white dark:bg-[#1a1a1a] rounded-t-3xl md:rounded-3xl shadow-2xl max-h-[85vh] md:max-h-[90vh] md:max-w-lg w-full md:w-auto flex flex-col"
+                  className="fixed left-0 right-0 bottom-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:bottom-auto md:top-1/2 md:-translate-y-1/2 z-[10000] bg-white dark:bg-[#242424] rounded-t-3xl md:rounded-3xl shadow-2xl max-h-[85vh] md:max-h-[90vh] md:max-w-lg w-full md:w-auto flex flex-col"
                   initial={{ y: "100%" }}
                   animate={{ y: 0 }}
                   exit={{ y: "100%" }}
@@ -3550,7 +3591,7 @@ function RestaurantDetailsContent() {
                   </div>
 
                   {/* Close Button */}
-                  <div className="border-t border-gray-200 dark:border-gray-800 px-4 py-4 bg-white dark:bg-[#1a1a1a]">
+                  <div className="border-t border-gray-200 dark:border-gray-800 px-4 py-4 bg-white dark:bg-[#242424]">
                     <Button
                       className="w-full bg-[#1F6B45] hover:bg-[#14512F] text-white border-0 flex items-center justify-center gap-2 py-6 rounded-xl font-bold transition-all shadow-lg text-sm"
                       onClick={() => setShowMenuSheet(false)}
@@ -3584,7 +3625,7 @@ function RestaurantDetailsContent() {
 
                 {/* Bottom Sheet */}
                 <motion.div
-                  className="fixed left-0 right-0 bottom-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:bottom-auto md:top-1/2 md:-translate-y-1/2 z-[10000] bg-white dark:bg-[#1a1a1a] rounded-t-3xl md:rounded-3xl shadow-2xl h-[80vh] md:h-auto md:max-h-[90vh] md:max-w-lg w-full md:w-auto flex flex-col"
+                  className="fixed left-0 right-0 bottom-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:bottom-auto md:top-1/2 md:-translate-y-1/2 z-[10000] bg-white dark:bg-[#242424] rounded-t-3xl md:rounded-3xl shadow-2xl h-[80vh] md:h-auto md:max-h-[90vh] md:max-w-lg w-full md:w-auto flex flex-col"
                   initial={{ y: "100%" }}
                   animate={{ y: 0 }}
                   exit={{ y: "100%" }}
@@ -3720,7 +3761,7 @@ function RestaurantDetailsContent() {
                   </div>
 
                   {/* Bottom Action Bar */}
-                  <div className="border-t border-gray-200 dark:border-gray-800 px-4 py-3 flex items-center justify-between bg-white dark:bg-[#1a1a1a]">
+                  <div className="border-t border-gray-200 dark:border-gray-800 px-4 py-3 flex items-center justify-between bg-white dark:bg-[#242424]">
                     <button
                       onClick={() => {
                         setFilters({
@@ -3766,7 +3807,7 @@ function RestaurantDetailsContent() {
 
                 {/* Centered Modal */}
                 <motion.div
-                  className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[10000] bg-white dark:bg-[#1a1a1a] rounded-3xl shadow-2xl w-[88vw] max-w-sm flex flex-col max-h-[80vh]"
+                  className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[10000] bg-white dark:bg-[#242424] rounded-3xl shadow-2xl w-[88vw] max-w-sm flex flex-col max-h-[80vh]"
                   initial={{ opacity: 0, scale: 0.92 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.92 }}
@@ -3848,7 +3889,7 @@ function RestaurantDetailsContent() {
 
                   {/* Footer */}
                   {restaurant?.outlets && Array.isArray(restaurant.outlets) && restaurant.outlets.length > 5 && (
-                    <div className="border-t border-gray-200 dark:border-gray-800 px-4 py-3 bg-white dark:bg-[#1a1a1a]">
+                    <div className="border-t border-gray-200 dark:border-gray-800 px-4 py-3 bg-white dark:bg-[#242424]">
                       <button className="flex items-center justify-center gap-2 text-red-600 dark:text-red-400 font-medium text-sm w-full">
                         <span>See all {restaurant.outlets.length} outlets</span>
                         <ChevronDown className="h-4 w-4" />
@@ -3880,7 +3921,7 @@ function RestaurantDetailsContent() {
 
                 {/* Manage Collections Bottom Sheet */}
                 <motion.div
-                  className="fixed left-0 right-0 bottom-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:bottom-auto md:top-1/2 md:-translate-y-1/2 z-[10000] bg-white dark:bg-[#1a1a1a] rounded-t-3xl md:rounded-3xl shadow-2xl md:max-w-lg w-full md:w-auto"
+                  className="fixed left-0 right-0 bottom-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:bottom-auto md:top-1/2 md:-translate-y-1/2 z-[10000] bg-white dark:bg-[#242424] rounded-t-3xl md:rounded-3xl shadow-2xl md:max-w-lg w-full md:w-auto"
                   initial={{ y: "100%" }}
                   animate={{ y: 0 }}
                   exit={{ y: "100%" }}
@@ -3988,7 +4029,7 @@ function RestaurantDetailsContent() {
               >
                 {/* Item Detail Modal */}
                 <motion.div
-                  className="relative bg-white dark:bg-[#1a1a1a] rounded-3xl shadow-2xl max-h-[90vh] w-full max-w-[450px] md:max-w-2xl flex flex-col overflow-hidden"
+                  className="relative bg-white dark:bg-[#242424] rounded-3xl shadow-2xl max-h-[90vh] w-full max-w-[450px] md:max-w-2xl flex flex-col overflow-hidden"
                   initial={{ opacity: 0, scale: 0.97, y: 12 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.97, y: 12 }}
@@ -4023,7 +4064,7 @@ function RestaurantDetailsContent() {
                     {/* Item Name and Indicator */}
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex items-center gap-2 flex-1">
-                        <div className={`h-5 w-5 rounded border-2 ${isVegMenuItem(selectedItem, restaurant) ? "border-green-600 bg-green-50" : "border-red-600 bg-red-50"} dark:border-gray-600 dark:bg-gray-900/30 flex items-center justify-center flex-shrink-0`}>
+                        <div className={`h-5 w-5 rounded border-2 ${isVegMenuItem(selectedItem, restaurant) ? "border-green-600 bg-green-50" : "border-red-600 bg-red-50"} dark:border-gray-600 dark:bg-[#2e2e2e]/30 flex items-center justify-center flex-shrink-0`}>
                           <div className={`h-2.5 w-2.5 rounded-full ${isVegMenuItem(selectedItem, restaurant) ? "bg-green-600" : "bg-red-600"}`} />
                         </div>
                         <h2 className="text-xl font-bold text-gray-900 dark:text-white">
@@ -4069,7 +4110,7 @@ function RestaurantDetailsContent() {
                   </div>
 
                   {/* Bottom Action Bar */}
-                  <div className="border-t border-gray-200 dark:border-gray-800 px-3 sm:px-4 py-4 bg-white dark:bg-[#1a1a1a]">
+                  <div className="border-t border-gray-200 dark:border-gray-800 px-3 sm:px-4 py-4 bg-white dark:bg-[#242424]">
                     <div className="flex items-center gap-2 sm:gap-4">
                       {/* Quantity Selector */}
                       <div className={`flex items-center gap-1 sm:gap-3 border-2 rounded-lg px-2 sm:px-3 h-[44px] bg-white dark:bg-[#2a2a2a] ${shouldShowGrayscale
@@ -4180,7 +4221,7 @@ function RestaurantDetailsContent() {
 
                 {/* Schedule Bottom Sheet */}
                 <motion.div
-                  className="fixed left-0 right-0 bottom-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:bottom-auto md:top-1/2 md:-translate-y-1/2 z-[10000] bg-white dark:bg-[#1a1a1a] rounded-t-3xl md:rounded-3xl shadow-2xl max-h-[60vh] md:max-h-[90vh] md:max-w-lg w-full md:w-auto flex flex-col"
+                  className="fixed left-0 right-0 bottom-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:bottom-auto md:top-1/2 md:-translate-y-1/2 z-[10000] bg-white dark:bg-[#242424] rounded-t-3xl md:rounded-3xl shadow-2xl max-h-[60vh] md:max-h-[90vh] md:max-w-lg w-full md:w-auto flex flex-col"
                   initial={{ y: "100%" }}
                   animate={{ y: 0 }}
                   exit={{ y: "100%" }}
@@ -4302,7 +4343,7 @@ function RestaurantDetailsContent() {
 
                 {/* Menu Options Bottom Sheet */}
                 <motion.div
-                  className="fixed left-0 right-0 bottom-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:bottom-auto md:top-1/2 md:-translate-y-1/2 z-[10000] bg-white dark:bg-[#1a1a1a] rounded-t-3xl md:rounded-3xl shadow-2xl max-h-[70vh] md:max-h-[90vh] md:max-w-lg w-full md:w-auto flex flex-col"
+                  className="fixed left-0 right-0 bottom-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:bottom-auto md:top-1/2 md:-translate-y-1/2 z-[10000] bg-white dark:bg-[#242424] rounded-t-3xl md:rounded-3xl shadow-2xl max-h-[70vh] md:max-h-[90vh] md:max-w-lg w-full md:w-auto flex flex-col"
                   initial={{ y: "100%" }}
                   animate={{ y: 0 }}
                   exit={{ y: "100%" }}
@@ -4412,7 +4453,7 @@ function RestaurantDetailsContent() {
                   onClick={() => setShowShareModal(false)}
                 />
                 <motion.div
-                  className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[10021] w-[92vw] max-w-md bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl"
+                  className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[10021] w-[92vw] max-w-md bg-white dark:bg-[#242424] rounded-2xl shadow-2xl"
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.95 }}
@@ -4508,7 +4549,7 @@ function RestaurantDetailsContent() {
 
                     {/* Sheet Content */}
                     <motion.div
-                      className="relative bg-white dark:bg-[#1a1a1a] rounded-t-3xl sm:rounded-3xl w-full overflow-hidden flex flex-col max-h-[80vh] sm:max-h-[75vh] shadow-2xl border border-gray-100 dark:border-gray-800"
+                      className="relative bg-white dark:bg-[#242424] rounded-t-3xl sm:rounded-3xl w-full overflow-hidden flex flex-col max-h-[80vh] sm:max-h-[75vh] shadow-2xl border border-gray-100 dark:border-gray-800"
                       initial={{ y: "100%", opacity: 0.5 }}
                       animate={{ y: 0, opacity: 1 }}
                       exit={{ y: "100%", opacity: 0.5 }}

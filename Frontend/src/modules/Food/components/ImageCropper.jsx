@@ -132,7 +132,7 @@ export function ImageCropper({ isOpen, onClose, imageFile, onCropComplete }) {
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md w-[calc(100%-2rem)] rounded-2xl p-0 overflow-hidden bg-white dark:bg-[#1a1a1a]">
+      <DialogContent className="max-w-md w-[calc(100%-2rem)] rounded-2xl p-0 overflow-hidden bg-white dark:bg-[#242424]">
         <DialogHeader className="p-4 pb-0 border-b border-gray-100 dark:border-gray-800">
           <DialogTitle className="text-lg font-bold text-gray-900 dark:text-white">Crop Profile Photo</DialogTitle>
         </DialogHeader>
@@ -151,7 +151,7 @@ export function ImageCropper({ isOpen, onClose, imageFile, onCropComplete }) {
             />
           )}
         </div>
-        <div className="p-4 bg-white dark:bg-[#1a1a1a] flex gap-3 justify-end">
+        <div className="p-4 bg-white dark:bg-[#242424] flex gap-3 justify-end">
           <Button variant="outline" onClick={onClose} className="rounded-xl">Cancel</Button>
           <Button onClick={handleSave} className="rounded-xl bg-[#DC2626] hover:bg-[#991B1B] text-white">Save</Button>
         </div>

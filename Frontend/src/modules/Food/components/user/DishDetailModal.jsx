@@ -73,7 +73,7 @@ export default function DishDetailModal({
   const inCartItem = getCartItem(resolvedLineItemId)
   const currentCartQty = inCartItem?.quantity || 0
 
-  const handleAdd = (e) => {
+  const handleAdd = async (e) => {
     if (onAddToCart) {
       onAddToCart(dish, e, selectedVariant, quantity)
       onClose()
@@ -111,9 +111,12 @@ export default function DishDetailModal({
       isVeg,
     }
 
-    const res = addToCart(cartItem, null, { quantity })
+    const res = await addToCart(cartItem, null, { quantity })
     if (res?.ok !== false) {
       toast.success(`Added ${dish.name} to cart!`)
+      onClose()
+    } else if (res?.cancelled) {
+      // User declined the replace prompt - dismiss quietly, it isn't an error.
       onClose()
     } else if (res?.error) {
       toast.error(res.error)
@@ -180,7 +183,7 @@ export default function DishDetailModal({
 
             {/* Badges Over Image */}
             <div className="absolute bottom-3 left-4 flex items-center gap-2">
-              <div className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-md px-2.5 py-1 rounded-full shadow-md flex items-center gap-1 text-gray-900 dark:text-white text-xs font-black">
+              <div className="bg-white/95 dark:bg-[#2e2e2e]/95 backdrop-blur-md px-2.5 py-1 rounded-full shadow-md flex items-center gap-1 text-gray-900 dark:text-white text-xs font-black">
                 <Star className="w-3.5 h-3.5 fill-[#24963F] text-[#24963F]" />
                 <span>{dish.rating || 4.2}</span>
               </div>

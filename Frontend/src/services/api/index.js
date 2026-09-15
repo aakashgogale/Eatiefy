@@ -1064,6 +1064,21 @@ let restaurantOrdersCacheKey = "";
 let restaurantOrdersCacheAt = 0;
 let restaurantOrdersInFlight = null;
 let restaurantOrdersInFlightKey = "";
+/**
+ * Last good default-page response, kept across invalidation so a tab can paint
+ * instantly while it revalidates. Stamped with the session token it was fetched
+ * under: a different restaurant signing in on this device must never be shown
+ * the previous restaurant's orders, even for one frame.
+ */
+let restaurantOrdersSnapshot = null;
+let restaurantOrdersSnapshotToken = null;
+const currentRestaurantToken = () => {
+  try {
+    return localStorage.getItem("restaurant_accessToken") || null;
+  } catch {
+    return null;
+  }
+};
 
 export const invalidateRestaurantOrdersCache = () => {
   restaurantOrdersCache = null;
@@ -1073,22 +1088,44 @@ export const invalidateRestaurantOrdersCache = () => {
   restaurantOrdersInFlightKey = "";
 };
 
+/** Apply a status change to one cached orders response, in the UI's vocabulary. */
+const applyOptimisticStatus = (response, orderId, targetStatus) => {
+  const orders = response?.data?.data?.orders;
+  if (!Array.isArray(orders)) return;
+  const targetStr = String(orderId);
+  const raw = String(targetStatus || "");
+  const isCancel = raw.includes("cancel");
+  orders.forEach((o) => {
+    const matchId = String(o._id || o.orderId || o.id);
+    if (matchId !== targetStr) return;
+    o.orderStatus = targetStatus;
+    // Tabs filter on the normalized status (see getOrders). Writing the backend
+    // enum here left a just-marked-ready order in no tab until the next fetch.
+    o.status = isCancel
+      ? "cancelled"
+      : raw === "ready_for_pickup"
+        ? "ready"
+        : raw === "picked_up"
+          ? String(o.orderType || "").toLowerCase() === "takeaway"
+            ? "completed"
+            : "out_for_delivery"
+          : targetStatus;
+    if (isCancel) {
+      o.cancelledAt = new Date().toISOString();
+      o.cancelledBy = "restaurant";
+    }
+  });
+};
+
 export const optimisticallyUpdateRestaurantOrderStatus = (orderId, targetStatus) => {
-  if (restaurantOrdersCache?.data?.data?.orders) {
-    const orders = restaurantOrdersCache.data.data.orders;
-    const targetStr = String(orderId);
-    orders.forEach((o) => {
-      const matchId = String(o._id || o.orderId || o.id);
-      if (matchId === targetStr) {
-        o.orderStatus = targetStatus;
-        o.status = String(targetStatus).includes("cancel") ? "cancelled" : targetStatus;
-        if (String(targetStatus).includes("cancel")) {
-          o.cancelledAt = new Date().toISOString();
-          o.cancelledBy = "restaurant";
-        }
-      }
-    });
+  if (restaurantOrdersCache) {
+    applyOptimisticStatus(restaurantOrdersCache, orderId, targetStatus);
     restaurantOrdersCacheAt = Date.now();
+  }
+  // The snapshot outlives invalidation; keep it in step so an instant paint
+  // never shows an order in the tab it just left.
+  if (restaurantOrdersSnapshot && restaurantOrdersSnapshot !== restaurantOrdersCache) {
+    applyOptimisticStatus(restaurantOrdersSnapshot, orderId, targetStatus);
   }
 };
 
@@ -1382,6 +1419,17 @@ export const restaurantAPI = {
   invalidateOrdersCache: () => {
     invalidateRestaurantOrdersCache();
   },
+  /**
+   * Last default-page orders response, whatever its age, or null.
+   *
+   * For stale-while-revalidate rendering only: a tab paints this instantly and
+   * fetches in the same breath. Never use it as the answer to a question.
+   */
+  peekOrdersCache: () => {
+    if (!restaurantOrdersSnapshot) return null;
+    if (restaurantOrdersSnapshotToken !== currentRestaurantToken()) return null;
+    return restaurantOrdersSnapshot;
+  },
   optimisticallyUpdateOrderStatus: (orderId, targetStatus) => {
     optimisticallyUpdateRestaurantOrderStatus(orderId, targetStatus);
   },
@@ -1443,6 +1491,10 @@ export const restaurantAPI = {
         restaurantOrdersCache = normalized;
         restaurantOrdersCacheKey = key;
         restaurantOrdersCacheAt = Date.now();
+        if (key === JSON.stringify({ limit: 50, page: 1 })) {
+          restaurantOrdersSnapshot = normalized;
+          restaurantOrdersSnapshotToken = currentRestaurantToken();
+        }
         return normalized;
       })
       .finally(() => {

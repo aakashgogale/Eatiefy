@@ -30,7 +30,7 @@ const AllCategoriesModal = ({
             initial={{ scale: 0.9, opacity: 0, y: 20 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.9, opacity: 0, y: 20 }}
-            className="relative bg-white dark:bg-[#111111] w-full max-w-2xl max-h-[85vh] rounded-[32px] overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-800"
+            className="relative bg-white dark:bg-[#1c1c1c] w-full max-w-2xl max-h-[85vh] rounded-[32px] overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-800"
           >
             <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
               <div>

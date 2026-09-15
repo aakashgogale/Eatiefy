@@ -404,8 +404,8 @@ export default function Feedback() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 dark:bg-[#0a0a0a] flex flex-col" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
-      <div className="sticky bg-white dark:bg-[#0a0a0a] top-0 z-40 px-4 py-3 border-b border-gray-200 dark:border-gray-800">
+    <div className="min-h-screen bg-gray-100 dark:bg-[#141414] flex flex-col" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+      <div className="sticky bg-white dark:bg-[#141414] top-0 z-40 px-4 py-3 border-b border-gray-200 dark:border-gray-800">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             {showBack && (
@@ -440,12 +440,12 @@ export default function Feedback() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`px-6 py-2 rounded-full text-sm font-bold transition-all relative ${
-                activeTab === tab.id ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white" : "bg-white dark:bg-[#1a1a1a] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-800"
+                activeTab === tab.id ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white" : "bg-white dark:bg-[#242424] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-800"
               }`}
             >
               {tab.label}
               {tab.id === 'complaints' && complaints.length > 0 && activeTab !== 'complaints' && (
-                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] rounded-full border-2 border-white dark:border-[#0a0a0a]" />
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] rounded-full border-2 border-white dark:border-[#141414]" />
               )}
             </button>
           ))}
@@ -550,7 +550,7 @@ export default function Feedback() {
               >
                 <SlidersHorizontal className={`w-4 h-4 ${hasActiveReviewFilters ? "text-white" : "text-gray-900 dark:text-white"}`} />
                 {hasActiveReviewFilters && (
-                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 border-2 border-white dark:border-[#0a0a0a]" />
+                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 border-2 border-white dark:border-[#141414]" />
                 )}
               </button>
             </div>
@@ -558,7 +558,7 @@ export default function Feedback() {
             {isLoadingReviews || isFilterLoading ? (
               <div className="flex justify-center p-10"><Loader2 className="animate-spin text-gray-400" /></div>
             ) : displayedReviews.length === 0 ? (
-              <div className="text-center py-20 bg-gray-50 dark:bg-[#1a1a1a] rounded-3xl border border-dashed border-gray-200 dark:border-gray-800 px-6">
+              <div className="text-center py-20 bg-gray-50 dark:bg-[#242424] rounded-3xl border border-dashed border-gray-200 dark:border-gray-800 px-6">
                 <p className="text-sm text-gray-500 font-medium">
                   {reviewsSearchQuery.trim()
                     ? `No reviews match "${reviewsSearchQuery.trim()}"`
@@ -642,7 +642,7 @@ export default function Feedback() {
                     key={range}
                     onClick={() => handleDateRangeSelect(range)}
                     className={`py-3 rounded-xl border-2 text-sm font-bold capitalize transition-all ${
-                      selectedDateRange === range ? "border-black dark:border-white bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] dark:bg-white text-white dark:text-black" : "border-gray-100 dark:border-gray-800 bg-white dark:bg-[#0a0a0a] text-gray-600 dark:text-gray-400"
+                      selectedDateRange === range ? "border-black dark:border-white bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] dark:bg-white text-white dark:text-black" : "border-gray-100 dark:border-gray-800 bg-white dark:bg-[#141414] text-gray-600 dark:text-gray-400"
                     }`}
                   >
                     {range === "last5days" ? "Last 5 Days" : range.replace(/([A-Z])/g, ' $1').trim()}
@@ -780,7 +780,7 @@ export default function Feedback() {
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="fixed bottom-0 left-0 right-0 bg-white dark:bg-[#1a1a1a] rounded-t-[32px] shadow-2xl z-50 overflow-hidden flex flex-col"
+              className="fixed bottom-0 left-0 right-0 bg-white dark:bg-[#242424] rounded-t-[32px] shadow-2xl z-50 overflow-hidden flex flex-col"
               style={{ maxHeight: "85vh" }}
             >
               {/* flex column + min-h-0 on the scroll area keeps the action row

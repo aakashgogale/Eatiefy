@@ -343,7 +343,7 @@ export default function TableBooking() {
           </section>
         )}
 
-        <section className="rounded-[22px] bg-white dark:bg-[#1a1a1a] p-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-none dark:border dark:border-white/5">
+        <section className="rounded-[22px] bg-white dark:bg-[#242424] p-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-none dark:border dark:border-white/5">
           <div className="flex items-center justify-between gap-3 mb-4">
             <span className="text-sm font-medium text-[#2f3545] dark:text-gray-200">Select number of guests</span>
             <span className="text-xs font-bold text-[#1F6B45] dark:text-red-400 bg-[#fdfafc] dark:bg-[#2a1a1a] px-2 py-1 rounded-lg">
@@ -379,7 +379,7 @@ export default function TableBooking() {
           </div>
         </section>
 
-        <section className="rounded-[22px] bg-white dark:bg-[#1a1a1a] p-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-none dark:border dark:border-white/5">
+        <section className="rounded-[22px] bg-white dark:bg-[#242424] p-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-none dark:border dark:border-white/5">
           <h3 className="text-sm font-medium text-[#2f3545] dark:text-gray-200">Select date</h3>
 
           <div className="mt-4 grid grid-cols-3 gap-3">
@@ -407,7 +407,7 @@ export default function TableBooking() {
           </div>
         </section>
 
-        <section className="rounded-[22px] bg-white dark:bg-[#1a1a1a] p-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-none dark:border dark:border-white/5">
+        <section className="rounded-[22px] bg-white dark:bg-[#242424] p-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-none dark:border dark:border-white/5">
           <h3 className="text-sm font-medium text-[#2f3545] dark:text-gray-200">Select time of day</h3>
 
           <div className="mt-4 flex gap-2">
@@ -461,7 +461,7 @@ export default function TableBooking() {
           </div>
         </section>
 
-        <section className="rounded-[18px] bg-white dark:bg-[#1a1a1a] px-4 py-5 text-center shadow-[0_8px_24px_rgba(15,23,42,0.05)] dark:shadow-none dark:border dark:border-white/5">
+        <section className="rounded-[18px] bg-white dark:bg-[#242424] px-4 py-5 text-center shadow-[0_8px_24px_rgba(15,23,42,0.05)] dark:shadow-none dark:border dark:border-white/5">
           <p className="text-sm text-[#6f7687] dark:text-gray-500">
             Select your preferred time slot to view available booking options
           </p>

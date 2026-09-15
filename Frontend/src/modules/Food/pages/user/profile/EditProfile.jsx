@@ -397,7 +397,7 @@ export default function EditProfile() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a] pb-12">
+    <div className="min-h-screen bg-[#f5f5f5] dark:bg-[#141414] pb-12">
       <style>{`
         /* MUI DatePicker overrides */
         .dark .MuiOutlinedInput-root fieldset {
@@ -494,7 +494,7 @@ export default function EditProfile() {
         }
       `}</style>
       {/* Header */}
-      <div className="bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800">
+      <div className="bg-white dark:bg-[#242424] border-b border-gray-100 dark:border-gray-800">
         <div className="max-w-7xl mx-auto flex items-center gap-3 px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 py-4 md:py-5 lg:py-6">
           <button
             type="button"
@@ -509,7 +509,7 @@ export default function EditProfile() {
 
       {/* Content */}
       <div className="max-w-xl mx-auto px-4 sm:px-6 py-8 pb-28 md:pb-12 mt-20">
-        <div className="relative bg-white dark:bg-[#1a1a1a] rounded-[32px] pt-16 pb-8 px-4 sm:px-6 shadow-[0_2px_20px_rgb(0,0,0,0.04)] border border-gray-100/50 dark:border-gray-800">
+        <div className="relative bg-white dark:bg-[#242424] rounded-[32px] pt-16 pb-8 px-4 sm:px-6 shadow-[0_2px_20px_rgb(0,0,0,0.04)] border border-gray-100/50 dark:border-gray-800">
 
           {/* SVG Hump overlapping top */}
           <div className="absolute -top-[49px] left-1/2 -translate-x-1/2 w-[320px] h-[50px] overflow-hidden pointer-events-none">
@@ -553,8 +553,8 @@ export default function EditProfile() {
                       )}
                     </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="center" sideOffset={12} className="w-[220px] bg-white/70 backdrop-blur-2xl dark:bg-[#1a1a1a]/70 rounded-[28px] border border-gray-100/50 dark:border-gray-800 shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-2 z-50 flex flex-col gap-2 relative">
-                    <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white/70 dark:bg-[#1a1a1a]/70 backdrop-blur-md rotate-45 rounded-sm z-[-1]" />
+                  <DropdownMenuContent align="center" sideOffset={12} className="w-[220px] bg-white/70 backdrop-blur-2xl dark:bg-[#242424]/70 rounded-[28px] border border-gray-100/50 dark:border-gray-800 shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-2 z-50 flex flex-col gap-2 relative">
+                    <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white/70 dark:bg-[#242424]/70 backdrop-blur-md rotate-45 rounded-sm z-[-1]" />
                     <DropdownMenuItem
                       onClick={() => {
                         setProfileImage("")

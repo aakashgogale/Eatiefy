@@ -120,8 +120,11 @@ export const initSocket = async (server) => {
             if (role === 'RESTAURANT') socket.join(roomNames.restaurant(userId));
             if (role === 'USER') socket.join(roomNames.user(userId));
             if (role === 'DELIVERY_PARTNER') {
+                // Private room only. The fleet-wide 'all_delivery' room this
+                // used to also join was the one channel through which a rider
+                // could receive an event about an order never offered to them;
+                // every delivery emit is now addressed to a single partner.
                 socket.join(roomNames.delivery(userId));
-                socket.join('all_delivery'); // Global delivery broadcast room
                 logDeliverySocket('Auto-joined delivery room on connect', {
                     socketId: socket.id,
                     deliveryPartnerId: String(userId),

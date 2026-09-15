@@ -15,6 +15,7 @@ import BottomNavigation from "./BottomNavigation"
 import DesktopNavbar from "./DesktopNavbar"
 import BackToTop from "./BackToTop"
 import { useUserNotifications } from "../../hooks/useUserNotifications"
+import { useUserAppLiveRefresh } from "../../hooks/useUserAppLiveRefresh"
 import { useProfile } from "@food/context/ProfileContext"
 import { useLocation as useGeoLocation } from "../../hooks/useLocation"
 import { useZone } from "../../hooks/useZone"
@@ -239,7 +240,9 @@ function UserLayoutContent() {
   // Save order status notifications to localStorage so bell badge updates everywhere
   useEffect(() => {
     const handleOrderNotif = (e) => {
-      const { orderId, status, title, message } = e.detail || {}
+      // The event now carries real ids; show the human-readable one in the inbox.
+      const { displayOrderId, status, title, message } = e.detail || {}
+      const orderId = displayOrderId || e.detail?.orderId
       const statusLower = String(status || '').toLowerCase()
       // Only save to bell inbox for delivered or cancelled orders
       if (statusLower !== 'delivered' && !statusLower.includes('cancel')) return
@@ -617,10 +620,11 @@ function useBottomNavScrollHide() {
 
 export default function UserLayout() {
   useUserNotifications()
+  useUserAppLiveRefresh()
   useBottomNavScrollHide()
 
   return (
-    <div className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a] transition-colors duration-200">
+    <div className="min-h-screen bg-[#f5f5f5] dark:bg-[#141414] transition-colors duration-200">
       <ProfileProvider>
         <CartProvider>
           <DeliveryLocationProvider>

@@ -7,6 +7,7 @@ import { connectRedis, closeRedis } from './src/config/redis.js';
 import { initSocket } from './src/config/socket.js';
 import { initializeQueues, closeBullMQConnection } from './src/queues/index.js';
 import { expireExpiredOffers } from './src/modules/food/admin/services/admin.service.js';
+import { sweepExpiredDeliveryOffers } from './src/modules/food/orders/services/order-dispatch.service.js';
 import { syncExpiredFssaiNotifications } from './src/modules/food/restaurant/services/fssaiExpiry.service.js';
 
 import { logger } from './src/utils/logger.js';
@@ -16,6 +17,7 @@ const SHUTDOWN_TIMEOUT_MS = 10000;
 let server = null;
 let expireOffersInterval = null;
 let fssaiExpiryInterval = null;
+let deliveryOfferSweepInterval = null;
 
 const gracefulShutdown = async (signal) => {
     logger.info(`${signal} received, starting graceful shutdown`);
@@ -30,6 +32,7 @@ const gracefulShutdown = async (signal) => {
             await closeBullMQConnection();
             if (expireOffersInterval) clearInterval(expireOffersInterval);
             if (fssaiExpiryInterval) clearInterval(fssaiExpiryInterval);
+            if (deliveryOfferSweepInterval) clearInterval(deliveryOfferSweepInterval);
             logger.info('Graceful shutdown complete');
             process.exit(0);
         } catch (err) {
@@ -109,6 +112,26 @@ const startServer = async () => {
         };
         runExpire();
         expireOffersInterval = setInterval(runExpire, 5 * 60 * 1000);
+
+        /*
+         * Delivery offers expire on a plain interval, not on the queue.
+         *
+         * The per-order timeout check is a BullMQ job, so whenever Redis is
+         * disabled or down nothing ever marks an offer expired and riders keep
+         * seeing requests from hours ago across logins and restarts. This sweep
+         * is what makes the ten-minute ceiling unconditional. It runs every 30s
+         * so a request dies close to its own expiry rather than at the next
+         * multi-minute tick.
+         */
+        const runDeliveryOfferSweep = async () => {
+            try {
+                await sweepExpiredDeliveryOffers();
+            } catch (err) {
+                logger.error(`Delivery offer expiry sweep error: ${err.message}`);
+            }
+        };
+        runDeliveryOfferSweep();
+        deliveryOfferSweepInterval = setInterval(runDeliveryOfferSweep, 30 * 1000);
 
         const runFssaiExpirySync = async () => {
             try {

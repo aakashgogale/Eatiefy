@@ -308,7 +308,7 @@ export default function TableBookingConfirmation() {
                         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
                         onClick={() => setShowRequestModal(false)}
                     />
-                    <div className="relative w-full max-w-sm bg-white dark:bg-[#1a1a1a] rounded-3xl shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-200">
+                    <div className="relative w-full max-w-sm bg-white dark:bg-[#242424] rounded-3xl shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="text-lg font-black text-gray-900 dark:text-white uppercase tracking-tight">Special Request</h3>
                             <button

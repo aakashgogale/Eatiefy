@@ -28,12 +28,13 @@ export default function ShippingPolicy() {
       const response = await api.get(API_ENDPOINTS.ADMIN.SHIPPING, { contextModule: "admin" })
       if (response.data.success) {
         // Convert HTML to plain text for textarea
-        const content = response.data.data.content || ''
-        const textContent = legalHtmlToPlainText(content)
-        setShippingData({
-          ...response.data.data,
+        const page = response.data.data || {}
+        const textContent = legalHtmlToPlainText(page.content || '')
+        setShippingData((prev) => ({
+          ...prev,
+          ...page,
           content: textContent
-        })
+        }))
       }
     } catch (error) {
       debugError('Error fetching shipping data:', error)
@@ -58,12 +59,13 @@ export default function ShippingPolicy() {
       if (response.data.success) {
         toast.success('Shipping policy updated successfully')
         // Convert HTML to plain text for display in textarea
-        const content = response.data.data.content || ''
-        const textContent = legalHtmlToPlainText(content)
-        setShippingData({
-          ...response.data.data,
+        const page = response.data.data || {}
+        const textContent = legalHtmlToPlainText(page.content || '')
+        setShippingData((prev) => ({
+          ...prev,
+          ...page,
           content: textContent
-        })
+        }))
       }
     } catch (error) {
       debugError('Error saving shipping policy:', error)

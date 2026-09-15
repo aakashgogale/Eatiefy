@@ -24,6 +24,7 @@ import searchRoutes from '../modules/food/search/routes/search.routes.js';
 import diningBookingRoutes from '../modules/food/dining/routes/diningBooking.routes.js';
 import { requireDiningEnabled } from '../modules/food/dining/middleware/requireDiningEnabled.js';
 import { maintenanceModeMiddleware } from '../modules/food/admin/middleware/maintenanceMode.middleware.js';
+import { catalogChangeBroadcast } from '../middleware/catalogChangeBroadcast.js';
 
 const router = express.Router();
 
@@ -47,7 +48,7 @@ router.use('/v1/food/auth', authRoutes);
 // Backward-compatible auth routes (legacy)
 router.use('/v1/auth', authRoutes);
 router.use('/v1/food/delivery', deliveryRoutes);
-router.use('/v1/food/restaurant', restaurantRoutes);
+router.use('/v1/food/restaurant', catalogChangeBroadcast, restaurantRoutes);
 // Landing & hero-banners for Food user app (paths start with /food/hero-banners/...)
 router.use('/v1/food', landingRoutes);
 router.use('/v1/food/search', searchRoutes);
@@ -58,7 +59,7 @@ router.get('/v1/food/dining/restaurants/public', requireDiningEnabled, getPublic
 router.use('/v1/food/dining/bookings', requireDiningEnabled, diningBookingRoutes);
 router.use('/v1/uploads', uploadRoutes);
 
-router.use('/v1/food/admin', authMiddleware, requireRoles('ADMIN', 'SUB_ADMIN'), restaurantAdminRoutes);
+router.use('/v1/food/admin', authMiddleware, requireRoles('ADMIN', 'SUB_ADMIN'), catalogChangeBroadcast, restaurantAdminRoutes);
 router.use('/v1/food/user', authMiddleware, requireRoles('USER'), userRoutes);
 router.use('/v1/food/cart', authMiddleware, requireRoles('USER'), foodCartRoutes);
 router.use('/v1/food/notifications', authMiddleware, requireRoles('USER', 'RESTAURANT', 'DELIVERY_PARTNER'), notificationRoutes);

@@ -170,8 +170,8 @@ export default function MyBookings() {
     if (loading) return <Loader />
 
     return (
-        <AnimatedPage className="bg-slate-50 dark:bg-[#0a0a0a] min-h-screen pb-10 transition-colors">
-            <div className="bg-white dark:bg-[#0a0a0a] p-4 flex items-center shadow-sm sticky top-0 z-10 border-b dark:border-gray-800">
+        <AnimatedPage className="bg-slate-50 dark:bg-[#141414] min-h-screen pb-10 transition-colors">
+            <div className="bg-white dark:bg-[#141414] p-4 flex items-center shadow-sm sticky top-0 z-10 border-b dark:border-gray-800">
                 <button onClick={() => navigate(-1)}>
                     <ArrowLeft className="w-6 h-6 text-gray-700 dark:text-white cursor-pointer" />
                 </button>
@@ -181,7 +181,7 @@ export default function MyBookings() {
             <div className="p-4 space-y-4">
                 {bookings.length > 0 ? (
                     bookings.map((booking) => (
-                        <div key={booking._id} className="bg-white dark:bg-[#1a1a1a] rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-gray-800 flex items-start gap-4">
+                        <div key={booking._id} className="bg-white dark:bg-[#242424] rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-gray-800 flex items-start gap-4">
                             <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 bg-slate-100 dark:bg-gray-800">
                                 <img
                                     src={booking.restaurant?.image || booking.restaurant?.profileImage?.url || ""}

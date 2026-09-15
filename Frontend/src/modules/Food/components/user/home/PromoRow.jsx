@@ -63,7 +63,7 @@ export default function PromoRow({ handleVegModeChange, navigate, isVegMode, tog
 
   return (
     <div className="w-full max-w-[520px] md:max-w-xl mx-auto px-3 sm:px-4 py-1">
-      <div className="bg-white dark:bg-[#1a1a1a] rounded-[2.2rem] py-2 px-3 sm:py-2.5 sm:px-4 border border-gray-100 dark:border-gray-800 shadow-md shadow-gray-200/50 dark:shadow-none grid grid-cols-4 gap-1.5 justify-items-center w-full">
+      <div className="bg-white dark:bg-[#242424] rounded-[2.2rem] py-2 px-3 sm:py-2.5 sm:px-4 border border-gray-100 dark:border-gray-800 shadow-md shadow-gray-200/50 dark:shadow-none grid grid-cols-4 gap-1.5 justify-items-center w-full">
         {promoCardsData.map((promo, idx) => (
           <motion.div
             key={idx}

@@ -137,7 +137,7 @@ export default function SelectAddress() {
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-linear-to-b from-orange-50/30 via-white to-orange-50/20 dark:from-[#0a0a0a] dark:via-[#1a1a1a] dark:to-[#0a0a0a] p-4 sm:p-6 md:p-8">
+    <AnimatedPage className="min-h-screen bg-linear-to-b from-orange-50/30 via-white to-orange-50/20 dark:from-[#141414] dark:via-[#242424] dark:to-[#141414] p-4 sm:p-6 md:p-8">
       <div className="max-w-3xl mx-auto space-y-6 md:space-y-8">
         <ScrollReveal>
           <div className="flex items-center gap-4">
@@ -216,7 +216,7 @@ export default function SelectAddress() {
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
 
                   {showDropdown && (
-                    <div className="absolute z-20 mt-2 w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1a1a1a] shadow-xl overflow-hidden">
+                    <div className="absolute z-20 mt-2 w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#242424] shadow-xl overflow-hidden">
                       {suggestions.length === 0 ? (
                         <div className="p-4 text-sm text-gray-600 dark:text-gray-400">
                           No matches found.

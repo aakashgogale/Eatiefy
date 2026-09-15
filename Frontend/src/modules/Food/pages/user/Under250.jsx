@@ -12,6 +12,7 @@ import { useCart } from "@food/context/CartContext"
 import { useProfile } from "@food/context/ProfileContext"
 import { Avatar, AvatarFallback, AvatarImage } from "@food/components/ui/avatar"
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability"
+import { useFoodPageInvalidation } from "@food/hooks/useFoodPageInvalidation"
 import under250Banner from "@food/assets/under250_banner.jpg"
 import homeBannerRed from "@food/assets/home-banner-red-clean.png"
 import AddToCartAnimation from "@food/components/user/AddToCartAnimation"
@@ -215,6 +216,7 @@ export default function Under250({ isTabActive = true }) {
     limit: under250PriceLimit,
   })
   const cachedListRef = useRef(getFoodPageCache(cacheKey))
+  const [refreshNonce, setRefreshNonce] = useState(0)
   const [under250Restaurants, setUnder250Restaurants] = useState(
     () => cachedListRef.current?.restaurants || [],
   )
@@ -823,7 +825,16 @@ export default function Under250({ isTabActive = true }) {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- location only used for mapping; GPS remapped separately
-  }, [zoneId, under250PriceLimit, isTabActive])
+  }, [zoneId, under250PriceLimit, isTabActive, refreshNonce])
+
+  // Live refresh: re-pull when a restaurant-side change lands.
+  useFoodPageInvalidation(
+    useCallback(() => {
+      // The session cache is already cleared by the refresh orchestrator, so
+      // the effect re-reads it as empty and pulls a full fresh list.
+      setRefreshNonce((n) => n + 1)
+    }, []),
+  )
 
   // Fetch categories from backend (no static fallback list)
   useEffect(() => {
@@ -997,7 +1008,7 @@ export default function Under250({ isTabActive = true }) {
   }, [])
 
   // Helper function to update item quantity in both local state and cart
-  const updateItemQuantity = (item, newQuantity, event = null, restaurantName = null, preferredVariant = null) => {
+  const updateItemQuantity = async (item, newQuantity, event = null, restaurantName = null, preferredVariant = null) => {
     // Check authentication
     if (!isModuleAuthenticated('user')) {
       window.dispatchEvent(new CustomEvent('show-login-required'))
@@ -1082,9 +1093,11 @@ export default function Under250({ isTabActive = true }) {
         }
 
         if (newQuantity > existingCartItem.quantity && sourcePosition) {
-          const result = addToCart(cartItem, sourcePosition)
+          const result = await addToCart(cartItem, sourcePosition)
           if (result?.ok === false) {
-            toast.error(result.error || 'Cannot add item from different restaurant. Please clear cart first.')
+            if (!result.cancelled) {
+              toast.error(result.error || 'Cannot add item from different restaurant. Please clear cart first.')
+            }
             return
           }
           if (newQuantity > existingCartItem.quantity + 1) {
@@ -1096,9 +1109,11 @@ export default function Under250({ isTabActive = true }) {
           updateQuantity(lineItemId, newQuantity)
         }
       } else {
-        const result = addToCart(cartItem, sourcePosition)
+        const result = await addToCart(cartItem, sourcePosition)
         if (result?.ok === false) {
-          toast.error(result.error || 'Cannot add item from different restaurant. Please clear cart first.')
+          if (!result.cancelled) {
+            toast.error(result.error || 'Cannot add item from different restaurant. Please clear cart first.')
+          }
           return
         }
         if (newQuantity > 1) {
@@ -1244,7 +1259,7 @@ export default function Under250({ isTabActive = true }) {
 
   return (
 
-    <div className={`relative min-h-screen bg-white dark:bg-[#0a0a0a] ${shouldShowGrayscale ? 'grayscale opacity-75' : ''}`}>
+    <div className={`relative min-h-screen bg-white dark:bg-[#141414] ${shouldShowGrayscale ? 'grayscale opacity-75' : ''}`}>
       {/* Banner Section */}
       <div
         ref={bannerShellRef}
@@ -1380,7 +1395,7 @@ export default function Under250({ isTabActive = true }) {
                 whileTap={{ scale: 0.95 }}
                 transition={{ type: "spring", stiffness: 300, damping: 20 }}
               >
-                <div className={`w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full overflow-hidden shadow-md transition-all flex items-center justify-center ${!activeCategory ? 'bg-gradient-to-br from-[#1F6B45] to-[#14512F] text-white ring-2 ring-[#1F6B45] ring-offset-2' : 'bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-200'}`}>
+                <div className={`w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full overflow-hidden shadow-md transition-all flex items-center justify-center ${!activeCategory ? 'bg-gradient-to-br from-[#1F6B45] to-[#14512F] text-white ring-2 ring-[#1F6B45] ring-offset-2' : 'bg-white dark:bg-[#242424] border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-200'}`}>
                   <Utensils className="w-6 h-6 sm:w-10 sm:h-10 md:w-12 md:h-12" />
                 </div>
                 <span className={`text-xs sm:text-sm md:text-base font-bold text-center pb-1 ${!activeCategory ? 'text-[#1F6B45]' : 'text-gray-800 dark:text-gray-200'}`}>
@@ -1434,7 +1449,7 @@ export default function Under250({ isTabActive = true }) {
             <Button
               variant="outline"
               onClick={() => setShowSortPopup(true)}
-              className="h-8 sm:h-9 md:h-10 px-3 sm:px-4 md:px-5 rounded-md flex items-center gap-2 whitespace-nowrap flex-shrink-0 font-medium transition-all bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 text-sm md:text-base"
+              className="h-8 sm:h-9 md:h-10 px-3 sm:px-4 md:px-5 rounded-md flex items-center gap-2 whitespace-nowrap flex-shrink-0 font-medium transition-all bg-white dark:bg-[#242424] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 text-sm md:text-base"
             >
               <ArrowDownUp className="h-4 w-4 md:h-5 md:w-5 rotate-90" />
               <span className="text-sm md:text-base font-medium">
@@ -1447,7 +1462,7 @@ export default function Under250({ isTabActive = true }) {
               onClick={() => setUnder30MinsFilter(!under30MinsFilter)}
               className={`h-8 sm:h-9 md:h-10 px-3 sm:px-4 md:px-5 rounded-md flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 font-medium transition-all text-sm md:text-base ${under30MinsFilter
                 ? 'bg-[#1F6B45] text-white border border-[#1F6B45] hover:bg-[#14512F]'
-                : 'bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300'
+                : 'bg-white dark:bg-[#242424] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300'
                 }`}
             >
               <Timer className="h-3 w-3 sm:h-4 sm:w-4 md:h-5 md:w-5" />
@@ -1473,7 +1488,7 @@ export default function Under250({ isTabActive = true }) {
                 {/* Skeleton Grid */}
                 <div className="flex gap-4 overflow-hidden pb-4">
                   {[1, 2, 3, 4].map((j) => (
-                    <div key={j} className="flex-shrink-0 w-[200px] sm:w-[220px] h-64 bg-white dark:bg-[#1a1a1a] rounded-xl border border-gray-200 dark:border-gray-800 p-3 space-y-3 shadow-sm">
+                    <div key={j} className="flex-shrink-0 w-[200px] sm:w-[220px] h-64 bg-white dark:bg-[#242424] rounded-xl border border-gray-200 dark:border-gray-800 p-3 space-y-3 shadow-sm">
                       <div className="w-full h-32 skeleton-shimmer rounded-lg" />
                       <div className="h-4 skeleton-shimmer rounded w-3/4" />
                       <div className="flex justify-between items-center pt-2">
@@ -1555,7 +1570,7 @@ export default function Under250({ isTabActive = true }) {
                         return (
                           <motion.div
                             key={item.id}
-                            className={`flex-shrink-0 w-[200px] sm:w-[220px] md:w-full bg-white dark:bg-[#1a1a1a] rounded-lg md:rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden cursor-pointer ${
+                            className={`flex-shrink-0 w-[200px] sm:w-[220px] md:w-full bg-white dark:bg-[#242424] rounded-lg md:rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden cursor-pointer ${
                               isOffline ? 'grayscale opacity-75' : ''
                             }`}
                             onClick={() => handleItemClick(item, restaurant)}
@@ -1685,7 +1700,7 @@ export default function Under250({ isTabActive = true }) {
                     <Link className="flex justify-center mt-2 md:mt-3 lg:mt-4" to={`/user/restaurants/${restaurantSlug}?under250=true`}>
                       <Button
                         variant="outline"
-                        className="w-min align-center text-center rounded-lg md:rounded-xl mx-auto bg-gray-50 dark:bg-[#1a1a1a] hover:bg-gray-100 dark:hover:bg-gray-800 dark:text-white text-gray-700 border-gray-200 dark:border-gray-800 h-9 md:h-10 lg:h-11 px-4 md:px-6 lg:px-8 text-sm md:text-base lg:text-lg"
+                        className="w-min align-center text-center rounded-lg md:rounded-xl mx-auto bg-gray-50 dark:bg-[#242424] hover:bg-gray-100 dark:hover:bg-gray-800 dark:text-white text-gray-700 border-gray-200 dark:border-gray-800 h-9 md:h-10 lg:h-11 px-4 md:px-6 lg:px-8 text-sm md:text-base lg:text-lg"
                       >
                         View full menu <ArrowRight className="h-4 w-4 md:h-5 md:w-5 lg:h-6 lg:w-6 ml-2 text-gray-700 dark:text-gray-300" />
                       </Button>
@@ -1738,7 +1753,7 @@ export default function Under250({ isTabActive = true }) {
               className="fixed inset-0 flex items-center justify-center z-[110] px-4"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="w-full max-w-sm bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+              <div className="w-full max-w-sm bg-white dark:bg-[#242424] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
                 {/* Header */}
                 <div className="flex items-center justify-between px-5 py-4 border-b dark:border-gray-800">
                   <h2 className="text-lg font-bold text-gray-900 dark:text-white">Sort By</h2>
@@ -1822,7 +1837,7 @@ export default function Under250({ isTabActive = true }) {
 
             {/* Item Detail Bottom Sheet */}
             <motion.div
-              className="fixed left-0 right-0 bottom-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:max-w-2xl lg:max-w-4xl xl:max-w-5xl z-[10000] bg-white dark:bg-[#1a1a1a] rounded-t-3xl shadow-2xl max-h-[90vh] md:max-h-[85vh] flex flex-col"
+              className="fixed left-0 right-0 bottom-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:max-w-2xl lg:max-w-4xl xl:max-w-5xl z-[10000] bg-white dark:bg-[#242424] rounded-t-3xl shadow-2xl max-h-[90vh] md:max-h-[85vh] flex flex-col"
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
@@ -1960,7 +1975,7 @@ export default function Under250({ isTabActive = true }) {
               </div>
 
               {/* Bottom Action Bar */}
-              <div className="border-t dark:border-gray-800 border-gray-200 px-4 md:px-6 lg:px-8 xl:px-10 py-4 md:py-5 lg:py-6 bg-white dark:bg-[#1a1a1a]">
+              <div className="border-t dark:border-gray-800 border-gray-200 px-4 md:px-6 lg:px-8 xl:px-10 py-4 md:py-5 lg:py-6 bg-white dark:bg-[#242424]">
                 {selectedItem.isRestaurantOffline && (
                   <p className="text-sm font-semibold text-red-500 mb-3 text-center">
                     Restaurant is currently closed and not accepting orders.
@@ -2073,7 +2088,7 @@ export default function Under250({ isTabActive = true }) {
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ duration: 0.2, type: "spring", damping: 28, stiffness: 320 }}
-              className="fixed bottom-0 left-0 right-0 z-[10021] bg-white dark:bg-[#1a1a1a] rounded-t-3xl shadow-2xl px-4 py-4"
+              className="fixed bottom-0 left-0 right-0 z-[10021] bg-white dark:bg-[#242424] rounded-t-3xl shadow-2xl px-4 py-4"
             >
               <div className="flex justify-center pb-3">
                 <div className="w-12 h-1 bg-gray-300 rounded-full" />

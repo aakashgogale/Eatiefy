@@ -28,7 +28,7 @@ const VegModePopups = ({
                 initial={{ scale: 0.9, opacity: 0, y: 20 }}
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                className="relative bg-white dark:bg-[#1a1a1a] rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl overflow-hidden border border-green-100 dark:border-green-900/30"
+                className="relative bg-white dark:bg-[#242424] rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl overflow-hidden border border-green-100 dark:border-green-900/30"
               >
                 {/* Decorative Elements */}
                 <div className="absolute -top-10 -right-10 w-32 h-32 bg-green-500/10 rounded-full blur-3xl" />
@@ -72,7 +72,7 @@ const VegModePopups = ({
                 initial={{ scale: 0.9, opacity: 0, y: 20 }}
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                className="relative bg-white dark:bg-[#1a1a1a] rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl overflow-hidden border border-[#1F6B45]/10 dark:border-[#1F6B45]/30"
+                className="relative bg-white dark:bg-[#242424] rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl overflow-hidden border border-[#1F6B45]/10 dark:border-[#1F6B45]/30"
               >
                 <div className="absolute -top-10 -right-10 w-32 h-32 bg-[#1F6B45]/10 rounded-full blur-3xl" />
 

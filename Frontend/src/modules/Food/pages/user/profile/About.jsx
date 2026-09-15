@@ -83,7 +83,7 @@ export default function About() {
 
   if (loading) {
     return (
-      <AnimatedPage className="min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-[#0a0a0a] dark:to-[#1a1a1a]">
+      <AnimatedPage className="min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-[#141414] dark:to-[#242424]">
         <div className="max-w-4xl mx-auto px-4 md:px-6 lg:px-8 py-6 md:py-8 flex items-center justify-center min-h-[60vh]">
           <div className="text-center">
             <Loader2 className="h-8 w-8 animate-spin text-gray-600 dark:text-gray-400 mx-auto mb-4" />
@@ -95,13 +95,13 @@ export default function About() {
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-[#0a0a0a] dark:to-[#1a1a1a]">
+    <AnimatedPage className="min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-[#141414] dark:to-[#242424]">
       <div className="max-w-4xl mx-auto px-4 md:px-6 lg:px-8 py-6 md:py-8">
         {/* Header */}
         <div className="flex items-center mb-6 md:mb-8">
           <div
             onClick={() => navigate(-1)}
-            className="h-10 w-10 md:h-11 md:w-11 flex items-center justify-center bg-white dark:bg-[#1a1a1a] rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.05)] hover:shadow-[0_4px_15px_rgba(0,0,0,0.08)] active:scale-95 transition-all cursor-pointer border border-slate-100 dark:border-gray-800"
+            className="h-10 w-10 md:h-11 md:w-11 flex items-center justify-center bg-white dark:bg-[#242424] rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.05)] hover:shadow-[0_4px_15px_rgba(0,0,0,0.08)] active:scale-95 transition-all cursor-pointer border border-slate-100 dark:border-gray-800"
           >
             <ArrowLeft className="h-5 w-5 text-slate-800 dark:text-white" />
           </div>
@@ -114,7 +114,7 @@ export default function About() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
-          <Card className="bg-gradient-to-br from-blue-50/60 to-white/40 dark:from-blue-900/20 dark:to-[#1a1a1a]/40 backdrop-blur-2xl rounded-3xl shadow-[0_8px_32px_rgba(59,130,246,0.08)] border border-blue-100/50 dark:border-blue-900/30 mb-6 md:mb-8 overflow-hidden">
+          <Card className="bg-gradient-to-br from-blue-50/60 to-white/40 dark:from-blue-900/20 dark:to-[#242424]/40 backdrop-blur-2xl rounded-3xl shadow-[0_8px_32px_rgba(59,130,246,0.08)] border border-blue-100/50 dark:border-blue-900/30 mb-6 md:mb-8 overflow-hidden">
             <div className="p-8 md:p-10 text-center relative">
               <motion.div
                 initial={{ scale: 0.8, opacity: 0 }}
@@ -187,7 +187,7 @@ export default function About() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 1.2, duration: 0.5 }}
         >
-          <Card className="bg-white dark:bg-[#1a1a1a] rounded-xl shadow-md border-0 dark:border-gray-800">
+          <Card className="bg-white dark:bg-[#242424] rounded-xl shadow-md border-0 dark:border-gray-800">
             <CardContent className="p-5 md:p-6">
               <h3 className="text-lg md:text-xl font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
                 <FileText className="h-5 w-5 text-gray-600 dark:text-gray-400" />

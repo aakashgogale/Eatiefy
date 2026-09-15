@@ -1568,8 +1568,17 @@ export async function updateOrderStatusRestaurant(
       const payload = {
         orderMongoId: order._id?.toString?.(),
         orderId: order._id.toString(),
+        displayOrderId: order.order_id || order._id.toString(),
         orderStatus: order.orderStatus,
         cancellationReason: order.cancellationReason || "",
+        // Assignment context, so a restaurant status change (e.g. ready) never
+        // makes the customer's screen forget a rider is already on the job.
+        dispatchStatus: order.dispatch?.status,
+        deliveryPartnerId: order.dispatch?.deliveryPartnerId
+          ? String(order.dispatch.deliveryPartnerId)
+          : null,
+        deliveryState: order.deliveryState,
+        updatedAt: new Date().toISOString(),
         title,
         message: body,
       };

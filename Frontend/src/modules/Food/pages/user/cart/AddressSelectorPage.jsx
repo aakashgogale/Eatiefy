@@ -16,7 +16,7 @@ import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { reverseGeocodeWithGoogle, geocodeGooglePlaceId, getFreshGpsCoordinates } from "@food/utils/googleGeocoding"
 
 const MAP_SEARCH_INPUT_CLASS =
-  "pl-12 pr-10 h-14 bg-white dark:bg-[#1a1a1a] border-2 border-zinc-200/90 dark:border-zinc-700 rounded-2xl focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus:border-zinc-400 dark:focus:border-zinc-500 text-zinc-900 dark:text-zinc-50 placeholder:!text-neutral-400 dark:placeholder:!text-neutral-500 font-medium text-sm transition-all shadow-sm w-full"
+  "pl-12 pr-10 h-14 bg-white dark:bg-[#242424] border-2 border-zinc-200/90 dark:border-zinc-700 rounded-2xl focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus:border-zinc-400 dark:focus:border-zinc-500 text-zinc-900 dark:text-zinc-50 placeholder:!text-neutral-400 dark:placeholder:!text-neutral-500 font-medium text-sm transition-all shadow-sm w-full"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -876,9 +876,9 @@ export default function AddressSelectorPage() {
     const mapHeight = baseMapHeight 
     return (
       <AnimatedPage
-        className="fixed inset-0 z-50 bg-white dark:bg-[#0a0a0a] flex flex-col h-screen overflow-hidden"
+        className="fixed inset-0 z-50 bg-white dark:bg-[#141414] flex flex-col h-screen overflow-hidden"
       >
-        <div className="flex-shrink-0 bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 px-4 py-3 flex items-center gap-4">
+        <div className="flex-shrink-0 bg-white dark:bg-[#242424] border-b border-gray-100 dark:border-gray-800 px-4 py-3 flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={handleCancelAddressForm} className="rounded-full">
             <ChevronLeft className="h-6 w-6" />
           </Button>
@@ -928,7 +928,7 @@ export default function AddressSelectorPage() {
                 )}
 
                 {keywordAddressSuggestions.length > 0 && (
-                  <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#1a1a1a] rounded-xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden z-30 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#242424] rounded-xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden z-30 animate-in fade-in slide-in-from-top-2 duration-200">
                     <p className="px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-400 bg-gray-50 dark:bg-gray-800/50">Suggestions</p>
                     {keywordAddressSuggestions.map((s) => (
                       <button
@@ -984,7 +984,7 @@ export default function AddressSelectorPage() {
             </div>
           </div>
 
-          <div className="relative bg-white dark:bg-[#0a0a0a] rounded-t-[32px] -mt-8 z-10 p-4 space-y-6 shadow-[0_-12px_24px_-10px_rgba(0,0,0,0.1)]">
+          <div className="relative bg-white dark:bg-[#141414] rounded-t-[32px] -mt-8 z-10 p-4 space-y-6 shadow-[0_-12px_24px_-10px_rgba(0,0,0,0.1)]">
             <div className="bg-[#1F6B45]/5 dark:bg-[#1F6B45]/10 border border-[#1F6B45]/10 dark:border-[#1F6B45]/20 rounded-xl p-4 flex gap-3">
                <MapPin className="h-5 w-5 text-[#1F6B45] mt-0.5" />
                <div className="min-w-0">
@@ -1083,7 +1083,7 @@ export default function AddressSelectorPage() {
         </div>
 
         <div
-          className="fixed left-0 right-0 p-4 bg-white dark:bg-[#1a1a1a] border-t dark:border-gray-800 transition-[bottom] duration-150"
+          className="fixed left-0 right-0 p-4 bg-white dark:bg-[#242424] border-t dark:border-gray-800 transition-[bottom] duration-150"
           style={{ bottom: `${keyboardInset}px` }}
         >
           <Button 
@@ -1100,8 +1100,8 @@ export default function AddressSelectorPage() {
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-white dark:bg-[#0a0a0a] flex flex-col">
-      <div className="flex-shrink-0 bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 px-4 py-4 flex items-center gap-4">
+    <AnimatedPage className="min-h-screen bg-white dark:bg-[#141414] flex flex-col">
+      <div className="flex-shrink-0 bg-white dark:bg-[#242424] border-b border-gray-100 dark:border-gray-800 px-4 py-4 flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={handleBack} className="rounded-full">
           <ChevronLeft className="h-6 w-6" />
         </Button>
@@ -1110,7 +1110,7 @@ export default function AddressSelectorPage() {
 
       <div className="flex-1 overflow-y-auto pb-10">
         {/* Search Bar */}
-        <div className="p-4 bg-white dark:bg-[#0a0a0a] border-b dark:border-gray-800/10">
+        <div className="p-4 bg-white dark:bg-[#141414] border-b dark:border-gray-800/10">
           <div className="relative group">
             <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
               <Search className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
@@ -1166,7 +1166,7 @@ export default function AddressSelectorPage() {
         )}
 
         {/* Action Rows: Use Current Location & Add Address */}
-        <div className="bg-white dark:bg-[#0a0a0a] border-b border-zinc-100 dark:border-zinc-800/60 divide-y divide-zinc-100 dark:divide-zinc-800/40">
+        <div className="bg-white dark:bg-[#141414] border-b border-zinc-100 dark:border-zinc-800/60 divide-y divide-zinc-100 dark:divide-zinc-800/40">
           <button 
             onClick={handleUseCurrentLocation}
             className="w-full flex items-center gap-4 py-4 px-6 hover:bg-zinc-50 dark:hover:bg-zinc-900/40 transition-all text-left"
@@ -1206,7 +1206,7 @@ export default function AddressSelectorPage() {
             {profileLoading && addresses.length === 0 ? (
               // Skeleton loading state
               [1, 2].map((i) => (
-                <div key={i} className="w-full flex items-start gap-4 p-4 bg-slate-50 dark:bg-[#1a1a1a] rounded-xl animate-pulse">
+                <div key={i} className="w-full flex items-start gap-4 p-4 bg-slate-50 dark:bg-[#242424] rounded-xl animate-pulse">
                   <div className="h-10 w-10 rounded-full bg-gray-200 dark:bg-gray-800 flex-shrink-0" />
                   <div className="flex-1 space-y-2">
                     <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-1/4" />
@@ -1226,7 +1226,7 @@ export default function AddressSelectorPage() {
                 return (
                   <div
                     key={getAddressId(addr) || idx}
-                    className="w-full flex items-start gap-3 p-4 bg-slate-50 dark:bg-[#1a1a1a] rounded-xl border border-transparent hover:border-[#1F6B45]/15 transition-colors"
+                    className="w-full flex items-start gap-3 p-4 bg-slate-50 dark:bg-[#242424] rounded-xl border border-transparent hover:border-[#1F6B45]/15 transition-colors"
                   >
                     <button
                       type="button"
@@ -1284,7 +1284,7 @@ export default function AddressSelectorPage() {
       `}</style>
       
       {isFetchingLocationState && (
-        <div className="fixed inset-0 z-[10000] bg-white/60 dark:bg-[#0a0a0a]/60 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-300 pointer-events-auto">
+        <div className="fixed inset-0 z-[10000] bg-white/60 dark:bg-[#141414]/60 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-300 pointer-events-auto">
           <div className="relative">
             <div className="w-10 h-10 border-[3px] border-gray-100/30 rounded-full"></div>
             <div className="absolute top-0 left-0 w-10 h-10 border-[3px] border-[#1F6B45] border-t-transparent rounded-full animate-spin"></div>
@@ -1310,7 +1310,7 @@ export default function AddressSelectorPage() {
               role="dialog"
               aria-modal="true"
               aria-labelledby="delete-address-title"
-              className="relative w-full max-w-[340px] rounded-3xl bg-white dark:bg-[#1a1a1a] shadow-2xl"
+              className="relative w-full max-w-[340px] rounded-3xl bg-white dark:bg-[#242424] shadow-2xl"
               style={getDeleteModalMotion(deleteDialog.phase)}
             >
               <div className="px-6 pt-8 pb-6">

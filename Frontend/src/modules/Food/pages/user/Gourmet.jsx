@@ -91,7 +91,7 @@ export default function Gourmet() {
   }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-[#0a0a0a]">
+    <div className="min-h-screen bg-white dark:bg-[#141414]">
       {/* Banner Section */}
       <div className="relative w-full overflow-hidden h-[30vh] sm:h-[35vh] md:h-[40vh] shadow-2xl">
         {/* Back Button */}
@@ -209,7 +209,7 @@ export default function Gourmet() {
 
                   return (
                     <Link key={restaurantId} to={`/user/restaurants/${restaurantSlug}`}>
-                      <Card className="overflow-hidden cursor-pointer border-0 group bg-white dark:bg-[#1a1a1a] shadow-xl shadow-gray-200/20 dark:shadow-none hover:shadow-2xl hover:shadow-[#1F6B45]/5 transition-all duration-500 py-0 rounded-[32px] mb-4 group active:scale-[0.98]">
+                      <Card className="overflow-hidden cursor-pointer border-0 group bg-white dark:bg-[#242424] shadow-xl shadow-gray-200/20 dark:shadow-none hover:shadow-2xl hover:shadow-[#1F6B45]/5 transition-all duration-500 py-0 rounded-[32px] mb-4 group active:scale-[0.98]">
                         {/* Image Section */}
                         <div className="relative h-48 sm:h-56 md:h-60 w-full overflow-hidden rounded-t-[32px]">
                           {restaurantImage ? (

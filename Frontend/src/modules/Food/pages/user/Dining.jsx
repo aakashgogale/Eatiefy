@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react"
 import { Link, useNavigate } from "react-router-dom"
+import { useFoodPageInvalidation } from "@food/hooks/useFoodPageInvalidation"
 import { motion, AnimatePresence } from "framer-motion"
 import { MapPin, Search, SlidersHorizontal, Star, X, ArrowDownUp, Timer, IndianRupee, Clock, Bookmark, UtensilsCrossed, Wallet } from "lucide-react"
 import { Button } from "@food/components/ui/button"
@@ -172,6 +173,7 @@ export default function Dining({ isTabActive = true }) {
   const [restaurantList, setRestaurantList] = useState([])
   const [loading, setLoading] = useState(true)
   const diningCacheKeyRef = useRef(null)
+  const [refreshNonce, setRefreshNonce] = useState(0)
   const [diningHeroBanners, setDiningHeroBanners] = useState([])
   const [currentBannerIndex, setCurrentBannerIndex] = useState(0)
   const autoSlideIntervalRef = useRef(null)
@@ -304,7 +306,14 @@ export default function Dining({ isTabActive = true }) {
     }
     fetchDiningData()
     return undefined
-  }, [resolveLocationForDining, zoneId, isTabActive])
+  }, [resolveLocationForDining, zoneId, isTabActive, refreshNonce])
+
+  // Live refresh: pick up restaurant-side changes without a manual reload.
+  useFoodPageInvalidation(
+    useCallback(() => {
+      setRefreshNonce((n) => n + 1)
+    }, []),
+  )
 
   const safeCategories = useMemo(() => {
     return (Array.isArray(categories) ? categories : [])
@@ -633,7 +642,7 @@ export default function Dining({ isTabActive = true }) {
 
 
   return (
-    <AnimatedPage className="bg-white dark:bg-[#0a0a0a] min-h-screen relative pb-40">
+    <AnimatedPage className="bg-white dark:bg-[#141414] min-h-screen relative pb-40">
       <style>{`
         @keyframes shimmer {
           100% {
@@ -643,7 +652,7 @@ export default function Dining({ isTabActive = true }) {
       `}</style>
       
       {/* Premium Sticky Header - High Z-Index & Optimized Blur */}
-      <div className="sticky top-0 z-[100] w-full bg-[#D91F3A] dark:bg-[#0a0a0a] md:hidden rounded-b-[2rem] border-b-2 border-white/20 antialiased">
+      <div className="sticky top-0 z-[100] w-full bg-[#D91F3A] dark:bg-[#141414] md:hidden rounded-b-[2rem] border-b-2 border-white/20 antialiased">
         {/* Navbar Section - Custom Takeaway Style */}
         <div className="relative z-20 pt-3 pb-3.5 px-4">
           <div className="flex items-center justify-between">
@@ -729,7 +738,7 @@ export default function Dining({ isTabActive = true }) {
                     damping: 30,
                     mass: 0.72,
                   }}
-                  className="relative bg-gray-50 dark:bg-[#1a1a1a] rounded-xl border border-gray-200 dark:border-gray-800 p-2 flex items-center shadow-inner group mt-3"
+                  className="relative bg-gray-50 dark:bg-[#242424] rounded-xl border border-gray-200 dark:border-gray-800 p-2 flex items-center shadow-inner group mt-3"
                 >
                   <Search className="h-4 w-4 text-[#1F6B45] ml-2 shrink-0" strokeWidth={2.5} />
                   <div className="flex-1 px-3">
@@ -997,7 +1006,7 @@ export default function Dining({ isTabActive = true }) {
                 <Button
                   variant="outline"
                   onClick={() => setIsFilterOpen(true)}
-                  className="h-7 sm:h-8 px-2 sm:px-3 rounded-full flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 font-medium transition-all bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
+                  className="h-7 sm:h-8 px-2 sm:px-3 rounded-full flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 font-medium transition-all bg-white dark:bg-[#242424] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
                 >
                   <SlidersHorizontal className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span className="text-xs sm:text-sm font-bold text-black dark:text-white">Filters</span>
@@ -1022,7 +1031,7 @@ export default function Dining({ isTabActive = true }) {
                       onClick={() => toggleFilter(filter.id)}
                       className={`h-7 sm:h-8 px-2 sm:px-3 rounded-full flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 transition-all font-medium ${isActive
                         ? 'bg-[#1F6B45] text-white border border-[#1F6B45] hover:bg-[#14512F]'
-                        : 'bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300'
+                        : 'bg-white dark:bg-[#242424] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300'
                         }`}
                     >
                       {Icon && <Icon className={`h-3 w-3 sm:h-4 sm:w-4 ${isActive ? 'text-white fill-white' : 'text-current'}`} />}
@@ -1122,7 +1131,7 @@ export default function Dining({ isTabActive = true }) {
                       state={{ restaurant }}
                       className="h-full flex rounded-[22px]"
                     >
-                      <Card className="overflow-hidden gap-0 space-y-0 cursor-pointer border-0 dark:border-gray-800 group bg-white dark:bg-[#1a1a1a] transition-all duration-500 py-0 rounded-[22px] h-full flex flex-col w-full relative">
+                      <Card className="overflow-hidden gap-0 space-y-0 cursor-pointer border-0 dark:border-gray-800 group bg-white dark:bg-[#242424] transition-all duration-500 py-0 rounded-[22px] h-full flex flex-col w-full relative">
                         {/* Image Section */}
                         <div className="relative h-44 sm:h-56 md:h-60 lg:h-64 xl:h-72 w-full flex-shrink-0">
                           <motion.div
@@ -1202,7 +1211,7 @@ export default function Dining({ isTabActive = true }) {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-9 w-9 bg-white/90 dark:bg-[#1a1a1a]/90 backdrop-blur-sm rounded-lg hover:bg-white dark:hover:bg-[#2a2a2a] transition-colors"
+                              className="h-9 w-9 bg-white/90 dark:bg-[#242424]/90 backdrop-blur-sm rounded-lg hover:bg-white dark:hover:bg-[#2a2a2a] transition-colors"
                               onClick={handleToggleFavorite}
                             >
                               <Bookmark className={`h-5 w-5 ${favorite ? "fill-gray-800 dark:fill-gray-200 text-gray-800 dark:text-gray-200" : "text-gray-600 dark:text-gray-400"}`} strokeWidth={2} />
@@ -1363,7 +1372,7 @@ export default function Dining({ isTabActive = true }) {
                       state={{ restaurant }}
                       className="h-full flex rounded-[22px]"
                     >
-                      <Card className="overflow-hidden gap-0 space-y-0 cursor-pointer border-0 dark:border-gray-800 group bg-white dark:bg-[#1a1a1a] transition-all duration-500 py-0 rounded-[22px] h-full flex flex-col w-full relative">
+                      <Card className="overflow-hidden gap-0 space-y-0 cursor-pointer border-0 dark:border-gray-800 group bg-white dark:bg-[#242424] transition-all duration-500 py-0 rounded-[22px] h-full flex flex-col w-full relative">
                         {/* Image Section */}
                         <div className="relative h-44 sm:h-56 md:h-60 lg:h-64 xl:h-72 w-full flex-shrink-0">
                           <motion.div
@@ -1427,7 +1436,7 @@ export default function Dining({ isTabActive = true }) {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="absolute top-3 right-3 h-9 w-9 bg-white/90 dark:bg-[#1a1a1a]/90 backdrop-blur-sm rounded-lg hover:bg-white dark:hover:bg-[#2a2a2a] transition-colors"
+                            className="absolute top-3 right-3 h-9 w-9 bg-white/90 dark:bg-[#242424]/90 backdrop-blur-sm rounded-lg hover:bg-white dark:hover:bg-[#2a2a2a] transition-colors"
                             onClick={handleToggleFavorite}
                           >
                             <Bookmark className={`h-5 w-5 ${favorite ? "fill-gray-800 dark:fill-gray-200 text-gray-800 dark:text-gray-200" : "text-gray-600 dark:text-gray-400"}`} strokeWidth={2} />
@@ -1522,7 +1531,7 @@ export default function Dining({ isTabActive = true }) {
           />
 
           {/* Modal Content */}
-          <div className="absolute bottom-0 left-0 right-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:max-w-4xl bg-white dark:bg-[#1a1a1a] rounded-t-3xl md:rounded-3xl max-h-[85vh] md:max-h-[90vh] flex flex-col animate-[slideUp_0.3s_ease-out]">
+          <div className="absolute bottom-0 left-0 right-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:max-w-4xl bg-white dark:bg-[#242424] rounded-t-3xl md:rounded-3xl max-h-[85vh] md:max-h-[90vh] flex flex-col animate-[slideUp_0.3s_ease-out]">
             {/* Header */}
             <div className="flex items-center justify-between px-4 md:px-6 py-4 md:py-5 border-b dark:border-gray-800">
               <h2 className="text-lg md:text-xl font-bold text-gray-900 dark:text-white">Filters and sorting</h2>
@@ -1541,7 +1550,7 @@ export default function Dining({ isTabActive = true }) {
             {/* Body */}
             <div className="flex flex-1 overflow-hidden">
               {/* Left Sidebar - Tabs */}
-              <div className="w-24 sm:w-28 md:w-32 bg-gray-50 dark:bg-[#0a0a0a] border-r dark:border-gray-800 flex flex-col">
+              <div className="w-24 sm:w-28 md:w-32 bg-gray-50 dark:bg-[#141414] border-r dark:border-gray-800 flex flex-col">
                 {[
                   { id: 'sort', label: 'Sort By', icon: ArrowDownUp },
                   { id: 'time', label: 'Time', icon: Timer },
@@ -1556,7 +1565,7 @@ export default function Dining({ isTabActive = true }) {
                     <button
                       key={tab.id}
                       onClick={() => setActiveFilterTab(tab.id)}
-                      className={`flex flex-col items-center gap-1 py-4 px-2 text-center relative transition-colors ${isActive ? 'bg-white dark:bg-[#1a1a1a] text-[#1F6B45]' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                      className={`flex flex-col items-center gap-1 py-4 px-2 text-center relative transition-colors ${isActive ? 'bg-white dark:bg-[#242424] text-[#1F6B45]' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
                         }`}
                     >
                       {isActive && (
@@ -1751,7 +1760,7 @@ export default function Dining({ isTabActive = true }) {
             </div>
 
             {/* Footer */}
-            <div className="flex items-center gap-4 md:gap-6 px-4 md:px-6 py-4 md:py-5 border-t dark:border-gray-800 bg-white dark:bg-[#1a1a1a]">
+            <div className="flex items-center gap-4 md:gap-6 px-4 md:px-6 py-4 md:py-5 border-t dark:border-gray-800 bg-white dark:bg-[#242424]">
               <button
                 onClick={() => setIsFilterOpen(false)}
                 className="flex-1 py-3 md:py-4 text-center font-semibold text-gray-700 dark:text-gray-300 text-sm md:text-base"

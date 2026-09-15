@@ -499,6 +499,43 @@ export const upsertFirebaseDeviceToken = async ({ ownerType, ownerId, token, pla
             await doc.save();
         }
 
+        /*
+         * 3. Detach this token from every OTHER account.
+         *
+         * A device token identifies a device, not a person, so it can only
+         * belong to one account at a time. Registering it here used to leave it
+         * attached wherever it was registered before: rider A signs in on a
+         * phone, signs out or is switched away, rider B signs in on the same
+         * phone - and the token now sits on both records. Every push aimed at A
+         * then rings on B's phone, showing B a request that is not theirs.
+         * Logout already scrubbed the token, but only when the client got to
+         * send it; a switch, a reinstall or a killed app never did.
+         *
+         * Runs after the save so a failure here can never cost the owner their
+         * own token, and covers all four owner types because the same device
+         * may have been a customer or a restaurant before.
+         */
+        try {
+            await Promise.all(
+                Object.entries(OWNER_MODELS).map(([type, otherModel]) => {
+                    const isSameOwner = String(type).toUpperCase() === String(ownerType).toUpperCase();
+                    const excludeSelf = isSameOwner ? { _id: { $ne: doc._id } } : {};
+                    return otherModel.updateMany(
+                        {
+                            ...excludeSelf,
+                            $or: [
+                                { fcmTokens: normalizedToken },
+                                { fcmTokenMobile: normalizedToken }
+                            ]
+                        },
+                        { $pull: { fcmTokens: normalizedToken, fcmTokenMobile: normalizedToken } }
+                    );
+                })
+            );
+        } catch (err) {
+            logger.warn(`Failed to detach FCM token from previous owners: ${err.message}`);
+        }
+
         return { success: true };
     } catch (error) {
         throw error;

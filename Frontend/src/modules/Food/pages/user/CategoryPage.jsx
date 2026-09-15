@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, useLayoutEffect, startTransition, useDeferredValue } from "react"
+import { useState, useMemo, useRef, useEffect, useLayoutEffect, startTransition, useDeferredValue, useCallback } from "react"
 import { useParams, Link, useNavigate, useNavigationType } from "react-router-dom"
 import { createPortal } from "react-dom"
 import { motion, AnimatePresence } from "framer-motion"
@@ -29,6 +29,7 @@ import { useZone } from "@food/hooks/useZone"
 import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
 import { getMenuFromResponse } from "@food/utils/menuItems"
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability"
+import { useFoodPageInvalidation } from "@food/hooks/useFoodPageInvalidation"
 import { compareRestaurantsByAvailabilityAndDistance } from "@food/utils/restaurantBrowseSort"
 import { calculateDistance, formatDistance } from "@food/utils/common"
 import {
@@ -104,6 +105,7 @@ export default function CategoryPage({
   }, [loadingZone, isBrowseActive, zoneId])
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState(category?.toLowerCase() || 'all')
+  const [refreshNonce, setRefreshNonce] = useState(0)
   // Always prefer URL/embedded slug so save+restore paths stay stable (not mongo id).
   const categoryBackPath = `/user/category/${String(
     embeddedCategorySlug || category || selectedCategory || "all",
@@ -125,6 +127,7 @@ export default function CategoryPage({
   const approvedFoodsInFlightRef = useRef(null)
   const hasRestoredCategoryFiltersRef = useRef(false)
   const lastFetchedCategoryRef = useRef(null)
+  const backgroundRefreshRef = useRef(false)
 
   // State for categories from admin (seed from memory cache — no "No categories" flash)
   const [categories, setCategories] = useState(() => {
@@ -1085,9 +1088,14 @@ export default function CategoryPage({
           return
         }
 
-        // No cache yet — clear and load
-        setRestaurantsData([])
-        setLoadingRestaurants(true)
+        // No cache yet — clear and load. A live refresh keeps the current rows
+        // on screen instead of flashing an empty skeleton over good data.
+        if (backgroundRefreshRef.current) {
+          backgroundRefreshRef.current = false
+        } else {
+          setRestaurantsData([])
+          setLoadingRestaurants(true)
+        }
         // Pass coordinates and category to backend for server-side optimization
         const params = {
           limit: CATEGORY_FETCH_LIMIT,
@@ -1481,7 +1489,17 @@ export default function CategoryPage({
     return () => {
       isCancelled = true
     }
-  }, [zoneId, loadingZone, loadingCategories, location?.latitude, location?.longitude, location?.city, selectedCategory, isOutOfService, categories, isBrowseActive])
+  }, [zoneId, loadingZone, loadingCategories, location?.latitude, location?.longitude, location?.city, selectedCategory, isOutOfService, categories, isBrowseActive, refreshNonce])
+
+  // Live refresh: the category cache is cleared by the refresh orchestrator,
+  // this re-runs the fetch above so the list reflects the change immediately.
+  useFoodPageInvalidation(
+    useCallback(() => {
+      lastFetchedCategoryRef.current = null
+      backgroundRefreshRef.current = true
+      setRefreshNonce((n) => n + 1)
+    }, []),
+  )
 
   // Update selected category when URL changes — hydrate restaurants from cache instantly
   useEffect(() => {
@@ -2008,11 +2026,11 @@ export default function CategoryPage({
   }, [navType, selectedCategory, filteredRecommended.length, disableAutoScroll, embeddedCategorySlug, isBrowseActive, categoryBackPath])
 
   return (
-    <div className={`min-h-screen bg-white dark:bg-[#0a0a0a] ${shouldShowGrayscale ? 'grayscale opacity-75' : ''}`}>
+    <div className={`min-h-screen bg-white dark:bg-[#141414] ${shouldShowGrayscale ? 'grayscale opacity-75' : ''}`}>
       {/* Fixed like Home — CSS sticky + backdrop-blur was jittering on scroll */}
       <div
         ref={stickyHeaderRef}
-        className="fixed top-0 left-0 right-0 z-40 w-full bg-white dark:bg-[#1a1a1a] shadow-sm"
+        className="fixed top-0 left-0 right-0 z-40 w-full bg-white dark:bg-[#242424] shadow-sm"
       >
         <div className="max-w-7xl mx-auto">
           {/* Search Bar with Back Button */}
@@ -2032,7 +2050,7 @@ export default function CategoryPage({
                   placeholder="Restaurant name or a dish..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 pr-4 h-11 md:h-12 rounded-lg border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#1a1a1a] focus:bg-white dark:focus:bg-[#2a2a2a] focus:border-gray-500 dark:focus:border-gray-600 text-sm md:text-base dark:text-white placeholder:text-gray-600 dark:placeholder:text-gray-400"
+                  className="pl-10 pr-4 h-11 md:h-12 rounded-lg border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#242424] focus:bg-white dark:focus:bg-[#2a2a2a] focus:border-gray-500 dark:focus:border-gray-600 text-sm md:text-base dark:text-white placeholder:text-gray-600 dark:placeholder:text-gray-400"
                 />
               </div>
             </div>
@@ -2042,7 +2060,7 @@ export default function CategoryPage({
           {!hideCategoryCarousel && (
             <div
               ref={categoryScrollRef}
-              className="flex gap-4 md:gap-6 overflow-x-auto scrollbar-hide px-4 md:px-6 py-3 bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800"
+              className="flex gap-4 md:gap-6 overflow-x-auto scrollbar-hide px-4 md:px-6 py-3 bg-white dark:bg-[#242424] border-b border-gray-100 dark:border-gray-800"
               style={{
                 scrollbarWidth: "none",
                 msOverflowStyle: "none",
@@ -2111,7 +2129,7 @@ export default function CategoryPage({
 
       {/* Filters — scroll away with content (not sticky) */}
       {!hideFilters && (
-        <div className="max-w-7xl mx-auto bg-white dark:bg-[#0a0a0a]">
+        <div className="max-w-7xl mx-auto bg-white dark:bg-[#141414]">
           <div className="flex flex-col md:flex-row md:flex-wrap gap-2 px-4 md:px-6 py-3">
             {/* Row 1 */}
             <div
@@ -2124,7 +2142,7 @@ export default function CategoryPage({
               <Button
                 variant="outline"
                 onClick={() => setIsFilterOpen(true)}
-                className="h-7 md:h-8 px-2.5 md:px-3 rounded-md flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-all bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
+                className="h-7 md:h-8 px-2.5 md:px-3 rounded-md flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-all bg-white dark:bg-[#242424] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 <SlidersHorizontal className="h-3.5 w-3.5 md:h-4 md:w-4" />
                 <span className="text-xs md:text-sm font-bold text-black dark:text-white">Filters</span>
@@ -2143,7 +2161,7 @@ export default function CategoryPage({
                     onClick={() => toggleFilter(filter.id)}
                     className={`h-7 md:h-8 px-2.5 md:px-3 rounded-md flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-all ${isActive
                       ? 'bg-[#1F6B45] text-white border border-[#1F6B45] hover:bg-[#14512F]'
-                      : 'bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      : 'bg-white dark:bg-[#242424] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800'
                       }`}
                   >
                     <span className={`text-xs md:text-sm text-black dark:text-white font-bold ${isActive ? 'text-white' : 'text-black dark:text-white'}`}>{filter.label}</span>
@@ -2175,7 +2193,7 @@ export default function CategoryPage({
                     onClick={() => toggleFilter(filter.id)}
                     className={`h-7 md:h-8 px-2.5 md:px-3 rounded-md flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-all ${isActive
                       ? 'bg-[#1F6B45] text-white border border-[#1F6B45] hover:bg-[#14512F]'
-                      : 'bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      : 'bg-white dark:bg-[#242424] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800'
                       }`}
                   >
                     {Icon && <Icon className={`h-3.5 w-3.5 md:h-4 md:w-4 ${isActive ? 'text-white' : 'text-gray-900 dark:text-white'}`} />}
@@ -2326,7 +2344,7 @@ export default function CategoryPage({
 
             {/* Loading Overlay */}
             {showRestaurantSkeleton && (
-              <div className="absolute inset-0 z-10 rounded-lg bg-white/92 backdrop-blur-sm dark:bg-[#1a1a1a]/92">
+              <div className="absolute inset-0 z-10 rounded-lg bg-white/92 backdrop-blur-sm dark:bg-[#242424]/92">
                 <LoadingSkeletonRegion label="Loading restaurants" className="h-full p-1 sm:p-2">
                   <RestaurantGridSkeleton count={4} compact />
                 </LoadingSkeletonRegion>
@@ -2354,7 +2372,7 @@ export default function CategoryPage({
                     onClick={() => rememberBrowsePosition(restaurant.id)}
                     className="h-full flex"
                   >
-                    <Card className={`overflow-hidden cursor-pointer gap-0 border-0 dark:border-gray-800 group bg-white dark:bg-[#1a1a1a] shadow-md hover:shadow-xl transition-all duration-300 py-0 rounded-md h-full flex flex-col w-full ${shouldShowGrayscale || closed ? 'grayscale opacity-75' : ''
+                    <Card className={`overflow-hidden cursor-pointer gap-0 border-0 dark:border-gray-800 group bg-white dark:bg-[#242424] shadow-md hover:shadow-xl transition-all duration-300 py-0 rounded-md h-full flex flex-col w-full ${shouldShowGrayscale || closed ? 'grayscale opacity-75' : ''
                       }`}>
                       {/* Image Section — Home-style dish carousel when category dishes exist */}
                       <div className="relative h-44 sm:h-52 md:h-60 lg:h-64 xl:h-72 w-full overflow-hidden rounded-t-md flex-shrink-0 isolate">
@@ -2410,7 +2428,7 @@ export default function CategoryPage({
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="absolute top-3 right-3 z-[3] h-9 w-9 md:h-10 md:w-10 bg-white/90 dark:bg-[#1a1a1a]/90 backdrop-blur-sm rounded-lg hover:bg-white dark:hover:bg-[#2a2a2a] transition-colors"
+                          className="absolute top-3 right-3 z-[3] h-9 w-9 md:h-10 md:w-10 bg-white/90 dark:bg-[#242424]/90 backdrop-blur-sm rounded-lg hover:bg-white dark:hover:bg-[#2a2a2a] transition-colors"
                           onClick={(e) => {
                             e.preventDefault()
                             e.stopPropagation()
@@ -2518,7 +2536,7 @@ export default function CategoryPage({
                 />
 
                 {/* Modal Content */}
-                <div className="absolute bottom-0 left-0 right-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:max-w-4xl bg-white dark:bg-[#1a1a1a] rounded-t-3xl md:rounded-3xl max-h-[85vh] md:max-h-[90vh] flex flex-col animate-[slideUp_0.3s_ease-out]">
+                <div className="absolute bottom-0 left-0 right-0 md:left-1/2 md:right-auto md:-translate-x-1/2 md:max-w-4xl bg-white dark:bg-[#242424] rounded-t-3xl md:rounded-3xl max-h-[85vh] md:max-h-[90vh] flex flex-col animate-[slideUp_0.3s_ease-out]">
                   {/* Header */}
                   <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-gray-200 dark:border-gray-800">
                     <h2 className="text-lg md:text-xl font-bold text-gray-900 dark:text-white">Filters and sorting</h2>
@@ -2538,7 +2556,7 @@ export default function CategoryPage({
                   {/* Body */}
                   <div className="flex flex-1 overflow-hidden">
                     {/* Left Sidebar - Tabs */}
-                    <div className="w-24 sm:w-28 md:w-32 bg-gray-50 dark:bg-[#0a0a0a] border-r border-gray-200 dark:border-gray-800 flex flex-col">
+                    <div className="w-24 sm:w-28 md:w-32 bg-gray-50 dark:bg-[#141414] border-r border-gray-200 dark:border-gray-800 flex flex-col">
                       {[
                         { id: 'sort', label: 'Sort By', icon: ArrowDownUp },
                         { id: 'time', label: 'Time', icon: Timer },
@@ -2560,7 +2578,7 @@ export default function CategoryPage({
                                 section.scrollIntoView({ behavior: 'smooth', block: 'start' })
                               }
                             }}
-                            className={`flex flex-col items-center gap-1 py-4 px-2 text-center relative transition-colors ${isActive ? 'bg-white dark:bg-[#1a1a1a] text-[#1F6B45]' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                            className={`flex flex-col items-center gap-1 py-4 px-2 text-center relative transition-colors ${isActive ? 'bg-white dark:bg-[#242424] text-[#1F6B45]' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
                               }`}
                           >
                             {isActive && (
@@ -2796,7 +2814,7 @@ export default function CategoryPage({
                   </div>
 
                   {/* Footer */}
-                  <div className="flex items-center gap-4 px-4 md:px-6 py-4 border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-[#1a1a1a]">
+                  <div className="flex items-center gap-4 px-4 md:px-6 py-4 border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-[#242424]">
                     <button
                       onClick={() => setIsFilterOpen(false)}
                       className="flex-1 py-3 md:py-4 text-center font-semibold text-gray-700 dark:text-gray-300 text-sm md:text-base"
