@@ -50,6 +50,56 @@ const getDocumentUploadErrorMessage = (error) => {
   return getUserFacingApiError(error, "Upload failed. Please retry.")
 }
 
+/**
+ * Turns whatever the camera/gallery handed over into a real browser File.
+ * WebView bridges and some iOS pickers can deliver Blob-like objects from another
+ * JS context (not `instanceof Blob`); those cannot be previewed, stored or put in
+ * FormData directly, which previously threw and discarded the pick.
+ */
+const toBrowserImageFile = async (candidate, docType) => {
+  const fallbackName = `${docType}.jpg`
+  if (typeof File !== "undefined" && candidate instanceof File) return candidate
+  if (typeof Blob !== "undefined" && candidate instanceof Blob) {
+    return new File([candidate], fallbackName, { type: candidate.type || "image/jpeg", lastModified: Date.now() })
+  }
+  if (candidate && typeof candidate.arrayBuffer === "function") {
+    const buffer = await candidate.arrayBuffer()
+    return new File([buffer], candidate.name || fallbackName, {
+      type: candidate.type || "image/jpeg",
+      lastModified: Date.now(),
+    })
+  }
+  throw new Error("Selected item is not a readable image file")
+}
+
+const readFileAsDataUrl = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null)
+    reader.onerror = () => reject(reader.error || new Error("Could not read file"))
+    reader.readAsDataURL(file)
+  })
+
+/**
+ * Preview URL for a picked photo. `blob:` URLs are preferred; some app WebViews
+ * throw on URL.createObjectURL, so fall back to a data URL, and finally to no
+ * preview at all — a preview problem must never stop the upload itself.
+ */
+const createPreviewUrl = async (file) => {
+  try {
+    const url = URL.createObjectURL(file)
+    if (url) return url
+  } catch (error) {
+    console.warn("[DeliveryDocUpload] createObjectURL failed, using data URL preview", error)
+  }
+  try {
+    return await readFileAsDataUrl(file)
+  } catch (error) {
+    console.warn("[DeliveryDocUpload] preview unavailable", error)
+    return null
+  }
+}
+
 const DOC_LABELS = {
   profilePhoto: "Profile Photo",
   aadharPhoto: "Aadhar Card Photo",
@@ -175,13 +225,18 @@ function DocumentUploadCard({
             {isUploading ? (
               <>
                 <div className="animate-spin rounded-full h-8 w-8 border-2 border-transparent mb-2" style={{ borderBottomColor: "#00B761" }}></div>
-                <p className="text-sm text-gray-500">Processing...</p>
+                <p className="text-sm text-gray-500">
+                  {uploadProgress > 0 ? `Uploading ${uploadProgress}%` : "Processing..."}
+                </p>
               </>
             ) : (
               <>
                 <Upload className="w-8 h-8 text-gray-400 mb-2" />
                 <p className="text-sm text-gray-500 mb-1">Upload document</p>
                 <p className="text-xs text-gray-400">JPG, PNG or WebP photo</p>
+                {uploadError && (
+                  <p className="mt-1 text-xs font-medium text-red-500 text-center">{uploadError}</p>
+                )}
               </>
             )}
           </div>
@@ -423,8 +478,8 @@ export default function SignupStep2() {
         }
         const localFiles = await getAllSignupDocumentsFromDB()
         DELIVERY_SIGNUP_DOC_TYPES.forEach((docType) => {
-          if (!previews[docType]) return
-          setLocalPreview(docType, previews[docType])
+          if (previews[docType]) setLocalPreview(docType, previews[docType])
+          // Retry even when no device preview could be built for it.
           if (localFiles[docType]) {
             void startUpload(docType, localFiles[docType], { silent: true })
           }
@@ -486,20 +541,31 @@ export default function SignupStep2() {
       return
     }
 
-    const { file, error } = ensureUploadableImageFile(pickedFile, { maxBytes: MAX_PICKED_IMAGE_BYTES })
-    if (error) {
-      toast.error(error)
-      return
-    }
-
     uploadInFlightRef.current = { ...uploadInFlightRef.current, [docType]: true }
     let handedToUpload = false
     try {
       setUploadErrors((prev) => ({ ...prev, [docType]: "" }))
       setServerImageFailed((prev) => ({ ...prev, [docType]: false }))
-      // Show the picked photo straight away instead of a "Processing…" placeholder.
-      setLocalPreview(docType, URL.createObjectURL(file))
       setUploading((prev) => ({ ...prev, [docType]: 0 }))
+
+      let browserFile
+      try {
+        browserFile = await toBrowserImageFile(pickedFile, docType)
+      } catch (err) {
+        console.error("[DeliveryDocUpload] unreadable pick", docType, err)
+        toast.error(`${DOC_LABELS[docType]}: this photo could not be read. Please try again or choose another photo.`)
+        return
+      }
+
+      const { file, error } = ensureUploadableImageFile(browserFile, { maxBytes: MAX_PICKED_IMAGE_BYTES })
+      if (error) {
+        toast.error(`${DOC_LABELS[docType]}: ${error}`)
+        return
+      }
+
+      // Show the picked photo straight away instead of a "Processing…" placeholder.
+      const previewUrl = await createPreviewUrl(file)
+      if (previewUrl) setLocalPreview(docType, previewUrl)
 
       let preparedFile = file
       try {
@@ -531,10 +597,11 @@ export default function SignupStep2() {
       uploadInFlightRef.current = { ...uploadInFlightRef.current, [docType]: false }
       await startUpload(docType, preparedFile)
     } catch (err) {
-      debugError("Document selection failed:", err)
+      // Logged (not swallowed) so the real cause is visible in the WebView inspector.
+      console.error("[DeliveryDocUpload] selection failed", docType, err)
       const message = "Could not use this photo. Please try another one."
       setUploadErrors((prev) => ({ ...prev, [docType]: message }))
-      toast.error(message)
+      toast.error(`${DOC_LABELS[docType]}: ${message}`)
     } finally {
       // Never leave the card stuck in "Processing…" / blocked for new picks.
       if (!handedToUpload) clearUploading(docType)

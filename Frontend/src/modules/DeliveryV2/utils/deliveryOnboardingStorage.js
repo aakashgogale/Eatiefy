@@ -563,7 +563,14 @@ export const loadSignupDocumentPreviews = async (onPreview) => {
   for (const docType of DELIVERY_SIGNUP_DOC_TYPES) {
     const file = documents[docType]
     if (file) {
-      const url = URL.createObjectURL(file)
+      let url = null
+      try {
+        url = URL.createObjectURL(file)
+      } catch {
+        // Some app WebViews reject blob URLs; skip the device preview (the server
+        // copy, when present, is still shown) rather than aborting the restore.
+        continue
+      }
       previews[docType] = url
       if (typeof onPreview === "function") {
         try {
