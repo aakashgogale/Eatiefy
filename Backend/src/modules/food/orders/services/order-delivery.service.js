@@ -248,6 +248,14 @@ function emitOrderUpdate(order, deliveryPartnerId, options = {}) {
       io.to(rooms.user(order.userId)).emit('order_status_update', payload);
     }
 
+    // Location packets carry the order status; drop the cached assignment so the
+    // next GPS fix reflects this transition instead of one up to 10s old.
+    import('../../delivery/services/riderLocation.service.js')
+      .then(({ invalidateRiderActiveOrders }) =>
+        invalidateRiderActiveOrders(deliveryPartnerId || order.dispatch?.deliveryPartnerId),
+      )
+      .catch(() => {});
+
     // Only send push notifications for key delivery milestones when explicitly allowed.
     if (!shouldSendMilestonePush) return;
 
@@ -907,6 +915,12 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
   } catch (error) {
     logger.error(`Error emitting order_claimed on accept: ${error?.message || error}`);
   }
+
+  // Start live tracking now: the customer sees the rider's real position the
+  // moment they accept, and the next fixes reach this order without cache lag.
+  import('../../delivery/services/riderLocation.service.js')
+    .then(({ publishLastKnownRiderLocation }) => publishLastKnownRiderLocation(deliveryPartnerId))
+    .catch((err) => logger.warn(`[RiderLocation] accept publish failed: ${err?.message || err}`));
 
   void (async () => {
     try {

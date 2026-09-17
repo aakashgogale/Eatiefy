@@ -206,7 +206,7 @@ export const publishRiderLocation = async ({
             lastOrderPersistAt.set(orderMongoId, now);
             FoodOrder.updateOne(
                 { _id: order._id },
-                { $set: { lastRiderLocation: { type: 'Point', coordinates: [lng, lat] } } }
+                { $set: { lastRiderLocation: { type: 'Point', coordinates: [lng, lat] }, lastRiderLocationAt: new Date(now) } }
             ).catch((err) => logger.warn(`[RiderLocation] order persist failed: ${err.message}`));
         }
     }
@@ -218,6 +218,27 @@ export const publishRiderLocation = async ({
     }
 
     return orders.length;
+};
+
+/**
+ * Publishes the partner's stored position right away (e.g. the moment they
+ * accept an order), so the customer sees where the rider really is instead of
+ * an empty map until the next GPS fix. Only a recent real fix is used.
+ */
+export const publishLastKnownRiderLocation = async (deliveryPartnerId, { maxAgeMs = 2 * 60 * 1000 } = {}) => {
+    const partnerId = String(deliveryPartnerId || '');
+    if (!mongoose.Types.ObjectId.isValid(partnerId)) return 0;
+    invalidateRiderActiveOrders(partnerId);
+
+    const partner = await FoodDeliveryPartner.findById(partnerId).select('lastLat lastLng lastLocationAt').lean();
+    const lat = toFinite(partner?.lastLat);
+    const lng = toFinite(partner?.lastLng);
+    const at = partner?.lastLocationAt ? new Date(partner.lastLocationAt).getTime() : 0;
+    if (!isValidCoordinate(lat, lng) || !at || Date.now() - at > maxAgeMs) return 0;
+
+    // A fix may have just been broadcast under the old (empty) assignment list.
+    lastBroadcastAt.delete(partnerId);
+    return publishRiderLocation({ deliveryPartnerId: partnerId, lat, lng, source: 'last_known' });
 };
 
 /**

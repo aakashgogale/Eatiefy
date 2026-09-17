@@ -45,6 +45,8 @@ const ROUTE_REFRESH_DISTANCE_M = 120;
 const ROUTE_REFRESH_INTERVAL_MS = 20000;
 /** How often the route conditions are evaluated. */
 const ROUTE_TICK_MS = 5000;
+/** No packet for this long: tell the customer the rider's position may be out of date. */
+const SIGNAL_WEAK_MS = 45 * 1000;
 /** Rider marker interpolation bounds, matched to the server's ~1 s packet rate. */
 const MIN_INTERP_MS = 800;
 const MAX_INTERP_MS = 2500;
@@ -113,7 +115,12 @@ const readOrderRiderPosition = (order) => {
   );
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
-  return { lat, lng, heading: Number(loc.bearing ?? loc.heading) || 0 };
+  // Untimestamped or old positions are not shown as live; join-tracking paints
+  // the server's last known fix (with its real age) moments later anyway.
+  const at = Number(loc.at ?? loc.timestamp);
+  if (!Number.isFinite(at) || at <= 0 || Date.now() - at > STALE_PACKET_MS) return null;
+
+  return { lat, lng, heading: Number(loc.bearing ?? loc.heading) || 0, at };
 };
 
 /**
@@ -155,6 +162,10 @@ const DeliveryTrackingMap = ({
   const animatingRef = useRef(false);
   const startAnimationRef = useRef(() => {});
   const [trackingEnded, setTrackingEnded] = useState(false);
+  // Age of the newest rider fix and the live connection state, for honest UI.
+  const [lastFixAt, setLastFixAt] = useState(0);
+  const [socketState, setSocketState] = useState('connecting');
+  const [clock, setClock] = useState(() => Date.now());
 
   const { palette, mapStyles } = useMapTheme();
 
@@ -197,6 +208,20 @@ const DeliveryTrackingMap = ({
   const isTerminal = TERMINAL_STATUSES.has(orderStatusValue) || trackingEnded;
   // Delivered/cancelled orders show no live bike or route.
   const isPickedUp = !isTerminal && PICKED_UP_STATUSES.has(orderStatusValue) && orderStatusValue !== 'delivered';
+  const deliveryPhase = String(order?.deliveryState?.currentPhase || order?.deliveryState?.status || '').toLowerCase();
+  const riderAtRestaurant = !isPickedUp && (deliveryPhase === 'at_pickup' || deliveryPhase === 'reached_pickup');
+  const riderAssigned = Boolean(deliveryPartnerId);
+  // Where the live route leads: the restaurant until pickup, then the customer.
+  const routeTarget = isTerminal
+    ? null
+    : isPickedUp
+      ? customerCoords
+      : riderAssigned && !riderAtRestaurant
+        ? restaurantCoords
+        : null;
+  const routeLeg = !routeTarget ? null : isPickedUp ? 'to_customer' : 'to_restaurant';
+  const routeLegRef = useRef(routeLeg);
+  routeLegRef.current = routeLeg;
 
   /* ─────────────────── Realtime rider position ─────────────────── */
 
@@ -205,6 +230,8 @@ const DeliveryTrackingMap = ({
     const initial = readOrderRiderPosition(order);
     if (!initial) return;
     currentSmoothPosRef.current = initial;
+    lastPacketTsRef.current = Math.max(lastPacketTsRef.current, initial.at);
+    setLastFixAt((prev) => Math.max(prev, initial.at));
     setRiderLocation(initial);
     setSmoothLocation(initial);
   }, [order]);
@@ -224,6 +251,9 @@ const DeliveryTrackingMap = ({
       if (packetTs + PACKET_ORDER_TOLERANCE_MS < lastPacketTsRef.current) return;
       lastPacketTsRef.current = Math.max(lastPacketTsRef.current, packetTs);
     }
+    // Even an unmoved fix proves the rider is still reporting.
+    const fixAt = Number.isFinite(packetTs) && packetTs > 0 ? Math.min(packetTs, now) : now;
+    setLastFixAt((prev) => Math.max(prev, fixAt));
     const currentTarget = interpStateRef.current.targetPos;
     if (currentTarget && computeDistanceMeters(currentTarget.lat, currentTarget.lng, lat, lng) < 0.5) return;
 
@@ -271,7 +301,7 @@ const DeliveryTrackingMap = ({
       const matches = trackingIds.some(
         (id) => String(id) === String(data.orderId) || String(id) === String(data.orderMongoId),
       );
-      if (matches || !data.orderId) handleNewRiderPosition(data);
+      if (matches) handleNewRiderPosition(data);
     };
     window.addEventListener('riderLocationUpdate', handleGlobalLocation);
 
@@ -289,7 +319,13 @@ const DeliveryTrackingMap = ({
     if (!socket) return teardown(null);
     socketRef.current = socket;
 
-    socket.on('connect', () => trackingIds.forEach((id) => socket.emit('join-tracking', id)));
+    // (Re)join on every connect: rooms are lost when the connection drops.
+    socket.on('connect', () => {
+      setSocketState('connected');
+      trackingIds.forEach((id) => socket.emit('join-tracking', id));
+    });
+    socket.on('disconnect', () => setSocketState('disconnected'));
+    socket.on('connect_error', () => setSocketState('disconnected'));
     socket.on('location-update', (data) => data && handleNewRiderPosition(data));
     socket.on('tracking-ended', (data) => {
       const matches = trackingIds.some(
@@ -298,8 +334,28 @@ const DeliveryTrackingMap = ({
       if (matches) setTrackingEnded(true);
     });
 
-    return teardown(socket);
+    // Back online / back in the foreground: reconnect now instead of waiting for backoff.
+    const reconnect = () => {
+      if (document.visibilityState === 'hidden') return;
+      if (!socket.connected) socket.connect();
+    };
+    window.addEventListener('online', reconnect);
+    document.addEventListener('visibilitychange', reconnect);
+    const stopSocket = teardown(socket);
+
+    return () => {
+      window.removeEventListener('online', reconnect);
+      document.removeEventListener('visibilitychange', reconnect);
+      stopSocket();
+    };
   }, [trackingIdsKey, deliveryPartnerId, handleNewRiderPosition, isTerminal]);
+
+  // Re-evaluate the "last updated" state even when no packets arrive.
+  useEffect(() => {
+    if (isTerminal) return undefined;
+    const id = setInterval(() => setClock(Date.now()), 5000);
+    return () => clearInterval(id);
+  }, [isTerminal]);
 
   // Clear the bike as soon as tracking ends.
   useEffect(() => {
@@ -362,17 +418,20 @@ const DeliveryTrackingMap = ({
 
   const riderPosition = smoothLocation || riderLocation;
 
-  /* ─────────────────── Route: rider → customer, once picked up ─────────────────── */
+  /* ─────────────────── Route: rider → restaurant, then rider → customer ─────────────────── */
 
   const requestRoute = useCallback(
     (origin) => {
-      if (!isLoaded || !origin || !customerCoords || routeStateRef.current.inFlight) return;
+      if (!isLoaded || !origin || !routeTarget || routeStateRef.current.inFlight) return;
       routeStateRef.current.inFlight = true;
+      const leg = routeLeg;
 
       // Legacy DirectionsService alone is blocked on newer Google Cloud projects, which
       // left customers with only a dashed straight line; the helper tries Routes API first.
-      computeDrivingRoute(origin, customerCoords)
+      computeDrivingRoute(origin, routeTarget)
         .then((route) => {
+          // The rider changed leg while this was in flight; the next tick re-routes.
+          if (leg !== routeLegRef.current) return;
           routeStateRef.current.lastAt = Date.now();
           routeStateRef.current.lastOrigin = origin;
           setRoutePath(route.path);
@@ -380,7 +439,8 @@ const DeliveryTrackingMap = ({
             distanceMeters: route.distanceMeters,
             durationSeconds: route.durationSeconds,
           });
-          if (onEtaUpdate && Number.isFinite(route.durationSeconds)) {
+          // The customer ETA only makes sense once the food is on its way.
+          if (leg === 'to_customer' && onEtaUpdate && Number.isFinite(route.durationSeconds)) {
             onEtaUpdate(formatDuration(route.durationSeconds));
           }
         })
@@ -392,14 +452,23 @@ const DeliveryTrackingMap = ({
           routeStateRef.current.inFlight = false;
         });
     },
-    [isLoaded, customerCoords, onEtaUpdate],
+    [isLoaded, routeTarget, routeLeg, onEtaUpdate],
   );
+
+  // A new leg (restaurant → customer) needs its own route immediately, not after
+  // the rider has moved far enough from where the previous leg was routed.
+  useEffect(() => {
+    setRoutePath(null);
+    setRouteMeta({ distanceMeters: null, durationSeconds: null });
+    routeStateRef.current = { lastAt: 0, lastOrigin: null, inFlight: false };
+  }, [routeLeg]);
 
   // Poll rather than react to every position packet: the rider emits ~1/s, and one
   // Directions request per packet would be both slow and needlessly expensive.
   useEffect(() => {
-    if (!isPickedUp || !isLoaded) {
+    if (!routeLeg || !isLoaded) {
       setRoutePath(null);
+      setRouteMeta({ distanceMeters: null, durationSeconds: null });
       routeStateRef.current = { lastAt: 0, lastOrigin: null, inFlight: false };
       return undefined;
     }
@@ -422,7 +491,7 @@ const DeliveryTrackingMap = ({
     tick();
     const intervalId = setInterval(tick, ROUTE_TICK_MS);
     return () => clearInterval(intervalId);
-  }, [isPickedUp, isLoaded, requestRoute, restaurantCoords]);
+  }, [routeLeg, isLoaded, requestRoute]);
 
   /* ─────────────────── Distance and ETA shown to the customer ─────────────────── */
 
@@ -453,6 +522,9 @@ const DeliveryTrackingMap = ({
     customerCoords,
   ]);
 
+  const riderToRestaurantMeters =
+    routeLeg === 'to_restaurant' && Number.isFinite(routeMeta.distanceMeters) ? routeMeta.distanceMeters : null;
+
   const etaText = useMemo(() => {
     if (isPickedUp && Number.isFinite(routeMeta.durationSeconds)) {
       return formatDuration(routeMeta.durationSeconds);
@@ -468,7 +540,8 @@ const DeliveryTrackingMap = ({
 
   /* ─────────────────── Camera ─────────────────── */
 
-  const phaseKey = `${isPickedUp}|${restaurantCoords?.lat},${restaurantCoords?.lng}|${customerCoords?.lat},${customerCoords?.lng}`;
+  const hasRiderFix = Boolean(riderLocation);
+  const phaseKey = `${routeLeg}|${riderAtRestaurant}|${hasRiderFix}|${restaurantCoords?.lat},${restaurantCoords?.lng}|${customerCoords?.lat},${customerCoords?.lng}`;
 
   useEffect(() => {
     if (!map || !customerCoords) return;
@@ -477,9 +550,12 @@ const DeliveryTrackingMap = ({
     userPannedRef.current = false;
 
     const bounds = new window.google.maps.LatLngBounds();
+    // Frame the leg that matters now, always including the rider's real position.
+    const rider = currentSmoothPosRef.current;
     bounds.extend(customerCoords);
-    const origin = isPickedUp ? currentSmoothPosRef.current || restaurantCoords : restaurantCoords;
-    if (origin) bounds.extend(origin);
+    if (rider) bounds.extend(rider);
+    if (!isPickedUp && restaurantCoords) bounds.extend(restaurantCoords);
+    else if (!rider && restaurantCoords) bounds.extend(restaurantCoords);
 
     map.fitBounds(bounds, {
       top: 90,
@@ -487,7 +563,8 @@ const DeliveryTrackingMap = ({
       left: 45,
       right: 45,
     });
-  }, [map, phaseKey, isPickedUp, customerCoords, restaurantCoords]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- phaseKey captures the inputs
+  }, [map, phaseKey]);
 
   useEffect(() => {
     if (!map) return undefined;
@@ -500,10 +577,10 @@ const DeliveryTrackingMap = ({
   // Keep the rider in frame while it moves, unless the customer panned away to
   // look at something themselves.
   useEffect(() => {
-    if (!map || !isPickedUp || !riderPosition || userPannedRef.current) return;
+    if (!map || isTerminal || !riderPosition || userPannedRef.current) return;
     const viewport = map.getBounds();
     if (viewport && !viewport.contains(riderPosition)) map.panTo(riderPosition);
-  }, [map, isPickedUp, riderPosition]);
+  }, [map, isTerminal, riderPosition]);
 
   const center = useMemo(() => {
     if (restaurantCoords && customerCoords) {
@@ -584,6 +661,14 @@ const DeliveryTrackingMap = ({
         )}
 
         {/* After pickup: live road route, drawn with a casing so it reads on any surface. */}
+        {/* Before pickup: the rider's live road route to the restaurant. */}
+        {routeLeg === 'to_restaurant' && routePath && riderPosition && (
+          <Polyline
+            path={routePath}
+            options={{ strokeColor: palette.route, strokeOpacity: 0.55, strokeWeight: 4, zIndex: 7 }}
+          />
+        )}
+
         {isPickedUp && routePath && (
           <>
             <Polyline
@@ -667,7 +752,10 @@ const DeliveryTrackingMap = ({
         {/* Live bike: positions are only published for the assigned rider, so any real fix means a rider is on the job. */}
         {!isTerminal && riderPosition && (
           <OverlayView position={riderPosition} mapPaneName={OverlayView.MARKER_LAYER}>
-            <div className="relative flex flex-col items-center pointer-events-none -translate-x-1/2 -translate-y-1/2 z-40">
+            <div
+              className="relative flex flex-col items-center pointer-events-none -translate-x-1/2 -translate-y-1/2 z-40"
+              style={{ opacity: lastFixAt && clock - lastFixAt > SIGNAL_WEAK_MS ? 0.55 : 1 }}
+            >
               {isPickedUp && etaText && (
                 <div
                   className="absolute -top-8 z-50 whitespace-nowrap text-[10px] font-bold px-2.5 py-1 rounded-md shadow-xl flex items-center gap-1.5"
@@ -717,6 +805,37 @@ const DeliveryTrackingMap = ({
           </OverlayView>
         )}
       </GoogleMap>
+
+      {!isTerminal && riderAssigned && (() => {
+        const ageMs = lastFixAt ? clock - lastFixAt : null;
+        let text = null;
+        let tone = palette.routePending;
+        if (socketState === 'disconnected') {
+          text = 'Reconnecting to live tracking…';
+        } else if (!riderPosition) {
+          text = "Waiting for rider's GPS location…";
+        } else if (ageMs != null && ageMs > SIGNAL_WEAK_MS) {
+          const mins = Math.max(1, Math.round(ageMs / 60000));
+          text = `Rider's location last updated ${mins} min ago`;
+        } else if (riderAtRestaurant) {
+          text = 'Rider is at the restaurant';
+          tone = palette.route;
+        } else if (riderToRestaurantMeters != null) {
+          text = `Rider is ${formatDistance(riderToRestaurantMeters)} from the restaurant`;
+          tone = palette.route;
+        }
+        if (!text) return null;
+        return (
+          <div
+            className="absolute top-12 left-3 z-10 flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold shadow-lg max-w-[calc(100%-24px)]"
+            style={badgeStyle}
+            role="status"
+          >
+            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: tone }} />
+            <span className="truncate">{text}</span>
+          </div>
+        );
+      })()}
 
       {distanceText && (
         <div

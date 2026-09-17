@@ -61,7 +61,8 @@ const handleHotSync = async ({ userId, orderId }) => {
                         lastRiderLocation: {
                             type: 'Point',
                             coordinates: [orderData.lng, orderData.lat]
-                        }
+                        },
+                        lastRiderLocationAt: new Date(Number(orderData.timestamp) || Date.now())
                     }
                 })
             );

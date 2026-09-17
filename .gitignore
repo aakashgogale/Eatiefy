@@ -1,2 +1,5 @@
 # Client handoff docs (local only — includes credentials PDF)
 docs/
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat

@@ -164,6 +164,8 @@ let globalAudio = null;
 let globalFallbackAudio = null;
 let globalAlertLoopTimer = null;
 let globalAlertLoopStartedAt = 0;
+let globalAlertLoopKey = '';
+let globalAlertDeadline = 0;
 
 // Socket and Polling references
 let globalSocket = null;
@@ -232,26 +234,99 @@ const updateGlobalState = (updates) => {
   });
 };
 
+/*
+ * Accept window, shared with the Orders page popup.
+ *
+ * The ringtone keeps going for as long as the order can still be accepted — the
+ * admin-configured window counted from when the restaurant was first sent the
+ * order — instead of a fixed 2 minutes that went quiet with most of the window
+ * left. Defaults match the backend when settings cannot be loaded.
+ */
+const DEFAULT_ACCEPT_WINDOW_MS = 10 * 60 * 1000;
+const ALERT_LOOP_TICK_MS = 4000;
+let acceptWindowSettings = { deliveryMs: DEFAULT_ACCEPT_WINDOW_MS, takeawayMs: DEFAULT_ACCEPT_WINDOW_MS, loadedAt: 0 };
+let acceptWindowSettingsPromise = null;
+
+const refreshAcceptWindowSettings = () => {
+  if (Date.now() - acceptWindowSettings.loadedAt < 60000) return Promise.resolve(acceptWindowSettings);
+  if (acceptWindowSettingsPromise) return acceptWindowSettingsPromise;
+  acceptWindowSettingsPromise = restaurantAPI
+    .getRestaurantSettings()
+    .then((res) => {
+      const data = res?.data?.data || {};
+      const toMs = (minutes) => {
+        const n = Number(minutes);
+        return Number.isFinite(n) && n >= 1 && n <= 60 ? Math.round(n) * 60000 : DEFAULT_ACCEPT_WINDOW_MS;
+      };
+      acceptWindowSettings = {
+        deliveryMs: toMs(data.deliveryAcceptOrderTimeMinutes),
+        takeawayMs: toMs(data.takeawayAcceptOrderTimeMinutes),
+        loadedAt: Date.now(),
+      };
+      return acceptWindowSettings;
+    })
+    .catch(() => acceptWindowSettings)
+    .finally(() => {
+      acceptWindowSettingsPromise = null;
+    });
+  return acceptWindowSettingsPromise;
+};
+
+/** Epoch ms after which the order can no longer be accepted, or null if unknown. */
+export const getOrderAcceptDeadline = (orderData = {}) => {
+  const startRaw = orderData?.restaurantNotifiedAt || orderData?.createdAt;
+  const start = startRaw ? new Date(startRaw).getTime() : NaN;
+  if (!Number.isFinite(start)) return null;
+  const isTakeaway = String(orderData?.orderType || orderData?.type || '').toLowerCase() === 'takeaway';
+  return start + (isTakeaway ? acceptWindowSettings.takeawayMs : acceptWindowSettings.deliveryMs);
+};
+
+const ALERT_START_PREFIX = 'alert_start_';
+
+const getOrderIdVariants = (orderData = {}) =>
+  [
+    orderData?.orderMongoId,
+    orderData?.order_mongo_id,
+    orderData?.orderId,
+    orderData?.order_id,
+    orderData?._id,
+    orderData?.id,
+  ]
+    .map((v) => (v == null ? '' : String(v).trim()))
+    .filter(Boolean);
+
+/** Forget when an order started ringing, once it is accepted, rejected or gone. */
+const forgetAlertStart = (orderOrId) => {
+  if (typeof window === 'undefined' || !orderOrId) return;
+  const ids = typeof orderOrId === 'object' ? getOrderIdVariants(orderOrId) : [String(orderOrId).trim()];
+  try {
+    ids.forEach((id) => localStorage.removeItem(`${ALERT_START_PREFIX}${id}`));
+  } catch (_) {}
+};
+
+// Drop start markers left behind by orders from earlier sessions.
+if (typeof window !== 'undefined') {
+  try {
+    Object.keys(localStorage).forEach((k) => {
+      if (!k.startsWith(ALERT_START_PREFIX)) return;
+      const at = Number(localStorage.getItem(k));
+      if (!Number.isFinite(at) || Date.now() - at > 2 * 60 * 60 * 1000) localStorage.removeItem(k);
+    });
+  } catch (_) {}
+}
+
 const stopGlobalAlertLoop = () => {
   if (globalAlertLoopTimer) {
     clearInterval(globalAlertLoopTimer);
     globalAlertLoopTimer = null;
   }
   globalAlertLoopStartedAt = 0;
-  
-  if (typeof window !== 'undefined') {
-    try {
-      const keys = Object.keys(localStorage);
-      keys.forEach(k => {
-        if (k.startsWith('alert_start_')) {
-          localStorage.removeItem(k);
-        }
-      });
-    } catch (_) {}
-  }
-  
+  globalAlertLoopKey = '';
+  globalAlertDeadline = 0;
+
   if (globalAudio) {
     try {
+      globalAudio.loop = false;
       globalAudio.pause();
       globalAudio.currentTime = 0;
     } catch (_) {}
@@ -266,7 +341,17 @@ const stopGlobalAlertLoop = () => {
   stopWebViewNativeNotification();
 };
 
-const playGlobalNotificationSound = async (orderData = {}) => {
+const isSilentUnlockSource = (audio) => !audio?.src || String(audio.src).startsWith('data:');
+
+/**
+ * Plays the order ringtone.
+ *
+ * With `loop` the full track repeats seamlessly until stopGlobalAlertLoop(). The
+ * loop used to rewind a 28-second ringtone to 0 every 4.5 seconds, so restaurants
+ * only ever heard a choppy fragment. Calling this while it is already playing
+ * leaves the audio alone.
+ */
+const playGlobalNotificationSound = async (orderData = {}, { loop = false } = {}) => {
   try {
     if (globalIsMuted || isOrderMuted(orderData)) return;
     void triggerWebViewNativeNotification(orderData).catch(() => {});
@@ -276,50 +361,71 @@ const playGlobalNotificationSound = async (orderData = {}) => {
       } catch (_) {}
     }
 
-    if (!globalAudio && typeof window !== 'undefined') {
-      globalAudio = new Audio();
+    if (typeof window === 'undefined') return;
+
+    if (!globalAudio) {
+      globalAudio = new Audio(resolveAudioSource(alertSound));
       globalAudio.preload = 'auto';
-      globalAudio.volume = 1;
-      preloadAudio().then(src => {
-        if (globalAudio) {
-          globalAudio.src = src;
-        }
+      preloadAudio().then((src) => {
+        if (globalAudio && globalAudio.paused) globalAudio.src = src;
       });
+    } else if (isSilentUnlockSource(globalAudio)) {
+      globalAudio.src = resolveAudioSource(alertSound);
     }
 
-    if (globalAudio) {
-      globalAudio.muted = false;
-      globalAudio.volume = 1;
-      globalAudio.currentTime = 0;
-      globalAudio.play().catch(error => {
-        if (!error.message?.includes("user didn't interact") && !error.name?.includes('NotAllowedError')) {
-          try {
-            if (globalFallbackAudio) {
-              globalFallbackAudio.pause();
-              globalFallbackAudio = null;
-            }
-            globalFallbackAudio = new Audio(resolveAudioSource(alertSound));
-            globalFallbackAudio.volume = 1;
-            globalFallbackAudio.muted = false;
-            globalFallbackAudio.play().catch(() => {});
-          } catch (fallbackError) {
-            // ignore
-          }
-        }
-      });
+    globalAudio.muted = false;
+    globalAudio.volume = 1;
+
+    // Already ringing: do not restart the track, and never let a one-shot chime
+    // (e.g. a dining booking) turn off the looping order alert.
+    if (!globalAudio.paused && !globalAudio.ended) {
+      if (loop) globalAudio.loop = true;
+      return;
     }
+    globalAudio.loop = Boolean(loop);
+
+    globalAudio.play().catch((error) => {
+      // Autoplay blocked until the user interacts; the interaction handler resumes it.
+      if (error?.name === 'NotAllowedError' || error?.message?.includes("user didn't interact")) return;
+      try {
+        if (globalFallbackAudio) {
+          globalFallbackAudio.pause();
+          globalFallbackAudio = null;
+        }
+        globalFallbackAudio = new Audio(alertSound);
+        globalFallbackAudio.loop = Boolean(loop);
+        globalFallbackAudio.volume = 1;
+        globalFallbackAudio.play().catch(() => {});
+      } catch (_) {}
+    });
   } catch (error) {
     // ignore
   }
 };
 
+const isAlertSoundPlaying = () =>
+  Boolean((globalAudio && !globalAudio.paused) || (globalFallbackAudio && !globalFallbackAudio.paused));
+
 const startGlobalAlertLoop = (orderData) => {
-  stopGlobalAlertLoop();
-  
+  if (!orderData) return;
   const orderId = getOrderAlertKey(orderData);
-  const storageKey = `alert_start_${orderId}`;
+
+  // The Orders page re-renders often; restarting the same order's alert would
+  // rewind the ringtone and reset its timer. Just refresh the order it refers to.
+  if (globalAlertLoopTimer && orderId && orderId === globalAlertLoopKey) {
+    globalActiveOrder = orderData;
+    const deadline = getOrderAcceptDeadline(orderData);
+    if (deadline) globalAlertDeadline = deadline;
+    if (!globalIsMuted && !isOrderMuted(orderData) && !isAlertSoundPlaying()) {
+      playGlobalNotificationSound(orderData, { loop: true });
+    }
+    return;
+  }
+
+  stopGlobalAlertLoop();
+
+  const storageKey = `${ALERT_START_PREFIX}${orderId}`;
   let alertStartTime = typeof window !== 'undefined' ? Number(localStorage.getItem(storageKey)) : 0;
-  
   if (!alertStartTime) {
     alertStartTime = Date.now();
     if (typeof window !== 'undefined') {
@@ -330,20 +436,18 @@ const startGlobalAlertLoop = (orderData) => {
   }
 
   globalAlertLoopStartedAt = alertStartTime;
+  globalAlertLoopKey = orderId;
+  globalAlertDeadline = getOrderAcceptDeadline(orderData) || alertStartTime + DEFAULT_ACCEPT_WINDOW_MS;
   globalActiveOrder = orderData;
   updateGlobalState({ activeOrder: orderData });
 
-  const elapsed = Date.now() - globalAlertLoopStartedAt;
-  const ALERT_LOOP_MAX_MS = 120000;
-  const ALERT_LOOP_INTERVAL_MS = 4500;
-
-  if (elapsed >= ALERT_LOOP_MAX_MS) {
+  if (Date.now() >= globalAlertDeadline) {
     stopGlobalAlertLoop();
     return;
   }
 
   if (!globalIsMuted && !isOrderMuted(orderData)) {
-    playGlobalNotificationSound(orderData);
+    playGlobalNotificationSound(orderData, { loop: true });
   }
 
   globalAlertLoopTimer = setInterval(() => {
@@ -352,19 +456,33 @@ const startGlobalAlertLoop = (orderData) => {
       return;
     }
 
-    const currentElapsed = Date.now() - globalAlertLoopStartedAt;
-
-    if (currentElapsed >= ALERT_LOOP_MAX_MS) {
+    // Stop exactly when the order can no longer be accepted.
+    if (Date.now() >= globalAlertDeadline) {
       stopGlobalAlertLoop();
       return;
     }
 
-    // Respect BOTH the global mute and the per-order mute — muting an order must
-    // silence its alert even if the loop wasn't torn down for any reason.
-    if (!globalIsMuted && !isOrderMuted(globalActiveOrder)) {
-      playGlobalNotificationSound(globalActiveOrder);
+    // Respect BOTH the global mute and the per-order mute.
+    if (globalIsMuted || isOrderMuted(globalActiveOrder)) {
+      if (isAlertSoundPlaying()) {
+        try {
+          globalAudio?.pause();
+          globalFallbackAudio?.pause();
+        } catch (_) {}
+      }
+      return;
     }
-  }, ALERT_LOOP_INTERVAL_MS);
+
+    // Keep ringing if the OS/browser paused the audio (call, focus loss), and
+    // re-buzz for devices where vibration is the main signal.
+    if (!isAlertSoundPlaying()) {
+      playGlobalNotificationSound(globalActiveOrder, { loop: true });
+    } else if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      try {
+        navigator.vibrate([200, 100, 200, 100, 300]);
+      } catch (_) {}
+    }
+  }, ALERT_LOOP_TICK_MS);
 };
 
 const isProcessedOrder = (orderData) => {
@@ -527,6 +645,7 @@ export const useRestaurantNotifications = () => {
             return;
           }
           const id = restaurant._id?.toString() || restaurant.restaurantId;
+          refreshAcceptWindowSettings();
           setRestaurantId(id);
         }
       } catch (error) {
@@ -550,6 +669,12 @@ export const useRestaurantNotifications = () => {
       if (scheduledTime > now + 15 * 60000) {
         return;
       }
+    }
+
+    // Past its accept window (e.g. an old order seen on login): nothing to ring for.
+    const deadline = getOrderAcceptDeadline(normalizedOrder);
+    if (deadline && Date.now() >= deadline) {
+      return;
     }
 
     const deduped = !shouldProcessOrderAlert(normalizedOrder);
@@ -693,7 +818,7 @@ export const useRestaurantNotifications = () => {
     globalSocket.on('new_dining_booking', (bookingData) => {
       updateGlobalState({ newReservation: bookingData });
       if (!globalIsMuted) {
-        playGlobalNotificationSound(bookingData);
+        playGlobalNotificationSound(bookingData, { loop: false });
       }
     });
 
@@ -732,7 +857,9 @@ export const useRestaurantNotifications = () => {
           const cleanId = String(orderId).trim();
           processedOrderIds.add(cleanId);
           globalMutedOrderIds.delete(cleanId);
+          saveProcessedOrderIds();
         }
+        forgetAlertStart(data);
         stopGlobalAlertLoop();
         updateGlobalState({ newOrder: null, activeOrder: null, mutedOrderIds: new Set(globalMutedOrderIds) });
         // Toast only if admin accepted (not restaurant itself)
@@ -798,52 +925,58 @@ export const useRestaurantNotifications = () => {
           return;
         }
 
+        await refreshAcceptWindowSettings();
         const response = await restaurantAPI.getOrders({ page: 1, limit: 30 });
         const rows = response?.data?.data?.orders || response?.data?.data?.data?.orders || [];
+        const now = Date.now();
 
-        const confirmed = (rows || [])
+        // Orders still waiting for this restaurant's decision, oldest first.
+        const pending = (rows || [])
           .filter((o) => {
-            const status = String(o?.status || "").toLowerCase();
-            // Only show alert for orders that are still pending/created (not yet accepted by admin)
+            const status = String(o?.status || o?.orderStatus || "").toLowerCase();
             if (status !== "created" && status !== "pending") return false;
             if (isProcessedOrder(o)) return false;
 
             if (o.scheduledAt) {
               const scheduledTime = new Date(o.scheduledAt).getTime();
-              const now = Date.now();
-              return scheduledTime <= now + 30 * 60000;
+              if (scheduledTime > now + 30 * 60000) return false;
             }
-            
-            // Ignore stale test/bugged orders older than 30 minutes to prevent sound playing repeatedly on login
-            const createdAt = new Date(o.createdAt || o.updatedAt || 0).getTime();
-            if (!createdAt || Date.now() - createdAt > 30 * 60 * 1000) {
-              return false;
-            }
-            
-            return true;
+
+            const deadline = getOrderAcceptDeadline(o);
+            return !deadline || now < deadline;
           })
           .sort((a, b) => {
-            const at = a?.updatedAt || a?.createdAt || 0;
-            const bt = b?.updatedAt || b?.createdAt || 0;
-            return new Date(bt).getTime() - new Date(at).getTime();
+            const at = new Date(a?.restaurantNotifiedAt || a?.createdAt || 0).getTime();
+            const bt = new Date(b?.restaurantNotifiedAt || b?.createdAt || 0).getTime();
+            return at - bt;
           });
 
-        if (confirmed.length > 0) {
-          confirmed.slice(0, 5).forEach((o) => {
-            const orderId = o.orderMongoId || o.orderId || o._id || o.id;
-            const currentOrderId = globalNewOrder?.orderMongoId || globalNewOrder?.orderId || globalNewOrder?._id || globalNewOrder?.id;
-            if (String(orderId) !== String(currentOrderId)) {
-              handleIncomingOrderAlert(o, 'poll');
-            }
-          });
-        } else {
-          // If there are NO pending orders, ensure we clear any stale active order that might be playing sound
+        if (pending.length === 0) {
+          // Nothing left to answer: silence any alert for an order that was
+          // handled or expired while this device missed the socket event.
           if (globalActiveOrder) {
             globalActiveOrder = null;
             updateGlobalState({ activeOrder: null });
             stopGlobalAlertLoop();
           }
+          return;
         }
+
+        const activeKeys = globalActiveOrder ? new Set(getOrderIdVariants(globalActiveOrder)) : new Set();
+        const activeStillPending = pending.find((o) => getOrderIdVariants(o).some((id) => activeKeys.has(id)));
+        const firstUnmuted = pending.find((o) => !isOrderMuted(o));
+
+        // Keep ringing for the current order; only move on when it was handled,
+        // or was muted while another order still needs an answer.
+        if (activeStillPending && (!isOrderMuted(activeStillPending) || !firstUnmuted)) {
+          if (!globalAlertLoopTimer && !isOrderMuted(activeStillPending)) {
+            startGlobalAlertLoop(normalizeRestaurantOrderView(activeStillPending));
+          }
+          return;
+        }
+
+        const target = firstUnmuted || pending[0];
+        if (target) handleIncomingOrderAlert(target, 'poll');
       } catch (error) {
         // ignore
       }
@@ -949,16 +1082,18 @@ export const useRestaurantNotifications = () => {
             const p = globalAudio.play();
             if (p && typeof p.then === 'function') {
               p.then(() => {
+                // A real alert may have started meanwhile; only reset the silent clip.
+                if (!isSilentUnlockSource(globalAudio)) return;
                 globalAudio.pause();
                 globalAudio.currentTime = 0;
                 // Once unlocked, switch to the actual alert sound so it's ready
                 preloadAudio().then(src => {
-                  if (globalAudio) globalAudio.src = src;
+                  if (globalAudio && globalAudio.paused) globalAudio.src = src;
                 });
               }).catch(() => {
                 // If it failed to play, still try to load the actual source
                 preloadAudio().then(src => {
-                  if (globalAudio) globalAudio.src = src;
+                  if (globalAudio && globalAudio.paused) globalAudio.src = src;
                 });
               });
             }
@@ -967,7 +1102,6 @@ export const useRestaurantNotifications = () => {
 
         // If there's an active order pending that isn't muted, resume the alarm immediately!
         if (globalActiveOrder && !globalIsMuted && !isOrderMuted(globalActiveOrder)) {
-          playGlobalNotificationSound(globalActiveOrder);
           startGlobalAlertLoop(globalActiveOrder);
         }
       } catch (error) {
@@ -999,7 +1133,6 @@ export const useRestaurantNotifications = () => {
     if (muted) {
       stopGlobalAlertLoop();
     } else if (globalActiveOrder) {
-      playGlobalNotificationSound(globalActiveOrder);
       startGlobalAlertLoop(globalActiveOrder);
     }
   }, []);
@@ -1023,8 +1156,10 @@ export const useRestaurantNotifications = () => {
           globalMutedOrderIds.delete(cleanId);
         });
         targetId = getOrderAlertKey(orderOrId);
+        forgetAlertStart(orderOrId);
       } else {
         targetId = String(orderOrId).trim();
+        forgetAlertStart(targetId);
         processedOrderIds.add(targetId);
         globalMutedOrderIds.delete(targetId);
       }
@@ -1042,7 +1177,7 @@ export const useRestaurantNotifications = () => {
     });
     saveMutedOrderIds();
     
-    // Stop alarm loop if active order is among the muted ones
+    // Silence the alert right away if the ringing order is among the muted ones.
     if (globalActiveOrder && isOrderMuted(globalActiveOrder)) {
       stopGlobalAlertLoop();
     }

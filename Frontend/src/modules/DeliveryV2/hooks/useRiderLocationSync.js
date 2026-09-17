@@ -34,12 +34,6 @@ const POOR_ACCURACY_M = 150;
 const GOOD_FIX_FRESH_MS = 15000;
 const GPS_TOAST_ID = 'rider-gps-status';
 
-/** When true (dev route simulation), real GPS neither moves the rider nor publishes. */
-let gpsPaused = false;
-export const setRiderGpsPaused = (paused) => {
-  gpsPaused = Boolean(paused);
-};
-
 /** Kept for existing imports. */
 export function isOrdersRoute(pathname = '') {
   return /\/orders\/?$/.test(pathname) || pathname.endsWith('/orders');
@@ -130,7 +124,7 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
           // instead of leaving the customer's bike still until the next heartbeat.
           trailingTimer = setTimeout(() => {
             trailingTimer = null;
-            if (!disposed && !gpsPaused && lastFixRef.current) publish(lastFixRef.current);
+            if (!disposed && lastFixRef.current) publish(lastFixRef.current);
           }, Math.max(50, SOCKET_MIN_INTERVAL_MS - since));
         }
       }
@@ -150,7 +144,7 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
     };
 
     const onPosition = (pos) => {
-      if (disposed || gpsPaused) return;
+      if (disposed) return;
       const { latitude: lat, longitude: lng, heading, speed, accuracy } = pos.coords || {};
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
@@ -231,7 +225,7 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
     // Heartbeat: a stationary rider (no watch callbacks) still keeps the customer
     // map and the backend's availability fresh.
     const heartbeat = setInterval(() => {
-      if (lastFixRef.current && !gpsPaused) publish(lastFixRef.current);
+      if (lastFixRef.current) publish(lastFixRef.current);
     }, HTTP_FALLBACK_MS);
 
     return () => {
@@ -245,7 +239,7 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
 
   // The socket just (re)connected: send the latest fix straight away.
   useEffect(() => {
-    if (isSocketConnected && lastFixRef.current && !gpsPaused) {
+    if (isSocketConnected && lastFixRef.current) {
       lastSocketRef.current = { at: 0, lat: null, lng: null };
       const { acceptedOrders = [] } = useDeliveryStore.getState();
       if (acceptedOrders.length && typeof emitRef.current === 'function') {

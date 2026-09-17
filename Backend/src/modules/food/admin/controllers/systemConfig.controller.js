@@ -214,7 +214,7 @@ function readStoredAcceptOrderMinutes(configValue) {
     }
 }
 
-async function resolveRestaurantSettings() {
+export async function resolveRestaurantSettings() {
     const keys = [
         RESTAURANT_SETTINGS.deliveryAcceptOrderTimeMinutes.key,
         RESTAURANT_SETTINGS.takeawayAcceptOrderTimeMinutes.key,

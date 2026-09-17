@@ -138,6 +138,7 @@ const transformOrderForList = (order) => {
     paymentMethod: order.paymentMethod || order.payment?.method || null,
     deliveryPartnerId: order.deliveryPartnerId || null,
     dispatchStatus: order.dispatch?.status || null,
+    deliveryPhase: order.deliveryState?.currentPhase || order.deliveryState?.status || null,
     preparingTimestamp: order.tracking?.preparing?.timestamp
       ? new Date(order.tracking.preparing.timestamp)
       : (order.acceptedAt
@@ -1232,13 +1233,22 @@ const resolveAcceptOrderTimeoutSeconds = (
   return deliveryTimeoutSeconds;
 };
 
+/**
+ * The accept window counts from when the restaurant was first sent the order
+ * (restaurantNotifiedAt). For online payments that is after payment, so counting
+ * from createdAt used to hand the restaurant a window that was already partly gone.
+ */
+const getAcceptWindowStartMs = (order) => {
+  const raw = order?.restaurantNotifiedAt || order?.createdAt;
+  const ms = raw ? new Date(raw).getTime() : NaN;
+  return Number.isFinite(ms) ? ms : null;
+};
+
 const getInitialCountdown = (order, timeoutSeconds) => {
   if (!timeoutSeconds || timeoutSeconds <= 0) return 0;
-  if (!order?.createdAt) return timeoutSeconds;
-  const now = Date.now();
-  const created = new Date(order.createdAt).getTime();
-  const diffInSeconds = Math.floor((now - created) / 1000);
-  const remaining = timeoutSeconds - diffInSeconds;
+  const start = getAcceptWindowStartMs(order);
+  if (start == null) return timeoutSeconds;
+  const remaining = Math.ceil((start + timeoutSeconds * 1000 - Date.now()) / 1000);
   return Math.max(0, Math.min(timeoutSeconds, remaining));
 }
 
@@ -2020,11 +2030,27 @@ function OrdersMainInner() {
           const targetOrders = response.data.data.orders.filter((order) => {
             if (hasOrderBeenShown(order)) return false;
 
-            const orderId = order.orderId || order._id;
+            const orderId = resolveOrderActionId(order);
             const inQueue = orderQueueRef.current.some((o) => resolveOrderActionId(o) === orderId);
             if (inQueue) return false;
 
-            return order.status === "confirmed";
+            /*
+             * A new order waiting for the restaurant is "created". This used to
+             * look for "confirmed" - an order that was ALREADY accepted - so after
+             * a reload accepted orders popped up again and their countdown could
+             * auto-reject them, while genuinely new ones relied on the socket alone.
+             */
+            const status = String(order.status || order.orderStatus || "").toLowerCase();
+            if (status !== "created" && status !== "pending") return false;
+            if (String(order.orderType || "").toLowerCase() === "dining") return false;
+
+            // Already past its accept window: the server auto-rejects it.
+            const windowSeconds = resolveAcceptOrderTimeoutSeconds(
+              order,
+              deliveryAcceptOrderTimeoutSecondsRef.current,
+              takeawayAcceptOrderTimeoutSecondsRef.current,
+            );
+            return getInitialCountdown(order, windowSeconds) > 0;
           });
 
           // Queue all matching orders
@@ -2044,6 +2070,7 @@ function OrdersMainInner() {
                 customerAddress: orderToPopup.address,
                 status: orderToPopup.status,
                 createdAt: orderToPopup.createdAt,
+                restaurantNotifiedAt: orderToPopup.restaurantNotifiedAt || null,
                 estimatedDeliveryTime: orderToPopup.estimatedDeliveryTime || 30,
                 note: orderToPopup.restaurantNote || orderToPopup.note || "",
                 restaurantNote: orderToPopup.restaurantNote || orderToPopup.note || "",
@@ -2091,10 +2118,29 @@ function OrdersMainInner() {
     if (!timeoutSeconds || timeoutSeconds <= 0) return;
 
     if (showNewOrderPopup && countdown > 0) {
-      const timer = setInterval(() => {
-        setCountdown((prev) => prev - 1);
-      }, 1000);
-      return () => clearInterval(timer);
+      // Derive the remaining time from the order's real deadline on every tick.
+      // Decrementing by one per interval drifted badly whenever the browser
+      // throttled timers (backgrounded tab, locked phone), so the popup timed out
+      // minutes late - or the settings loaded after it opened were never applied.
+      const tick = () => {
+        const activeOrder = popupOrder || newOrder;
+        const windowSeconds = resolveAcceptOrderTimeoutSeconds(
+          activeOrder,
+          deliveryAcceptOrderTimeoutSecondsRef.current,
+          takeawayAcceptOrderTimeoutSecondsRef.current,
+        );
+        const next = getInitialCountdown(activeOrder, windowSeconds);
+        setCountdown((prev) => (prev === next ? prev : next));
+      };
+      const timer = setInterval(tick, 1000);
+      const onVisible = () => {
+        if (document.visibilityState === "visible") tick();
+      };
+      document.addEventListener("visibilitychange", onVisible);
+      return () => {
+        clearInterval(timer);
+        document.removeEventListener("visibilitychange", onVisible);
+      };
     } else if (showNewOrderPopup && countdown === 0) {
       // Auto-reject when timer hits zero
       const orderToReject = popupOrder || newOrder;
@@ -2106,8 +2152,8 @@ function OrdersMainInner() {
       if (orderId && !isAcceptingOrder) {
         if (autoRejectInitiatedRef.current) return;
 
-        // Safety: Double check if order has genuinely expired using createdAt
-        const orderTime = orderToReject?.createdAt ? new Date(orderToReject.createdAt).getTime() : Date.now();
+        // Safety: double check the order has genuinely expired against its real window start.
+        const orderTime = getAcceptWindowStartMs(orderToReject) ?? Date.now();
         const secondsElapsed = Math.floor((Date.now() - orderTime) / 1000);
         const timeoutSeconds = resolveAcceptOrderTimeoutSeconds(
           orderToReject,
@@ -4216,6 +4262,7 @@ const OrderCard = memo(function OrderCard({
   photoAlt,
   deliveryPartnerId,
   dispatchStatus,
+  deliveryPhase = null,
   onSelect,
   onCancel,
   onMarkReady,
@@ -4383,7 +4430,15 @@ const OrderCard = memo(function OrderCard({
 
                     {dispatchStatus && normalizedType !== "takeaway" && normalizedType !== "dining" && !isWaitingAcceptance && (
                       <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 border border-slate-100 rounded-full px-2 py-0.5">
-                        {dispatchStatus}
+                        {dispatchStatus === "accepted"
+                          ? ["at_pickup", "reached_pickup"].includes(String(deliveryPhase || "").toLowerCase())
+                            ? "Rider at restaurant"
+                            : "Rider on the way"
+                          : dispatchStatus === "assigned"
+                            ? "Rider notified"
+                            : dispatchStatus === "unassigned"
+                              ? "Finding rider"
+                              : dispatchStatus}
                       </span>
                     )}
 
@@ -4502,6 +4557,7 @@ function PreparingOrders({
               photoAlt: order.items?.[0]?.name || "Order",
               deliveryPartnerId: order.deliveryPartnerId || null,
               dispatchStatus: order.dispatch?.status || null,
+              deliveryPhase: order.deliveryState?.currentPhase || order.deliveryState?.status || null,
               paymentMethod:
                 order.paymentMethod || order.payment?.method || null,
               restaurantNote: order.restaurantNote || order.note || null,
@@ -4747,6 +4803,7 @@ function PreparingOrders({
                 paymentMethod={order.paymentMethod}
                 deliveryPartnerId={order.deliveryPartnerId}
                 dispatchStatus={order.dispatchStatus}
+                deliveryPhase={order.deliveryPhase}
                 onSelect={onSelectOrder}
                 onCancel={onCancel}
                 onMarkReady={handleMarkReady}
@@ -4811,6 +4868,7 @@ function ReadyOrders({ onSelectOrder, onVerifyTakeaway, refreshToken = 0 }) {
             paymentMethod: order.paymentMethod || order.payment?.method || null,
             deliveryPartnerId: order.deliveryPartnerId || null,
             dispatchStatus: order.dispatch?.status || null,
+            deliveryPhase: order.deliveryState?.currentPhase || order.deliveryState?.status || null,
             restaurantNote: order.restaurantNote || order.note || null,
           }));
 
@@ -4941,6 +4999,7 @@ const OutForDeliveryOrders = ({ onSelectOrder, refreshToken = 0 }) => {
             paymentMethod: order.paymentMethod || order.payment?.method || null,
             deliveryPartnerId: order.deliveryPartnerId || null,
             dispatchStatus: order.dispatch?.status || null,
+            deliveryPhase: order.deliveryState?.currentPhase || order.deliveryState?.status || null,
             restaurantNote: order.restaurantNote || order.note || null,
           }));
 

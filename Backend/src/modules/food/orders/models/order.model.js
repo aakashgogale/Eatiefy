@@ -336,6 +336,8 @@ const orderSchema = new mongoose.Schema(
         acceptedAt: { type: Date },
         deliveryFleet: { type: String, default: 'standard', trim: true },
         scheduledAt: { type: Date, default: null },
+        // First time the restaurant was sent this order; its accept window counts from here.
+        restaurantNotifiedAt: { type: Date, default: null },
         /**
          * Restaurant → delivery-address distance in km, resolved at order time
          * alongside the rider earning. It was previously written by the
@@ -374,7 +376,9 @@ const orderSchema = new mongoose.Schema(
         lastRiderLocation: {
             type: { type: String, enum: ['Point'] },
             coordinates: { type: [Number] }
-        }
+        },
+        // When lastRiderLocation was recorded, so clients never show an old fix as live.
+        lastRiderLocationAt: { type: Date, default: null }
     },
     {
         collection: 'food_orders',

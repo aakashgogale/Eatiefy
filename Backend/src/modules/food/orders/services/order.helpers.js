@@ -352,7 +352,8 @@ export function normalizeOrderForClient(orderDoc) {
       ...(order?.deliveryState || {}),
       currentLocation: order?.lastRiderLocation?.coordinates?.length >= 2 ? {
         lat: order.lastRiderLocation.coordinates[1],
-        lng: order.lastRiderLocation.coordinates[0]
+        lng: order.lastRiderLocation.coordinates[0],
+        at: order?.lastRiderLocationAt ? new Date(order.lastRiderLocationAt).getTime() : null
       } : (order?.deliveryState?.currentLocation || null)
     }
   };
@@ -480,6 +481,25 @@ export function canExposeOrderToRestaurant(orderLike) {
 export async function notifyRestaurantNewOrder(orderDoc) {
   try {
     if (!orderDoc || !canExposeOrderToRestaurant(orderDoc)) return;
+
+    // Start the accept window when the restaurant first actually receives the order
+    // (for online payments that is after payment, not at checkout).
+    if (!orderDoc.restaurantNotifiedAt) {
+      const notifiedAt = new Date();
+      const FoodOrderModel = mongoose.models.FoodOrder;
+      if (FoodOrderModel && orderDoc._id) {
+        const res = await FoodOrderModel.updateOne(
+          { _id: orderDoc._id, restaurantNotifiedAt: null },
+          { $set: { restaurantNotifiedAt: notifiedAt } },
+        );
+        if (res?.modifiedCount) {
+          orderDoc.restaurantNotifiedAt = notifiedAt;
+        } else {
+          const stored = await FoodOrderModel.findById(orderDoc._id).select("restaurantNotifiedAt").lean();
+          if (stored?.restaurantNotifiedAt) orderDoc.restaurantNotifiedAt = stored.restaurantNotifiedAt;
+        }
+      }
+    }
 
     const orderMongoId = String(orderDoc._id?.toString?.() || orderDoc._id || '');
     const displayOrderId = String(orderDoc.order_id || orderDoc.orderId || orderMongoId);

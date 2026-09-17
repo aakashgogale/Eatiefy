@@ -448,8 +448,9 @@ function mapOrderToTrackingUiStatus(orderLike) {
    */
   if (isRiderAccepted && hasRider) {
     const s = String(statusRaw || "").toLowerCase()
-    if (s === "ready_for_pickup" || s === "ready") return "ready"
-    if (s === "preparing" || s === "confirmed") return "assigned"
+    // Not at the restaurant yet (that phase returned above), so the rider is still
+    // on the way there even if the kitchen has already marked the food ready.
+    if (s === "ready_for_pickup" || s === "ready" || s === "preparing" || s === "confirmed") return "assigned"
   }
 
   // Fallback to basic status mapping
@@ -489,7 +490,27 @@ function normalizeLookupId(value) {
 }
 
 // Interactive Live Tracking Stepper
-const LiveTrackingStepper = memo(({ status, isCancelled }) => {
+/** Rider journey shown once a delivery partner has accepted the order. */
+const RIDER_STEPS = [
+  { key: 'rider_accepted', title: 'Accepted', icon: ShieldCheck },
+  { key: 'rider_at_restaurant', title: 'At Restaurant', icon: UtensilsCrossed },
+  { key: 'rider_picked_up', title: 'Picked Up', icon: Package },
+  { key: 'rider_on_way', title: 'On Way', icon: Bike },
+  { key: 'rider_delivered', title: 'Delivered', icon: CheckCircle2 },
+]
+
+/** Index of the active rider step; RIDER_STEPS.length means every step is done. */
+const riderStepIndex = (status) => {
+  if (status === 'assigned') return 0
+  if (status === 'at_pickup' || status === 'ready') return 1
+  // Pickup and departure are one backend transition: picked up is done, on way is live.
+  if (status === 'on_way') return 3
+  if (status === 'at_drop') return 4
+  if (status === 'delivered') return RIDER_STEPS.length
+  return 0
+}
+
+const LiveTrackingStepper = memo(({ status, isCancelled, riderMode = false }) => {
   if (isCancelled) {
     return (
       <div className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-2xl p-4 flex items-center gap-3">
@@ -542,7 +563,15 @@ const LiveTrackingStepper = memo(({ status, isCancelled }) => {
     }
   ];
 
+  const riderIdx = riderMode ? riderStepIndex(status) : null;
+  const visibleSteps = riderMode ? RIDER_STEPS : steps;
+
   const getStepStatus = (stepKey, index) => {
+    if (riderMode) {
+      if (index < riderIdx) return 'completed';
+      if (index === riderIdx) return 'active';
+      return 'upcoming';
+    }
     let currentIdx = 0;
     if (status === 'confirmed') currentIdx = 1;
     else if (status === 'preparing') currentIdx = 2;
@@ -563,7 +592,7 @@ const LiveTrackingStepper = memo(({ status, isCancelled }) => {
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
           </span>
-          <span>Order Timeline</span>
+          <span>{riderMode ? 'Delivery Partner' : 'Order Timeline'}</span>
         </h3>
         <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
           Live Tracking
@@ -576,7 +605,9 @@ const LiveTrackingStepper = memo(({ status, isCancelled }) => {
           <div 
             className="h-full bg-emerald-500 transition-all duration-700 ease-out rounded-full"
             style={{
-              width: 
+              width: riderMode
+                ? `${Math.min(100, 10 + (riderIdx / RIDER_STEPS.length) * 90)}%`
+                :
                 status === 'placed' ? '12%' :
                 status === 'confirmed' ? '30%' :
                 status === 'preparing' ? '50%' :
@@ -589,7 +620,7 @@ const LiveTrackingStepper = memo(({ status, isCancelled }) => {
 
         {/* Step Nodes */}
         <div className="flex items-center justify-between relative z-10">
-          {steps.map((s, idx) => {
+          {visibleSteps.map((s, idx) => {
             const stepState = getStepStatus(s.key, idx);
             const Icon = s.icon;
             const isCompleted = stepState === 'completed';
@@ -653,6 +684,12 @@ export default function OrderTracking() {
   const [showConfirmation, setShowConfirmation] = useState(confirmed)
   const [orderStatus, setOrderStatus] = useState('placed')
   const [estimatedTime, setEstimatedTime] = useState(29)
+
+  // Show the rider journey once a delivery partner has accepted (delivery orders only).
+  const isRiderJourney =
+    Boolean(order?.deliveryPartnerId || order?.dispatch?.deliveryPartnerId) &&
+    (order?.dispatch?.status === "accepted" ||
+      ["assigned", "at_pickup", "on_way", "at_drop", "delivered"].includes(orderStatus))
 
   const isDeliveredOrder =
     orderStatus === "delivered" ||
@@ -2455,7 +2492,7 @@ export default function OrderTracking() {
           </div>
 
           {/* Stepper */}
-          <LiveTrackingStepper status={orderStatus} isCancelled={isCancelledOrder} />
+          <LiveTrackingStepper status={orderStatus} isCancelled={isCancelledOrder} riderMode={isRiderJourney} />
 
           {/* Delivery OTP Card */}
           {customerDeliveryOtp && !isDeliveredOrder && !isCancelledOrder && (
@@ -2840,7 +2877,7 @@ export default function OrderTracking() {
           </div>
 
           {/* Stepper */}
-          <LiveTrackingStepper status={orderStatus} isCancelled={isCancelledOrder} />
+          <LiveTrackingStepper status={orderStatus} isCancelled={isCancelledOrder} riderMode={isRiderJourney} />
 
           {/* Delivery OTP Card */}
           {customerDeliveryOtp && !isDeliveredOrder && !isCancelledOrder && (

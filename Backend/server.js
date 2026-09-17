@@ -18,6 +18,7 @@ let server = null;
 let expireOffersInterval = null;
 let fssaiExpiryInterval = null;
 let deliveryOfferSweepInterval = null;
+let restaurantAcceptSweepInterval = null;
 
 const gracefulShutdown = async (signal) => {
     logger.info(`${signal} received, starting graceful shutdown`);
@@ -33,6 +34,7 @@ const gracefulShutdown = async (signal) => {
             if (expireOffersInterval) clearInterval(expireOffersInterval);
             if (fssaiExpiryInterval) clearInterval(fssaiExpiryInterval);
             if (deliveryOfferSweepInterval) clearInterval(deliveryOfferSweepInterval);
+            if (restaurantAcceptSweepInterval) clearInterval(restaurantAcceptSweepInterval);
             logger.info('Graceful shutdown complete');
             process.exit(0);
         } catch (err) {
@@ -132,6 +134,21 @@ const startServer = async () => {
         };
         runDeliveryOfferSweep();
         deliveryOfferSweepInterval = setInterval(runDeliveryOfferSweep, 30 * 1000);
+
+        // Unanswered restaurant orders are auto-rejected on the server too, so an
+        // order never waits forever when the restaurant app is closed or offline.
+        const runRestaurantAcceptSweep = async () => {
+            try {
+                const { expireUnacceptedRestaurantOrders } = await import(
+                    './src/modules/food/orders/services/restaurantAcceptTimeout.service.js'
+                );
+                await expireUnacceptedRestaurantOrders();
+            } catch (err) {
+                logger.error(`Restaurant accept timeout sweep error: ${err.message}`);
+            }
+        };
+        runRestaurantAcceptSweep();
+        restaurantAcceptSweepInterval = setInterval(runRestaurantAcceptSweep, 30 * 1000);
 
         const runFssaiExpirySync = async () => {
             try {
