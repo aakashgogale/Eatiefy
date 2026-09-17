@@ -5,6 +5,7 @@ import { restaurantAPI } from "@food/api"
 import { formatRestaurantDisplayAddress } from "@food/utils/restaurantLocation"
 import {
   fetchAuthoritativeOnlineStatus,
+  getNextOperatingTransitionAt,
   readCachedOnlineStatus,
   subscribeToOnlineStatus,
 } from "@food/utils/restaurantOnlineStatus"
@@ -210,12 +211,26 @@ export default function RestaurantNavbar({
       applyStatus(Boolean(restaurantData.isAcceptingOrders))
     }
 
+    // Re-read when the outlet timings next open/close the outlet (e.g. 03:00 after an
+    // overnight shift), so a tab left open does not keep showing a stale status.
+    let transitionTimer = null
+    const scheduleTransitionRefresh = () => {
+      if (transitionTimer) clearTimeout(transitionTimer)
+      transitionTimer = null
+      const at = Date.parse(getNextOperatingTransitionAt() || "")
+      if (cancelled || !Number.isFinite(at)) return
+      // Small delay past the boundary; capped so long waits re-sync against clock drift.
+      const delay = Math.min(Math.max(at - Date.now() + 2000, 5000), 6 * 60 * 60 * 1000)
+      transitionTimer = setTimeout(refreshFromBackend, delay)
+    }
+
     const refreshFromBackend = async () => {
       try {
         applyStatus(await fetchAuthoritativeOnlineStatus())
       } catch (error) {
         debugError("Error loading restaurant status:", error)
       }
+      scheduleTransitionRefresh()
     }
 
     refreshFromBackend()
@@ -236,6 +251,7 @@ export default function RestaurantNavbar({
 
     return () => {
       cancelled = true
+      if (transitionTimer) clearTimeout(transitionTimer)
       unsubscribe()
       document.removeEventListener("visibilitychange", handleVisibility)
     }

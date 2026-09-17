@@ -3,6 +3,7 @@ import { buildZoneServiceabilityClause, resolveServiceZone } from '../../shared/
 import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodRestaurant } from '../models/restaurant.model.js';
 import { getFoodDisplayOtherPrice, getFoodDisplayPrice } from '../../admin/services/foodVariant.service.js';
+import { EATIEFY_99_PRICE, buildEatiefy99CandidateFilter, selectEatiefy99Foods } from '../utils/eatiefy99.js';
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -15,19 +16,6 @@ const buildCategoryKeywords = (categorySlug) => {
     return [...new Set([raw, normalized, ...words])];
 };
 
-/** Eatiefy promo ceiling (₹99). Overridable per request via ?maxPrice=. */
-const EATIEFY_MAX_PRICE = 99;
-
-const resolvePromoMaxPrice = (rawMaxPrice) => {
-    const parsed = Number(rawMaxPrice);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : EATIEFY_MAX_PRICE;
-};
-
-const isPromoPrice = (price, maxPrice) => {
-    const numeric = Number(price);
-    return Number.isFinite(numeric) && numeric > 0 && numeric <= maxPrice;
-};
-
 /**
  * Approved, available foods across approved restaurants in a zone.
  * Powers the user home "Meals under 99" rail and the category/search pages.
@@ -37,8 +25,9 @@ export async function listPublicFoods(query = {}) {
     const zoneIdRaw = String(query.zoneId || '').trim();
     const categorySlug = String(query.categorySlug || query.category || '').trim().toLowerCase();
     const promo = String(query.promo || query.promoSlug || '').trim().toLowerCase();
+    // Eatiefy ₹99 section: only items selling at ₹99 or below (no client override).
     const isEatiefyPromo = promo === 'eatiefy' || promo === 'under-250' || promo === 'under250';
-    const promoMaxPrice = resolvePromoMaxPrice(query.maxPrice);
+    const promoMeta = isEatiefyPromo ? { targetPrice: EATIEFY_99_PRICE } : {};
 
     // Only approved restaurants that are live right now. `$ne: false` (rather
     // than `=== true`) keeps legacy records that never had the flag set, so an
@@ -60,7 +49,7 @@ export async function listPublicFoods(query = {}) {
     if (serviceZone) {
         restaurantFilter.$and = [buildZoneServiceabilityClause(serviceZone)];
     } else if (String(query.allowUnzoned || '') !== 'true') {
-        return { foods: [], total: 0, requiresLocation: true };
+        return { foods: [], total: 0, requiresLocation: true, ...promoMeta };
     }
 
     const restaurants = await FoodRestaurant.find(restaurantFilter)
@@ -68,7 +57,7 @@ export async function listPublicFoods(query = {}) {
         .lean();
 
     if (!restaurants.length) {
-        return { foods: [], total: 0 };
+        return { foods: [], total: 0, ...promoMeta };
     }
 
     const restaurantMap = new Map(
@@ -92,11 +81,19 @@ export async function listPublicFoods(query = {}) {
             ];
         });
     }
+    if (isEatiefyPromo) {
+        // Narrow at the database; both $or clauses must hold, so combine with $and.
+        foodFilter.$and = [buildEatiefy99CandidateFilter()];
+    }
 
-    const list = await FoodItem.find(foodFilter)
+    let list = await FoodItem.find(foodFilter)
         .sort({ createdAt: -1 })
         .limit(isEatiefyPromo ? Math.max(limit, 2000) : limit)
         .lean();
+
+    if (isEatiefyPromo) {
+        list = await selectEatiefy99Foods(list);
+    }
 
     const foods = list
         .map((food) => {
@@ -111,8 +108,10 @@ export async function listPublicFoods(query = {}) {
                 category: food.categoryName || '',
                 name: food.name,
                 description: food.description || '',
-                price: getFoodDisplayPrice(food),
+                // Promo items are already priced with live pricing rules (selling price).
+                price: isEatiefyPromo ? food.price : getFoodDisplayPrice(food),
                 otherPrice: getFoodDisplayOtherPrice(food),
+                ...(isEatiefyPromo ? { variants: food.variants } : {}),
                 image: food.image || '',
                 foodType: food.foodType || 'Non-Veg',
                 isAvailable: food.isAvailable !== false,
@@ -120,12 +119,8 @@ export async function listPublicFoods(query = {}) {
                 approvalStatus: food.approvalStatus || 'approved'
             };
         })
-        .filter((food) => {
-            if (food.isAvailable === false) return false;
-            if (isEatiefyPromo) return isPromoPrice(food.price, promoMaxPrice);
-            return true;
-        })
+        .filter((food) => food.isAvailable !== false)
         .slice(0, limit);
 
-    return { foods, total: foods.length };
+    return { foods, total: foods.length, ...promoMeta };
 }

@@ -60,10 +60,10 @@ function toLatLngLiteral(point) {
   return (Number.isFinite(lat) && Number.isFinite(lng)) ? { lat, lng } : null;
 }
 
-/** Normalize Route.computeRoutes / fallback into the shape LiveMap already uses. */
-function buildDirectionsResult(pathPoints) {
+/** Normalize Route.computeRoutes / DirectionsService output into the shape LiveMap uses. */
+function buildDirectionsResult(pathPoints, { distanceMeters = null, durationSeconds = null } = {}) {
   const overview_path = (pathPoints || []).map(toLatLngLiteral).filter(Boolean);
-  if (!overview_path.length) return null;
+  if (overview_path.length < 2) return null;
 
   let overview_polyline = null;
   try {
@@ -76,10 +76,14 @@ function buildDirectionsResult(pathPoints) {
     overview_polyline = null;
   }
 
-  return { routes: [{ overview_path, overview_polyline }] };
+  return {
+    routes: [{ overview_path, overview_polyline }],
+    distanceMeters: Number.isFinite(distanceMeters) ? distanceMeters : null,
+    durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : null,
+  };
 }
 
-async function computeDrivingRoute(origin, destination) {
+async function computeWithRoutesApi(origin, destination) {
   const { Route } = await window.google.maps.importLibrary('routes');
   const { routes } = await Route.computeRoutes({
     origin: { lat: origin.lat, lng: origin.lng },
@@ -88,15 +92,81 @@ async function computeDrivingRoute(origin, destination) {
     fields: ['path', 'distanceMeters', 'durationMillis'],
   });
 
-  const path = routes?.[0]?.path;
-  if (!path?.length) {
-    throw new Error('No route path returned');
-  }
-  return buildDirectionsResult(path);
+  const route = routes?.[0];
+  if (!route?.path?.length) throw new Error('No route path returned');
+  return buildDirectionsResult(route.path, {
+    distanceMeters: Number(route.distanceMeters),
+    durationSeconds: Number(route.durationMillis) / 1000,
+  });
 }
 
-export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineReceived, zoom = 12 }) => {
+function computeWithDirectionsService(origin, destination) {
+  return new Promise((resolve, reject) => {
+    try {
+      new window.google.maps.DirectionsService().route(
+        {
+          origin: { lat: origin.lat, lng: origin.lng },
+          destination: { lat: destination.lat, lng: destination.lng },
+          travelMode: window.google.maps.TravelMode.DRIVING,
+        },
+        (result, status) => {
+          const route = result?.routes?.[0];
+          if (status !== 'OK' || !route?.overview_path?.length) {
+            reject(new Error(`Directions failed: ${status}`));
+            return;
+          }
+          const leg = route.legs?.[0];
+          resolve(
+            buildDirectionsResult(route.overview_path, {
+              distanceMeters: leg?.distance?.value,
+              durationSeconds: leg?.duration?.value,
+            }),
+          );
+        },
+      );
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+/**
+ * Real road route between the rider and the destination. Uses the Routes API and
+ * falls back to the Directions service (whichever the project has enabled). Never
+ * fabricates a straight line: with no route the map simply shows none and retries.
+ */
+async function computeDrivingRoute(origin, destination) {
+  try {
+    const result = await computeWithRoutesApi(origin, destination);
+    if (result) return result;
+  } catch (error) {
+    console.warn('[LiveMap] Routes API unavailable, trying Directions service:', error?.message || error);
+  }
+  const result = await computeWithDirectionsService(origin, destination);
+  if (!result) throw new Error('No route returned');
+  return result;
+}
+
+/** Metres along a path. */
+function pathLengthMeters(path) {
+  if (!window.google?.maps?.geometry || !path || path.length < 2) return 0;
+  let total = 0;
+  for (let i = 1; i < path.length; i += 1) {
+    total += window.google.maps.geometry.spherical.computeDistanceBetween(
+      new window.google.maps.LatLng(path[i - 1].lat, path[i - 1].lng),
+      new window.google.maps.LatLng(path[i].lat, path[i].lng),
+    );
+  }
+  return total;
+}
+
+/** Rider this far from the drawn route is considered off-route and gets a new one. */
+const OFF_ROUTE_METERS = 60;
+const ROUTE_RETRY_AFTER_FAILURE_MS = 15000;
+
+export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineReceived, onRouteProgress, zoom = 12 }) => {
   const riderLocation = useDeliveryStore((state) => state.riderLocation);
+  const gpsError = useDeliveryStore((state) => state.gpsError);
   const activeOrder = useDeliveryStore((state) => state.getFocusedOrder());
   const tripStatus = useDeliveryStore((state) => state.getFocusedTripStatus());
   
@@ -109,7 +179,10 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
   const [map, setMapInternal] = useState(null);
   const [zones, setZones] = useState([]);
   const [lastDirectionsAt, setLastDirectionsAt] = useState(0);
+  const [routeError, setRouteError] = useState(false);
   const routeFetchInFlightRef = useRef(false);
+  const lastRouteFailureAtRef = useRef(0);
+  const offRouteRef = useRef(false);
 
   const handleMapLoad = (mapInstance) => {
     mapInstance.setOptions({
@@ -129,7 +202,11 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
   useEffect(() => {
     setLastDirectionsAt(0);
     setDirections(null);
-  }, [tripStatus, activeOrder?._id]);
+    setRouteError(false);
+    lastRouteFailureAtRef.current = 0;
+    offRouteRef.current = false;
+    if (onRouteProgress) onRouteProgress(null);
+  }, [tripStatus, activeOrder?._id, onRouteProgress]);
 
   const parsePoint = useCallback((raw) => {
     if (!raw) return null;
@@ -170,9 +247,10 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
     if (!parsedRiderLocation || !targetLocation || !window.google?.maps?.geometry) return 20000;
     try {
       const dist = distanceBetweenMeters(parsedRiderLocation, targetLocation);
-      if (dist > 2000) return 60000;
-      if (dist > 500) return 20000;
-      return 5000;
+      if (dist > 5000) return 45000;
+      if (dist > 2000) return 30000;
+      if (dist > 500) return 15000;
+      return 8000;
     } catch {
       return 20000;
     }
@@ -184,7 +262,9 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
     if (!parsedRiderLocation || !targetLocation) return;
 
     const now = Date.now();
-    if (directions && now - lastDirectionsAt < routeThrottleMs) return;
+    // Refresh on schedule, or immediately when the rider has left the drawn route.
+    if (directions && now - lastDirectionsAt < routeThrottleMs && !offRouteRef.current) return;
+    if (!directions && lastRouteFailureAtRef.current && now - lastRouteFailureAtRef.current < ROUTE_RETRY_AFTER_FAILURE_MS) return;
     if (routeFetchInFlightRef.current) return;
 
     let cancelled = false;
@@ -194,21 +274,18 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
       try {
         const result = await computeDrivingRoute(parsedRiderLocation, targetLocation);
         if (cancelled || !result) return;
+        offRouteRef.current = false;
+        lastRouteFailureAtRef.current = 0;
+        setRouteError(false);
         setDirections(result);
         setLastDirectionsAt(Date.now());
         const encoded = result.routes?.[0]?.overview_polyline;
         if (encoded && onPolylineReceived) onPolylineReceived(encoded);
       } catch (err) {
-        console.warn('[LiveMap] Routes API failed, using straight-line fallback:', err?.message || err);
+        console.warn('[LiveMap] Route unavailable, will retry:', err?.message || err);
         if (cancelled) return;
-        const fallback = buildDirectionsResult([
-          { lat: parsedRiderLocation.lat, lng: parsedRiderLocation.lng },
-          { lat: targetLocation.lat, lng: targetLocation.lng },
-        ]);
-        if (fallback) {
-          setDirections(fallback);
-          setLastDirectionsAt(Date.now());
-        }
+        lastRouteFailureAtRef.current = Date.now();
+        setRouteError(true);
       } finally {
         routeFetchInFlightRef.current = false;
       }
@@ -332,6 +409,29 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
     return [riderPoint, ...fullPath.slice(startIndex).map(toObj)];
   }, [directions, parsedRiderLocation]);
 
+  useEffect(() => {
+    if (!directions || !parsedRiderLocation || !window.google?.maps?.geometry) return;
+    const fullPath = directions.routes[0]?.overview_path || [];
+    if (remainingPath.length < 2 || fullPath.length < 2) return;
+
+    // Distance from the rider to the nearest point of the remaining route.
+    const nearest = remainingPath[1];
+    const offBy = distanceBetweenMeters(parsedRiderLocation, nearest);
+    if (offBy > OFF_ROUTE_METERS && distanceBetweenMeters(parsedRiderLocation, targetLocation) > OFF_ROUTE_METERS) {
+      offRouteRef.current = true;
+    }
+
+    if (!onRouteProgress) return;
+    const remainingMeters = pathLengthMeters(remainingPath);
+    const totalMeters = Number.isFinite(directions.distanceMeters) && directions.distanceMeters > 0
+      ? directions.distanceMeters
+      : pathLengthMeters(fullPath);
+    const etaSeconds = Number.isFinite(directions.durationSeconds) && totalMeters > 0
+      ? directions.durationSeconds * Math.min(1, remainingMeters / totalMeters)
+      : null;
+    onRouteProgress({ remainingMeters, etaSeconds });
+  }, [directions, remainingPath, parsedRiderLocation, targetLocation, onRouteProgress]);
+
   const showRestaurantMarker = useMemo(() => {
     if (!restaurantPoint) return false;
     // Pickup phase only — don't clutter with restaurant pin after pickup
@@ -348,12 +448,21 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
     return distanceBetweenMeters(parsedRiderLocation, customerPoint) > MARKER_OVERLAP_HIDE_METERS;
   }, [customerPoint, parsedRiderLocation, tripStatus]);
 
-  const defaultCenter = useMemo(() => ({ lat: 22.7196, lng: 75.8577 }), []);
   // Keep center prop stable so GPS / poll updates never call map.setCenter and fight manual pan/zoom
   const seedCenterRef = useRef(null);
-  if (!seedCenterRef.current) {
-    seedCenterRef.current = parsedRiderLocation || targetLocation || defaultCenter;
+  if (!seedCenterRef.current && (parsedRiderLocation || targetLocation)) {
+    seedCenterRef.current = parsedRiderLocation || targetLocation;
   }
+  // Until a real position exists, show India at country zoom instead of a made-up city.
+  const initialCenter = seedCenterRef.current || { lat: 20.5937, lng: 78.9629 };
+
+  // Once the first real fix arrives, move to it (only once).
+  const centeredOnFirstFixRef = useRef(false);
+  useEffect(() => {
+    if (!map || centeredOnFirstFixRef.current || !parsedRiderLocation) return;
+    centeredOnFirstFixRef.current = true;
+    if (!activeOrder) map.panTo(parsedRiderLocation);
+  }, [map, parsedRiderLocation, activeOrder]);
 
   if (loadError) return <div className="absolute inset-0 flex items-center justify-center bg-gray-50 text-red-500 font-bold">Map Load Error</div>;
   if (!isLoaded) return <div className="absolute inset-0 flex items-center justify-center bg-gray-50"><div className="w-10 h-10 border-4 border-green-500 border-t-transparent rounded-full animate-spin" /></div>;
@@ -363,8 +472,8 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
       <GoogleMap
         onLoad={handleMapLoad}
         mapContainerStyle={mapContainerStyle}
-        center={seedCenterRef.current}
-        zoom={zoom}
+        center={initialCenter}
+        zoom={seedCenterRef.current ? zoom : 5}
         heading={parsedRiderLocation?.heading || 0}
         tilt={45}
         onClick={(e) => onMapClick?.(e.latLng.lat(), e.latLng.lng())}
@@ -432,6 +541,21 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
           <Polygon key={zone._id} paths={zone.paths} options={{ fillColor: "#22c55e", fillOpacity: 0.03, strokeColor: "#22c55e", strokeOpacity: 0.1, strokeWeight: 1, zIndex: 1 }} />
         ))}
       </GoogleMap>
+
+      {(gpsError || (routeError && targetLocation)) && (
+        <div className="absolute left-3 right-3 top-[132px] z-[110] pointer-events-none flex justify-center">
+          <div className={`max-w-md w-full rounded-xl px-3 py-2 text-[11px] font-semibold shadow-lg ${gpsError?.kind === 'permission_denied' ? 'bg-red-600 text-white' : 'bg-amber-500 text-white'}`}>
+            {gpsError ? (
+              <>
+                <p>{gpsError.title}</p>
+                {gpsError.description && <p className="font-normal opacity-90">{gpsError.description}</p>}
+              </>
+            ) : (
+              <p>Route unavailable right now — retrying…</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

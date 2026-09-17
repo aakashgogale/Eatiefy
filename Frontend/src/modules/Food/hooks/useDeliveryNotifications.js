@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import io from 'socket.io-client';
 import { API_BASE_URL } from '@food/api/config';
+import { resolveSocketOrigin } from '@food/api/socketClient';
 import { deliveryAPI } from '@food/api';
 const alertSound = '/assets/media/restaurant_alert.mp3';
 const originalSound = '/assets/media/restaurant_alert.mp3';
@@ -1115,6 +1116,15 @@ export const useDeliveryNotifications = () => {
       }
     }
     
+    // Same origin resolution as every other app socket, so VITE_SOCKET_URL is honoured
+    // when sockets are served from a different host than the REST API.
+    try {
+      const resolved = resolveSocketOrigin();
+      if (resolved?.url) backendUrl = resolved.url;
+    } catch {
+      // keep the API-derived origin
+    }
+
     // Backend uses default namespace; rooms handle role separation.
     const socketUrl = `${backendUrl}`;
     

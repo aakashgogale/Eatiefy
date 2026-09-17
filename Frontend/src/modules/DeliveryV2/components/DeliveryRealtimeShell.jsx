@@ -18,7 +18,11 @@ export function useDeliveryNotificationsContext() {
  */
 export default function DeliveryRealtimeShell() {
   const notifications = useDeliveryNotifications();
-  useRiderLocationSync();
+  // Single GPS source for every delivery screen; publishes live location for active orders.
+  useRiderLocationSync({
+    emitLocation: notifications.emitLocation,
+    isSocketConnected: notifications.isConnected,
+  });
 
   return (
     <DeliveryNotificationsContext.Provider value={notifications}>

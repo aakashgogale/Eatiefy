@@ -153,11 +153,9 @@ const validateOpeningClosingTimes = (openingTime, closingTime) => {
     const open = timeToMinutes(openingTime);
     const close = timeToMinutes(closingTime);
     if (open === null || close === null) return;
+    // close < open is a valid overnight shift (closes next day).
     if (open === close) {
         throw new ValidationError('Opening time and closing time cannot be same');
-    }
-    if (close < open) {
-        throw new ValidationError('Closing time cannot be less than opening time');
     }
 };
 
@@ -4185,8 +4183,9 @@ export async function createRestaurantByAdmin(body) {
         ? body.menuImages.map((m) => toUrl(m)).filter(Boolean)
         : [];
 
-    const normalizedOpeningTime = normalizeRestaurantTime(body.openingTime) || '09:00';
-    const normalizedClosingTime = normalizeRestaurantTime(body.closingTime) || '22:00';
+    // No hardcoded hours: the admin form requires both times; missing stays unset.
+    const normalizedOpeningTime = normalizeRestaurantTime(body.openingTime) || '';
+    const normalizedClosingTime = normalizeRestaurantTime(body.closingTime) || '';
     validateOpeningClosingTimes(normalizedOpeningTime, normalizedClosingTime);
 
     const doc = {

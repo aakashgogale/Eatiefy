@@ -216,6 +216,19 @@ const deliveryVerificationSchema = new mongoose.Schema(
     { _id: false }
 );
 
+const eatiefyIncentiveSchema = new mongoose.Schema(
+    {
+        percent: { type: Number, required: true, min: 0, max: 100 },
+        orderValueBasis: { type: String, enum: ['subtotal', 'total'], required: true },
+        orderValue: { type: Number, required: true, min: 0 },
+        amount: { type: Number, required: true, min: 0 },
+        /** Zone whose incentive setting was applied. */
+        zoneId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodZone', default: null },
+        calculatedAt: { type: Date, default: Date.now }
+    },
+    { _id: false }
+);
+
 const orderSchema = new mongoose.Schema(
     {
         order_id: {
@@ -330,7 +343,26 @@ const orderSchema = new mongoose.Schema(
          * strict mode silently dropped it and the distance was lost.
          */
         distanceKm: { type: Number, default: null, min: 0 },
+        /**
+         * Total delivery partner payout for this order
+         * (= riderBaseEarning + eatiefyIncentive.amount). Every wallet,
+         * pocket, settlement and report aggregate reads this field.
+         */
         riderEarning: { type: Number, default: 0, min: 0 },
+        /**
+         * Zone-wise commission payout portion of riderEarning. Null on orders
+         * created before the Eatiefy incentive existed (riderEarning is then
+         * entirely the base earning).
+         */
+        riderBaseEarning: { type: Number, default: null, min: 0 },
+        /**
+         * Zone-wise admin Eatiefy incentive snapshotted at order creation.
+         * Null when no incentive applied. Never recalculated afterwards.
+         */
+        eatiefyIncentive: {
+            type: eatiefyIncentiveSchema,
+            default: null
+        },
         platformProfit: { type: Number, default: 0, min: 0 },
         /** Plain 4-digit OTP for handover; cleared after successful verify (never expose to partner in API responses). */
         deliveryOtp: { type: String, default: '', select: false },
@@ -390,7 +422,31 @@ orderSchema.pre('save', async function (next) {
             };
         }
     }
+    // Remembered for the post-save hook below (isModified is reset after saving).
+    this.$locals.orderStatusChanged = this.isModified('orderStatus');
     next();
+});
+
+const TRACKING_TERMINAL_STATUSES = new Set([
+    'delivered',
+    'cancelled_by_user',
+    'cancelled_by_restaurant',
+    'cancelled_by_admin'
+]);
+
+/*
+ * Live rider tracking must stop the moment an order is delivered or cancelled,
+ * whichever service (rider, restaurant, customer, admin) made that change. Doing
+ * it here covers every save() path instead of each status-change function.
+ */
+orderSchema.post('save', function (doc) {
+    if (!doc?.$locals?.orderStatusChanged) return;
+    if (!TRACKING_TERMINAL_STATUSES.has(String(doc.orderStatus || ''))) return;
+    import('../../delivery/services/riderLocation.service.js')
+        .then(({ endRiderTracking }) =>
+            endRiderTracking(doc, doc.orderStatus === 'delivered' ? 'delivered' : 'cancelled')
+        )
+        .catch(() => {});
 });
 
 export const FoodOrder = mongoose.model('FoodOrder', orderSchema);

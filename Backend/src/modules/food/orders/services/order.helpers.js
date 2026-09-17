@@ -4,6 +4,8 @@ import { ValidationError } from '../../../../core/auth/errors.js';
 import {
   sendNotificationToOwner,
   sendNotificationToOwners,
+  notifyAdminsSafely,
+  getNewOrderAlertSound,
 } from "../../../../core/notifications/firebase.service.js";
 import { getIO, rooms } from '../../../../config/socket.js';
 import { addOrderJob } from '../../../../queues/producers/order.producer.js';
@@ -453,6 +455,13 @@ export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
     riderEarning: order?.riderEarning || 0,
     // Never fall back to customer deliveryFee — that is not rider payout
     earnings: Number(order?.riderEarning || 0) || 0,
+    // Breakdown of riderEarning: zone-wise base + Eatiefy incentive
+    riderBaseEarning:
+      order?.riderBaseEarning != null
+        ? Number(order.riderBaseEarning) || 0
+        : Number(order?.riderEarning || 0) || 0,
+    eatiefyIncentiveAmount: Number(order?.eatiefyIncentive?.amount || 0) || 0,
+    eatiefyIncentivePercent: Number(order?.eatiefyIncentive?.percent || 0) || 0,
     deliveryFee: order?.pricing?.deliveryFee || 0,
     deliveryFleet: order?.deliveryFleet,
     dispatch: order?.dispatch,
@@ -498,9 +507,13 @@ export async function notifyRestaurantNewOrder(orderDoc) {
       {
         title: "🔔 New order received",
         body: `Order #${displayOrderId} is waiting for review.`,
-        sound: "default",
+        sound: getNewOrderAlertSound(),
+        urgent: true,
         channelId: "restaurant_orders",
         sendToAllDevices: true,
+        // The restaurant app lives under /food/restaurant; its dashboard shows the
+        // new-order popup with accept/reject. "/restaurant/orders/…" was not a route.
+        link: "/food/restaurant",
         idempotencyKey: eventKey,
         eventId: eventKey,
         tag: notificationTag,
@@ -511,10 +524,33 @@ export async function notifyRestaurantNewOrder(orderDoc) {
           tag: notificationTag,
           orderId: displayOrderId,
           orderMongoId: orderMongoId,
-          link: `/restaurant/orders/${orderMongoId}`,
+          link: "/food/restaurant",
+          targetUrl: "/food/restaurant",
         },
       },
     );
+
+    // Admins get a server push for every new order too (previously none existed).
+    const adminEventKey = `admin:new_order:${orderMongoId || displayOrderId}`;
+    await notifyAdminsSafely({
+      title: "New order placed",
+      body: `Order #${displayOrderId} has been placed.`,
+      sound: getNewOrderAlertSound(),
+      urgent: true,
+      channelId: "admin_orders",
+      link: "/admin/orders/all",
+      idempotencyKey: adminEventKey,
+      eventId: adminEventKey,
+      tag: `admin-order-${displayOrderId || orderMongoId}`,
+      data: {
+        type: "admin_new_order",
+        eventId: adminEventKey,
+        orderId: displayOrderId,
+        orderMongoId,
+        link: "/admin/orders/all",
+        targetUrl: "/admin/orders/all",
+      },
+    });
   } catch {
     // Do not block order/payment flow if notification fails.
   }

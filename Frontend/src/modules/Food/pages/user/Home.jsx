@@ -967,6 +967,7 @@ export default function Home() {
   const headerBannerRef = useRef(null);
   const [mealsUnder99, setMealsUnder99] = useState([]);
   const [loadingMealsUnder99, setLoadingMealsUnder99] = useState(true);
+  const [meals99RefreshNonce, setMeals99RefreshNonce] = useState(0);
   const [selectedDishForModal, setSelectedDishForModal] = useState(null);
   const [meals99SortBy, setMeals99SortBy] = useState("relevance");
   const [meals99IsVeg, setMeals99IsVeg] = useState(false);
@@ -2019,18 +2020,20 @@ export default function Home() {
           return;
         }
 
-        const foodsResponse = await restaurantAPI.getPublicFoods({ zoneId, limit: 40 });
+        // Eligibility (final selling price ₹99 or below) is decided by the backend.
+        const foodsResponse = await restaurantAPI.getEatiefy99Foods({ zoneId, limit: 40 });
 
         if (cancelled) return;
 
-        const foodsRaw = Array.isArray(foodsResponse?.data?.data?.foods)
-          ? foodsResponse.data.data.foods
-          : [];
+        const foodsData = foodsResponse?.data?.data || {};
+        const foodsRaw = Array.isArray(foodsData.foods) ? foodsData.foods : [];
+        const targetPrice = Number(foodsData.targetPrice) || 99;
 
         const filteredMeals = foodsRaw
+          // Defensive only: never render anything the server did not price within the cap.
           .filter((food) => {
-            const price = Number(food?.price || 0);
-            return price > 0 && price <= 99 && food?.isAvailable !== false;
+            const price = Number(food?.price);
+            return food?.isAvailable !== false && price > 0 && price <= targetPrice;
           })
           .map((food) => {
             const rId = String(food?.restaurantId || "").trim();
@@ -2074,7 +2077,14 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, [zoneId]);
+  }, [zoneId, meals99RefreshNonce]);
+
+  // Live refresh: a price, menu or pricing-rule change can add/remove ₹99 dishes.
+  useFoodPageInvalidation(
+    useCallback(() => {
+      setMeals99RefreshNonce((n) => n + 1);
+    }, []),
+  );
 
   const getCartItemQuantity = (dish) => {
     const variants = dish.variants || [];

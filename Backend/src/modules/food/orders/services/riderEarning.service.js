@@ -5,6 +5,7 @@ import {
   toGeoJsonPoint,
 } from '../utils/googleMaps.js';
 import { resolveCommissionRulesForZone } from '../../admin/services/zoneScopedSettings.service.js';
+import { combineRiderEarning } from '../../admin/services/deliveryIncentive.service.js';
 
 const COMMISSION_CACHE_MS = 10 * 1000;
 /** @type {Map<string, { rules: any[], loadedAt: number }>} */
@@ -140,8 +141,13 @@ export async function ensureRiderEarningOnOrder(order) {
     return order;
   }
 
-  const current = Number(order.riderEarning || 0);
+  // riderEarning may already hold a snapshotted Eatiefy incentive, so decide on
+  // the zone-wise base portion. Legacy orders (riderBaseEarning null) keep
+  // using riderEarning as the base, exactly as before.
+  const hasBaseField = order.riderBaseEarning != null;
+  const current = Number(hasBaseField ? order.riderBaseEarning : order.riderEarning || 0);
   if (Number.isFinite(current) && current > 0) return order;
+  const incentiveAmount = Number(order.eatiefyIncentive?.amount || 0);
 
   let restaurant = order.restaurantId;
   if (!restaurant || !restaurant.location) {
@@ -165,7 +171,10 @@ export async function ensureRiderEarningOnOrder(order) {
 
   if (!earningResolved.riderEarning) return order;
 
-  order.riderEarning = earningResolved.riderEarning;
+  const totalRiderEarning = combineRiderEarning(earningResolved.riderEarning, incentiveAmount);
+  order.riderBaseEarning = earningResolved.riderEarning;
+  order.riderEarning = totalRiderEarning;
+  order.markModified?.('riderBaseEarning');
   order.markModified?.('riderEarning');
 
   if (earningResolved.deliveryGeocoded && earningResolved.deliveryPoint) {
@@ -186,13 +195,13 @@ export async function ensureRiderEarningOnOrder(order) {
   if (Number.isFinite(deliveryFee) || Number.isFinite(platformFee)) {
     order.platformProfit = Math.max(
       0,
-      deliveryFee + platformFee + restaurantCommission - earningResolved.riderEarning,
+      deliveryFee + platformFee + restaurantCommission - totalRiderEarning,
     );
     order.markModified?.('platformProfit');
   }
 
   logger.info(
-    `Backfilled riderEarning=₹${earningResolved.riderEarning} for order ${order._id} (distanceKm=${earningResolved.distanceKm ?? 'n/a'}, mode=${earningResolved.distanceMode || 'n/a'})`,
+    `Backfilled riderEarning=₹${totalRiderEarning} (base=₹${earningResolved.riderEarning}, eatiefyIncentive=₹${incentiveAmount}) for order ${order._id} (distanceKm=${earningResolved.distanceKm ?? 'n/a'}, mode=${earningResolved.distanceMode || 'n/a'})`,
   );
 
   return order;

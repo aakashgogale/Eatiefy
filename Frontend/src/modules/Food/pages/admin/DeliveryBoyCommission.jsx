@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { adminAPI } from "@food/api"
 import { API_BASE_URL } from "@food/api/config"
 import { toast } from "sonner"
+import EatiefyIncentivePanel from "@food/components/admin/deliveryman/EatiefyIncentivePanel"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -518,6 +519,17 @@ export default function DeliveryBoyCommission() {
               </div>
             </div>
           </div>
+
+          {selectedZoneId && (
+            <EatiefyIncentivePanel
+              zoneId={selectedZoneId}
+              zoneName={(() => {
+                const z = zones.find((zone) => String(zone._id || zone.id) === String(selectedZoneId))
+                return z?.name || z?.zoneName || ""
+              })()}
+              rules={commissions}
+            />
+          )}
 
           <div className="mb-4 flex items-center gap-3">
             <div className="relative flex-1 sm:flex-initial min-w-[250px]">

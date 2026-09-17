@@ -228,6 +228,22 @@ async function showOsNotificationFromPayload(payload) {
 
   const link = data.link || data.targetUrl || data.click_action || "/";
 
+  // Order alerts (rider offers, restaurant/admin new orders) are time-critical.
+  const isOrderAlert =
+    data.urgent === "true" ||
+    data.type === "admin_broadcast" ||
+    data.type === "new_order" ||
+    data.type === "admin_new_order" ||
+    data.type === "admin_alert_unassigned";
+
+  // A rider offer delivered after it expired (device was offline) can no longer be
+  // accepted — ringing for it would only send the rider to an empty screen.
+  const expiresAtMs = data.expiresAt ? Date.parse(data.expiresAt) : NaN;
+  if (Number.isFinite(expiresAtMs) && expiresAtMs < Date.now()) {
+    await notifyOpenClients(normalized);
+    return;
+  }
+
   // A service worker cannot read localStorage, so the branded icon has to ride
   // along in the payload. Falls back to the bundled Eatiefy icon.
   const iconUrl = sanitize(data.icon || data.iconUrl) || DEFAULT_NOTIFICATION_ICON;
@@ -246,10 +262,10 @@ async function showOsNotificationFromPayload(payload) {
     // A delivery offer is time-critical and short-lived: keep the banner up
     // until the rider acts instead of letting it auto-dismiss, and re-alert on
     // a repeat so a second offer is not swallowed silently by the shared tag.
-    renotify: data.type === "admin_broadcast" || data.type === "new_order",
+    renotify: isOrderAlert,
     silent: false,
-    requireInteraction: data.type === "admin_broadcast" || data.type === "new_order",
-    vibrate: [200, 100, 200, 100, 300],
+    requireInteraction: isOrderAlert,
+    vibrate: isOrderAlert ? [400, 150, 400, 150, 400, 150, 600] : [200, 100, 200, 100, 300],
     data: { ...data, link, title, body },
   });
 

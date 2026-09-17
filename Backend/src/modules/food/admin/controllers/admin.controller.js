@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import * as adminService from '../services/admin.service.js';
+import * as deliveryIncentiveService from '../services/deliveryIncentive.service.js';
 import { logger } from '../../../../utils/logger.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { invalidateCache, invalidateFoodBrowseCaches } from '../../../../middleware/cache.js';
@@ -1058,6 +1059,25 @@ export async function updateDeliveryCashLimit(req, res, next) {
     try {
         const data = await adminService.upsertDeliveryCashLimitSettings(req.body || {});
         res.status(200).json({ success: true, message: 'Delivery cash limit updated successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// ----- Eatiefy Delivery Partner Incentive (admin, zone-wise) -----
+export async function getDeliveryIncentiveSettings(req, res, next) {
+    try {
+        const data = await deliveryIncentiveService.getDeliveryIncentiveSettings(req.query?.zoneId);
+        res.status(200).json({ success: true, message: 'Delivery incentive settings fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function updateDeliveryIncentiveSettings(req, res, next) {
+    try {
+        const data = await deliveryIncentiveService.upsertDeliveryIncentiveSettings(req.body || {});
+        res.status(200).json({ success: true, message: 'Delivery incentive settings updated successfully', data });
     } catch (error) {
         next(error);
     }

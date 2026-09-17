@@ -2,7 +2,8 @@ import { Clock } from "lucide-react";
 import { normalizeTimeValue, formatTime12Hour } from "@food/utils/outletHours";
 
 /**
- * Time input for outlet hours.
+ * Time input for outlet hours. Any valid time (hours and minutes) can be picked;
+ * there are no predefined options.
  *
  * Uses the native `<input type="time">` instead of the MUI MobileTimePicker the
  * onboarding screens used before. The MUI clock dial fired `onChange` on every
@@ -23,7 +24,6 @@ export default function TimeField({
   hint,
   min,
   max,
-  presets = [],
 }) {
   const normalized = normalizeTimeValue(value);
   const inputId = id || `time-${String(label || "field").toLowerCase().replace(/\s+/g, "-")}`;
@@ -53,30 +53,6 @@ export default function TimeField({
         onChange={(event) => onChange(normalizeTimeValue(event.target.value))}
         className="h-9 w-full rounded-md border border-gray-200 bg-white px-3 text-xs text-gray-900 outline-none focus:border-gray-900 disabled:cursor-not-allowed disabled:bg-gray-100"
       />
-
-      {presets.length > 0 && !disabled ? (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {presets.map((preset) => {
-            const presetValue = normalizeTimeValue(preset);
-            if (!presetValue) return null;
-            const active = presetValue === normalized;
-            return (
-              <button
-                key={presetValue}
-                type="button"
-                onClick={() => onChange(presetValue)}
-                className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                  active
-                    ? "border-gray-900 bg-gray-900 text-white"
-                    : "border-gray-200 bg-white text-gray-600 hover:border-gray-400"
-                }`}
-              >
-                {formatTime12Hour(presetValue)}
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
 
       <p className="mt-1 h-4 text-[11px] leading-4 text-gray-500">
         {hint || (normalized ? formatTime12Hour(normalized) : "")}

@@ -25,6 +25,7 @@ import { getFoodDisplayPrice } from '../../admin/services/foodVariant.service.js
 import { isRestaurantOnboardingPaymentEnabled } from '../../admin/services/moduleAccess.service.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
 import { FoodRestaurantOutletTimings } from '../models/outletTimings.model.js';
+import { EATIEFY_99_PRICE, buildEatiefy99CandidateFilter, selectEatiefy99Foods } from '../utils/eatiefy99.js';
 import { seedOutletTimingsForRestaurant } from './outletTimings.service.js';
 import { logger } from '../../../../utils/logger.js';
 import { fetchDrivingDistancesKmBatch, fetchDrivingDistanceKm } from '../../orders/utils/googleMaps.js';
@@ -483,13 +484,9 @@ export const registerRestaurant = async (payload, files, draftImageRefs = {}) =>
     const normalizedClosingTime = normalizeRestaurantTime(closingTime);
     const openingMinutes = timeToMinutes(normalizedOpeningTime);
     const closingMinutes = timeToMinutes(normalizedClosingTime);
-    if (openingMinutes !== null && closingMinutes !== null) {
-        if (openingMinutes === closingMinutes) {
-            throw new ValidationError('Opening time and closing time cannot be same');
-        }
-        if (closingMinutes < openingMinutes) {
-            throw new ValidationError('Closing time cannot be less than opening time');
-        }
+    // closing < opening is a valid overnight shift (closes next day); only identical times are rejected.
+    if (openingMinutes !== null && closingMinutes !== null && openingMinutes === closingMinutes) {
+        throw new ValidationError('Opening time and closing time cannot be same');
     }
     const estimatedDeliveryTimeText = String(estimatedDeliveryTime || '').trim();
     const estimatedDeliveryTimeMinutes = parseEstimatedDeliveryMinutes(estimatedDeliveryTimeText);
@@ -1172,13 +1169,9 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
 
     const openingMinutes = body.openingTime !== undefined ? timeToMinutes(update.openingTime) : null;
     const closingMinutes = body.closingTime !== undefined ? timeToMinutes(update.closingTime) : null;
-    if (openingMinutes !== null && closingMinutes !== null) {
-        if (openingMinutes === closingMinutes) {
-            throw new ValidationError('Opening time and closing time cannot be same');
-        }
-        if (closingMinutes < openingMinutes) {
-            throw new ValidationError('Closing time cannot be less than opening time');
-        }
+    // closing < opening is a valid overnight shift (closes next day); only identical times are rejected.
+    if (openingMinutes !== null && closingMinutes !== null && openingMinutes === closingMinutes) {
+        throw new ValidationError('Opening time and closing time cannot be same');
     }
 
     if (body.menuImages !== undefined) {
@@ -2087,17 +2080,17 @@ export const getRestaurantComplaints = async (restaurantId, query = {}) => {
 };
 
 /**
- * List restaurants that have at least one approved, available dish under a price limit.
- * Supports progressive pages via ?limit=&offset= so the first screen can paint fast.
+ * Powers the Eatiefy ₹99 section: restaurants serviceable in the zone with the
+ * approved, available items whose final selling price is ₹99 or below. The price
+ * cap is fixed server-side; a client-sent `priceLimit` is ignored so the section
+ * cannot be widened. Supports progressive pages via ?limit=&offset=&scanSkip=.
  */
-export const listRestaurantsUnderPriceLimit = async (query = {}, priceLimit = 250) => {
+export const listRestaurantsUnderPriceLimit = async (query = {}) => {
     const zoneIdRaw = String(query.zoneId || '').trim();
     if (!zoneIdRaw || !mongoose.Types.ObjectId.isValid(zoneIdRaw)) {
         throw new ValidationError('Valid zoneId is required for Under 250 fetching');
     }
 
-    const effectivePrice =
-        Number(query.priceLimit) > 0 ? Number(query.priceLimit) : Number(priceLimit) || 250;
     const hasLimit = query.limit != null && String(query.limit).trim() !== '';
     const pageLimit = hasLimit
         ? Math.min(Math.max(parseInt(String(query.limit), 10) || 6, 1), 40)
@@ -2105,7 +2098,7 @@ export const listRestaurantsUnderPriceLimit = async (query = {}, priceLimit = 25
     const pageOffset = Math.max(parseInt(String(query.offset ?? query.skip ?? 0), 10) || 0, 0);
 
     const restaurantSelect =
-        'restaurantName slug area city rating totalRatings estimatedDeliveryTime estimatedDeliveryTimeMinutes profileImage coverImages menuImages location pureVegRestaurant pureVeganRestaurant isActive isAcceptingOrders openingTime closingTime openDays';
+        'restaurantName slug zoneId area city rating totalRatings estimatedDeliveryTime estimatedDeliveryTimeMinutes profileImage coverImages menuImages location pureVegRestaurant pureVeganRestaurant isActive isAcceptingOrders openingTime closingTime openDays';
 
     const mapItem = (item) => {
         const ft = String(item.foodType || '').trim().toLowerCase();
@@ -2125,24 +2118,34 @@ export const listRestaurantsUnderPriceLimit = async (query = {}, priceLimit = 25
         };
     };
 
-    const MAX_ITEMS_PER_RESTAURANT = 12;
+    const MAX_ITEMS_PER_RESTAURANT = 40;
+
+    // Same serviceability rule as the delivery listing: restaurants assigned to
+    // the zone plus legacy records whose location lies inside its polygon.
+    const serviceZone = await resolveServiceZone({ zoneId: zoneIdRaw });
+    if (!serviceZone) {
+        return { restaurants: [], total: 0, offset: pageOffset, hasMore: false, targetPrice: EATIEFY_99_PRICE };
+    }
+    const restaurantFilter = {
+        status: 'approved',
+        $and: [buildZoneServiceabilityClause(serviceZone)],
+    };
 
     const attachItemsForRestaurants = async (restaurantsBatch) => {
         if (!restaurantsBatch.length) return [];
         const ids = restaurantsBatch.map((r) => r._id);
-        const eligibleItems = await FoodItem.find({
+        const candidates = await FoodItem.find({
             restaurantId: { $in: ids },
-            $or: [
-                { price: { $lte: effectivePrice } },
-                { 'variants.price': { $lte: effectivePrice } },
-            ],
-            isAvailable: true,
+            ...buildEatiefy99CandidateFilter(),
+            // `$ne: false` keeps legacy items that never had the flag set.
+            isAvailable: { $ne: false },
             approvalStatus: 'approved',
         })
             .select(
-                'restaurantId name price image foodType description isVeg isRecommended categoryName categoryId category variants',
+                'restaurantId name price image foodType description isVeg isRecommended categoryName categoryId category variants preparationTime',
             )
             .lean();
+        const eligibleItems = await selectEatiefy99Foods(candidates);
 
         const restaurantItemsMap = {};
         eligibleItems.forEach((item) => {
@@ -2224,15 +2227,15 @@ export const listRestaurantsUnderPriceLimit = async (query = {}, priceLimit = 25
         const resumeMode = scanStart > 0 && pageOffset > 0;
         const need = resumeMode ? pageLimit : pageOffset + pageLimit;
         const collected = [];
+        // Scan position of each collected restaurant, so the next page resumes right
+        // after the last one returned instead of skipping extras from the same batch.
+        const scanPositionById = new Map();
         let scanned = resumeMode ? scanStart : 0;
         const SCAN_BATCH = 20;
         let exhausted = false;
 
         while (collected.length < need) {
-            const batch = await FoodRestaurant.find({
-                zoneId: new mongoose.Types.ObjectId(zoneIdRaw),
-                status: 'approved',
-            })
+            const batch = await FoodRestaurant.find(restaurantFilter)
                 .select(restaurantSelect)
                 .sort({ rating: -1, totalRatings: -1, _id: 1 })
                 .skip(scanned)
@@ -2244,6 +2247,7 @@ export const listRestaurantsUnderPriceLimit = async (query = {}, priceLimit = 25
                 break;
             }
 
+            batch.forEach((r, index) => scanPositionById.set(String(r._id), scanned + index));
             scanned += batch.length;
             const eligible = await attachItemsForRestaurants(batch);
             collected.push(...eligible);
@@ -2258,6 +2262,11 @@ export const listRestaurantsUnderPriceLimit = async (query = {}, priceLimit = 25
         const page = resumeMode
             ? collected.slice(0, pageLimit)
             : collected.slice(pageOffset, pageOffset + pageLimit);
+        const pageEnd = resumeMode ? page.length : pageOffset + page.length;
+        const nextScanSkip =
+            collected.length > pageEnd && page.length > 0
+                ? scanPositionById.get(String(page[page.length - 1]._id)) + 1
+                : scanned;
         const withTimings = await enrichOutletTimings(page);
         const hasMore =
             resumeMode
@@ -2266,26 +2275,24 @@ export const listRestaurantsUnderPriceLimit = async (query = {}, priceLimit = 25
 
         return {
             restaurants: withTimings,
+            targetPrice: EATIEFY_99_PRICE,
             total: hasMore ? pageOffset + withTimings.length + 1 : pageOffset + withTimings.length,
             offset: pageOffset,
             limit: pageLimit,
             hasMore,
             nextOffset: pageOffset + withTimings.length,
-            scanSkip: scanned,
+            scanSkip: nextScanSkip,
         };
     }
 
     // Full list (legacy / rare): one pass for entire zone
-    const restaurantsInZone = await FoodRestaurant.find({
-        zoneId: new mongoose.Types.ObjectId(zoneIdRaw),
-        status: 'approved',
-    })
+    const restaurantsInZone = await FoodRestaurant.find(restaurantFilter)
         .select(restaurantSelect)
         .sort({ rating: -1, totalRatings: -1 })
         .lean();
 
     if (restaurantsInZone.length === 0) {
-        return { restaurants: [], total: 0, offset: 0, hasMore: false };
+        return { restaurants: [], total: 0, offset: 0, hasMore: false, targetPrice: EATIEFY_99_PRICE };
     }
 
     let restaurants = await attachItemsForRestaurants(restaurantsInZone);
@@ -2296,6 +2303,7 @@ export const listRestaurantsUnderPriceLimit = async (query = {}, priceLimit = 25
         total: restaurants.length,
         offset: 0,
         hasMore: false,
+        targetPrice: EATIEFY_99_PRICE,
     };
 };
 

@@ -9,3 +9,13 @@ export const listPublicFoodsController = async (req, res, next) => {
         next(error);
     }
 };
+
+/** Eatiefy ₹99 section rail: same listing, promo forced server-side. */
+export const listEatiefy99FoodsController = async (req, res, next) => {
+    try {
+        const data = await listPublicFoods({ ...(req.query || {}), promo: 'eatiefy' });
+        return sendResponse(res, 200, 'Foods fetched successfully', data);
+    } catch (error) {
+        next(error);
+    }
+};

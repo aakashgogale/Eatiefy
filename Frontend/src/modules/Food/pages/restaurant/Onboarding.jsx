@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import TimeField from "@food/components/restaurant/TimeField"
-import { validateOutletHours, formatOpenDuration, OPENING_TIME_PRESETS, CLOSING_TIME_PRESETS } from "@food/utils/outletHours"
+import { validateOutletHours, formatOpenDuration } from "@food/utils/outletHours"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { Input } from "@food/components/ui/input"
 import { Button } from "@food/components/ui/button"
@@ -2905,7 +2905,6 @@ export default function RestaurantOnboarding() {
               label="Opening time"
               value={step2.openingTime || ""}
               invalid={Boolean(outletHours.error)}
-              presets={OPENING_TIME_PRESETS}
               onChange={(val) =>
                 setStep2((prev) => ({ ...prev, openingTime: val }))
               }
@@ -2914,7 +2913,6 @@ export default function RestaurantOnboarding() {
               label="Closing time"
               value={step2.closingTime || ""}
               invalid={Boolean(outletHours.error)}
-              presets={CLOSING_TIME_PRESETS}
               hint={outletHours.overnight ? "Closes next day" : undefined}
               onChange={(val) =>
                 setStep2((prev) => ({ ...prev, closingTime: val }))

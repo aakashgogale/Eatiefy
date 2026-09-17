@@ -15,6 +15,7 @@ import {
 import { ActionSlider } from '@/modules/DeliveryV2/components/ui/ActionSlider';
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { computePickupMetrics, formatPickupRouteSummary } from '@/modules/DeliveryV2/utils/pickupMetrics';
+import { getEatiefyIncentiveBreakdown, formatEatiefyIncentiveLine } from '@/modules/DeliveryV2/utils/earningBreakdown';
 import { toast } from 'sonner';
 
 /** Time / distance cell — live values or locating state (shared with NewOrderModal). */
@@ -66,6 +67,7 @@ export default function NewOrderCard({
     order.riderEarning ||
     order.pricing?.total ||
     (order.orderAmount ? order.orderAmount * 0.1 : 0);
+  const incentiveBreakdown = getEatiefyIncentiveBreakdown(order, order.earnings || order.riderEarning);
   const displayId = order?.orderId || order?.displayOrderId || order?._id;
   const restaurantName =
     order.restaurantName ||
@@ -192,6 +194,11 @@ export default function NewOrderCard({
             >
               ₹{Number(earnings || 0).toFixed(2)} · {routeSummary}
             </p>
+            {incentiveBreakdown && (
+              <p className="text-[10px] font-semibold text-emerald-700 mt-0.5">
+                {formatEatiefyIncentiveLine(incentiveBreakdown)}
+              </p>
+            )}
           </div>
         </button>
         <div className="flex items-center gap-1 shrink-0">

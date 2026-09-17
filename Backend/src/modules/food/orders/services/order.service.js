@@ -28,7 +28,12 @@ import { getIO, rooms } from '../../../../config/socket.js';
 import { addOrderJob } from '../../../../queues/producers/order.producer.js';
 import { fetchPolyline, toGeoJsonPoint } from '../utils/googleMaps.js';
 import { resolveRiderEarningForDelivery } from './riderEarning.service.js';
+import {
+  resolveEatiefyIncentiveForOrder,
+  combineRiderEarning,
+} from '../../admin/services/deliveryIncentive.service.js';
 import { getFirebaseDB } from '../../../../config/firebase.js';
+import { getNewOrderAlertSound } from '../../../../core/notifications/firebase.service.js';
 import * as foodTransactionService from './foodTransaction.service.js';
 import * as userWalletService from '../../user/services/userWallet.service.js';
 import { calculateOrderPricing } from './order-pricing.service.js';
@@ -396,7 +401,16 @@ export async function createOrder(userId, dto) {
   };
 
   let distanceKm = null;
-  let riderEarning = 0;
+  // Zone-wise commission payout (unchanged) + admin Eatiefy incentive on top.
+  let riderBaseEarning = 0;
+  // Same zone the Delivery Boy Payout rules are resolved for below.
+  const eatiefyIncentive = await resolveEatiefyIncentiveForOrder({
+    pricing: normalizedPricing,
+    orderType,
+    zoneId: restaurant?.zoneId || dto.zoneId || null,
+  });
+  const eatiefyIncentiveAmount = eatiefyIncentive?.amount || 0;
+  let riderEarning = combineRiderEarning(riderBaseEarning, eatiefyIncentiveAmount);
 
   // For Razorpay (online) orders, run geocoding non-blocking so the Razorpay
   // order is created fast and the modal opens instantly. The geocode result is
@@ -417,15 +431,20 @@ export async function createOrder(userId, dto) {
           try {
             const updateFields = {};
             if (earningResolved.distanceKm != null) {
+              const totalRiderEarning = combineRiderEarning(
+                earningResolved.riderEarning ?? 0,
+                eatiefyIncentiveAmount,
+              );
               updateFields['distanceKm'] = earningResolved.distanceKm;
-              updateFields['riderEarning'] = earningResolved.riderEarning ?? 0;
+              updateFields['riderBaseEarning'] = earningResolved.riderEarning ?? 0;
+              updateFields['riderEarning'] = totalRiderEarning;
               updateFields['pricing.platformProfit'] = Math.max(
                 0,
                 (normalizedPricing.deliveryFee ?? 0) +
                   (normalizedPricing.platformFee ?? 0) +
                   (normalizedPricing.markupTotal ?? 0) +
                   (normalizedPricing.restaurantCommission ?? 0) -
-                  (earningResolved.riderEarning ?? 0),
+                  totalRiderEarning,
               );
             }
             if (earningResolved.deliveryGeocoded && earningResolved.deliveryPoint) {
@@ -477,7 +496,8 @@ export async function createOrder(userId, dto) {
         zoneId: restaurant?.zoneId || dto.zoneId || null,
       });
       distanceKm = earningResolved.distanceKm;
-      riderEarning = earningResolved.riderEarning;
+      riderBaseEarning = earningResolved.riderEarning;
+      riderEarning = combineRiderEarning(riderBaseEarning, eatiefyIncentiveAmount);
 
       // Persist geocoded delivery coords so later map/dispatch don't miss them again
       if (earningResolved.deliveryGeocoded && earningResolved.deliveryPoint) {
@@ -591,6 +611,8 @@ export async function createOrder(userId, dto) {
     // orders until the background geocode fills it in.
     distanceKm: Number.isFinite(distanceKm) ? distanceKm : null,
     riderEarning,
+    riderBaseEarning,
+    eatiefyIncentive,
     platformProfit,
   });
 
@@ -2350,6 +2372,32 @@ export async function assignDeliveryPartnerAdmin(
         deliveryPartnerId,
         adminId
     });
+    // Nothing consumes the queued event above (and the queue is unavailable without
+    // Redis), so the assigned rider was never told. Push directly from the server.
+    void notifyOwnersSafely(
+      [{ ownerType: "DELIVERY_PARTNER", ownerId: String(deliveryPartnerId) }],
+      {
+        title: "New order assigned!",
+        body: `Order #${order.order_id || order._id} has been assigned to you.`,
+        sound: getNewOrderAlertSound(),
+        urgent: true,
+        channelId: "delivery_orders",
+        link: "/food/delivery",
+        idempotencyKey: `admin_assign_${order._id}_${deliveryPartnerId}`,
+        eventId: `admin_assign_${order._id}_${deliveryPartnerId}`,
+        tag: `dispatch_offer_${order._id}`,
+        data: {
+          type: "new_order",
+          orderId: order.order_id || order._id.toString(),
+          orderMongoId: order._id.toString(),
+          targetPartnerId: String(deliveryPartnerId),
+          link: "/food/delivery",
+          targetUrl: "/food/delivery",
+          tag: `dispatch_offer_${order._id}`,
+          eventId: `admin_assign_${order._id}_${deliveryPartnerId}`,
+        },
+      },
+    );
     return normalizeOrderForClient(order);
 }
 

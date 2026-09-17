@@ -5,6 +5,7 @@ import bikeLogo from '@food/assets/deliveryboy-3d.jpeg';
 import mapRiderIcon from '@food/assets/MapRider.png';
 import { subscribeOrderTracking, subscribeDeliveryLocation } from '@food/realtimeTracking';
 import { useMapTheme } from '@food/utils/mapTheme';
+import { computeDrivingRoute } from '@food/utils/drivingRoute';
 import { motion } from 'framer-motion';
 
 const LIBRARIES = ['geometry', 'places'];
@@ -22,6 +23,21 @@ const PICKED_UP_STATUSES = new Set([
   'at_drop',
   'delivered',
 ]);
+
+/** Tracking stops for good once an order reaches one of these. */
+const TERMINAL_STATUSES = new Set([
+  'delivered',
+  'completed',
+  'cancelled',
+  'cancelled_by_user',
+  'cancelled_by_restaurant',
+  'cancelled_by_admin',
+]);
+
+/** Packets older than this (by their own timestamp) are ignored as stale. */
+const STALE_PACKET_MS = 10 * 60 * 1000;
+/** Allowed clock skew when ordering packets from different sources. */
+const PACKET_ORDER_TOLERANCE_MS = 1500;
 
 /** Re-route only after the rider has moved this far — roads don't change faster. */
 const ROUTE_REFRESH_DISTANCE_M = 120;
@@ -135,6 +151,10 @@ const DeliveryTrackingMap = ({
   const lastPacketTimeRef = useRef(0);
   const routeStateRef = useRef({ lastAt: 0, lastOrigin: null, inFlight: false });
   const userPannedRef = useRef(false);
+  const lastPacketTsRef = useRef(0);
+  const animatingRef = useRef(false);
+  const startAnimationRef = useRef(() => {});
+  const [trackingEnded, setTrackingEnded] = useState(false);
 
   const { palette, mapStyles } = useMapTheme();
 
@@ -173,9 +193,10 @@ const DeliveryTrackingMap = ({
     ],
   );
 
-  const isPickedUp = PICKED_UP_STATUSES.has(
-    String(order?.status || order?.orderStatus || '').toLowerCase(),
-  );
+  const orderStatusValue = String(order?.status || order?.orderStatus || '').toLowerCase();
+  const isTerminal = TERMINAL_STATUSES.has(orderStatusValue) || trackingEnded;
+  // Delivered/cancelled orders show no live bike or route.
+  const isPickedUp = !isTerminal && PICKED_UP_STATUSES.has(orderStatusValue) && orderStatusValue !== 'delivered';
 
   /* ─────────────────── Realtime rider position ─────────────────── */
 
@@ -191,9 +212,21 @@ const DeliveryTrackingMap = ({
   const handleNewRiderPosition = useCallback((data) => {
     const lat = Number(data?.lat ?? data?.boy_lat ?? data?.latitude);
     const lng = Number(data?.lng ?? data?.boy_lng ?? data?.longitude);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
+    if (TERMINAL_STATUSES.has(String(data?.orderStatus || '').toLowerCase())) return;
 
     const now = Date.now();
+    // Socket, Realtime DB and the order payload can all deliver the same fix, in any
+    // order. Applying an older one after a newer one made the bike jump backwards.
+    const packetTs = Number(data?.timestamp ?? data?.last_updated ?? 0);
+    if (Number.isFinite(packetTs) && packetTs > 0) {
+      if (now - packetTs > STALE_PACKET_MS) return;
+      if (packetTs + PACKET_ORDER_TOLERANCE_MS < lastPacketTsRef.current) return;
+      lastPacketTsRef.current = Math.max(lastPacketTsRef.current, packetTs);
+    }
+    const currentTarget = interpStateRef.current.targetPos;
+    if (currentTarget && computeDistanceMeters(currentTarget.lat, currentTarget.lng, lat, lng) < 0.5) return;
+
     const rendered = currentSmoothPosRef.current;
     const rawHeading = Number(data?.heading ?? data?.bearing);
 
@@ -219,11 +252,12 @@ const DeliveryTrackingMap = ({
     };
 
     setRiderLocation(target);
+    startAnimationRef.current();
   }, []);
 
   useEffect(() => {
     const trackingIds = trackingIdsKey ? trackingIdsKey.split(',') : [];
-    if (!trackingIds.length) return undefined;
+    if (!trackingIds.length || isTerminal) return undefined;
 
     const unsubs = trackingIds.map((id) => subscribeOrderTracking(id, handleNewRiderPosition));
     if (deliveryPartnerId) {
@@ -245,6 +279,7 @@ const DeliveryTrackingMap = ({
       unsubs.forEach((unsub) => unsub?.());
       window.removeEventListener('riderLocationUpdate', handleGlobalLocation);
       if (socket) {
+        trackingIds.forEach((id) => socket.emit('leave-tracking', id));
         socket.disconnect();
         socketRef.current = null;
       }
@@ -256,9 +291,25 @@ const DeliveryTrackingMap = ({
 
     socket.on('connect', () => trackingIds.forEach((id) => socket.emit('join-tracking', id)));
     socket.on('location-update', (data) => data && handleNewRiderPosition(data));
+    socket.on('tracking-ended', (data) => {
+      const matches = trackingIds.some(
+        (id) => String(id) === String(data?.orderId) || String(id) === String(data?.orderMongoId),
+      );
+      if (matches) setTrackingEnded(true);
+    });
 
     return teardown(socket);
-  }, [trackingIdsKey, deliveryPartnerId, handleNewRiderPosition]);
+  }, [trackingIdsKey, deliveryPartnerId, handleNewRiderPosition, isTerminal]);
+
+  // Clear the bike as soon as tracking ends.
+  useEffect(() => {
+    if (!isTerminal) return;
+    interpStateRef.current = { startPos: null, targetPos: null, startTime: 0, duration: 1500 };
+    currentSmoothPosRef.current = null;
+    setRiderLocation(null);
+    setSmoothLocation(null);
+    setRoutePath(null);
+  }, [isTerminal]);
 
   /* ─────────────────── 60 fps marker interpolation ─────────────────── */
 
@@ -266,7 +317,11 @@ const DeliveryTrackingMap = ({
     let frameId;
     const step = () => {
       const { startPos, targetPos, startTime, duration } = interpStateRef.current;
-      if (startPos && targetPos) {
+      if (!startPos || !targetPos) {
+        animatingRef.current = false;
+        return;
+      }
+      {
         const progress = Math.min((Date.now() - startTime) / (duration || 1500), 1);
         const eased = 1 - (1 - progress) ** 2;
 
@@ -282,12 +337,27 @@ const DeliveryTrackingMap = ({
         };
         currentSmoothPosRef.current = next;
         setSmoothLocation(next);
+        // Idle between packets instead of re-rendering the map 60 times a second.
+        if (progress >= 1) {
+          animatingRef.current = false;
+          return;
+        }
       }
       frameId = requestAnimationFrame(step);
     };
 
-    frameId = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frameId);
+    startAnimationRef.current = () => {
+      if (animatingRef.current) return;
+      animatingRef.current = true;
+      frameId = requestAnimationFrame(step);
+    };
+    startAnimationRef.current();
+
+    return () => {
+      animatingRef.current = false;
+      startAnimationRef.current = () => {};
+      cancelAnimationFrame(frameId);
+    };
   }, []);
 
   const riderPosition = smoothLocation || riderLocation;
@@ -299,28 +369,28 @@ const DeliveryTrackingMap = ({
       if (!isLoaded || !origin || !customerCoords || routeStateRef.current.inFlight) return;
       routeStateRef.current.inFlight = true;
 
-      new window.google.maps.DirectionsService().route(
-        {
-          origin,
-          destination: customerCoords,
-          travelMode: window.google.maps.TravelMode.DRIVING,
-        },
-        (result, status) => {
-          routeStateRef.current.inFlight = false;
-          if (status !== window.google.maps.DirectionsStatus.OK || !result?.routes?.[0]) return;
-
+      // Legacy DirectionsService alone is blocked on newer Google Cloud projects, which
+      // left customers with only a dashed straight line; the helper tries Routes API first.
+      computeDrivingRoute(origin, customerCoords)
+        .then((route) => {
           routeStateRef.current.lastAt = Date.now();
           routeStateRef.current.lastOrigin = origin;
-
-          const leg = result.routes[0].legs?.[0];
-          setRoutePath(result.routes[0].overview_path);
+          setRoutePath(route.path);
           setRouteMeta({
-            distanceMeters: leg?.distance?.value ?? null,
-            durationSeconds: leg?.duration?.value ?? null,
+            distanceMeters: route.distanceMeters,
+            durationSeconds: route.durationSeconds,
           });
-          if (onEtaUpdate && leg?.duration?.text) onEtaUpdate(leg.duration.text);
-        },
-      );
+          if (onEtaUpdate && Number.isFinite(route.durationSeconds)) {
+            onEtaUpdate(formatDuration(route.durationSeconds));
+          }
+        })
+        .catch(() => {
+          // Retry on the next tick instead of hammering the API.
+          routeStateRef.current.lastAt = Date.now();
+        })
+        .finally(() => {
+          routeStateRef.current.inFlight = false;
+        });
     },
     [isLoaded, customerCoords, onEtaUpdate],
   );
@@ -335,7 +405,7 @@ const DeliveryTrackingMap = ({
     }
 
     const tick = () => {
-      const origin = currentSmoothPosRef.current || restaurantCoords;
+      const origin = currentSmoothPosRef.current;
       if (!origin) return;
 
       const { lastAt, lastOrigin } = routeStateRef.current;
@@ -594,11 +664,11 @@ const DeliveryTrackingMap = ({
           </OverlayView>
         )}
 
-        {/* The bike appears only once the food is actually on it. */}
-        {isPickedUp && riderPosition && (
+        {/* Live bike: positions are only published for the assigned rider, so any real fix means a rider is on the job. */}
+        {!isTerminal && riderPosition && (
           <OverlayView position={riderPosition} mapPaneName={OverlayView.MARKER_LAYER}>
             <div className="relative flex flex-col items-center pointer-events-none -translate-x-1/2 -translate-y-1/2 z-40">
-              {etaText && (
+              {isPickedUp && etaText && (
                 <div
                   className="absolute -top-8 z-50 whitespace-nowrap text-[10px] font-bold px-2.5 py-1 rounded-md shadow-xl flex items-center gap-1.5"
                   style={badgeStyle}

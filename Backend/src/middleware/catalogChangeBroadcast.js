@@ -25,6 +25,7 @@ const CATALOG_PATH_PATTERNS = [
     /^\/addons\b/,
     /^\/restaurants\b/, // admin-side edits to a restaurant
     /^\/food\b/,        // admin-side food approval / edits
+    /^\/pricing\/rules\b/, // admin pricing rules change selling prices
 ];
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);

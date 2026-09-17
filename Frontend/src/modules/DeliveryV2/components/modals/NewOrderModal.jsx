@@ -6,6 +6,7 @@ import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { computePickupMetrics } from '@/modules/DeliveryV2/utils/pickupMetrics';
 import { PickupMetricsValue } from '@/modules/DeliveryV2/components/orders/NewOrderCard';
 import { toast } from 'sonner';
+import { getEatiefyIncentiveBreakdown, formatEatiefyIncentiveLine } from '@/modules/DeliveryV2/utils/earningBreakdown';
 
 /**
  * NewOrderModal - Ported to Original 1:1 Theme with Slider Accept.
@@ -22,6 +23,7 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize, isMuted =
   if (!order) return null;
 
   const earnings = order.earnings || order.riderEarning || (order.orderAmount ? order.orderAmount * 0.1 : 0);
+  const incentiveBreakdown = getEatiefyIncentiveBreakdown(order, earnings);
   const restaurantName = order.restaurantName || order.restaurant_name || (order.restaurantId?.name) || 'Restaurant';
   const restaurantAddress = order.restaurantAddress || order.restaurant_address || (order.restaurantId?.location?.address) || 'Address not available';
   const restaurantPhone =
@@ -154,6 +156,11 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize, isMuted =
           <div>
             <p className="text-white/80 text-[10px] font-bold uppercase tracking-widest mb-1">Incoming Request</p>
             <h2 className="text-2xl sm:text-4xl font-bold tracking-tighter">₹{Number(earnings || 0).toFixed(2)}</h2>
+            {incentiveBreakdown && (
+              <p className="text-[11px] sm:text-xs font-semibold text-emerald-300 mt-1">
+                {formatEatiefyIncentiveLine(incentiveBreakdown)}
+              </p>
+            )}
           </div>
           {onToggleMute && (
             <button

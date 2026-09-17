@@ -1,62 +1,30 @@
 import { useState, useEffect, useRef } from "react"
 import { fetchAuthoritativeOnlineStatus } from "@food/utils/restaurantOnlineStatus"
 import TimeField from "@food/components/restaurant/TimeField"
-import { isOvernightRange, formatOpenDuration, normalizeTimeValue, OPENING_TIME_PRESETS, CLOSING_TIME_PRESETS } from "@food/utils/outletHours"
+import { DAY_NAMES, getTimeRangeError } from "@food/utils/operatingHours"
+import { isOvernightRange, formatOpenDuration, normalizeTimeValue } from "@food/utils/outletHours"
 import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import { motion, AnimatePresence } from "framer-motion"
 import Lenis from "lenis"
 import { ArrowLeft, ChevronUp, ChevronDown, Clock, Edit2 } from "lucide-react"
 import { Switch } from "@food/components/ui/switch"
-import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
-import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { restaurantAPI } from "@food/api"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
-// Helper function to convert "HH:mm" string to Date object
-const stringToTime = (timeString) => {
-  if (!timeString || !timeString.includes(":")) {
-    return new Date(2000, 0, 1, 9, 0) // Default to 9:00 AM
-  }
-  const [hours, minutes] = timeString.split(":").map(Number)
-  // Ensure valid hours (0-23) and minutes (0-59)
-  const validHours = Math.max(0, Math.min(23, hours || 9))
-  const validMinutes = Math.max(0, Math.min(59, minutes || 0))
-  return new Date(2000, 0, 1, validHours, validMinutes)
-}
+// Shape only — real hours always come from the backend, never from hardcoded defaults.
+const getEmptyDays = () =>
+  Object.fromEntries(DAY_NAMES.map((day) => [day, { isOpen: true, openingTime: "", closingTime: "" }]))
 
-// Helper function to convert Date object to "HH:mm" string
-const timeToString = (date) => {
-  if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
-    return "09:00"
-  }
-  const hours = date.getHours().toString().padStart(2, "0")
-  const minutes = date.getMinutes().toString().padStart(2, "0")
-  return `${hours}:${minutes}`
+/** Why an open day cannot be saved yet, or "" when it is valid (overnight included). */
+const getDayIssue = (dayData) => {
+  if (!dayData?.isOpen) return ""
+  if (!dayData.openingTime || !dayData.closingTime) return "Select both opening and closing time"
+  return getTimeRangeError(dayData.openingTime, dayData.closingTime)
 }
-
-// Format time from 24-hour to 12-hour format for display
-const formatTime12Hour = (time24) => {
-  if (!time24) return "09:00 AM"
-  const [hours, minutes] = time24.split(":").map(Number)
-  const period = hours >= 12 ? 'PM' : 'AM'
-  const hours12 = hours % 12 || 12
-  const minutesStr = minutes.toString().padStart(2, '0')
-  return `${hours12}:${minutesStr} ${period}`
-}
-
-const getDefaultDays = () => ({
-  Monday: { isOpen: true, openingTime: "09:00", closingTime: "22:00" },
-  Tuesday: { isOpen: true, openingTime: "09:00", closingTime: "22:00" },
-  Wednesday: { isOpen: true, openingTime: "09:00", closingTime: "22:00" },
-  Thursday: { isOpen: true, openingTime: "09:00", closingTime: "22:00" },
-  Friday: { isOpen: true, openingTime: "09:00", closingTime: "22:00" },
-  Saturday: { isOpen: true, openingTime: "09:00", closingTime: "22:00" },
-  Sunday: { isOpen: true, openingTime: "09:00", closingTime: "22:00" },
-})
 
 export default function OutletTimings() {
   const companyName = useCompanyName()
@@ -64,8 +32,12 @@ export default function OutletTimings() {
   const goBack = useRestaurantBackNavigation()
   const [expandedDay, setExpandedDay] = useState("Monday")
   const isInternalUpdate = useRef(false)
-  const [days, setDays] = useState(getDefaultDays)
+  const [days, setDays] = useState(getEmptyDays)
   const [loading, setLoading] = useState(true)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
+  // Times a day had before it was switched off, so switching it back on restores them.
+  const lastTimesRef = useRef({})
   const saveTimerRef = useRef(null)
   // Skip the first post-load render so we don't overwrite DB with synthetic defaults.
   const allowAutosaveRef = useRef(false)
@@ -76,33 +48,37 @@ export default function OutletTimings() {
     ;(async () => {
       try {
         setLoading(true)
+        setLoadFailed(false)
         allowAutosaveRef.current = false
         const res = await restaurantAPI.getOutletTimings()
         const outletTimings = res?.data?.data?.outletTimings || res?.data?.outletTimings
-        if (mounted && outletTimings && typeof outletTimings === "object") {
-          setDays({ ...getDefaultDays(), ...outletTimings })
-        }
-      } catch (error) {
-        debugError("Error loading outlet timings from backend:", error)
-      } finally {
+        if (!outletTimings || typeof outletTimings !== "object") throw new Error("Missing outlet timings")
         if (mounted) {
-          setLoading(false)
+          setDays({ ...getEmptyDays(), ...outletTimings })
           // Enable autosave on the next tick after state settles.
           setTimeout(() => {
             allowAutosaveRef.current = true
           }, 0)
         }
+      } catch (error) {
+        debugError("Error loading outlet timings from backend:", error)
+        // Never autosave placeholder rows over the stored schedule.
+        if (mounted) setLoadFailed(true)
+      } finally {
+        if (mounted) setLoading(false)
       }
     })()
     return () => {
       mounted = false
     }
-  }, [])
+  }, [reloadKey])
 
   // Save to backend whenever days change (debounced) — only after user edits.
   useEffect(() => {
-    if (loading || !allowAutosaveRef.current) return
+    if (loading || loadFailed || !allowAutosaveRef.current) return
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    // Hold the save while any open day is incomplete or invalid (shown inline).
+    if (Object.values(days).some((d) => getDayIssue(d))) return
     saveTimerRef.current = setTimeout(async () => {
       try {
         await restaurantAPI.saveOutletTimings(days)
@@ -117,7 +93,7 @@ export default function OutletTimings() {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     }
-  }, [days, loading])
+  }, [days, loading, loadFailed])
 
   // Lenis smooth scrolling
   useEffect(() => {
@@ -147,14 +123,27 @@ export default function OutletTimings() {
     allowAutosaveRef.current = true
     isInternalUpdate.current = true
     setDays(prev => {
-      const newOpen = !prev[day].isOpen
+      const current = prev[day]
+      const newOpen = !current.isOpen
+      if (!newOpen) {
+        if (current.openingTime && current.closingTime) {
+          lastTimesRef.current[day] = { openingTime: current.openingTime, closingTime: current.closingTime }
+        }
+        return { ...prev, [day]: { ...current, isOpen: false, openingTime: "", closingTime: "" } }
+      }
+      // Reopen with this day's previous hours, else another open day's hours,
+      // else leave empty for the restaurant to pick.
+      const source =
+        lastTimesRef.current[day] ||
+        DAY_NAMES.map((d) => prev[d]).find((d) => d?.isOpen && d.openingTime && d.closingTime) ||
+        {}
       return {
         ...prev,
         [day]: {
-          ...prev[day],
-          isOpen: newOpen,
-          openingTime: newOpen ? (prev[day].openingTime || "09:00") : "",
-          closingTime: newOpen ? (prev[day].closingTime || "22:00") : ""
+          ...current,
+          isOpen: true,
+          openingTime: source.openingTime || "",
+          closingTime: source.closingTime || ""
         }
       }
     })
@@ -199,7 +188,7 @@ export default function OutletTimings() {
   }
 
   return (
-    <LocalizationProvider dateAdapter={AdapterDateFns}>
+    <>
       <div className="min-h-screen bg-white overflow-x-hidden">
         {/* Header */}
         <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-50">
@@ -217,6 +206,14 @@ export default function OutletTimings() {
 
         {/* Main Content */}
         <div className="px-4 py-6">
+          {loadFailed ? (
+            <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              Could not load your outlet timings. Changes will not be saved until they load.{" "}
+              <button type="button" className="font-semibold underline" onClick={() => setReloadKey((k) => k + 1)}>
+                Retry
+              </button>
+            </div>
+          ) : null}
           {/* Eatiefy delivery Section Header */}
           <div className="mb-6">
             <div className="text-center mb-2">
@@ -228,7 +225,8 @@ export default function OutletTimings() {
           {/* Day-wise Accordion */}
           <div className="space-y-2">
             {dayNames.map((day, index) => {
-              const dayData = days[day] || { isOpen: true, openingTime: "09:00", closingTime: "22:00" }
+              const dayData = days[day] || getEmptyDays()[day]
+              const dayIssue = getDayIssue(dayData)
               const isExpanded = expandedDay === day
 
               return (
@@ -282,19 +280,23 @@ export default function OutletTimings() {
                               <TimeField
                                 label="Opening time"
                                 value={dayData.openingTime}
-                                presets={OPENING_TIME_PRESETS}
+                                invalid={Boolean(dayIssue && dayData.openingTime && dayData.closingTime)}
                                 onChange={(val) => handleTimeChange(day, "openingTime", val)}
                               />
 
                               <TimeField
                                 label="Closing time"
                                 value={dayData.closingTime}
-                                presets={CLOSING_TIME_PRESETS}
+                                invalid={Boolean(dayIssue && dayData.openingTime && dayData.closingTime)}
                                 hint={isOvernightRange(dayData.openingTime, dayData.closingTime) ? "Closes next day" : undefined}
                                 onChange={(val) => handleTimeChange(day, "closingTime", val)}
                               />
 
-                              {isOvernightRange(dayData.openingTime, dayData.closingTime) ? (
+                              {dayIssue ? (
+                                <p className="text-xs text-red-600">
+                                  {dayIssue}. Changes are not saved until fixed.
+                                </p>
+                              ) : isOvernightRange(dayData.openingTime, dayData.closingTime) ? (
                                 <p className="text-xs text-gray-500">
                                   Overnight — open for {formatOpenDuration(dayData.openingTime, dayData.closingTime)}
                                 </p>
@@ -313,7 +315,7 @@ export default function OutletTimings() {
           </div>
         </div>
       </div>
-    </LocalizationProvider>
+    </>
   )
 }
 

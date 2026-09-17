@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useDeliveryStore, resolveOrderKey, mapDeliveryPhaseToTripStatus } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { useProximityCheck, formatTripDistanceKm } from '@/modules/DeliveryV2/hooks/useProximityCheck';
+import { setRiderGpsPaused } from '@/modules/DeliveryV2/hooks/useRiderLocationSync';
 import { useOrderManager } from '@/modules/DeliveryV2/hooks/useOrderManager';
 import { NewOrderModal } from '@/modules/DeliveryV2/components/modals/NewOrderModal';
 import { useDeliveryNotificationsContext } from '@/modules/DeliveryV2/components/DeliveryRealtimeShell';
@@ -107,6 +108,13 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   });
   
   const [eta, setEta] = useState(null);
+  const routeProgressRef = useRef(null);
+  const handleRouteProgress = useCallback((progress) => {
+    routeProgressRef.current = progress ? { ...progress, at: Date.now() } : null;
+    if (progress && Number.isFinite(progress.etaSeconds)) {
+      setEta(Math.max(1, Math.round(progress.etaSeconds / 60)));
+    }
+  }, []);
   const lastLocationSentAt = useRef(0);
   const lastCoordRef = useRef(null);
   const rollingSpeedRef = useRef([]);
@@ -372,6 +380,13 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   
   // 1.5 Professional Unified ETA Calculation Hook
   useEffect(() => {
+    // Road-route ETA from the map (remaining route length x route duration) is the
+    // real figure; the straight-line/speed estimate is only a fallback.
+    const routeProgress = routeProgressRef.current;
+    if (routeProgress && Date.now() - routeProgress.at < 30000 && Number.isFinite(routeProgress.etaSeconds)) {
+      setEta(Math.max(1, Math.round(routeProgress.etaSeconds / 60)));
+      return;
+    }
     // If we have distance, calculate ETA. Fallback to 8m/s (28km/h) avg if GPS speed is unknown.
     if (distanceToTarget != null && distanceToTarget !== Infinity) {
       const avgSpeed = rollingSpeedRef.current.length > 0 
@@ -389,135 +404,41 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     deliveryAPI.updateOnlineStatus(isOnline).catch(() => {});
   }, [isOnline]);
 
-  // 3. Location logic (Smart Frequency Tracking) — Feed map only
+  // 3. Live GPS comes from useRiderLocationSync (mounted in DeliveryRealtimeShell),
+  // which runs on every delivery screen and publishes the rider's position for all
+  // active orders. The watcher that used to live here captured the active order at
+  // mount (usually none), so it never published a location, and it stopped whenever
+  // the rider left the Feed tab.
   useEffect(() => {
-    if (!isOnline || currentTab !== 'feed') {
-      return;
+    setRiderGpsPaused(isSimMode);
+    return () => setRiderGpsPaused(false);
+  }, [isSimMode]);
+
+  // Rolling speed (for the fallback ETA) and geofence auto-arrival, evaluated on each
+  // real GPS fix with current values.
+  useEffect(() => {
+    if (!riderLocation || isSimMode) return;
+
+    const speed = Number(riderLocation.speed);
+    if (Number.isFinite(speed) && speed > 0) {
+      rollingSpeedRef.current = [...rollingSpeedRef.current.slice(-4), speed];
     }
-    
-    const watchId = navigator.geolocation.watchPosition((pos) => {
-      // CRITICAL: In Simulation Mode, we disable actual GPS to prevent overwriting our test position
-      if (isSimMode) return;
-      
-      const { latitude: lat, longitude: lng, heading, speed } = pos.coords;
-      const now = Date.now();
-      
-      const currentRiderPos = { lat, lng, heading: heading || 0 };
-      setRiderLocation(currentRiderPos);
-      
-      // Calculate Rolling Average Speed for Smart ETA
-      if (speed && speed > 0) {
-        rollingSpeedRef.current = [...rollingSpeedRef.current.slice(-4), speed]; // keep last 5 points
+
+    // Geo-fencing auto-arrival (within 100m) - disabled in DEV so UI steps can be tested manually
+    if (!import.meta.env.DEV && distanceToTarget && distanceToTarget <= 100 && !lastAutoArrivalRef.current[tripStatus]) {
+      if (tripStatus === 'PICKING_UP') {
+        lastAutoArrivalRef.current[tripStatus] = true;
+        reachPickup().catch(() => { lastAutoArrivalRef.current[tripStatus] = false; });
+      } else if (tripStatus === 'PICKED_UP') {
+        lastAutoArrivalRef.current[tripStatus] = true;
+        reachDrop().catch(() => { lastAutoArrivalRef.current[tripStatus] = false; });
       }
+    }
 
-      const avgSpeed = rollingSpeedRef.current.length > 0 
-        ? rollingSpeedRef.current.reduce((a, b) => a + b, 0) / rollingSpeedRef.current.length 
-        : speed || 0;
-
-      // Phase 11: Geo-fencing Auto-arrival (within 100m) - Disabled in DEV so UI steps can be tested manually
-      if (!isSimMode && !import.meta.env.DEV && distanceToTarget && distanceToTarget <= 100 && !lastAutoArrivalRef.current[tripStatus]) {
-        if (tripStatus === 'PICKING_UP') {
-          lastAutoArrivalRef.current[tripStatus] = true;
-          reachPickup().catch(() => { lastAutoArrivalRef.current[tripStatus] = false; });
-        } else if (tripStatus === 'PICKED_UP') {
-          lastAutoArrivalRef.current[tripStatus] = true;
-          reachDrop().catch(() => { lastAutoArrivalRef.current[tripStatus] = false; });
-        }
-      }
-
-      if (distanceToTarget > 200) {
-        lastAutoArrivalRef.current[tripStatus] = false;
-      }
-
-      // Check threshold for Sync (distance-based or 7s time-based)
-      const distMoved = lastCoordRef.current 
-        ? getHaversineDistance(lat, lng, lastCoordRef.current.lat, lastCoordRef.current.lng) 
-        : 1000;
-
-      if (distMoved >= 25 || (now - lastLocationSentAt.current >= 7000)) {
-        lastLocationSentAt.current = now;
-        lastCoordRef.current = { lat, lng };
-        
-        const payload = { 
-          lat, 
-          lng, 
-          heading: heading || 0,
-          speed: speed || 0,
-          accuracy: pos.coords.accuracy,
-          orderId: activeOrder?.orderId || activeOrder?._id,
-          status: 'on_the_way',
-          polyline: activePolyline
-        };
-
-        deliveryAPI.updateLocation(lat, lng, true, { 
-          heading: heading || 0,
-          speed: speed || 0,
-          accuracy: pos.coords.accuracy 
-        }).catch(() => {});
-
-        if (payload.orderId) emitLocation(payload);
-
-        if (payload.orderId) {
-          writeOrderTracking(payload.orderId, {
-            lat,
-            lng,
-            heading: heading || 0,
-            polyline: activePolyline,
-            status: tripStatus,
-            eta: eta
-          }).catch(() => {});
-        }
-      }
-    }, () => {
-      // Never use a fake city (Indore) in production — that made Distance/Arrival show 800+ km.
-      if (import.meta.env.DEV) {
-        console.warn('GPS Denied - Falling back to Indore for local testing only');
-        const fallbackPos = { lat: 22.7196, lng: 75.8577, heading: 0 };
-        if (!useDeliveryStore.getState().riderLocation) {
-          setRiderLocation(fallbackPos);
-        }
-      }
-      if (!gpsBlockedToastShown.current) {
-        gpsBlockedToastShown.current = true;
-        toast.error('Location unavailable', {
-          id: 'gps-blocked',
-          description: import.meta.env.DEV
-            ? 'Dev: using Indore test location.'
-            : 'Enable GPS for accurate distance and navigation.',
-        });
-      }
-    }, { 
-      enableHighAccuracy: true,
-      maximumAge: 3000,
-      timeout: 10000
-    });
-    
-    return () => navigator.geolocation.clearWatch(watchId);
-  }, [isOnline, currentTab, setRiderLocation, isSimMode]);
-
-  // 3.5. Background Ping / Heartbeat
-  // If watchPosition stops firing (e.g. app in background or device stationary),
-  // this ensures we ping the backend periodically. This keeps the token fresh (via 401 interceptor)
-  // and keeps the Delivery Partner "online" in the backend.
-  useEffect(() => {
-    if (!isOnline) return;
-    
-    const pingInterval = setInterval(() => {
-      const now = Date.now();
-      // If no natural GPS update happened in the last 15 seconds, force a ping
-      if (now - lastLocationSentAt.current >= 15000 && lastCoordRef.current) {
-        lastLocationSentAt.current = now;
-        deliveryAPI.updateLocation(
-          lastCoordRef.current.lat, 
-          lastCoordRef.current.lng, 
-          true, 
-          { heading: 0, speed: 0, accuracy: null }
-        ).catch(() => {});
-      }
-    }, 10000); // Check every 10 seconds
-    
-    return () => clearInterval(pingInterval);
-  }, [isOnline]);
+    if (distanceToTarget > 200) {
+      lastAutoArrivalRef.current[tripStatus] = false;
+    }
+  }, [riderLocation, distanceToTarget, tripStatus, isSimMode, reachPickup, reachDrop]);
 
   useEffect(() => {
     if (!claimedOrderId) return;
@@ -797,6 +718,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                onMapLoad={(m) => mapRef.current = m}
                onMapClick={handleMapClick}
                onPathReceived={setSimPath}
+               onRouteProgress={handleRouteProgress}
                onPolylineReceived={(poly) => {
                  setActivePolyline(poly);
                  // If we have an order, push the INITIAL polyline to Firebase immediately for the customer

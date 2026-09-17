@@ -8,6 +8,7 @@ import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
 import useDeliveryBackNavigation from '../hooks/useDeliveryBackNavigation';
 import { Skeleton } from '@food/components/ui/skeleton';
+import { getEatiefyIncentiveBreakdown, formatEatiefyIncentiveLine } from '@/modules/DeliveryV2/utils/earningBreakdown';
 
 const HISTORY_PREFS_KEY = 'delivery_trip_history_prefs_v1';
 
@@ -339,6 +340,14 @@ export const HistoryV2 = () => {
                                 <p className="text-sm font-bold text-gray-950">₹{payout.toFixed(2)}</p>
                              </div>
                          </div>
+                         {(() => {
+                            const breakdown = getEatiefyIncentiveBreakdown(trip, payout);
+                            return breakdown ? (
+                               <p className="mt-2 text-right text-[11px] font-semibold text-emerald-700">
+                                  {formatEatiefyIncentiveLine(breakdown)}
+                               </p>
+                            ) : null;
+                         })()}
                       </div>
                    );
                 })}

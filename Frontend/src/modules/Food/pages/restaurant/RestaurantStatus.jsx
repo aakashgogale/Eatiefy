@@ -16,6 +16,7 @@ import {
 } from "@food/components/ui/dialog"
 import { Button } from "@food/components/ui/button"
 import { publishOnlineStatus } from "@food/utils/restaurantOnlineStatus"
+import { getOperatingStatus } from "@food/utils/operatingHours"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -104,50 +105,24 @@ export default function RestaurantStatus() {
   // Check if restaurant is currently open based on outlet timings only
   useEffect(() => {
     const checkIfOpen = () => {
-      const now = new Date()
-      const currentDayFull = now.toLocaleDateString('en-US', { weekday: 'long' }) // "Monday", "Tuesday", etc.
-      const currentHour = now.getHours()
-      const currentMinute = now.getMinutes()
-      const currentTimeInMinutes = currentHour * 60 + currentMinute
-
-      const outletTimingsData = outletTimings
-
-      if (!outletTimingsData || !outletTimingsData[currentDayFull]) {
-        // No outlet timings configured for today yet
+      if (!outletTimings) {
+        // No outlet timings configured yet
         setIsDayClosed(false)
         setIsWithinTimings(true)
         return
       }
 
-      const dayData = outletTimingsData[currentDayFull]
-      if (dayData.isOpen === false) {
+      // Handles overnight shifts carried over from yesterday (e.g. Mon 3 PM -> Tue 3 AM), in IST.
+      const status = getOperatingStatus({ timings: outletTimings }, new Date())
+      if (status.reason === "day-closed") {
         setIsDayClosed(true)
         setIsWithinTimings(false)
         setShowOutletClosedDialog(true)
         return
       }
 
-      if (!dayData.openingTime || !dayData.closingTime) {
-        setIsDayClosed(false)
-        setIsWithinTimings(true)
-        return
-      }
-
-      const [openHour, openMinute] = dayData.openingTime.split(':').map(Number)
-      const [closeHour, closeMinute] = dayData.closingTime.split(':').map(Number)
-      
-      const openingTimeInMinutes = openHour * 60 + openMinute
-      const closingTimeInMinutes = closeHour * 60 + closeMinute
-
-      let isWithin = false
-      if (closingTimeInMinutes > openingTimeInMinutes) {
-        isWithin = currentTimeInMinutes >= openingTimeInMinutes && currentTimeInMinutes <= closingTimeInMinutes
-      } else {
-        isWithin = currentTimeInMinutes >= openingTimeInMinutes || currentTimeInMinutes <= closingTimeInMinutes
-      }
-
       setIsDayClosed(false)
-      setIsWithinTimings(isWithin)
+      setIsWithinTimings(status.isOpen)
     }
 
     checkIfOpen()
@@ -272,21 +247,17 @@ export default function RestaurantStatus() {
 
   // Get delivery timings for current day (outlet timings only)
   const getCurrentDayTimings = () => {
-    const now = new Date()
-    const currentDayFull = now.toLocaleDateString('en-US', { weekday: 'long' }) // "Monday", "Tuesday", etc.
-    
-    // Single source of truth: outlet timings
-    if (outletTimings && outletTimings[currentDayFull]) {
-      const dayData = outletTimings[currentDayFull]
-      if (dayData.isOpen && dayData.openingTime && dayData.closingTime) {
-        return {
-          openingTime: formatTime12Hour(dayData.openingTime),
-          closingTime: formatTime12Hour(dayData.closingTime)
-        }
-      }
-    }
+    if (!outletTimings) return null
 
-    return null
+    // Single source of truth: outlet timings. During yesterday's overnight
+    // spill-over this is yesterday's shift, since that is the one running.
+    const status = getOperatingStatus({ timings: outletTimings }, new Date())
+    if (status.reason === "day-closed" || !status.openingTime || !status.closingTime) return null
+
+    return {
+      openingTime: formatTime12Hour(status.openingTime),
+      closingTime: `${formatTime12Hour(status.closingTime)}${status.overnight ? " (next day)" : ""}`
+    }
   }
 
   // Format address

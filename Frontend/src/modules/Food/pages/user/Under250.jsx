@@ -47,7 +47,9 @@ const debugError = (...args) => {}
 const RUPEE_SYMBOL = "\u20B9"
 const UNDER_250_FILTERS_STORAGE_KEY = "food-under-250-filters"
 const UNDER250_LIST_MAX_VISIBLE = 12
-const UNDER250_ITEMS_PER_RESTAURANT = 10
+const UNDER250_ITEMS_PER_RESTAURANT = 40
+// Section cap enforced by the backend; used until the first response arrives.
+const EATIEFY_99_PRICE = 99
 const UNDER250_PAGE_SIZE = 6
 const UNDER250_CACHE_TTL_MS = 15 * 60 * 1000
 
@@ -211,7 +213,10 @@ export default function Under250({ isTabActive = true }) {
   const [under250PriceLimit, setUnder250PriceLimit] = useState(() =>
     getCachedUnder250PriceLimit(250),
   )
-  const cacheKey = buildFoodCacheKey("under250", {
+  // Price cap of the section as enforced by the backend (₹99 or below).
+  const [sectionPrice, setSectionPrice] = useState(EATIEFY_99_PRICE)
+  // v2: cache written by the old exactly-₹99 rule must not be reused.
+  const cacheKey = buildFoodCacheKey("eatiefy99-v2", {
     zoneId: zoneId || "none",
     limit: under250PriceLimit,
   })
@@ -675,7 +680,7 @@ export default function Under250({ isTabActive = true }) {
     }
 
     let cancelled = false
-    const key = buildFoodCacheKey("under250", {
+    const key = buildFoodCacheKey("eatiefy99-v2", {
       zoneId,
       limit: under250PriceLimit,
     })
@@ -742,7 +747,6 @@ export default function Under250({ isTabActive = true }) {
           const response = await Promise.race([
             restaurantAPI.getRestaurantsUnder250({
               zoneId,
-              priceLimit: under250PriceLimit,
               limit: UNDER250_PAGE_SIZE,
               offset,
               scanSkip: page === 0 ? 0 : scanSkip,
@@ -754,6 +758,7 @@ export default function Under250({ isTabActive = true }) {
           if (cancelled) break
 
           const data = response?.data?.data
+          if (Number(data?.targetPrice) > 0) setSectionPrice(Number(data.targetPrice))
           const batchRaw = Array.isArray(data?.restaurants) ? data.restaurants : []
           hasMore = data?.hasMore === true && batchRaw.length > 0
           scanSkip = Number(data?.scanSkip) || scanSkip
@@ -1008,7 +1013,7 @@ export default function Under250({ isTabActive = true }) {
   }, [])
 
   // Helper function to update item quantity in both local state and cart
-  const updateItemQuantity = async (item, newQuantity, event = null, restaurantName = null, preferredVariant = null) => {
+  const updateItemQuantity = async (item, newQuantity, event = null, restaurantName = null, preferredVariant = null, restaurantMeta = null) => {
     // Check authentication
     if (!isModuleAuthenticated('user')) {
       window.dispatchEvent(new CustomEvent('show-login-required'))
@@ -1031,7 +1036,7 @@ export default function Under250({ isTabActive = true }) {
     }))
 
     // Find restaurant name from the item or use provided parameter
-    const restaurant = restaurantName || item.restaurant || "Under 250"
+    const restaurant = restaurantName || item.restaurant || "Eatiefy 99"
 
     // Prepare cart item with all required properties
     const cartItem = {
@@ -1040,14 +1045,24 @@ export default function Under250({ isTabActive = true }) {
       itemId: item.id,
       name: item.name,
       price: resolvedVariant?.price ?? item.price,
+      basePrice: resolvedVariant?.basePrice ?? item.basePrice ?? resolvedVariant?.price ?? item.price,
+      markupAmount: resolvedVariant?.markupAmount ?? item.markupAmount ?? 0,
       variantId: resolvedVariant?.id || "",
       variantName: resolvedVariant?.name || "",
       variantPrice: resolvedVariant?.price ?? item.price,
       image: item.image,
       restaurant: restaurant,
+      // Needed for the single-restaurant cart rule and zone checks at checkout.
+      restaurantId: restaurantMeta?.restaurantId ? String(restaurantMeta.restaurantId) : String(item.restaurantId || ""),
+      restaurantZoneId: restaurantMeta?.zoneId ? String(restaurantMeta.zoneId) : "",
       description: item.description || "",
       originalPrice: item.originalPrice || item.price,
       isVeg: item.isVeg === true,
+      foodType: item.foodType || (item.isVeg ? "Veg" : "Non-Veg"),
+      preparationTime: item.preparationTime,
+      pricingScope: resolvedVariant?.pricingScope ?? item.pricingScope ?? null,
+      appliedPricingType: resolvedVariant?.appliedPricingType ?? item.appliedPricingType ?? null,
+      appliedPricingValue: resolvedVariant?.appliedPricingValue ?? item.appliedPricingValue ?? null,
       priceOnOtherPlatforms: null,
       otherPlatformGst: null,
     }
@@ -1141,6 +1156,8 @@ export default function Under250({ isTabActive = true }) {
     const itemWithRestaurant = {
       ...item,
       restaurant: restaurant.name,
+      restaurantId: restaurant.restaurantId || item.restaurantId,
+      restaurantZoneId: restaurant.zoneId ? String(restaurant.zoneId) : "",
       restaurantSlug: restaurant.slug || restaurant.restaurantId || "",
       description: item.description || `${item.name} from ${restaurant.name}`,
       customisable: item.customisable || false,
@@ -1181,7 +1198,7 @@ export default function Under250({ isTabActive = true }) {
       if (navigator.share) {
         await navigator.share({
           title: item.name || "Dish",
-          text: `Check out ${item.name || "this dish"} from ${item.restaurant || "Under 250"}`,
+          text: `Check out ${item.name || "this dish"} from ${item.restaurant || "Eatiefy 99"}`,
           url: shareUrl,
         })
         return
@@ -1201,7 +1218,7 @@ export default function Under250({ isTabActive = true }) {
     const shareUrl = restaurantSlug
       ? `${window.location.origin}/user/restaurants/${restaurantSlug}${itemId ? `?dish=${encodeURIComponent(itemId)}` : ""}`
       : window.location.href
-    const shareText = `Check out ${selectedItem.name || "this dish"} from ${selectedItem.restaurant || "Under 250"}`
+    const shareText = `Check out ${selectedItem.name || "this dish"} from ${selectedItem.restaurant || "Eatiefy 99"}`
     const encodedUrl = encodeURIComponent(shareUrl)
     const encodedText = encodeURIComponent(`${shareText} ${shareUrl}`)
 
@@ -1505,7 +1522,7 @@ export default function Under250({ isTabActive = true }) {
           <div className="flex flex-col justify-center items-center py-16 px-6 text-center">
             <p className="text-base sm:text-lg font-semibold text-gray-700 dark:text-gray-200">
               {under250Restaurants.length === 0
-                ? `No dishes available under ${RUPEE_SYMBOL}${under250PriceLimit}`
+                ? `No dishes available at ${RUPEE_SYMBOL}${sectionPrice} or below`
                 : "No dishes match the selected filters"}
             </p>
             <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 max-w-sm">
@@ -1648,7 +1665,7 @@ export default function Under250({ isTabActive = true }) {
                                       onClick={(e) => {
                                         e.stopPropagation()
                                         const defaultVariant = getDefaultFoodVariant(item)
-                                        updateItemQuantity(item, quantity - 1, e, restaurant.name, defaultVariant)
+                                        updateItemQuantity(item, quantity - 1, e, restaurant.name, defaultVariant, restaurant)
                                       }}
                                       className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center hover:bg-black/20 rounded transition-colors text-white"
                                     >
@@ -1662,7 +1679,7 @@ export default function Under250({ isTabActive = true }) {
                                       onClick={(e) => {
                                         e.stopPropagation()
                                         const defaultVariant = getDefaultFoodVariant(item)
-                                        updateItemQuantity(item, quantity + 1, e, restaurant.name, defaultVariant)
+                                        updateItemQuantity(item, quantity + 1, e, restaurant.name, defaultVariant, restaurant)
                                       }}
                                       className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center hover:bg-black/20 rounded transition-colors text-white"
                                     >
@@ -1682,7 +1699,7 @@ export default function Under250({ isTabActive = true }) {
                                       e.stopPropagation()
                                       if (!isOffline) {
                                         const defaultVariant = getDefaultFoodVariant(item)
-                                        updateItemQuantity(item, 1, e, restaurant.name, defaultVariant)
+                                        updateItemQuantity(item, 1, e, restaurant.name, defaultVariant, restaurant)
                                       }
                                     }}
                                   >
@@ -1951,7 +1968,7 @@ export default function Under250({ isTabActive = true }) {
 
                 {/* Description */}
                 <p className="text-sm md:text-base lg:text-lg text-gray-600 dark:text-gray-400 mb-4 md:mb-6 lg:mb-8 leading-relaxed">
-                  {selectedItem.description || `${selectedItem.name} from ${selectedItem.restaurant || 'Under 250'}`}
+                  {selectedItem.description || `${selectedItem.name} from ${selectedItem.restaurant || 'Eatiefy 99'}`}
                 </p>
 
                 {/* Highly Reordered Progress Bar */}
@@ -2037,7 +2054,7 @@ export default function Under250({ isTabActive = true }) {
                     onClick={(e) => {
                       if (!shouldShowGrayscale && !selectedItem.isRestaurantOffline) {
                         const defaultVariant = getDefaultFoodVariant(selectedItem)
-                        updateItemQuantity(selectedItem, itemDetailQuantity, e, selectedItem.restaurant, defaultVariant)
+                        updateItemQuantity(selectedItem, itemDetailQuantity, e, selectedItem.restaurant, defaultVariant, { restaurantId: selectedItem.restaurantId, zoneId: selectedItem.restaurantZoneId })
                         closeItemDetail()
                       }
                     }}
@@ -2057,7 +2074,7 @@ export default function Under250({ isTabActive = true }) {
                       onClick={(e) => {
                         if (!shouldShowGrayscale && !selectedItem.isRestaurantOffline) {
                           const defaultVariant = getDefaultFoodVariant(selectedItem)
-                          updateItemQuantity(selectedItem, 0, e, selectedItem.restaurant, defaultVariant)
+                          updateItemQuantity(selectedItem, 0, e, selectedItem.restaurant, defaultVariant, { restaurantId: selectedItem.restaurantId, zoneId: selectedItem.restaurantZoneId })
                           closeItemDetail()
                         }
                       }}

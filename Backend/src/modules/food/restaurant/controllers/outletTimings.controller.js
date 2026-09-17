@@ -1,5 +1,9 @@
 import { sendResponse } from '../../../../utils/response.js';
-import { getOutletTimingsForRestaurant, upsertOutletTimingsForRestaurant } from '../services/outletTimings.service.js';
+import {
+    getOutletTimingsForRestaurant,
+    getRestaurantOperatingStatus,
+    upsertOutletTimingsForRestaurant
+} from '../services/outletTimings.service.js';
 
 export const getOutletTimingsByRestaurantIdController = async (req, res, next) => {
     try {
@@ -10,11 +14,15 @@ export const getOutletTimingsByRestaurantIdController = async (req, res, next) =
     }
 };
 
+// Authenticated responses are not cached, so they can carry the live open/closed state.
 export const getCurrentRestaurantOutletTimingsController = async (req, res, next) => {
     try {
         const restaurantId = req.user?.userId;
-        const data = await getOutletTimingsForRestaurant(restaurantId);
-        return sendResponse(res, 200, 'Outlet timings fetched successfully', data);
+        const [data, operatingStatus] = await Promise.all([
+            getOutletTimingsForRestaurant(restaurantId),
+            getRestaurantOperatingStatus(restaurantId)
+        ]);
+        return sendResponse(res, 200, 'Outlet timings fetched successfully', { ...data, operatingStatus });
     } catch (error) {
         next(error);
     }
@@ -24,9 +32,9 @@ export const upsertCurrentRestaurantOutletTimingsController = async (req, res, n
     try {
         const restaurantId = req.user?.userId;
         const data = await upsertOutletTimingsForRestaurant(restaurantId, req.body?.outletTimings);
-        return sendResponse(res, 200, 'Outlet timings saved successfully', data);
+        const operatingStatus = await getRestaurantOperatingStatus(restaurantId);
+        return sendResponse(res, 200, 'Outlet timings saved successfully', { ...data, operatingStatus });
     } catch (error) {
         next(error);
     }
 };
-

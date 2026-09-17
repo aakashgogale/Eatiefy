@@ -178,8 +178,7 @@ export const getRestaurantComplaintsController = async (req, res, next) => {
 
 export const listRestaurantsUnder250Controller = async (req, res, next) => {
     try {
-        const priceLimit = Number(req.query?.priceLimit) > 0 ? Number(req.query.priceLimit) : 250;
-        const data = await listRestaurantsUnderPriceLimit(req.query || {}, priceLimit);
+        const data = await listRestaurantsUnderPriceLimit(req.query || {});
         return sendResponse(res, 200, 'Under 250 restaurants fetched successfully', data);
     } catch (error) {
         next(error);

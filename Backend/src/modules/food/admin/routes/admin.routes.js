@@ -201,6 +201,10 @@ router.post('/delivery/commission-rules', adminController.createDeliveryCommissi
 router.patch('/delivery/commission-rules/:id', adminController.updateDeliveryCommissionRule);
 router.delete('/delivery/commission-rules/:id', adminController.deleteDeliveryCommissionRule);
 router.patch('/delivery/commission-rules/:id/status', adminController.toggleDeliveryCommissionRuleStatus);
+// Eatiefy incentive (zone-wise, on top of payout rules). Path maps to the
+// Delivery Boy Payout sub-admin permission.
+router.get('/delivery-boy-commission/incentive', adminController.getDeliveryIncentiveSettings);
+router.put('/delivery-boy-commission/incentive', adminController.updateDeliveryIncentiveSettings);
 router.get('/delivery/reviews', adminController.getDeliverymanReviews);
 router.get('/contact-messages', adminController.getContactMessages);
 router.get('/delivery/earning-addons', adminController.getEarningAddons);

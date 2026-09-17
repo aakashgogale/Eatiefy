@@ -15,6 +15,7 @@ import {
   notifyOwnerSafely,
   notifyOwnersSafely,
 } from './order.helpers.js';
+import { notifyAdminsSafely, getNewOrderAlertSound } from '../../../../core/notifications/firebase.service.js';
 import {
   getActiveZoneById,
   isPartnerInsideZone,
@@ -406,15 +407,18 @@ export async function tryAutoAssign(orderId, options = {}) {
       logger.error(`[CRITICAL] Order ${order._id} unassigned for ${attempt} mins. Triggering Admin Alert (Phase 3).`);
       // Notify Admin via Push (Web/Mobile)
       try {
-        await notifyOwnersSafely(
-          [{ ownerType: 'ADMIN', ownerId: 'GLOBAL' }], // Use GLOBAL or specific admin group if defined
+        // 'GLOBAL' was never an admin id (findById failed), so this alert reached nobody.
+        await notifyAdminsSafely(
           {
             title: 'Unassigned Order Crisis!',
             body: `Order #${order.order_id || order._id} has not been picked up for 5+ minutes. Manual intervention required!`,
+            urgent: true,
+            channelId: 'admin_orders',
+            link: '/admin/orders/all',
             idempotencyKey: `admin_alert_unassigned_${order._id}_${attempt}`,
             eventId: `admin_alert_unassigned_${order._id}_${attempt}`,
             tag: `admin_alert_unassigned_${order._id}`,
-            data: { type: 'admin_alert_unassigned', orderId: order._id.toString(), tag: `admin_alert_unassigned_${order._id}`, eventId: `admin_alert_unassigned_${order._id}_${attempt}` }
+            data: { type: 'admin_alert_unassigned', orderId: order._id.toString(), link: '/admin/orders/all', targetUrl: '/admin/orders/all', tag: `admin_alert_unassigned_${order._id}`, eventId: `admin_alert_unassigned_${order._id}_${attempt}` }
           }
         );
       } catch (err) {
@@ -538,7 +542,12 @@ export async function tryAutoAssign(orderId, options = {}) {
             {
               title: 'New order assigned!',
               body: `You have ${offerSeconds} seconds to accept Order #${order.order_id || order._id}.`,
-              sound: 'default',
+              sound: getNewOrderAlertSound(),
+              urgent: true,
+              // An offer that arrives after it expired can't be accepted; don't ring for it.
+              ttlSeconds: Math.max(offerSeconds, 30),
+              // Tapping opens the rider feed, where the offer card (with accept) is shown.
+              link: '/food/delivery',
               channelId: 'delivery_orders',
               idempotencyKey: `dispatch_offer_${order._id}_${p.partnerId}`,
               eventId: `dispatch_offer_${order._id}_${p.partnerId}`,
@@ -554,6 +563,8 @@ export async function tryAutoAssign(orderId, options = {}) {
                 // Addressee, so a device logged into a different account can
                 // recognise the push as not its own and stay silent.
                 targetPartnerId: String(p.partnerId),
+                link: '/food/delivery',
+                targetUrl: '/food/delivery',
                 tag: `dispatch_offer_${order._id}`,
                 eventId: `dispatch_offer_${order._id}_${p.partnerId}`,
               },

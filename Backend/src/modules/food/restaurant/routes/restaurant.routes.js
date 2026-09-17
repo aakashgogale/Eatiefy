@@ -72,7 +72,7 @@ import {
 } from '../controllers/onboardingDraft.controller.js';
 
 import { cacheResponse, invalidateCache, invalidateFoodBrowseCaches } from '../../../../middleware/cache.js';
-import { listPublicFoodsController } from '../controllers/publicFoods.controller.js';
+import { listEatiefy99FoodsController, listPublicFoodsController } from '../controllers/publicFoods.controller.js';
 import { requireDiningEnabled } from '../../dining/middleware/requireDiningEnabled.js';
 
 const router = express.Router();
@@ -136,7 +136,10 @@ router.get('/restaurants/:id', cacheResponse(600, 'restaurant_detail'), getAppro
 router.get('/restaurants/:id/menu', cacheResponse(600, 'restaurant_menu'), getPublicRestaurantMenuController);
 router.get('/restaurants/:id/outlet-timings', cacheResponse(600, 'restaurant_timings'), getOutletTimingsByRestaurantIdController);
 router.get('/public/foods', cacheResponse(300, 'public_foods'), listPublicFoodsController);
-router.get('/under-250', cacheResponse(180, 'under250'), listRestaurantsUnder250Controller);
+// Eatiefy ₹99 section. Both are cached under 'under_250' — the prefix every food,
+// menu, approval and pricing change already invalidates — so price edits show up.
+router.get('/under-250', cacheResponse(180, 'under_250'), listRestaurantsUnder250Controller);
+router.get('/public/foods/eatiefy-99', cacheResponse(180, 'under_250'), listEatiefy99FoodsController);
 router.get('/offers', cacheResponse(300, 'offers'), listPublicOffersController);
 // Public: categories list (zone-aware; returns zone categories + global)
 router.get('/categories/public', cacheResponse(600, 'categories'), listCategoriesController);
@@ -147,6 +150,8 @@ router.patch('/profile', authMiddleware, requireRestaurant, async (req, res, nex
     // Invalidate caches when profile is updated
     await invalidateCache('restaurants:*');
     await invalidateCache('restaurant_detail:*');
+    // Public outlet timings fall back to profile opening/closing hours.
+    await invalidateCache('restaurant_timings:*');
     await invalidateCache('search:*');
     next();
 }, updateRestaurantProfileController);
@@ -156,6 +161,7 @@ router.patch('/availability', authMiddleware, requireApprovedRestaurant, async (
     // Dish rails (e.g. "Meals under 99") read from public_foods; without this a
     // restaurant that just went offline keeps showing dishes for the cache TTL.
     await invalidateCache('public_foods:*');
+    await invalidateCache('under_250:*');
     next();
 }, updateRestaurantAcceptingOrdersController);
 // Restaurant-side dining settings. Gated on the same admin toggle as every

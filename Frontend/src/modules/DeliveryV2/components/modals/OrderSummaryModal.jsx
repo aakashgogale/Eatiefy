@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { CheckCircle, ArrowRight, Wallet, Star } from 'lucide-react';
+import { getEatiefyIncentiveBreakdown } from '@/modules/DeliveryV2/utils/earningBreakdown';
 
 /**
  * OrderSummaryModal - Ported to Original White/Green Theme.
@@ -8,6 +9,7 @@ import { CheckCircle, ArrowRight, Wallet, Star } from 'lucide-react';
  */
 export const OrderSummaryModal = ({ order, onDone }) => {
   const earnings = order?.earnings || order?.riderEarning || (order?.orderAmount * 0.1) || 0;
+  const incentiveBreakdown = getEatiefyIncentiveBreakdown(order, earnings);
 
   return (
     <div className="fixed inset-0 z-[160] overflow-y-auto bg-[#15498b]">
@@ -33,6 +35,21 @@ export const OrderSummaryModal = ({ order, onDone }) => {
             </div>
             
             <p className="text-gray-950 text-5xl sm:text-6xl font-bold mb-5 sm:mb-6 tracking-tighter">₹{Number(earnings).toFixed(2)}</p>
+
+            {incentiveBreakdown && (
+              <div className="mb-5 sm:mb-6 space-y-1.5 text-sm">
+                <div className="flex justify-between text-gray-600">
+                  <span>Delivery payout</span>
+                  <span className="font-bold text-gray-900">₹{incentiveBreakdown.base.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-emerald-700">
+                  <span>
+                    Eatiefy extra{incentiveBreakdown.percent > 0 ? ` (${incentiveBreakdown.percent}% of order)` : ''}
+                  </span>
+                  <span className="font-bold">+ ₹{incentiveBreakdown.incentive.toFixed(2)}</span>
+                </div>
+              </div>
+            )}
             
             <div className="flex items-center justify-center gap-3 py-3 bg-green-50 rounded-2xl text-green-700 text-sm font-bold border border-green-100">
               <Wallet className="w-5 h-5" />

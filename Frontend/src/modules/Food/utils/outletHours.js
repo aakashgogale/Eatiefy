@@ -7,14 +7,6 @@
  * string the backend stores, so the wire format never changes.
  */
 
-/**
- * One-tap choices shown under each field. Late-night values are included on
- * purpose — an outlet that opens at midnight or closes at 2 AM is normal, and
- * used to be unreachable because the old picker rejected those pairs.
- */
-export const OPENING_TIME_PRESETS = ["00:00", "06:00", "08:00", "09:00", "10:00", "11:00", "12:00", "18:00"];
-export const CLOSING_TIME_PRESETS = ["14:00", "18:00", "21:00", "22:00", "23:00", "00:00", "01:00", "02:00"];
-
 /** Canonical "HH:mm", or "" when the input cannot be understood. */
 export const normalizeTimeValue = (value) => {
   if (!value) return "";

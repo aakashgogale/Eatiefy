@@ -922,6 +922,16 @@ export const adminAPI = {
       { status: Boolean(status) },
       { contextModule: "admin" },
     ),
+  /** Eatiefy incentive for delivery partners (zone-wise, on top of payout rules) */
+  getDeliveryIncentiveSettings: (zoneId) =>
+    apiClient.get("/food/admin/delivery-boy-commission/incentive", {
+      params: { zoneId },
+      contextModule: "admin",
+    }),
+  updateDeliveryIncentiveSettings: (body) =>
+    apiClient.put("/food/admin/delivery-boy-commission/incentive", body ?? {}, {
+      contextModule: "admin",
+    }),
 
   /** Restaurant onboarding pricing rules (admin) */
   getOnboardingPricingBootstrap: () =>
@@ -1717,6 +1727,9 @@ export const restaurantAPI = {
   /** Public: approved foods for user category/search pages (zone + optional category slug) */
   getPublicFoods: (params = {}, config = {}) =>
     getPublicFoodsOnce(params, config),
+  /** Public: Eatiefy ₹99 section dishes — server returns only items selling at exactly ₹99 */
+  getEatiefy99Foods: (params = {}, config = {}) =>
+    apiClient.get("/food/restaurant/public/foods/eatiefy-99", { params, ...config }),
   /** Public (user app): approved add-ons by restaurant id/slug */
   getAddonsByRestaurantId: (id, config = {}) =>
     apiClient.get(`/food/restaurant/restaurants/${String(id)}/addons`, {

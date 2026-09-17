@@ -328,21 +328,31 @@ const buildMessagePayload = (payload = {}, token, { platform } = {}) => {
         message.data = data;
     }
 
-    const soundFile = payload.sound || 'default';
+    // `sound` may be a single name or per-platform ({ android, ios }): Android refers to
+    // a raw resource without extension, iOS to a bundled file with one.
+    const soundConfig = payload.sound && typeof payload.sound === 'object' ? payload.sound : null;
+    const androidSound = sanitizeString(soundConfig ? soundConfig.android : payload.sound) || 'default';
+    const iosSound = sanitizeString(soundConfig ? soundConfig.ios : payload.sound) || 'default';
+    // Order alerts must be readable on the lock screen and break through iOS Focus.
+    const isUrgent = payload.urgent === true;
+    if (isUrgent) data.urgent = 'true';
+    // Time-bound alerts (e.g. a rider offer) are pointless once expired, so callers may cap delivery.
+    const ttlSeconds = Number(payload.ttlSeconds) > 0 ? Math.round(Number(payload.ttlSeconds)) : 86400;
 
     message.android = {
         priority: 'high',
-        ttl: '86400s',
+        ttl: `${ttlSeconds}s`,
         ...(collapseKey ? { collapse_key: collapseKey } : {}),
         ...(isDataOnly
             ? {}
             : {
                 notification: {
                     channel_id: androidChannel,
-                    sound: soundFile,
+                    sound: androidSound,
                     default_vibrate_timings: true,
                     default_light_settings: true,
-                    notification_priority: 'PRIORITY_HIGH',
+                    notification_priority: isUrgent ? 'PRIORITY_MAX' : 'PRIORITY_HIGH',
+                    ...(isUrgent ? { visibility: 'PUBLIC' } : {}),
                     ...(tag ? { tag } : {}),
                     ...(image ? { image } : {}),
                 },
@@ -353,7 +363,7 @@ const buildMessagePayload = (payload = {}, token, { platform } = {}) => {
         headers: {
             'apns-priority': '10',
             'apns-push-type': isDataOnly ? 'background' : 'alert',
-            'apns-expiration': String(Math.floor(Date.now() / 1000) + 86400),
+            'apns-expiration': String(Math.floor(Date.now() / 1000) + ttlSeconds),
             ...(collapseKey ? { 'apns-collapse-id': collapseKey } : {}),
         },
         payload: {
@@ -366,10 +376,11 @@ const buildMessagePayload = (payload = {}, token, { platform } = {}) => {
                         title: notification.title,
                         body: notification.body,
                     },
-                    sound: soundFile,
+                    sound: iosSound,
                     badge: 1,
                     'content-available': 1,
                     'mutable-content': 1,
+                    ...(isUrgent ? { 'interruption-level': 'time-sensitive' } : {}),
                 },
         },
     };
@@ -393,7 +404,7 @@ const buildMessagePayload = (payload = {}, token, { platform } = {}) => {
     message.webpush = {
         headers: {
             Urgency: 'high',
-            TTL: '86400',
+            TTL: String(ttlSeconds),
             ...(collapseKey ? { Topic: collapseKey.replace(/[^a-zA-Z0-9-_.~%]/g, '_').slice(0, 32) } : {}),
         },
         // No `notification` here on purpose — see includeNotificationBlock above.
@@ -752,6 +763,18 @@ export const sendNotificationToOwners = async (targets = [], payload = {}) => {
     }
     return results;
 };
+
+/**
+ * Ringtone for new order / delivery request pushes. The OS plays it (the app may be
+ * closed or the screen locked), so it must name a sound bundled in the native app:
+ * a res/raw resource on Android (no extension) and a bundled file on iOS. Unset
+ * values fall back to the device default sound. Android 8+ also takes the sound
+ * from the notification channel the app registered for `channelId`.
+ */
+export const getNewOrderAlertSound = () => ({
+    android: sanitizeString(process.env.PUSH_NEW_ORDER_SOUND_ANDROID) || 'default',
+    ios: sanitizeString(process.env.PUSH_NEW_ORDER_SOUND_IOS) || 'default',
+});
 
 export const notifyAdminsSafely = async (payload = {}) => {
     try {

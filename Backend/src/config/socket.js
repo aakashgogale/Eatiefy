@@ -176,134 +176,57 @@ export const initSocket = async (server) => {
         // ─── Live Tracking Events ───────────────────────────────────────
 
         // Users / restaurants subscribe to an order's real-time tracking room.
-        socket.on('join-tracking', (orderId) => {
+        socket.on('join-tracking', async (orderId) => {
             if (!orderId) return;
             const role = socket.user?.role;
             if (role !== 'USER' && role !== 'RESTAURANT' && role !== 'DELIVERY_PARTNER') return;
-            const room = roomNames.tracking(orderId);
-            socket.join(room);
-            // logger.info(`Socket ${socket.id} (${role}:${userId}) joined tracking room ${room}`);
-            socket.emit('tracking-room-joined', { room, orderId: String(orderId) });
+            try {
+                const {
+                    resolveTrackableOrderForViewer,
+                    getLastKnownRiderLocation,
+                } = await import('../modules/food/delivery/services/riderLocation.service.js');
+
+                // Only the order's own customer, restaurant or assigned rider may watch it.
+                const order = await resolveTrackableOrderForViewer(orderId, { userId, role });
+                if (!order) {
+                    socket.emit('tracking-denied', { orderId: String(orderId) });
+                    return;
+                }
+
+                // Join under both identifiers so it does not matter which one the rider app publishes with.
+                const ids = [...new Set([String(orderId), String(order._id), order.order_id ? String(order.order_id) : ''].filter(Boolean))];
+                ids.forEach((id) => socket.join(roomNames.tracking(id)));
+                socket.emit('tracking-room-joined', { room: roomNames.tracking(orderId), orderId: String(orderId), orderStatus: order.orderStatus });
+
+                // Paint the bike immediately instead of waiting for the next GPS fix.
+                const lastKnown = await getLastKnownRiderLocation(order);
+                if (lastKnown) socket.emit('location-update', lastKnown);
+            } catch (err) {
+                logger.warn(`join-tracking failed for ${role}:${userId} order ${orderId}: ${err.message}`);
+            }
         });
 
-        // Delivery partner emits live GPS location for an active order.
-        // Broadcasts to the tracking room so users see the bike move in real time.
-        const _lastLocationBroadcast = {};
+        // Delivery partner emits live GPS. The server resolves which orders the rider is
+        // actually assigned to and publishes to all of them (tracking rooms, customer,
+        // restaurant, Realtime DB) — see riderLocation.service.js.
         socket.on('update-location', async (data) => {
             if (socket.user?.role !== 'DELIVERY_PARTNER') return;
-            if (!data || !data.orderId) return;
-
-            const lat = Number(data.lat);
-            const lng = Number(data.lng);
-            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-            if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
-
-            const heading = Number.isFinite(Number(data.heading)) ? Number(data.heading) : 0;
-            const speed = Number.isFinite(Number(data.speed)) ? Number(data.speed) : 0;
-            const accuracy = Number.isFinite(Number(data.accuracy)) ? Number(data.accuracy) : null;
-
-            // Throttle: max one broadcast per 2s per orderId
-            const now = Date.now();
-            const lastTS = _lastLocationBroadcast[data.orderId] || 0;
-            if (now - lastTS < 2000) return;
-            _lastLocationBroadcast[data.orderId] = now;
-
-            const payload = {
-                orderId: String(data.orderId),
-                deliveryPartnerId: String(userId),
-                lat,
-                lng,
-                boy_lat: lat, // Add boy_lat/lng for compatibility
-                boy_lng: lng,
-                riderLocation: [lat, lng], // Add array format for safety
-                heading,
-                speed,
-                accuracy,
-                timestamp: now
-            };
-
-            logDeliverySocket('Location update received', {
-                socketId: socket.id,
-                deliveryPartnerId: String(userId),
-                orderId: String(data.orderId),
-                lat,
-                lng,
-                status: data.status || 'on_the_way',
-            });
-
-            // Broadcast to tracking room (all users watching this order)
-            const trackingRoom = roomNames.tracking(data.orderId);
-            socket.to(trackingRoom).emit('location-update', payload);
-
-            // Also emit to the specific user room if userId is provided
-            if (data.userId) {
-                socket.to(roomNames.user(data.userId)).emit('location-update', payload);
-            }
-
-            if (data.restaurantId) {
-                socket.to(roomNames.restaurant(data.restaurantId)).emit('location-update', payload);
-            }
-
-            // ─── Scalable Persistence (BullMQ + Redis "Hot" Buffering) ───
+            if (!data) return;
             try {
-                const { getTrackingQueue } = await import('../queues/index.js');
-                const { getRedisClient } = await import('../config/redis.js');
-                const trackingQueue = getTrackingQueue();
-                const redis = getRedisClient();
-
-                if (trackingQueue && redis) {
-                    const coordString = JSON.stringify({ lat, lng, timestamp: now });
-                    
-                    // 1. Immediately buffer the newest location in high-speed Redis Hash (HOT storage)
-                    await Promise.all([
-                        redis.hSet('rider:locations:hot', String(userId), coordString),
-                        redis.hSet('order:locations:hot', String(data.orderId), coordString)
-                    ]);
-
-                    // 2. Schedule a deferred MongoDB write (COLD storage)
-                    // jobId debulks updates: if a job is already waiting, BullMQ ignores the new add()
-                    // Delay (30s) ensures we don't spam MongoDB while the rider is moving fast
-                    const syncJobId = `sync:loc:${data.orderId}`;
-                    trackingQueue.add('sync-hot-locations', 
-                        { userId, orderId: data.orderId }, 
-                        { jobId: syncJobId, delay: 30000, removeOnComplete: true }
-                    ).catch(e => logger.error(`BullMQ sync schedule failed: ${e.message}`));
-                }
+                const { publishRiderLocation } = await import('../modules/food/delivery/services/riderLocation.service.js');
+                await publishRiderLocation({
+                    deliveryPartnerId: userId,
+                    lat: data.lat,
+                    lng: data.lng,
+                    heading: data.heading,
+                    speed: data.speed,
+                    accuracy: data.accuracy,
+                    requestedOrderId: data.orderId || null,
+                    source: 'socket',
+                    excludeSocket: socket,
+                });
             } catch (err) {
-                logger.error(`Real-time persistence layer error: ${err.message}`);
-            }
-
-            // ─── Firebase Realtime Database Sync (Cost Optimization) ───
-            try {
-                const db = getFirebaseDB();
-                if (db) {
-                    // 1. Update order-specific tracking node
-                    const orderRef = db.ref(`active_orders/${data.orderId}`);
-                    orderRef.update({
-                        lat,
-                        lng,
-                        boy_lat: lat,
-                        boy_lng: lng,
-                        heading,
-                        speed,
-                        accuracy,
-                        last_updated: now,
-                        status: data.status || 'on_the_way'
-                    }).catch(e => logger.error(`Firebase orderRef update error: ${e.message}`));
-
-                    // 2. Update global delivery boy status node
-                    const boyRef = db.ref(`delivery_boys/${userId}`);
-                    boyRef.update({
-                        lat,
-                        lng,
-                        accuracy,
-                        last_updated: now,
-                        status: 'online'
-                    }).catch(e => logger.error(`Firebase boyRef update error: ${e.message}`));
-                }
-            } catch (err) {
-                // Silently skip if Firebase not initialized yet
-                logger.debug(`Firebase RTDB sync skipped: ${err.message}`);
+                logger.error(`update-location failed for ${userId}: ${err.message}`);
             }
         });
 

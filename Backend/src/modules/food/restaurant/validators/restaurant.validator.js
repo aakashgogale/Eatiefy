@@ -187,13 +187,9 @@ export const validateRestaurantRegisterDto = (body) => {
     const data = result.data;
     const openingMinutes = timeToMinutes(data.openingTime);
     const closingMinutes = timeToMinutes(data.closingTime);
-    if (openingMinutes !== null && closingMinutes !== null) {
-        if (openingMinutes === closingMinutes) {
-            throw new ValidationError('Opening time and closing time cannot be same');
-        }
-        if (closingMinutes < openingMinutes) {
-            throw new ValidationError('Closing time cannot be less than opening time');
-        }
+    // closing < opening is a valid overnight shift (closes next day); only identical times are rejected.
+    if (openingMinutes !== null && closingMinutes !== null && openingMinutes === closingMinutes) {
+        throw new ValidationError('Opening time and closing time cannot be same');
     }
     let foodType = data.foodType;
     if (!foodType) {

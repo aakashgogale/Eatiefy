@@ -153,6 +153,8 @@ export const useDeliveryStore = create(
     (set, get) => ({
       isOnline: false,
       riderLocation: null,
+      /** Last GPS problem ({ kind, title, description }) or null while fixes arrive. Not persisted. */
+      gpsError: null,
 
       newOrders: [],
       acceptedOrders: [],
@@ -178,6 +180,7 @@ export const useDeliveryStore = create(
           return next;
         });
       },
+      setGpsError: (gpsError) => set({ gpsError: gpsError || null }),
       setSettings: (newSettings) =>
         set((state) => ({
           settings: { ...state.settings, ...newSettings },
@@ -292,6 +295,7 @@ export const useDeliveryStore = create(
           focusedOrderId: null,
           capacity: defaultCapacity(),
           riderLocation: null,
+          gpsError: null,
           isOnline: false,
         }),
 

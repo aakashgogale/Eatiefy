@@ -1,5 +1,5 @@
 import { restaurantAPI } from "@food/api"
-import { timeStringToMinutes } from "@food/utils/outletHours"
+import { DAY_NAMES, getBusinessClock, getOperatingStatus } from "@food/utils/operatingHours"
 
 /**
  * One source of truth for "is this outlet online right now".
@@ -53,35 +53,41 @@ export const publishOnlineStatus = (isOnline) => {
 }
 
 /**
- * True when `now` falls inside the day's configured window.
- * A day marked closed, or with no window configured, is handled by the caller.
+ * True when `now` falls inside the weekly outlet timings, including an
+ * overnight shift that started the previous day (evaluated in IST).
+ * No timings at all means hours are not enforced.
  */
-export const isWithinOutletTimings = (dayTimings, now = new Date()) => {
-  if (!dayTimings) return true
-  if (dayTimings.isOpen === false) return false
-  if (!dayTimings.openingTime || !dayTimings.closingTime) return true
-
-  const opening = timeStringToMinutes(dayTimings.openingTime)
-  const closing = timeStringToMinutes(dayTimings.closingTime)
-  if (!Number.isFinite(opening) || !Number.isFinite(closing)) return true
-
-  const current = now.getHours() * 60 + now.getMinutes()
-  // A closing time earlier than the opening time means the window crosses midnight.
-  if (closing > opening) return current >= opening && current <= closing
-  return current >= opening || current <= closing
+export const isWithinOutletTimings = (outletTimings, now = new Date()) => {
+  if (!outletTimings) return true
+  return getOperatingStatus({ timings: outletTimings }, now).isOpen
 }
 
 export const getTodayTimings = (outletTimings, now = new Date()) => {
   if (!outletTimings) return null
-  const dayName = now.toLocaleDateString("en-US", { weekday: "long" })
-  return outletTimings[dayName] || null
+  return outletTimings[DAY_NAMES[getBusinessClock(now).dayIndex]] || null
 }
 
-/** Effective online state from the two stored inputs. */
-export const resolveOnlineStatus = ({ isAcceptingOrders, outletTimings } = {}, now = new Date()) => {
+/**
+ * Effective online state from the stored inputs. `operatingStatus` is the
+ * backend-computed state and wins; local evaluation is only the fallback.
+ */
+export const resolveOnlineStatus = (
+  { isAcceptingOrders, outletTimings, operatingStatus } = {},
+  now = new Date()
+) => {
   if (!isAcceptingOrders) return false
-  return isWithinOutletTimings(getTodayTimings(outletTimings, now), now)
+  if (typeof operatingStatus?.isOpen === "boolean") return operatingStatus.isOpen
+  return isWithinOutletTimings(outletTimings, now)
 }
+
+let lastKnownTransitionAt = null
+
+/**
+ * ISO instant when the outlet timings next flip open/closed (e.g. an overnight
+ * shift closing at 03:00), from the last authoritative read. Null when unknown
+ * or when hours are not enforced.
+ */
+export const getNextOperatingTransitionAt = () => lastKnownTransitionAt
 
 /**
  * Re-reads the authoritative state and publishes it.
@@ -102,14 +108,19 @@ export const fetchAuthoritativeOnlineStatus = async () => {
 
   const restaurant =
     profileRes.value?.data?.data?.restaurant || profileRes.value?.data?.restaurant || null
-  const outletTimings =
+  const timingsData =
     timingsRes.status === "fulfilled"
-      ? timingsRes.value?.data?.data?.outletTimings || timingsRes.value?.data?.outletTimings || null
+      ? timingsRes.value?.data?.data || timingsRes.value?.data || null
       : null
+
+  const operatingStatus = timingsData?.operatingStatus || null
+  lastKnownTransitionAt =
+    (operatingStatus?.isOpen ? operatingStatus.closesAt : operatingStatus?.opensAt) || null
 
   const isOnline = resolveOnlineStatus({
     isAcceptingOrders: restaurant?.isAcceptingOrders !== false && Boolean(restaurant),
-    outletTimings,
+    outletTimings: timingsData?.outletTimings || null,
+    operatingStatus,
   })
 
   return publishOnlineStatus(isOnline)

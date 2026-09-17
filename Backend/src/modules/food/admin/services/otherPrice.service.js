@@ -16,6 +16,8 @@ async function invalidateMenuCachesAfterPricingChange() {
       invalidateCache('restaurant_menu:*'),
       invalidateCache('restaurant_detail:*'),
       invalidateCache('search_unified:*'),
+      // Eatiefy ₹99 section eligibility depends on the marked-up selling price.
+      invalidateCache('under_250:*'),
     ]);
   } catch {
     // Cache invalidation must never block pricing writes

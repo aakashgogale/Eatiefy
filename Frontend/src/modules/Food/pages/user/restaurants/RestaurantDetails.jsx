@@ -964,8 +964,8 @@ function RestaurantDetailsContent() {
               ? actualRestaurant.openDays
               : (Array.isArray(apiRestaurant?.openDays) ? apiRestaurant.openDays : (Array.isArray(onboardingStep2?.openDays) ? onboardingStep2.openDays : [])),
             deliveryTimings: actualRestaurant?.deliveryTimings || apiRestaurant?.deliveryTimings || {
-              openingTime: actualRestaurant?.openingTime || apiRestaurant?.openingTime || onboardingStep2?.deliveryTimings?.openingTime || "09:00",
-              closingTime: actualRestaurant?.closingTime || apiRestaurant?.closingTime || onboardingStep2?.deliveryTimings?.closingTime || "22:00",
+              openingTime: actualRestaurant?.openingTime || apiRestaurant?.openingTime || onboardingStep2?.deliveryTimings?.openingTime || "",
+              closingTime: actualRestaurant?.closingTime || apiRestaurant?.closingTime || onboardingStep2?.deliveryTimings?.closingTime || "",
             },
             outletTimings: actualRestaurant?.outletTimings || apiRestaurant?.outletTimings || null,
             cuisines: Array.isArray(actualRestaurant?.cuisines) ? actualRestaurant.cuisines : (Array.isArray(apiRestaurant?.cuisines) ? apiRestaurant.cuisines : (Array.isArray(onboardingStep2?.cuisines) ? onboardingStep2.cuisines : [])),
@@ -1974,16 +1974,20 @@ function RestaurantDetailsContent() {
     return Math.max(0, item.price || 0);
   };
 
+  // Eatiefy ₹99 section cap — mirrors the backend rule (selling price, cheapest variant).
+  const EATIEFY_99_PRICE = 99;
+  const isWithinEatiefy99 = (item) => {
+    const price = hasFoodVariants(item) ? getFoodDisplayPrice(item) : getFinalPrice(item);
+    return price > 0 && price <= EATIEFY_99_PRICE;
+  };
+
   // Filter menu items based on active filters
   const filterMenuItems = (items) => {
     if (!items) return items
 
     return items.filter((item) => {
-      // Under 250 filter (when coming from Under 250 page)
-      if (showOnlyUnder250) {
-        const finalPrice = getFinalPrice(item);
-        if (finalPrice > 250) return false;
-      }
+      // ₹99 filter (when coming from the Eatiefy ₹99 page)
+      if (showOnlyUnder250 && !isWithinEatiefy99(item)) return false;
 
       // Search filter
       if (searchQuery.trim()) {
@@ -2052,7 +2056,7 @@ function RestaurantDetailsContent() {
     return null
   }
 
-  // Helper function to check if a section has any items under Rs 250
+  // Helper function to check if a section has any items at ₹99 or below
   const sectionHasItemsUnder250 = (section) => {
     if (!showOnlyUnder250) return true; // If not filtering, show all sections
 
@@ -2060,8 +2064,7 @@ function RestaurantDetailsContent() {
     if (section.items && section.items.length > 0) {
       const hasUnder250Items = section.items.some(item => {
         if (item.isAvailable === false) return false;
-        const finalPrice = getFinalPrice(item);
-        return finalPrice <= 250;
+        return isWithinEatiefy99(item);
       });
       if (hasUnder250Items) return true;
     }
@@ -2072,8 +2075,7 @@ function RestaurantDetailsContent() {
         if (subsection.items && subsection.items.length > 0) {
           const hasUnder250Items = subsection.items.some(item => {
             if (item.isAvailable === false) return false;
-            const finalPrice = getFinalPrice(item);
-            return finalPrice <= 250;
+            return isWithinEatiefy99(item);
           });
           if (hasUnder250Items) return true;
         }

@@ -490,6 +490,26 @@ export const updateDeliveryAvailability = async (userId, payload) => {
         partner.lastLocationAt = new Date();
     }
     await partner.save();
+
+    // The HTTP heartbeat is also a live-tracking transport: when the rider app is
+    // backgrounded its socket drops, and the customer's bike used to freeze.
+    if (typeof latitude === 'number' && typeof longitude === 'number') {
+        try {
+            const { publishRiderLocation } = await import('./riderLocation.service.js');
+            await publishRiderLocation({
+                deliveryPartnerId: userId,
+                lat: latitude,
+                lng: longitude,
+                heading: payload?.heading,
+                speed: payload?.speed,
+                accuracy: payload?.accuracy,
+                source: 'http',
+            });
+        } catch (err) {
+            logger.warn(`[RiderLocation] HTTP publish failed for ${userId}: ${err?.message || err}`);
+        }
+    }
+
     return { availabilityStatus: partner.availabilityStatus };
 };
 
@@ -818,6 +838,10 @@ const toTripDto = (order) => {
     deliveryEarning: earningAmount,
     earningAmount: earningAmount,
     amount: earningAmount, // legacy fallback
+    baseEarningAmount:
+      order?.riderBaseEarning != null ? Number(order.riderBaseEarning) || 0 : earningAmount,
+    eatiefyIncentiveAmount: Number(order?.eatiefyIncentive?.amount || 0) || 0,
+    eatiefyIncentivePercent: Number(order?.eatiefyIncentive?.percent || 0) || 0,
     createdAt: order?.createdAt,
     deliveredAt: deliveredAt,
     completedAt: deliveredAt,

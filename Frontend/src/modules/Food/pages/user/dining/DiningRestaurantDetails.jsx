@@ -21,6 +21,7 @@ import {
 } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { toast } from "sonner"
+import { getOperatingStatus } from "@food/utils/operatingHours"
 
 const formatAddress = (restaurant) =>
   restaurant?.location?.addressLine1 ||
@@ -316,34 +317,15 @@ export default function DiningRestaurantDetails() {
   const openingTime = formatTimeLabel(rawOpeningTime)
   const closingTime = formatTimeLabel(rawClosingTime)
 
-  const isOpenNow = (() => {
-    if (todayTiming?.isOpen === false) return false
-    const parseMin = (val) => {
-      if (!val) return null
-      const raw = String(val).trim()
-      // HH:MM 24h format
-      const hhmm = raw.match(/^(\d{1,2}):(\d{2})$/)
-      if (hhmm) return Number(hhmm[1]) * 60 + Number(hhmm[2])
-      // 12h AM/PM format e.g. "1:00 AM", "11:30 PM"
-      const ampm = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i)
-      if (ampm) {
-        let h = Number(ampm[1])
-        const m = Number(ampm[2] || 0)
-        const period = ampm[3].toUpperCase()
-        if (period === 'PM' && h !== 12) h += 12
-        if (period === 'AM' && h === 12) h = 0
-        return h * 60 + m
-      }
-      return null
-    }
-    const now = new Date()
-    const cur = now.getHours() * 60 + now.getMinutes()
-    const open = parseMin(rawOpeningTime)
-    let close = parseMin(rawClosingTime)
-    if (open === null || close === null) return true
-    if (close <= open) close += 24 * 60
-    return cur >= open && cur <= close
-  })()
+  // Shared engine: honours overnight shifts carried over from yesterday, evaluated in IST.
+  const isOpenNow = getOperatingStatus({
+    timings: outletTimings,
+    restaurant: {
+      openingTime: restaurant?.openingTime || restaurant?.diningSettings?.openingTime,
+      closingTime: restaurant?.closingTime || restaurant?.diningSettings?.closingTime,
+      openDays: restaurant?.openDays,
+    },
+  }).isOpen
   const isDiningEnabled = restaurant?.diningSettings?.isEnabled !== false
   const topTabs = [
     { id: "menu", label: "Menu", target: "restaurant-menu" },
