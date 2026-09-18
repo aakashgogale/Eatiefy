@@ -32,6 +32,7 @@ import {
     listCategoriesController,
     createCategoryController,
     updateCategoryController,
+    setCategoryActiveController,
     deleteCategoryController
 } from '../controllers/restaurantCategory.controller.js';
 import { getMenuController, updateMenuController, getPublicRestaurantMenuController } from '../controllers/restaurantMenu.controller.js';
@@ -244,8 +245,13 @@ router.post('/categories', authMiddleware, requireApprovedRestaurant, async (req
     await invalidateFoodBrowseCaches(['categories', 'search']);
     next();
 }, createCategoryController);
+// On/off must reach every customer surface that lists dishes, not just category lists.
+router.patch('/categories/:id/status', authMiddleware, requireApprovedRestaurant, async (req, res, next) => {
+    await invalidateFoodBrowseCaches(['categories', 'search', 'restaurant_menu', 'restaurant_detail', 'restaurants', 'public_foods', 'under_250']);
+    next();
+}, setCategoryActiveController);
 router.patch('/categories/:id', authMiddleware, requireApprovedRestaurant, async (req, res, next) => {
-    await invalidateFoodBrowseCaches(['categories', 'search']);
+    await invalidateFoodBrowseCaches(['categories', 'search', 'restaurant_menu', 'restaurant_detail', 'restaurants', 'public_foods', 'under_250']);
     next();
 }, updateCategoryController);
 router.delete('/categories/:id', authMiddleware, requireApprovedRestaurant, async (req, res, next) => {

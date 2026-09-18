@@ -1221,6 +1221,18 @@ function SearchResults({ query, results, isLoading, onSelectOrder, onVerifyTakea
 const isTakeawayOrder = (order) =>
   String(order?.orderType || order?.type || "").toLowerCase() === "takeaway";
 
+/**
+ * True while an order is still waiting for the restaurant to accept or reject.
+ * `restaurantAPI.getOrders` maps the backend "created" to "confirmed" in
+ * `status` for the UI tabs, so the raw backend `orderStatus` decides.
+ */
+const isAwaitingRestaurantDecision = (order) => {
+  const raw = String(order?.orderStatus || "").toLowerCase();
+  if (raw) return raw === "created" || raw === "pending";
+  const ui = String(order?.status || "").toLowerCase();
+  return ui === "created" || ui === "pending";
+};
+
 /** Fallback accept window when admin settings are missing or unreachable. */
 const DEFAULT_ACCEPT_ORDER_TIMEOUT_SECONDS = 10 * 60;
 
@@ -1425,24 +1437,26 @@ function OrdersMainInner() {
     takeawayAcceptOrderTimeoutSeconds,
   ]);
 
-  // Trigger sound alert when any unmuted order exists in active popup or queue
+  // Ring while any unmuted order is waiting: in the popup, just arrived, or queued.
+  // This used to stop the ringtone whenever the popup was not yet open - the
+  // socket started it, then this effect killed it during the 800ms before the
+  // popup appeared, so the alert started late and choppy (and not at all on
+  // devices that block the second autoplay attempt).
   useEffect(() => {
-    if (!showNewOrderPopup) {
-      if (stopSound) stopSound();
-      return;
-    }
-
-    const activeOrder = popupOrder || newOrder;
+    // A cancelled order (shown briefly as "cancelled" in the popup) never rings.
+    const canRing = (order) =>
+      Boolean(order) && !isAnyCancelledStatus(order?.orderStatus || order?.status);
+    const activeOrder = showNewOrderPopup ? popupOrder || newOrder : newOrder;
     const activeId = resolveOrderActionId(activeOrder);
     
     let soundingOrder = null;
-    if (activeOrder && activeId && !mutedOrderIds.has(activeId)) {
+    if (canRing(activeOrder) && activeId && !mutedOrderIds.has(activeId)) {
       soundingOrder = activeOrder;
     } else {
       // Find first unmuted order in queue
       for (const order of orderQueue) {
         const oid = resolveOrderActionId(order);
-        if (oid && !mutedOrderIds.has(oid)) {
+        if (canRing(order) && oid && !mutedOrderIds.has(oid)) {
           soundingOrder = order;
           break;
         }
@@ -2035,13 +2049,13 @@ function OrdersMainInner() {
             if (inQueue) return false;
 
             /*
-             * A new order waiting for the restaurant is "created". This used to
-             * look for "confirmed" - an order that was ALREADY accepted - so after
-             * a reload accepted orders popped up again and their countdown could
-             * auto-reject them, while genuinely new ones relied on the socket alone.
+             * Only orders still waiting for this restaurant's decision. The orders
+             * API rewrites the backend "created" to "confirmed" in `status` for the
+             * tabs, so read the raw backend `orderStatus`: "created" is a new order,
+             * while a raw "confirmed" is one that was already accepted and must
+             * never pop up (or be auto-rejected) again.
              */
-            const status = String(order.status || order.orderStatus || "").toLowerCase();
-            if (status !== "created" && status !== "pending") return false;
+            if (!isAwaitingRestaurantDecision(order)) return false;
             if (String(order.orderType || "").toLowerCase() === "dining") return false;
 
             // Already past its accept window: the server auto-rejects it.

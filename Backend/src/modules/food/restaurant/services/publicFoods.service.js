@@ -3,6 +3,7 @@ import { buildZoneServiceabilityClause, resolveServiceZone } from '../../shared/
 import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodRestaurant } from '../models/restaurant.model.js';
 import { getFoodDisplayOtherPrice, getFoodDisplayPrice } from '../../admin/services/foodVariant.service.js';
+import { withActiveCategoryFilter } from '../../shared/inactiveCategories.js';
 import { EATIEFY_99_PRICE, buildEatiefy99CandidateFilter, selectEatiefy99Foods } from '../utils/eatiefy99.js';
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -85,6 +86,8 @@ export async function listPublicFoods(query = {}) {
         // Narrow at the database; both $or clauses must hold, so combine with $and.
         foodFilter.$and = [buildEatiefy99CandidateFilter()];
     }
+
+    await withActiveCategoryFilter(foodFilter);
 
     let list = await FoodItem.find(foodFilter)
         .sort({ createdAt: -1 })

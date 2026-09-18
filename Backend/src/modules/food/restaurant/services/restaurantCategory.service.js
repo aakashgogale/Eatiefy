@@ -3,6 +3,7 @@ import { ValidationError } from '../../../../core/auth/errors.js';
 import { FoodCategory } from '../../admin/models/category.model.js';
 import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodRestaurant } from '../models/restaurant.model.js';
+import { invalidateInactiveCategoryCache } from '../../shared/inactiveCategories.js';
 import {
     backfillLegacyCategoryWorkflow,
     GLOBAL_CATEGORY_FILTER,
@@ -375,15 +376,50 @@ export async function updateRestaurantCategory(restaurantId, id, body = {}) {
     }
 
     doc.createdByRestaurantId = doc.createdByRestaurantId || context.restaurantId;
-    doc.approvalStatus = 'pending';
-    doc.isApproved = false;
-    doc.rejectionReason = '';
-    doc.requestedAt = new Date();
-    doc.approvedAt = undefined;
-    doc.rejectedAt = undefined;
 
+    // Only a change admins review (name, image, type, diet scope, order) sends the
+    // category back for approval. Switching it on/off is the restaurant's own
+    // availability decision and used to wrongly reset an approved category.
+    const reviewedFields = ['name', 'image', 'type', 'foodTypeScope', 'sortOrder'];
+    const needsReapproval = reviewedFields.some((field) => doc.isModified(field));
+    if (needsReapproval) {
+        doc.approvalStatus = 'pending';
+        doc.isApproved = false;
+        doc.rejectionReason = '';
+        doc.requestedAt = new Date();
+        doc.approvedAt = undefined;
+        doc.rejectedAt = undefined;
+    }
+
+    const activeChanged = doc.isModified('isActive');
     await doc.save();
+    if (activeChanged) invalidateInactiveCategoryCache();
     return doc.toObject();
+}
+
+/**
+ * Switches one of the restaurant's own categories on or off. Its dishes are
+ * hidden from (or returned to) the customer menu, search and cart immediately;
+ * approval status is left untouched.
+ */
+export async function setRestaurantCategoryActive(restaurantId, id, isActive) {
+    const context = await getRestaurantContext(restaurantId);
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        throw new ValidationError('Invalid category id');
+    }
+    if (typeof isActive !== 'boolean') {
+        throw new ValidationError('isActive must be true or false');
+    }
+
+    const doc = await FoodCategory.findOneAndUpdate(
+        { _id: id, restaurantId: context.restaurantId },
+        { $set: { isActive } },
+        { new: true },
+    ).lean();
+    if (!doc) return null;
+
+    invalidateInactiveCategoryCache();
+    return doc;
 }
 
 export async function deleteRestaurantCategory(restaurantId, id) {

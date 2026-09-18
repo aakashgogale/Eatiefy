@@ -26,6 +26,7 @@ import { isRestaurantOnboardingPaymentEnabled } from '../../admin/services/modul
 import { FoodOrder } from '../../orders/models/order.model.js';
 import { FoodRestaurantOutletTimings } from '../models/outletTimings.model.js';
 import { EATIEFY_99_PRICE, buildEatiefy99CandidateFilter, selectEatiefy99Foods } from '../utils/eatiefy99.js';
+import { buildActiveCategoryFoodClause, withActiveCategoryFilter } from '../../shared/inactiveCategories.js';
 import { seedOutletTimingsForRestaurant } from './outletTimings.service.js';
 import { logger } from '../../../../utils/logger.js';
 import { fetchDrivingDistancesKmBatch, fetchDrivingDistanceKm } from '../../orders/utils/googleMaps.js';
@@ -1834,12 +1835,15 @@ export const listApprovedRestaurants = async (query = {}) => {
         recommendedFilter.foodType = { $nin: ['Veg', 'Vegan'] };
     }
 
+    const activeCategoryClause = await buildActiveCategoryFoodClause();
+    if (activeCategoryClause) recommendedFilter.$and = [activeCategoryClause];
+
     const allRecommended = await FoodItem.find(recommendedFilter)
         .select('restaurantId name price image foodType variants variations').lean();
 
     // Count total approved menu items per restaurant (to detect empty-menu restaurants)
     const menuCounts = await FoodItem.aggregate([
-        { $match: { restaurantId: { $in: restaurantIds }, isAvailable: true, approvalStatus: 'approved' } },
+        { $match: { restaurantId: { $in: restaurantIds }, isAvailable: true, approvalStatus: 'approved', ...(activeCategoryClause || {}) } },
         { $group: { _id: '$restaurantId', count: { $sum: 1 } } }
     ]);
     const menuCountMap = menuCounts.reduce((acc, entry) => {
@@ -2134,13 +2138,13 @@ export const listRestaurantsUnderPriceLimit = async (query = {}) => {
     const attachItemsForRestaurants = async (restaurantsBatch) => {
         if (!restaurantsBatch.length) return [];
         const ids = restaurantsBatch.map((r) => r._id);
-        const candidates = await FoodItem.find({
+        const candidates = await FoodItem.find(await withActiveCategoryFilter({
             restaurantId: { $in: ids },
             ...buildEatiefy99CandidateFilter(),
             // `$ne: false` keeps legacy items that never had the flag set.
             isAvailable: { $ne: false },
             approvalStatus: 'approved',
-        })
+        }))
             .select(
                 'restaurantId name price image foodType description isVeg isRecommended categoryName categoryId category variants preparationTime',
             )

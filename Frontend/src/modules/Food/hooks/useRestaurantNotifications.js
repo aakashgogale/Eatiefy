@@ -872,6 +872,21 @@ export const useRestaurantNotifications = () => {
         dispatchNotificationInboxRefresh();
       }
 
+      // Cancelled (by customer, restaurant, admin or the accept timeout): it must
+      // stop ringing now and never ring again, on every screen.
+      if (status.includes('cancel')) {
+        const cancelledIds = getOrderIdVariants(data || {});
+        cancelledIds.forEach((id) => processedOrderIds.add(id));
+        saveProcessedOrderIds();
+        forgetAlertStart(data);
+        const activeIds = globalActiveOrder ? getOrderIdVariants(globalActiveOrder) : [];
+        if (activeIds.some((id) => cancelledIds.includes(id))) {
+          stopGlobalAlertLoop();
+          globalActiveOrder = null;
+          updateGlobalState({ activeOrder: null });
+        }
+      }
+
       if (status === 'cancelled_by_admin') {
         toast.error(`Order ${friendlyOrderId} Rejected By Admin`, {
           duration: 6000,
@@ -926,6 +941,10 @@ export const useRestaurantNotifications = () => {
         }
 
         await refreshAcceptWindowSettings();
+        // Orders responses can be a few seconds old (short client cache). Remember
+        // when this snapshot was requested so it is never used to silence an
+        // alert for an order that arrived after it was taken.
+        const requestedAt = Date.now();
         const response = await restaurantAPI.getOrders({ page: 1, limit: 30 });
         const rows = response?.data?.data?.orders || response?.data?.data?.data?.orders || [];
         const now = Date.now();
@@ -933,7 +952,11 @@ export const useRestaurantNotifications = () => {
         // Orders still waiting for this restaurant's decision, oldest first.
         const pending = (rows || [])
           .filter((o) => {
-            const status = String(o?.status || o?.orderStatus || "").toLowerCase();
+            // The orders API maps backend "created" to "confirmed" in `status`
+            // for the UI tabs; the raw backend `orderStatus` is what counts here.
+            // Reading `status` meant no order ever looked pending, so every poll
+            // silenced the ringtone a few seconds after it started.
+            const status = String(o?.orderStatus || o?.status || "").toLowerCase();
             if (status !== "created" && status !== "pending") return false;
             if (isProcessedOrder(o)) return false;
 
@@ -953,8 +976,11 @@ export const useRestaurantNotifications = () => {
 
         if (pending.length === 0) {
           // Nothing left to answer: silence any alert for an order that was
-          // handled or expired while this device missed the socket event.
-          if (globalActiveOrder) {
+          // handled or expired while this device missed the socket event - but
+          // only if that alert started well before this snapshot was requested.
+          const alertPredatesSnapshot =
+            globalAlertLoopStartedAt > 0 && globalAlertLoopStartedAt < requestedAt - 5000;
+          if (globalActiveOrder && (alertPredatesSnapshot || !globalAlertLoopTimer)) {
             globalActiveOrder = null;
             updateGlobalState({ activeOrder: null });
             stopGlobalAlertLoop();

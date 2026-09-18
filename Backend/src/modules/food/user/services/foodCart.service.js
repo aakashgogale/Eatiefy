@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { FoodCart } from '../models/foodCart.model.js';
 import { FoodItem } from '../../admin/models/food.model.js';
+import { getInactiveCategoryIds, isFoodCategoryInactive } from '../../shared/inactiveCategories.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
 import {
@@ -41,6 +42,7 @@ async function loadItemDoc(itemId) {
     .select('restaurantId name price otherPrice priceOnOtherPlatforms image images foodType isAvailable approvalStatus variants categoryId categoryName')
     .lean();
   if (!item) throw new NotFoundError('Item not found');
+  item.categoryInactive = await isFoodCategoryInactive(item);
   return item;
 }
 
@@ -135,7 +137,7 @@ function assertItemSellable(itemDoc) {
   if (itemDoc.approvalStatus !== 'approved') {
     throw new ValidationError('Item is not available');
   }
-  if (itemDoc.isAvailable === false) {
+  if (itemDoc.isAvailable === false || itemDoc.categoryInactive) {
     throw new ValidationError('Item is currently unavailable');
   }
 }
@@ -193,6 +195,7 @@ export async function hydrateFoodCart(cartDoc) {
       .lean();
   }
 
+  const { idSet: inactiveCategoryIds } = await getInactiveCategoryIds();
   const keep = [];
   const removedUnavailable = [];
   const hydrated = [];
@@ -206,7 +209,12 @@ export async function hydrateFoodCart(cartDoc) {
   for (const line of rawItems) {
     const doc = docMap.get(String(line.itemId));
     const lineId = String(line._id);
-    if (!doc || doc.approvalStatus !== 'approved' || doc.isAvailable === false) {
+    if (
+      !doc ||
+      doc.approvalStatus !== 'approved' ||
+      doc.isAvailable === false ||
+      (doc.categoryId && inactiveCategoryIds.has(String(doc.categoryId)))
+    ) {
       removedUnavailable.push({
         id: lineId,
         itemId: String(line.itemId),

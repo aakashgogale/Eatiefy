@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { FoodItem } from '../../admin/models/food.model.js';
+import { getInactiveCategoryIds } from '../../shared/inactiveCategories.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import {
   applyOtherPriceToFood,
@@ -28,7 +29,7 @@ export async function enforceMinimumFoodItemPrices(items = [], restaurantId = nu
   const foodDocs = validIds.length
     ? await FoodItem.find({ _id: { $in: validIds } })
         .select(
-          'restaurantId price otherPrice priceOnOtherPlatforms variants approvalStatus isAvailable name image foodType',
+          'restaurantId price otherPrice priceOnOtherPlatforms variants approvalStatus isAvailable name image foodType categoryId',
         )
         .lean()
     : [];
@@ -48,6 +49,7 @@ export async function enforceMinimumFoodItemPrices(items = [], restaurantId = nu
   });
 
   const expectedRestaurantId = restaurantId ? String(restaurantId) : null;
+  const { idSet: inactiveCategoryIds } = await getInactiveCategoryIds();
 
   for (const item of foodItems) {
     const label = item.name || 'This item';
@@ -55,7 +57,11 @@ export async function enforceMinimumFoodItemPrices(items = [], restaurantId = nu
     if (!doc) {
       throw new ValidationError(`"${label}" is no longer available. Please refresh your cart.`);
     }
-    if (doc.approvalStatus !== 'approved' || doc.isAvailable === false) {
+    if (
+      doc.approvalStatus !== 'approved' ||
+      doc.isAvailable === false ||
+      (doc.categoryId && inactiveCategoryIds.has(String(doc.categoryId)))
+    ) {
       throw new ValidationError(`"${label}" is currently unavailable. Please refresh your cart.`);
     }
 

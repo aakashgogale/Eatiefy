@@ -86,7 +86,15 @@ const inputClass =
  * by the backend at checkout, and historical payments keep their own price snapshot.
  */
 export default function OnboardingPricing() {
-  const [tab, setTab] = useState("pricing")
+  // Deep link support, e.g. the dashboard's Onboarding Earning box opens ?tab=payments.
+  const [tab, setTab] = useState(() => {
+    try {
+      const requested = new URLSearchParams(window.location.search).get("tab")
+      return ["pricing", "offers", "payments"].includes(requested) ? requested : "pricing"
+    } catch {
+      return "pricing"
+    }
+  })
   const [bootstrap, setBootstrap] = useState({ restaurantTypes: [], zones: [] })
   const [rules, setRules] = useState([])
   const [offers, setOffers] = useState([])

@@ -23,7 +23,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import { Activity, ArrowUpRight, ShoppingBag, CreditCard, Truck, Receipt, DollarSign, Store, UserCheck, Package, UserCircle, Clock, CheckCircle, Plus, XCircle, IndianRupee } from "lucide-react"
+import { Activity, ArrowUpRight, ShoppingBag, CreditCard, Truck, Receipt, DollarSign, Store, UserCheck, Package, UserCircle, Clock, CheckCircle, Plus, XCircle, IndianRupee, ClipboardCheck } from "lucide-react"
 import { adminAPI } from "@food/api"
 const debugLog = () => {}
 const debugError = () => {}
@@ -150,6 +150,9 @@ export default function AdminHome() {
   const deliveryBoyEarningTotal =
     dashboardData?.deliveryBoyEarning ?? dashboardData?.riderEarnings?.total ?? 0
   const restaurantEarningTotal = dashboardData?.restaurantEarning || 0
+  const onboardingEarningTotal = Number(dashboardData?.onboardingEarning?.total || 0)
+  const onboardingPaymentsCount = Number(dashboardData?.onboardingEarning?.payments || 0)
+  const onboardingDiscount = Number(dashboardData?.onboardingEarning?.discount || 0)
   const commissionTotal = dashboardData?.commission?.total || 0
   const ordersTotal = dashboardData?.orders?.total || 0
   const platformFeeTotal = dashboardData?.platformFee?.total || 0
@@ -160,6 +163,19 @@ export default function AdminHome() {
   // Additional stats
   const totalRestaurants = dashboardData?.restaurants?.total || 0
   const pendingRestaurantRequests = dashboardData?.restaurants?.pendingRequests || 0
+  // Every restaurant that completed signup in the selected zone/period (not deleted).
+  const onboarded = dashboardData?.restaurants?.onboarded || {}
+  const restaurantsOnboardedTotal = Number(onboarded.total || 0)
+  const onboardedBreakdown = [
+    [onboarded.live, "live"],
+    [onboarded.inReview, "in review"],
+    [onboarded.paymentPending, "payment pending"],
+    [onboarded.rejected, "rejected"],
+    [onboarded.banned, "banned"],
+  ]
+    .filter(([count]) => Number(count) > 0)
+    .map(([count, label]) => `${Number(count).toLocaleString("en-IN")} ${label}`)
+    .join(" · ")
   const totalDeliveryBoys = dashboardData?.deliveryBoys?.total || 0
   const pendingDeliveryBoyRequests = dashboardData?.deliveryBoys?.pendingRequests || 0
   const totalFoods = dashboardData?.foods?.total || 0
@@ -424,6 +440,32 @@ export default function AdminHome() {
               icon={<Store className="h-5 w-5 text-lime-600" />}
               accent="bg-lime-200/40"
               path="/admin/food/transaction-report"
+              loading={isLoading}
+            />
+            <MetricCard
+              title="Restaurants Onboarded"
+              value={restaurantsOnboardedTotal.toLocaleString("en-IN")}
+              helper={
+                onboardedBreakdown
+                  ? `${periodLabel} signups: ${onboardedBreakdown}`
+                  : `No restaurant signups: ${periodLabel.toLowerCase()}`
+              }
+              icon={<ClipboardCheck className="h-5 w-5 text-teal-600" />}
+              accent="bg-teal-200/40"
+              path="/admin/food/restaurants"
+              loading={isLoading}
+            />
+            <MetricCard
+              title="Onboarding Earning"
+              value={formatCurrency(onboardingEarningTotal, { maximumFractionDigits: 2 })}
+              helper={
+                onboardingPaymentsCount > 0
+                  ? `${periodLabel} onboarding fees from ${onboardingPaymentsCount.toLocaleString("en-IN")} paid restaurant${onboardingPaymentsCount === 1 ? "" : "s"}${onboardingDiscount > 0 ? ` · ${formatCurrency(onboardingDiscount)} offer discount` : ""}`
+                  : `No onboarding fees collected: ${periodLabel.toLowerCase()}`
+              }
+              icon={<IndianRupee className="h-5 w-5 text-cyan-700" />}
+              accent="bg-cyan-200/40"
+              path="/admin/food/onboarding-pricing?tab=payments"
               loading={isLoading}
             />
           </div>

@@ -1354,6 +1354,11 @@ export const restaurantAPI = {
     apiClient.patch(`/food/restaurant/categories/${String(id)}`, body ?? {}, {
       contextModule: "restaurant",
     }),
+  /** Turn a category on/off. Hides or shows its dishes for customers; no re-approval. */
+  setCategoryActive: (id, isActive) =>
+    apiClient.patch(`/food/restaurant/categories/${String(id)}/status`, { isActive: Boolean(isActive) }, {
+      contextModule: "restaurant",
+    }),
   deleteCategory: (id) =>
     apiClient.delete(`/food/restaurant/categories/${String(id)}`, {
       contextModule: "restaurant",

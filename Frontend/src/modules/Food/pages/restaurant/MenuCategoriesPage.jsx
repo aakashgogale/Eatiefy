@@ -12,8 +12,6 @@ import {
   Loader2,
   Plus,
   RefreshCw,
-  ToggleLeft,
-  ToggleRight,
   Trash2,
   Upload,
   X,
@@ -63,6 +61,8 @@ export default function MenuCategoriesPage() {
   const [isPhotoPickerOpen, setIsPhotoPickerOpen] = useState(false)
   const [viewingCategory, setViewingCategory] = useState(null)
   const [loadError, setLoadError] = useState("")
+  // Category ids whose on/off switch is saving, so a double tap cannot race.
+  const [togglingIds, setTogglingIds] = useState(() => new Set())
   const fileInputRef = useRef(null)
   const refreshInFlightRef = useRef(false)
   // Keeps the create/edit sheet above the on-screen keyboard.
@@ -294,19 +294,61 @@ export default function MenuCategoriesPage() {
     }
   }
 
+  /**
+   * Turns a category on or off.
+   *
+   * This used to go through the full edit endpoint, which always sent the
+   * category back for admin approval and never hid anything from customers, so
+   * the switch looked like it did nothing. It now uses a dedicated status call:
+   * the switch flips instantly, rolls back if the save fails, keeps the approval
+   * status, and the category's dishes disappear from / return to the customer
+   * menu, search and cart.
+   */
   const handleToggleActive = async (category) => {
+    const categoryId = String(category?._id || category?.id || "")
+    if (!categoryId) return
     if (!category?.canEdit) {
       toast.error("Admin controls this category now")
       return
     }
+    if (togglingIds.has(categoryId)) return
+
+    const nextActive = category?.isActive === false
+    const applyActive = (value) =>
+      setCategories((prev) =>
+        prev.map((item) =>
+          String(item?._id || item?.id || "") === categoryId
+            ? { ...item, isActive: value, status: value }
+            : item,
+        ),
+      )
+
+    setTogglingIds((prev) => new Set(prev).add(categoryId))
+    applyActive(nextActive)
     try {
-      await restaurantAPI.updateCategory(category._id || category.id, {
-        isActive: !(category?.isActive !== false),
-      })
-      toast.success("Category updated and sent for admin approval")
-      fetchCategories()
+      const response = await restaurantAPI.setCategoryActive(categoryId, nextActive)
+      const saved = response?.data?.data?.category
+      if (saved) {
+        setCategories((prev) =>
+          prev.map((item) =>
+            String(item?._id || item?.id || "") === categoryId ? { ...item, ...saved } : item,
+          ),
+        )
+      }
+      toast.success(
+        nextActive
+          ? `"${category.name}" is on. Its dishes are visible to customers.`
+          : `"${category.name}" is off. Its dishes are hidden from customers.`,
+      )
     } catch (error) {
-      toast.error(error?.response?.data?.message || "Failed to update category")
+      applyActive(!nextActive)
+      toast.error(error?.response?.data?.message || "Could not update category. Please try again.")
+    } finally {
+      setTogglingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(categoryId)
+        return next
+      })
     }
   }
 
@@ -386,12 +428,15 @@ export default function MenuCategoriesPage() {
               const status = String(category?.approvalStatus || "pending")
               const isEditable = category?.canEdit
               const isGlobal = category?.isGlobal
+              const categoryKey = String(category?._id || category?.id || "")
+              const isOn = category?.isActive !== false
+              const isToggling = togglingIds.has(categoryKey)
 
               return (
                 <motion.div
                   key={category._id || category.id}
                   layout
-                  className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                  className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-opacity ${isOn ? "" : "opacity-75"}`}
                 >
                   <div className="flex gap-3">
                     <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-slate-100">
@@ -414,6 +459,11 @@ export default function MenuCategoriesPage() {
                         <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${scopePillClass(category?.foodTypeScope)}`}>
                           {category?.foodTypeScope || "Both"}
                         </span>
+                        {!isOn && (
+                          <span className="inline-flex rounded-full border border-slate-300 bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                            Off
+                          </span>
+                        )}
                         {isGlobal && (
                           <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
                             <Globe className="mr-1 h-3.5 w-3.5" />
@@ -430,6 +480,9 @@ export default function MenuCategoriesPage() {
                           <p>Editing this category will send it back for admin approval.</p>
                         ) : (
                           <p>Foods can be added only after approval.</p>
+                        )}
+                        {!isOn && (
+                          <p className="text-slate-600">Turned off: its dishes are hidden from customers.</p>
                         )}
                         {status === "rejected" && category?.rejectionReason && (
                           <p className="text-rose-600">Reason: {category.rejectionReason}</p>
@@ -455,26 +508,44 @@ export default function MenuCategoriesPage() {
                     </button>
                     <button
                       type="button"
+                      role="switch"
+                      aria-checked={isOn}
                       onClick={() => handleToggleActive(category)}
-                      className="rounded-xl bg-slate-100 p-2 text-slate-700 disabled:opacity-50 active:scale-95 transition-transform"
-                      disabled={!isEditable}
-                      title={category?.isActive !== false ? "Deactivate" : "Activate"}
-                      aria-label={category?.isActive !== false ? "Deactivate category" : "Activate category"}
+                      disabled={!isEditable || isToggling}
+                      title={isOn ? "Turn off: hide dishes from customers" : "Turn on: show dishes to customers"}
+                      aria-label={`${isOn ? "Turn off" : "Turn on"} ${category?.name || "category"}`}
+                      className={`flex items-center gap-2 rounded-xl px-2.5 py-1.5 text-xs font-semibold transition-colors active:scale-95 disabled:opacity-60 ${
+                        isOn ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"
+                      }`}
                     >
-                      {category?.isActive !== false ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
+                      <span
+                        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+                          isOn ? "bg-[#2E7D52]" : "bg-slate-300"
+                        }`}
+                      >
+                        <span
+                          className={`absolute h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                            isOn ? "translate-x-[18px]" : "translate-x-0.5"
+                          }`}
+                        />
+                      </span>
+                      {isToggling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : isOn ? "On" : "Off"}
                     </button>
                     <button
                       type="button"
                       onClick={() => openEditModal(category)}
                       className="rounded-xl bg-blue-50 p-2 text-blue-700 disabled:opacity-50"
                       disabled={!isEditable}
+                      aria-label={`Edit ${category?.name || "category"}`}
                     >
                       <Edit2 className="h-4 w-4" />
                     </button>
                     <button
+                      type="button"
                       onClick={() => handleDeleteCategory(category)}
                       className="rounded-xl bg-rose-50 p-2 text-rose-700 disabled:opacity-50"
                       disabled={!category?.canDelete}
+                      aria-label={`Delete ${category?.name || "category"}`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -700,7 +771,7 @@ export default function MenuCategoriesPage() {
                     checked={formData.isActive}
                     onChange={() => setFormData((prev) => ({ ...prev, isActive: !prev.isActive }))}
                   />
-                  Keep category active
+                  Keep category on (dishes visible to customers)
                 </label>
               </div>
 

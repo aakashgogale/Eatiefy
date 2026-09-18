@@ -3,6 +3,7 @@ import { ValidationError } from '../../../../core/auth/errors.js';
 import { FoodRestaurant } from '../models/restaurant.model.js';
 import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodCategory } from '../../admin/models/category.model.js';
+import { withActiveCategoryFilter } from '../../shared/inactiveCategories.js';
 import {
   applyOtherPriceToFood,
   loadActivePricingRules,
@@ -274,7 +275,8 @@ export async function getPublicApprovedRestaurantMenu(restaurantIdOrSlug) {
     if (!restaurant?._id) {
         return null;
     }
-    const foods = await FoodItem.find({ restaurantId: restaurant._id, approvalStatus: 'approved' })
+    // Dishes in a category the restaurant switched off are not on the customer menu.
+    const foods = await FoodItem.find(await withActiveCategoryFilter({ restaurantId: restaurant._id, approvalStatus: 'approved' }))
         .sort({ createdAt: -1 })
         .limit(2000)
         .select('-oldData -newData')

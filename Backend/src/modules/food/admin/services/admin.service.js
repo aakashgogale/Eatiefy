@@ -563,7 +563,9 @@ export async function getDashboardStats(query = {}) {
         recentPendingOrders,
         recentDeliveredOrders,
         recentCancelledOrders,
-        recentCustomers
+        recentCustomers,
+        restaurantsOnboardedAgg,
+        onboardingEarningAgg
     ] = await Promise.all([
         FoodOrder.aggregate([
             { $match: orderMatch },
@@ -847,8 +849,60 @@ export async function getDashboardStats(query = {}) {
                     }
                 }
             ])
-            : FoodUser.find({}).sort({ createdAt: -1 }).limit(5).select('name createdAt').lean()
+            : FoodUser.find({}).sort({ createdAt: -1 }).limit(5).select('name createdAt').lean(),
+        // Restaurants that completed signup in the selected zone/period, by status.
+        FoodRestaurant.aggregate([
+            {
+                $match: {
+                    ...restaurantMatch,
+                    status: { $ne: 'deleted' },
+                    ...(periodRange ? { createdAt: { $gte: periodRange.start, $lte: periodRange.end } } : {})
+                }
+            },
+            { $group: { _id: '$status', count: { $sum: 1 } } }
+        ]),
+        // One-time onboarding fees actually collected (verified payments only), by
+        // payment date. Zone: the zone recorded at payment, or the restaurant's
+        // current zone if it has moved since.
+        FoodOnboardingPayment.aggregate([
+            {
+                $match: {
+                    status: 'paid',
+                    ...(periodRange ? { paidAt: { $gte: periodRange.start, $lte: periodRange.end } } : {}),
+                    ...(zoneId
+                        ? { $or: [{ zoneId }, { restaurantId: { $in: zoneRestaurantIds || [] } }] }
+                        : {})
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalPaise: { $sum: { $ifNull: ['$amountPaise', 0] } },
+                    payments: { $sum: 1 },
+                    originalTotal: { $sum: { $ifNull: ['$pricing.originalPrice', 0] } }
+                }
+            }
+        ])
     ]);
+
+    const onboardingRow = onboardingEarningAgg?.[0] || {};
+    const onboardingEarningTotal = Math.round(Number(onboardingRow.totalPaise || 0)) / 100;
+    const onboardingEarning = {
+        total: onboardingEarningTotal,
+        payments: Number(onboardingRow.payments || 0),
+        // Offer discount given away versus list price across these payments.
+        discount: Math.max(0, Math.round((Number(onboardingRow.originalTotal || 0) - onboardingEarningTotal) * 100) / 100)
+    };
+
+    const onboardedByStatus = new Map((restaurantsOnboardedAgg || []).map((row) => [String(row._id || ''), Number(row.count || 0)]));
+    const restaurantsOnboarded = {
+        total: Array.from(onboardedByStatus.values()).reduce((sum, n) => sum + n, 0),
+        live: onboardedByStatus.get('approved') || 0,
+        inReview: onboardedByStatus.get('pending') || 0,
+        paymentPending: onboardedByStatus.get('payment_pending') || 0,
+        rejected: onboardedByStatus.get('rejected') || 0,
+        banned: onboardedByStatus.get('banned') || 0
+    };
 
     const liveSignals = [];
     
@@ -993,12 +1047,14 @@ export async function getDashboardStats(query = {}) {
         riderEarnings: { total: riderEarningTotal },
         deliveryBoyEarning: Number(totals.deliveryBoyEarningTotal || 0),
         restaurantEarning: Number(totals.restaurantEarningTotal || 0),
+        onboardingEarning,
         gst: { total: gstTotal },
         totalAdminEarnings,
         deliveryProfit,
         restaurants: {
             total: Number(restaurantsTotal || 0),
-            pendingRequests: Number(restaurantsPending || 0)
+            pendingRequests: Number(restaurantsPending || 0),
+            onboarded: restaurantsOnboarded
         },
         deliveryBoys: {
             total: Number(deliveryTotal || 0),

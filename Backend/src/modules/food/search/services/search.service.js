@@ -1,6 +1,7 @@
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodCategory } from '../../admin/models/category.model.js';
+import { withActiveCategoryFilter } from '../../shared/inactiveCategories.js';
 import { FoodZone } from '../../admin/models/zone.model.js';
 import mongoose from 'mongoose';
 
@@ -143,11 +144,11 @@ export const searchUnified = async (query = {}, options = {}) => {
         }
 
         // Pull dish fields once so category browse can skip N+1 menu fetches on the client.
-        const catFoodItems = await FoodItem.find({
+        const catFoodItems = await FoodItem.find(await withActiveCategoryFilter({
             categoryId: { $in: categoryIdsToMatch },
             approvalStatus: 'approved',
             isAvailable: { $ne: false },
-        })
+        }))
             .select('restaurantId name price image foodType')
             .lean();
 
@@ -233,6 +234,7 @@ export const searchUnified = async (query = {}, options = {}) => {
         if (isVeg === 'true' || foodType === 'Veg') foodFilters.foodType = { $in: ['Veg', 'Vegan'] };
         else if (isNonVeg === 'true' || foodType === 'Non-Veg') foodFilters.foodType = { $nin: ['Veg', 'Vegan'] };
 
+        await withActiveCategoryFilter(foodFilters);
         const matchedFoods = await FoodItem.find(foodFilters)
             .limit(Math.max(limit * 6, 60))
             .lean();
