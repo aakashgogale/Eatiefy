@@ -39,9 +39,6 @@ import ResendNotificationButton from "@food/components/restaurant/ResendNotifica
 import {
   getRestaurantItemLineTotal,
   getRestaurantOrderTotal,
-  getMenuItemLevelMarkupTotal,
-  getOrderMarkupTotal,
-  getCustomerFacingOrderTotal,
 } from "@food/utils/restaurantOrderPricing";
 const debugLog = (...args) => { };
 const debugWarn = (...args) => { };
@@ -3517,23 +3514,11 @@ function OrdersMainInner() {
                             </div>
                           </div>
 
-                          {/* Item Price: base + menu-item admin markup (if any) */}
+                          {/* Item price: the restaurant's own price for this line. */}
                           <div className="shrink-0 ml-2 text-right">
                             <span className="inline-block text-sm sm:text-base font-black text-gray-900 bg-gray-100/90 border border-gray-200 px-2.5 py-1 rounded-lg">
                               ₹{getRestaurantItemAmount(item)}
                             </span>
-                            {(() => {
-                              const itemMarkup = getMenuItemLevelMarkupTotal(item);
-                              if (!(itemMarkup > 0)) return null;
-                              const itemBase = getRestaurantItemAmount(item);
-                              const itemCustomer = Math.round((itemBase + itemMarkup) * 100) / 100;
-                              return (
-                                <div className="mt-1 text-[10px] sm:text-xs font-semibold text-slate-600 leading-tight">
-                                  <div className="text-rose-700">+ ₹{itemMarkup} admin</div>
-                                  <div className="text-gray-900 font-bold">Total ₹{itemCustomer}</div>
-                                </div>
-                              );
-                            })()}
                           </div>
                         </div>
                       );
@@ -3593,7 +3578,7 @@ function OrdersMainInner() {
                     );
                   })()}
 
-                  {/* Total bill — restaurant base + admin markup breakdown */}
+                  {/* Total bill — what this order pays the restaurant. */}
                   <div className="mb-4 py-3 border-y border-gray-200">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -3613,32 +3598,9 @@ function OrdersMainInner() {
                           Total bill
                         </span>
                       </div>
-                      {(() => {
-                        const orderForBill = popupOrder || newOrder;
-                        const restaurantBill = getPopupOrderTotal(orderForBill);
-                        const adminMarkup = getOrderMarkupTotal(orderForBill);
-                        const customerBill = getCustomerFacingOrderTotal(orderForBill);
-                        if (adminMarkup > 0) {
-                          return (
-                            <div className="text-right">
-                              <div className="text-base font-bold text-gray-900">
-                                ₹{restaurantBill}{" "}
-                                <span className="text-rose-700 font-semibold">
-                                  + ₹{adminMarkup}
-                                </span>
-                              </div>
-                              <div className="text-xs font-semibold text-slate-600">
-                                Customer total ₹{customerBill}
-                              </div>
-                            </div>
-                          );
-                        }
-                        return (
-                          <span className="text-base font-bold text-gray-900">
-                            ₹{restaurantBill}
-                          </span>
-                        );
-                      })()}
+                      <span className="text-base font-bold text-gray-900">
+                        ₹{getPopupOrderTotal(popupOrder || newOrder)}
+                      </span>
                     </div>
                   </div>
 

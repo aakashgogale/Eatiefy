@@ -4,6 +4,7 @@ import { DeliverySupportTicket } from '../models/supportTicket.model.js';
 import { DeliveryBonusTransaction } from '../../admin/models/deliveryBonusTransaction.model.js';
 import { FoodEarningAddon } from '../../admin/models/earningAddon.model.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
+import { stripDeliveryPricingInternals } from '../../orders/services/order.helpers.js';
 import { uploadImageBuffer, deleteReplacedAssets } from '../../../../services/storage.service.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import {
@@ -828,8 +829,9 @@ const toTripDto = (order) => {
     status,
     restaurantName,
     restaurant: restaurantName,
-    items: order?.items || order?.orderItems || [],
-    orderItems: order?.orderItems || order?.items || [],
+    // The rider's bill is the customer's; the restaurant/platform split is not theirs to see.
+    items: stripDeliveryPricingInternals({ items: order?.items || order?.orderItems || [] }).items,
+    orderItems: stripDeliveryPricingInternals({ items: order?.orderItems || order?.items || [] }).items,
     paymentMethod,
     totalAmount: pricingTotal,
     orderTotal: pricingTotal,

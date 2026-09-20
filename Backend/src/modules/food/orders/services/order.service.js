@@ -48,6 +48,7 @@ import {
   assertRestaurantDeliversToZone,
   generateFourDigitDeliveryOtp,
   sanitizeOrderForExternal,
+  toDeliveryFacingOrder,
   toRestaurantFacingOrder,
   emitDeliveryDropOtpToUser,
   notifyOwnersSafely,
@@ -915,7 +916,7 @@ export async function getOrderById(
   }
 
   if (deliveryPartnerId) {
-    return sanitizeOrderForExternal(order);
+    return toDeliveryFacingOrder(order);
   }
   if (restaurantId) {
     return toRestaurantFacingOrder(order);

@@ -35,7 +35,7 @@ import {
   notifyOwnerSafely,
   notifyOwnersSafely,
   pushStatusHistory,
-  sanitizeOrderForExternal,
+  toDeliveryFacingOrder,
   isStatusAdvance,
 } from './order.helpers.js';
 import { detectZoneIdForPoint, getActiveZoneById, isPointInZonePolygon } from '../../utils/zoneGeo.js';
@@ -99,7 +99,7 @@ export async function getPartnerOrderCapacity(deliveryPartnerId) {
 async function enrichOrderWithTransaction(order) {
   if (!order) return null;
   const tx = await FoodTransaction.findOne({ orderId: order._id }).lean();
-  const out = sanitizeOrderForExternal(order);
+  const out = toDeliveryFacingOrder(order);
   if (tx) {
     out.paymentMethod = tx.payment?.method || tx.paymentMethod || out.paymentMethod;
     out.payment = tx.payment || out.payment;
@@ -810,7 +810,7 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
       const acceptedOrder = await FoodOrder.findOne(identity)
         .populate('restaurantId userId');
       return acceptedOrder
-        ? sanitizeOrderForExternal(acceptedOrder)
+        ? toDeliveryFacingOrder(acceptedOrder)
         : null;
     }
     if (
@@ -847,7 +847,7 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
     logger.warn(`ensureRiderEarningOnOrder on accept failed: ${err?.message || err}`);
   }
 
-  const responseOrder = sanitizeOrderForExternal(order);
+  const responseOrder = toDeliveryFacingOrder(order);
 
   // Notify other riders IMMEDIATELY — do not wait for Firebase/polyline work
   try {
@@ -1279,7 +1279,7 @@ export async function confirmReachedDropDelivery(orderId, deliveryPartnerId) {
 
   if (order.deliveryVerification?.dropOtp?.verified) {
     emitOrderUpdate(order, deliveryPartnerId);
-    return sanitizeOrderForExternal(order);
+    return toDeliveryFacingOrder(order);
   }
 
   const alreadyAtDrop =
@@ -1307,7 +1307,7 @@ export async function confirmReachedDropDelivery(orderId, deliveryPartnerId) {
     }
     // Rider explicitly requested OTP again at drop, re-emit same OTP without regenerating.
     emitDeliveryDropOtpToUser(order, existingOtp);
-    return sanitizeOrderForExternal(order);
+    return toDeliveryFacingOrder(order);
   }
 
   if (!existingOtp) {
@@ -1351,7 +1351,7 @@ export async function confirmReachedDropDelivery(orderId, deliveryPartnerId) {
     dropOtpRequired: order.deliveryVerification?.dropOtp?.required ?? true,
     dropOtpVerified: order.deliveryVerification?.dropOtp?.verified ?? false,
   });
-  return sanitizeOrderForExternal(order);
+  return toDeliveryFacingOrder(order);
 }
 
 export async function verifyDropOtpDelivery(orderId, deliveryPartnerId, otp) {
@@ -1385,7 +1385,7 @@ export async function verifyDropOtpDelivery(orderId, deliveryPartnerId, otp) {
     await order.save();
   }
   if (order.deliveryVerification?.dropOtp?.verified) {
-    return { order: sanitizeOrderForExternal(order) };
+    return { order: toDeliveryFacingOrder(order) };
   }
 
   if (!isOtpMatch(order.deliveryOtp, otpStr)) {
@@ -1406,7 +1406,7 @@ export async function verifyDropOtpDelivery(orderId, deliveryPartnerId, otp) {
     orderId: order._id.toString(),
     deliveryPartnerId,
   });
-  return { order: sanitizeOrderForExternal(order) };
+  return { order: toDeliveryFacingOrder(order) };
 }
 
 export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
@@ -1588,7 +1588,7 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
     paymentStatus: 'paid'
   });
 
-  return sanitizeOrderForExternal(order);
+  return toDeliveryFacingOrder(order);
 }
 
 

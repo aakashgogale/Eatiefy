@@ -137,6 +137,41 @@ export function resolveRestaurantItemUnitPrice(item = {}) {
  * Restaurant-facing order view: show restaurant base as price, but keep
  * admin markup metadata so the accept popup can show "149 + 51 = 200".
  */
+/**
+ * Pricing fields that exist only for the platform's own books.
+ *
+ * The admin markup (and the customer price it produces) is between the platform
+ * and the customer: the restaurant is paid its own base price, and the rider
+ * only collects the customer total. Neither app has any use for the split, and
+ * showing it invited the question "who took this ₹14.90 from my bill?".
+ * Removing it here - rather than hiding it in one screen - keeps it out of every
+ * response, socket event and cached payload those apps receive.
+ */
+const stripItemFields = (item, fields) => {
+  const out = { ...item };
+  for (const field of fields) delete out[field];
+  return out;
+};
+
+const stripPricingFields = (pricing, fields) => {
+  if (!pricing || typeof pricing !== 'object') return pricing;
+  const out = { ...pricing };
+  for (const field of fields) delete out[field];
+  return out;
+};
+
+/** Admin markup metadata, in every spelling older orders used. */
+const MARKUP_ITEM_FIELDS = [
+  'markupAmount',
+  'lineMarkupTotal',
+  'customerPrice',
+  'otherPrice',
+  'appliedPricingType',
+  'appliedPricingValue',
+  'pricingScope',
+  'pricingRule',
+];
+
 export function toRestaurantFacingOrder(orderDoc) {
   const order = sanitizeOrderForExternal(orderDoc);
   const pricing = order.pricing || {};
@@ -209,6 +244,8 @@ export function toRestaurantFacingOrder(orderDoc) {
   const cancelledAt = isCancelled ? (order?.cancelledAt || cancelHistory?.at || null) : null;
   const cancelledBy = isCancelled ? (order?.cancelledBy || (cancelHistory?.byRole === 'RESTAURANT' ? 'restaurant' : cancelHistory?.byRole === 'USER' ? 'customer' : cancelHistory?.byRole === 'ADMIN' ? 'admin' : 'unknown')) : null;
 
+  // `markupTotal` is still computed above because the restaurant's own base
+  // subtotal is derived from it; it is not part of the response.
   return {
     ...order,
     note: customerNote,
@@ -216,12 +253,11 @@ export function toRestaurantFacingOrder(orderDoc) {
     cancellationReason,
     cancelledAt,
     cancelledBy,
-    items,
+    // Prices here are the restaurant's own (base) prices, with no trace of the
+    // admin markup or of what the customer was finally charged.
+    items: items.map((item) => stripItemFields(item, MARKUP_ITEM_FIELDS)),
     pricing: {
-      ...pricing,
-      customerSubtotal: Number.isFinite(storedSubtotal) ? storedSubtotal : undefined,
-      customerTotal: Number(pricing.total) || undefined,
-      markupTotal: Math.round(markupTotal * 100) / 100,
+      ...stripPricingFields(pricing, ['markupTotal']),
       subtotal: Math.round(restaurantSubtotal * 100) / 100,
       baseSubtotal: Math.round(restaurantSubtotal * 100) / 100,
       // Restaurant bill excludes delivery / platform fee from their earning total.
@@ -232,6 +268,31 @@ export function toRestaurantFacingOrder(orderDoc) {
     total: restaurantTotal,
     amount: restaurantTotal,
   };
+}
+
+/**
+ * Order as the delivery partner may see it.
+ *
+ * The rider needs the customer-facing bill, because for COD that is the cash to
+ * collect - but not how it is split between the restaurant and the platform.
+ */
+export function stripDeliveryPricingInternals(order) {
+  if (!order || typeof order !== 'object') return order;
+  return {
+    ...order,
+    items: Array.isArray(order.items)
+      ? order.items.map((item) => stripItemFields(item, [...MARKUP_ITEM_FIELDS, 'basePrice']))
+      : order.items,
+    pricing: stripPricingFields(order.pricing, [
+      'markupTotal',
+      'baseSubtotal',
+      'restaurantCommission',
+    ]),
+  };
+}
+
+export function toDeliveryFacingOrder(orderDoc) {
+  return stripDeliveryPricingInternals(sanitizeOrderForExternal(orderDoc));
 }
 
 export function emitDeliveryDropOtpToUser(order, plainOtp) {
@@ -396,8 +457,14 @@ export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
       orderDoc?._id?.toString?.() || order?._id?.toString?.() || order?._id,
     orderId: order?.order_id || order?._id?.toString?.(),
     status: orderDoc?.orderStatus || order?.orderStatus,
-    items: order?.items || [],
-    pricing: order?.pricing,
+    items: Array.isArray(order?.items)
+      ? order.items.map((item) => stripItemFields(item, [...MARKUP_ITEM_FIELDS, 'basePrice']))
+      : order?.items || [],
+    pricing: stripPricingFields(order?.pricing, [
+      'markupTotal',
+      'baseSubtotal',
+      'restaurantCommission',
+    ]),
     total: order?.pricing?.total,
     payment: order?.payment,
     paymentMethod: order?.payment?.method,
