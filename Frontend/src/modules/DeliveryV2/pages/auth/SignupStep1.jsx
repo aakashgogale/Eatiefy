@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { useKeyboardInset, useKeepFocusedFieldVisible } from "@food/hooks/useIsKeyboardOpen"
+import { useKeyboardAwarePage } from "@food/hooks/useIsKeyboardOpen"
 import { useNavigate } from "react-router-dom"
 import { ArrowLeft } from "lucide-react"
 import useDeliveryOnboardingExitGuard from "../../hooks/useDeliveryOnboardingExitGuard"
@@ -13,10 +13,11 @@ const debugError = (...args) => {}
 
 
 export default function SignupStep1() {
-  // Measured keyboard height + auto-scroll of the focused field. Applies to the
-  // whole form, so PAN and every other input behave the same way.
-  const keyboardInset = useKeyboardInset()
-  const formScrollRef = useKeepFocusedFieldVisible()
+  // The form owns its scroll area and is capped to the visible viewport, so a
+  // focused field is always scrolled above the keyboard - including the last
+  // fields (vehicle number, licence, PAN, Aadhar) that the page scroll could
+  // never reach. Applies to the whole form, so every input behaves the same.
+  const { pageProps, scrollProps } = useKeyboardAwarePage()
 
   const navigate = useNavigate()
   const [formData, setFormData] = useState(() => {
@@ -240,9 +241,9 @@ export default function SignupStep1() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div {...pageProps} className="h-screen flex flex-col overflow-hidden bg-gray-100">
       {/* Header */}
-      <div className="sticky top-0 z-30 bg-white px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] flex items-center gap-4 border-b border-gray-200">
+      <div className="shrink-0 bg-white px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] flex items-center gap-4 border-b border-gray-200">
         <button
           onClick={handleBack}
           className="p-2 hover:bg-gray-100 rounded-full transition-colors"
@@ -253,11 +254,7 @@ export default function SignupStep1() {
       </div>
 
       {/* Content */}
-      <div
-        ref={formScrollRef}
-        className="px-4 py-6"
-        style={{ paddingBottom: keyboardInset ? `${keyboardInset + 24}px` : undefined }}
-      >
+      <div {...scrollProps} className="flex-1 overflow-y-auto px-4 py-6">
         <div className="mb-6">
           <h2 className="text-xl font-bold text-gray-900 mb-2">Basic Details</h2>
           <p className="text-sm text-gray-600">Please provide your information to continue</p>

@@ -258,3 +258,96 @@ export function useKeepFocusedFieldVisible() {
 
   return containerRef
 }
+
+/**
+ * Keyboard handling for a full-screen page that scrolls its own body (long
+ * forms such as the delivery signup details step).
+ *
+ * Letting the *document* scroll and calling `scrollIntoView` is unreliable once
+ * the keyboard is up: the layout viewport does not shrink, so "centre" is a
+ * point that can sit behind the keyboard, and a field near the end of the form
+ * has no content below it to scroll against — which is why the last inputs stay
+ * hidden and dragging does not help.
+ *
+ * Instead this locks the page to the height the browser actually leaves visible
+ * and gives the form its own scroll area, so the area simply ends where the
+ * keyboard begins; the focused field is then scrolled to the middle of that
+ * area. Same mechanics as `useKeyboardAwareSheet`, applied to a whole page.
+ *
+ * Usage:
+ *   const { pageProps, scrollProps } = useKeyboardAwarePage()
+ *   <div {...pageProps} className="h-screen flex flex-col overflow-hidden">
+ *     <header className="shrink-0" />
+ *     <div {...scrollProps} className="flex-1 overflow-y-auto">…</div>
+ *   </div>
+ */
+export function useKeyboardAwarePage({ bottomGap = 24 } = {}) {
+  const scrollRef = useRef(null)
+  const [metrics, setMetrics] = useState({ inset: 0, viewportHeight: 0 })
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.visualViewport) return undefined
+    const viewport = window.visualViewport
+
+    const update = () => {
+      const covered = window.innerHeight - viewport.height - viewport.offsetTop
+      const inset = covered > 100 ? Math.round(covered) : 0
+      const viewportHeight = Math.round(viewport.height)
+      // iOS pans the whole document to reveal the focused field. The page is
+      // height-locked, so undo that pan and let the form's scroll area do it.
+      if (inset > 0 && window.scrollY !== 0) window.scrollTo(0, 0)
+      setMetrics((prev) =>
+        prev.inset === inset && prev.viewportHeight === viewportHeight ? prev : { inset, viewportHeight },
+      )
+    }
+
+    update()
+    viewport.addEventListener("resize", update)
+    viewport.addEventListener("scroll", update)
+    return () => {
+      viewport.removeEventListener("resize", update)
+      viewport.removeEventListener("scroll", update)
+    }
+  }, [])
+
+  const centerField = (field) => {
+    const container = scrollRef.current
+    if (!container || !field || !container.contains(field)) return
+    const fieldRect = field.getBoundingClientRect()
+    const containerRect = container.getBoundingClientRect()
+    // Middle of the visible scroll area; the browser clamps the scroll at the
+    // ends, so the last field lands just above the keyboard instead.
+    const offset = fieldRect.top - containerRect.top - (containerRect.height - fieldRect.height) / 2
+    if (Math.abs(offset) < 4) return
+    container.scrollBy({ top: offset, behavior: "smooth" })
+  }
+
+  // The keyboard animates in after focus; re-align once the viewport settles.
+  // Covers Android (whole viewport resizes, inset stays 0) as well as iOS.
+  useEffect(() => {
+    if (!metrics.viewportHeight) return undefined
+    const timer = window.setTimeout(() => {
+      if (isKeyboardField(document.activeElement)) centerField(document.activeElement)
+    }, 60)
+    return () => window.clearTimeout(timer)
+  }, [metrics.inset, metrics.viewportHeight])
+
+  const onFocusCapture = (event) => {
+    const target = event.target
+    if (!isKeyboardField(target)) return
+    window.setTimeout(() => centerField(target), 320)
+  }
+
+  return {
+    keyboardInset: metrics.inset,
+    keyboardOpen: metrics.inset > 0,
+    pageProps: {
+      style: metrics.viewportHeight ? { height: `${metrics.viewportHeight}px` } : undefined,
+    },
+    scrollProps: {
+      ref: scrollRef,
+      onFocusCapture,
+      style: { paddingBottom: `${bottomGap}px` },
+    },
+  }
+}

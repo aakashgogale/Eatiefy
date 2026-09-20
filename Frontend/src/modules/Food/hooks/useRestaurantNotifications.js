@@ -7,6 +7,7 @@ import { dispatchNotificationInboxRefresh } from '@food/hooks/useNotificationInb
 import {
   isNativeAppWebView,
   shouldSkipDuplicateOsNotification,
+  stopActivePushPlayback,
 } from '@food/utils/firebaseMessaging';
 import { normalizeRestaurantOrderView } from '@food/utils/restaurantOrderPricing';
 
@@ -162,6 +163,15 @@ let globalActiveOrder = null;
 // Audio player references
 let globalAudio = null;
 let globalFallbackAudio = null;
+/*
+ * Bumped by every stop. play() resolves or rejects asynchronously, so a track
+ * that was still starting when the restaurant accepted the order would come
+ * back to life (or spawn a fallback) after the stop had already run - a
+ * ringtone nothing was left holding a reference to, and a second copy stacked
+ * on top of it when the next order arrived. Playback callbacks compare the
+ * generation they were started in and give up if it has moved on.
+ */
+let alertPlaybackGeneration = 0;
 let globalAlertLoopTimer = null;
 let globalAlertLoopStartedAt = 0;
 let globalAlertLoopKey = '';
@@ -172,6 +182,52 @@ let globalSocket = null;
 let globalSocketConnected = false;
 let globalActiveRestaurantId = null;
 let globalPollingIntervalId = null;
+let globalSocketWatchdogAttached = false;
+
+/** The access token as it is *right now* - never a copy taken at login. */
+const readRestaurantSocketToken = () => {
+  if (typeof localStorage === 'undefined') return '';
+  return localStorage.getItem('restaurant_accessToken') || localStorage.getItem('accessToken') || '';
+};
+
+const reconnectRestaurantSocket = () => {
+  if (!globalSocket || globalSocket.connected) return;
+  try {
+    globalSocket.connect();
+  } catch (_) {}
+};
+
+/**
+ * Keeps the realtime channel alive for the life of the app.
+ *
+ * Attached once, because the socket outlives every component that uses it.
+ * Without this the socket could sit in a permanent failed-reconnect loop - the
+ * state where order accepted/rejected/cancelled events simply never arrive and
+ * the only cure is closing and reopening the app.
+ */
+const attachRestaurantSocketWatchdog = () => {
+  if (globalSocketWatchdogAttached || typeof window === 'undefined') return;
+  globalSocketWatchdogAttached = true;
+
+  // The access token was rotated by the API client. The socket's auth callback
+  // reads the new one by itself, so all that is left is waking a dead socket.
+  window.addEventListener('authRefreshed', (event) => {
+    const module = event?.detail?.module;
+    if (module && module !== 'restaurant') return;
+    reconnectRestaurantSocket();
+  });
+
+  // Mobile WebViews freeze sockets in the background and the OS drops them on a
+  // network change; reconnect on the way back instead of waiting for a failed
+  // heartbeat to notice.
+  window.addEventListener('online', reconnectRestaurantSocket);
+  window.addEventListener('focus', reconnectRestaurantSocket);
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') reconnectRestaurantSocket();
+    });
+  }
+};
 
 let processedOrderIds = new Set();
 if (typeof window !== 'undefined') {
@@ -316,6 +372,10 @@ if (typeof window !== 'undefined') {
 }
 
 const stopGlobalAlertLoop = () => {
+  // Invalidate any playback still in flight before touching the elements.
+  alertPlaybackGeneration += 1;
+  if (typeof window !== 'undefined') window.__restaurantOrderAlertActive = false;
+
   if (globalAlertLoopTimer) {
     clearInterval(globalAlertLoopTimer);
     globalAlertLoopTimer = null;
@@ -338,6 +398,11 @@ const stopGlobalAlertLoop = () => {
     } catch (_) {}
     globalFallbackAudio = null;
   }
+  // The same order can also arrive as a push, which plays its own copy of this
+  // ringtone; accepting or rejecting has to silence that one too.
+  try {
+    stopActivePushPlayback();
+  } catch (_) {}
   stopWebViewNativeNotification();
 };
 
@@ -354,6 +419,7 @@ const isSilentUnlockSource = (audio) => !audio?.src || String(audio.src).startsW
 const playGlobalNotificationSound = async (orderData = {}, { loop = false } = {}) => {
   try {
     if (globalIsMuted || isOrderMuted(orderData)) return;
+    const generation = alertPlaybackGeneration;
     void triggerWebViewNativeNotification(orderData).catch(() => {});
     if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
       try {
@@ -376,28 +442,57 @@ const playGlobalNotificationSound = async (orderData = {}, { loop = false } = {}
     globalAudio.muted = false;
     globalAudio.volume = 1;
 
-    // Already ringing: do not restart the track, and never let a one-shot chime
-    // (e.g. a dining booking) turn off the looping order alert.
-    if (!globalAudio.paused && !globalAudio.ended) {
-      if (loop) globalAudio.loop = true;
+    // Already ringing - on either element: do not start a second track, and
+    // never let a one-shot chime (e.g. a dining booking) turn off the looping
+    // order alert. Checking only globalAudio let the fallback play underneath.
+    if (isAlertSoundPlaying()) {
+      if (loop) {
+        if (globalAudio && !globalAudio.paused) globalAudio.loop = true;
+        if (globalFallbackAudio && !globalFallbackAudio.paused) globalFallbackAudio.loop = true;
+      }
       return;
     }
     globalAudio.loop = Boolean(loop);
 
-    globalAudio.play().catch((error) => {
-      // Autoplay blocked until the user interacts; the interaction handler resumes it.
-      if (error?.name === 'NotAllowedError' || error?.message?.includes("user didn't interact")) return;
-      try {
-        if (globalFallbackAudio) {
-          globalFallbackAudio.pause();
-          globalFallbackAudio = null;
-        }
-        globalFallbackAudio = new Audio(alertSound);
-        globalFallbackAudio.loop = Boolean(loop);
-        globalFallbackAudio.volume = 1;
-        globalFallbackAudio.play().catch(() => {});
-      } catch (_) {}
-    });
+    const started = globalAudio.play();
+    if (started && typeof started.then === 'function') {
+      started
+        .then(() => {
+          // Stopped while play() was still pending: do not ring on.
+          if (generation === alertPlaybackGeneration) return;
+          try {
+            globalAudio.pause();
+            globalAudio.currentTime = 0;
+          } catch (_) {}
+        })
+        .catch((error) => {
+          // The alert was stopped (accepted/rejected) before this settled - a
+          // fallback started now would ring with nothing left to stop it.
+          if (generation !== alertPlaybackGeneration) return;
+          // Autoplay blocked until the user interacts; the interaction handler resumes it.
+          if (error?.name === 'NotAllowedError' || error?.message?.includes("user didn't interact")) return;
+          try {
+            if (globalFallbackAudio) {
+              globalFallbackAudio.pause();
+              globalFallbackAudio = null;
+            }
+            const fallback = new Audio(alertSound);
+            fallback.loop = Boolean(loop);
+            fallback.volume = 1;
+            globalFallbackAudio = fallback;
+            fallback
+              .play()
+              .then(() => {
+                if (generation === alertPlaybackGeneration) return;
+                try {
+                  fallback.pause();
+                  fallback.currentTime = 0;
+                } catch (_) {}
+              })
+              .catch(() => {});
+          } catch (_) {}
+        });
+    }
   } catch (error) {
     // ignore
   }
@@ -434,6 +529,10 @@ const startGlobalAlertLoop = (orderData) => {
       } catch (_) {}
     }
   }
+
+  // Claim the ringtone for this order: a push carrying the same order must not
+  // play its own copy on top (see playPushSound).
+  if (typeof window !== 'undefined') window.__restaurantOrderAlertActive = true;
 
   globalAlertLoopStartedAt = alertStartTime;
   globalAlertLoopKey = orderId;
@@ -775,10 +874,17 @@ export const useRestaurantNotifications = () => {
       timeout: 20000,
       forceNew: false,
       autoConnect: true,
-      auth: {
-        token: localStorage.getItem('restaurant_accessToken') || localStorage.getItem('accessToken')
-      }
+      /*
+       * A function, not an object: socket.io calls it on EVERY connection
+       * attempt. With a fixed object the socket kept re-handshaking with the
+       * token captured when the hook first ran, so once that token expired the
+       * server answered AUTH_INVALID for ever and the restaurant stopped
+       * receiving order updates until the app was restarted.
+       */
+      auth: (cb) => cb({ token: readRestaurantSocketToken() }),
     });
+
+    attachRestaurantSocketWatchdog();
 
     globalSocket.on('connect', () => {
       globalSocketConnected = true;
@@ -852,11 +958,14 @@ export const useRestaurantNotifications = () => {
       // order straight to "preparing", so treat that (and the acceptedBy flag) as
       // accepted too, otherwise the restaurant popup would not dismiss.
       if (status === 'confirmed' || status === 'accepted' || status === 'preparing' || data?.acceptedBy === 'admin') {
-        const orderId = data?.orderMongoId || data?._id || data?.orderId || data?.order_id;
-        if (orderId) {
-          const cleanId = String(orderId).trim();
-          processedOrderIds.add(cleanId);
-          globalMutedOrderIds.delete(cleanId);
+        // Every id variant: the polling fallback matches on whichever field its
+        // rows carry, and one missed variant let the poll ring for it again.
+        const acceptedIds = getOrderIdVariants(data || {});
+        if (acceptedIds.length) {
+          acceptedIds.forEach((id) => {
+            processedOrderIds.add(id);
+            globalMutedOrderIds.delete(id);
+          });
           saveProcessedOrderIds();
         }
         forgetAlertStart(data);
@@ -884,6 +993,13 @@ export const useRestaurantNotifications = () => {
           stopGlobalAlertLoop();
           globalActiveOrder = null;
           updateGlobalState({ activeOrder: null });
+        }
+        // Drop the pending-order state as well when it is THIS order, so a later
+        // re-render cannot raise the accept popup again for an order the
+        // customer has already cancelled. Another order still waiting keeps its.
+        const pendingIds = globalNewOrder ? getOrderIdVariants(globalNewOrder) : [];
+        if (pendingIds.some((id) => cancelledIds.includes(id))) {
+          updateGlobalState({ newOrder: null });
         }
       }
 
@@ -973,6 +1089,45 @@ export const useRestaurantNotifications = () => {
             const bt = new Date(b?.restaurantNotifiedAt || b?.createdAt || 0).getTime();
             return at - bt;
           });
+
+        /*
+          * Socket-independent status catch-up.
+          *
+          * The Orders page closes the accept popup and refreshes its tabs when
+          * it sees a 'restaurantOrderStatusUpdate'. That event only ever came
+          * from the socket, so a customer cancelling while this device's socket
+          * was down left the popup counting down on a dead order until the app
+          * was restarted. If the order being tracked has moved on, say so here.
+          */
+        if (globalActiveOrder && typeof window !== 'undefined') {
+          const trackedIds = new Set(getOrderIdVariants(globalActiveOrder));
+          const row = (rows || []).find((o) => getOrderIdVariants(o).some((id) => trackedIds.has(id)));
+          // Raw backend status only: the orders API rewrites "created" to
+          // "confirmed" in `status`, which would read as "already accepted".
+          const rawStatus = String(row?.orderStatus || '').toLowerCase();
+          if (rawStatus && rawStatus !== 'created' && rawStatus !== 'pending') {
+            window.dispatchEvent(
+              new CustomEvent('restaurantOrderStatusUpdate', {
+                detail: {
+                  orderMongoId: row._id,
+                  orderId: row.orderId || row.order_id || row._id,
+                  orderStatus: row.orderStatus,
+                  status: row.status,
+                  cancelledBy: row.cancelledBy,
+                  source: 'poll',
+                },
+              }),
+            );
+            // This order is answered: stop ringing for it and never ring again,
+            // exactly as the socket handler would have done.
+            getOrderIdVariants(row).forEach((id) => processedOrderIds.add(id));
+            saveProcessedOrderIds();
+            forgetAlertStart(row);
+            stopGlobalAlertLoop();
+            globalActiveOrder = null;
+            updateGlobalState({ activeOrder: null, newOrder: null });
+          }
+        }
 
         if (pending.length === 0) {
           // Nothing left to answer: silence any alert for an order that was

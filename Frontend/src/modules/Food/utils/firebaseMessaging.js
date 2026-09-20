@@ -843,7 +843,7 @@ async function triggerWebViewNativeNotification(payload = {}) {
   return false;
 }
 
-function stopActivePushPlayback() {
+export function stopActivePushPlayback() {
   if (pushSoundAudio) {
     try {
       pushSoundAudio.pause();
@@ -865,6 +865,20 @@ async function playPushSound(payload = {}) {
       pushDebugLog(PUSH_DEBUG_PREFIX, "Skipping push sound (not an order alert)", {
         notificationKey: getNotificationKey(payload),
         type: payload?.data?.type || payload?.data?.notificationType || "",
+      });
+      stopActivePushPlayback();
+      return;
+    }
+
+    // The restaurant's own alert loop (useRestaurantNotifications) owns the
+    // ringtone for an order awaiting a decision: one fresh track per order,
+    // stopped the moment it is accepted or rejected. When the same order also
+    // arrives as a push, playing a second copy here put two ringtones on top of
+    // each other, and that copy outlived the accept because the loop cannot
+    // stop it. The loop has already triggered the native bridge and vibration.
+    if (typeof window !== "undefined" && window.__restaurantOrderAlertActive) {
+      pushDebugLog(PUSH_DEBUG_PREFIX, "Skipping push sound (restaurant alert loop is ringing)", {
+        notificationKey: getNotificationKey(payload),
       });
       stopActivePushPlayback();
       return;

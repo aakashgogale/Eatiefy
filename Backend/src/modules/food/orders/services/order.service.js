@@ -1331,10 +1331,19 @@ export async function cancelOrder(orderId, userId, reason, refundDestination = "
   try {
     const io = getIO();
     if (io) {
+      // Same shape every other order_status_update emit uses. This one used to
+      // send the Mongo id as `orderId` and omit `_id`/`status`, so clients that
+      // match on those fields - or print the order number - saw a cancellation
+      // they could not tie back to the order on screen.
       const payload = {
         orderMongoId: order._id?.toString?.(),
-        orderId: order._id.toString(),
+        orderId: order.order_id || order.orderId || order._id.toString(),
+        _id: order._id.toString(),
         orderStatus: order.orderStatus,
+        status: order.orderStatus,
+        cancelledBy: order.cancelledBy || "customer",
+        cancellationReason: order.cancellationReason || "",
+        cancelledAt: order.cancelledAt,
         message: `Order #${order.order_id || order._id} has been cancelled successfully.${refundDetail}`
       };
       io.to(rooms.user(userId)).emit("order_status_update", payload);
