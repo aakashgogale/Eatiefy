@@ -395,6 +395,19 @@ const transformOrderForTracking = (apiOrder, previousOrder = null, explicitResta
       return merged
     })(),
     note: apiOrder?.note || previousOrder?.note || '',
+    /*
+     * Why the order was cancelled, and by whom.
+     *
+     * The backend has always sent these (normalizeOrderForClient fills them
+     * from the order or its status history), but this transform builds an
+     * explicit object and simply did not copy them - so the screen could only
+     * ever say "This order has been cancelled" with no reason, whatever the
+     * restaurant typed when it rejected the order.
+     */
+    cancellationReason:
+      apiOrder?.cancellationReason || previousOrder?.cancellationReason || '',
+    cancelledBy: apiOrder?.cancelledBy || previousOrder?.cancelledBy || '',
+    cancelledAt: apiOrder?.cancelledAt || previousOrder?.cancelledAt || null,
     deliveryInstructions: apiOrder?.deliveryInstructions || previousOrder?.deliveryInstructions || ''
   }
 }
@@ -510,16 +523,40 @@ const riderStepIndex = (status) => {
   return 0
 }
 
-const LiveTrackingStepper = memo(({ status, isCancelled, riderMode = false }) => {
+/** "Cancelled by Restaurant", "Cancelled by you", ... from the backend enum. */
+const describeCancelledBy = (status, cancelledBy) => {
+  const by = String(cancelledBy || '').toLowerCase()
+  const s = String(status || '').toLowerCase()
+  if (by === 'customer' || by === 'user' || s === 'cancelled_by_user') return 'Cancelled by you'
+  if (by === 'restaurant' || s === 'cancelled_by_restaurant') return 'Cancelled by the restaurant'
+  if (by === 'admin' || s === 'cancelled_by_admin') return 'Cancelled by support'
+  return 'Order cancelled'
+}
+
+const LiveTrackingStepper = memo(({ status, isCancelled, riderMode = false, cancellationReason = '', cancelledBy = '', orderStatusRaw = '' }) => {
   if (isCancelled) {
+    const reason = String(cancellationReason || '').trim()
     return (
-      <div className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-2xl p-4 flex items-center gap-3">
+      <div className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-2xl p-4 flex items-start gap-3">
         <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/60 flex items-center justify-center text-red-600 dark:text-red-400 shrink-0">
           <CircleSlash className="w-5 h-5" />
         </div>
-        <div>
+        <div className="min-w-0">
           <h4 className="text-sm font-bold text-red-800 dark:text-red-300">Order Cancelled</h4>
-          <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">This order has been cancelled</p>
+          <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
+            {describeCancelledBy(orderStatusRaw, cancelledBy)}
+          </p>
+          {/* The reason the restaurant gave. Rejecting an order requires one, so
+              this is missing only for older orders cancelled before it was. */}
+          {reason ? (
+            <p className="text-xs text-red-700 dark:text-red-300 mt-1.5">
+              <span className="font-semibold">Reason:</span> {reason}
+            </p>
+          ) : (
+            <p className="text-xs text-red-500/80 dark:text-red-400/80 mt-1.5">
+              No reason was given for this cancellation.
+            </p>
+          )}
         </div>
       </div>
     );
@@ -1438,6 +1475,11 @@ export default function OrderTracking() {
             }
           }
           if (payload.note) next.note = payload.note
+          // The cancel event carries the reason; without this the screen showed
+          // a bare "Order Cancelled" until the follow-up fetch landed.
+          if (payload.cancellationReason) next.cancellationReason = payload.cancellationReason
+          if (payload.cancelledBy) next.cancelledBy = payload.cancelledBy
+          if (payload.cancelledAt) next.cancelledAt = payload.cancelledAt
           return next
         })
       }
@@ -2492,7 +2534,14 @@ export default function OrderTracking() {
           </div>
 
           {/* Stepper */}
-          <LiveTrackingStepper status={orderStatus} isCancelled={isCancelledOrder} riderMode={isRiderJourney} />
+          <LiveTrackingStepper
+            status={orderStatus}
+            isCancelled={isCancelledOrder}
+            riderMode={isRiderJourney}
+            cancellationReason={order?.cancellationReason || order?.note || ''}
+            cancelledBy={order?.cancelledBy}
+            orderStatusRaw={order?.status}
+          />
 
           {/* Delivery OTP Card */}
           {customerDeliveryOtp && !isDeliveredOrder && !isCancelledOrder && (
@@ -2877,7 +2926,14 @@ export default function OrderTracking() {
           </div>
 
           {/* Stepper */}
-          <LiveTrackingStepper status={orderStatus} isCancelled={isCancelledOrder} riderMode={isRiderJourney} />
+          <LiveTrackingStepper
+            status={orderStatus}
+            isCancelled={isCancelledOrder}
+            riderMode={isRiderJourney}
+            cancellationReason={order?.cancellationReason || order?.note || ''}
+            cancelledBy={order?.cancelledBy}
+            orderStatusRaw={order?.status}
+          />
 
           {/* Delivery OTP Card */}
           {customerDeliveryOtp && !isDeliveredOrder && !isCancelledOrder && (
