@@ -164,6 +164,18 @@ const sendSmsViaMsg91 = async (phone, otp) => {
     }
 };
 
+// One line at boot saying how OTPs will be delivered, visible in `pm2 logs`.
+// eslint-disable-next-line no-console
+console.info(
+    `[OTP] Delivery: ${config.useDefaultOtp
+        ? 'STATIC 1234 (USE_DEFAULT_OTP=true) - no SMS is sent'
+        : config.msg91Enabled
+            ? 'SMS via MSG91'
+            : config.smsHubEnabled
+                ? `SMS via SMS India Hub (sender ${String(config.smsSenderId || '').trim() || 'MISSING'})`
+                : 'NONE - no SMS provider enabled; every OTP request will fail'}`
+);
+
 // Static OTP in production means anyone can sign in to any account with 1234.
 if (config.nodeEnv === 'production' && config.useDefaultOtp) {
     // eslint-disable-next-line no-console

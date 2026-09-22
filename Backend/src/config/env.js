@@ -2,11 +2,25 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-dotenv.config();
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Backend/ — the base a relative UPLOAD_PATH is resolved against.
 const backendRoot = path.resolve(__dirname, '..', '..');
+
+// Always Backend/.env, whatever directory the process was started from: a bare
+// dotenv.config() reads ./.env from the working directory, so a server started
+// elsewhere read a different file than the one being edited. A .env in the
+// working directory is still read afterwards but never overrides Backend/.env.
+dotenv.config({ path: path.join(backendRoot, '.env') });
+dotenv.config();
+
+/** true/false for true|1|yes|on / false|0|no|off (any case, quotes ok); undefined when unset. */
+function readEnvFlag(name) {
+    const raw = String(process.env[name] ?? '').trim().replace(/^["']|["']$/g, '').trim();
+    if (!raw) return undefined;
+    if (/^(true|1|yes|on)$/i.test(raw)) return true;
+    if (/^(false|0|no|off)$/i.test(raw)) return false;
+    return undefined;
+}
 
 const uploadPath = process.env.UPLOAD_PATH
     || (process.env.NODE_ENV === 'production' ? '/var/www/uploads' : 'uploads/');
@@ -50,8 +64,23 @@ export const config = {
     smsDltTemplateId: process.env.SMS_INDIA_HUB_DLT_TEMPLATE_ID,
 
     // Service Toggles
-    smsHubEnabled: process.env.SMS_HUB_ENABLED === 'true',
-    msg91Enabled: process.env.MSG91_ENABLED === 'true',
+    /*
+     * SMS provider switches. Only the exact text "true" used to count, so a
+     * server .env with "True", "1" or a missing line silently disabled SMS and
+     * no OTP could ever be sent. Accepts true/1/yes/on in any case. When
+     * SMS_HUB_ENABLED is absent but SMS India Hub credentials are configured,
+     * that provider is used; an explicit "false" is always respected.
+     */
+    smsHubEnabled: (() => {
+        const flag = readEnvFlag('SMS_HUB_ENABLED');
+        if (flag !== undefined) return flag;
+        if (readEnvFlag('MSG91_ENABLED') === true) return false;
+        return Boolean(
+            String(process.env.SMS_INDIA_HUB_API_KEY || '').trim() &&
+            String(process.env.SMS_INDIA_HUB_SENDER_ID || '').trim()
+        );
+    })(),
+    msg91Enabled: readEnvFlag('MSG91_ENABLED') === true,
 
     // Rate limiting (see Backend/.env RATE_LIMIT_* / AUTH_RATE_LIMIT_*)
     rateLimitEnabled: process.env.RATE_LIMIT_ENABLED !== 'false',
