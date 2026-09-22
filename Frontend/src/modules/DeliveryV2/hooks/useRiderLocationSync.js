@@ -39,6 +39,22 @@ export function isOrdersRoute(pathname = '') {
   return /\/orders\/?$/.test(pathname) || pathname.endsWith('/orders');
 }
 
+/*
+ * Simulation switch (test builds only - see VITE_ENABLE_MAP_SIMULATION).
+ *
+ * While the test ride is running, the phone's real GPS must not publish: the
+ * two would fight, and the customer would see the bike jump between the
+ * simulated route and the phone's actual position. Paused means the watch keeps
+ * running (so the fix is still fresh the moment the test stops) but nothing is
+ * sent to the server. Real riders never reach this: the button that flips it is
+ * not rendered unless the build enables simulation.
+ */
+let riderGpsPaused = false;
+export const setRiderGpsPaused = (paused) => {
+  riderGpsPaused = Boolean(paused);
+};
+export const isRiderGpsPaused = () => riderGpsPaused;
+
 const describeGpsError = (error) => {
   if (!error) return null;
   if (error.code === 1) {
@@ -96,6 +112,8 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
     let trailingTimer = null;
 
     const publish = (fix, { force = false } = {}) => {
+      // A simulated test ride owns the published position while it runs.
+      if (riderGpsPaused) return;
       const now = Date.now();
       const state = useDeliveryStore.getState();
       const activeOrders = state.acceptedOrders || [];
@@ -178,7 +196,9 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
         toast.dismiss(GPS_TOAST_ID);
       }
       setGpsError?.(null);
-      setRiderLocation(fix);
+      // While a simulated test ride runs, it owns the marker; the real fix is
+      // still kept in lastFixRef so normal tracking resumes the moment it stops.
+      if (!riderGpsPaused) setRiderLocation(fix);
       publish(fix);
     };
 

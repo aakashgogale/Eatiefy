@@ -159,6 +159,17 @@ export function clearModuleAuth(module) {
   }
   // Also clear any sessionStorage data
   sessionStorage.removeItem(`${module}AuthData`);
+
+  /*
+   * Tell live listeners the session is over. Clearing tokens alone left the
+   * restaurant's socket connected in its old room, still ringing for orders
+   * that are no longer this device's business.
+   */
+  if (typeof window !== "undefined") {
+    try {
+      window.dispatchEvent(new CustomEvent("moduleAuthCleared", { detail: { module } }));
+    } catch (_) {}
+  }
 }
 
 /**

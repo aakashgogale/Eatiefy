@@ -25,13 +25,48 @@ import HistoryV2 from '@/modules/DeliveryV2/pages/HistoryV2';
 import ProfileV2 from '@/modules/DeliveryV2/pages/ProfileV2';
 
 // Icons
-import { 
-  Bell, HelpCircle, AlertTriangle, 
+import {
+  Bell, HelpCircle, AlertTriangle,
   Plus, Minus, Navigation2, Target, CheckCircle2, Clock, ChevronDown,
-  Contact, Phone, Navigation, Package
+  Contact, Phone, Navigation, Package, Play
 } from 'lucide-react';
 
-import { getHaversineDistance, calculateETA } from '@/modules/DeliveryV2/utils/geo';
+import { getHaversineDistance, calculateETA, calculateHeading } from '@/modules/DeliveryV2/utils/geo';
+import { setRiderGpsPaused } from '@/modules/DeliveryV2/hooks/useRiderLocationSync';
+
+/*
+ * Test-ride simulation.
+ *
+ * Drives the rider marker along the real route so live tracking can be checked
+ * without riding anywhere: the simulated position is published exactly like a
+ * real GPS fix (socket + HTTP + Firebase), so the customer's map shows the bike
+ * moving. Real GPS is paused while it runs, and resumes untouched afterwards.
+ *
+ * Off unless the build sets VITE_ENABLE_MAP_SIMULATION=true (or it is a dev
+ * build), so a live rider never sees the button.
+ */
+const SIMULATION_ENABLED =
+  import.meta.env.DEV || String(import.meta.env.VITE_ENABLE_MAP_SIMULATION || '').toLowerCase() === 'true';
+/** Fraction of the current road segment covered per tick (50ms) — about 1.6 segments/sec. */
+const SIM_STEP = 0.08;
+const SIM_TICK_MS = 50;
+/** Matches the server's broadcast throttle; no point publishing faster. */
+const SIM_PUBLISH_EVERY_MS = 2000;
+const SIM_FALLBACK_STEPS = 60;
+
+const parseSimPoint = (raw) => {
+  if (!raw) return null;
+  const lat = Number(raw.lat ?? raw.latitude);
+  const lng = Number(raw.lng ?? raw.longitude);
+  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+};
+
+/** Straight line between two points, used when no road route is available yet. */
+const buildFallbackPath = (from, to, steps = SIM_FALLBACK_STEPS) =>
+  Array.from({ length: steps + 1 }, (_, i) => {
+    const t = i / steps;
+    return { lat: from.lat + (to.lat - from.lat) * t, lng: from.lng + (to.lng - from.lng) * t };
+  });
 import { useCompanyName } from "@food/hooks/useCompanyName";
 import { useNavigate } from 'react-router-dom';
 import useNotificationInbox from "@food/hooks/useNotificationInbox";
@@ -107,6 +142,124 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   });
   
   const [eta, setEta] = useState(null);
+
+  // ─── Test-ride simulation (only reachable when SIMULATION_ENABLED) ───
+  const mapRef = useRef(null);
+  const [isSimMode, setIsSimMode] = useState(false);
+  const [simPath, setSimPath] = useState([]);
+  const [simIndex, setSimIndex] = useState(0);
+  const lastSimPublishAtRef = useRef(0);
+  const simStartedRef = useRef(false);
+
+  /*
+   * Simulated ride: walks the rider marker along `simPath` and publishes each
+   * position the same way the real GPS hook does, so the customer's tracking
+   * map is exercised end to end. Stops at the end of the path; turning the
+   * toggle off resumes real GPS immediately.
+   */
+  useEffect(() => {
+    if (!SIMULATION_ENABLED || !isSimMode) return undefined;
+    if (simPath.length < 2 || simIndex >= simPath.length - 1) return undefined;
+
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += SIM_STEP;
+      if (progress >= 1) {
+        setSimIndex((i) => i + 1);
+        return;
+      }
+      const from = simPath[simIndex];
+      const to = simPath[simIndex + 1];
+      if (!from || !to) return;
+
+      const lat = from.lat + (to.lat - from.lat) * progress;
+      const lng = from.lng + (to.lng - from.lng) * progress;
+      const heading = calculateHeading(from.lat, from.lng, to.lat, to.lng);
+
+      setRiderLocation({ lat, lng, heading });
+      mapRef.current?.panTo({ lat, lng });
+
+      const now = Date.now();
+      if (now - lastSimPublishAtRef.current < SIM_PUBLISH_EVERY_MS) return;
+      lastSimPublishAtRef.current = now;
+
+      // Same three channels the real GPS hook uses.
+      const orderId = activeOrder?.orderId || activeOrder?._id;
+      deliveryAPI.updateLocation(lat, lng, true, { heading }).catch(() => {});
+      if (orderId) {
+        emitLocation?.({ orderId, lat, lng, heading, speed: 0, accuracy: 5 });
+        writeOrderTracking(orderId, { lat, lng, heading, status: tripStatus, eta }).catch(() => {});
+      }
+    }, SIM_TICK_MS);
+
+    return () => clearInterval(interval);
+  }, [isSimMode, simPath, simIndex, activeOrder, emitLocation, setRiderLocation, tripStatus, eta]);
+
+  // Real GPS must not publish or move the marker while the test ride runs.
+  useEffect(() => {
+    if (!SIMULATION_ENABLED) return undefined;
+    setRiderGpsPaused(isSimMode);
+    return () => setRiderGpsPaused(false);
+  }, [isSimMode]);
+
+  // A new order or a new leg (to restaurant / to customer) restarts the walk.
+  useEffect(() => {
+    if (!SIMULATION_ENABLED) return;
+    setSimIndex(0);
+    simStartedRef.current = false;
+  }, [tripStatus, activeOrder?._id, isSimMode]);
+
+  /** Road route from the map; used as the test ride's path while it is running. */
+  const handleSimPath = useCallback((path) => {
+    if (!SIMULATION_ENABLED || !Array.isArray(path) || path.length < 2) return;
+    setSimPath((current) => {
+      // Keep the walk going: only adopt a new route when it really changed.
+      if (current.length === path.length && current[0]?.lat === path[0]?.lat && current[0]?.lng === path[0]?.lng) {
+        return current;
+      }
+      setSimIndex(0);
+      return path;
+    });
+  }, []);
+
+  /** Starts/stops the simulated ride toward the current leg's destination. */
+  const toggleSimulation = useCallback(() => {
+    if (!SIMULATION_ENABLED) return;
+
+    if (isSimMode) {
+      setIsSimMode(false);
+      toast.info('Test ride stopped — real GPS resumed');
+      return;
+    }
+
+    const goingToCustomer = tripStatus === 'PICKED_UP' || tripStatus === 'REACHED_DROP';
+    const target = parseSimPoint(
+      goingToCustomer ? activeOrder?.customerLocation : activeOrder?.restaurantLocation,
+    );
+    if (!target) {
+      toast.error('Accept an order first', {
+        description: 'The test ride follows the route to the restaurant or the customer.',
+      });
+      return;
+    }
+
+    // Start from the rider's real position when known, otherwise just short of
+    // the destination so there is always a visible stretch to travel.
+    const start =
+      parseSimPoint(useDeliveryStore.getState().riderLocation) ||
+      { lat: target.lat + 0.01, lng: target.lng + 0.01 };
+
+    setRiderLocation({ lat: start.lat, lng: start.lng, heading: 0 });
+    setSimIndex(0);
+    lastSimPublishAtRef.current = 0;
+    // The map's road route replaces this as soon as it arrives (handleSimPath).
+    setSimPath(buildFallbackPath(start, target));
+    setIsSimMode(true);
+    toast.warning('Test ride started', {
+      description: 'The customer app will see this simulated movement.',
+    });
+  }, [isSimMode, tripStatus, activeOrder, setRiderLocation]);
+
   const routeProgressRef = useRef(null);
   const handleRouteProgress = useCallback((progress) => {
     routeProgressRef.current = progress ? { ...progress, at: Date.now() } : null;
@@ -120,7 +273,6 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   const lastAutoArrivalRef = useRef({ PICKING_UP: false, PICKED_UP: false });
 
   const [zoom, setZoom] = useState(14);
-  const mapRef = useRef(null);
 
   const isLoggingOut = useRef(false);
   const gpsBlockedToastShown = useRef(false);
@@ -559,10 +711,12 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
       <div className={`flex-1 relative overflow-y-auto ${currentTab === 'history' ? 'pt-0' : 'pt-[120px]'} no-scrollbar`}>
          {currentTab === 'feed' ? (
            <div className="absolute inset-0 top-[-120px]">
-             <LiveMap 
+             <LiveMap
                onMapLoad={(m) => mapRef.current = m}
                onMapClick={handleMapClick}
                onRouteProgress={handleRouteProgress}
+               // Road route for the test ride, so the marker follows real streets.
+               onPathReceived={SIMULATION_ENABLED ? handleSimPath : undefined}
                onPolylineReceived={(poly) => {
                  // If we have an order, push the INITIAL polyline to Firebase immediately for the customer
                  const orderId = activeOrder?.orderId || activeOrder?._id;
@@ -585,13 +739,49 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                 >
                   <div className="w-8 h-8 rounded-full border-2 border-blue-600 flex items-center justify-center"><Navigation2 className="w-4 h-4" /></div>
                 </button>
-                <button 
+                <button
                   onClick={handleCenterMap}
                   className="w-14 h-14 bg-white rounded-full shadow-2xl flex items-center justify-center text-gray-900 border border-gray-100 group active:scale-90 transition-all"
                 >
                   <Target className="w-7 h-7" />
                 </button>
+                {/* Test ride: only rendered when the build enables simulation. */}
+                {SIMULATION_ENABLED && (
+                  <button
+                    onClick={toggleSimulation}
+                    title={isSimMode ? 'Stop test ride' : 'Start test ride (simulated movement)'}
+                    aria-label={isSimMode ? 'Stop test ride' : 'Start test ride'}
+                    className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center border border-gray-100 active:scale-90 transition-all ${isSimMode ? 'bg-orange-500 text-white' : 'bg-white text-green-600'}`}
+                  >
+                    <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center ${isSimMode ? 'border-white' : 'border-green-600'}`}>
+                      <Play className={`w-4 h-4 fill-current ml-0.5 ${isSimMode ? 'animate-pulse' : ''}`} />
+                    </div>
+                  </button>
+                )}
              </div>
+
+             {/* Banner so a simulated position is never mistaken for the real one. */}
+             {SIMULATION_ENABLED && isSimMode && (
+               <div className="absolute top-4 left-4 right-4 z-[130] bg-black/80 backdrop-blur-md rounded-xl p-3 border border-orange-400/40 flex items-center justify-between shadow-2xl">
+                 <div className="flex items-center gap-3">
+                   <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center animate-pulse shrink-0">
+                     <Play className="w-4 h-4 text-white fill-current" />
+                   </div>
+                   <div className="flex flex-col">
+                     <span className="text-orange-400 text-[10px] font-bold uppercase tracking-widest">Test ride running</span>
+                     <span className="text-white text-[11px] font-medium">
+                       Simulated movement — real GPS paused{simPath.length > 1 ? ` · ${Math.min(simIndex + 1, simPath.length)}/${simPath.length}` : ''}
+                     </span>
+                   </div>
+                 </div>
+                 <button
+                   onClick={toggleSimulation}
+                   className="bg-white/10 text-white/70 hover:text-white px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest border border-white/10 shrink-0"
+                 >
+                   Stop
+                 </button>
+               </div>
+             )}
            </div>
          ) : currentTab === 'pocket' ? (
            <PocketV2 />

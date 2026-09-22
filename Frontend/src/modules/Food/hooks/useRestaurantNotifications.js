@@ -227,6 +227,38 @@ const attachRestaurantSocketWatchdog = () => {
       if (document.visibilityState === 'visible') reconnectRestaurantSocket();
     });
   }
+
+  // Signing out must stop everything this module owns.
+  window.addEventListener('moduleAuthCleared', (event) => {
+    if (event?.detail?.module !== 'restaurant') return;
+    teardownRestaurantNotifications();
+  });
+};
+
+/**
+ * Stops every source of a ring and releases the connection. Called on logout;
+ * a later login rebuilds all of it from scratch.
+ */
+export const teardownRestaurantNotifications = () => {
+  stopGlobalAlertLoop();
+
+  if (globalPollingIntervalId) {
+    clearInterval(globalPollingIntervalId);
+    globalPollingIntervalId = null;
+  }
+
+  if (globalSocket) {
+    try {
+      globalSocket.removeAllListeners();
+      globalSocket.disconnect();
+    } catch (_) {}
+    globalSocket = null;
+  }
+  globalSocketConnected = false;
+  globalActiveRestaurantId = null;
+  globalActiveOrder = null;
+
+  updateGlobalState({ newOrder: null, newReservation: null, activeOrder: null, socketConnected: false });
 };
 
 let processedOrderIds = new Set();
@@ -502,7 +534,17 @@ const isAlertSoundPlaying = () =>
   Boolean((globalAudio && !globalAudio.paused) || (globalFallbackAudio && !globalFallbackAudio.paused));
 
 const startGlobalAlertLoop = (orderData) => {
-  if (!orderData) return;
+  // Last line of defence: every caller (socket, poll, resume-after-interaction,
+  // unmute) goes through here, so nothing can ring without a real, still-open order.
+  if (!isRingableOrder(orderData)) {
+    if (orderData) {
+      debugWarn('[RestaurantAlert] Ignored ring request without a live order', {
+        orderId: getOrderAlertKey(orderData) || null,
+        orderStatus: orderData?.orderStatus ?? null,
+      });
+    }
+    return;
+  }
   const orderId = getOrderAlertKey(orderData);
 
   // The Orders page re-renders often; restarting the same order's alert would
@@ -625,6 +667,45 @@ const isOrderMuted = (orderData = {}) => {
     .map((v) => (v == null ? '' : String(v).trim()))
     .filter(Boolean);
   return ids.some((id) => globalMutedOrderIds.has(id));
+};
+
+/*
+ * The single gate every ring has to pass.
+ *
+ * The ringtone used to start for anything that reached a handler, including a
+ * payload with no order in it at all: an empty object survived every check
+ * (no id to look up, no createdAt so no accept deadline, empty dedupe key) and
+ * then rang for the whole 10-minute accept window. It also rang again for an
+ * order the restaurant had already answered, because the resume paths replayed
+ * `globalActiveOrder` without re-checking it.
+ *
+ * A ring now requires: a real order identity, a status the restaurant can still
+ * act on, not already handled, and still inside its accept window.
+ */
+const RESTAURANT_DECIDABLE_STATUSES = new Set(['created', 'pending', '']);
+
+export const isRingableOrder = (orderData) => {
+  if (!orderData || typeof orderData !== 'object') return false;
+
+  // 1. It must identify a real order.
+  if (!getOrderAlertKey(orderData)) return false;
+
+  /*
+   * 2. It must still be awaiting this restaurant's decision. Read the backend
+   * enum (`orderStatus`), never `status`: the orders API rewrites "created" to
+   * "confirmed" there for the UI tabs, so `status` would reject real new orders.
+   */
+  const rawStatus = String(orderData.orderStatus ?? '').toLowerCase().trim();
+  if (!RESTAURANT_DECIDABLE_STATUSES.has(rawStatus)) return false;
+
+  // 3. Not already accepted, rejected or otherwise handled on this device.
+  if (isProcessedOrder(orderData)) return false;
+
+  // 4. Still inside the window in which it can be accepted.
+  const deadline = getOrderAcceptDeadline(orderData);
+  if (deadline && Date.now() >= deadline) return false;
+
+  return true;
 };
 
 const shouldProcessOrderAlert = (orderData = {}) => {
@@ -757,8 +838,17 @@ export const useRestaurantNotifications = () => {
   const handleIncomingOrderAlert = useCallback((orderData, source = 'unknown') => {
     const isSocket = source === 'socket';
     const normalizedOrder = normalizeRestaurantOrderView(orderData);
-    
-    if (isProcessedOrder(normalizedOrder)) {
+
+    /*
+     * Reject anything that is not a live order awaiting a decision before it can
+     * touch the popup or the ringtone - an event with no order payload used to
+     * ring for ten minutes.
+     */
+    if (!isRingableOrder(normalizedOrder)) {
+      debugWarn(`[RestaurantAlert] Ignored "${source}" event that is not a live new order`, {
+        orderId: getOrderAlertKey(normalizedOrder || {}) || null,
+        orderStatus: normalizedOrder?.orderStatus ?? null,
+      });
       return;
     }
 
@@ -928,14 +1018,13 @@ export const useRestaurantNotifications = () => {
       }
     });
 
-    globalSocket.on('play_notification_sound', (data) => {
-      const normalizedData = {
-        orderId: data?.orderId || data?.order_id,
-        orderMongoId: data?.orderMongoId || data?.order_meta_id || data?.order_mongo_id,
-        ...data
-      };
-      handleIncomingOrderAlert(normalizedData, 'socket');
-    });
+    /*
+     * 'play_notification_sound' is deliberately NOT handled.
+     *
+     * No backend code emits it (checked across the whole server), yet the
+     * listener rang for whatever payload it was handed - including one with no
+     * order in it. A real new order always arrives as 'new_order'.
+     */
 
     globalSocket.on('order_status_update', (data) => {
       if (typeof window !== 'undefined') {
