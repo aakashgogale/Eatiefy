@@ -19,6 +19,7 @@ import { RestaurantGridSkeleton } from "@food/components/ui/loading-skeletons"
 import { Suspense, lazy } from "react"
 import { useProfile } from "@food/context/ProfileContext"
 import {
+  buildVegModeQueryParams,
   filterCategoriesForVegMode,
   filterRestaurantsForVegMode,
   isVegMenuItem,
@@ -170,7 +171,9 @@ export default function ProfessionalSearch() {
         limit: 50,
         zoneId,
         orderType: searchMode,
-        ...(vegMode ? { isVeg: "true" } : {}),
+        // isVeg was sent for every option, so the server returned veg
+        // restaurants even when "Non-veg only" was selected.
+        ...buildVegModeQueryParams({ vegMode, vegModeOption }),
       })
 
       const all = res.data?.success ? (res.data.data?.restaurants || []) : []

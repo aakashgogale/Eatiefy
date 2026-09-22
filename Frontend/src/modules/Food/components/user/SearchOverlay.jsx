@@ -9,6 +9,7 @@ import { useVoiceSearch } from "@food/hooks/useVoiceSearch"
 import { useLocation as useGeoLocation } from "@food/hooks/useLocation"
 import { useZone } from "@food/hooks/useZone"
 import { useProfile } from "@food/context/ProfileContext"
+import { buildVegModeQueryParams } from "@food/utils/vegMode"
 
 const SEARCH_HISTORY_KEY = "user_recent_searches_v1"
 
@@ -98,7 +99,7 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
 
   const { location: userCoords } = useGeoLocation()
   const { zoneId, loading: zoneLoading } = useZone(userCoords)
-  const { vegMode } = useProfile()
+  const { vegMode, vegModeOption } = useProfile()
 
   // Depend on the primitives: the coords object gets a new identity on every
   // parent render, which would otherwise refire the search endlessly.
@@ -177,7 +178,9 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
           limit: 30,
           zoneId,
           orderType: "delivery",
-          ...(vegMode ? { isVeg: "true" } : {}),
+          // isVeg was sent for every option, so the server returned veg
+          // restaurants even when "Non-veg only" was selected.
+          ...buildVegModeQueryParams({ vegMode, vegModeOption }),
         })
         if (requestId !== requestIdRef.current) return
 
@@ -213,7 +216,7 @@ export default function SearchOverlay({ isOpen, onClose, searchValue, onSearchCh
     }, SEARCH_DEBOUNCE_MS)
 
     return () => clearTimeout(timer)
-  }, [isOpen, searchValue, zoneId, zoneLoading, lat, lng, vegMode])
+  }, [isOpen, searchValue, zoneId, zoneLoading, lat, lng, vegMode, vegModeOption])
 
   useEffect(() => {
     const handleEscape = (e) => {

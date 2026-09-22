@@ -51,6 +51,7 @@ import {
   filterRestaurantsForVegMode,
   filterDishesForVegMode,
   filterCategoriesForVegMode,
+  buildVegModeQueryParams,
 } from "@food/utils/vegMode";
 import VoiceSearchOverlay from "@food/components/user/VoiceSearchOverlay";
 import { useVoiceSearch } from "@food/hooks/useVoiceSearch";
@@ -2451,17 +2452,9 @@ export default function Home() {
           params.maxPrice = 500;
         }
 
-        // Veg mode filter
-        if (vegMode) {
-          params.isVeg = "true";
-          params.vegMode = "true";
-          if (vegModeOption && vegModeOption !== "all") {
-            params.vegModeOption = vegModeOption;
-            if (vegModeOption === "pure-veg") {
-              params.pureVeg = "true";
-            }
-          }
-        }
+        // Veg mode filter (see buildVegModeQueryParams: sending isVeg for every
+        // option made the server answer with veg restaurants even for non-veg).
+        Object.assign(params, buildVegModeQueryParams({ vegMode, vegModeOption }));
 
         // Offers filter
         if (filters.activeFilters?.has("has-offers")) {

@@ -209,6 +209,33 @@ export const matchesVegRestaurantFilter = (
   return true
 }
 
+/**
+ * Query params for the food/restaurant APIs for the current veg preference.
+ *
+ * The backend picks its diet filter from the FIRST matching branch, and
+ * `isVeg=true` sits in the veg-only branch. Every caller used to send
+ * `isVeg=true` whenever veg mode was on - including "Non-veg restaurants only"
+ * and "All restaurants" - so the server replied with veg restaurants in all
+ * three cases. For non-veg the client then filtered that veg list down to
+ * non-veg and showed nothing at all.
+ *
+ * `foodType` is the backend's first-class diet parameter, so that is what is
+ * sent, and only when a specific diet was actually chosen.
+ */
+export const buildVegModeQueryParams = ({ vegMode = false, vegModeOption = "all" } = {}) => {
+  if (!vegMode) return {}
+  const option = normalizeVegModeOption(vegModeOption)
+
+  if (option === "pure-veg") {
+    return { foodType: "veg", pureVeg: "true", vegModeOption: option }
+  }
+  if (option === "non-veg") {
+    return { foodType: "non-veg", vegModeOption: option }
+  }
+  // "All restaurants": veg mode is on, but no diet restriction was asked for.
+  return {}
+}
+
 export const filterRestaurantsForVegMode = (
   restaurants = [],
   { vegMode = false, vegModeOption = "all" } = {},
