@@ -298,6 +298,27 @@ export async function updateDispatchSettings(dispatchMode, adminId) {
   return getDispatchSettings();
 }
 
+/*
+ * How long an order may keep hunting for a rider.
+ *
+ * The hunt used to have no end: an order nobody could take stayed in the loop
+ * for ever, re-offering itself every 30s. From attempt 3 the offer goes to
+ * EVERY eligible rider within 40-60km, and riders who were not offered it yet
+ * are picked up as they come online - so days-old orders kept ringing riders at
+ * random, for orders that could not possibly still be delivered. Past this age
+ * the order is left for an admin to assign or cancel by hand; it is not
+ * cancelled automatically, and a manual assignment still works.
+ */
+const MAX_DISPATCH_AGE_MS = Math.max(
+  5,
+  Number(process.env.DISPATCH_MAX_ORDER_AGE_MINUTES || 120),
+) * 60 * 1000;
+
+const dispatchAgeMs = (order) => {
+  const placedAt = new Date(order?.createdAt || 0).getTime();
+  return Number.isFinite(placedAt) && placedAt > 0 ? Date.now() - placedAt : 0;
+};
+
 export async function tryAutoAssign(orderId, options = {}) {
   const attempt = options.attempt || 1;
   const lockTimeout = 55000; // 55 seconds lock interval
@@ -314,6 +335,8 @@ export async function tryAutoAssign(orderId, options = {}) {
       _id: new mongoose.Types.ObjectId(orderId),
       orderType: 'delivery',
       orderStatus: { $in: Array.from(dispatchableStatuses) },
+      // Too old to still be a live delivery: stop hunting (and stop ringing riders).
+      createdAt: { $gte: new Date(Date.now() - MAX_DISPATCH_AGE_MS) },
       $or: [
         { 'dispatch.status': 'unassigned' },
         {
@@ -331,7 +354,7 @@ export async function tryAutoAssign(orderId, options = {}) {
   ).populate(['restaurantId', 'userId']);
 
   if (!order) {
-    logger.info(`tryAutoAssign: Skip for ${orderId} (not dispatchable, already dispatching, accepted, or multi-attempt lock active).`);
+    logger.info(`tryAutoAssign: Skip for ${orderId} (not dispatchable, already dispatching, accepted, older than ${Math.round(MAX_DISPATCH_AGE_MS / 60000)} minutes, or multi-attempt lock active).`);
     return null;
   }
 
@@ -404,21 +427,31 @@ export async function tryAutoAssign(orderId, options = {}) {
     const isPhase3 = attempt >= 6; // ~6 minutes (60s * 6)
 
     if (isPhase3) {
-      logger.error(`[CRITICAL] Order ${order._id} unassigned for ${attempt} mins. Triggering Admin Alert (Phase 3).`);
-      // Notify Admin via Push (Web/Mobile)
+      // `attempt` counts retries (30-60s apart), not minutes; report the real age.
+      const ageMinutes = Math.round((Date.now() - new Date(order.createdAt || Date.now()).getTime()) / 60000);
+      const ageLabel = ageMinutes >= 120 ? `${Math.round(ageMinutes / 60)} hours` : `${ageMinutes} mins`;
+      logger.error(`[CRITICAL] Order ${order._id} still has no delivery partner (placed ${ageLabel} ago, dispatch attempt ${attempt}). Triggering Admin Alert (Phase 3).`);
+      /*
+       * One alert per order per hour. The key used to include `attempt`, so
+       * every retry (about every 30s, for as long as the order stays unassigned)
+       * was a brand-new event and bypassed de-duplication: an order stuck for
+       * days would push "Unassigned Order Crisis!" to every admin device twice
+       * a minute. The hour bucket still re-reminds for orders left unresolved.
+       */
+      const alertBucket = `${order._id}_${Math.floor(Date.now() / 3600000)}`;
       try {
         // 'GLOBAL' was never an admin id (findById failed), so this alert reached nobody.
         await notifyAdminsSafely(
           {
             title: 'Unassigned Order Crisis!',
-            body: `Order #${order.order_id || order._id} has not been picked up for 5+ minutes. Manual intervention required!`,
+            body: `Order #${order.order_id || order._id} has had no delivery partner for ${ageLabel}. Manual intervention required!`,
             urgent: true,
             channelId: 'admin_orders',
             link: '/admin/orders/all',
-            idempotencyKey: `admin_alert_unassigned_${order._id}_${attempt}`,
-            eventId: `admin_alert_unassigned_${order._id}_${attempt}`,
+            idempotencyKey: `admin_alert_unassigned_${alertBucket}`,
+            eventId: `admin_alert_unassigned_${alertBucket}`,
             tag: `admin_alert_unassigned_${order._id}`,
-            data: { type: 'admin_alert_unassigned', orderId: order._id.toString(), link: '/admin/orders/all', targetUrl: '/admin/orders/all', tag: `admin_alert_unassigned_${order._id}`, eventId: `admin_alert_unassigned_${order._id}_${attempt}` }
+            data: { type: 'admin_alert_unassigned', orderId: order._id.toString(), link: '/admin/orders/all', targetUrl: '/admin/orders/all', tag: `admin_alert_unassigned_${order._id}`, eventId: `admin_alert_unassigned_${alertBucket}` }
           }
         );
       } catch (err) {
@@ -459,7 +492,15 @@ export async function tryAutoAssign(orderId, options = {}) {
         }
       }
 
-      // Re-queue itself to keep trying
+      // Re-queue itself to keep trying, unless the order is too old to deliver.
+      if (dispatchAgeMs(order) >= MAX_DISPATCH_AGE_MS) {
+        logger.warn(
+          `tryAutoAssign: Order ${order._id} has been unassigned for over ${Math.round(MAX_DISPATCH_AGE_MS / 60000)} minutes. ` +
+          'Stopping the automatic hunt - assign or cancel it from the admin panel.',
+        );
+        return order;
+      }
+
       await addOrderJob({
         action: 'DISPATCH_TIMEOUT_CHECK',
         orderMongoId: order._id.toString(),
