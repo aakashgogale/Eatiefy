@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react"
+import { toast } from "sonner"
 import { useNavigate } from "react-router-dom"
 import { MapPin, ArrowLeft, Search, Bike } from "lucide-react"
 import { adminAPI } from "@food/api"
@@ -131,6 +132,8 @@ export default function DeliveryBoyViewMap() {
     } catch (error) {
       debugError("Error fetching zones:", error)
       setZones([])
+      // Without this a failed load read as "no zones exist yet".
+      toast.error(error?.response?.data?.message || "Could not load zones. Please refresh and try again.")
     } finally {
       setLoading(false)
     }

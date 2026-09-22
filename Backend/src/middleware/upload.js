@@ -60,10 +60,24 @@ const resolveMimeType = (file) => {
 
 const storage = multer.memoryStorage();
 
+const UNLABELLED_MIME = new Set(['', 'application/octet-stream', 'binary/octet-stream']);
+
 const fileFilter = (_req, file, cb) => {
     const mime = resolveMimeType(file);
     if (ALLOWED_MIME.has(mime)) {
         file.mimetype = mime;
+        return cb(null, true);
+    }
+    /*
+     * No usable type AND no known extension - e.g. a compressed canvas Blob
+     * appended as "blob", or an Android content URI. Only headers are visible
+     * here, so the file is let through as unlabelled and judged by its bytes:
+     * every non-video upload is fully decoded and re-encoded to WebP, and
+     * anything that is not a real image is rejected there. Nothing unlabelled
+     * is ever stored as-is.
+     */
+    if (UNLABELLED_MIME.has(mime)) {
+        file.mimetype = 'application/octet-stream';
         return cb(null, true);
     }
     const err = new Error(`Unsupported file type: ${file.mimetype}`);

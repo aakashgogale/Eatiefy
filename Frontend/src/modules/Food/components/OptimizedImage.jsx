@@ -1,6 +1,15 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import dishFallbackImage from '@food/assets/dish_fallback.webp'
+import { imageRetryUrl, resolveImageSrc } from '@/shared/utils/mediaUrl'
+
+/*
+ * Only these hosts resize on ?w=&q=. Our own /uploads files (nginx static) and
+ * most CDNs ignore the parameters, so a 5-width srcset there downloaded the
+ * same full-size file under five different cache keys - and on signed URLs
+ * (S3, Firebase) the extra parameters invalidate the signature outright.
+ */
+const RESIZING_HOSTS = new Set(['images.unsplash.com'])
 
 /**
  * OptimizedImage Component
@@ -31,16 +40,32 @@ const OptimizedImage = React.memo(({
   ...props
 }) => {
   const [isLoaded, setIsLoaded] = useState(priority)
-  const [hasError, setHasError] = useState(false)
+  // 0: first try, 1: retried once, 2: gave up -> fallback.
+  const [failures, setFailures] = useState(0)
   const imgRef = useRef(null)
 
-  // Check if image URL supports optimization (external URLs)
+  // Relative /uploads paths, localhost/http URLs, { url } objects -> loadable URL.
+  const resolvedSrc = useMemo(() => resolveImageSrc(src), [src])
+
+  /*
+   * A new source starts clean. The error flag used to stick for the life of
+   * the component, so a list row that once failed (a dropped request, or an
+   * item whose photo was replaced) kept showing the placeholder for ever.
+   */
+  useEffect(() => {
+    setFailures(0)
+    setIsLoaded(priority)
+  }, [resolvedSrc, priority])
+  const hasError = failures >= 2
+
   const supportsOptimization = (imageSrc) => {
     if (!responsive) return false
-    if (!imageSrc || typeof imageSrc !== 'string' || imageSrc === '') return false
-    if (imageSrc.startsWith('data:') || imageSrc.startsWith('/')) return false
-    // Check if it's an external URL (http/https)
-    return /^https?:\/\//.test(imageSrc)
+    if (!imageSrc || typeof imageSrc !== 'string') return false
+    try {
+      return RESIZING_HOSTS.has(new URL(imageSrc).hostname)
+    } catch {
+      return false
+    }
   }
 
   const appendImageParams = (imageSrc, params) => {
@@ -66,20 +91,21 @@ const OptimizedImage = React.memo(({
   }, [sizes])
 
   // Generate responsive srcset (disabled when responsive=false — e.g. dish carousels)
+  // After a failure, retry with the plain URL only (no srcset variants).
   const srcSet = useMemo(() => {
-    if (!responsive || !supportsOptimization(src)) return undefined
+    if (failures > 0 || !supportsOptimization(resolvedSrc)) return undefined
     return responsiveWidths
-      .map(size => `${appendImageParams(src, { w: size, q: 80 })} ${size}w`)
+      .map(size => `${appendImageParams(resolvedSrc, { w: size, q: 80 })} ${size}w`)
       .join(', ')
-  }, [src, responsive, responsiveWidths])
+  }, [resolvedSrc, responsive, responsiveWidths, failures])
 
   // Generate WebP srcset
   const webPSrcSet = useMemo(() => {
-    if (!responsive || !supportsOptimization(src)) return undefined
+    if (failures > 0 || !supportsOptimization(resolvedSrc)) return undefined
     return responsiveWidths
-      .map(size => `${appendImageParams(src, { w: size, q: 80, format: 'webp' })} ${size}w`)
+      .map(size => `${appendImageParams(resolvedSrc, { w: size, q: 80, fm: 'webp' })} ${size}w`)
       .join(', ')
-  }, [src, responsive, responsiveWidths])
+  }, [resolvedSrc, responsive, responsiveWidths, failures])
 
   // Instant Cache Detection: Check if image is already cached/complete in browser cache on mount and source change
   useEffect(() => {
@@ -89,7 +115,7 @@ const OptimizedImage = React.memo(({
         setIsLoaded(true)
       }
     }
-  }, [src])
+  }, [resolvedSrc])
 
   const handleLoad = (e) => {
     setIsLoaded(true)
@@ -97,7 +123,9 @@ const OptimizedImage = React.memo(({
   }
 
   const handleError = (e) => {
-    setHasError(true)
+    // The fallback itself failing must not loop.
+    if (isFallback) return
+    setFailures((n) => n + 1)
     if (onError) onError(e)
   }
 
@@ -105,8 +133,11 @@ const OptimizedImage = React.memo(({
   const defaultBlurDataURL = blurDataURL || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2U1ZTdlYiIvPjwvc3ZnPg=='
   const DEFAULT_FALLBACK = dishFallbackImage
 
-  const isFallback = !src || typeof src !== 'string' || !src.trim() || hasError
-  const effectiveSrc = isFallback ? (fallbackImage || DEFAULT_FALLBACK) : src.trim()
+  // One retry under a new URL (an identical src would not be requested again);
+  // signed URLs cannot take a parameter and go straight to the fallback.
+  const retrySrc = failures === 1 ? imageRetryUrl(resolvedSrc) : null
+  const isFallback = !resolvedSrc || hasError || (failures === 1 && !retrySrc)
+  const effectiveSrc = isFallback ? (fallbackImage || DEFAULT_FALLBACK) : (retrySrc || resolvedSrc)
 
   return (
     <div className={`relative overflow-hidden ${className}`} ref={imgRef}>

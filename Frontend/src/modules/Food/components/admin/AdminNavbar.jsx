@@ -165,8 +165,15 @@ export default function AdminNavbar({ onMenuClick }) {
     localStorage.removeItem('admin_recent_searches');
   };
 
-  // Load admin data from localStorage
+  /*
+   * Signed-in admin identity. The localStorage copy is only the snapshot taken
+   * at login - it paints instantly, but it went stale after a profile edit and,
+   * when missing, the menu showed an invented "admin@example.com". The server
+   * (/auth/me) is the source of truth, so refresh from it and keep the cached
+   * copy in step.
+   */
   useEffect(() => {
+    let cancelled = false;
     const loadAdminData = () => {
       try {
         const adminUserStr = localStorage.getItem('admin_user');
@@ -178,16 +185,36 @@ export default function AdminNavbar({ onMenuClick }) {
         debugError('Error loading admin data:', error);
       }
     };
+    const refreshAdminData = async () => {
+      try {
+        const res = await adminAPI.getAdminProfile();
+        const admin = res?.data?.data?.admin;
+        if (cancelled || !admin || typeof admin !== 'object') return;
+        setAdminData((prev) => {
+          const next = { ...(prev || {}), ...admin };
+          try {
+            localStorage.setItem('admin_user', JSON.stringify(next));
+          } catch (_) {}
+          return next;
+        });
+      } catch (error) {
+        // Keep the cached snapshot; auth failures are handled by the API client.
+        debugError('Error refreshing admin profile:', error);
+      }
+    };
 
     loadAdminData();
+    refreshAdminData();
 
     // Listen for auth changes
     const handleAuthChange = () => {
       loadAdminData();
+      refreshAdminData();
     };
     window.addEventListener('adminAuthChanged', handleAuthChange);
 
     return () => {
+      cancelled = true;
       window.removeEventListener('adminAuthChanged', handleAuthChange);
     };
   }, []);
@@ -435,7 +462,7 @@ export default function AdminNavbar({ onMenuClick }) {
                             domain
                           );
                         })()
-                        : "admin@example.com"}
+                        : ""}
                     </p>
                   </div>
                   <ChevronDown className="w-4 h-4 text-neutral-700 hidden md:block" />
@@ -482,7 +509,7 @@ export default function AdminNavbar({ onMenuClick }) {
                               domain
                             );
                           })()
-                          : "admin@example.com"}
+                          : ""}
                       </p>
                     </div>
                   </div>

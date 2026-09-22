@@ -66,6 +66,7 @@ import { RestaurantDetailSkeleton } from "@food/components/ui/loading-skeletons"
 import { isVegMenuItem } from "@food/utils/vegMode"
 import dishFallbackImage from "@food/assets/dish_fallback.webp"
 import OptimizedImage from "@food/components/OptimizedImage"
+import SafeImage from "@food/components/SafeImage"
 
 const fssaiLogo = "/assets/images/fssai.png?v=3"
 
@@ -3119,16 +3120,11 @@ function RestaurantDetailsContent() {
                                   aria-label={`View ${item.name} details`}
                                 >
                                    <OptimizedImage
-                                     src={item.image || FOOD_IMAGE_FALLBACK}
+                                     src={item.image}
                                      alt={item.name}
                                      priority={isPriority}
                                      className="w-full h-full object-cover rounded-2xl shadow-sm"
                                      fallbackImage={FOOD_IMAGE_FALLBACK}
-                                     onError={(e) => {
-                                       if (e.currentTarget.src !== FOOD_IMAGE_FALLBACK) {
-                                         e.currentTarget.src = FOOD_IMAGE_FALLBACK
-                                       }
-                                     }}
                                    />
                                 </button>
                                 {quantity > 0 ? (
@@ -3350,16 +3346,11 @@ function RestaurantDetailsContent() {
                                             aria-label={`View ${item.name} details`}
                                           >
                                             <OptimizedImage
-                                              src={item.image || FOOD_IMAGE_FALLBACK}
+                                              src={item.image}
                                               alt={item.name}
                                               priority={isPriority}
                                               className="w-full h-full object-cover rounded-2xl shadow-sm"
                                               fallbackImage={FOOD_IMAGE_FALLBACK}
-                                              onError={(e) => {
-                                                if (e.currentTarget.src !== FOOD_IMAGE_FALLBACK) {
-                                                  e.currentTarget.src = FOOD_IMAGE_FALLBACK
-                                                }
-                                              }}
                                             />
                                           </button>
                                           {quantity > 0 ? (
@@ -4048,16 +4039,14 @@ function RestaurantDetailsContent() {
 
                   {/* Image Section — uses the same cached URL as the list thumb for instant paint */}
                   <div className="relative w-full h-64 overflow-hidden rounded-t-3xl bg-gray-100 dark:bg-gray-800">
-                    <img
-                      src={selectedItem.displayImage || selectedItem.image || FOOD_IMAGE_FALLBACK}
+                    <SafeImage
+                      src={selectedItem.displayImage || selectedItem.image}
+                      fallbackSrc={FOOD_IMAGE_FALLBACK}
                       alt={selectedItem.name}
                       className="w-full h-full object-cover"
                       decoding="sync"
                       loading="eager"
                       fetchPriority="high"
-                      onError={(e) => {
-                        e.currentTarget.src = FOOD_IMAGE_FALLBACK
-                      }}
                     />
                   </div>
 

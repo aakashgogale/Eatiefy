@@ -19,7 +19,8 @@ import {
     formatVeganBlockMessage,
     getVeganFoodTypeBlockReason,
 } from '../../shared/veganFoodGuard.js';
-import { deleteReplacedAssets, deleteStoredAssets } from '../../../../services/storage.service.js';
+import { normalizeImageForStorage } from '../../../../services/storage.service.js';
+import { deleteFoodImagesIfUnused, removedAssetUrls } from '../../../../services/assetReferences.service.js';
 
 const toStr = (v) => (v != null ? String(v).trim() : '');
 const APPROVED_CATEGORY_FILTER = [
@@ -218,7 +219,8 @@ export async function createRestaurantFood(restaurantId, body = {}) {
     const { price, variants } = getCreateFoodPricing(body);
 
     const description = toStr(body.description);
-    const image = toStr(body.image);
+    // One canonical absolute URL, and never a device-local blob:/data: preview.
+    const image = normalizeImageForStorage(body.image);
     const isAvailable = body.isAvailable !== false;
     const foodType = normalizeFoodType(body.foodType);
     if (context.foodType === 'Veg' && foodType !== 'Veg') {
@@ -325,7 +327,12 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
         // The previous file is deleted only after the update below succeeds;
         // deleting it first left the item pointing at a missing image whenever a
         // later validation (diet/category) rejected the save.
-        update.image = toStr(body.image);
+        // The app sends the current image back on every save. Only a new value
+        // is validated, so an older item with an unusual stored value can still
+        // have its price or name edited.
+        if (toStr(body.image) !== toStr(existing.image)) {
+            update.image = normalizeImageForStorage(body.image);
+        }
     }
     Object.assign(update, getUpdatedFoodPricing(existing, body));
     if (body.isAvailable !== undefined) update.isAvailable = body.isAvailable !== false;
@@ -393,11 +400,8 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
     ).lean();
 
     if (updated && update.image !== undefined && existing.image !== update.image) {
-        try {
-            await deleteReplacedAssets(existing.image, update.image);
-        } catch (e) {
-            console.error('Failed to delete replaced food image:', e);
-        }
+        // Only once nothing else (a duplicated dish, an add-on) still shows it.
+        await deleteFoodImagesIfUnused(removedAssetUrls(existing.image, update.image));
     }
 
     if (updated && shouldResubmitForApproval) {
@@ -428,6 +432,6 @@ export async function deleteRestaurantFood(restaurantId, foodId) {
         _id: foodId,
         restaurantId: new mongoose.Types.ObjectId(String(restaurantId))
     }).lean();
-    if (food) await deleteStoredAssets(food.image);
+    if (food) await deleteFoodImagesIfUnused(food.image);
     return food;
 }

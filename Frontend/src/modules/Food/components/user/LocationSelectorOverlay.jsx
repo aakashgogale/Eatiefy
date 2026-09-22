@@ -8,7 +8,7 @@ import { Textarea } from "@food/components/ui/textarea"
 import { useLocation as useGeoLocation } from "@food/hooks/useLocation"
 import { useProfile } from "@food/context/ProfileContext"
 import { toast } from "sonner"
-import { locationAPI, userAPI } from "@food/api"
+import { geocodeAPI, userAPI } from "@food/api"
 import { Loader } from '@googlemaps/js-api-loader'
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -1613,15 +1613,35 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
         let premise = ""
 
         try {
-          const response = await locationAPI.reverseGeocode(roundedLat, roundedLng)
-          const backendData = response?.data?.data
-          const result = backendData?.results?.[0] || backendData?.result?.[0] || null
+          /*
+           * Backend Google geocoder (the API key stays on the server). This used
+           * to call locationAPI.reverseGeocode - a stub that always answers
+           * "Backend not connected" - so every pin drop went straight to the
+           * public Nominatim fallback from the customer's device, and street,
+           * postcode and landmark were never filled in.
+           */
+          const response = await geocodeAPI.reverse(roundedLat, roundedLng)
+          const google = response?.data?.data
+          const result = google?.status === "OK" ? google.results?.[0] || null : null
           if (result) {
-            formattedAddress = result.formatted_address || result.formattedAddress || ""
-            const addressComponents = result.address_components || {}
-            city = addressComponents.city || ""
-            state = addressComponents.state || ""
-            area = addressComponents.area || ""
+            const components = Array.isArray(result.address_components) ? result.address_components : []
+            // Types are in priority order: the first type that any component has wins.
+            const pick = (...types) => {
+              for (const type of types) {
+                const hit = components.find((c) => c?.types?.includes(type))
+                if (hit?.long_name) return hit.long_name
+              }
+              return ""
+            }
+            formattedAddress = result.formatted_address || ""
+            city = pick("locality") || pick("administrative_area_level_3", "administrative_area_level_2")
+            state = pick("administrative_area_level_1")
+            area = pick("sublocality_level_1", "sublocality", "neighborhood")
+            street = pick("route")
+            streetNumber = pick("street_number")
+            postalCode = pick("postal_code")
+            pointOfInterest = pick("point_of_interest", "establishment")
+            premise = pick("premise")
           } else {
             // Fallback to direct Nominatim if backend returns nothing
             debugLog("?? Backend reverse geocode returned no results, trying Nominatim fallback...")

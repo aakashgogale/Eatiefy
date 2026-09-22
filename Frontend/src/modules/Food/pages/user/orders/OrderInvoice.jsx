@@ -33,6 +33,7 @@ import { getCompanyNameAsync } from "@food/utils/businessSettings"
 import { orderAPI } from "@food/api"
 import { resolveMediaUrl } from "@/shared/utils/mediaUrl"
 import dishFallbackImage from "@food/assets/dish_fallback.webp"
+import SafeImage from "@food/components/SafeImage"
 
 export default function OrderInvoice() {
   const companyName = useCompanyName()
@@ -530,11 +531,12 @@ export default function OrderInvoice() {
                           <tr key={item.id} className="hover:bg-slate-50/50 dark:hover:bg-zinc-800/30">
                             <td className="py-2.5 px-3">
                               <div className="flex items-center gap-2.5">
-                                <img
+                                <SafeImage
                                   src={item.image}
+                                  fallbackSrc={dishFallbackImage}
                                   alt={item.name}
+                                  loading="eager"
                                   className="w-8 h-8 rounded-lg object-cover flex-shrink-0 bg-slate-100 dark:bg-zinc-800"
-                                  onError={(e) => { e.currentTarget.src = dishFallbackImage }}
                                 />
                                 <div>
                                   <span className="font-semibold block">{item.name}</span>

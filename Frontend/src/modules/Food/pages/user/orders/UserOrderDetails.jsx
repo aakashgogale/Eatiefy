@@ -26,6 +26,7 @@ import { getCompanyNameAsync } from "@food/utils/businessSettings"
 import { isVegMenuItem } from "@food/utils/vegMode"
 import { toFoodUserPath } from "@food/utils/mainTabRoutes"
 import dishFallbackImage from "@food/assets/dish_fallback.webp"
+import SafeImage from "@food/components/SafeImage"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -542,11 +543,11 @@ export default function UserOrderDetails() {
             <div key={idx} className="flex justify-between items-start mt-4 first:mt-0">
               <div className="flex items-center gap-3">
                   <div className="w-16 h-16 md:w-20 md:h-20 flex-shrink-0 rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-gray-800">
-                    <img 
-                      src={item.image || dishFallbackImage} 
-                      alt={item.name} 
+                    <SafeImage
+                      src={item.image}
+                      fallbackSrc={dishFallbackImage}
+                      alt={item.name}
                       className="w-full h-full object-cover transform hover:scale-110 transition-transform duration-500"
-                      onError={(e) => { e.target.src = dishFallbackImage; }}
                     />
                   </div>
                 <div>

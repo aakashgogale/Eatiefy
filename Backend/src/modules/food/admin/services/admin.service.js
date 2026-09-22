@@ -47,7 +47,8 @@ import {
     zonedWallTimeToUtc,
 } from '../../../../utils/timezone.js';
 import { FoodTransaction } from '../../orders/models/foodTransaction.model.js';
-import { deleteReplacedAssets, deleteStoredAssets, extractAssetUrls } from '../../../../services/storage.service.js';
+import { deleteReplacedAssets, deleteStoredAssets, extractAssetUrls, normalizeImageForStorage } from '../../../../services/storage.service.js';
+import { deleteFoodImagesIfUnused, removedAssetUrls } from '../../../../services/assetReferences.service.js';
 import { FoodRestaurantWithdrawal } from '../../restaurant/models/foodRestaurantWithdrawal.model.js';
 import { FoodDeliveryWithdrawal } from '../../delivery/models/foodDeliveryWithdrawal.model.js';
 import { FoodDeliveryWallet } from '../../delivery/models/deliveryWallet.model.js';
@@ -4126,7 +4127,7 @@ export async function createFood(body) {
         throw new ValidationError('Non-veg restaurants can only add non-veg foods');
     }
     const { price, variants } = getAdminFoodCreatePricing(body);
-    const image = typeof body.image === 'string' ? body.image.trim() : '';
+    const image = normalizeImageForStorage(typeof body.image === 'string' ? body.image : '');
 
     let categoryName = typeof body.categoryName === 'string' ? body.categoryName.trim() : '';
     if (!categoryName && typeof body.category === 'string') categoryName = body.category.trim();
@@ -4191,9 +4192,13 @@ export async function updateFood(id, body) {
             ? Number(body.otherPlatformGst)
             : null;
     }
-    if (body.image !== undefined) {
-        const image = String(body.image || '').trim();
-        await deleteReplacedAssets(doc.image, image);
+    // The old file is removed only after the save succeeds: deleting it here
+    // left the dish pointing at a missing image whenever a later check (diet,
+    // category) rejected the update.
+    let replacedImages = [];
+    if (body.image !== undefined && String(body.image || '').trim() !== String(doc.image || '').trim()) {
+        const image = normalizeImageForStorage(body.image);
+        replacedImages = removedAssetUrls(doc.image, image);
         doc.image = image;
     }
     if (body.foodType !== undefined) doc.foodType = targetFoodType;
@@ -4215,13 +4220,14 @@ export async function updateFood(id, body) {
         doc.categoryName = categoryName;
     }
     await doc.save();
+    if (replacedImages.length) await deleteFoodImagesIfUnused(replacedImages);
     return doc.toObject();
 }
 
 export async function deleteFood(id) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     const deleted = await FoodItem.findByIdAndDelete(id).lean();
-    if (deleted) await deleteStoredAssets(deleted.image);
+    if (deleted) await deleteFoodImagesIfUnused(deleted.image);
     return deleted ? { id } : null;
 }
 

@@ -23,6 +23,7 @@ import {
 import dishFallbackImage from "@food/assets/dish_fallback.webp"
 import { isModuleAuthenticated } from "@food/utils/auth"
 import { toast } from "sonner"
+import SafeImage from "@food/components/SafeImage"
 
 const FOOD_IMAGE_FALLBACK = dishFallbackImage
 const RUPEE_SYMBOL = "₹"
@@ -169,15 +170,12 @@ export default function DishDetailModal({
 
           {/* Dish Image Banner */}
           <div className="relative w-full h-56 sm:h-64 bg-gray-100 dark:bg-gray-800 overflow-hidden flex-shrink-0">
-            <img
-              src={dish.image || FOOD_IMAGE_FALLBACK}
+            <SafeImage
+              src={dish.image}
+              fallbackSrc={FOOD_IMAGE_FALLBACK}
               alt={dish.name}
+              loading="eager"
               className="w-full h-full object-cover"
-              onError={(e) => {
-                if (e.currentTarget.src !== FOOD_IMAGE_FALLBACK) {
-                  e.currentTarget.src = FOOD_IMAGE_FALLBACK
-                }
-              }}
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
 

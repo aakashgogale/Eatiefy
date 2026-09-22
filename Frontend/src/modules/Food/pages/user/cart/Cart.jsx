@@ -27,6 +27,7 @@ import { filterPublicOffers, mapPublicOfferToCartCoupon } from "@food/utils/offe
 import { isVegMenuItem } from "@food/utils/vegMode"
 import { toFoodUserPath } from "@food/utils/mainTabRoutes"
 import dishFallbackImage from "@food/assets/dish_fallback.webp"
+import SafeImage from "@food/components/SafeImage"
 const zoopSound = "/assets/media/zomato_sms.mp3"
 const debugLog = (...args) => { }
 const debugWarn = (...args) => { }
@@ -2583,13 +2584,11 @@ export default function Cart() {
 
                           <div className="flex-1 min-w-0 flex items-center gap-4">
                               <div className="w-16 h-16 md:w-20 md:h-20 flex-shrink-0 rounded-2xl overflow-hidden shadow-sm border border-gray-100 dark:border-gray-800">
-                                <img
-                                  src={item.image || dishFallbackImage}
+                                <SafeImage
+                                  src={item.image}
+                                  fallbackSrc={dishFallbackImage}
                                   alt={item.name}
                                   className="w-full h-full object-cover transform hover:scale-110 transition-transform duration-700"
-                                  onError={(e) => {
-                                    e.target.src = dishFallbackImage;
-                                  }}
                                 />
                               </div>
                             <div className="min-w-0 flex-1">
@@ -2725,14 +2724,11 @@ export default function Cart() {
                       {addons.map((addon) => (
                         <div key={addon.id} className="flex-shrink-0 w-28 md:w-36">
                           <div className="relative bg-gray-100 dark:bg-gray-800 rounded-lg md:rounded-xl overflow-hidden">
-                            <img
-                              src={addon.image || (addon.images && addon.images[0]) || "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=200&h=200&fit=crop"}
+                            <SafeImage
+                              src={addon.image || (addon.images && addon.images[0])}
+                              fallbackSrc={dishFallbackImage}
                               alt={addon.name}
                               className="w-full h-28 md:h-36 object-cover rounded-lg md:rounded-xl"
-                              onError={(e) => {
-                                e.target.onerror = null
-                                e.target.src = "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=200&h=200&fit=crop"
-                              }}
                             />
                             <div className="absolute top-1 md:top-2 left-1 md:left-2">
                               <div className="w-3.5 h-3.5 md:w-4 md:h-4 bg-white border border-green-600 flex items-center justify-center rounded">

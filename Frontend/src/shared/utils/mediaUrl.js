@@ -152,9 +152,11 @@ const finalizeAbsoluteUrl = (url) => {
       parsed.protocol = "https:";
     }
 
-    const finalUrl = parsed.toString();
-    const urlStr = SIGNED_URL_PATTERN.test(finalUrl) ? finalUrl : encodeURI(finalUrl);
-    return optimizeCloudinaryUrl(urlStr);
+    // URL#toString() already percent-encodes exactly once. Running encodeURI
+    // over it again turned "%20" into "%2520" and "%2F" into "%252F", so every
+    // image whose name had a space, a slash-encoded path (Firebase) or
+    // non-ASCII characters requested a file that does not exist.
+    return optimizeCloudinaryUrl(parsed.toString());
   } catch {
     return url;
   }
@@ -172,19 +174,30 @@ export const resolveMediaUrl = (value, backendOrigin = getBackendOrigin()) => {
 
   const appProtocol = typeof window !== "undefined" ? window.location?.protocol : "";
 
-  let normalized = sanitizeProtocol(trimmed.replace(/\\/g, "/"));
+  let normalized = trimmed.replace(/\\/g, "/");
 
   if (/^\/\//.test(normalized)) {
     normalized = `${appProtocol || "https:"}${normalized}`;
+  } else if (/^[a-z][a-z0-9+.-]*:/i.test(normalized)) {
+    // Only values that carry a scheme get protocol repair ("ttps://", "https:/").
+    // sanitizeProtocol prefixes https:// onto anything without one, so running
+    // it on "/uploads/x.webp" produced "https://uploads/x.webp" - a request to
+    // a host called "uploads" - for every image stored as a relative path.
+    normalized = sanitizeProtocol(normalized);
+  } else if (/^[a-z0-9-]+(\.[a-z0-9-]+)+\//i.test(normalized) && !/^uploads\//i.test(normalized)) {
+    // Scheme-less "cdn.example.com/dish.jpg".
+    normalized = `https://${normalized}`;
   }
 
   if (/^https?:\/\//i.test(normalized)) {
     return finalizeAbsoluteUrl(normalized);
   }
 
-  if (normalized.startsWith("/uploads/")) {
+  // "/uploads/x", "uploads/x" and "./uploads/x" are all files in the upload store.
+  const uploadRelative = normalized.replace(/^\.?\/*/, "/");
+  if (uploadRelative.startsWith("/uploads/")) {
     const uploadBase = getUploadBaseUrl().replace(/\/$/, "");
-    const suffix = normalized.slice("/uploads".length);
+    const suffix = uploadRelative.slice("/uploads".length);
     return finalizeAbsoluteUrl(`${uploadBase}${suffix}`);
   }
 
@@ -200,6 +213,37 @@ export const resolveMediaUrl = (value, backendOrigin = getBackendOrigin()) => {
 
 export const normalizeImageUrl = (imageUrl, backendOrigin) =>
   resolveMediaUrl(imageUrl, backendOrigin ?? getBackendOrigin());
+
+/**
+ * For an <img src> that may hold either API media or an asset bundled with the
+ * app. API values are resolved as above; root-relative app assets
+ * ("/assets/dish_fallback.webp", Vite's "/src/..." in dev) belong to the page
+ * origin and are left alone - resolveMediaUrl would move them onto the API
+ * host, where they do not exist.
+ */
+/**
+ * The same image under a new request, for one retry after a failed load.
+ * Setting an identical src again does not re-request, so the URL has to
+ * change. Returns null for signed URLs (a parameter breaks the signature) and
+ * non-http values - callers go straight to their fallback then.
+ */
+export const imageRetryUrl = (url) => {
+  if (!/^https?:\/\//i.test(String(url || "")) || SIGNED_URL_PATTERN.test(url)) return null;
+  try {
+    const next = new URL(url);
+    next.searchParams.set("_r", "1");
+    return next.toString();
+  } catch {
+    return null;
+  }
+};
+
+export const resolveImageSrc = (value) => {
+  const raw = extractUrlString(value);
+  if (!raw) return "";
+  if (raw.startsWith("/") && !raw.startsWith("//") && !/^\/uploads\//i.test(raw)) return raw;
+  return resolveMediaUrl(raw);
+};
 
 export const extractImages = (source, backendOrigin) => {
   const origin = backendOrigin ?? getBackendOrigin();

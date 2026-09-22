@@ -5,6 +5,7 @@ import { useProfile } from "@food/context/ProfileContext";
 import { useEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap';
 import dishFallbackImage from "@food/assets/dish_fallback.webp";
+import SafeImage from "@food/components/SafeImage"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -391,15 +392,12 @@ export default function AddToCartAnimation({
             objectFit: 'cover',
           }}
         >
-          <img
-            src={removedProduct?.image || removedProduct?.product?.imageUrl || dishFallbackImage}
+          <SafeImage
+            src={removedProduct?.image || removedProduct?.product?.imageUrl}
+            fallbackSrc={dishFallbackImage}
             alt={removedProduct?.name || removedProduct?.product?.name || 'Item'}
+            loading="eager"
             className="w-full h-full object-cover rounded-full"
-            onError={(e) => {
-              if (e.currentTarget.src !== dishFallbackImage) {
-                e.currentTarget.src = dishFallbackImage
-              }
-            }}
           />
         </div>
       )}
@@ -414,15 +412,12 @@ export default function AddToCartAnimation({
             objectFit: 'cover',
           }}
         >
-          <img
-            src={flyingProduct?.image || flyingProduct?.product?.imageUrl || dishFallbackImage}
+          <SafeImage
+            src={flyingProduct?.image || flyingProduct?.product?.imageUrl}
+            fallbackSrc={dishFallbackImage}
             alt={flyingProduct?.name || flyingProduct?.product?.name || 'Item'}
+            loading="eager"
             className="w-full h-full object-cover rounded-full"
-            onError={(e) => {
-              if (e.currentTarget.src !== dishFallbackImage) {
-                e.currentTarget.src = dishFallbackImage
-              }
-            }}
           />
         </div>
       )}

@@ -32,6 +32,7 @@ import {
   formatVeganBlockMessage,
 } from "@food/utils/veganFoodGuard"
 import dishFallbackImage from "@food/assets/dish_fallback.webp"
+import SafeImage from "@food/components/SafeImage"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -882,11 +883,20 @@ export default function ItemDetailsPage() {
       // Upload new images to the server (only after validation passed)
       const uploadedImageUrls = []
 
-      // Separate existing URLs (already uploaded) from new files (blob URLs)
+      /*
+       * Separate existing URLs (already uploaded) from new files (blob previews).
+       *
+       * Anything that is not a device-local preview is a stored image. This
+       * used to keep only values starting with http(s)://, so an item saved
+       * with a relative "/uploads/..." path lost its photo on any unrelated
+       * edit (price, name): the save sent image "" and the server then deleted
+       * the file. The server normalises whatever is sent to one canonical URL.
+       */
       const existingImageUrls = images.filter(img =>
         typeof img === 'string' &&
-        (img.startsWith('http://') || img.startsWith('https://')) &&
-        !img.startsWith('blob:')
+        img.trim() !== '' &&
+        !img.startsWith('blob:') &&
+        !img.startsWith('data:')
       )
 
       debugLog('Images state:', images)
@@ -1117,16 +1127,16 @@ export default function ItemDetailsPage() {
                     className="absolute inset-0"
                   >
                     {images[currentImageIndex] ? (
-                      <img
+                      // Resolves stored values the same way the customer app does, so
+                      // the restaurant previews exactly what customers will see;
+                      // blob: previews pass through untouched. Falls back on a
+                      // missing file or an undecodable preview (e.g. HEIC).
+                      <SafeImage
                         src={images[currentImageIndex]}
+                        fallbackSrc={dishFallbackImage}
                         alt={`${itemName} - Image ${currentImageIndex + 1}`}
+                        loading="eager"
                         className="w-full h-full object-cover"
-                        onError={(e) => {
-                          // Stored URL missing or an undecodable preview (e.g. HEIC).
-                          if (e.currentTarget.src !== dishFallbackImage) {
-                            e.currentTarget.src = dishFallbackImage
-                          }
-                        }}
                       />
                     ) : null}
                   </motion.div>

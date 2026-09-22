@@ -1,5 +1,5 @@
 import { FoodRestaurant } from '../models/restaurant.model.js';
-import { uploadImageBuffer, deleteReplacedAssets } from '../../../../services/storage.service.js';
+import { uploadImageBuffer, deleteReplacedAssets, toPublicAssetUrl } from '../../../../services/storage.service.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import mongoose from 'mongoose';
 import { FoodZone } from '../../admin/models/zone.model.js';
@@ -1858,7 +1858,7 @@ export const listApprovedRestaurants = async (query = {}) => {
             id: String(item._id),
             name: item.name,
             price: getFoodDisplayPrice(item),
-            image: item.image,
+            image: toPublicAssetUrl(item.image),
             foodType: item.foodType === 'Vegan' ? 'Veg' : (item.foodType || 'Non-Veg')
         });
         return acc;

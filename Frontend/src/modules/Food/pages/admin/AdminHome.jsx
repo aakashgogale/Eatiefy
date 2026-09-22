@@ -43,6 +43,9 @@ export default function AdminHome() {
   const [selectedPeriod, setSelectedPeriod] = useState("overall")
   const [isLoading, setIsLoading] = useState(true)
   const [dashboardData, setDashboardData] = useState(null)
+  // A failed load must not render as a real "₹0 / 0 orders" dashboard.
+  const [loadError, setLoadError] = useState(null)
+  const [reloadKey, setReloadKey] = useState(0)
   const [zones, setZones] = useState([])
 
   // Fetch zone list for filter
@@ -78,17 +81,19 @@ export default function AdminHome() {
         const response = await adminAPI.getDashboardStats(params)
         if (response.data?.success && response.data?.data) {
           setDashboardData(response.data.data)
+          setLoadError(null)
           debugLog("Dashboard stats fetched:", response.data.data)
         } else {
-          if (!dashboardData) {
-            setDashboardData(null)
-          }
+          setLoadError("The server returned an unexpected response.")
           debugError("Invalid dashboard response format:", response.data)
         }
       } catch (error) {
-        if (!dashboardData && Number(error?.response?.status || 0) !== 429) {
-          setDashboardData(null)
-        }
+        const status = Number(error?.response?.status || 0)
+        setLoadError(
+          status === 429
+            ? "Too many requests. Please wait a moment and retry."
+            : error?.response?.data?.message || "Could not load dashboard figures.",
+        )
         debugError("Error fetching dashboard stats:", error)
       } finally {
         setIsLoading(false)
@@ -96,7 +101,7 @@ export default function AdminHome() {
     }
 
     fetchDashboardStats()
-  }, [selectedZone, selectedPeriod])
+  }, [selectedZone, selectedPeriod, reloadKey])
 
   // Get order stats from real data
   const getOrderStats = () => {
@@ -208,8 +213,39 @@ export default function AdminHome() {
     return <DashboardSkeleton />
   }
 
+  const retryLoad = () => setReloadKey((k) => k + 1)
+
+  // Nothing loaded yet: an error panel, never a dashboard full of zeros.
+  if (loadError && !dashboardData) {
+    return (
+      <div className="px-4 pb-10 lg:px-6 pt-4">
+        <div role="alert" className="rounded-3xl border border-red-200 bg-red-50 px-6 py-10 text-center">
+          <XCircle className="mx-auto mb-3 h-10 w-10 text-red-500" />
+          <h1 className="text-lg font-semibold text-red-900">Dashboard could not be loaded</h1>
+          <p className="mt-1 text-sm text-red-700">{loadError}</p>
+          <button
+            type="button"
+            onClick={retryLoad}
+            className="mt-5 inline-flex items-center rounded-xl bg-red-600 px-5 py-2 text-sm font-semibold text-white hover:bg-red-700"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="px-4 pb-10 lg:px-6 pt-4">
+      {/* A refresh failed after figures loaded: keep them, but say they are stale. */}
+      {loadError && dashboardData && (
+        <div role="status" className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          <span>Showing the last loaded figures. Refresh failed: {loadError}</span>
+          <button type="button" onClick={retryLoad} className="font-semibold underline underline-offset-2">
+            Retry
+          </button>
+        </div>
+      )}
       <div className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-[0_30px_120px_-60px_rgba(0,0,0,0.28)]">
 
         <div className="flex flex-col gap-4 border-b border-neutral-200 bg-linear-to-br from-white via-neutral-50 to-neutral-100 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">

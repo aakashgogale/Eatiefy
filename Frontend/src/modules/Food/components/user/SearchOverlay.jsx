@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
+import { resolveImageSrc } from "@/shared/utils/mediaUrl"
 import { useNavigate, useLocation } from "react-router-dom"
 import { X, Search, Clock, Loader2, Mic, Store } from "lucide-react"
 import { Button } from "@food/components/ui/button"
@@ -41,7 +42,9 @@ const preloadSearchDestinations = () => {
 }
 
 /** Thumbnail that falls back to an icon instead of leaking its alt text when the URL is broken. */
-function ResultImage({ src, alt, className, fallback }) {
+function ResultImage({ src: rawSrc, alt, className, fallback }) {
+  // Relative /uploads paths and localhost/http URLs -> a URL the device can load.
+  const src = useMemo(() => resolveImageSrc(rawSrc), [rawSrc])
   const [failed, setFailed] = useState(false)
   useEffect(() => setFailed(false), [src])
   if (!src || failed) return fallback

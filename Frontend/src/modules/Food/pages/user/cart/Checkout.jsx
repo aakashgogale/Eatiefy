@@ -16,6 +16,7 @@ import { useProfile } from "@food/context/ProfileContext"
 import { useOrders } from "@food/context/OrdersContext"
 import { api, restaurantAPI, adminAPI, userAPI } from "@food/api"
 import { toFoodUserPath } from "@food/utils/mainTabRoutes"
+import SafeImage from "@food/components/SafeImage"
 
 export default function Checkout() {
   const navigate = useNavigate()
@@ -497,7 +498,7 @@ export default function Checkout() {
                   <div className="space-y-3 md:space-y-4 max-h-64 md:max-h-80 overflow-y-auto">
                     {cart.map((item) => (
                       <div key={item.id} className="flex items-center gap-3 md:gap-4 pb-3 md:pb-4 border-b dark:border-gray-700">
-                        <img
+                        <SafeImage
                           src={item.image}
                           alt={item.name}
                           className="w-16 h-16 md:w-20 md:h-20 object-cover rounded-lg"

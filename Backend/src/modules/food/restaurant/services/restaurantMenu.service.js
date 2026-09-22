@@ -9,6 +9,7 @@ import {
   loadActivePricingRules,
 } from '../../admin/services/otherPrice.service.js';
 import { serializeFoodVariants } from '../../admin/services/foodVariant.service.js';
+import { toPublicAssetUrl } from '../../../../services/storage.service.js';
 
 /** Restaurant-owned view: never overwrite price with admin markup. */
 const toRestaurantOwnedPricedFood = (food) => {
@@ -72,7 +73,8 @@ const buildMenuItemFromFood = (food, priced, sectionName, resolvedCategoryId) =>
     pricingRule: priced.pricingRule,
     variants: priced.variants,
     variations: priced.variations,
-    image: food.image || '',
+    // Older rows hold relative / localhost / http URLs; send one every client loads.
+    image: toPublicAssetUrl(food.image),
     foodType: food.foodType || 'Non-Veg',
     isAvailable: food.isAvailable !== false,
     approvalStatus: food.approvalStatus || 'approved',

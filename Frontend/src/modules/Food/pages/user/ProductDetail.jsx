@@ -17,6 +17,7 @@ import { Badge } from "@food/components/ui/badge"
 import { Textarea } from "@food/components/ui/textarea"
 import { Label } from "@food/components/ui/label"
 import { isModuleAuthenticated } from "@food/utils/auth"
+import SafeImage from "@food/components/SafeImage"
 
 // Sample product data - in a real app, this would come from an API
 const productsData = {
@@ -283,9 +284,10 @@ export default function ProductDetail() {
 
         {/* Hero Image Section */}
         <div className="relative w-full h-[350px] sm:h-[400px] md:h-[450px] lg:h-[500px] xl:h-[550px] overflow-hidden rounded-lg md:rounded-xl lg:rounded-2xl mt-4 md:mt-6 lg:mt-8">
-          <img
+          <SafeImage
             src={product.image}
             alt={product.name}
+            loading="eager"
             className="w-full h-full object-cover object-center" />
 
           {/* Back Button - Overlay on Image */}

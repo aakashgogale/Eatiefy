@@ -37,6 +37,90 @@ export const extractAssetUrl = (value) => {
     return '';
 };
 
+/*
+ * Public image URLs.
+ *
+ * Stored image values are not uniform: besides the canonical
+ * `${ASSET_BASE_URL}/uploads/<file>.webp` there are relative "/uploads/..."
+ * paths, protocol-relative "//host/..." values, localhost URLs saved by a dev
+ * backend pointed at the production database, and plain http:// copies of the
+ * https asset host. Each of those loads on some devices and not on others -
+ * relative paths resolve against whatever origin the app happens to run on,
+ * localhost points at the customer's own phone, http is blocked as mixed
+ * content inside WebViews. toPublicAssetUrl maps all of them onto one absolute
+ * URL every client can load, and leaves genuinely external URLs alone.
+ */
+const LOCAL_ASSET_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '[::1]', '::1']);
+
+/** URIs that only exist on the device that created them - never storable. */
+const DEVICE_LOCAL_URI = /^(blob|data|file|content|capacitor|ionic|filesystem):/i;
+
+const assetBase = () => {
+    try {
+        return new URL(config.assetBaseUrl);
+    } catch {
+        return null;
+    }
+};
+
+export const toPublicAssetUrl = (value) => {
+    let raw = extractAssetUrl(value).replace(/\\/g, '/');
+    if (!raw || DEVICE_LOCAL_URI.test(raw)) return '';
+
+    const base = assetBase();
+    if (raw.startsWith('//')) raw = `${base?.protocol || 'https:'}${raw}`;
+
+    // "/uploads/x.webp" or "uploads/x.webp": a file on our own disk.
+    if (!/^https?:\/\//i.test(raw)) {
+        const rel = raw.replace(/^\.?\/*/, '');
+        return /^uploads\//i.test(rel) ? `${config.assetBaseUrl}/${rel}` : raw;
+    }
+
+    let parsed;
+    try {
+        parsed = new URL(raw);
+    } catch {
+        return raw;
+    }
+    if (!base) return parsed.toString();
+
+    // A dev backend stamped its own localhost origin on a file that lives in
+    // the shared uploads folder. Only rewrite when the configured asset host
+    // is itself public; in local development localhost is correct.
+    const baseIsLocal = LOCAL_ASSET_HOSTS.has(base.hostname.toLowerCase());
+    if (!baseIsLocal && LOCAL_ASSET_HOSTS.has(parsed.hostname.toLowerCase()) && /^\/uploads\//i.test(parsed.pathname)) {
+        return `${config.assetBaseUrl}${parsed.pathname}${parsed.search}`;
+    }
+
+    // http copy of our own https asset host: mixed content in the app.
+    if (parsed.hostname === base.hostname && base.protocol === 'https:' && parsed.protocol === 'http:') {
+        parsed.protocol = 'https:';
+    }
+    return parsed.toString();
+};
+
+/**
+ * Normalises an image value submitted for storage. A device-local URI means
+ * the client saved before its upload finished; storing it would give every
+ * customer a broken image, so it is refused with a message the restaurant can
+ * act on instead of being silently saved.
+ */
+export const normalizeImageForStorage = (value) => {
+    const raw = extractAssetUrl(value);
+    if (!raw) return '';
+    if (DEVICE_LOCAL_URI.test(raw)) {
+        throw new ValidationError('The image has not finished uploading. Please wait for the upload to complete and save again.');
+    }
+    const url = toPublicAssetUrl(raw);
+    if (!/^https?:\/\//i.test(url)) {
+        throw new ValidationError('Invalid image URL. Please upload the image again.');
+    }
+    if (url.length > 2048) {
+        throw new ValidationError('Image URL is too long. Please upload the image again.');
+    }
+    return url;
+};
+
 export const extractAssetUrls = (value) => {
     if (value == null || value === '') return [];
     if (Array.isArray(value)) {
@@ -46,22 +130,67 @@ export const extractAssetUrls = (value) => {
     return one ? [one] : [];
 };
 
-const encodeToWebp = async (buffer, { maxWidth } = {}) => {
+const encodeToWebp = async (buffer, { maxWidth, maxDimension } = {}) => {
     try {
-        let pipeline = sharp(buffer, { animated: true, failOn: 'none' });
-        if (maxWidth) {
+        // rotate() with no angle applies the EXIF orientation. Phones store an
+        // upright photo as landscape pixels plus an orientation tag; WebP output
+        // drops the tag, so without this every portrait photo came out sideways.
+        let pipeline = sharp(buffer, { animated: true, failOn: 'none' }).rotate();
+        if (maxDimension) {
+            // Bounds both edges, so tall and panoramic images are capped too.
+            pipeline = pipeline.resize({
+                width: maxDimension,
+                height: maxDimension,
+                fit: 'inside',
+                withoutEnlargement: true,
+            });
+        } else if (maxWidth) {
             pipeline = pipeline.resize({ width: maxWidth, withoutEnlargement: true });
         }
-        const meta = await sharp(buffer, { failOn: 'none' }).metadata().catch(() => ({}));
-        const out = await pipeline.webp({ quality: 90, effort: 4 }).toBuffer();
+        const { data: out, info } = await pipeline
+            .webp({ quality: 90, effort: 4 })
+            .toBuffer({ resolveWithObject: true });
         if (!out?.length) {
             throw new Error('empty webp output');
         }
-        return { buffer: out, ext: 'webp', width: meta.width, height: meta.height };
+        // Report what was stored (after rotation/resize), not the input size.
+        const height = info.pageHeight || info.height;
+        return { buffer: out, ext: 'webp', width: info.width, height };
     } catch {
+        // Checked only after decoding failed, so AVIF (same container) is unaffected.
+        if (isHeicBuffer(buffer)) {
+            throw new ValidationError(HEIC_UNSUPPORTED_MESSAGE);
+        }
         throw new ValidationError('Could not convert image to WebP. Upload a valid image file.');
     }
 };
+
+/*
+ * iPhone / Samsung "High Efficiency" photos. The prebuilt image library decodes
+ * AVIF but not HEVC-coded HEIC, and every upload route funnels through here, so
+ * the restaurant gets an instruction they can act on instead of a generic
+ * "could not convert".
+ */
+const HEIC_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1']);
+export const isHeicBuffer = (buffer) => {
+    if (!buffer || buffer.length < 12) return false;
+    if (buffer.toString('latin1', 4, 8) !== 'ftyp') return false;
+    return HEIC_BRANDS.has(buffer.toString('latin1', 8, 12));
+};
+export const HEIC_UNSUPPORTED_MESSAGE =
+    'This photo is in HEIC format, which cannot be processed. Please upload a JPG, PNG or WebP photo (on iPhone: Settings > Camera > Formats > Most Compatible).';
+
+/*
+ * Dish and add-on photos are shown at card / detail size; a full camera frame
+ * (4000px, several MB) only slows every menu down on mobile data. The browser
+ * already downsizes to 1024px before upload - this enforces a ceiling for
+ * uploads that skip that step. Other folders (UPI QR codes, ID documents) are
+ * never resized.
+ */
+const FOOD_IMAGE_FOLDER = /(^|\/)(foods|menu-items|addons)(\/|$)/i;
+export const FOOD_IMAGE_MAX_DIMENSION = 2048;
+export const maxDimensionForFolder = (folder) =>
+    FOOD_IMAGE_FOLDER.test(String(folder || '')) ? FOOD_IMAGE_MAX_DIMENSION : undefined;
 
 export const resolveStoredFilename = async (urlOrPublicId) => {
     if (!urlOrPublicId) return null;

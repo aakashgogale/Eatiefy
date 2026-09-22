@@ -5,6 +5,7 @@ import { FoodRestaurant } from '../models/restaurant.model.js';
 import { getFoodDisplayOtherPrice, getFoodDisplayPrice } from '../../admin/services/foodVariant.service.js';
 import { withActiveCategoryFilter } from '../../shared/inactiveCategories.js';
 import { EATIEFY_99_PRICE, buildEatiefy99CandidateFilter, selectEatiefy99Foods } from '../utils/eatiefy99.js';
+import { toPublicAssetUrl } from '../../../../services/storage.service.js';
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -115,7 +116,7 @@ export async function listPublicFoods(query = {}) {
                 price: isEatiefyPromo ? food.price : getFoodDisplayPrice(food),
                 otherPrice: getFoodDisplayOtherPrice(food),
                 ...(isEatiefyPromo ? { variants: food.variants } : {}),
-                image: food.image || '',
+                image: toPublicAssetUrl(food.image),
                 foodType: food.foodType || 'Non-Veg',
                 isAvailable: food.isAvailable !== false,
                 preparationTime: food.preparationTime || '',
