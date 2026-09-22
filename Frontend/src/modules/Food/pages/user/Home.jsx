@@ -4755,15 +4755,6 @@ export default function Home() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="bg-white dark:bg-[#242424] rounded-2xl shadow-2xl p-6 pt-7 w-[85%] max-w-xs relative border border-gray-100 dark:border-gray-800">
-              {/* Food Illustration in Top Right Corner */}
-              <div className="absolute top-2.5 right-10 w-16 h-16 pointer-events-none select-none z-10">
-                <img
-                  src="/food_popup_ill2.png"
-                  alt="Vegetarian food illustration"
-                  className="w-full h-full object-contain"
-                 loading="lazy" decoding="async" />
-              </div>
-
               <button
                 type="button"
                 aria-label="Close veg mode popup"
@@ -4776,8 +4767,8 @@ export default function Home() {
                 <X className="h-4.5 w-4.5" strokeWidth={2.5} />
               </button>
 
-              {/* Title */}
-              <h3 className="text-base sm:text-lg font-black text-gray-900 dark:text-white mb-4 pr-24 leading-snug">
+              {/* Title — right padding clears the close button only. */}
+              <h3 className="text-base sm:text-lg font-black text-gray-900 dark:text-white mb-4 pr-9 leading-snug">
                 I want to see choices from
               </h3>
 

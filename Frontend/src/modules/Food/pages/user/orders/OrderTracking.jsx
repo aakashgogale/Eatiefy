@@ -1,6 +1,6 @@
 import { useParams, Link, useSearchParams, useNavigate } from "react-router-dom"
 import React, { useState, useEffect, useMemo, useRef, useCallback, memo } from "react"
-import { motion, AnimatePresence } from "framer-motion"
+import { motion, AnimatePresence, useMotionValue, animate } from "framer-motion"
 import { toast } from "sonner"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { toFoodUserPath } from "@food/utils/mainTabRoutes"
@@ -700,6 +700,175 @@ const LiveTrackingStepper = memo(({ status, isCancelled, riderMode = false, canc
   );
 });
 
+/* ─────────────────── Bottom sheet drag ─────────────────── */
+
+/** Sheet heights per snap point: compact is a fixed bar, the rest scale with the screen. */
+const SHEET_COMPACT_PX = 92;
+const SHEET_FRACTIONS = { half: 0.56, expanded: 0.9 };
+const SHEET_MODES = ['compact', 'half', 'expanded'];
+/** Below this movement (and quick enough) a press counts as a tap, not a drag. */
+const SHEET_TAP_MAX_PX = 6;
+const SHEET_TAP_MAX_MS = 300;
+/** A flick faster than this jumps to the next snap point regardless of distance. */
+const SHEET_FLICK_VELOCITY = 0.45; // px per ms
+
+const sheetHeightForMode = (mode) => {
+  if (mode === 'compact') return SHEET_COMPACT_PX;
+  const viewport = typeof window === 'undefined' ? 800 : window.innerHeight;
+  return Math.round(viewport * (SHEET_FRACTIONS[mode] ?? SHEET_FRACTIONS.half));
+};
+
+/**
+ * Makes the sheet's grab handle a real drag handle.
+ *
+ * The handle only cycled snap points on click, so the sheet could not be pulled
+ * to a size or followed with the finger. Height is driven by a motion value:
+ * during a drag it tracks the pointer one-to-one, and on release it springs to
+ * the nearest snap point - or the next one along when the gesture was a flick.
+ *
+ * Pointer events (not touch events) so one implementation covers finger, mouse
+ * and stylus, and `setPointerCapture` keeps the gesture attached to the handle
+ * even when the finger slides off it. The handle sets `touch-action: none`, so
+ * dragging it never scrolls the page or pans the map underneath; the sheet's
+ * own scroll area is untouched because the gesture starts on the handle only.
+ */
+function useBottomSheetDrag(sheetMode, setSheetMode) {
+  const height = useMotionValue(sheetHeightForMode(sheetMode));
+  const animationRef = useRef(null);
+  const gestureRef = useRef(null);
+  const draggingRef = useRef(false);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const springTo = useCallback(
+    (mode) => {
+      animationRef.current?.stop();
+      animationRef.current = animate(height, sheetHeightForMode(mode), {
+        type: 'spring',
+        damping: 28,
+        stiffness: 290,
+      });
+    },
+    [height],
+  );
+
+  // Follow snap changes made elsewhere (the mode buttons, the compact summary bar).
+  useEffect(() => {
+    if (draggingRef.current) return;
+    springTo(sheetMode);
+  }, [sheetMode, springTo]);
+
+  // Keep the open sheet proportional when the viewport changes (rotation, keyboard).
+  useEffect(() => {
+    const onResize = () => {
+      if (draggingRef.current) return;
+      height.set(sheetHeightForMode(sheetMode));
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [height, sheetMode]);
+
+  useEffect(() => () => animationRef.current?.stop(), []);
+
+  const onPointerDown = useCallback(
+    (event) => {
+      if (event.button != null && event.button !== 0) return; // primary pointer only
+      animationRef.current?.stop();
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      gestureRef.current = {
+        startY: event.clientY,
+        startHeight: height.get(),
+        startedAt: Date.now(),
+        lastY: event.clientY,
+        lastAt: Date.now(),
+        velocity: 0,
+        moved: 0,
+      };
+      draggingRef.current = true;
+      setIsDragging(true);
+    },
+    [height],
+  );
+
+  const onPointerMove = useCallback(
+    (event) => {
+      const gesture = gestureRef.current;
+      if (!draggingRef.current || !gesture) return;
+      const now = Date.now();
+      const dt = now - gesture.lastAt;
+      if (dt > 0) {
+        // Upward drag = positive velocity = growing sheet.
+        gesture.velocity = (gesture.lastY - event.clientY) / dt;
+        gesture.lastY = event.clientY;
+        gesture.lastAt = now;
+      }
+      gesture.moved = Math.max(gesture.moved, Math.abs(event.clientY - gesture.startY));
+
+      const maxHeight = sheetHeightForMode('expanded');
+      const next = gesture.startHeight + (gesture.startY - event.clientY);
+      height.set(Math.min(maxHeight, Math.max(SHEET_COMPACT_PX, next)));
+    },
+    [height],
+  );
+
+  const endGesture = useCallback(
+    (event) => {
+      const gesture = gestureRef.current;
+      if (!draggingRef.current || !gesture) return;
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+      draggingRef.current = false;
+      setIsDragging(false);
+      gestureRef.current = null;
+
+      const currentIndex = SHEET_MODES.indexOf(sheetMode);
+
+      // A quick press that barely moved: keep the old tap-to-cycle behaviour.
+      if (gesture.moved < SHEET_TAP_MAX_PX && Date.now() - gesture.startedAt < SHEET_TAP_MAX_MS) {
+        const nextMode = SHEET_MODES[(currentIndex + 1) % SHEET_MODES.length];
+        setSheetMode(nextMode);
+        springTo(nextMode);
+        return;
+      }
+
+      let target;
+      if (Math.abs(gesture.velocity) >= SHEET_FLICK_VELOCITY) {
+        // Flick: step one snap point in the direction of travel.
+        const step = gesture.velocity > 0 ? 1 : -1;
+        target = SHEET_MODES[Math.min(SHEET_MODES.length - 1, Math.max(0, currentIndex + step))];
+      } else {
+        // Otherwise settle on whichever snap point is closest to where it was let go.
+        const current = height.get();
+        target = SHEET_MODES.reduce((best, mode) =>
+          Math.abs(sheetHeightForMode(mode) - current) < Math.abs(sheetHeightForMode(best) - current)
+            ? mode
+            : best,
+        );
+      }
+
+      setSheetMode(target);
+      springTo(target);
+    },
+    [height, setSheetMode, sheetMode, springTo],
+  );
+
+  // Keyboard equivalent, so the handle is usable without a pointer.
+  const onKeyDown = useCallback(
+    (event) => {
+      const index = SHEET_MODES.indexOf(sheetMode);
+      let target = null;
+      if (event.key === 'ArrowUp') target = SHEET_MODES[Math.min(SHEET_MODES.length - 1, index + 1)];
+      else if (event.key === 'ArrowDown') target = SHEET_MODES[Math.max(0, index - 1)];
+      else if (event.key === 'Enter' || event.key === ' ') target = SHEET_MODES[(index + 1) % SHEET_MODES.length];
+      if (!target) return;
+      event.preventDefault();
+      setSheetMode(target);
+      springTo(target);
+    },
+    [sheetMode, setSheetMode, springTo],
+  );
+
+  return { height, isDragging, onPointerDown, onPointerMove, endGesture, onKeyDown };
+}
+
 export default function OrderTracking() {
   const navigate = useNavigate()
   const goBack = useAppBackNavigation()
@@ -746,6 +915,7 @@ export default function OrderTracking() {
   
   // Sheet Snap Modes: 'compact' (~90px), 'half' (~56vh), 'expanded' (~90vh)
   const [sheetMode, setSheetMode] = useState('half')
+  const sheetDrag = useBottomSheetDrag(sheetMode, setSheetMode)
   const isSheetCollapsed = sheetMode === 'compact'
   const setIsSheetCollapsed = useCallback((val) => {
     if (typeof val === 'function') {
@@ -2796,24 +2966,42 @@ export default function OrderTracking() {
       </div>
 
       {/* MOBILE VIEW: Modern Multi-Snap Fluid Bottom Sheet (Visible on < lg screens) */}
+      {/* Height is a motion value: it tracks the finger while dragging the handle
+          and springs to a snap point on release (see useBottomSheetDrag). */}
       <motion.div
         initial={false}
-        animate={{
-          height:
-            sheetMode === 'compact' ? '92px' :
-            sheetMode === 'half' ? '56vh' :
-            '90vh',
-        }}
-        transition={{ type: "spring", damping: 28, stiffness: 290 }}
+        style={{ height: sheetDrag.height }}
         className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#141414]/95 backdrop-blur-2xl rounded-t-[2.5rem] shadow-[0_-20px_50px_rgba(0,0,0,0.22)] flex flex-col overflow-hidden border-t border-white/60 dark:border-zinc-800"
       >
         {/* Interactive Handle Bar with Mode Toggle */}
         <div className="w-full pt-3 pb-2 flex flex-col items-center shrink-0 select-none bg-white/50 dark:bg-zinc-900/50 border-b border-gray-100/80 dark:border-zinc-800/80">
-          {/* Pill Drag Handle */}
-          <div 
-            onClick={() => setSheetMode(prev => prev === 'compact' ? 'half' : prev === 'half' ? 'expanded' : 'compact')}
-            className="w-12 h-1.5 bg-gray-300 hover:bg-gray-400 dark:bg-zinc-700 rounded-full transition-colors mb-2.5 cursor-pointer" 
-          />
+          {/* Pill Drag Handle — drag to resize, tap to cycle, arrows to step.
+              The padded wrapper is the grab area (a 6px pill is too small to hit),
+              and touch-action:none stops the drag scrolling the page or panning the map. */}
+          <div
+            role="slider"
+            tabIndex={0}
+            aria-label="Resize order details sheet"
+            aria-valuemin={0}
+            aria-valuemax={2}
+            aria-valuenow={SHEET_MODES.indexOf(sheetMode)}
+            aria-valuetext={`${sheetMode} view`}
+            onPointerDown={sheetDrag.onPointerDown}
+            onPointerMove={sheetDrag.onPointerMove}
+            onPointerUp={sheetDrag.endGesture}
+            onPointerCancel={sheetDrag.endGesture}
+            onKeyDown={sheetDrag.onKeyDown}
+            style={{ touchAction: 'none' }}
+            className={`px-10 py-2 -mt-1 mb-1.5 flex items-center justify-center rounded-full ${sheetDrag.isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+          >
+            <div
+              className={`w-12 h-1.5 rounded-full transition-colors ${
+                sheetDrag.isDragging
+                  ? 'bg-gray-500 dark:bg-zinc-400'
+                  : 'bg-gray-300 hover:bg-gray-400 dark:bg-zinc-700'
+              }`}
+            />
+          </div>
 
           {/* 3-State Mode Buttons for 1-Tap Control */}
           <div className="flex items-center gap-2 px-4">
