@@ -211,15 +211,17 @@ const DeliveryTrackingMap = ({
   const deliveryPhase = String(order?.deliveryState?.currentPhase || order?.deliveryState?.status || '').toLowerCase();
   const riderAtRestaurant = !isPickedUp && (deliveryPhase === 'at_pickup' || deliveryPhase === 'reached_pickup');
   const riderAssigned = Boolean(deliveryPartnerId);
-  // Where the live route leads: the restaurant until pickup, then the customer.
-  const routeTarget = isTerminal
-    ? null
-    : isPickedUp
-      ? customerCoords
-      : riderAssigned && !riderAtRestaurant
-        ? restaurantCoords
-        : null;
-  const routeLeg = !routeTarget ? null : isPickedUp ? 'to_customer' : 'to_restaurant';
+  /*
+   * Live tracking begins at pickup, never before.
+   *
+   * Until the food is collected the customer was shown the rider's live
+   * position and a road route to the RESTAURANT - a bike moving away from the
+   * delivery address, with a distance that had nothing to do with the food
+   * arriving. Before pickup the map is a plain restaurant-to-address overview;
+   * the rider only appears once they are actually carrying the order.
+   */
+  const routeTarget = isPickedUp && !isTerminal ? customerCoords : null;
+  const routeLeg = routeTarget ? 'to_customer' : null;
   const routeLegRef = useRef(routeLeg);
   routeLegRef.current = routeLeg;
 
@@ -227,6 +229,8 @@ const DeliveryTrackingMap = ({
 
   useEffect(() => {
     if (currentSmoothPosRef.current) return;
+    // Not before pickup: an older order row can still carry a rider position.
+    if (!isPickedUp) return;
     const initial = readOrderRiderPosition(order);
     if (!initial) return;
     currentSmoothPosRef.current = initial;
@@ -234,7 +238,7 @@ const DeliveryTrackingMap = ({
     setLastFixAt((prev) => Math.max(prev, initial.at));
     setRiderLocation(initial);
     setSmoothLocation(initial);
-  }, [order]);
+  }, [order, isPickedUp]);
 
   const handleNewRiderPosition = useCallback((data) => {
     const lat = Number(data?.lat ?? data?.boy_lat ?? data?.latitude);
@@ -288,6 +292,10 @@ const DeliveryTrackingMap = ({
   useEffect(() => {
     const trackingIds = trackingIdsKey ? trackingIdsKey.split(',') : [];
     if (!trackingIds.length || isTerminal) return undefined;
+    // No position feeds before pickup. The rider's own realtime node keeps being
+    // written for other consumers, so this has to be subscribed by leg, not just
+    // hidden at render time.
+    if (!isPickedUp) return undefined;
 
     const unsubs = trackingIds.map((id) => subscribeOrderTracking(id, handleNewRiderPosition));
     if (deliveryPartnerId) {
@@ -348,7 +356,9 @@ const DeliveryTrackingMap = ({
       document.removeEventListener('visibilitychange', reconnect);
       stopSocket();
     };
-  }, [trackingIdsKey, deliveryPartnerId, handleNewRiderPosition, isTerminal]);
+    // isPickedUp is a dependency: the moment the order is collected this effect
+    // re-runs and live tracking starts, without needing a page refresh.
+  }, [trackingIdsKey, deliveryPartnerId, handleNewRiderPosition, isTerminal, isPickedUp]);
 
   // Re-evaluate the "last updated" state even when no packets arrive.
   useEffect(() => {
@@ -522,8 +532,6 @@ const DeliveryTrackingMap = ({
     customerCoords,
   ]);
 
-  const riderToRestaurantMeters =
-    routeLeg === 'to_restaurant' && Number.isFinite(routeMeta.distanceMeters) ? routeMeta.distanceMeters : null;
 
   const etaText = useMemo(() => {
     if (isPickedUp && Number.isFinite(routeMeta.durationSeconds)) {
@@ -660,15 +668,7 @@ const DeliveryTrackingMap = ({
           <Polyline path={pendingLinePath} options={dashedLineOptions} />
         )}
 
-        {/* After pickup: live road route, drawn with a casing so it reads on any surface. */}
-        {/* Before pickup: the rider's live road route to the restaurant. */}
-        {routeLeg === 'to_restaurant' && routePath && riderPosition && (
-          <Polyline
-            path={routePath}
-            options={{ strokeColor: palette.route, strokeOpacity: 0.55, strokeWeight: 4, zIndex: 7 }}
-          />
-        )}
-
+        {/* After pickup only: live road route, with a casing so it reads on any surface. */}
         {isPickedUp && routePath && (
           <>
             <Polyline
@@ -749,8 +749,8 @@ const DeliveryTrackingMap = ({
           </OverlayView>
         )}
 
-        {/* Live bike: positions are only published for the assigned rider, so any real fix means a rider is on the job. */}
-        {!isTerminal && riderPosition && (
+        {/* Live bike: only while the rider is actually carrying this order. */}
+        {isPickedUp && riderPosition && (
           <OverlayView position={riderPosition} mapPaneName={OverlayView.MARKER_LAYER}>
             <div
               className="relative flex flex-col items-center pointer-events-none -translate-x-1/2 -translate-y-1/2 z-40"
@@ -810,18 +810,25 @@ const DeliveryTrackingMap = ({
         const ageMs = lastFixAt ? clock - lastFixAt : null;
         let text = null;
         let tone = palette.routePending;
-        if (socketState === 'disconnected') {
+        if (!isPickedUp) {
+          /*
+           * Before pickup there is no live tracking to report, so none of the
+           * connection/GPS states belong here - they only worried the customer
+           * about a bike that is not carrying their food yet.
+           */
+          text = riderAtRestaurant
+            ? 'Rider is at the restaurant, collecting your order'
+            : 'Rider assigned — picking up your order';
+          tone = palette.routePending;
+        } else if (socketState === 'disconnected') {
           text = 'Reconnecting to live tracking…';
         } else if (!riderPosition) {
           text = "Waiting for rider's GPS location…";
         } else if (ageMs != null && ageMs > SIGNAL_WEAK_MS) {
           const mins = Math.max(1, Math.round(ageMs / 60000));
           text = `Rider's location last updated ${mins} min ago`;
-        } else if (riderAtRestaurant) {
-          text = 'Rider is at the restaurant';
-          tone = palette.route;
-        } else if (riderToRestaurantMeters != null) {
-          text = `Rider is ${formatDistance(riderToRestaurantMeters)} from the restaurant`;
+        } else {
+          text = 'Live tracking';
           tone = palette.route;
         }
         if (!text) return null;

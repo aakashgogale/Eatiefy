@@ -28,6 +28,21 @@ export const RIDER_TRACKABLE_ORDER_STATUSES = [
     'reached_drop',
 ];
 
+/*
+ * Statuses in which the rider's position is broadcast to the order's watchers.
+ *
+ * Only once the food is collected. Before pickup the rider may be anywhere -
+ * finishing another delivery, still on the way to the restaurant - and showing
+ * that to the customer said nothing about when their food arrives. The rider's
+ * own `lastLocation` is still persisted at every fix (dispatch needs it), and
+ * tracking pages may still join the room; they simply receive no positions
+ * until pickup.
+ */
+export const CUSTOMER_LIVE_TRACKING_STATUSES = new Set(['picked_up', 'reached_drop']);
+
+export const isLiveTrackableOrderStatus = (status) =>
+    CUSTOMER_LIVE_TRACKING_STATUSES.has(String(status || '').toLowerCase());
+
 const TERMINAL_ORDER_STATUSES = new Set([
     'delivered',
     'cancelled_by_user',
@@ -159,6 +174,9 @@ export const publishRiderLocation = async ({
     }
 
     for (const order of orders) {
+        // Not carrying this order yet: nothing is published for it.
+        if (!isLiveTrackableOrderStatus(order.orderStatus)) continue;
+
         const orderMongoId = String(order._id);
         const payload = {
             orderId: order.order_id ? String(order.order_id) : orderMongoId,
@@ -267,6 +285,9 @@ export const resolveTrackableOrderForViewer = async (orderRef, { userId, role } 
 export const getLastKnownRiderLocation = async (order) => {
     const partnerId = order?.dispatch?.deliveryPartnerId;
     if (!partnerId || isTerminalOrderStatus(order?.orderStatus)) return null;
+    // Same rule as the live broadcast: no rider position before pickup, or the
+    // bike would reappear on the customer's map every time the page is opened.
+    if (!isLiveTrackableOrderStatus(order?.orderStatus)) return null;
 
     const partner = await FoodDeliveryPartner.findById(partnerId).select('lastLat lastLng lastLocationAt').lean();
     const lat = toFinite(partner?.lastLat);
