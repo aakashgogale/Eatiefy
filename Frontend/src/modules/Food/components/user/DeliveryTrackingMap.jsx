@@ -52,6 +52,10 @@ const SIGNAL_WEAK_MS = 45 * 1000;
 /** Rider marker interpolation bounds, matched to the server's ~1 s packet rate. */
 const MIN_INTERP_MS = 800;
 const MAX_INTERP_MS = 2500;
+/** Distance from route polyline at which rider is considered off-route → immediate reroute. */
+const OFF_ROUTE_DISTANCE_M = 60;
+/** Max distance to snap rider marker onto the route polyline for smooth on-road rendering. */
+const SNAP_TO_ROUTE_MAX_M = 30;
 
 function computeBearing(fromLat, fromLng, toLat, toLng) {
   const fromLatRad = (fromLat * Math.PI) / 180;
@@ -90,6 +94,79 @@ const formatDuration = (seconds) => {
   const mins = Math.max(1, Math.round(seconds / 60));
   return mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min` : `${mins} min`;
 };
+
+/**
+ * Projects a point onto a line segment A→B and returns the closest point on that segment.
+ * @returns {{lat:number, lng:number, t:number}} where t is 0..1 along the segment.
+ */
+function projectPointOnSegment(p, a, b) {
+  const dx = b.lat - a.lat;
+  const dy = b.lng - a.lng;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return { lat: a.lat, lng: a.lng, t: 0 };
+  const t = Math.max(0, Math.min(1, ((p.lat - a.lat) * dx + (p.lng - a.lng) * dy) / lenSq));
+  return { lat: a.lat + t * dx, lng: a.lng + t * dy, t };
+}
+
+/**
+ * Finds the closest point on a polyline path to a given GPS point.
+ * @returns {{index:number, snappedPoint:{lat,lng}, distance:number}}
+ */
+function findClosestPointOnPath(path, point) {
+  if (!path || path.length === 0 || !point) return { index: 0, snappedPoint: point, distance: Infinity };
+  if (path.length === 1) {
+    return { index: 0, snappedPoint: path[0], distance: computeDistanceMeters(point.lat, point.lng, path[0].lat, path[0].lng) };
+  }
+  let bestDist = Infinity;
+  let bestSnap = path[0];
+  let bestIdx = 0;
+  for (let i = 0; i < path.length - 1; i++) {
+    const proj = projectPointOnSegment(point, path[i], path[i + 1]);
+    const d = computeDistanceMeters(point.lat, point.lng, proj.lat, proj.lng);
+    if (d < bestDist) {
+      bestDist = d;
+      bestSnap = { lat: proj.lat, lng: proj.lng };
+      bestIdx = proj.t >= 0.5 ? i + 1 : i;
+    }
+  }
+  return { index: bestIdx, snappedPoint: bestSnap, distance: bestDist };
+}
+
+/** Sum of haversine distances along a path array. */
+function computePathLengthM(path) {
+  if (!path || path.length < 2) return 0;
+  let total = 0;
+  for (let i = 1; i < path.length; i++) {
+    total += computeDistanceMeters(path[i - 1].lat, path[i - 1].lng, path[i].lat, path[i].lng);
+  }
+  return total;
+}
+
+/**
+ * Trims a route polyline so only the un-traveled portion is returned.
+ * @returns {{remainingPath:{lat,lng}[], snappedPoint:{lat,lng}, offRouteDistance:number}}
+ */
+function computeRemainingPath(fullPath, riderPos) {
+  if (!fullPath || fullPath.length < 2 || !riderPos) {
+    return { remainingPath: fullPath || [], snappedPoint: riderPos, offRouteDistance: 0 };
+  }
+  const { index, snappedPoint, distance } = findClosestPointOnPath(fullPath, riderPos);
+  // Build remaining path: snapped point → rest of route
+  const remaining = [snappedPoint, ...fullPath.slice(index + 1)];
+  // Deduplicate if snapped point is essentially the same as the next vertex
+  if (remaining.length >= 2 && computeDistanceMeters(remaining[0].lat, remaining[0].lng, remaining[1].lat, remaining[1].lng) < 1) {
+    remaining.shift();
+  }
+  return { remainingPath: remaining.length >= 2 ? remaining : fullPath, snappedPoint, offRouteDistance: distance };
+}
+
+/** Interpolates remaining ETA based on how much of the route is left. */
+function interpolateRemainingEta(remainingLenM, fullLenM, fullDurationS) {
+  if (!Number.isFinite(remainingLenM) || !Number.isFinite(fullLenM) || !Number.isFinite(fullDurationS)) return null;
+  if (fullLenM <= 0 || fullDurationS <= 0) return null;
+  const ratio = Math.max(0, Math.min(1, remainingLenM / fullLenM));
+  return ratio * fullDurationS;
+}
 
 const restaurantFallbackIcon = (color) =>
   `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(
@@ -649,7 +726,16 @@ const DeliveryTrackingMap = ({
         computeDistanceMeters(lastOrigin.lat, lastOrigin.lng, origin.lat, origin.lng) >
           ROUTE_REFRESH_DISTANCE_M;
 
-      if (movedFar || Date.now() - lastAt > ROUTE_REFRESH_INTERVAL_MS) {
+      // Off-route detection: if rider is far from current polyline, reroute immediately
+      let isOffRoute = false;
+      if (routePath && routePath.length >= 2) {
+        const { distance: distFromRoute } = findClosestPointOnPath(routePath, origin);
+        if (distFromRoute > OFF_ROUTE_DISTANCE_M) {
+          isOffRoute = true;
+        }
+      }
+
+      if (isOffRoute || movedFar || Date.now() - lastAt > ROUTE_REFRESH_INTERVAL_MS) {
         requestRoute({ lat: origin.lat, lng: origin.lng });
       }
     };
@@ -657,12 +743,41 @@ const DeliveryTrackingMap = ({
     tick();
     const intervalId = setInterval(tick, ROUTE_TICK_MS);
     return () => clearInterval(intervalId);
-  }, [routeLeg, isLoaded, requestRoute]);
+  }, [routeLeg, isLoaded, requestRoute, routePath]);
+
+  /* ─────────────────── Route trimming & snapping (Zomato-style) ─────────────────── */
+
+  // Trim the route to show only the remaining (un-traveled) portion
+  const routeTrimResult = useMemo(() => {
+    if (!isPickedUp || !routePath || routePath.length < 2 || !riderPosition) {
+      return { remainingPath: routePath, snappedPoint: null, offRouteDistance: 0 };
+    }
+    return computeRemainingPath(routePath, riderPosition);
+  }, [isPickedUp, routePath, riderPosition]);
+
+  const remainingPath = routeTrimResult.remainingPath;
+  const fullPathLengthM = useMemo(() => computePathLengthM(routePath), [routePath]);
+  const remainingPathLengthM = useMemo(() => computePathLengthM(remainingPath), [remainingPath]);
+
+  // Snap rider marker to the route for smooth on-road rendering (Zomato-style glide)
+  const snappedRiderPos = useMemo(() => {
+    if (!isPickedUp || !routeTrimResult.snappedPoint || !riderPosition) return null;
+    if (routeTrimResult.offRouteDistance > SNAP_TO_ROUTE_MAX_M) return null;
+    return {
+      lat: routeTrimResult.snappedPoint.lat,
+      lng: routeTrimResult.snappedPoint.lng,
+      heading: riderPosition.heading || 0,
+    };
+  }, [isPickedUp, routeTrimResult, riderPosition]);
+
+  // The position used for the rider marker: snapped to route when close, raw GPS otherwise
+  const displayRiderPos = snappedRiderPos || riderPosition;
 
   /* ─────────────────── Distance and ETA shown to the customer ─────────────────── */
 
   const tripDistanceMeters = useMemo(() => {
-    // While the rider is en route, the live route is authoritative.
+    // While the rider is en route, prefer live remaining distance for accuracy
+    if (isPickedUp && remainingPathLengthM > 0) return remainingPathLengthM;
     if (isPickedUp && Number.isFinite(routeMeta.distanceMeters)) return routeMeta.distanceMeters;
 
     // Before pickup, reuse the road distance the backend already resolved for
@@ -681,6 +796,7 @@ const DeliveryTrackingMap = ({
     return null;
   }, [
     isPickedUp,
+    remainingPathLengthM,
     routeMeta.distanceMeters,
     order?.tripDistanceKm,
     order?.pricing?.roadDistanceKm,
@@ -688,8 +804,17 @@ const DeliveryTrackingMap = ({
     customerCoords,
   ]);
 
+  // Live interpolated ETA that ticks down as rider progresses, without waiting for a new API call
+  const liveEtaSeconds = useMemo(() => {
+    if (!isPickedUp) return null;
+    return interpolateRemainingEta(remainingPathLengthM, fullPathLengthM, routeMeta.durationSeconds);
+  }, [isPickedUp, remainingPathLengthM, fullPathLengthM, routeMeta.durationSeconds]);
 
   const etaText = useMemo(() => {
+    // Prefer live interpolated ETA when available (ticks down between API calls)
+    if (isPickedUp && Number.isFinite(liveEtaSeconds) && liveEtaSeconds > 0) {
+      return formatDuration(liveEtaSeconds);
+    }
     if (isPickedUp && Number.isFinite(routeMeta.durationSeconds)) {
       return formatDuration(routeMeta.durationSeconds);
     }
@@ -697,6 +822,7 @@ const DeliveryTrackingMap = ({
     return Number.isFinite(storedMins) && storedMins > 0 ? `${Math.round(storedMins)} min` : '';
   }, [
     isPickedUp,
+    liveEtaSeconds,
     routeMeta.durationSeconds,
     order?.tripDurationMins,
     order?.pricing?.roadDurationMins,
@@ -813,12 +939,11 @@ const DeliveryTrackingMap = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, isPickedUp, routeLeg]);
 
-  // Keep the rider in frame while it moves during post-pickup
   useEffect(() => {
-    if (!isPickedUp || !map || isTerminal || !riderPosition || userPannedRef.current) return;
+    if (!isPickedUp || !map || isTerminal || !displayRiderPos || userPannedRef.current) return;
     const viewport = map.getBounds();
-    if (viewport && !viewport.contains(riderPosition)) map.panTo(riderPosition);
-  }, [isPickedUp, map, isTerminal, riderPosition]);
+    if (viewport && !viewport.contains(displayRiderPos)) map.panTo(displayRiderPos);
+  }, [isPickedUp, map, isTerminal, displayRiderPos]);
 
   /* ─────────────────── Render ─────────────────── */
 
@@ -827,9 +952,9 @@ const DeliveryTrackingMap = ({
   // customer still sees the rider connected to their address rather than a bare map.
   const pendingLinePath = useMemo(() => {
     if (!customerCoords) return null;
-    const origin = isPickedUp ? riderPosition || restaurantCoords : restaurantCoords;
+    const origin = isPickedUp ? displayRiderPos || restaurantCoords : restaurantCoords;
     return origin ? [origin, customerCoords] : null;
-  }, [isPickedUp, riderPosition, restaurantCoords, customerCoords]);
+  }, [isPickedUp, displayRiderPos, restaurantCoords, customerCoords]);
 
   const dashedLineOptions = useMemo(
     () => ({
@@ -902,11 +1027,11 @@ const DeliveryTrackingMap = ({
           <Polyline path={pendingLinePath} options={dashedLineOptions} />
         )}
 
-        {/* After pickup only: live road route, with a casing so it reads on any surface. */}
-        {isPickedUp && routePath && (
+        {/* After pickup only: live road route (remaining portion only, trimmed as rider progresses). */}
+        {isPickedUp && remainingPath && remainingPath.length >= 2 && (
           <>
             <Polyline
-              path={routePath}
+              path={remainingPath}
               options={{
                 strokeColor: palette.routeCasing,
                 strokeOpacity: 0.9,
@@ -915,7 +1040,7 @@ const DeliveryTrackingMap = ({
               }}
             />
             <Polyline
-              path={routePath}
+              path={remainingPath}
               options={{
                 strokeColor: palette.route,
                 strokeOpacity: 1,
@@ -984,8 +1109,8 @@ const DeliveryTrackingMap = ({
         )}
 
         {/* Live bike: only while the rider is actually carrying this order. */}
-        {isPickedUp && riderPosition && (
-          <OverlayView position={riderPosition} mapPaneName={OverlayView.MARKER_LAYER}>
+        {isPickedUp && displayRiderPos && (
+          <OverlayView position={displayRiderPos} mapPaneName={OverlayView.MARKER_LAYER}>
             <div
               className="relative flex flex-col items-center pointer-events-none -translate-x-1/2 -translate-y-1/2 z-40"
               style={{ opacity: lastFixAt && clock - lastFixAt > SIGNAL_WEAK_MS ? 0.55 : 1 }}
@@ -1022,7 +1147,7 @@ const DeliveryTrackingMap = ({
               <div
                 className="relative w-16 h-16 flex items-center justify-center z-10"
                 style={{
-                  transform: `rotate(${riderPosition.heading || 0}deg)`,
+                  transform: `rotate(${displayRiderPos.heading || 0}deg)`,
                   transition: 'transform 0.2s ease-out',
                 }}
               >
