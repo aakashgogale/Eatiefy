@@ -230,6 +230,54 @@ export const initSocket = async (server) => {
             }
         });
 
+        // Customer emits live GPS position. The server broadcasts to tracking room and assigned delivery partner.
+        socket.on('update-user-location', async (data) => {
+            if (socket.user?.role !== 'USER') return;
+            if (!data) return;
+            try {
+                const { resolveTrackableOrderForViewer, isValidCoordinate } = await import('../modules/food/delivery/services/riderLocation.service.js');
+                const lat = Number(data.lat);
+                const lng = Number(data.lng);
+                if (!isValidCoordinate(lat, lng)) return;
+
+                const order = await resolveTrackableOrderForViewer(data.orderId, { userId, role });
+                if (!order) return;
+
+                const now = Date.now();
+                const payload = {
+                    orderId: order.order_id ? String(order.order_id) : String(order._id),
+                    orderMongoId: String(order._id),
+                    userId: String(userId),
+                    lat,
+                    lng,
+                    accuracy: Number.isFinite(Number(data.accuracy)) ? Number(data.accuracy) : null,
+                    timestamp: now,
+                };
+
+                const ids = [...new Set([String(data.orderId), String(order._id), order.order_id ? String(order.order_id) : ''].filter(Boolean))];
+                let target = io;
+                for (const id of ids) {
+                    target = target.to(roomNames.tracking(id));
+                }
+                const partnerId = order.dispatch?.deliveryPartnerId;
+                if (partnerId) {
+                    target = target.to(roomNames.delivery(partnerId));
+                }
+                target.emit('user_live_location', payload);
+
+                try {
+                    const db = getFirebaseDB();
+                    if (db) {
+                        for (const id of ids) {
+                            db.ref(`active_orders/${id.replace(/[.#$/[\]]/g, '_')}/user_live_location`).update(payload).catch(() => {});
+                        }
+                    }
+                } catch {}
+            } catch (err) {
+                logger.error(`update-user-location failed for ${userId}: ${err.message}`);
+            }
+        });
+
         // Leave tracking room on user navigation away.
         socket.on('leave-tracking', (orderId) => {
             if (!orderId) return;

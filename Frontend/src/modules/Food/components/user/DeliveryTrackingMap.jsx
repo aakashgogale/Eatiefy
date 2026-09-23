@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { GoogleMap, useJsApiLoader, OverlayView, Polyline } from '@react-google-maps/api';
 import { createAppSocket } from '@food/api/socketClient';
+import { orderAPI } from '@food/api';
+import { LOCATION_CONFIG } from '@/modules/DeliveryV2/utils/locationConfig';
 import bikeLogo from '@food/assets/deliveryboy-3d.jpeg';
 import mapRiderIcon from '@food/assets/MapRider.png';
 import { subscribeOrderTracking, subscribeDeliveryLocation } from '@food/realtimeTracking';
@@ -143,8 +145,11 @@ const DeliveryTrackingMap = ({
   orderTrackingIds = [],
   restaurantCoords,
   customerCoords,
+  userLiveCoords = null,
+  userLocationAccuracy = null,
   order = null,
   onEtaUpdate = null,
+  disableAutoCenterOnUserInteraction = true,
 }) => {
   const [map, setMap] = useState(null);
   const [riderLocation, setRiderLocation] = useState(null);
@@ -158,6 +163,14 @@ const DeliveryTrackingMap = ({
   const lastPacketTimeRef = useRef(0);
   const routeStateRef = useRef({ lastAt: 0, lastOrigin: null, inFlight: false });
   const userPannedRef = useRef(false);
+  const [userInteracted, setUserInteracted] = useState(false);
+  const userInteractedRef = useRef(false);
+  const isGestureActiveRef = useRef(false);
+  const initialCenterRef = useRef(null);
+  if (!initialCenterRef.current && (restaurantCoords || customerCoords || userLiveCoords)) {
+    initialCenterRef.current = userLiveCoords || restaurantCoords || customerCoords;
+  }
+  const initialCenter = initialCenterRef.current || { lat: 20.5937, lng: 78.9629 };
   const lastPacketTsRef = useRef(0);
   const animatingRef = useRef(false);
   const startAnimationRef = useRef(() => {});
@@ -204,10 +217,25 @@ const DeliveryTrackingMap = ({
     ],
   );
 
-  const orderStatusValue = String(order?.status || order?.orderStatus || '').toLowerCase();
-  const isTerminal = TERMINAL_STATUSES.has(orderStatusValue) || trackingEnded;
+  const [liveOrderStatus, setLiveOrderStatus] = useState(() =>
+    String(order?.status || order?.orderStatus || '').toLowerCase(),
+  );
+
+  useEffect(() => {
+    const nextStatus = String(order?.status || order?.orderStatus || '').toLowerCase();
+    if (nextStatus) {
+      setLiveOrderStatus((prev) => {
+        if (PICKED_UP_STATUSES.has(prev) && !PICKED_UP_STATUSES.has(nextStatus) && !TERMINAL_STATUSES.has(nextStatus)) {
+          return prev;
+        }
+        return nextStatus;
+      });
+    }
+  }, [order?.status, order?.orderStatus]);
+
+  const isTerminal = TERMINAL_STATUSES.has(liveOrderStatus) || trackingEnded;
   // Delivered/cancelled orders show no live bike or route.
-  const isPickedUp = !isTerminal && PICKED_UP_STATUSES.has(orderStatusValue) && orderStatusValue !== 'delivered';
+  const isPickedUp = !isTerminal && PICKED_UP_STATUSES.has(liveOrderStatus) && liveOrderStatus !== 'delivered';
   const deliveryPhase = String(order?.deliveryState?.currentPhase || order?.deliveryState?.status || '').toLowerCase();
   const riderAtRestaurant = !isPickedUp && (deliveryPhase === 'at_pickup' || deliveryPhase === 'reached_pickup');
   const riderAssigned = Boolean(deliveryPartnerId);
@@ -220,7 +248,8 @@ const DeliveryTrackingMap = ({
    * arriving. Before pickup the map is a plain restaurant-to-address overview;
    * the rider only appears once they are actually carrying the order.
    */
-  const routeTarget = isPickedUp && !isTerminal ? customerCoords : null;
+  const effectiveCustomerCoords = userLiveCoords || customerCoords;
+  const routeTarget = isPickedUp && !isTerminal ? effectiveCustomerCoords : null;
   const routeLeg = routeTarget ? 'to_customer' : null;
   const routeLegRef = useRef(routeLeg);
   routeLegRef.current = routeLeg;
@@ -292,14 +321,15 @@ const DeliveryTrackingMap = ({
   useEffect(() => {
     const trackingIds = trackingIdsKey ? trackingIdsKey.split(',') : [];
     if (!trackingIds.length || isTerminal) return undefined;
-    // No position feeds before pickup. The rider's own realtime node keeps being
-    // written for other consumers, so this has to be subscribed by leg, not just
-    // hidden at render time.
-    if (!isPickedUp) return undefined;
 
-    const unsubs = trackingIds.map((id) => subscribeOrderTracking(id, handleNewRiderPosition));
-    if (deliveryPartnerId) {
-      unsubs.push(subscribeDeliveryLocation(deliveryPartnerId, handleNewRiderPosition));
+    const unsubs = [];
+    if (isPickedUp) {
+      trackingIds.forEach((id) => {
+        unsubs.push(subscribeOrderTracking(id, handleNewRiderPosition));
+      });
+      if (deliveryPartnerId) {
+        unsubs.push(subscribeDeliveryLocation(deliveryPartnerId, handleNewRiderPosition));
+      }
     }
 
     // The global user socket also republishes rider positions as a window event.
@@ -334,7 +364,48 @@ const DeliveryTrackingMap = ({
     });
     socket.on('disconnect', () => setSocketState('disconnected'));
     socket.on('connect_error', () => setSocketState('disconnected'));
-    socket.on('location-update', (data) => data && handleNewRiderPosition(data));
+
+    // Status update: immediately flip to picked_up without waiting for HTTP refresh!
+    socket.on('order_status_update', (data) => {
+      if (!data) return;
+      const status = String(data.orderStatus || data.status || '').toLowerCase();
+      const matches = trackingIds.some(
+        (id) => String(id) === String(data.orderId) || String(id) === String(data.orderMongoId),
+      );
+      if (matches || !data.orderId) {
+        if (status) {
+          setLiveOrderStatus(status);
+        }
+        window.dispatchEvent(
+          new CustomEvent('orderStatusNotification', {
+            detail: {
+              orderMongoId: data.orderMongoId,
+              orderId: data.orderId,
+              displayOrderId: data.displayOrderId || data.orderId,
+              status: status,
+              orderStatus: status,
+              deliveryState: data.deliveryState,
+              dispatchStatus: data.dispatchStatus,
+              deliveryPartnerId: data.deliveryPartnerId,
+              deliveryVerification: data.deliveryVerification,
+              updatedAt: data.updatedAt,
+              message: data.message,
+              timestamp: new Date().toISOString(),
+            },
+          }),
+        );
+      }
+    });
+
+    socket.on('location-update', (data) => {
+      if (!data) return;
+      const incomingStatus = String(data.orderStatus || '').toLowerCase();
+      if (incomingStatus && PICKED_UP_STATUSES.has(incomingStatus)) {
+        setLiveOrderStatus((prev) => (PICKED_UP_STATUSES.has(prev) ? prev : incomingStatus));
+      }
+      handleNewRiderPosition(data);
+    });
+
     socket.on('tracking-ended', (data) => {
       const matches = trackingIds.some(
         (id) => String(id) === String(data?.orderId) || String(id) === String(data?.orderMongoId),
@@ -356,9 +427,94 @@ const DeliveryTrackingMap = ({
       document.removeEventListener('visibilitychange', reconnect);
       stopSocket();
     };
-    // isPickedUp is a dependency: the moment the order is collected this effect
-    // re-runs and live tracking starts, without needing a page refresh.
   }, [trackingIdsKey, deliveryPartnerId, handleNewRiderPosition, isTerminal, isPickedUp]);
+
+  // Fallback short-interval polling (3-5s): activates ONLY when socket drops
+  useEffect(() => {
+    if (isTerminal) return undefined;
+    if (socketState === 'connected') return undefined;
+
+    const primaryId = orderId || (trackingIdsKey ? trackingIdsKey.split(',')[0] : '');
+    if (!primaryId) return undefined;
+
+    const pollInterval = LOCATION_CONFIG.TRACKING_FALLBACK_POLL_MS;
+    let inFlight = false;
+
+    const pollFallback = async () => {
+      if (inFlight) return;
+      if (typeof document !== 'undefined' && document.hidden) return;
+      inFlight = true;
+      try {
+        const res = await orderAPI.getOrderDetails(primaryId, { force: true });
+        const fetchedOrder = res?.data?.data?.order || res?.data?.order || res?.data;
+        if (fetchedOrder) {
+          const fetchedStatus = String(fetchedOrder.status || fetchedOrder.orderStatus || '').toLowerCase();
+          if (fetchedStatus) {
+            setLiveOrderStatus((prev) =>
+              PICKED_UP_STATUSES.has(prev) && !PICKED_UP_STATUSES.has(fetchedStatus) && !TERMINAL_STATUSES.has(fetchedStatus)
+                ? prev
+                : fetchedStatus,
+            );
+          }
+          const riderPos = readOrderRiderPosition(fetchedOrder);
+          if (riderPos) {
+            handleNewRiderPosition({
+              lat: riderPos.lat,
+              lng: riderPos.lng,
+              heading: riderPos.heading,
+              timestamp: riderPos.at,
+              orderStatus: fetchedStatus,
+              source: 'fallback_poll',
+            });
+          }
+        }
+      } catch (err) {
+        // Silently retry on next tick
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    pollFallback();
+    const intervalId = setInterval(pollFallback, pollInterval);
+
+    return () => clearInterval(intervalId);
+  }, [socketState, isTerminal, orderId, trackingIdsKey, handleNewRiderPosition]);
+
+  // Emit user's live location over the same persistent channel (bidirectional tracking)
+  const lastUserEmitRef = useRef({ at: 0, lat: null, lng: null });
+
+  useEffect(() => {
+    if (!userLiveCoords || isTerminal) return;
+    const lat = Number(userLiveCoords.lat ?? userLiveCoords.latitude);
+    const lng = Number(userLiveCoords.lng ?? userLiveCoords.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
+
+    const socket = socketRef.current;
+    if (!socket || !socket.connected) return;
+
+    const now = Date.now();
+    const last = lastUserEmitRef.current;
+    const moved = last.lat == null ? Infinity : computeDistanceMeters(last.lat, last.lng, lat, lng);
+    const since = now - last.at;
+
+    const shouldEmit =
+      moved >= LOCATION_CONFIG.USER_LOC_MIN_MOVE_M && since >= LOCATION_CONFIG.USER_LOC_MIN_INTERVAL_MS;
+    const isSilenceHeartbeat = since >= LOCATION_CONFIG.USER_LOC_MAX_SILENCE_MS;
+
+    if (last.lat == null || shouldEmit || isSilenceHeartbeat) {
+      lastUserEmitRef.current = { at: now, lat, lng };
+      const primaryId = orderId || (trackingIdsKey ? trackingIdsKey.split(',')[0] : '');
+      if (primaryId) {
+        socket.emit('update-user-location', {
+          orderId: primaryId,
+          lat,
+          lng,
+          accuracy: Number(userLocationAccuracy) || null,
+        });
+      }
+    }
+  }, [userLiveCoords, userLocationAccuracy, orderId, trackingIdsKey, isTerminal, socketState]);
 
   // Re-evaluate the "last updated" state even when no packets arrive.
   useEffect(() => {
@@ -548,22 +704,105 @@ const DeliveryTrackingMap = ({
 
   /* ─────────────────── Camera ─────────────────── */
 
-  const hasRiderFix = Boolean(riderLocation);
-  const phaseKey = `${routeLeg}|${riderAtRestaurant}|${hasRiderFix}|${restaurantCoords?.lat},${restaurantCoords?.lng}|${customerCoords?.lat},${customerCoords?.lng}`;
+  // Responsive padding calculation for pre-pickup bounds (leaving room for top header & bottom sheet)
+  const getPrePickupPadding = useCallback(() => {
+    const windowH = typeof window !== 'undefined' ? window.innerHeight : 800;
+    return {
+      top: 90,
+      bottom: Math.min(Math.round(windowH * 0.48), 380),
+      left: 45,
+      right: 45,
+    };
+  }, []);
 
+  // Recalculates map bounds using both markers (restaurant + user) with dynamic padding
+  const fitPrePickupBounds = useCallback((mapInstance = map) => {
+    if (!mapInstance || !window.google?.maps) return;
+    if (!restaurantCoords || !customerCoords) return;
+
+    const rLat = Number(restaurantCoords.lat ?? restaurantCoords.latitude);
+    const rLng = Number(restaurantCoords.lng ?? restaurantCoords.longitude);
+    const cLat = Number(customerCoords.lat ?? customerCoords.latitude);
+    const cLng = Number(customerCoords.lng ?? customerCoords.longitude);
+    if (!Number.isFinite(rLat) || !Number.isFinite(rLng) || !Number.isFinite(cLat) || !Number.isFinite(cLng)) return;
+
+    const bounds = new window.google.maps.LatLngBounds();
+    bounds.extend(new window.google.maps.LatLng(rLat, rLng));
+    bounds.extend(new window.google.maps.LatLng(cLat, cLng));
+
+    try {
+      mapInstance.fitBounds(bounds, getPrePickupPadding());
+    } catch (err) {
+      console.warn('[DeliveryTrackingMap] fitPrePickupBounds error:', err);
+    }
+  }, [map, restaurantCoords, customerCoords, getPrePickupPadding]);
+
+  // Pre-pickup signature: only changes when actual marker coordinates change (not on re-renders)
+  const prePickupDataKey = useMemo(() => {
+    if (isPickedUp) return null;
+    const rLat = Number(restaurantCoords?.lat ?? restaurantCoords?.latitude)?.toFixed(5) || '';
+    const rLng = Number(restaurantCoords?.lng ?? restaurantCoords?.longitude)?.toFixed(5) || '';
+    const cLat = Number(customerCoords?.lat ?? customerCoords?.latitude)?.toFixed(5) || '';
+    const cLng = Number(customerCoords?.lng ?? customerCoords?.longitude)?.toFixed(5) || '';
+    return `${rLat},${rLng}|${cLat},${cLng}`;
+  }, [isPickedUp, restaurantCoords, customerCoords]);
+
+  // Pre-pickup camera fitting: triggers on actual marker/route data change, not on re-renders
   useEffect(() => {
-    if (!map || !customerCoords) return;
+    if (isPickedUp || !map || !prePickupDataKey) return;
 
-    // A new phase re-frames the trip and clears any earlier manual pan.
+    // Reset manual interaction state when a new location update arrives
+    userInteractedRef.current = false;
+    setUserInteracted(false);
+    userPannedRef.current = false;
+
+    fitPrePickupBounds(map);
+  }, [map, isPickedUp, prePickupDataKey, fitPrePickupBounds]);
+
+  // User manual pan and zoom interaction listeners
+  useEffect(() => {
+    if (!map) return undefined;
+
+    const onDragStart = () => {
+      userPannedRef.current = true;
+      if (disableAutoCenterOnUserInteraction) {
+        userInteractedRef.current = true;
+        setUserInteracted(true);
+      }
+    };
+
+    const onZoomChanged = () => {
+      // If zoom changed as a result of active user gesture (touch/wheel/drag)
+      if (isGestureActiveRef.current) {
+        userPannedRef.current = true;
+        if (disableAutoCenterOnUserInteraction) {
+          userInteractedRef.current = true;
+          setUserInteracted(true);
+        }
+      }
+    };
+
+    const dragListener = map.addListener('dragstart', onDragStart);
+    const zoomListener = map.addListener('zoom_changed', onZoomChanged);
+
+    return () => {
+      dragListener?.remove();
+      zoomListener?.remove();
+    };
+  }, [map, disableAutoCenterOnUserInteraction]);
+
+  // Post-pickup live tracking camera (scoped strictly to isPickedUp === true)
+  useEffect(() => {
+    if (!isPickedUp || !map || !customerCoords) return;
+
+    // A new phase re-frames the trip and clears earlier manual pan
     userPannedRef.current = false;
 
     const bounds = new window.google.maps.LatLngBounds();
-    // Frame the leg that matters now, always including the rider's real position.
     const rider = currentSmoothPosRef.current;
     bounds.extend(customerCoords);
     if (rider) bounds.extend(rider);
-    if (!isPickedUp && restaurantCoords) bounds.extend(restaurantCoords);
-    else if (!rider && restaurantCoords) bounds.extend(restaurantCoords);
+    else if (restaurantCoords) bounds.extend(restaurantCoords);
 
     map.fitBounds(bounds, {
       top: 90,
@@ -571,34 +810,15 @@ const DeliveryTrackingMap = ({
       left: 45,
       right: 45,
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- phaseKey captures the inputs
-  }, [map, phaseKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, isPickedUp, routeLeg]);
 
+  // Keep the rider in frame while it moves during post-pickup
   useEffect(() => {
-    if (!map) return undefined;
-    const listener = map.addListener('dragstart', () => {
-      userPannedRef.current = true;
-    });
-    return () => listener?.remove();
-  }, [map]);
-
-  // Keep the rider in frame while it moves, unless the customer panned away to
-  // look at something themselves.
-  useEffect(() => {
-    if (!map || isTerminal || !riderPosition || userPannedRef.current) return;
+    if (!isPickedUp || !map || isTerminal || !riderPosition || userPannedRef.current) return;
     const viewport = map.getBounds();
     if (viewport && !viewport.contains(riderPosition)) map.panTo(riderPosition);
-  }, [map, isTerminal, riderPosition]);
-
-  const center = useMemo(() => {
-    if (restaurantCoords && customerCoords) {
-      return {
-        lat: (restaurantCoords.lat + customerCoords.lat) / 2,
-        lng: (restaurantCoords.lng + customerCoords.lng) / 2,
-      };
-    }
-    return restaurantCoords || customerCoords || { lat: 0, lng: 0 };
-  }, [restaurantCoords, customerCoords]);
+  }, [isPickedUp, map, isTerminal, riderPosition]);
 
   /* ─────────────────── Render ─────────────────── */
 
@@ -655,12 +875,26 @@ const DeliveryTrackingMap = ({
   const distanceText = formatDistance(tripDistanceMeters);
 
   return (
-    <div className="relative w-full h-full overflow-hidden">
+    <div
+      className="relative w-full h-full overflow-hidden"
+      onPointerDown={() => { isGestureActiveRef.current = true; }}
+      onPointerUp={() => { setTimeout(() => { isGestureActiveRef.current = false; }, 300); }}
+      onTouchStart={() => { isGestureActiveRef.current = true; }}
+      onTouchEnd={() => { setTimeout(() => { isGestureActiveRef.current = false; }, 300); }}
+      onWheel={() => {
+        isGestureActiveRef.current = true;
+        setTimeout(() => { isGestureActiveRef.current = false; }, 300);
+      }}
+    >
       <GoogleMap
         mapContainerStyle={{ width: '100%', height: '100%' }}
-        center={center}
-        zoom={14}
-        onLoad={setMap}
+        center={initialCenter}
+        onLoad={(mapInstance) => {
+          setMap(mapInstance);
+          if (!isPickedUp) {
+            fitPrePickupBounds(mapInstance);
+          }
+        }}
         options={mapOptions}
       >
         {/* Dashed link: the whole leg before pickup, the fallback after it. */}
@@ -728,14 +962,14 @@ const DeliveryTrackingMap = ({
           </OverlayView>
         )}
 
-        {customerCoords && (
-          <OverlayView position={customerCoords} mapPaneName={OverlayView.MARKER_LAYER}>
+        {effectiveCustomerCoords && (
+          <OverlayView position={effectiveCustomerCoords} mapPaneName={OverlayView.MARKER_LAYER}>
             <div className="relative flex flex-col items-center pointer-events-none -translate-x-1/2 -translate-y-1/2">
               <div
                 className="absolute -top-12 z-50 rounded-full flex items-center px-2.5 py-1 shadow-lg gap-1.5"
                 style={badgeStyle}
               >
-                <span className="text-[11px] font-bold">You</span>
+                <span className="text-[11px] font-bold">{userLiveCoords ? 'You (Live)' : 'You'}</span>
                 <div
                   className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rotate-45"
                   style={{ backgroundColor: palette.badge }}
@@ -861,6 +1095,39 @@ const DeliveryTrackingMap = ({
             </>
           )}
         </div>
+      )}
+
+      {/* Floating Recenter button when user manually panned/zoomed in pre-pickup view */}
+      {!isPickedUp && userInteracted && (
+        <button
+          type="button"
+          onClick={() => {
+            userInteractedRef.current = false;
+            setUserInteracted(false);
+            userPannedRef.current = false;
+            fitPrePickupBounds(map);
+          }}
+          className="absolute top-12 right-3 z-20 flex items-center gap-1.5 px-3 py-1.5 bg-white/95 dark:bg-zinc-900/95 text-gray-800 dark:text-gray-100 text-[11px] font-bold rounded-full shadow-lg border border-gray-200/80 dark:border-zinc-700/80 backdrop-blur-xs transition-transform active:scale-95 hover:bg-gray-50 dark:hover:bg-zinc-800 cursor-pointer"
+          aria-label="Recenter map on restaurant and delivery location"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="w-3.5 h-3.5 text-[#EB590E]"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="22" y1="12" x2="18" y2="12" />
+            <line x1="6" y1="12" x2="2" y2="12" />
+            <line x1="12" y1="6" x2="12" y2="2" />
+            <line x1="12" y1="22" x2="12" y2="18" />
+          </svg>
+          <span>Recenter</span>
+        </button>
       )}
     </div>
   );

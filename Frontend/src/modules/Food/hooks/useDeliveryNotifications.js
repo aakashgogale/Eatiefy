@@ -1206,6 +1206,14 @@ export const useDeliveryNotifications = () => {
       if (!joinDeliveryRoomIfPossible()) {
         debugLog('Socket connected before deliveryPartnerId was ready; waiting to join room.');
       }
+
+      // Auto-join tracking room for all active orders
+      const active = useDeliveryStore.getState().acceptedOrders || [];
+      active.forEach((o) => {
+        const id = o.orderId || o._id;
+        if (id) socketRef.current?.emit('join-tracking', id);
+      });
+
       debugLog('Requesting resync after connect', {
         deliveryPartnerId,
         socketId: socketRef.current?.id,
@@ -1272,6 +1280,14 @@ export const useDeliveryNotifications = () => {
 
       joinedDeliveryRoomRef.current = null;
       joinDeliveryRoomIfPossible();
+
+      // Auto-join tracking room for all active orders
+      const active = useDeliveryStore.getState().acceptedOrders || [];
+      active.forEach((o) => {
+        const id = o.orderId || o._id;
+        if (id) socketRef.current?.emit('join-tracking', id);
+      });
+
       socketRef.current.emit('resync');
       void recoverDeliveryState();
     });
@@ -1369,6 +1385,25 @@ export const useDeliveryNotifications = () => {
     socketRef.current.on('order_status_update', (statusData) => {
       debugLog('?? Delivery order status update received via socket:', statusData);
       setOrderStatusUpdate(statusData || null);
+      const incomingStatus = String(statusData?.orderStatus || statusData?.status || '').toLowerCase();
+      const oid = statusData?.orderId || statusData?.orderMongoId;
+      if (oid && ['picked_up', 'out_for_delivery', 'on_way', 'reached_drop'].includes(incomingStatus)) {
+        socketRef.current?.emit('join-tracking', oid);
+      }
+    });
+
+    socketRef.current.on('user_live_location', (data) => {
+      if (!data) return;
+      debugLog('📍 Customer live location received via socket:', data);
+      const orderId = data.orderId || data.orderMongoId;
+      if (orderId && Number.isFinite(Number(data.lat)) && Number.isFinite(Number(data.lng))) {
+        useDeliveryStore.getState().updateCustomerLiveLocation(orderId, {
+          lat: Number(data.lat),
+          lng: Number(data.lng),
+          accuracy: data.accuracy != null ? Number(data.accuracy) : null,
+          timestamp: data.timestamp || Date.now(),
+        });
+      }
     });
 
     socketRef.current.on('order_cancelled', (statusData) => {
@@ -1491,9 +1526,18 @@ export const useDeliveryNotifications = () => {
       }
     };
 
+    const handleRiderPickedUp = (e) => {
+      const orderId = e?.detail?.orderId;
+      if (orderId && socketRef.current) {
+        debugLog('Immediately joining tracking room on pickup:', orderId);
+        socketRef.current.emit('join-tracking', orderId);
+      }
+    };
+
     window.addEventListener('deliveryAuthChanged', handleAuthChange);
     window.addEventListener('authRefreshed', handleAuthRefreshed);
     window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener('riderPickedUpOrder', handleRiderPickedUp);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
@@ -1503,6 +1547,7 @@ export const useDeliveryNotifications = () => {
       window.removeEventListener('deliveryAuthChanged', handleAuthChange);
       window.removeEventListener('authRefreshed', handleAuthRefreshed);
       window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener('riderPickedUpOrder', handleRiderPickedUp);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (socketRef.current) {
         socketRef.current.removeAllListeners();
@@ -1737,6 +1782,14 @@ export const useDeliveryNotifications = () => {
     return false;
   }, []);
 
+  const joinOrderTracking = useCallback((orderId) => {
+    if (socketRef.current && socketRef.current.connected && orderId) {
+      socketRef.current.emit('join-tracking', orderId);
+      return true;
+    }
+    return false;
+  }, []);
+
   return {
     newOrder,
     clearNewOrder,
@@ -1758,7 +1811,8 @@ export const useDeliveryNotifications = () => {
     setOrderAlertMuted,
     toggleOrderAlertMuted,
     muteUiTick,
-    emitLocation
+    emitLocation,
+    joinOrderTracking,
   };
 };
 

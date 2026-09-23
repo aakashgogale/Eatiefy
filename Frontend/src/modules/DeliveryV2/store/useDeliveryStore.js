@@ -398,6 +398,28 @@ export const useDeliveryStore = create(
         get().updateOrderSession(key, { tripStatus: status });
       },
 
+      updateCustomerLiveLocation: (orderId, location) => {
+        if (!orderId || !location) return;
+        const targetId = String(orderId).trim();
+        set((state) => {
+          const acceptedOrders = state.acceptedOrders.map((order) => {
+            if (orderMatchesKey(order, targetId)) {
+              return {
+                ...order,
+                customerLiveLocation: {
+                  lat: Number(location.lat),
+                  lng: Number(location.lng),
+                  accuracy: location.accuracy != null ? Number(location.accuracy) : null,
+                  timestamp: location.timestamp || Date.now(),
+                },
+              };
+            }
+            return order;
+          });
+          return { acceptedOrders };
+        });
+      },
+
       removeAcceptedOrder: (orderIdOrOrder) => {
         const keys = new Set(
           typeof orderIdOrOrder === 'object' && orderIdOrOrder !== null

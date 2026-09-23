@@ -50,12 +50,13 @@ const TERMINAL_ORDER_STATUSES = new Set([
     'cancelled_by_admin',
 ]);
 
-const BROADCAST_MIN_INTERVAL_MS = 1500;
-const ORDER_PERSIST_INTERVAL_MS = 15000;
-const PARTNER_PERSIST_INTERVAL_MS = 10000;
-const ACTIVE_ORDERS_CACHE_MS = 10000;
+const BROADCAST_MIN_INTERVAL_MS = Number(process.env.RIDER_BROADCAST_MIN_INTERVAL_MS) || 1500;
+const ORDER_PERSIST_INTERVAL_MS = Number(process.env.RIDER_ORDER_PERSIST_INTERVAL_MS) || 15000;
+const PARTNER_PERSIST_INTERVAL_MS = Number(process.env.RIDER_PARTNER_PERSIST_INTERVAL_MS) || 10000;
+const ACTIVE_ORDERS_CACHE_MS = Number(process.env.RIDER_ACTIVE_ORDERS_CACHE_MS) || 10000;
+const MAX_ACCEPTABLE_ACCURACY_M = Number(process.env.RIDER_MAX_ACCEPTABLE_ACCURACY_M) || 75;
 /** A position older than this is not shown as "live" to a newly opened tracking page. */
-export const LAST_KNOWN_LOCATION_MAX_AGE_MS = 10 * 60 * 1000;
+export const LAST_KNOWN_LOCATION_MAX_AGE_MS = Number(process.env.RIDER_LAST_KNOWN_LOCATION_MAX_AGE_MS) || 10 * 60 * 1000;
 
 const lastBroadcastAt = new Map(); // partnerId -> ms
 const lastOrderPersistAt = new Map(); // orderMongoId -> ms
@@ -124,6 +125,12 @@ export const publishRiderLocation = async ({
     const heading = toFinite(rawHeading) ?? 0;
     const speed = toFinite(rawSpeed) ?? 0;
     const accuracy = toFinite(rawAccuracy);
+
+    // Reject updates with poor accuracy to prevent customer map flickering or wild jumps
+    if (accuracy !== null && accuracy > MAX_ACCEPTABLE_ACCURACY_M) {
+        logger.debug(`[RiderLocation] ${partnerId} fix ignored due to poor accuracy (${accuracy}m > ${MAX_ACCEPTABLE_ACCURACY_M}m)`);
+        return 0;
+    }
 
     // Keep the partner's own last known location fresh (also used by dispatch).
     if (now - (lastPartnerPersistAt.get(partnerId) || 0) >= PARTNER_PERSIST_INTERVAL_MS) {

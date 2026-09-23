@@ -246,14 +246,32 @@ function emitOrderUpdate(order, deliveryPartnerId, options = {}) {
         payload,
       );
       io.to(rooms.user(order.userId)).emit('order_status_update', payload);
+
+      const trackingIds = [
+        order._id?.toString?.(),
+        order.order_id ? String(order.order_id) : '',
+        order.orderId ? String(order.orderId) : '',
+        readableId,
+      ].filter(Boolean);
+      for (const tId of new Set(trackingIds)) {
+        io.to(rooms.tracking(tId)).emit('order_status_update', payload);
+      }
     }
 
     // Location packets carry the order status; drop the cached assignment so the
     // next GPS fix reflects this transition instead of one up to 10s old.
+    // If the order has entered a live-trackable status (e.g. picked_up), publish
+    // the rider's latest location immediately with 0ms delay.
     import('../../delivery/services/riderLocation.service.js')
-      .then(({ invalidateRiderActiveOrders }) =>
-        invalidateRiderActiveOrders(deliveryPartnerId || order.dispatch?.deliveryPartnerId),
-      )
+      .then(({ invalidateRiderActiveOrders, publishLastKnownRiderLocation, isLiveTrackableOrderStatus }) => {
+        const partner = deliveryPartnerId || order.dispatch?.deliveryPartnerId;
+        if (partner) {
+          invalidateRiderActiveOrders(partner);
+          if (isLiveTrackableOrderStatus(order.orderStatus)) {
+            publishLastKnownRiderLocation(partner).catch(() => {});
+          }
+        }
+      })
       .catch(() => {});
 
     // Only send push notifications for key delivery milestones when explicitly allowed.

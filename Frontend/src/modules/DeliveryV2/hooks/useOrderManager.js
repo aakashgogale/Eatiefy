@@ -140,6 +140,9 @@ export const useOrderManager = () => {
 
       if (response?.data?.success) {
         updateTripStatus('PICKED_UP', orderId);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('riderPickedUpOrder', { detail: { orderId } }));
+        }
       } else {
         throw new Error('Confirm order ID failed');
       }

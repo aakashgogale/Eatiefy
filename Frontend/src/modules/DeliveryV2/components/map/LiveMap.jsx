@@ -10,6 +10,7 @@ import {
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { zoneAPI } from '@food/api';
 import { CUSTOMER_PIN_SVG } from '@/modules/DeliveryV2/components/map/map.icons';
+import { LOCATION_CONFIG } from '@/modules/DeliveryV2/utils/locationConfig';
 
 const mapContainerStyle = {
   width: '100%',
@@ -216,7 +217,10 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
   }, []);
 
   const restaurantPoint = useMemo(() => parsePoint(activeOrder?.restaurantLocation), [activeOrder?.restaurantLocation, parsePoint]);
-  const customerPoint = useMemo(() => parsePoint(activeOrder?.customerLocation), [activeOrder?.customerLocation, parsePoint]);
+  const customerPoint = useMemo(
+    () => parsePoint(activeOrder?.customerLiveLocation || activeOrder?.customerLocation),
+    [activeOrder?.customerLiveLocation, activeOrder?.customerLocation, parsePoint],
+  );
 
   const targetLocation = useMemo(() => {
     if (!activeOrder) return null;
@@ -224,7 +228,7 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
     if (tripStatus === 'PICKING_UP' || tripStatus === 'REACHED_PICKUP') {
       rawLoc = activeOrder.restaurantLocation;
     } else if (tripStatus === 'PICKED_UP' || tripStatus === 'REACHED_DROP') {
-      rawLoc = activeOrder.customerLocation;
+      rawLoc = activeOrder.customerLiveLocation || activeOrder.customerLocation;
     }
     if (!rawLoc) return null;
     return parsePoint(rawLoc);
@@ -236,6 +240,96 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
     const lng = parseFloat(riderLocation.lng || riderLocation.longitude);
     return (Number.isFinite(lat) && Number.isFinite(lng)) ? { lat, lng, heading: parseFloat(riderLocation.heading || 0) } : null;
   }, [riderLocation]);
+
+  /* ─────────────────── 60 fps marker interpolation ─────────────────── */
+  const interpStateRef = useRef({
+    startPos: null,
+    targetPos: null,
+    startTime: 0,
+    duration: LOCATION_CONFIG.MIN_INTERP_DURATION_MS,
+  });
+  const currentSmoothPosRef = useRef(null);
+  const [smoothLocation, setSmoothLocation] = useState(null);
+  const lastPacketTimeRef = useRef(0);
+  const animatingRef = useRef(false);
+  const startAnimationRef = useRef(() => {});
+
+  useEffect(() => {
+    if (!parsedRiderLocation) {
+      currentSmoothPosRef.current = null;
+      setSmoothLocation(null);
+      return;
+    }
+
+    const now = Date.now();
+    const sinceLast = lastPacketTimeRef.current ? now - lastPacketTimeRef.current : 1500;
+    lastPacketTimeRef.current = now;
+
+    const rendered = currentSmoothPosRef.current || parsedRiderLocation;
+    interpStateRef.current = {
+      startPos: rendered,
+      targetPos: parsedRiderLocation,
+      startTime: now,
+      duration: Math.min(
+        Math.max(sinceLast, LOCATION_CONFIG.MIN_INTERP_DURATION_MS),
+        LOCATION_CONFIG.MAX_INTERP_DURATION_MS,
+      ),
+    };
+
+    if (!currentSmoothPosRef.current) {
+      currentSmoothPosRef.current = parsedRiderLocation;
+      setSmoothLocation(parsedRiderLocation);
+    } else {
+      startAnimationRef.current();
+    }
+  }, [parsedRiderLocation?.lat, parsedRiderLocation?.lng, parsedRiderLocation?.heading]);
+
+  useEffect(() => {
+    let frameId;
+    const step = () => {
+      const { startPos, targetPos, startTime, duration } = interpStateRef.current;
+      if (!startPos || !targetPos) {
+        animatingRef.current = false;
+        return;
+      }
+
+      const progress = Math.min((Date.now() - startTime) / (duration || 1000), 1);
+      const eased = 1 - (1 - progress) ** 2;
+
+      let delta = ((targetPos.heading || 0) - (startPos.heading || 0)) % 360;
+      if (delta > 180) delta -= 360;
+      if (delta < -180) delta += 360;
+
+      const next = {
+        lat: startPos.lat + (targetPos.lat - startPos.lat) * eased,
+        lng: startPos.lng + (targetPos.lng - startPos.lng) * eased,
+        heading: ((startPos.heading || 0) + delta * eased + 360) % 360,
+      };
+
+      currentSmoothPosRef.current = next;
+      setSmoothLocation(next);
+
+      if (progress >= 1) {
+        animatingRef.current = false;
+        return;
+      }
+      frameId = requestAnimationFrame(step);
+    };
+
+    startAnimationRef.current = () => {
+      if (animatingRef.current) return;
+      animatingRef.current = true;
+      frameId = requestAnimationFrame(step);
+    };
+
+    return () => {
+      animatingRef.current = false;
+      startAnimationRef.current = () => {};
+      cancelAnimationFrame(frameId);
+    };
+  }, []);
+
+  const activeMarkerLocation = smoothLocation || parsedRiderLocation;
 
   useEffect(() => {
     if (!map || typeof zoom !== 'number') return;
@@ -474,7 +568,7 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
         mapContainerStyle={mapContainerStyle}
         center={initialCenter}
         zoom={seedCenterRef.current ? zoom : 5}
-        heading={parsedRiderLocation?.heading || 0}
+        heading={activeMarkerLocation?.heading || 0}
         tilt={45}
         onClick={(e) => onMapClick?.(e.latLng.lat(), e.latLng.lng())}
         options={mapOptions}
@@ -516,16 +610,15 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
           />
         )}
 
-        {parsedRiderLocation && (
+        {activeMarkerLocation && (
           <OverlayView
-            position={parsedRiderLocation}
+            position={activeMarkerLocation}
             mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
           >
             <div
               style={{
                 // Bottom-center anchor: bike sits on the GPS point; destination pin can sit above it
-                transform: `translate(-50%, -88%) rotate(${parsedRiderLocation.heading || 0}deg)`,
-                transition: 'transform 0.5s linear',
+                transform: `translate(-50%, -88%) rotate(${activeMarkerLocation.heading || 0}deg)`,
                 zIndex: 999,
                 position: 'relative',
                 pointerEvents: 'none',

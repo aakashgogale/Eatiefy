@@ -2,36 +2,34 @@ import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { deliveryAPI } from '@food/api';
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
-import { getHaversineDistance, calculateHeading } from '@/modules/DeliveryV2/utils/geo';
+import { getHaversineDistance } from '@/modules/DeliveryV2/utils/geo';
+import { LOCATION_CONFIG } from '@/modules/DeliveryV2/utils/locationConfig';
+import { KalmanLocationFilter } from '@/modules/DeliveryV2/utils/kalmanLocationFilter';
+import { backgroundLocationManager } from '@/modules/DeliveryV2/utils/backgroundLocationManager';
 
 /**
  * The rider app's single GPS source and live-location publisher.
  *
  * Mounted once in DeliveryRealtimeShell, so it runs on every delivery screen.
- * It used to live inside the Feed map with a callback frozen at mount time:
- * the active order captured there was usually `null` (the rider went online
- * before accepting), so no order location was ever published, and switching to
- * another tab stopped GPS altogether. Customers therefore never saw the bike.
  *
- * Transports:
- *  - socket `update-location` — low latency while the app is in the foreground;
- *  - HTTP availability heartbeat — keeps working when the socket drops (app
- *    backgrounded, network switch). The server publishes from both, and resolves
- *    which orders the rider is assigned to itself.
+ * Fixes integrated:
+ * 1. 2D Kalman filter for real-time location smoothing & outlier/multipath rejection.
+ * 2. High-accuracy GPS options with stale-cache rejection (maximumAge: 1000).
+ * 3. Dynamic accuracy thresholding (discards inaccurate pings > threshold).
+ * 4. Anti-throttling manager (Screen Wake Lock, silent Web Audio, visibility re-sync,
+ *    and native foreground service hooks for Android & iOS).
+ * 5. Socket throttling based on meaningful movement and elapsed time to prevent
+ *    flicker, jitter, and backward rendering.
  *
- * No fallback or simulated coordinates are ever used: without a real fix the
- * rider is told why and nothing is published.
+ * No hardcoded values: all thresholds derived from LOCATION_CONFIG and env vars.
  */
 
-const GEO_OPTIONS = { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 };
-const SOCKET_MIN_INTERVAL_MS = 2000;
-const SOCKET_MAX_SILENCE_MS = 5000;
-const SOCKET_MIN_MOVE_M = 8;
-const HTTP_HEARTBEAT_MS = 10000;
-const HTTP_FALLBACK_MS = 4000;
-/** Ignore a very inaccurate fix when a reasonably accurate one arrived recently. */
-const POOR_ACCURACY_M = 150;
-const GOOD_FIX_FRESH_MS = 15000;
+const GEO_OPTIONS = {
+  enableHighAccuracy: LOCATION_CONFIG.ENABLE_HIGH_ACCURACY,
+  maximumAge: LOCATION_CONFIG.MAXIMUM_AGE_MS,
+  timeout: LOCATION_CONFIG.GEOLOCATION_TIMEOUT_MS,
+};
+
 const GPS_TOAST_ID = 'rider-gps-status';
 
 /** Kept for existing imports. */
@@ -41,13 +39,6 @@ export function isOrdersRoute(pathname = '') {
 
 /*
  * Simulation switch (test builds only - see VITE_ENABLE_MAP_SIMULATION).
- *
- * While the test ride is running, the phone's real GPS must not publish: the
- * two would fight, and the customer would see the bike jump between the
- * simulated route and the phone's actual position. Paused means the watch keeps
- * running (so the fix is still fresh the moment the test stops) but nothing is
- * sent to the server. Real riders never reach this: the button that flips it is
- * not rendered unless the build enables simulation.
  */
 let riderGpsPaused = false;
 export const setRiderGpsPaused = (paused) => {
@@ -94,15 +85,25 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
   socketConnectedRef.current = Boolean(isSocketConnected);
   isOnlineRef.current = isOnline;
 
+  const kalmanFilterRef = useRef(null);
+  if (!kalmanFilterRef.current) {
+    kalmanFilterRef.current = new KalmanLocationFilter(LOCATION_CONFIG);
+  }
+
   const lastFixRef = useRef(null);
   const lastGoodFixAtRef = useRef(0);
+  const lastLocalUpdateAtRef = useRef(0);
   const lastSocketRef = useRef({ at: 0, lat: null, lng: null });
   const lastHttpAtRef = useRef(0);
   const timeoutCountRef = useRef(0);
   const errorShownRef = useRef(null);
 
   useEffect(() => {
-    if (!shouldTrack) return undefined;
+    if (!shouldTrack) {
+      backgroundLocationManager.stop();
+      return undefined;
+    }
+
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       setGpsError?.({ kind: 'unsupported', title: 'Location not supported on this device' });
       return undefined;
@@ -111,9 +112,24 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
     let disposed = false;
     let trailingTimer = null;
 
+    // Start background anti-throttling (wake lock, web audio keep-alive, visibility listener)
+    backgroundLocationManager.start({
+      onResume: () => {
+        if (disposed) return;
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            onPosition(pos);
+            if (lastFixRef.current) publish(lastFixRef.current, { force: true });
+          },
+          onError,
+          { ...GEO_OPTIONS, maximumAge: 0 },
+        );
+      },
+    });
+
     const publish = (fix, { force = false } = {}) => {
       // A simulated test ride owns the published position while it runs.
-      if (riderGpsPaused) return;
+      if (riderGpsPaused || !fix) return;
       const now = Date.now();
       const state = useDeliveryStore.getState();
       const activeOrders = state.acceptedOrders || [];
@@ -125,7 +141,13 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
         const last = lastSocketRef.current;
         const moved = last.lat == null ? Infinity : getHaversineDistance(last.lat, last.lng, fix.lat, fix.lng);
         const since = now - last.at;
-        if (force || (since >= SOCKET_MIN_INTERVAL_MS && (moved >= SOCKET_MIN_MOVE_M || since >= SOCKET_MAX_SILENCE_MS))) {
+
+        // Meaningful movement check: must move at least SOCKET_MIN_MOVE_M and interval elapsed,
+        // or a stationary heartbeat after SOCKET_MAX_SILENCE_MS
+        const isMeaningfulMove = moved >= LOCATION_CONFIG.SOCKET_MIN_MOVE_M && since >= LOCATION_CONFIG.SOCKET_MIN_INTERVAL_MS;
+        const isSilenceHeartbeat = since >= LOCATION_CONFIG.SOCKET_MAX_SILENCE_MS;
+
+        if (force || isMeaningfulMove || isSilenceHeartbeat) {
           socketSent = Boolean(
             emitRef.current({
               orderId,
@@ -137,18 +159,17 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
             }),
           );
           if (socketSent) lastSocketRef.current = { at: now, lat: fix.lat, lng: fix.lng };
-        } else if (moved >= SOCKET_MIN_MOVE_M && !trailingTimer) {
-          // Throttled while moving: send the newest fix as soon as the window opens
-          // instead of leaving the customer's bike still until the next heartbeat.
+        } else if (moved >= LOCATION_CONFIG.SOCKET_MIN_MOVE_M && !trailingTimer) {
+          // Throttled while moving: send the newest smoothed fix as soon as the throttle window opens
           trailingTimer = setTimeout(() => {
             trailingTimer = null;
             if (!disposed && lastFixRef.current) publish(lastFixRef.current);
-          }, Math.max(50, SOCKET_MIN_INTERVAL_MS - since));
+          }, Math.max(50, LOCATION_CONFIG.SOCKET_MIN_INTERVAL_MS - since));
         }
       }
 
-      const socketHealthy = socketConnectedRef.current && now - lastSocketRef.current.at < SOCKET_MAX_SILENCE_MS * 2;
-      const httpInterval = orderId && !socketHealthy ? HTTP_FALLBACK_MS : HTTP_HEARTBEAT_MS;
+      const socketHealthy = socketConnectedRef.current && now - lastSocketRef.current.at < LOCATION_CONFIG.SOCKET_MAX_SILENCE_MS * 2;
+      const httpInterval = orderId && !socketHealthy ? LOCATION_CONFIG.HTTP_FALLBACK_MS : LOCATION_CONFIG.HTTP_HEARTBEAT_MS;
       if (force || now - lastHttpAtRef.current >= httpInterval) {
         lastHttpAtRef.current = now;
         deliveryAPI
@@ -164,42 +185,70 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
     const onPosition = (pos) => {
       if (disposed) return;
       const { latitude: lat, longitude: lng, heading, speed, accuracy } = pos.coords || {};
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
 
       const now = Date.now();
       const acc = Number.isFinite(accuracy) ? accuracy : null;
-      if (acc != null && acc > POOR_ACCURACY_M && now - lastGoodFixAtRef.current < GOOD_FIX_FRESH_MS) return;
-      if (acc == null || acc <= POOR_ACCURACY_M) lastGoodFixAtRef.current = now;
 
-      const previous = lastFixRef.current;
-      let resolvedHeading = Number.isFinite(heading) ? heading : null;
-      if (resolvedHeading == null && previous) {
-        resolvedHeading =
-          getHaversineDistance(previous.lat, previous.lng, lat, lng) > 5
-            ? calculateHeading(previous.lat, previous.lng, lat, lng)
-            : previous.heading;
+      // Accuracy Filtering:
+      // If we have an active recent fix, discard updates with accuracy > MAX_ACCURACY_THRESHOLD_M.
+      // If waiting for initial lock, allow up to MAX_INITIAL_ACCURACY_M.
+      const hasRecentGoodFix = lastGoodFixAtRef.current > 0 && now - lastGoodFixAtRef.current < LOCATION_CONFIG.GOOD_FIX_FRESH_MS;
+      if (acc != null) {
+        if (hasRecentGoodFix && acc > LOCATION_CONFIG.MAX_ACCURACY_THRESHOLD_M) {
+          return; // Ignore noisy fix when a good fix arrived recently
+        }
+        if (!hasRecentGoodFix && acc > LOCATION_CONFIG.MAX_INITIAL_ACCURACY_M) {
+          return; // Even initial fix cannot exceed initial threshold
+        }
+        if (acc <= LOCATION_CONFIG.MAX_ACCURACY_THRESHOLD_M) {
+          lastGoodFixAtRef.current = now;
+        }
       }
 
-      const fix = {
+      // Pass raw measurement through the Kalman filter for smoothing & outlier rejection
+      const smoothed = kalmanFilterRef.current.filter({
         lat,
         lng,
-        heading: Number.isFinite(resolvedHeading) ? resolvedHeading : 0,
-        speed: Number.isFinite(speed) && speed >= 0 ? speed : 0,
         accuracy: acc,
+        speed: Number.isFinite(speed) && speed >= 0 ? speed : null,
+        heading: Number.isFinite(heading) && heading >= 0 ? heading : null,
         timestamp: pos.timestamp || now,
-      };
-      lastFixRef.current = fix;
-      timeoutCountRef.current = 0;
+      });
 
-      if (errorShownRef.current) {
-        errorShownRef.current = null;
-        toast.dismiss(GPS_TOAST_ID);
+      if (!smoothed || !Number.isFinite(smoothed.lat) || !Number.isFinite(smoothed.lng)) return;
+
+      const fix = {
+        lat: smoothed.lat,
+        lng: smoothed.lng,
+        heading: Number.isFinite(smoothed.heading) ? smoothed.heading : 0,
+        speed: Number.isFinite(smoothed.speed) ? smoothed.speed : 0,
+        accuracy: smoothed.accuracy || acc,
+        timestamp: smoothed.timestamp || now,
+        isStationary: Boolean(smoothed.isStationary),
+      };
+
+      const previous = lastFixRef.current;
+      const sinceLastLocal = now - lastLocalUpdateAtRef.current;
+      const moved = previous ? getHaversineDistance(previous.lat, previous.lng, fix.lat, fix.lng) : Infinity;
+
+      // Rate limit local updates: don't churn React state on noisy high-frequency pings (< MIN_UPDATE_INTERVAL_MS)
+      // unless vehicle has moved beyond MIN_UPDATE_DISTANCE_M or this is the first fix.
+      if (!previous || sinceLastLocal >= LOCATION_CONFIG.MIN_UPDATE_INTERVAL_MS || moved >= LOCATION_CONFIG.MIN_UPDATE_DISTANCE_M) {
+        lastLocalUpdateAtRef.current = now;
+        lastFixRef.current = fix;
+        timeoutCountRef.current = 0;
+
+        if (errorShownRef.current) {
+          errorShownRef.current = null;
+          toast.dismiss(GPS_TOAST_ID);
+        }
+        setGpsError?.(null);
+
+        // While a simulated test ride runs, it owns the marker; real fix is still kept in lastFixRef
+        if (!riderGpsPaused) setRiderLocation(fix);
+        publish(fix);
       }
-      setGpsError?.(null);
-      // While a simulated test ride runs, it owns the marker; the real fix is
-      // still kept in lastFixRef so normal tracking resumes the moment it stops.
-      if (!riderGpsPaused) setRiderLocation(fix);
-      publish(fix);
     };
 
     const onError = (error) => {
@@ -228,31 +277,17 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
     navigator.geolocation.getCurrentPosition(onPosition, onError, GEO_OPTIONS);
     const watchId = navigator.geolocation.watchPosition(onPosition, onError, GEO_OPTIONS);
 
-    // Coming back to the foreground: get a fresh fix and publish immediately.
-    const onVisible = () => {
-      if (document.visibilityState !== 'visible') return;
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          onPosition(pos);
-          if (lastFixRef.current) publish(lastFixRef.current, { force: true });
-        },
-        onError,
-        { ...GEO_OPTIONS, maximumAge: 0 },
-      );
-    };
-    document.addEventListener('visibilitychange', onVisible);
-
     // Heartbeat: a stationary rider (no watch callbacks) still keeps the customer
     // map and the backend's availability fresh.
     const heartbeat = setInterval(() => {
       if (lastFixRef.current) publish(lastFixRef.current);
-    }, HTTP_FALLBACK_MS);
+    }, LOCATION_CONFIG.HTTP_FALLBACK_MS);
 
     return () => {
       disposed = true;
       if (trailingTimer) clearTimeout(trailingTimer);
       navigator.geolocation.clearWatch(watchId);
-      document.removeEventListener('visibilitychange', onVisible);
+      backgroundLocationManager.stop();
       clearInterval(heartbeat);
     };
   }, [shouldTrack, setRiderLocation, setGpsError]);
@@ -277,3 +312,5 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
     }
   }, [isSocketConnected]);
 }
+
+export default useRiderLocationSync;
