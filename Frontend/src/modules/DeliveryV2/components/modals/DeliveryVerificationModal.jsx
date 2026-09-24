@@ -89,7 +89,7 @@ const OtpModal = ({ order, onVerified, onClose }) => {
     return () => clearTimeout(timer);
   }, [order?.deliveryVerification?.dropOtp?.code]);
 
-  const orderId = order.orderId || order._id || 'ORD';
+  const orderId = order?.orderId || order?._id || 'ORD';
 
   const handleOtpChange = (index, rawValue) => {
     const value = String(rawValue || '').replace(/\D/g, '');
@@ -201,13 +201,13 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
   const [showQrModal, setShowQrModal] = useState(false);
   const [collectQrLink, setCollectQrLink] = useState(null);
   const [isGeneratingQr, setIsGeneratingQr] = useState(false);
-  const isInitialPaid = ['paid', 'captured', 'authorized'].includes(String(order.payment?.status || "").toLowerCase());
+  const isInitialPaid = ['paid', 'captured', 'authorized'].includes(String(order?.payment?.status || "").toLowerCase());
   const [paymentStatus, setPaymentStatus] = useState(isInitialPaid ? 'paid' : 'idle');
   const [isSyncing, setIsSyncing] = useState(false);
   const pollingRef = useRef(null);
 
-  const orderId = order._id || order.orderId || order.order_id || 'ORD';
-  const amountToCollect = Number(order.pricing?.total ?? order.amountToCollect ?? order.total ?? order.amount ?? 0);
+  const orderId = order?._id || order?.orderId || order?.order_id || 'ORD';
+  const amountToCollect = Number(order?.pricing?.total ?? order?.amountToCollect ?? order?.total ?? order?.amount ?? 0);
 
   const checkPaymentSync = useCallback(async () => {
     try {
@@ -240,8 +240,8 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
     setIsGeneratingQr(true);
     try {
       const res = await deliveryAPI.createCollectQr(orderId, {
-        name: order.userName || order.customerName || order.userId?.name || 'Customer',
-        phone: order.userPhone || order.customerPhone || order.userId?.phone || ''
+        name: order?.userName || order?.customerName || order?.userId?.name || 'Customer',
+        phone: order?.userPhone || order?.customerPhone || order?.userId?.phone || ''
       });
       const data = res?.data?.data || res?.data || {};
       const link = data.imageUrl || data.shortUrl || data.image || data.qrCode || null;
@@ -447,7 +447,7 @@ export const DeliveryVerificationModal = ({ order, onComplete, onClose }) => {
     }
     return 'otp';
   });
-  const [verifiedOtp, setVerifiedOtp] = useState(alreadyVerified ? (order.deliveryVerification.dropOtp.code || '') : '');
+  const [verifiedOtp, setVerifiedOtp] = useState(() => (alreadyVerified ? (order?.deliveryVerification?.dropOtp?.code || '') : ''));
 
   const handleOtpVerified = (otpValue) => {
     setVerifiedOtp(otpValue);
@@ -457,7 +457,7 @@ export const DeliveryVerificationModal = ({ order, onComplete, onClose }) => {
 
   // If OTP was already verified on mount and it's a non-COD order, auto-complete
   useEffect(() => {
-    if (step === 'complete' && !isCod) {
+    if (step === 'complete' && !isCod && order) {
       onComplete(verifiedOtp);
     }
   }, []); // only on mount

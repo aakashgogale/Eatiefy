@@ -19,6 +19,10 @@ import ActionSlider from '@/modules/DeliveryV2/components/ui/ActionSlider';
 import OrderSwitcher from '@/modules/DeliveryV2/components/orders/OrderSwitcher';
 import DeliveryBottomNav from '@/modules/DeliveryV2/components/DeliveryBottomNav';
 
+import { useCompanyName } from "@food/hooks/useCompanyName";
+import { useNavigate } from 'react-router-dom';
+import useNotificationInbox from "@food/hooks/useNotificationInbox";
+
 // Sub Pages
 import PocketV2 from '@/modules/DeliveryV2/pages/PocketV2';
 import HistoryV2 from '@/modules/DeliveryV2/pages/HistoryV2';
@@ -81,9 +85,6 @@ const buildFallbackPath = (from, to, steps = SIM_FALLBACK_STEPS) =>
     const t = i / steps;
     return { lat: from.lat + (to.lat - from.lat) * t, lng: from.lng + (to.lng - from.lng) * t };
   });
-import { useCompanyName } from "@food/hooks/useCompanyName";
-import { useNavigate } from 'react-router-dom';
-import useNotificationInbox from "@food/hooks/useNotificationInbox";
 
 /** Minimal bottom-sheet popup (Restored from legacy FeedNavbar) */
 function BottomPopup({ isOpen, onClose, title, children }) {

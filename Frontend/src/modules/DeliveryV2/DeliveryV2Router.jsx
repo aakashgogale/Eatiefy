@@ -65,7 +65,7 @@ const DeliveryV2Router = () => {
   }, [navigate]);
 
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<div className="min-h-screen w-full flex items-center justify-center bg-[#121212]"><div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" /></div>}>
       <Routes>
         {/* Auth routes */}
 
