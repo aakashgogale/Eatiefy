@@ -74,6 +74,22 @@ export default function OnboardingPayment() {
     preloadRazorpayScript()
   }, [])
 
+  /*
+   * Once paid, the hardware/browser back button must not land on the onboarding
+   * form. This page is entered with { replace: true }, so the entry behind it is
+   * whatever preceded onboarding; a back press there dropped the restaurant into
+   * a form it had already paid to submit. Holding one entry and redirecting on
+   * popstate sends them to the verification screen instead. Navigation only - no
+   * payment call is repeated.
+   */
+  useEffect(() => {
+    if (!succeeded) return undefined
+    window.history.pushState(null, "", window.location.href)
+    const onPopState = () => navigate("/food/restaurant/pending-verification", { replace: true })
+    window.addEventListener("popstate", onPopState)
+    return () => window.removeEventListener("popstate", onPopState)
+  }, [succeeded, navigate])
+
   const loadQuote = useCallback(async () => {
     if (!token) {
       setLoading(false)
@@ -329,22 +345,6 @@ export default function OnboardingPayment() {
       </div>
     )
   }
-
-  /*
-   * Once paid, the hardware/browser back button must not land on the onboarding
-   * form. This page is entered with { replace: true }, so the entry behind it is
-   * whatever preceded onboarding; a back press there dropped the restaurant into
-   * a form it had already paid to submit. Holding one entry and redirecting on
-   * popstate sends them to the verification screen instead. Navigation only - no
-   * payment call is repeated.
-   */
-  useEffect(() => {
-    if (!succeeded) return undefined
-    window.history.pushState(null, "", window.location.href)
-    const onPopState = () => navigate("/food/restaurant/pending-verification", { replace: true })
-    window.addEventListener("popstate", onPopState)
-    return () => window.removeEventListener("popstate", onPopState)
-  }, [succeeded, navigate])
 
   const hasOffer = Boolean(quote?.offer && quote?.offerPrice != null)
   const currency = quote?.currency || "INR"
