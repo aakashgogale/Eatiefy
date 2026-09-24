@@ -215,27 +215,49 @@ export default function OnboardingPayment() {
               error?.response?.data?.message ||
               "We could not confirm your payment yet. If money was debited it will reflect shortly."
             setPaymentError(message)
-            loadQuote()
+            toast.error(message)
+            try {
+              const res = await restaurantAPI.getOnboardingPaymentQuote(token)
+              const data = res?.data?.data || {}
+              if (data.alreadyPaid) {
+                setSucceeded(true)
+                setPaidSummary(data.payment || null)
+              } else if (data.quote) {
+                setQuote(data.quote)
+              }
+            } catch {}
           } finally {
             setProcessing(false)
             payInFlightRef.current = false
           }
         },
         onError: async (error) => {
+          const desc = error?.description || error?.message || "Payment failed. Please retry."
+          setPaymentError(desc)
+          toast.error(desc)
           const wasActuallyPaid = await releaseAttempt(
             orderId,
             "failed",
-            error?.description || "Payment failed",
+            desc,
           )
           setProcessing(false)
           payInFlightRef.current = false
           if (wasActuallyPaid) return
-          setPaymentError(error?.description || "Payment failed. Please try again.")
-          loadQuote()
+          try {
+            const res = await restaurantAPI.getOnboardingPaymentQuote(token)
+            const data = res?.data?.data || {}
+            if (data.alreadyPaid) {
+              setSucceeded(true)
+              setPaidSummary(data.payment || null)
+            } else if (data.quote) {
+              setQuote(data.quote)
+            }
+          } catch {}
         },
         onClose: async () => {
-          // Not necessarily a cancellation — this also fires when the tab regains
-          // focus after a UPI app hop, so let the server's gateway check decide.
+          const cancelMsg = "Payment was cancelled, please retry."
+          setPaymentError(cancelMsg)
+          toast.info(cancelMsg)
           const wasActuallyPaid = await releaseAttempt(
             orderId,
             "cancelled",
@@ -244,8 +266,16 @@ export default function OnboardingPayment() {
           setProcessing(false)
           payInFlightRef.current = false
           if (wasActuallyPaid) return
-          setPaymentError("Payment was cancelled. Your restaurant has not been submitted yet.")
-          loadQuote()
+          try {
+            const res = await restaurantAPI.getOnboardingPaymentQuote(token)
+            const data = res?.data?.data || {}
+            if (data.alreadyPaid) {
+              setSucceeded(true)
+              setPaidSummary(data.payment || null)
+            } else if (data.quote) {
+              setQuote(data.quote)
+            }
+          } catch {}
         },
       })
     } catch (error) {
@@ -253,6 +283,7 @@ export default function OnboardingPayment() {
         error?.response?.data?.message || error?.message || "Could not start the payment."
       if (orderId) await releaseAttempt(orderId, "failed", message)
       setPaymentError(message)
+      toast.error(message)
       setProcessing(false)
       payInFlightRef.current = false
     }
@@ -435,10 +466,13 @@ export default function OnboardingPayment() {
         {paymentError && (
           <div
             role="alert"
-            className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+            className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50/90 p-4 text-sm text-red-800 shadow-sm"
           >
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{paymentError}</span>
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-red-900">Payment Not Completed</p>
+              <p className="mt-0.5 text-xs text-red-700 leading-relaxed">{paymentError}</p>
+            </div>
           </div>
         )}
 

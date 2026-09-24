@@ -16,13 +16,29 @@ const MAX_TOP = 10
 const ZONE_KEY = "top_restaurants_selected_zone"
 
 const PLACEHOLDER_40 =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect fill='%23e2e8f0' width='40' height='40'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%2394a3b8' font-size='12' font-family='sans-serif'%3E?%3C/text%3E%3C/svg%3E"
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40' fill='none'%3E%3Crect width='40' height='40' fill='%23F1F5F9'/%3E%3Cpath d='M13 11v6a2.5 2.5 0 0 0 2.5 2.5h0a2.5 2.5 0 0 0 2.5-2.5v-6M15.5 19.5V29M27 11v18M23 11v4.5a2.5 2.5 0 0 0 2.5 2.5H27' stroke='%2394A3B8' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
 
 const getLogo = (r) => {
-  const img = r?.profileImage
+  if (!r) return PLACEHOLDER_40
+  const img =
+    r?.profileImage ||
+    r?.logo ||
+    r?.restaurantImage ||
+    r?.image ||
+    (Array.isArray(r?.coverImages) && r.coverImages[0])
   if (!img) return PLACEHOLDER_40
-  if (typeof img === "string") return img
-  return img.url || img.secure_url || PLACEHOLDER_40
+  if (typeof img === "string") {
+    const trimmed = img.trim()
+    if (!trimmed || trimmed === "null" || trimmed === "undefined") return PLACEHOLDER_40
+    return trimmed
+  }
+  const url = img.url || img.secure_url || img.path || ""
+  if (typeof url === "string") {
+    const trimmed = url.trim()
+    if (!trimmed || trimmed === "null" || trimmed === "undefined") return PLACEHOLDER_40
+    return trimmed
+  }
+  return PLACEHOLDER_40
 }
 
 const getZoneName = (r) =>
@@ -518,7 +534,9 @@ export default function TopRestaurants() {
                                 alt={r.restaurantName}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
-                                  e.target.src = PLACEHOLDER_40
+                                  if (e.target.src !== PLACEHOLDER_40) {
+                                    e.target.src = PLACEHOLDER_40
+                                  }
                                 }}
                               />
                             </div>

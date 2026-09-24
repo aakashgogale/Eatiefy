@@ -325,21 +325,21 @@ export default function AddressSelectorPage() {
 
   const applyGeocodedAddressToForm = useCallback((parsed, formattedOverride) => {
     const formatted = formattedOverride || parsed?.formattedAddress || parsed?.address || ""
-    const cleanFormatted = formatted.replace(/^[a-z0-9]{2,8}\+[a-z0-9]{0,3}[,\s]*/i, '').replace(/,\s*India$/, '')
+    const cleanFormatted = formatted.replace(/^[a-z0-9]{2,8}\+[a-z0-9]{0,3}[,\s]*/i, '').replace(/,\s*India$/, '').trim()
     setCurrentAddress(cleanFormatted)
     
     setAddressFormData((prev) => {
-      let streetVal = parsed?.area || parsed?.address || formatted.split(",")[0] || prev.street
+      let streetVal = parsed?.street || parsed?.area || parsed?.address || formatted.split(",")[0] || ""
       if (streetVal) {
         streetVal = streetVal.replace(/^[a-z0-9]{2,8}\+[a-z0-9]{0,3}[,\s]*/i, '').replace(/,\s*India$/, '').trim()
         if (streetVal.endsWith(',')) streetVal = streetVal.slice(0, -1).trim()
       }
       return {
         ...prev,
-        street: streetVal || prev.street,
-        city: parsed?.city || prev.city,
-        state: parsed?.state || prev.state,
-        zipCode: parsed?.pincode || prev.zipCode,
+        street: streetVal || prev.street || "",
+        city: (parsed?.city !== undefined && parsed?.city !== null && parsed?.city !== "") ? parsed.city : (prev.city || ""),
+        state: (parsed?.state !== undefined && parsed?.state !== null && parsed?.state !== "") ? parsed.state : (prev.state || ""),
+        zipCode: (parsed?.pincode !== undefined && parsed?.pincode !== null && parsed?.pincode !== "") ? parsed.pincode : (prev.zipCode || ""),
       }
     })
   }, [])
@@ -354,7 +354,7 @@ export default function AddressSelectorPage() {
       } catch (e) {
         debugError("Reverse geocode error:", e)
       }
-    }, 400)
+    }, 300)
   }, [ENABLE_LOCATION_REVERSE_GEOCODE, applyGeocodedAddressToForm])
 
   // Map Initialization logic

@@ -651,6 +651,12 @@ export const adminAPI = {
       contextModule: "admin",
     }),
   /** Dispatch settings – auto vs manual assign (global) */
+  /** Check for duplicate email, owner phone, or primary contact */
+  checkRestaurantDuplicate: (params = {}) =>
+    apiClient.get("/food/admin/restaurants/check-duplicate", {
+      params,
+      contextModule: "admin",
+    }),
   /** Create restaurant (admin). Single API: POST /food/admin/restaurants. Body: JSON with image URLs. */
   createRestaurant: (body) =>
     apiClient.post("/food/admin/restaurants", body ?? {}, {

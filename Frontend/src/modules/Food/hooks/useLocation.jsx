@@ -86,53 +86,26 @@ const setGlobalLocationLoading = (isLoading) => {
 // then rely on localStorage/DB. Live watching is enabled only via explicit user action.
 const AUTO_START_LIVE_WATCH = false
 
-const SERVICE_CITIES = [
-  "Indore",
-  "Bhopal",
-  "Ujjain",
-  "Dewas",
-  "Mhow",
-  "Pithampur",
-  "Rau",
-]
-
 /**
- * Prefer metro/service city over village/locality (e.g. Dhabli → Indore)
- * so restaurant APIs filtered by city don't return empty lists.
+ * Dynamically resolve city from address components without hardcoded whitelist.
  */
 export function resolveServiceCity({
   locality = "",
+  adminArea3 = "",
   adminArea2 = "",
   formattedAddress = "",
-  fallback = "Indore",
+  fallback = "",
 } = {}) {
-  const findKnown = (text) => {
-    const match = String(text || "").match(
-      new RegExp(`\\b(${SERVICE_CITIES.join("|")})\\b`, "i"),
-    )
-    if (!match) return ""
-    const hit = match[1]
-    return (
-      SERVICE_CITIES.find((city) => city.toLowerCase() === hit.toLowerCase()) ||
-      hit
-    )
-  }
-
-  const fromFormatted = findKnown(formattedAddress)
-  if (fromFormatted) return fromFormatted
-
   const localityTrim = String(locality || "").trim()
-  if (localityTrim) {
-    const knownLocality = SERVICE_CITIES.find(
-      (city) => city.toLowerCase() === localityTrim.toLowerCase(),
-    )
-    if (knownLocality) return knownLocality
-  }
+  if (localityTrim) return localityTrim
 
-  const fromAdmin = findKnown(adminArea2)
-  if (fromAdmin) return fromAdmin
+  const admin3Trim = String(adminArea3 || "").trim()
+  if (admin3Trim) return admin3Trim
 
-  return localityTrim || fallback
+  const admin2Clean = String(adminArea2 || "").replace(/\s+(division|district|mandal)$/i, "").trim()
+  if (admin2Clean) return admin2Clean
+
+  return String(fallback || "").trim()
 }
 
 const reverseGeocodeDirect = async (latitude, longitude) => {
@@ -605,9 +578,16 @@ export function useLocation() {
       const result = data.results[0]
       const components = result.address_components
       
+      const allResults = Array.isArray(data.results) ? data.results : [result]
+      
       const getComponent = (types) => {
         const comp = components.find(c => types.some(t => c.types.includes(t)))
-        return comp ? comp.long_name : ""
+        if (comp) return comp.long_name || ""
+        for (const res of allResults) {
+          const c = (res?.address_components || []).find(x => types.some(t => x.types.includes(t)))
+          if (c) return c.long_name || ""
+        }
+        return ""
       }
 
       // Extract parts
@@ -616,17 +596,18 @@ export function useLocation() {
       const sublocality = getComponent(["sublocality_level_1"]) || getComponent(["sublocality"])
       const neighborhood = getComponent(["neighborhood"])
       const locality = getComponent(["locality"])
+      const adminArea3 = getComponent(["administrative_area_level_3"])
       const adminArea2 = getComponent(["administrative_area_level_2"])
       const state = getComponent(["administrative_area_level_1"])
-      const country = getComponent(["country"])
+      const country = getComponent(["country"]) || "India"
       const pincode = getComponent(["postal_code"])
 
-      // Prefer Indore (etc.) over village locality like Dhabli so restaurant city filter works
       const city = resolveServiceCity({
         locality,
+        adminArea3,
         adminArea2,
         formattedAddress: result.formatted_address,
-        fallback: "Indore",
+        fallback: "",
       })
       
       // Determine area - prioritize sublocality/neighborhood for "Exact" feel
@@ -643,24 +624,28 @@ export function useLocation() {
       const premise = getComponent(["premise"]) || getComponent(["subpremise"]) || getComponent(["point_of_interest"])
 
       // Construct a clean display address
-      // e.g. "B-204, Silver Oak Apartment, New Palasia"
       let addressParts = []
       if (premise) addressParts.push(premise)
       if (streetNumber && route) addressParts.push(`${streetNumber}, ${route}`)
       else if (route) addressParts.push(route)
-      if (area) addressParts.push(area)
+      if (area && !addressParts.includes(area)) addressParts.push(area)
       
-      const displayAddress = addressParts.join(", ") || result.formatted_address.split(",")[0]
+      const cleanFormatted = (result.formatted_address || "")
+        .replace(/^[a-z0-9]{2,8}\+[a-z0-9]{0,3}[,\s]*/i, "")
+        .replace(/,\s*India$/, "")
+        .trim()
+
+      const displayAddress = addressParts.join(", ") || cleanFormatted.split(",")[0] || ""
 
       const value = {
-        city: city || "Indore",
-        state: state,
-        country: country,
-        area: area,
-        pincode: pincode,
-        mainTitle: area || city,
+        city: city || "",
+        state: state || "",
+        country: country || "India",
+        area: area || "",
+        pincode: pincode || "",
+        mainTitle: area || city || displayAddress,
         address: displayAddress,
-        formattedAddress: result.formatted_address,
+        formattedAddress: cleanFormatted || displayAddress,
         premise: premise || "",
         streetNumber: streetNumber,
         route: route,
@@ -2146,7 +2131,7 @@ export function useLocation() {
         city: resolveServiceCity({
           locality: addr?.city || "",
           formattedAddress: addr?.formattedAddress || addr?.address || "",
-          fallback: addr?.city || "Indore",
+          fallback: addr?.city || "",
         }),
         latitude,
         longitude,

@@ -144,12 +144,7 @@ export function useZone(location) {
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
       // Only detect zone if coordinates changed significantly (~1m via 5 decimals)
       if (coordsChanged) {
-        const hadCachedZone = Boolean(
-          typeof localStorage !== "undefined" && localStorage.getItem("userZoneId"),
-        );
-        // Keep cached zone usable for instant restaurant fetch on refresh;
-        // only block UI when we have no zone at all yet.
-        if (!hadCachedZone) setLoading(true);
+        setLoading(true);
         prevCoordsRef.current = { latitude: lat, longitude: lng }
         if (debounceTimerRef.current) {
           clearTimeout(debounceTimerRef.current)

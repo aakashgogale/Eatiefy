@@ -2014,13 +2014,20 @@ export default function Home() {
     const fetchMealsUnder99 = async () => {
       try {
         setLoadingMealsUnder99(true);
-        if (!zoneId) {
+        if (!zoneId && (!Number.isFinite(effectiveLocation?.latitude) || !Number.isFinite(effectiveLocation?.longitude))) {
           setMealsUnder99([]);
           return;
         }
 
+        const params = { limit: 40 };
+        if (zoneId) params.zoneId = zoneId;
+        if (Number.isFinite(effectiveLocation?.latitude) && Number.isFinite(effectiveLocation?.longitude)) {
+          params.lat = effectiveLocation.latitude;
+          params.lng = effectiveLocation.longitude;
+        }
+
         // Eligibility (final selling price ₹99 or below) is decided by the backend.
-        const foodsResponse = await restaurantAPI.getEatiefy99Foods({ zoneId, limit: 40 });
+        const foodsResponse = await restaurantAPI.getEatiefy99Foods(params);
 
         if (cancelled) return;
 
@@ -2065,6 +2072,9 @@ export default function Home() {
         }
       } catch (error) {
         console.error("Error fetching meals under 99:", error);
+        if (!cancelled) {
+          setMealsUnder99([]);
+        }
       } finally {
         if (!cancelled) {
           setLoadingMealsUnder99(false);
@@ -2076,7 +2086,7 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, [zoneId, meals99RefreshNonce]);
+  }, [zoneId, effectiveLocation?.latitude, effectiveLocation?.longitude, meals99RefreshNonce]);
 
   // Live refresh: a price, menu or pricing-rule change can add/remove ₹99 dishes.
   useFoodPageInvalidation(
@@ -2192,7 +2202,7 @@ export default function Home() {
     let cancelled = false;
     setLoadingLandingConfig(true);
 
-    void refreshLanding(zoneId)
+    void refreshLanding(zoneId, true)
       .then((landing) => {
         if (cancelled || !landing) return;
         setExploreMoreHeading(landing.exploreMoreHeading || "Explore More");
@@ -2212,46 +2222,52 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, [zoneId, refreshLanding]);
+  }, [zoneId, effectiveLocation?.latitude, effectiveLocation?.longitude, refreshLanding]);
   const [showToast, setShowToast] = useState(false);
   const [showManageCollections, setShowManageCollections] = useState(false);
   const [selectedRestaurantSlug, setSelectedRestaurantSlug] = useState(null);
 
   // Fetch categories (zone-aware) for the homepage category rail.
   useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
     const run = async () => {
-      const zoneKey = String(zoneId || "global")
+      const zoneKey = `${String(zoneId || "global")}_${effectiveLocation?.latitude || 0}_${effectiveLocation?.longitude || 0}`;
       try {
         // Dedupe repeated calls (StrictMode + zone settling). Cache per zoneKey and share in-flight request.
-        const cached = publicCategoriesCacheRef.current.get(zoneKey)
+        const cached = publicCategoriesCacheRef.current.get(zoneKey);
         if (cached) {
-          if (!cancelled) setRealCategories(cached)
-          return
+          if (!cancelled) setRealCategories(cached);
+          return;
         }
 
-        const inFlight = publicCategoriesInFlightRef.current.get(zoneKey)
+        const inFlight = publicCategoriesInFlightRef.current.get(zoneKey);
         if (inFlight) {
-          const categories = await inFlight
-          if (!cancelled) setRealCategories(categories)
-          return
+          const categories = await inFlight;
+          if (!cancelled) setRealCategories(categories);
+          return;
         }
 
-        setLoadingRealCategories(true)
+        setLoadingRealCategories(true);
         const promise = (async () => {
-          const res = await adminAPI.getPublicCategories(zoneId ? { zoneId } : {})
+          const params = {};
+          if (zoneId) params.zoneId = zoneId;
+          if (Number.isFinite(effectiveLocation?.latitude) && Number.isFinite(effectiveLocation?.longitude)) {
+            params.lat = effectiveLocation.latitude;
+            params.lng = effectiveLocation.longitude;
+          }
+          const res = await adminAPI.getPublicCategories(params);
           const list =
             res?.data?.data?.categories ||
             res?.data?.categories ||
-            []
+            [];
           const categories = Array.isArray(list)
             ? list.map((cat, idx) => {
-              const nameLower = (cat?.name || "").toLowerCase()
-              let customImage = ""
-              if (nameLower.includes("thali") || nameLower.includes("main course")) customImage = "/images/categories/thali.png"
-              else if (nameLower.includes("beverage") || nameLower.includes("drink")) customImage = "/images/categories/beverages.png"
-              else if (nameLower.includes("sweet") || nameLower.includes("cake")) customImage = "/images/categories/sweet.png"
-              else if (nameLower.includes("momo")) customImage = "/images/categories/momos.png"
+              const nameLower = (cat?.name || "").toLowerCase();
+              let customImage = "";
+              if (nameLower.includes("thali") || nameLower.includes("main course")) customImage = "/images/categories/thali.png";
+              else if (nameLower.includes("beverage") || nameLower.includes("drink")) customImage = "/images/categories/beverages.png";
+              else if (nameLower.includes("sweet") || nameLower.includes("cake")) customImage = "/images/categories/sweet.png";
+              else if (nameLower.includes("momo")) customImage = "/images/categories/momos.png";
 
               return {
                 id: String(cat?.id || cat?._id || cat?.slug || idx),
@@ -2263,31 +2279,31 @@ export default function Home() {
                   foodImages[idx % foodImages.length] ||
                   foodImages[0],
                 type: cat?.type || "",
-              }
+              };
             })
-            : []
+            : [];
 
-          publicCategoriesCacheRef.current.set(zoneKey, categories)
-          return categories
-        })()
+          publicCategoriesCacheRef.current.set(zoneKey, categories);
+          return categories;
+        })();
 
-        publicCategoriesInFlightRef.current.set(zoneKey, promise)
-        const categories = await promise
-        publicCategoriesInFlightRef.current.delete(zoneKey)
+        publicCategoriesInFlightRef.current.set(zoneKey, promise);
+        const categories = await promise;
+        publicCategoriesInFlightRef.current.delete(zoneKey);
 
-        if (!cancelled) setRealCategories(categories)
+        if (!cancelled) setRealCategories(categories);
       } catch (err) {
-        debugWarn("Failed to fetch categories:", err)
-        if (!cancelled) setRealCategories([])
+        debugWarn("Failed to fetch categories:", err);
+        if (!cancelled) setRealCategories([]);
       } finally {
-        if (!cancelled) setLoadingRealCategories(false)
+        if (!cancelled) setLoadingRealCategories(false);
       }
-    }
-    run()
+    };
+    run();
     return () => {
-      cancelled = true
-    }
-  }, [zoneId, normalizeImageUrl])
+      cancelled = true;
+    };
+  }, [zoneId, effectiveLocation?.latitude, effectiveLocation?.longitude, normalizeImageUrl]);
 
   // Memoize cartCount to prevent recalculation on every render - use cart directly
   const cartCount = useMemo(
@@ -3135,71 +3151,97 @@ export default function Home() {
       ? recommendedRestaurantsFromSettings
       : [];
 
-    // Primary source: restaurants returned by landing settings API (already admin-selected).
-    const fromSettingsMapped = fromSettings.map((restaurant) => {
-      const restaurantId = restaurant?._id ? String(restaurant._id) : "";
-      const cuisine =
-        Array.isArray(restaurant?.cuisines) && restaurant.cuisines.length > 0
-          ? restaurant.cuisines[0]
-          : "Multi-cuisine";
-      const imageCandidates = extractImages([
-        ...(Array.isArray(restaurant?.coverImages)
-          ? restaurant.coverImages
-          : [restaurant?.coverImages]
-        ).filter(Boolean),
-        restaurant?.profileImage,
-      ]);
-      const image = imageCandidates[0] || foodImages[0];
+    const currentZoneRestaurants = Array.isArray(restaurantsData) ? restaurantsData : [];
+    const currentRestaurantIdSet = new Set(
+      currentZoneRestaurants.flatMap((r) => [
+        String(r.id || ""),
+        String(r._id || ""),
+        String(r.mongoId || ""),
+        String(r.restaurantId || ""),
+        String(r.slug || ""),
+      ].filter(Boolean))
+    );
 
-      return {
-        id: restaurant?.restaurantId || restaurantId,
-        mongoId: restaurantId,
-        name: getRestaurantDisplayName(restaurant),
-        cuisine,
-        rating: Number(restaurant?.rating) || 0,
-        distance: "",
-        deliveryTime: "",
-        image: normalizeImageUrl(image) || foodImages[0],
-        images: imageCandidates.length > 0 ? imageCandidates : [foodImages[0]],
-        slug: restaurant?.slug || restaurant?.restaurantId || restaurantId,
-        offer: null,
-        pureVegRestaurant: restaurant?.pureVegRestaurant === true,
-        isActive: true,
-        isAcceptingOrders: true,
-      };
-    });
+    // Primary source: restaurants returned by landing settings API (already admin-selected).
+    const fromSettingsMapped = fromSettings
+      .filter((restaurant) => {
+        const rId = String(restaurant?._id || restaurant?.id || restaurant?.restaurantId || "");
+        const rSlug = String(restaurant?.slug || "");
+        if (currentZoneRestaurants.length > 0) {
+          return currentRestaurantIdSet.has(rId) || (rSlug && currentRestaurantIdSet.has(rSlug));
+        }
+        if (zoneId && restaurant?.zoneId) {
+          return String(restaurant.zoneId) === String(zoneId);
+        }
+        return true;
+      })
+      .map((restaurant) => {
+        const restaurantId = restaurant?._id ? String(restaurant._id) : "";
+        const cuisine =
+          Array.isArray(restaurant?.cuisines) && restaurant.cuisines.length > 0
+            ? restaurant.cuisines[0]
+            : "Multi-cuisine";
+        const imageCandidates = extractImages([
+          ...(Array.isArray(restaurant?.coverImages)
+            ? restaurant.coverImages
+            : [restaurant?.coverImages]
+          ).filter(Boolean),
+          restaurant?.profileImage,
+        ]);
+        const image = imageCandidates[0] || foodImages[0];
+
+        const liveMatch = currentZoneRestaurants.find(
+          (cr) => String(cr.mongoId || cr.id || cr.restaurantId) === restaurantId || (cr.slug && cr.slug === restaurant.slug)
+        );
+
+        return {
+          id: restaurant?.restaurantId || restaurantId,
+          mongoId: restaurantId,
+          name: getRestaurantDisplayName(restaurant),
+          cuisine,
+          rating: Number(liveMatch?.rating || restaurant?.rating) || 0,
+          distance: liveMatch?.distance || "",
+          deliveryTime: liveMatch?.deliveryTime || "",
+          image: normalizeImageUrl(image) || foodImages[0],
+          images: imageCandidates.length > 0 ? imageCandidates : [foodImages[0]],
+          slug: restaurant?.slug || restaurant?.restaurantId || restaurantId,
+          offer: liveMatch?.offer || null,
+          pureVegRestaurant: restaurant?.pureVegRestaurant === true,
+          isActive: liveMatch?.isActive ?? true,
+          isAcceptingOrders: liveMatch?.isAcceptingOrders ?? true,
+        };
+      });
 
     // Keep admin-selected order when IDs exist.
-    const orderedFromSettings = hasIds
-      ? idsInOrder
-        .map((id) =>
-          fromSettingsMapped.find(
-            (restaurant) => String(restaurant.mongoId) === id,
-          ),
-        )
-        .filter(Boolean)
-      : fromSettingsMapped;
+    let list = [];
+    if (fromSettingsMapped.length > 0) {
+      list = hasIds
+        ? idsInOrder
+          .map((id) =>
+            fromSettingsMapped.find(
+              (restaurant) => String(restaurant.mongoId) === id || String(restaurant.id) === id,
+            ),
+          )
+          .filter(Boolean)
+        : fromSettingsMapped;
+    }
 
-    // Fallback: if settings payload misses some entries, recover them from fetched restaurant list by ID.
-    const existingIds = new Set(
-      orderedFromSettings.map((restaurant) =>
-        String(restaurant.mongoId || restaurant.id),
-      ),
-    );
-    const fromFetchedMissing = (restaurantsData || []).filter((restaurant) => {
-      const mongoId = String(restaurant.mongoId || "");
-      return (
-        hasIds && idsInOrder.includes(mongoId) && !existingIds.has(mongoId)
-      );
-    });
+    // Dynamic fallback: if no admin-curated picks exist for this specific location,
+    // dynamically recommend the highest-rated approved restaurants in this location!
+    if (list.length === 0 && currentZoneRestaurants.length > 0) {
+      list = [...currentZoneRestaurants]
+        .sort((a, b) => (Number(b.rating) || 0) - (Number(a.rating) || 0))
+        .slice(0, 10);
+    }
 
-    return [...orderedFromSettings, ...fromFetchedMissing]
+    return list
       .filter(matchesVegMode)
       .slice(0, 12);
   }, [
     recommendedRestaurantIds,
     recommendedRestaurantsFromSettings,
     restaurantsData,
+    zoneId,
     extractImages,
     normalizeImageUrl,
     matchesVegMode,
@@ -3941,7 +3983,7 @@ export default function Home() {
               />
             </div>
 
-            {filteredRecommendedForYou.length > 0 && (
+            {(loadingLandingConfig || loadingRestaurants || filteredRecommendedForYou.length > 0) && (
               <LazySection minHeight="260px" priority={isRestoringScroll}>
                 <motion.section
                   className="content-auto space-y-4 pt-4 sm:pt-6"
@@ -3971,15 +4013,29 @@ export default function Home() {
                   </div>
 
                   {/* Horizontal Scroll Cards List */}
-                  <div
-                    className="flex gap-4 sm:gap-5 px-4 pb-3 overflow-x-auto scrollbar-hide scroll-smooth"
-                    style={{
-                      scrollbarWidth: "none",
-                      msOverflowStyle: "none",
-                      touchAction: "pan-x pan-y pinch-zoom",
-                    }}
-                  >
-                    {filteredRecommendedForYou.map((restaurant, index) => {
+                  {loadingLandingConfig || loadingRestaurants ? (
+                    <div className="flex gap-4 sm:gap-5 px-4 pb-3 overflow-x-auto scrollbar-hide">
+                      {[1, 2, 3].map((i) => (
+                        <div
+                          key={i}
+                          className="flex-shrink-0 w-[195px] sm:w-[220px] md:w-[235px] rounded-2xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-[#242424] p-3 flex flex-col gap-2"
+                        >
+                          <div className="w-full h-24 sm:h-28 md:h-32 bg-gray-100 dark:bg-neutral-800 animate-pulse rounded-xl" />
+                          <div className="h-4 w-3/4 bg-gray-100 dark:bg-neutral-800 animate-pulse rounded" />
+                          <div className="h-3 w-1/2 bg-gray-100 dark:bg-neutral-800 animate-pulse rounded" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div
+                      className="flex gap-4 sm:gap-5 px-4 pb-3 overflow-x-auto scrollbar-hide scroll-smooth"
+                      style={{
+                        scrollbarWidth: "none",
+                        msOverflowStyle: "none",
+                        touchAction: "pan-x pan-y pinch-zoom",
+                      }}
+                    >
+                      {filteredRecommendedForYou.map((restaurant, index) => {
                       if (!restaurant) return null;
                       const restaurantName = getRestaurantDisplayName(restaurant) || "Restaurant";
                       const restaurantSlug =
@@ -4145,9 +4201,10 @@ export default function Home() {
                       );
                     })}
                   </div>
-                </motion.section>
-              </LazySection>
-            )}
+                )}
+              </motion.section>
+            </LazySection>
+          )}
 
             <LazySection minHeight="180px" priority={isRestoringScroll}>
               <div className="py-4">

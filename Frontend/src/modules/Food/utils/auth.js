@@ -309,9 +309,29 @@ export function clearRestaurantSessionCache() {
     "restaurant_pendingPhone",
     "restaurant_pendingStatus",
     "restaurant_pendingMessage",
+    "restaurant_muted_order_ids",
+    "restaurant_processed_order_ids",
   ];
 
-  keys.forEach((key) => localStorage.removeItem(key));
+  keys.forEach((key) => {
+    try {
+      localStorage.removeItem(key);
+    } catch (_) {}
+  });
+
+  if (typeof localStorage !== "undefined") {
+    try {
+      Object.keys(localStorage).forEach((k) => {
+        if (k.startsWith("alert_start_")) localStorage.removeItem(k);
+      });
+    } catch (_) {}
+  }
+
+  if (typeof window !== "undefined") {
+    try {
+      window.dispatchEvent(new CustomEvent("moduleAuthCleared", { detail: { module: "restaurant" } }));
+    } catch (_) {}
+  }
 }
 
 export function setRestaurantPendingPhone(phone) {

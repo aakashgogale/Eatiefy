@@ -754,6 +754,9 @@ export default function Under250({ isTabActive = true }) {
           const response = await Promise.race([
             restaurantAPI.getRestaurantsUnder250({
               zoneId,
+              ...(Number.isFinite(location?.latitude) && Number.isFinite(location?.longitude)
+                ? { lat: location.latitude, lng: location.longitude }
+                : {}),
               limit: UNDER250_PAGE_SIZE,
               offset,
               scanSkip: page === 0 ? 0 : scanSkip,

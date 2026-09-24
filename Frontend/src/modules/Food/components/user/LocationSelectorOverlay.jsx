@@ -1623,6 +1623,7 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
           const response = await geocodeAPI.reverse(roundedLat, roundedLng)
           const google = response?.data?.data
           const result = google?.status === "OK" ? google.results?.[0] || null : null
+          const allResults = Array.isArray(google?.results) ? google.results : (result ? [result] : [])
           if (result) {
             const components = Array.isArray(result.address_components) ? result.address_components : []
             // Types are in priority order: the first type that any component has wins.
@@ -1631,10 +1632,18 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
                 const hit = components.find((c) => c?.types?.includes(type))
                 if (hit?.long_name) return hit.long_name
               }
+              for (const res of allResults) {
+                for (const type of types) {
+                  const hit = (res?.address_components || []).find((c) => c?.types?.includes(type))
+                  if (hit?.long_name) return hit.long_name
+                }
+              }
               return ""
             }
             formattedAddress = result.formatted_address || ""
-            city = pick("locality") || pick("administrative_area_level_3", "administrative_area_level_2")
+            const admin2Raw = pick("administrative_area_level_2")
+            const cleanedAdmin2 = admin2Raw ? admin2Raw.replace(/\s+(division|district|mandal)$/i, "").trim() : ""
+            city = pick("locality") || pick("administrative_area_level_3") || cleanedAdmin2 || pick("sublocality_level_1", "sublocality")
             state = pick("administrative_area_level_1")
             area = pick("sublocality_level_1", "sublocality", "neighborhood")
             street = pick("route")

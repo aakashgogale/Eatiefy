@@ -36,16 +36,12 @@ export default function RestaurantLogin() {
 
   const [phone, setPhone] = useState(() => {
     try {
-      if (sessionStorage.getItem("restaurantClearLoginPhone") === "1") {
-        sessionStorage.removeItem("restaurantClearLoginPhone")
-        sessionStorage.removeItem("restaurantLoginPhone")
-        // return ""
-        return defaultTestPhone
+      const savedPhone = sessionStorage.getItem("restaurantLoginPhone")
+      if (savedPhone !== null && savedPhone !== undefined) {
+        return savedPhone
       }
-      // return sessionStorage.getItem("restaurantLoginPhone") || ""
-      return sessionStorage.getItem("restaurantLoginPhone") || defaultTestPhone
+      return defaultTestPhone
     } catch {
-      // return ""
       return defaultTestPhone
     }
   })
@@ -74,7 +70,6 @@ export default function RestaurantLogin() {
   const clearPersistedLoginPhone = () => {
     try {
       sessionStorage.removeItem("restaurantLoginPhone")
-      sessionStorage.setItem("restaurantClearLoginPhone", "1")
     } catch {
       // ignore
     }
@@ -685,7 +680,15 @@ export default function RestaurantLogin() {
                       autoFocus
                       onFocus={handleInputFocusScroll}
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                      onChange={(e) => {
+                        const cleanPhone = e.target.value.replace(/\D/g, "").slice(0, 10)
+                        setPhone(cleanPhone)
+                        try {
+                          sessionStorage.setItem("restaurantLoginPhone", cleanPhone)
+                        } catch {
+                          // ignore
+                        }
+                      }}
                       maxLength={10}
                       className="block w-full pl-20 pr-6 py-3.5 bg-gray-50 dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 shadow-sm text-gray-900 dark:text-white rounded-full outline-none transition-all duration-300 placeholder:text-gray-400 font-medium text-base focus:bg-white dark:focus:bg-gray-900 focus:border-[#2E7D52] focus:ring-4 focus:ring-[#2E7D52]/10 hover:border-gray-400"
                       placeholder="Mobile number"
@@ -801,7 +804,6 @@ export default function RestaurantLogin() {
                 <Link
                   to="/food/restaurant/terms"
                   state={{ from: "/food/restaurant/login" }}
-                  onClick={clearPersistedLoginPhone}
                   className="text-gray-400 hover:text-[#2E7D52] transition-colors uppercase tracking-wider font-semibold"
                 >
                   TERMS
@@ -810,7 +812,6 @@ export default function RestaurantLogin() {
                 <Link
                   to="/food/restaurant/privacy"
                   state={{ from: "/food/restaurant/login" }}
-                  onClick={clearPersistedLoginPhone}
                   className="text-gray-400 hover:text-[#2E7D52] transition-colors uppercase tracking-wider font-semibold"
                 >
                   PRIVACY
@@ -819,7 +820,6 @@ export default function RestaurantLogin() {
                 <Link
                   to="/food/restaurant/help-content"
                   state={{ from: "/food/restaurant/login" }}
-                  onClick={clearPersistedLoginPhone}
                   className="text-gray-400 hover:text-[#2E7D52] transition-colors uppercase tracking-wider font-semibold"
                 >
                   SUPPORT

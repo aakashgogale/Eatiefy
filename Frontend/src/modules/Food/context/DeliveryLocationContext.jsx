@@ -65,14 +65,18 @@ export function DeliveryLocationProvider({ children }) {
     }
 
     window.addEventListener("deliveryAddressModeChanged", syncMode)
+    window.addEventListener("deliveryAddressModeUpdated", syncMode)
     window.addEventListener("userLocationChanged", syncAddress)
+    window.addEventListener("userLocationUpdated", syncAddress)
     window.addEventListener("focus", syncMode)
     window.addEventListener("storage", syncMode)
     document.addEventListener("visibilitychange", onVisibility)
 
     return () => {
       window.removeEventListener("deliveryAddressModeChanged", syncMode)
+      window.removeEventListener("deliveryAddressModeUpdated", syncMode)
       window.removeEventListener("userLocationChanged", syncAddress)
+      window.removeEventListener("userLocationUpdated", syncAddress)
       window.removeEventListener("focus", syncMode)
       window.removeEventListener("storage", syncMode)
       document.removeEventListener("visibilitychange", onVisibility)

@@ -1,10 +1,45 @@
-import React, { Suspense, lazy, useEffect } from 'react'
-import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import React, { Suspense, lazy, useEffect, useLayoutEffect } from 'react'
+import { Routes, Route, Navigate, useLocation, useNavigate, useNavigationType } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import MaintenanceGate from '../modules/Food/components/MaintenanceGate'
 import { applyThemeForPath } from '../shared/utils/appTheme'
 
 const NATIVE_LAST_ROUTE_KEY = 'native_last_route'
+
+// Global scroll reset for all root-level and module-level page navigations
+const GlobalScrollToTop = () => {
+  const { pathname, search } = useLocation()
+  const navigationType = useNavigationType()
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual'
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    // If navigation type is POP (back button), let history/page-specific memory handle it
+    if (navigationType === 'POP') return
+
+    // Category chip switches use REPLACE in customer app — do not yank scroll
+    if (navigationType === 'REPLACE' && (pathname.includes('/category/') || pathname.startsWith('/food/user'))) return
+
+    window.scrollTo(0, 0)
+    if (typeof document !== 'undefined') {
+      if (document.documentElement) document.documentElement.scrollTop = 0
+      if (document.body) document.body.scrollTop = 0
+      const mainEl = document.querySelector('main')
+      if (mainEl) {
+        mainEl.scrollTop = 0
+        if (typeof mainEl.scrollTo === 'function') {
+          mainEl.scrollTo({ top: 0, left: 0, behavior: 'instant' })
+        }
+      }
+    }
+  }, [pathname, search, navigationType])
+
+  return null
+}
 
 // Lazy load the Food service module (Quick-spicy app)
 const FoodApp = lazy(() => import('../modules/Food/routes'))
@@ -155,6 +190,7 @@ const AppRoutes = () => {
 
   return (
     <Suspense fallback={<ShellFallback />}>
+      <GlobalScrollToTop />
       <MaintenanceGate>
         <Routes>
           {/* Auth Module */}

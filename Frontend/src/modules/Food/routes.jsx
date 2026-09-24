@@ -15,7 +15,7 @@ import {
   getCategoryLastClick,
   normalizeBrowsePath,
 } from "@food/utils/browseScrollMemory"
-import { isModuleAuthenticated } from "@food/utils/auth"
+import { isModuleAuthenticated, isTokenExpired, clearModuleAuth } from "@food/utils/auth"
 import { AppShellSkeleton } from "./components/ui/loading-skeletons"
 import { Loader2 } from "lucide-react"
 
@@ -155,6 +155,17 @@ function ScrollToTop() {
     if (navigationType === "REPLACE") return;
 
     window.scrollTo(0, 0);
+    if (typeof document !== "undefined") {
+      if (document.documentElement) document.documentElement.scrollTop = 0;
+      if (document.body) document.body.scrollTop = 0;
+      const mainEl = document.querySelector("main");
+      if (mainEl) {
+        mainEl.scrollTop = 0;
+        if (typeof mainEl.scrollTo === "function") {
+          mainEl.scrollTo({ top: 0, left: 0, behavior: "instant" });
+        }
+      }
+    }
   }, [pathname, navigationType]);
   return null;
 }
@@ -238,35 +249,43 @@ export default function App() {
     return () => window.removeEventListener("userLoginSuccess", onLoginSuccess)
   }, [])
 
-  // Global Auth Failure Listener EXACTLY like Eatiefy
+  // Global Auth Failure Listener
   useEffect(() => {
     const handleAuthFailure = (event) => {
       const module = event.detail?.module || 'user'
       
       const loginPaths = {
-        admin: '/food/admin/login',
+        admin: '/admin/login',
         restaurant: '/food/restaurant/login',
         delivery: '/food/delivery/login',
         user: '/food/user/login'
       }
 
+      const isCurrentModule = 
+        (module === 'admin' && (location.pathname.startsWith('/admin') || location.pathname.startsWith('/food/admin'))) ||
+        location.pathname.startsWith(`/food/${module}`)
+
       // Only redirect if the current tab is actually on the module that failed
-      if (location.pathname.startsWith(`/food/${module}`)) {
+      if (isCurrentModule) {
         const targetPath = loginPaths[module] || '/food/user/login'
         navigate(targetPath, { replace: true, state: { from: location.pathname } })
       }
     }
 
     const handleStorageChange = (e) => {
-      // Cross-tab instant logout (Eatiefy v2 upgrade)
-      if ((e.key === "restaurant_accessToken" || e.key === "delivery_accessToken") && !e.newValue) {
-        const module = e.key === "restaurant_accessToken" ? "restaurant" : "delivery"
+      // Cross-tab instant logout
+      if ((e.key === "restaurant_accessToken" || e.key === "delivery_accessToken" || e.key === "admin_accessToken") && !e.newValue) {
+        const module = e.key === "admin_accessToken" ? "admin" : (e.key === "restaurant_accessToken" ? "restaurant" : "delivery")
         const loginPaths = {
+          admin: '/admin/login',
           restaurant: '/food/restaurant/login',
           delivery: '/food/delivery/login',
         }
-        // ONLY redirect if we are currently inside the affected module!
-        if (location.pathname.startsWith(`/food/${module}`)) {
+        const isCurrentModule = 
+          (module === 'admin' && (location.pathname.startsWith('/admin') || location.pathname.startsWith('/food/admin'))) ||
+          location.pathname.startsWith(`/food/${module}`)
+
+        if (isCurrentModule) {
           navigate(loginPaths[module], { replace: true })
         }
       }
@@ -275,7 +294,7 @@ export default function App() {
     window.addEventListener('authRefreshFailed', handleAuthFailure)
     window.addEventListener('storage', handleStorageChange)
     
-    // Safety Net: Aggressively check local storage every 2 seconds if active token gets deleted
+    // Safety Net: Check local storage every 2 seconds if active token gets deleted or expired
     const safetyInterval = setInterval(() => {
       // Don't kick users out of auth pages, onboarding, pending-verification, or public legal pages!
       const isRestaurantAuth = location.pathname.includes('/login') || 
@@ -286,6 +305,7 @@ export default function App() {
                                location.pathname.includes('/onboarding') ||
                                location.pathname.includes('/pending-verification')
       const isDeliveryAuth = location.pathname.includes('/login') || location.pathname.includes('/otp') || location.pathname.includes('/signup') || location.pathname.includes('/auth') || location.pathname.includes('/pending-verification')
+      const isAdminAuth = location.pathname.includes('/login') || location.pathname.includes('/forgot-password') || location.pathname.includes('/signup')
       const isPublicLegalPage = location.pathname.includes('/privacy') || location.pathname.includes('/terms') || location.pathname.includes('/help-content') || location.pathname.includes('/help/content') || location.pathname.includes('/help-centre/support')
       
       if (location.pathname.startsWith('/food/restaurant') && !isRestaurantAuth && !isPublicLegalPage) {
@@ -298,6 +318,13 @@ export default function App() {
           navigate('/food/delivery/login', { replace: true })
         }
       }
+      if ((location.pathname.startsWith('/admin') || location.pathname.startsWith('/food/admin')) && !isAdminAuth && !isPublicLegalPage) {
+        const adminToken = localStorage.getItem('admin_accessToken')
+        if (!adminToken || isTokenExpired(adminToken)) {
+          clearModuleAuth('admin')
+          navigate('/admin/login', { replace: true })
+        }
+      }
     }, 2000)
 
     // Verify session instantly when user switches back to this tab
@@ -306,7 +333,15 @@ export default function App() {
       try {
         const hasRestaurantToken = !!localStorage.getItem('restaurant_accessToken');
         const hasDeliveryToken = !!localStorage.getItem('delivery_accessToken');
+        const adminToken = localStorage.getItem('admin_accessToken');
         
+        if (adminToken && isTokenExpired(adminToken)) {
+          clearModuleAuth('admin');
+          if (location.pathname.startsWith('/admin') || location.pathname.startsWith('/food/admin')) {
+            navigate('/admin/login', { replace: true });
+          }
+        }
+
         // Dynamically import authAPI to avoid circular dependencies
         if (hasRestaurantToken || hasDeliveryToken) {
           const { authAPI } = await import('@food/api');

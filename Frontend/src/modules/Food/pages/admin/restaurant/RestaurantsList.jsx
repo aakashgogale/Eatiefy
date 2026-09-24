@@ -13,9 +13,9 @@ const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
-// Inline placeholder (no external request, avoids referrer policy / 500 from via.placeholder)
-const PLACEHOLDER_40 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect fill='%23e2e8f0' width='40' height='40'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%2394a3b8' font-size='12' font-family='sans-serif'%3E?%3C/text%3E%3C/svg%3E"
-const PLACEHOLDER_128 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Crect fill='%23e2e8f0' width='128' height='128'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%2394a3b8' font-size='32' font-family='sans-serif'%3E?%3C/text%3E%3C/svg%3E"
+// Inline restaurant placeholder SVG icons (clean subtle slate container with utensils icon, no broken '?' mark)
+const PLACEHOLDER_40 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40' fill='none'%3E%3Crect width='40' height='40' fill='%23F1F5F9'/%3E%3Cpath d='M13 11v6a2.5 2.5 0 0 0 2.5 2.5h0a2.5 2.5 0 0 0 2.5-2.5v-6M15.5 19.5V29M27 11v18M23 11v4.5a2.5 2.5 0 0 0 2.5 2.5H27' stroke='%2394A3B8' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
+const PLACEHOLDER_128 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128' viewBox='0 0 128 128' fill='none'%3E%3Crect width='128' height='128' fill='%23F1F5F9'/%3E%3Cpath d='M41.6 35.2v19.2a8 8 0 0 0 8 8h0a8 8 0 0 0 8-8V35.2M49.6 62.4v30.4M86.4 35.2v57.6M73.6 35.2v14.4a8 8 0 0 0 8 8h4.8' stroke='%2394A3B8' stroke-width='5.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
 
 const normalizeApprovalStatus = (restaurant) => {
   const raw = String(restaurant?.status || "").trim().toLowerCase()
@@ -80,25 +80,41 @@ const formatTime12Hour = (value) => {
 
 const normalizeImageUrl = (image) => {
   if (!image) return ""
-  if (typeof image === "string") return image
-  if (typeof image === "object") return image.url || image.secure_url || ""
+  if (typeof image === "string") {
+    const trimmed = image.trim()
+    if (!trimmed || trimmed === "null" || trimmed === "undefined") return ""
+    return trimmed
+  }
+  if (typeof image === "object") {
+    const url = image.url || image.secure_url || image.path || ""
+    if (typeof url === "string") {
+      const trimmed = url.trim()
+      if (!trimmed || trimmed === "null" || trimmed === "undefined") return ""
+      return trimmed
+    }
+  }
   return ""
 }
 
-
 const getPrimaryRestaurantImage = (restaurant, fallback = "") => {
-  const coverImages = Array.isArray(restaurant?.coverImages) ? restaurant.coverImages : []
-  const firstCoverImage = coverImages.map(normalizeImageUrl).find(Boolean)
-  if (firstCoverImage) return firstCoverImage
-  const menuImages = Array.isArray(restaurant?.menuImages) ? restaurant.menuImages : []
-  const firstMenuImage = menuImages.map(normalizeImageUrl).find(Boolean)
-  if (firstMenuImage) return firstMenuImage
-  return (
+  if (!restaurant) return fallback
+  const directImage =
     normalizeImageUrl(restaurant?.profileImage) ||
     normalizeImageUrl(restaurant?.logo) ||
     normalizeImageUrl(restaurant?.restaurantImage) ||
-    fallback
-  )
+    normalizeImageUrl(restaurant?.image) ||
+    normalizeImageUrl(restaurant?.onboarding?.step2?.profileImageUrl)
+  if (directImage) return directImage
+
+  const coverImages = Array.isArray(restaurant?.coverImages) ? restaurant.coverImages : []
+  const firstCoverImage = coverImages.map(normalizeImageUrl).find(Boolean)
+  if (firstCoverImage) return firstCoverImage
+
+  const menuImages = Array.isArray(restaurant?.menuImages) ? restaurant.menuImages : []
+  const firstMenuImage = menuImages.map(normalizeImageUrl).find(Boolean)
+  if (firstMenuImage) return firstMenuImage
+
+  return fallback
 }
 
 
@@ -1397,11 +1413,13 @@ export default function RestaurantsList() {
                               onClick={() => handleViewDetails(restaurant)}
                             >
                               <img
-                                src={restaurant.logo}
+                                src={restaurant.logo || PLACEHOLDER_40}
                                 alt={restaurant.name}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
-                                  e.target.src = PLACEHOLDER_40
+                                  if (e.target.src !== PLACEHOLDER_40) {
+                                    e.target.src = PLACEHOLDER_40
+                                  }
                                 }}
                               />
                             </div>

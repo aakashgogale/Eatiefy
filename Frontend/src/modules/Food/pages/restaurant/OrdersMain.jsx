@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, memo, Component } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, memo, Component, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   checkOnboardingStatus,
@@ -24,6 +24,7 @@ import {
   Search,
   ShoppingBag,
   MapPin,
+  RotateCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import BottomNavOrders from "@food/components/restaurant/BottomNavOrders";
@@ -1331,6 +1332,12 @@ function OrdersMainInner() {
   const mouseEndX = useRef(0);
   const isMouseDown = useRef(false);
 
+  // Refresh & Pull-to-refresh states
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
+  const pullStartYRef = useRef(0);
+  const isPullGestureActiveRef = useRef(false);
+
   // New order popup states
   const [showNewOrderPopup, setShowNewOrderPopup] = useState(false);
   const [popupOrder, setPopupOrder] = useState(null); // Store order for popup (from Socket.IO or API)
@@ -1506,66 +1513,86 @@ function OrdersMainInner() {
   const [pendingDiningRequest, setPendingDiningRequest] = useState(null);
 
   // Fetch pending counts and settings
-  useEffect(() => {
-    const fetchCounts = async () => {
-      try {
-        // Fetch current restaurant data
-        const resRes = await restaurantAPI.getCurrentRestaurant();
-        const restaurantData = resRes.data?.data?.restaurant || resRes.data?.restaurant || resRes.data?.data;
+  const fetchCounts = useCallback(async () => {
+    try {
+      // Fetch current restaurant data
+      const resRes = await restaurantAPI.getCurrentRestaurant();
+      const restaurantData = resRes.data?.data?.restaurant || resRes.data?.restaurant || resRes.data?.data;
 
-        if (restaurantData?._id || restaurantData?.id) {
-          if (isDiningEnabled()) {
-            // 1. Fetch bookings
-            const res = await diningAPI.getRestaurantBookings(restaurantData);
-            if (res.data.success) {
-              const bookings = Array.isArray(res.data.data) ? res.data.data : [];
-              const pending = bookings.filter(b => String(b.status).toLowerCase() === 'pending').length;
+      if (restaurantData?._id || restaurantData?.id) {
+        if (isDiningEnabled()) {
+          // 1. Fetch bookings
+          const res = await diningAPI.getRestaurantBookings(restaurantData);
+          if (res.data?.success) {
+            const bookings = Array.isArray(res.data.data) ? res.data.data : [];
+            const pending = bookings.filter(b => String(b.status).toLowerCase() === 'pending').length;
 
-              // If new pending booking found, maybe show toast
-              if (pending > pendingBookingsCount) {
+            setPendingBookingsCount((prev) => {
+              if (pending > prev && prev > 0) {
                 toast.info(`New dining booking request! Check the "Dining Booking" tab.`);
               }
-              setPendingBookingsCount(pending);
-            }
+              return pending;
+            });
+          }
 
-            // 2. Fetch pending dining request (for restaurant's own request to enable/update dining)
-            const requestRes = await restaurantAPI.getPendingDiningRequest();
-            if (requestRes.data.success && requestRes.data.data) {
-              setPendingDiningRequest(requestRes.data.data);
-            } else {
-              setPendingDiningRequest(null);
-            }
+          // 2. Fetch pending dining request (for restaurant's own request to enable/update dining)
+          const requestRes = await restaurantAPI.getPendingDiningRequest();
+          if (requestRes.data?.success && requestRes.data.data) {
+            setPendingDiningRequest(requestRes.data.data);
+          } else {
+            setPendingDiningRequest(null);
           }
         }
-
-        // 3. Fetch pending orders
-        const ordersRes = await restaurantAPI.getOrders({ page: 1, limit: 100 });
-        if (ordersRes.data.success) {
-          const orders = Array.isArray(ordersRes.data.data?.orders) ? ordersRes.data.data.orders : [];
-          const pending = orders.filter(o =>
-            String(o.status).toLowerCase() === 'pending' ||
-            String(o.status).toLowerCase() === 'created' ||
-            String(o.status).toLowerCase() === 'confirmed'
-          ).length;
-          setPendingOrdersCount(pending);
-
-          // Count active (non-terminal) takeaway orders for the button badge
-          const activeStatuses = new Set(['pending', 'confirmed', 'preparing', 'ready', 'out_for_delivery', 'created']);
-          const takeawayActive = orders.filter(o =>
-            (String(o.orderType || '').toLowerCase() === 'takeaway') &&
-            activeStatuses.has(String(o.status || o.orderStatus || '').toLowerCase())
-          ).length;
-          setActiveTakeawayCount(takeawayActive);
-        }
-      } catch (error) {
-        // Non-blocking
       }
-    };
 
+      // 3. Fetch pending orders
+      const ordersRes = await restaurantAPI.getOrders({ page: 1, limit: 100 });
+      if (ordersRes.data?.success) {
+        const orders = Array.isArray(ordersRes.data.data?.orders) ? ordersRes.data.data.orders : [];
+        const pending = orders.filter(o =>
+          String(o.status).toLowerCase() === 'pending' ||
+          String(o.status).toLowerCase() === 'created' ||
+          String(o.status).toLowerCase() === 'confirmed'
+        ).length;
+        setPendingOrdersCount(pending);
+
+        // Count active (non-terminal) takeaway orders for the button badge
+        const activeStatuses = new Set(['pending', 'confirmed', 'preparing', 'ready', 'out_for_delivery', 'created']);
+        const takeawayActive = orders.filter(o =>
+          (String(o.orderType || '').toLowerCase() === 'takeaway') &&
+          activeStatuses.has(String(o.status || o.orderStatus || '').toLowerCase())
+        ).length;
+        setActiveTakeawayCount(takeawayActive);
+      }
+    } catch (error) {
+      // Non-blocking
+    }
+  }, []);
+
+  useEffect(() => {
     fetchCounts();
     const interval = setInterval(fetchCounts, 30000); // Check every 30 seconds
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchCounts]);
+
+  const handleManualRefresh = useCallback(async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      restaurantAPI.invalidateOrdersCache?.();
+      setOrdersRefreshToken((t) => t + 1);
+      await fetchCounts();
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      toast.success("Orders refreshed", { id: "orders-refresh-toast", duration: 1500 });
+    } catch (err) {
+      console.error("Refresh error:", err);
+      toast.error("Failed to refresh orders");
+    } finally {
+      setIsRefreshing(false);
+      setPullDistance(0);
+      isPullGestureActiveRef.current = false;
+    }
+  }, [isRefreshing, fetchCounts]);
 
   // Global search state
   const [searchQuery, setSearchQuery] = useState("");
@@ -2768,15 +2795,30 @@ function OrdersMainInner() {
     }
   };
 
-  // Handle swipe gestures with smooth animations
+  // Handle swipe and pull-to-refresh gestures
   const handleTouchStart = (e) => {
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
     touchEndX.current = e.touches[0].clientX;
     isSwiping.current = false;
+
+    pullStartYRef.current = e.touches[0].clientY;
+    isPullGestureActiveRef.current = (contentRef.current?.scrollTop || 0) <= 0;
   };
 
   const handleTouchMove = (e) => {
+    if (isPullGestureActiveRef.current && (contentRef.current?.scrollTop || 0) <= 0 && !isRefreshing) {
+      const currentY = e.touches[0].clientY;
+      const diff = currentY - pullStartYRef.current;
+      if (diff > 5) {
+        const distance = Math.min(80, Math.pow(diff, 0.82));
+        setPullDistance(distance);
+        return;
+      } else if (diff < 0) {
+        setPullDistance(0);
+      }
+    }
+
     if (!isSwiping.current) {
       const deltaX = Math.abs(e.touches[0].clientX - touchStartX.current);
       const deltaY = Math.abs(e.touches[0].clientY - touchStartY.current);
@@ -2793,6 +2835,13 @@ function OrdersMainInner() {
   };
 
   const handleTouchEnd = () => {
+    if (pullDistance >= 60 && !isRefreshing) {
+      handleManualRefresh();
+    } else {
+      setPullDistance(0);
+    }
+    isPullGestureActiveRef.current = false;
+
     if (!isSwiping.current) {
       touchStartX.current = 0;
       touchEndX.current = 0;
@@ -2961,9 +3010,9 @@ function OrdersMainInner() {
 
       {/* Top Filter Bar */}
       <div className="z-40 bg-gray-100 px-4 pb-2 flex-shrink-0">
-        {/* Search Bar - Moved here to look like part of the content area */}
-        <div className="py-3">
-          <div className="relative group">
+        {/* Search Bar & Refresh Button */}
+        <div className="py-3 flex items-center gap-2">
+          <div className="relative group flex-1">
             <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
               <Search className="h-4.5 w-4.5 text-slate-400 group-focus-within:text-[#2E7D52] transition-colors" />
             </div>
@@ -2983,6 +3032,17 @@ function OrdersMainInner() {
               </button>
             )}
           </div>
+
+          <button
+            type="button"
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+            aria-label="Refresh orders"
+            className="flex-shrink-0 h-[46px] w-[46px] flex items-center justify-center bg-white border border-slate-100 rounded-2xl text-slate-700 hover:text-[#2E7D52] hover:bg-slate-50 active:scale-95 transition-all shadow-sm disabled:opacity-60 cursor-pointer"
+            title="Refresh orders"
+          >
+            <RotateCw className={`h-4.5 w-4.5 text-slate-600 transition-transform ${isRefreshing ? "animate-spin text-[#2E7D52]" : ""}`} />
+          </button>
         </div>
 
         <div
@@ -3057,6 +3117,9 @@ function OrdersMainInner() {
       {/* Content Area - Scrollable */}
       <div
         ref={contentRef}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
         className="flex-1 overflow-y-auto px-4 pb-[calc(6.5rem+env(safe-area-inset-bottom,16px))] content-scroll"
         style={{ WebkitOverflowScrolling: "touch" }}>
         <style>{`
@@ -3070,6 +3133,30 @@ function OrdersMainInner() {
             display: none;
           }
         `}</style>
+
+        {/* Pull-to-refresh Indicator */}
+        <div
+          className="overflow-hidden transition-all duration-200 flex flex-col items-center justify-center"
+          style={{
+            height: isRefreshing ? 48 : pullDistance > 0 ? `${pullDistance}px` : 0,
+            opacity: isRefreshing || pullDistance > 15 ? 1 : 0,
+          }}
+        >
+          <div className="flex items-center gap-2 py-1.5 px-3.5 my-1 text-xs font-semibold text-slate-700 bg-white/90 backdrop-blur-sm rounded-full shadow-sm border border-slate-200/80">
+            <RotateCw
+              className={`w-3.5 h-3.5 text-[#2E7D52] transition-transform duration-200 ${
+                isRefreshing ? "animate-spin" : pullDistance >= 60 ? "rotate-180" : ""
+              }`}
+            />
+            <span>
+              {isRefreshing
+                ? "Refreshing orders..."
+                : pullDistance >= 60
+                ? "Release to refresh"
+                : "Pull down to refresh"}
+            </span>
+          </div>
+        </div>
 
         {/* Verification Pending Card - Show if onboarding is complete (all 4 steps) and restaurant is not active */}
         {!restaurantStatus.isLoading &&

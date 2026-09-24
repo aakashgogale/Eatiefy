@@ -318,6 +318,10 @@ export default function AddRestaurant() {
           if (!cancelled) setStep(safeStep)
           if (parsed?.step1 && !cancelled) {
             setStep1((prev) => ({ ...prev, ...parsed.step1, location: { ...prev.location, ...(parsed.step1.location || {}) } }))
+            const savedAddress = parsed.step1.location?.formattedAddress || parsed.step1.location?.addressLine1 || ""
+            if (savedAddress) {
+              setLocationSearchValue(savedAddress)
+            }
           }
           if (parsed?.step2 && !cancelled) {
             setStep2((prev) => ({ ...prev, ...parsed.step2 }))
@@ -455,14 +459,29 @@ export default function AddRestaurant() {
     }
   }, [isHydrated, step3.fssaiImage])
 
-  // Keep UX consistent: each step opens from top after Next/Back.
-  useEffect(() => {
-    const contentEl = mainContentRef.current
-    if (contentEl?.scrollTo) contentEl.scrollTo({ top: 0, behavior: "auto" })
-    if (typeof window !== "undefined" && window.scrollTo) window.scrollTo({ top: 0, behavior: "auto" })
+  // Keep UX consistent: each step opens from top after Next/Back and on mount.
+  useLayoutEffect(() => {
+    if (typeof window !== "undefined" && window.scrollTo) {
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" })
+    }
     if (typeof document !== "undefined") {
       if (document.documentElement) document.documentElement.scrollTop = 0
       if (document.body) document.body.scrollTop = 0
+      const mainEl = document.querySelector("main")
+      if (mainEl) {
+        mainEl.scrollTop = 0
+        if (typeof mainEl.scrollTo === "function") {
+          mainEl.scrollTo({ top: 0, left: 0, behavior: "instant" })
+        }
+      }
+      const contentEl = mainContentRef.current
+      if (contentEl) {
+        contentEl.scrollTop = 0
+        const scrollParent = contentEl.closest("main, .overflow-y-auto")
+        if (scrollParent) {
+          scrollParent.scrollTop = 0
+        }
+      }
     }
   }, [step])
 
@@ -562,7 +581,7 @@ export default function AddRestaurant() {
     return errors
   }
 
-  const handleNext = () => {
+  const handleNext = async () => {
     setFormErrors({})
     let validationErrors = []
 
@@ -579,6 +598,39 @@ export default function AddRestaurant() {
         toast.error(error)
       })
       return
+    }
+
+    if (step === 1) {
+      // Pre-check for duplicate email, phone, and primary contact number before advancing
+      try {
+        setIsSubmitting(true)
+        const checkRes = await adminAPI.checkRestaurantDuplicate({
+          email: step1.ownerEmail,
+          phone: step1.ownerPhone,
+          primaryContact: step1.primaryContactNumber,
+        })
+        const checkData = checkRes?.data
+        if (checkData && !checkData.available && checkData.errors && Object.keys(checkData.errors).length > 0) {
+          setFormErrors(checkData.errors)
+          const firstErrKey = Object.keys(checkData.errors)[0]
+          toast.error(checkData.errors[firstErrKey] || "Duplicate details found")
+          return
+        }
+      } catch (err) {
+        const errorMsg = err?.response?.data?.message || err?.message
+        const serverErrors = err?.response?.data?.errors
+        if (serverErrors && Object.keys(serverErrors).length > 0) {
+          setFormErrors(serverErrors)
+          const firstErrKey = Object.keys(serverErrors)[0]
+          toast.error(serverErrors[firstErrKey] || "Duplicate details found")
+          return
+        } else if (err?.response?.status === 409 && errorMsg) {
+          toast.error(errorMsg)
+          return
+        }
+      } finally {
+        setIsSubmitting(false)
+      }
     }
 
     if (step < 3) {
@@ -690,10 +742,51 @@ export default function AddRestaurant() {
     } catch (error) {
       debugError("Error creating restaurant:", error)
       const errorMsg = error?.response?.data?.message || error?.message || "Failed to create restaurant. Please try again."
+      const serverErrors = error?.response?.data?.errors || {}
+      const field = error?.response?.data?.field
+      if (field && !serverErrors[field]) {
+        serverErrors[field] = errorMsg
+      }
+      if (Object.keys(serverErrors).length > 0) {
+        setFormErrors(serverErrors)
+        // If the error belongs to Step 1 fields, jump back to step 1 so user immediately sees the inline error
+        if (serverErrors.ownerEmail || serverErrors.ownerPhone || serverErrors.primaryContactNumber || serverErrors.restaurantName) {
+          setStep(1)
+        }
+      } else {
+        setFormErrors({ submit: errorMsg })
+      }
       toast.error(errorMsg)
-      setFormErrors({ submit: errorMsg })
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const checkFieldDuplicate = async (field, value) => {
+    if (!value || typeof value !== "string") return
+    const val = value.trim()
+    if (!val) return
+
+    if (field === "ownerEmail" && !EMAIL_REGEX.test(val)) return
+    if ((field === "ownerPhone" || field === "primaryContactNumber") && !PHONE_REGEX.test(val)) return
+
+    try {
+      const params = {}
+      if (field === "ownerEmail") params.email = val
+      if (field === "ownerPhone") params.phone = val
+      if (field === "primaryContactNumber") params.primaryContact = val
+
+      const res = await adminAPI.checkRestaurantDuplicate(params)
+      if (res?.data?.errors?.[field]) {
+        setFormErrors((prev) => ({ ...prev, [field]: res.data.errors[field] }))
+      } else {
+        setFormErrors((prev) => ({ ...prev, [field]: null }))
+      }
+    } catch (e) {
+      const errs = e?.response?.data?.errors
+      if (errs?.[field]) {
+        setFormErrors((prev) => ({ ...prev, [field]: errs[field] }))
+      }
     }
   }
 
@@ -705,6 +798,34 @@ export default function AddRestaurant() {
   const [locationSearchValue, setLocationSearchValue] = useState("")
   const [locationSuggestions, setLocationSuggestions] = useState([])
   const [isSearchingLocation, setIsSearchingLocation] = useState(false)
+
+  const applyLocation = (parsed) => {
+    if (!parsed) return
+
+    setStep1((prev) => ({
+      ...prev,
+      location: {
+        ...prev.location,
+        formattedAddress: parsed.formattedAddress || prev.location.formattedAddress || "",
+        addressLine1: parsed.addressLine1 || parsed.formattedAddress || prev.location.addressLine1 || "",
+        area: parsed.area || prev.location.area || "",
+        city: parsed.city || prev.location.city || "",
+        state: parsed.state || prev.location.state || "",
+        pincode: parsed.pincode || prev.location.pincode || "",
+        landmark: parsed.landmark || prev.location.landmark || "",
+        latitude: parsed.latitude !== "" && parsed.latitude !== undefined ? parsed.latitude : prev.location.latitude,
+        longitude: parsed.longitude !== "" && parsed.longitude !== undefined ? parsed.longitude : prev.location.longitude,
+      },
+    }))
+
+    const displayAddress = parsed.formattedAddress || parsed.addressLine1 || ""
+    setLocationSearchValue(displayAddress)
+    if (locationSearchInputRef.current) {
+      locationSearchInputRef.current.value = displayAddress
+    }
+    setLocationSuggestions([])
+    setIsSearchingLocation(false)
+  }
 
   useEffect(() => {
     if (step !== 1) return
@@ -734,6 +855,7 @@ export default function AddRestaurant() {
 
     let cancelled = false
     let autocomplete = null
+    let pacMouseDownHandler = null
 
     const init = async () => {
       // Wait for the input ref to be attached
@@ -775,7 +897,10 @@ export default function AddRestaurant() {
           mapsScript.remove()
         } else if (mapsScript && mapsScript.src.includes("libraries=places")) {
            for (let i = 0; i < 60; i++) {
-              if (window.google?.maps?.places?.Autocomplete) return true
+              if (window.google?.maps?.places?.Autocomplete) {
+                mapsScriptLoadedRef.current = true
+                return true
+              }
               if (cancelled) return false
               await new Promise(r => setTimeout(r, 100))
            }
@@ -801,7 +926,7 @@ export default function AddRestaurant() {
       }
 
       const parsePlace = (place) => {
-        const formattedAddress = place?.formatted_address || ""
+        const formattedAddress = place?.formatted_address || place?.name || ""
         const comps = Array.isArray(place?.address_components) ? place.address_components : []
         const get = (types) => comps.find((c) => types.some((t) => c.types?.includes(t)))?.long_name || ""
         
@@ -809,8 +934,8 @@ export default function AddRestaurant() {
         const city = get(["locality"]) || get(["administrative_area_level_2"])
         const state = get(["administrative_area_level_1"]) || get(["administrative_area_level_2"])
         const pincode = get(["postal_code"])
-        const lat = place?.geometry?.location?.lat?.()
-        const lng = place?.geometry?.location?.lng?.()
+        const lat = place?.geometry?.location?.lat?.() ?? place?.geometry?.location?.lat
+        const lng = place?.geometry?.location?.lng?.() ?? place?.geometry?.location?.lng
         
         return {
           formattedAddress,
@@ -818,62 +943,78 @@ export default function AddRestaurant() {
           city,
           state,
           pincode,
-          latitude: typeof lat === 'number' ? Number(lat.toFixed(6)) : "",
-          longitude: typeof lng === 'number' ? Number(lng.toFixed(6)) : "",
+          latitude: typeof lat === "number" ? Number(lat.toFixed(6)) : (Number(lat) || ""),
+          longitude: typeof lng === "number" ? Number(lng.toFixed(6)) : (Number(lng) || ""),
         }
       }
 
       const ok = await loadMaps()
       if (!ok || cancelled || !inputElement) return
 
-      if (inputElement.hasAttribute('data-google-places-initialized')) return
+      if (inputElement.hasAttribute("data-google-places-initialized")) return
 
       try {
         autocomplete = new window.google.maps.places.Autocomplete(
           inputElement,
           {
-            fields: ["formatted_address", "address_components", "geometry"],
+            fields: ["formatted_address", "address_components", "geometry", "name", "place_id"],
             componentRestrictions: { country: "in" },
             types: ["geocode", "establishment"]
           }
         )
         
-        inputElement.setAttribute('data-google-places-initialized', 'true')
+        inputElement.setAttribute("data-google-places-initialized", "true")
         placesAutocompleteRef.current = autocomplete
 
-        autocomplete.addListener("place_changed", () => {
+        const onPlaceChanged = () => {
           const place = autocomplete.getPlace()
-          if (!place?.geometry) return
-          
-          const parsed = parsePlace(place)
-          setStep1((prev) => ({
-            ...prev,
-            location: {
-              ...prev.location,
-              formattedAddress: parsed.formattedAddress || prev.location.formattedAddress,
-              addressLine1: parsed.formattedAddress || prev.location.addressLine1 || "",
-              area: parsed.area || prev.location.area,
-              city: parsed.city || prev.location.city,
-              state: parsed.state || prev.location.state,
-              pincode: parsed.pincode || prev.location.pincode,
-              latitude: parsed.latitude !== "" ? parsed.latitude : prev.location.latitude,
-              longitude: parsed.longitude !== "" ? parsed.longitude : prev.location.longitude,
-            },
-          }))
-          
-          setLocationSearchValue(parsed.formattedAddress)
-          inputElement.blur()
-        })
+          if (!place) return
+
+          if (place.geometry?.location) {
+            const parsed = parsePlace(place)
+            applyLocation(parsed)
+            return
+          }
+
+          // If geometry was not returned immediately, fallback to geocoder lookup
+          if (window.google?.maps?.Geocoder) {
+            const geocoder = new window.google.maps.Geocoder()
+            const req = place.place_id
+              ? { placeId: place.place_id }
+              : { address: place.formatted_address || place.name || inputElement.value || "" }
+
+            if (req.placeId || req.address) {
+              geocoder.geocode(req, (results, status) => {
+                if (status === "OK" && results?.[0]) {
+                  const parsed = parsePlace(results[0])
+                  applyLocation(parsed)
+                }
+              })
+            }
+          }
+        }
+
+        autocomplete.addListener("place_changed", onPlaceChanged)
+
+        // Fix: Prevent click / mousedown on Google Autocomplete .pac-item from stealing focus and aborting selection
+        pacMouseDownHandler = (e) => {
+          const target = e.target
+          if (target && (target.closest(".pac-container") || target.closest(".pac-item"))) {
+            e.preventDefault()
+          }
+        }
+        document.addEventListener("mousedown", pacMouseDownHandler, true)
+        document.addEventListener("touchstart", pacMouseDownHandler, true)
         
         const pacContainerFix = () => {
           const applyFix = () => {
-            const containers = document.querySelectorAll('.pac-container');
+            const containers = document.querySelectorAll(".pac-container");
             if (containers.length > 0) {
               containers.forEach(container => {
-                container.style.zIndex = '999999';
-                container.style.pointerEvents = 'auto';
-                container.style.visibility = 'visible';
-                container.style.display = 'block';
+                container.style.zIndex = "999999";
+                container.style.pointerEvents = "auto";
+                container.style.visibility = "visible";
+                container.style.display = "block";
               });
             }
           };
@@ -882,8 +1023,8 @@ export default function AddRestaurant() {
           setTimeout(applyFix, 300);
         };
         
-        inputElement.addEventListener('focus', pacContainerFix);
-        inputElement.addEventListener('input', pacContainerFix);
+        inputElement.addEventListener("focus", pacContainerFix);
+        inputElement.addEventListener("input", pacContainerFix);
       } catch (e) {
         debugError("Autocomplete error:", e)
       }
@@ -893,19 +1034,29 @@ export default function AddRestaurant() {
 
     return () => {
       cancelled = true
+      if (pacMouseDownHandler) {
+        document.removeEventListener("mousedown", pacMouseDownHandler, true)
+        document.removeEventListener("touchstart", pacMouseDownHandler, true)
+      }
       if (autocomplete) {
         try { window.google?.maps?.event?.clearInstanceListeners(autocomplete) } catch {}
       }
       if (locationSearchInputRef.current) {
-        locationSearchInputRef.current.removeAttribute('data-google-places-initialized')
+        locationSearchInputRef.current.removeAttribute("data-google-places-initialized")
       }
       placesAutocompleteRef.current = null
     }
   }, [step])
 
-  // Hybrid Search Fallback (Nominatim)
+  // Hybrid Search Fallback (Nominatim) - only active if Google Places SDK is not available
   useEffect(() => {
     if (step !== 1) return
+    if (window.google?.maps?.places?.Autocomplete && mapsScriptLoadedRef.current) {
+      setLocationSuggestions([])
+      setIsSearchingLocation(false)
+      return
+    }
+
     const q = String(locationSearchValue || "").trim()
     if (q.length < 3) {
       setLocationSuggestions([])
@@ -919,7 +1070,7 @@ export default function AddRestaurant() {
         const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=4&q=${encodeURIComponent(q)}&countrycodes=in`
         const res = await fetch(url, { headers: { Accept: "application/json" } })
         const json = await res.json()
-        const mapped = (Array.isArray(json) ? json : []).map(r => ({
+        const mapped = (Array.isArray(json) ? json : []).map((r) => ({
           id: r.place_id,
           display: r.display_name || "",
           lat: Number(r.lat),
@@ -948,10 +1099,20 @@ export default function AddRestaurant() {
             <Label className="text-xs text-gray-700">Restaurant name*</Label>
             <Input
               value={step1.restaurantName || ""}
-              onChange={(e) => setStep1({ ...step1, restaurantName: e.target.value })}
-              className="mt-1 bg-white text-sm text-black placeholder-black"
+              onChange={(e) => {
+                setStep1({ ...step1, restaurantName: e.target.value })
+                if (formErrors.restaurantName) {
+                  setFormErrors((prev) => ({ ...prev, restaurantName: null }))
+                }
+              }}
+              className={`mt-1 bg-white text-sm text-black placeholder-black ${
+                formErrors.restaurantName ? "border-red-500 focus-visible:ring-red-500" : ""
+              }`}
               placeholder="Customers will see this name"
             />
+            {formErrors.restaurantName && (
+              <p className="text-xs text-red-600 mt-1 font-medium">{formErrors.restaurantName}</p>
+            )}
           </div>
           <div>
             <Label className="text-xs text-gray-700">Restaurant diet type?*</Label>
@@ -1025,31 +1186,63 @@ export default function AddRestaurant() {
             <Label className="text-xs text-gray-700">Full name*</Label>
             <Input
               value={step1.ownerName || ""}
-              onChange={(e) => setStep1({ ...step1, ownerName: normalizeName(e.target.value) })}
-              className="mt-1 bg-white text-sm text-black placeholder-black"
+              onChange={(e) => {
+                setStep1({ ...step1, ownerName: normalizeName(e.target.value) })
+                if (formErrors.ownerName) {
+                  setFormErrors((prev) => ({ ...prev, ownerName: null }))
+                }
+              }}
+              className={`mt-1 bg-white text-sm text-black placeholder-black ${
+                formErrors.ownerName ? "border-red-500 focus-visible:ring-red-500" : ""
+              }`}
               placeholder="Owner full name"
             />
+            {formErrors.ownerName && (
+              <p className="text-xs text-red-600 mt-1 font-medium">{formErrors.ownerName}</p>
+            )}
           </div>
           <div>
             <Label className="text-xs text-gray-700">Email address*</Label>
             <Input
               type="email"
               value={step1.ownerEmail || ""}
-              onChange={(e) => setStep1({ ...step1, ownerEmail: e.target.value })}
-              className="mt-1 bg-white text-sm text-black placeholder-black"
+              onChange={(e) => {
+                setStep1({ ...step1, ownerEmail: e.target.value })
+                if (formErrors.ownerEmail) {
+                  setFormErrors((prev) => ({ ...prev, ownerEmail: null }))
+                }
+              }}
+              onBlur={() => checkFieldDuplicate("ownerEmail", step1.ownerEmail)}
+              className={`mt-1 bg-white text-sm text-black placeholder-black ${
+                formErrors.ownerEmail ? "border-red-500 focus-visible:ring-red-500" : ""
+              }`}
               placeholder="owner@example.com"
             />
+            {formErrors.ownerEmail && (
+              <p className="text-xs text-red-600 mt-1 font-medium">{formErrors.ownerEmail}</p>
+            )}
           </div>
           <div>
             <Label className="text-xs text-gray-700">Phone number*</Label>
             <Input
               value={step1.ownerPhone || ""}
-              onChange={(e) => setStep1({ ...step1, ownerPhone: sanitizeDigits(e.target.value).slice(0, 10) })}
-              className="mt-1 bg-white text-sm text-black placeholder-black"
+              onChange={(e) => {
+                setStep1({ ...step1, ownerPhone: sanitizeDigits(e.target.value).slice(0, 10) })
+                if (formErrors.ownerPhone) {
+                  setFormErrors((prev) => ({ ...prev, ownerPhone: null }))
+                }
+              }}
+              onBlur={() => checkFieldDuplicate("ownerPhone", step1.ownerPhone)}
+              className={`mt-1 bg-white text-sm text-black placeholder-black ${
+                formErrors.ownerPhone ? "border-red-500 focus-visible:ring-red-500" : ""
+              }`}
               placeholder="10-digit mobile number"
               inputMode="numeric"
               maxLength={10}
             />
+            {formErrors.ownerPhone && (
+              <p className="text-xs text-red-600 mt-1 font-medium">{formErrors.ownerPhone}</p>
+            )}
           </div>
         </div>
       </section>
@@ -1075,39 +1268,41 @@ export default function AddRestaurant() {
 
           {locationSuggestions.length > 0 && (
             <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-md shadow-xl z-50 overflow-hidden max-h-60 overflow-y-auto">
-              {locationSuggestions.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => {
-                    const { lat, lng, display, addr } = s
-                    const area = addr.suburb || addr.neighbourhood || addr.city_district || addr.locality || ""
-                    const city = addr.city || addr.town || addr.village || ""
-                    const state = addr.state || ""
-                    const pincode = addr.postcode || ""
+              {locationSuggestions.map((s) => {
+                const handleSelect = () => {
+                  const { lat, lng, display, addr } = s
+                  const area = addr.suburb || addr.neighbourhood || addr.city_district || addr.locality || ""
+                  const city = addr.city || addr.town || addr.village || ""
+                  const state = addr.state || ""
+                  const pincode = addr.postcode || ""
 
-                    setStep1((prev) => ({
-                      ...prev,
-                      location: {
-                        ...prev.location,
-                        formattedAddress: display,
-                        addressLine1: display,
-                        area: area || prev.location.area,
-                        city: city || prev.location.city,
-                        state: state || prev.location.state,
-                        pincode: pincode || prev.location.pincode,
-                        latitude: lat,
-                        longitude: lng,
-                      },
-                    }))
-                    setLocationSearchValue(display)
-                    setLocationSuggestions([])
-                  }}
-                  className="w-full px-4 py-2 text-left text-[13px] font-medium text-gray-700 hover:bg-orange-50 border-b border-gray-100 last:border-none"
-                >
-                  <span className="truncate">{s.display}</span>
-                </button>
-              ))}
+                  applyLocation({
+                    formattedAddress: display,
+                    addressLine1: display,
+                    area,
+                    city,
+                    state,
+                    pincode,
+                    latitude: lat,
+                    longitude: lng,
+                  })
+                }
+
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      handleSelect()
+                    }}
+                    onClick={handleSelect}
+                    className="w-full px-4 py-2 text-left text-[13px] font-medium text-gray-700 hover:bg-orange-50 border-b border-gray-100 last:border-none cursor-pointer"
+                  >
+                    <span className="truncate">{s.display}</span>
+                  </button>
+                )
+              })}
             </div>
           )}
           
@@ -1142,12 +1337,23 @@ export default function AddRestaurant() {
           <Label className="text-xs text-gray-700">Primary contact number*</Label>
           <Input
             value={step1.primaryContactNumber || ""}
-            onChange={(e) => setStep1({ ...step1, primaryContactNumber: sanitizeDigits(e.target.value).slice(0, 10) })}
-            className="mt-1 bg-white text-sm text-black placeholder-black"
+            onChange={(e) => {
+              setStep1({ ...step1, primaryContactNumber: sanitizeDigits(e.target.value).slice(0, 10) })
+              if (formErrors.primaryContactNumber) {
+                setFormErrors((prev) => ({ ...prev, primaryContactNumber: null }))
+              }
+            }}
+            onBlur={() => checkFieldDuplicate("primaryContactNumber", step1.primaryContactNumber)}
+            className={`mt-1 bg-white text-sm text-black placeholder-black ${
+              formErrors.primaryContactNumber ? "border-red-500 focus-visible:ring-red-500" : ""
+            }`}
             placeholder="Restaurant's primary contact number"
             inputMode="numeric"
             maxLength={10}
           />
+          {formErrors.primaryContactNumber && (
+            <p className="text-xs text-red-600 mt-1 font-medium">{formErrors.primaryContactNumber}</p>
+          )}
         </div>
         <div className="space-y-3">
           <Input

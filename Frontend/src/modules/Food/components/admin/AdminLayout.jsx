@@ -5,7 +5,15 @@ import AdminSidebar from "./AdminSidebar"
 import AdminNavbar from "./AdminNavbar"
 import { API_BASE_URL } from "@food/api/config"
 import { adminAPI } from "@food/api"
-import { getCurrentUser, getModuleToken, setAuthData, getModuleRefreshToken } from "@food/utils/auth"
+import {
+  getCurrentUser,
+  getModuleToken,
+  setAuthData,
+  getModuleRefreshToken,
+  decodeToken,
+  isTokenExpired,
+  clearModuleAuth,
+} from "@food/utils/auth"
 import {
   canAccessPath,
   getFirstAllowedPath,
@@ -24,6 +32,106 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const mainRef = useRef(null);
   const user = getCurrentUser("admin");
+
+  // Proactive Server-Issued Token Expiry & Session Auto-Logout
+  useEffect(() => {
+    let sessionTimeoutId = null
+
+    const checkAndScheduleExpiry = () => {
+      if (sessionTimeoutId) {
+        clearTimeout(sessionTimeoutId)
+        sessionTimeoutId = null
+      }
+
+      const token = getModuleToken("admin")
+      if (!token) {
+        clearModuleAuth("admin")
+        navigate("/admin/login", { replace: true, state: { from: location.pathname } })
+        return
+      }
+
+      const decoded = decodeToken(token)
+      if (!decoded || !decoded.exp) {
+        clearModuleAuth("admin")
+        navigate("/admin/login", { replace: true, state: { from: location.pathname } })
+        return
+      }
+
+      const expiryTimestampMs = decoded.exp * 1000
+      const now = Date.now()
+      const timeRemainingMs = expiryTimestampMs - now
+
+      if (timeRemainingMs <= 0) {
+        clearModuleAuth("admin")
+        navigate("/admin/login", { replace: true, state: { from: location.pathname } })
+        return
+      }
+
+      // Schedule auto-logout right when server-issued token expires
+      sessionTimeoutId = setTimeout(() => {
+        const latestToken = getModuleToken("admin")
+        if (isTokenExpired(latestToken)) {
+          clearModuleAuth("admin")
+          navigate("/admin/login", { replace: true, state: { from: location.pathname } })
+        }
+      }, timeRemainingMs)
+    }
+
+    // 1. Check on load / mount
+    checkAndScheduleExpiry()
+
+    // 2. Reschedule if token gets refreshed
+    const handleAuthRefreshed = (e) => {
+      if (e.detail?.module === "admin") {
+        checkAndScheduleExpiry()
+      }
+    }
+
+    // 3. Handle 401 / refresh failure immediately
+    const handleAuthFailure = (e) => {
+      if (e.detail?.module === "admin") {
+        if (sessionTimeoutId) clearTimeout(sessionTimeoutId)
+        clearModuleAuth("admin")
+        navigate("/admin/login", { replace: true, state: { from: location.pathname } })
+      }
+    }
+
+    // 4. Handle cross-tab logout via storage event
+    const handleStorageChange = (e) => {
+      if (e.key === "admin_accessToken" && !e.newValue) {
+        if (sessionTimeoutId) clearTimeout(sessionTimeoutId)
+        clearModuleAuth("admin")
+        navigate("/admin/login", { replace: true, state: { from: location.pathname } })
+      }
+    }
+
+    // 5. Check when returning to tab/window focus
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === "visible") {
+        const token = getModuleToken("admin")
+        if (!token || isTokenExpired(token)) {
+          if (sessionTimeoutId) clearTimeout(sessionTimeoutId)
+          clearModuleAuth("admin")
+          navigate("/admin/login", { replace: true, state: { from: location.pathname } })
+        }
+      }
+    }
+
+    window.addEventListener("authRefreshed", handleAuthRefreshed)
+    window.addEventListener("authRefreshFailed", handleAuthFailure)
+    window.addEventListener("storage", handleStorageChange)
+    window.addEventListener("focus", handleVisibilityOrFocus)
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus)
+
+    return () => {
+      if (sessionTimeoutId) clearTimeout(sessionTimeoutId)
+      window.removeEventListener("authRefreshed", handleAuthRefreshed)
+      window.removeEventListener("authRefreshFailed", handleAuthFailure)
+      window.removeEventListener("storage", handleStorageChange)
+      window.removeEventListener("focus", handleVisibilityOrFocus)
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus)
+    }
+  }, [navigate, location.pathname])
 
   // Keep SUB_ADMIN permissions in sync (so permission changes apply without re-login)
   useEffect(() => {
@@ -120,6 +228,23 @@ export default function AdminLayout() {
       document.documentElement.style.removeProperty("--admin-sidebar-offset")
     }
   }, [isSidebarCollapsed])
+
+  // Reset scroll position of the admin main content container on every route/page change
+  useLayoutEffect(() => {
+    if (mainRef.current) {
+      mainRef.current.scrollTop = 0
+      if (typeof mainRef.current.scrollTo === "function") {
+        mainRef.current.scrollTo({ top: 0, left: 0, behavior: "instant" })
+      }
+    }
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" })
+    }
+    if (typeof document !== "undefined") {
+      if (document.documentElement) document.documentElement.scrollTop = 0
+      if (document.body) document.body.scrollTop = 0
+    }
+  }, [location.pathname, location.search])
 
   // Dynamic back button target detection (runs safe check via React Portal)
   // Dynamic back button target detection (runs safe check via direct DOM insertion)

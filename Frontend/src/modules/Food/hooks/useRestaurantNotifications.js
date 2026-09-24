@@ -268,6 +268,21 @@ export const teardownRestaurantNotifications = () => {
   globalSocketConnected = false;
   globalActiveRestaurantId = null;
   globalActiveOrder = null;
+  globalNewOrder = null;
+  globalNewReservation = null;
+
+  lastAlertAtByOrder.clear();
+  lastBrowserNotificationAtByOrder.clear();
+
+  if (typeof window !== 'undefined') {
+    try {
+      Object.keys(localStorage).forEach((k) => {
+        if (k.startsWith(ALERT_START_PREFIX)) localStorage.removeItem(k);
+      });
+    } catch (_) {}
+  }
+
+  markRestaurantSessionResumed();
 
   updateGlobalState({ newOrder: null, newReservation: null, activeOrder: null, socketConnected: false });
 };
@@ -392,21 +407,27 @@ export const getOrderAcceptDeadline = (orderData = {}) => {
  */
 let sessionResumedAt = Date.now();
 
-const markRestaurantSessionResumed = () => {
+export const markRestaurantSessionResumed = () => {
   sessionResumedAt = Date.now();
 };
 
 /**
  * True only for an order that reached this restaurant after the session resumed.
- * An order with no usable creation stamp cannot be proven new, so it is treated
- * as a replay and stays silent - the safe direction for a ringtone.
+ * An order with no usable creation stamp or created prior to this session cannot be proven new,
+ * so it is treated as a replay/existing order and stays silent - the safe direction for a ringtone.
  */
 const isFreshRestaurantOrder = (orderData = {}) => {
+  if (!orderData || typeof orderData !== 'object') return false;
   const raw = orderData?.restaurantNotifiedAt || orderData?.createdAt;
   if (!raw) return false;
   const at = new Date(raw).getTime();
   if (!Number.isFinite(at)) return false;
-  return at >= sessionResumedAt;
+  // Guard: Order creation time must not predate this session's resume/mount timestamp.
+  if (at < sessionResumedAt - 3000) return false;
+  // Must also be within normal accept window (not an old order)
+  const now = Date.now();
+  if (now - at > DEFAULT_ACCEPT_WINDOW_MS) return false;
+  return true;
 };
 
 const ALERT_START_PREFIX = 'alert_start_';
@@ -722,21 +743,21 @@ const isOrderMuted = (orderData = {}) => {
  * A ring now requires: a real order identity, a status the restaurant can still
  * act on, not already handled, and still inside its accept window.
  */
-const RESTAURANT_DECIDABLE_STATUSES = new Set(['created', 'pending', '']);
+const RESTAURANT_DECIDABLE_STATUSES = new Set(['created', 'pending', 'new']);
 
 export const isRingableOrder = (orderData) => {
   if (!orderData || typeof orderData !== 'object') return false;
 
   // 1. It must identify a real order.
-  if (!getOrderAlertKey(orderData)) return false;
+  const orderKey = getOrderAlertKey(orderData);
+  if (!orderKey) return false;
 
   /*
    * 2. It must still be awaiting this restaurant's decision. Read the backend
-   * enum (`orderStatus`), never `status`: the orders API rewrites "created" to
-   * "confirmed" there for the UI tabs, so `status` would reject real new orders.
+   * enum (`orderStatus`), falling back to `status` if present.
    */
-  const rawStatus = String(orderData.orderStatus ?? '').toLowerCase().trim();
-  if (!RESTAURANT_DECIDABLE_STATUSES.has(rawStatus)) return false;
+  const rawStatus = String(orderData.orderStatus ?? orderData.status ?? '').toLowerCase().trim();
+  if (!rawStatus || !RESTAURANT_DECIDABLE_STATUSES.has(rawStatus)) return false;
 
   // 3. Not already accepted, rejected or otherwise handled on this device.
   if (isProcessedOrder(orderData)) return false;
@@ -866,6 +887,7 @@ export const useRestaurantNotifications = () => {
           }
           const id = restaurant._id?.toString() || restaurant.restaurantId;
           refreshAcceptWindowSettings();
+          markRestaurantSessionResumed();
           setRestaurantId(id);
         }
       } catch (error) {
@@ -906,21 +928,14 @@ export const useRestaurantNotifications = () => {
       return;
     }
 
-    const deduped = !shouldProcessOrderAlert(normalizedOrder);
-    if (deduped && !isSocket) {
-      return;
-    }
-
-    updateGlobalState({ newOrder: normalizedOrder });
-
     /*
      * A replayed order is shown, not announced.
      *
      * A socket event is by definition something that just happened, so it always
-     * rings. Polling is different: it runs on every resume and returns every
-     * order still inside its ten-minute accept window, including ones that
-     * arrived while the app was closed. Ringing for those is the stale-alert
-     * bug, so the poll path only rings for an order newer than this session.
+     * rings if fresh. Polling is different: it runs on every resume and returns every
+     * order still inside its accept window, including ones that arrived while the app was closed.
+     * Ringing for those is the false-positive alert bug, so the poll path only rings for
+     * an order newer than this session.
      */
     const isReplayedOrder = !isSocket && !isFreshRestaurantOrder(normalizedOrder);
     if (isReplayedOrder) {
@@ -929,6 +944,13 @@ export const useRestaurantNotifications = () => {
       });
       return;
     }
+
+    const deduped = !shouldProcessOrderAlert(normalizedOrder);
+    if (deduped && !isSocket) {
+      return;
+    }
+
+    updateGlobalState({ newOrder: normalizedOrder });
 
     if (!isOrderMuted(normalizedOrder)) {
       // startGlobalAlertLoop already plays the sound immediately (and then loops),
@@ -1064,7 +1086,6 @@ export const useRestaurantNotifications = () => {
         orderMongoId: orderData?.orderMongoId || orderData?._id || orderData?.order_id,
         orderId: orderData?.orderId || orderData?.order_id || orderData?._id,
       });
-      updateGlobalState({ newOrder: normalizedOrder });
       handleIncomingOrderAlert(normalizedOrder, 'socket');
     });
 
@@ -1187,6 +1208,7 @@ export const useRestaurantNotifications = () => {
     if (globalPollingIntervalId) return;
 
     const ALERT_POLL_MS = 8000;
+    let isInitialPoll = true;
 
     const pollOrders = async () => {
       try {
@@ -1211,15 +1233,17 @@ export const useRestaurantNotifications = () => {
         const rows = response?.data?.data?.orders || response?.data?.data?.data?.orders || [];
         const now = Date.now();
 
+        if (isInitialPoll) {
+          isInitialPoll = false;
+          // When mounting/logging in, mark session resumed so initial existing orders do not trigger alarms
+          markRestaurantSessionResumed();
+        }
+
         // Orders still waiting for this restaurant's decision, oldest first.
         const pending = (rows || [])
           .filter((o) => {
-            // The orders API maps backend "created" to "confirmed" in `status`
-            // for the UI tabs; the raw backend `orderStatus` is what counts here.
-            // Reading `status` meant no order ever looked pending, so every poll
-            // silenced the ringtone a few seconds after it started.
-            const status = String(o?.orderStatus || o?.status || "").toLowerCase();
-            if (status !== "created" && status !== "pending") return false;
+            const rawStatus = String(o?.orderStatus || o?.status || "").toLowerCase().trim();
+            if (!RESTAURANT_DECIDABLE_STATUSES.has(rawStatus)) return false;
             if (isProcessedOrder(o)) return false;
 
             if (o.scheduledAt) {
@@ -1248,10 +1272,8 @@ export const useRestaurantNotifications = () => {
         if (globalActiveOrder && typeof window !== 'undefined') {
           const trackedIds = new Set(getOrderIdVariants(globalActiveOrder));
           const row = (rows || []).find((o) => getOrderIdVariants(o).some((id) => trackedIds.has(id)));
-          // Raw backend status only: the orders API rewrites "created" to
-          // "confirmed" in `status`, which would read as "already accepted".
-          const rawStatus = String(row?.orderStatus || '').toLowerCase();
-          if (rawStatus && rawStatus !== 'created' && rawStatus !== 'pending') {
+          const rawStatus = String(row?.orderStatus || row?.status || '').toLowerCase().trim();
+          if (rawStatus && !RESTAURANT_DECIDABLE_STATUSES.has(rawStatus)) {
             window.dispatchEvent(
               new CustomEvent('restaurantOrderStatusUpdate', {
                 detail: {
@@ -1296,14 +1318,16 @@ export const useRestaurantNotifications = () => {
         // Keep ringing for the current order; only move on when it was handled,
         // or was muted while another order still needs an answer.
         if (activeStillPending && (!isOrderMuted(activeStillPending) || !firstUnmuted)) {
-          if (!globalAlertLoopTimer && !isOrderMuted(activeStillPending)) {
+          if (!globalAlertLoopTimer && !isOrderMuted(activeStillPending) && isFreshRestaurantOrder(activeStillPending)) {
             startGlobalAlertLoop(normalizeRestaurantOrderView(activeStillPending));
           }
           return;
         }
 
         const target = firstUnmuted || pending[0];
-        if (target) handleIncomingOrderAlert(target, 'poll');
+        if (target && isFreshRestaurantOrder(target)) {
+          handleIncomingOrderAlert(target, 'poll');
+        }
       } catch (error) {
         // ignore
       }
@@ -1430,9 +1454,14 @@ export const useRestaurantNotifications = () => {
           } catch (_) {}
         }
 
-        // If there's an active order pending that isn't muted, resume the alarm immediately!
+        // If there's an active order pending that is fresh, ringable and unmuted, resume the alarm
         if (globalActiveOrder && !globalIsMuted && !isOrderMuted(globalActiveOrder)) {
-          startGlobalAlertLoop(globalActiveOrder);
+          if (isRingableOrder(globalActiveOrder) && isFreshRestaurantOrder(globalActiveOrder)) {
+            startGlobalAlertLoop(globalActiveOrder);
+          } else {
+            globalActiveOrder = null;
+            updateGlobalState({ activeOrder: null });
+          }
         }
       } catch (error) {
         // ignore

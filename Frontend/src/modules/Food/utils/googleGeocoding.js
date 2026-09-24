@@ -23,20 +23,21 @@ export function getFreshGpsCoordinates() {
   })
 }
 
-function getComponent(components, types, useShort = false) {
-  const comp = components.find((c) => types.some((t) => c.types.includes(t)))
+function getComponent(components = [], types = [], useShort = false) {
+  if (!Array.isArray(components)) return ""
+  const comp = components.find((c) => types.some((t) => c.types?.includes(t)))
   if (!comp) return ""
-  return useShort ? comp.short_name : comp.long_name
+  return useShort ? (comp.short_name || comp.long_name || "") : (comp.long_name || comp.short_name || "")
 }
 
 const PLACE_NAME_TYPES = ["establishment", "point_of_interest", "premise", "subpremise"]
 const ADDRESS_RESULT_PRIORITY = [
-  "establishment",
-  "point_of_interest",
+  "street_address",
   "premise",
   "subpremise",
-  "street_address",
   "route",
+  "establishment",
+  "point_of_interest",
   "neighborhood",
   "sublocality_level_1",
   "sublocality",
@@ -106,44 +107,6 @@ async function fetchGeocodeResults(latitude, longitude, extraParams = {}) {
   }
 }
 
-async function fetchNearbyPlaceDetails(latitude, longitude) {
-  try {
-    const response = await geocodeAPI.nearby({
-      latitude,
-      longitude,
-      radius: 60,
-      maxResultCount: 5,
-    })
-    const data = response?.data?.data
-    const places = Array.isArray(data?.places) ? data.places : []
-    if (places.length === 0) return null
-
-    const nearest = places[0]
-    const displayName = nearest.displayName?.text || nearest.displayName || ""
-    const formattedAddress = nearest.formattedAddress || ""
-    const addressComponents = (nearest.addressComponents || []).map((component) => ({
-      long_name: component.longText || component.shortText || "",
-      short_name: component.shortText || component.longText || "",
-      types: component.types || [],
-    }))
-
-    const placeLocation = nearest.location || {}
-    const placeLat = Number(placeLocation.latitude)
-    const placeLng = Number(placeLocation.longitude)
-
-    return {
-      displayName: String(displayName).trim(),
-      formattedAddress,
-      addressComponents,
-      latitude: Number.isFinite(placeLat) ? placeLat : latitude,
-      longitude: Number.isFinite(placeLng) ? placeLng : longitude,
-      types: nearest.types || [],
-    }
-  } catch {
-    return null
-  }
-}
-
 export function buildLocationFromGeocode(parsed, latitude, longitude, nearbyPlace = null) {
   const placeName =
     nearbyPlace?.displayName ||
@@ -154,10 +117,10 @@ export function buildLocationFromGeocode(parsed, latitude, longitude, nearbyPlac
   const streetLine =
     parsed.streetNumber && parsed.route
       ? `${parsed.streetNumber}, ${parsed.route}`
-      : parsed.route || ""
+      : parsed.street || parsed.route || ""
 
   const area = parsed.area || ""
-  const city = parsed.city || "Indore"
+  const city = parsed.city || ""
   const pincode = parsed.pincode || ""
 
   let addressLine1 = placeName
@@ -174,7 +137,7 @@ export function buildLocationFromGeocode(parsed, latitude, longitude, nearbyPlac
     addressLine2,
     area,
     city,
-    state: parsed.state || "Madhya Pradesh",
+    state: parsed.state || "",
     pincode,
     landmark: placeName || "",
     latitude,
@@ -183,36 +146,73 @@ export function buildLocationFromGeocode(parsed, latitude, longitude, nearbyPlac
   }
 }
 
+/**
+ * Extract address parts from a primary result and optionally search additional results
+ * in the response hierarchy to fill missing components (such as locality, postal code, or state).
+ */
 export function parseGoogleGeocodeResult(result, options = {}) {
+  if (!result) {
+    return {
+      city: "",
+      state: "",
+      country: "India",
+      area: "",
+      street: "",
+      pincode: "",
+      placeName: "",
+      mainTitle: "",
+      address: "",
+      formattedAddress: "",
+      premise: "",
+      streetNumber: "",
+      route: "",
+      placeId: "",
+    }
+  }
+
+  const allResults = Array.isArray(options.allResults) && options.allResults.length > 0
+    ? options.allResults
+    : [result]
+
   const components = result?.address_components || []
   const placeNameHint = options.placeName || ""
 
-  const streetNumber = getComponent(components, ["street_number"])
-  const route = getComponent(components, ["route"])
+  // Helper to extract a component across the results list
+  const findInResults = (types, useShort = false) => {
+    // 1. Try in primary result first
+    const primary = getComponent(components, types, useShort)
+    if (primary) return primary
+
+    // 2. Scan other results for missing component
+    for (const res of allResults) {
+      const val = getComponent(res?.address_components || [], types, useShort)
+      if (val) return val
+    }
+    return ""
+  }
+
+  const streetNumber = findInResults(["street_number"])
+  const route = findInResults(["route"])
   const sublocality =
-    getComponent(components, ["sublocality_level_1"]) || getComponent(components, ["sublocality"])
-  const neighborhood = getComponent(components, ["neighborhood"])
-  const locality = getComponent(components, ["locality"])
-  const adminArea2 = getComponent(components, ["administrative_area_level_2"])
-  const formattedAddressRaw = result?.formatted_address || ""
-  const knownCityMatch = String(formattedAddressRaw).match(
-    /\b(Indore|Bhopal|Ujjain|Dewas|Mhow|Pithampur|Rau)\b/i,
-  )
-  const city =
-    (knownCityMatch
-      ? knownCityMatch[1].replace(/^[a-z]/, (c) => c.toUpperCase())
-      : "") ||
-    (["indore", "bhopal", "ujjain", "dewas", "mhow", "pithampur", "rau"].includes(
-      String(locality).toLowerCase(),
-    )
-      ? locality
-      : "") ||
-    (adminArea2.match(/\b(Indore|Bhopal|Ujjain|Dewas)\b/i)?.[1] || "") ||
-    locality ||
-    adminArea2
-  const state = getComponent(components, ["administrative_area_level_1"])
-  const country = getComponent(components, ["country"])
-  const pincode = getComponent(components, ["postal_code"])
+    findInResults(["sublocality_level_1"]) ||
+    findInResults(["sublocality"]) ||
+    findInResults(["sublocality_level_2"])
+  const neighborhood = findInResults(["neighborhood"])
+  const locality = findInResults(["locality"])
+  const adminArea3 = findInResults(["administrative_area_level_3"])
+  const adminArea2 = findInResults(["administrative_area_level_2"])
+  const state = findInResults(["administrative_area_level_1"])
+  const country = findInResults(["country"]) || "India"
+  const pincode = findInResults(["postal_code"])
+
+  // Clean administrative area 2 (e.g. "Ujjain Division" -> "Ujjain", "Indore District" -> "Indore")
+  const cleanedAdmin2 = adminArea2 ? adminArea2.replace(/\s+(division|district|mandal)$/i, "").trim() : ""
+
+  // City Resolution:
+  // 1. Locality is the exact standard city/town in Google Maps.
+  // 2. If locality is missing (rural/village), use administrative_area_level_3 (taluk/subdistrict) or cleaned adminArea2 or sublocality.
+  const city = locality || adminArea3 || cleanedAdmin2 || sublocality || ""
+
   const premise = getPlaceNameFromComponents(components)
   const placeName =
     placeNameHint ||
@@ -232,22 +232,27 @@ export function parseGoogleGeocodeResult(result, options = {}) {
   const addressParts = []
   if (placeName) addressParts.push(placeName)
   if (streetLine && streetLine !== placeName) addressParts.push(streetLine)
-  if (area) addressParts.push(area)
+  if (area && !addressParts.includes(area)) addressParts.push(area)
 
-  const displayAddress = addressParts.join(", ") || result?.formatted_address?.split(",")[0] || ""
+  const cleanFormatted = (result?.formatted_address || "")
+    .replace(/^[a-z0-9]{2,8}\+[a-z0-9]{0,3}[,\s]*/i, "")
+    .replace(/,\s*India$/, "")
+    .trim()
 
-  const formattedAddress = result?.formatted_address || displayAddress
+  const displayAddress = addressParts.join(", ") || cleanFormatted.split(",")[0] || ""
+  const street = streetLine || area || cleanFormatted.split(",")[0]?.trim() || ""
 
   return {
     city: city || "",
     state: state || "",
     country: country || "India",
-    area,
-    pincode,
+    area: area || "",
+    street: street || "",
+    pincode: pincode || "",
     placeName: placeName || "",
     mainTitle: placeName || area || city || displayAddress,
     address: displayAddress,
-    formattedAddress,
+    formattedAddress: cleanFormatted || displayAddress,
     premise: premise || placeName || "",
     streetNumber,
     route,
@@ -257,7 +262,7 @@ export function parseGoogleGeocodeResult(result, options = {}) {
 
 /**
  * Reverse geocode lat/lng via backend proxy (Google key never hits the browser).
- * Single geocode call (fast) — nearby Places skipped to keep map / selector snappy.
+ * Fetches fresh results and aggregates address components without hardcoded fallbacks.
  */
 export async function reverseGeocodeWithGoogle(latitude, longitude) {
   const [generalResults, poiResults] = await Promise.all([
@@ -276,13 +281,17 @@ export async function reverseGeocodeWithGoogle(latitude, longitude) {
     extractPlaceNameFromResults(poiResults) ||
     extractPlaceNameFromResults(generalResults)
 
-  const result = pickBestGeocodeResult(poiResults) || pickBestGeocodeResult(generalResults)
+  // Use generalResults[0] (street address / premise) if available for most complete address components,
+  // or fallback to best POI result.
+  const result = generalResults[0] || pickBestGeocodeResult(poiResults) || pickBestGeocodeResult(generalResults)
+  
   const parsed = result
-    ? parseGoogleGeocodeResult(result, { placeName })
+    ? parseGoogleGeocodeResult(result, { placeName, allResults: combinedResults })
     : {
         city: "",
         state: "",
         area: "",
+        street: "",
         pincode: "",
         placeName: placeName || "",
         formattedAddress: "",
@@ -310,10 +319,10 @@ export async function geocodeGooglePlaceId(placeId) {
 
   const result = data.results[0]
   const location = result.geometry?.location
-  const placeName = extractPlaceNameFromResults([result])
+  const placeName = extractPlaceNameFromResults(data.results)
 
   return {
-    ...parseGoogleGeocodeResult(result, { placeName }),
+    ...parseGoogleGeocodeResult(result, { placeName, allResults: data.results }),
     latitude: Number(location?.lat),
     longitude: Number(location?.lng),
   }
