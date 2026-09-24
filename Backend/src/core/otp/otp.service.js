@@ -215,7 +215,7 @@ export const createOrUpdateOtp = async (phone) => {
     const useStaticOtp = shouldUseStaticOtp(normalizedPhone);
 
     // 1. Blocked User Check (Professional back-off)
-    if (existing && existing.blockedUntil && existing.blockedUntil > now) {
+    if (!useStaticOtp && existing && existing.blockedUntil && existing.blockedUntil > now) {
         const remainingMs = existing.blockedUntil - now;
         logger.warn(`[OTP REQUEST] Blocked phone: ${normalizedPhone}, Failures: ${existing.totalFailures}`);
         const mins = Math.floor(remainingMs / 60000);
@@ -318,7 +318,7 @@ export const verifyOtp = async (phone, otp, preserveOtp = false) => {
     // we allow '1234' unconditionally to avoid any formatting or database issues.
     // Also bypass for DEFAULT_TEST_PHONE when USE_DEFAULT_TEST_PHONE=true.
     // if (config.useDefaultOtp && otp === '1234') {
-    if (shouldUseStaticOtp(normalizedPhone) && otp === '1234') {
+    if (shouldUseStaticOtp(normalizedPhone) && String(otp || '').trim() === '1234') {
         console.info(`✅ [OTP-Verify] Static OTP '1234' ABSOLUTE BYPASS for ${phone}`);
         if (record && !preserveOtp) {
             await record.deleteOne(); // Reset the request limit for successful logins

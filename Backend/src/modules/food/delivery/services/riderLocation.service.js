@@ -112,6 +112,7 @@ export const publishRiderLocation = async ({
     heading: rawHeading,
     speed: rawSpeed,
     accuracy: rawAccuracy,
+    timestamp: rawTimestamp = null,
     requestedOrderId = null,
     source = 'socket',
     excludeSocket = null,
@@ -122,13 +123,21 @@ export const publishRiderLocation = async ({
     if (!partnerId || !isValidCoordinate(lat, lng)) return 0;
 
     const now = Date.now();
+    const packetTs = Number.isFinite(Number(rawTimestamp)) && Number(rawTimestamp) > 0 ? Number(rawTimestamp) : now;
+
+    // Strict monotonic ordering: drop stale/out-of-order packets (e.g. slow HTTP responses arriving after newer socket packets)
+    const prevTs = lastBroadcastAt.get(partnerId) || 0;
+    if (packetTs < prevTs) {
+        return 0;
+    }
+
     const heading = toFinite(rawHeading) ?? 0;
     const speed = toFinite(rawSpeed) ?? 0;
     const accuracy = toFinite(rawAccuracy);
 
     // Reject updates with poor accuracy to prevent customer map flickering or wild jumps
     if (accuracy !== null && accuracy > MAX_ACCEPTABLE_ACCURACY_M) {
-        logger.debug(`[RiderLocation] ${partnerId} fix ignored due to poor accuracy (${accuracy}m > ${MAX_ACCEPTABLE_ACCURACY_M}m)`);
+        logger.info(`[RiderLocation] ${partnerId} fix ignored due to poor accuracy (${accuracy}m > ${MAX_ACCEPTABLE_ACCURACY_M}m)`);
         return 0;
     }
 
@@ -142,7 +151,7 @@ export const publishRiderLocation = async ({
                     lastLocation: { type: 'Point', coordinates: [lng, lat] },
                     lastLat: lat,
                     lastLng: lng,
-                    lastLocationAt: new Date(now),
+                    lastLocationAt: new Date(packetTs),
                 },
             }
         ).catch((err) => logger.warn(`[RiderLocation] partner persist failed: ${err.message}`));
@@ -163,14 +172,14 @@ export const publishRiderLocation = async ({
                 return 0;
             }
             return publishRiderLocation({
-                deliveryPartnerId, lat, lng, heading, speed, accuracy, requestedOrderId: null, source, excludeSocket,
+                deliveryPartnerId, lat, lng, heading, speed, accuracy, timestamp: packetTs, requestedOrderId: null, source, excludeSocket,
             });
         }
     }
 
     // Socket and HTTP can both deliver the same fix; one broadcast is enough.
     if (now - (lastBroadcastAt.get(partnerId) || 0) < BROADCAST_MIN_INTERVAL_MS) return 0;
-    lastBroadcastAt.set(partnerId, now);
+    lastBroadcastAt.set(partnerId, Math.max(now, packetTs));
 
     const io = getIO();
     let db = null;
@@ -199,7 +208,7 @@ export const publishRiderLocation = async ({
             accuracy,
             orderStatus: order.orderStatus,
             source,
-            timestamp: now,
+            timestamp: packetTs,
         };
 
         if (io) {

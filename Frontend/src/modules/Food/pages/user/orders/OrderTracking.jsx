@@ -124,7 +124,6 @@ const DeliveryMap = React.memo(({ orderId, order, isVisible, fallbackCustomerCoo
 
   // Memoize coordinates to prevent re-calculating on every parent render
   const restaurantCoords = useMemo(() => {
-    // Try multiple sources for restaurant coordinates
     let coords = null;
 
     if (order?.restaurantLocation?.coordinates &&
@@ -137,15 +136,36 @@ const DeliveryMap = React.memo(({ orderId, order, isVisible, fallbackCustomerCoo
       order.restaurantId.location.coordinates.length >= 2) {
       coords = order.restaurantId.location.coordinates;
     }
+    else if (order?.restaurant?.location?.coordinates &&
+      Array.isArray(order.restaurant.location.coordinates) &&
+      order.restaurant.location.coordinates.length >= 2) {
+      coords = order.restaurant.location.coordinates;
+    }
     else if (order?.restaurantId?.location?.latitude && order?.restaurantId?.location?.longitude) {
       coords = [order.restaurantId.location.longitude, order.restaurantId.location.latitude];
+    }
+    else if (order?.restaurantLocation?.latitude && order?.restaurantLocation?.longitude) {
+      coords = [order.restaurantLocation.longitude, order.restaurantLocation.latitude];
+    }
+    else if (order?.restaurantLocation?.lat && order?.restaurantLocation?.lng) {
+      coords = [order.restaurantLocation.lng, order.restaurantLocation.lat];
     }
 
     const fromCoords = toPointFromGeoJSON(coords);
     if (fromCoords) return fromCoords;
 
-    const fallbackLat = Number(order?.restaurantId?.location?.latitude || order?.restaurant?.location?.latitude);
-    const fallbackLng = Number(order?.restaurantId?.location?.longitude || order?.restaurant?.location?.longitude);
+    const fallbackLat = Number(
+      order?.restaurantId?.location?.latitude ||
+      order?.restaurant?.location?.latitude ||
+      order?.restaurantLocation?.latitude ||
+      order?.restaurantLocation?.lat
+    );
+    const fallbackLng = Number(
+      order?.restaurantId?.location?.longitude ||
+      order?.restaurant?.location?.longitude ||
+      order?.restaurantLocation?.longitude ||
+      order?.restaurantLocation?.lng
+    );
     if (Number.isFinite(fallbackLat) && Number.isFinite(fallbackLng)) {
       return { lat: fallbackLat, lng: fallbackLng };
     }
@@ -153,9 +173,29 @@ const DeliveryMap = React.memo(({ orderId, order, isVisible, fallbackCustomerCoo
   }, [order?.restaurantId, order?.restaurantLocation, order?.restaurant]);
 
   const customerCoords = useMemo(() => {
-    const coords = order?.address?.coordinates || order?.address?.location?.coordinates;
+    const coords =
+      order?.address?.coordinates ||
+      order?.address?.location?.coordinates ||
+      order?.deliveryAddress?.coordinates ||
+      order?.deliveryAddress?.location?.coordinates;
     const fromCoords = toPointFromGeoJSON(coords);
     if (fromCoords) return fromCoords;
+
+    const lat = Number(
+      order?.address?.location?.latitude ??
+      order?.address?.latitude ??
+      order?.deliveryAddress?.location?.latitude ??
+      order?.deliveryAddress?.latitude
+    );
+    const lng = Number(
+      order?.address?.location?.longitude ??
+      order?.address?.longitude ??
+      order?.deliveryAddress?.location?.longitude ??
+      order?.deliveryAddress?.longitude
+    );
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return { lat, lng };
+    }
 
     if (
       fallbackCustomerCoords &&
@@ -165,7 +205,7 @@ const DeliveryMap = React.memo(({ orderId, order, isVisible, fallbackCustomerCoo
       return fallbackCustomerCoords;
     }
     return null;
-  }, [order?.address, fallbackCustomerCoords]);
+  }, [order?.address, order?.deliveryAddress, fallbackCustomerCoords]);
 
   // Delivery boy data
   const deliveryBoyData = useMemo(() => order?.deliveryPartner ? {
@@ -182,7 +222,7 @@ const DeliveryMap = React.memo(({ orderId, order, isVisible, fallbackCustomerCoo
     order?.id
   ].filter(Boolean), [order?.orderId, order?.mongoId, order?._id, orderId, order?.id]);
 
-  if (!isVisible || !orderId || !order || !restaurantCoords || !customerCoords) {
+  if (!isVisible || !orderId || !order || (!restaurantCoords && !customerCoords)) {
     return (
       <div
         className="relative h-full w-full bg-gradient-to-b from-gray-100 to-gray-200"
@@ -2955,7 +2995,13 @@ export default function OrderTracking() {
           <div className="pt-2 text-center pb-6">
             <Link
               to={(orderId || order?.orderId || order?._id || order?.id || resolvedLookupId) ? toFoodUserPath(`/user/help/orders/${orderId || order?.orderId || order?._id || order?.id || resolvedLookupId}`) : toFoodUserPath('/user/profile/support')}
-              state={{ order, orderId: orderId || order?.orderId || order?._id || order?.id || resolvedLookupId }}
+              state={{ 
+                order, 
+                orderId: orderId || order?.orderId || order?._id || order?.id || resolvedLookupId,
+                fromTracking: true,
+                from: location.pathname,
+                backTo: location.pathname
+              }}
               className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:text-[#EB590E] transition-colors"
             >
               <HelpCircle className="w-3.5 h-3.5" />
@@ -3365,7 +3411,13 @@ export default function OrderTracking() {
           <div className="pt-2 text-center pb-6">
             <Link
               to={(orderId || order?.orderId || order?._id || order?.id || resolvedLookupId) ? toFoodUserPath(`/user/help/orders/${orderId || order?.orderId || order?._id || order?.id || resolvedLookupId}`) : toFoodUserPath('/user/profile/support')}
-              state={{ order, orderId: orderId || order?.orderId || order?._id || order?.id || resolvedLookupId }}
+              state={{ 
+                order, 
+                orderId: orderId || order?.orderId || order?._id || order?.id || resolvedLookupId,
+                fromTracking: true,
+                from: location.pathname,
+                backTo: location.pathname
+              }}
               className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:text-[#EB590E] transition-colors"
             >
               <HelpCircle className="w-3.5 h-3.5" />

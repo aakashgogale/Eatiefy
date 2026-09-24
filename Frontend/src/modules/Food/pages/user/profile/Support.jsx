@@ -8,6 +8,7 @@ import { Card, CardContent } from "@food/components/ui/card"
 import { orderAPI, restaurantAPI, supportAPI, authAPI } from "@food/api"
 import { toast } from "sonner"
 import { ArrowLeft, Building2, HelpCircle, ShoppingBag, ChevronRight } from "lucide-react"
+import { toFoodUserPath } from "@food/utils/mainTabRoutes"
 
 export default function Support() {
   const location = useLocation()
@@ -191,13 +192,31 @@ export default function Support() {
   const navigate = useNavigate()
 
   const handleTopBack = (e) => {
+    if (e) e.preventDefault();
+    if (location?.state?.from) {
+      navigate(location.state.from);
+      return;
+    }
+    if (location?.state?.fromTracking || (location?.state?.order && (step === "order_issue" || step === "pick"))) {
+      const oId = location.state?.orderId || location.state?.order?._id || location.state?.order?.id;
+      if (oId) {
+        navigate(toFoodUserPath(`/user/orders/${oId}`));
+      } else {
+        navigate(-1);
+      }
+      return;
+    }
     if (step === "pick") {
-      e.preventDefault();
       navigate(-1);
       return;
     }
-    e.preventDefault();
-    if (step === "order_issue") setStep("choose_order");
+    if (step === "order_issue") {
+      if (location?.state?.order) {
+        navigate(-1);
+        return;
+      }
+      setStep("choose_order");
+    }
     else if (step === "restaurant_issue") setStep("choose_restaurant");
     else setStep("pick");
   }
@@ -372,7 +391,23 @@ export default function Support() {
                   >
                     {submitting ? "Submitting..." : "Submit Ticket"}
                   </Button>
-                  <Button variant="outline" onClick={() => setStep("pick")} className="h-12 rounded-xl font-medium border-slate-200 dark:border-gray-800 hover:bg-slate-50 dark:hover:bg-[#222]">Cancel</Button>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      if (location?.state?.from) {
+                        navigate(location.state.from);
+                      } else if (location?.state?.fromTracking || location?.state?.order) {
+                        const oId = location.state?.orderId || location.state?.order?._id || location.state?.order?.id;
+                        if (oId) navigate(toFoodUserPath(`/user/orders/${oId}`));
+                        else navigate(-1);
+                      } else {
+                        setStep("pick");
+                      }
+                    }} 
+                    className="h-12 rounded-xl font-medium border-slate-200 dark:border-gray-800 hover:bg-slate-50 dark:hover:bg-[#222]"
+                  >
+                    Cancel
+                  </Button>
                 </div>
               </div>
             )}

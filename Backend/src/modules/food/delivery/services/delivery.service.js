@@ -504,6 +504,7 @@ export const updateDeliveryAvailability = async (userId, payload) => {
                 heading: payload?.heading,
                 speed: payload?.speed,
                 accuracy: payload?.accuracy,
+                timestamp: payload?.timestamp,
                 source: 'http',
             });
         } catch (err) {

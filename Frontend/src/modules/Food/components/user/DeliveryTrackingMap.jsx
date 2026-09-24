@@ -175,7 +175,7 @@ const restaurantFallbackIcon = (color) =>
 
 /**
  * Reads a rider coordinate out of any of the shapes the order payload uses.
- * @returns {{lat:number, lng:number, heading:number}|null}
+ * @returns {{lat:number, lng:number, heading:number, at:number}|null}
  */
 const readOrderRiderPosition = (order) => {
   const loc =
@@ -194,8 +194,6 @@ const readOrderRiderPosition = (order) => {
   );
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
-  // Untimestamped or old positions are not shown as live; join-tracking paints
-  // the server's last known fix (with its real age) moments later anyway.
   const at = Number(loc.at ?? loc.timestamp);
   if (!Number.isFinite(at) || at <= 0 || Date.now() - at > STALE_PACKET_MS) return null;
 
@@ -203,22 +201,23 @@ const readOrderRiderPosition = (order) => {
 };
 
 /**
- * Live order tracking map with clean phased lifecycle:
+ * Live order tracking map with Zomato-style Phased Lifecycle:
  *
- * 1. Pre-pickup (Accepted / At Restaurant):
- *    - Shows restaurant location + rider (if assigned & GPS received).
- *    - Route: Rider → Restaurant (or dashed line / focus on restaurant).
- *    - User delivery location marker is omitted until pickup.
+ * 1. Pre-pickup (Accepted / Confirmed / Preparing / Rider Assigned / At Restaurant):
+ *    - Shows Restaurant Location + Customer (User) Location on the map.
+ *    - Route: Main food route from Restaurant → Customer (User).
+ *    - If a Rider is assigned and has GPS: Shows Rider Bike Marker moving to restaurant
+ *      with dashed route connecting Rider → Restaurant.
+ *    - Map camera automatically fits bounds to show Restaurant + User location clearly.
  *
- * 2. Post-pickup (Picked Up / On Way):
- *    - Shows ONLY Rider live location + User delivery location.
- *    - Restaurant marker and old pre-pickup route are completely removed.
- *    - Real-time road route from Rider → User location, dynamically trimmed.
+ * 2. Post-pickup (Picked Up / Out For Delivery / On The Way):
+ *    - Shows Live Moving Delivery Boy Location + Customer (User) Delivery Location.
+ *    - Live Real-Time Road Route (Pooling Line) from Delivery Boy → User, dynamically trimmed as bike advances.
+ *    - Live ETA and distance pills updating in real-time.
+ *    - Map camera dynamically frames Delivery Boy and Customer location.
  *
  * 3. Delivered / Terminal:
- *    - Live tracking stops entirely (socket rooms unsubscribed, animation halted).
- *    - Polylines and live rider markers are cleared.
- *    - Clean static delivered view.
+ *    - Static clean delivered pin with celebration badge at Customer destination.
  */
 const DeliveryTrackingMap = ({
   orderId,
@@ -234,14 +233,23 @@ const DeliveryTrackingMap = ({
   const [map, setMap] = useState(null);
   const [riderLocation, setRiderLocation] = useState(null);
   const [smoothLocation, setSmoothLocation] = useState(null);
-  const [routePath, setRoutePath] = useState(null);
+
+  // Routes:
+  // - foodDeliveryRoute: Restaurant -> Customer route (shown pre-pickup)
+  // - riderRoute: Live route (Rider -> Customer post-pickup, or Rider -> Restaurant pre-pickup)
+  const [foodDeliveryRoute, setFoodDeliveryRoute] = useState(null);
+  const [riderRoute, setRiderRoute] = useState(null);
   const [routeMeta, setRouteMeta] = useState({ distanceMeters: null, durationSeconds: null });
 
   const socketRef = useRef(null);
   const currentSmoothPosRef = useRef(null);
   const interpStateRef = useRef({ startPos: null, targetPos: null, startTime: 0, duration: 1500 });
   const lastPacketTimeRef = useRef(0);
-  const routeStateRef = useRef({ lastAt: 0, lastOrigin: null, inFlight: false });
+  const lastHeadingRef = useRef(0);
+  const lastHeadingPosRef = useRef(null);
+  const riderRouteStateRef = useRef({ lastAt: 0, lastOrigin: null, inFlight: false });
+  const foodRouteFetchedRef = useRef(false);
+
   const userPannedRef = useRef(false);
   const [userInteracted, setUserInteracted] = useState(false);
   const userInteractedRef = useRef(false);
@@ -250,7 +258,6 @@ const DeliveryTrackingMap = ({
   const animatingRef = useRef(false);
   const startAnimationRef = useRef(() => {});
   const [trackingEnded, setTrackingEnded] = useState(false);
-  // Age of the newest rider fix and the live connection state, for honest UI.
   const [lastFixAt, setLastFixAt] = useState(0);
   const [socketState, setSocketState] = useState('connecting');
   const [clock, setClock] = useState(() => Date.now());
@@ -344,38 +351,17 @@ const DeliveryTrackingMap = ({
   }
   const initialCenter = initialCenterRef.current || { lat: 20.5937, lng: 78.9629 };
 
-  /* ─────────────────── Routing Targets & Leg Definitions ─────────────────── */
-  const riderPosition = smoothLocation || riderLocation;
-
-  const routeTarget = useMemo(() => {
-    if (isTerminal) return null;
-    if (isPickedUp) return effectiveCustomerCoords;
-    if (isPrePickup && riderAssigned && restaurantCoords) return restaurantCoords;
-    return null;
-  }, [isTerminal, isPickedUp, isPrePickup, riderAssigned, effectiveCustomerCoords, restaurantCoords]);
-
-  const routeLeg = useMemo(() => {
-    if (isTerminal) return null;
-    if (isPickedUp && effectiveCustomerCoords) return 'to_customer';
-    if (isPrePickup && riderAssigned && restaurantCoords && (riderPosition || currentSmoothPosRef.current)) {
-      return 'to_restaurant';
-    }
-    return null;
-  }, [isTerminal, isPickedUp, effectiveCustomerCoords, isPrePickup, riderAssigned, restaurantCoords, riderPosition]);
-
-  const routeLegRef = useRef(routeLeg);
-  routeLegRef.current = routeLeg;
-
   /* ─────────────────── Realtime rider position ─────────────────── */
 
   useEffect(() => {
     if (currentSmoothPosRef.current) return;
     if (isTerminal) return;
-    // Read initial rider position from order if in transit or if rider assigned pre-pickup
     if (!isPickedUp && !riderAssigned) return;
     const initial = readOrderRiderPosition(order);
     if (!initial) return;
     currentSmoothPosRef.current = initial;
+    lastHeadingRef.current = initial.heading || 0;
+    lastHeadingPosRef.current = { lat: initial.lat, lng: initial.lng };
     lastPacketTsRef.current = Math.max(lastPacketTsRef.current, initial.at);
     setLastFixAt((prev) => Math.max(prev, initial.at));
     setRiderLocation(initial);
@@ -389,32 +375,64 @@ const DeliveryTrackingMap = ({
     if (TERMINAL_STATUSES.has(String(data?.orderStatus || '').toLowerCase())) return;
 
     const now = Date.now();
-    // Socket, Realtime DB and the order payload can all deliver the same fix, in any
-    // order. Applying an older one after a newer one made the bike jump backwards.
-    const packetTs = Number(data?.timestamp ?? data?.last_updated ?? 0);
-    if (Number.isFinite(packetTs) && packetTs > 0) {
+    const packetTs = Number(data?.timestamp ?? data?.last_updated ?? data?.at ?? 0);
+
+    // Strict monotonic ordering: ignore stale packets older than 10 mins or older than the newest recorded packet
+    if (packetTs > 0) {
       if (now - packetTs > STALE_PACKET_MS) return;
-      if (packetTs + PACKET_ORDER_TOLERANCE_MS < lastPacketTsRef.current) return;
-      lastPacketTsRef.current = Math.max(lastPacketTsRef.current, packetTs);
+      if (packetTs < lastPacketTsRef.current) return;
+      lastPacketTsRef.current = packetTs;
     }
-    // Even an unmoved fix proves the rider is still reporting.
+
     const fixAt = Number.isFinite(packetTs) && packetTs > 0 ? Math.min(packetTs, now) : now;
     setLastFixAt((prev) => Math.max(prev, fixAt));
+
     const currentTarget = interpStateRef.current.targetPos;
-    if (currentTarget && computeDistanceMeters(currentTarget.lat, currentTarget.lng, lat, lng) < 0.5) return;
-
     const rendered = currentSmoothPosRef.current;
-    const rawHeading = Number(data?.heading ?? data?.bearing);
+    const prevCoord = currentTarget || rendered;
 
-    // Prefer the device's own heading; derive one from movement only when the rider
-    // actually moved, otherwise the marker spins on GPS jitter.
-    let heading = Number.isFinite(rawHeading) && rawHeading !== 0 ? rawHeading : null;
-    if (heading == null && rendered) {
-      heading =
-        computeDistanceMeters(rendered.lat, rendered.lng, lat, lng) > 1.5
-          ? computeBearing(rendered.lat, rendered.lng, lat, lng)
-          : rendered.heading || 0;
+    // Minimum distance threshold gating: ignore noise jitter below configurable threshold
+    if (prevCoord) {
+      const distFromPrev = computeDistanceMeters(prevCoord.lat, prevCoord.lng, lat, lng);
+      if (distFromPrev < LOCATION_CONFIG.MIN_UPDATE_DISTANCE_M) {
+        return;
+      }
+      // Teleportation glitch rejection
+      const sinceLastSec = lastPacketTimeRef.current ? (now - lastPacketTimeRef.current) / 1000 : 1.5;
+      if (sinceLastSec < 3 && distFromPrev > LOCATION_CONFIG.MAX_GPS_JUMP_METERS) {
+        console.warn('[DeliveryTrackingMap] Outlier GPS jump rejected:', distFromPrev, 'meters');
+        return;
+      }
     }
+
+    // Heading calculation & circling visual fix:
+    // Only recalculate bearing when there is actual net movement exceeding HEADING_MIN_MOVE_DISTANCE_M
+    const rawHeading = Number(data?.heading ?? data?.bearing);
+    let heading = Number.isFinite(rawHeading) && rawHeading !== 0 ? rawHeading : null;
+
+    if (heading == null) {
+      if (lastHeadingPosRef.current) {
+        const distForHeading = computeDistanceMeters(
+          lastHeadingPosRef.current.lat,
+          lastHeadingPosRef.current.lng,
+          lat,
+          lng
+        );
+        if (distForHeading >= LOCATION_CONFIG.HEADING_MIN_MOVE_DISTANCE_M) {
+          heading = computeBearing(lastHeadingPosRef.current.lat, lastHeadingPosRef.current.lng, lat, lng);
+          lastHeadingPosRef.current = { lat, lng };
+        } else {
+          heading = lastHeadingRef.current;
+        }
+      } else {
+        heading = lastHeadingRef.current || 0;
+        lastHeadingPosRef.current = { lat, lng };
+      }
+    } else {
+      lastHeadingPosRef.current = { lat, lng };
+    }
+
+    lastHeadingRef.current = heading ?? 0;
 
     const target = { lat, lng, heading: heading ?? 0 };
     const sinceLast = lastPacketTimeRef.current ? now - lastPacketTimeRef.current : 1500;
@@ -424,7 +442,10 @@ const DeliveryTrackingMap = ({
       startPos: rendered || target,
       targetPos: target,
       startTime: now,
-      duration: Math.min(Math.max(sinceLast, MIN_INTERP_MS), MAX_INTERP_MS),
+      duration: Math.min(
+        Math.max(sinceLast, LOCATION_CONFIG.MIN_INTERP_DURATION_MS),
+        LOCATION_CONFIG.MAX_INTERP_DURATION_MS
+      ),
     };
 
     setRiderLocation(target);
@@ -438,7 +459,6 @@ const DeliveryTrackingMap = ({
     if (!trackingIds.length || isTerminal) return undefined;
 
     const unsubs = [];
-    // Subscribe to rider location both pre-pickup (if rider assigned) and post-pickup
     if (isPickedUp || riderAssigned) {
       trackingIds.forEach((id) => {
         unsubs.push(subscribeOrderTracking(id, handleNewRiderPosition));
@@ -448,7 +468,6 @@ const DeliveryTrackingMap = ({
       }
     }
 
-    // Global location update listener
     const handleGlobalLocation = (event) => {
       const data = event?.detail;
       if (!data) return;
@@ -459,7 +478,6 @@ const DeliveryTrackingMap = ({
     };
     window.addEventListener('riderLocationUpdate', handleGlobalLocation);
 
-    // App-wide order status update notification listener
     const handleStatusNotification = (event) => {
       const payload = event?.detail;
       if (!payload) return;
@@ -495,7 +513,6 @@ const DeliveryTrackingMap = ({
     if (!socket) return teardown(null);
     socketRef.current = socket;
 
-    // (Re)join on every connect: rooms are lost when the connection drops.
     socket.on('connect', () => {
       setSocketState('connected');
       trackingIds.forEach((id) => socket.emit('join-tracking', id));
@@ -503,7 +520,6 @@ const DeliveryTrackingMap = ({
     socket.on('disconnect', () => setSocketState('disconnected'));
     socket.on('connect_error', () => setSocketState('disconnected'));
 
-    // Status update: immediately flip without waiting for HTTP refresh!
     socket.on('order_status_update', (data) => {
       if (!data) return;
       const status = String(data.orderStatus || data.status || '').toLowerCase();
@@ -560,7 +576,6 @@ const DeliveryTrackingMap = ({
       }
     });
 
-    // Back online / back in the foreground: reconnect now instead of waiting for backoff.
     const reconnect = () => {
       if (document.visibilityState === 'hidden') return;
       if (!socket.connected) socket.connect();
@@ -628,7 +643,7 @@ const DeliveryTrackingMap = ({
     return () => clearInterval(intervalId);
   }, [socketState, isTerminal, orderId, trackingIdsKey, handleNewRiderPosition]);
 
-  // Emit user's live location over the same persistent channel (bidirectional tracking)
+  // Emit user's live location over persistent channel
   const lastUserEmitRef = useRef({ at: 0, lat: null, lng: null });
 
   useEffect(() => {
@@ -663,21 +678,21 @@ const DeliveryTrackingMap = ({
     }
   }, [userLiveCoords, userLocationAccuracy, orderId, trackingIdsKey, isTerminal, isPickedUp, socketState]);
 
-  // Re-evaluate the "last updated" state even when no packets arrive.
   useEffect(() => {
     if (isTerminal) return undefined;
     const id = setInterval(() => setClock(Date.now()), 5000);
     return () => clearInterval(id);
   }, [isTerminal]);
 
-  // Clear the bike, routes, and smooth position as soon as tracking ends / terminal status
+  // Clear bike and routes when terminal
   useEffect(() => {
     if (!isTerminal) return;
     interpStateRef.current = { startPos: null, targetPos: null, startTime: 0, duration: 1500 };
     currentSmoothPosRef.current = null;
     setRiderLocation(null);
     setSmoothLocation(null);
-    setRoutePath(null);
+    setRiderRoute(null);
+    setFoodDeliveryRoute(null);
     setRouteMeta({ distanceMeters: null, durationSeconds: null });
   }, [isTerminal]);
 
@@ -695,7 +710,6 @@ const DeliveryTrackingMap = ({
         const progress = Math.min((Date.now() - startTime) / (duration || 1500), 1);
         const eased = 1 - (1 - progress) ** 2;
 
-        // Interpolate heading the short way around the circle.
         let delta = ((targetPos.heading || 0) - (startPos.heading || 0)) % 360;
         if (delta > 180) delta -= 360;
         if (delta < -180) delta += 360;
@@ -707,7 +721,6 @@ const DeliveryTrackingMap = ({
         };
         currentSmoothPosRef.current = next;
         setSmoothLocation(next);
-        // Idle between packets instead of re-rendering the map 60 times a second.
         if (progress >= 1) {
           animatingRef.current = false;
           return;
@@ -730,53 +743,92 @@ const DeliveryTrackingMap = ({
     };
   }, []);
 
-  /* ─────────────────── Route Calculation & Immediate Clearing ─────────────────── */
+  /* ─────────────────── Route 1: Pre-Pickup Restaurant → Customer Food Route ─────────────────── */
 
-  const requestRoute = useCallback(
+  useEffect(() => {
+    if (!isLoaded || isTerminal || !restaurantCoords || !effectiveCustomerCoords) return;
+    if (foodRouteFetchedRef.current) return;
+
+    foodRouteFetchedRef.current = true;
+    computeDrivingRoute(restaurantCoords, effectiveCustomerCoords)
+      .then((route) => {
+        setFoodDeliveryRoute(route.path);
+        if (Number.isFinite(route.distanceMeters) || Number.isFinite(route.durationSeconds)) {
+          setRouteMeta((prev) => ({
+            distanceMeters: prev.distanceMeters || route.distanceMeters,
+            durationSeconds: prev.durationSeconds || route.durationSeconds,
+          }));
+        }
+      })
+      .catch((err) => {
+        console.warn('[DeliveryTrackingMap] Pre-pickup food delivery route error:', err?.message || err);
+      });
+  }, [isLoaded, isTerminal, restaurantCoords, effectiveCustomerCoords]);
+
+  /* ─────────────────── Route 2: Active Live Rider Route (Rider → Destination) ─────────────────── */
+
+  const riderPosition = smoothLocation || riderLocation;
+
+  const liveRouteTarget = useMemo(() => {
+    if (isTerminal) return null;
+    if (isPickedUp) return effectiveCustomerCoords;
+    if (isPrePickup && riderAssigned && restaurantCoords) return restaurantCoords;
+    return null;
+  }, [isTerminal, isPickedUp, isPrePickup, riderAssigned, effectiveCustomerCoords, restaurantCoords]);
+
+  const liveRouteLeg = useMemo(() => {
+    if (isTerminal) return null;
+    if (isPickedUp && effectiveCustomerCoords) return 'to_customer';
+    if (isPrePickup && riderAssigned && restaurantCoords && (riderPosition || currentSmoothPosRef.current)) {
+      return 'to_restaurant';
+    }
+    return null;
+  }, [isTerminal, isPickedUp, effectiveCustomerCoords, isPrePickup, riderAssigned, restaurantCoords, riderPosition]);
+
+  const liveRouteLegRef = useRef(liveRouteLeg);
+  liveRouteLegRef.current = liveRouteLeg;
+
+  const requestLiveRoute = useCallback(
     (origin) => {
-      if (!isLoaded || !origin || !routeTarget || routeStateRef.current.inFlight) return;
-      routeStateRef.current.inFlight = true;
-      const leg = routeLeg;
+      if (!isLoaded || !origin || !liveRouteTarget || riderRouteStateRef.current.inFlight) return;
+      riderRouteStateRef.current.inFlight = true;
+      const leg = liveRouteLeg;
 
-      computeDrivingRoute(origin, routeTarget)
+      computeDrivingRoute(origin, liveRouteTarget)
         .then((route) => {
-          if (leg !== routeLegRef.current) return;
-          routeStateRef.current.lastAt = Date.now();
-          routeStateRef.current.lastOrigin = origin;
-          setRoutePath(route.path);
+          if (leg !== liveRouteLegRef.current) return;
+          riderRouteStateRef.current.lastAt = Date.now();
+          riderRouteStateRef.current.lastOrigin = origin;
+          setRiderRoute(route.path);
           setRouteMeta({
             distanceMeters: route.distanceMeters,
             durationSeconds: route.durationSeconds,
           });
-          // Customer ETA is relevant once food is on the way
           if (leg === 'to_customer' && onEtaUpdate && Number.isFinite(route.durationSeconds)) {
             onEtaUpdate(formatDuration(route.durationSeconds));
           }
         })
         .catch(() => {
-          routeStateRef.current.lastAt = Date.now();
+          riderRouteStateRef.current.lastAt = Date.now();
         })
         .finally(() => {
-          routeStateRef.current.inFlight = false;
+          riderRouteStateRef.current.inFlight = false;
         });
     },
-    [isLoaded, routeTarget, routeLeg, onEtaUpdate],
+    [isLoaded, liveRouteTarget, liveRouteLeg, onEtaUpdate],
   );
 
-  // When routeLeg changes (e.g. from to_restaurant to to_customer or terminal),
-  // immediately clear the previous route path so old route doesn't linger!
+  // Clear rider route on leg change
   useEffect(() => {
-    setRoutePath(null);
-    setRouteMeta({ distanceMeters: null, durationSeconds: null });
-    routeStateRef.current = { lastAt: 0, lastOrigin: null, inFlight: false };
-  }, [routeLeg]);
+    setRiderRoute(null);
+    riderRouteStateRef.current = { lastAt: 0, lastOrigin: null, inFlight: false };
+  }, [liveRouteLeg]);
 
-  // Periodic route refreshment
+  // Periodic rider route update
   useEffect(() => {
-    if (!routeLeg || !isLoaded || isTerminal) {
-      setRoutePath(null);
-      setRouteMeta({ distanceMeters: null, durationSeconds: null });
-      routeStateRef.current = { lastAt: 0, lastOrigin: null, inFlight: false };
+    if (!liveRouteLeg || !isLoaded || isTerminal) {
+      setRiderRoute(null);
+      riderRouteStateRef.current = { lastAt: 0, lastOrigin: null, inFlight: false };
       return undefined;
     }
 
@@ -784,42 +836,43 @@ const DeliveryTrackingMap = ({
       const origin = currentSmoothPosRef.current;
       if (!origin) return;
 
-      const { lastAt, lastOrigin } = routeStateRef.current;
+      const { lastAt, lastOrigin } = riderRouteStateRef.current;
       const movedFar =
         !lastOrigin ||
         computeDistanceMeters(lastOrigin.lat, lastOrigin.lng, origin.lat, origin.lng) >
           ROUTE_REFRESH_DISTANCE_M;
 
-      // Off-route detection: if rider is far from current polyline, reroute immediately
       let isOffRoute = false;
-      if (routePath && routePath.length >= 2) {
-        const { distance: distFromRoute } = findClosestPointOnPath(routePath, origin);
+      if (riderRoute && riderRoute.length >= 2) {
+        const { distance: distFromRoute } = findClosestPointOnPath(riderRoute, origin);
         if (distFromRoute > OFF_ROUTE_DISTANCE_M) {
           isOffRoute = true;
         }
       }
 
       if (isOffRoute || movedFar || Date.now() - lastAt > ROUTE_REFRESH_INTERVAL_MS) {
-        requestRoute({ lat: origin.lat, lng: origin.lng });
+        requestLiveRoute({ lat: origin.lat, lng: origin.lng });
       }
     };
 
     tick();
     const intervalId = setInterval(tick, ROUTE_TICK_MS);
     return () => clearInterval(intervalId);
-  }, [routeLeg, isLoaded, isTerminal, requestRoute, routePath]);
+  }, [liveRouteLeg, isLoaded, isTerminal, requestLiveRoute, riderRoute]);
 
-  /* ─────────────────── Route trimming & snapping (Zomato-style) ─────────────────── */
+  /* ─────────────────── Route Trimming & Snapping ─────────────────── */
+
+  const activeRiderPath = isPickedUp ? riderRoute : isPrePickup ? riderRoute : null;
 
   const routeTrimResult = useMemo(() => {
-    if (isTerminal || !routePath || routePath.length < 2 || !riderPosition) {
-      return { remainingPath: routePath, snappedPoint: null, offRouteDistance: 0 };
+    if (isTerminal || !activeRiderPath || activeRiderPath.length < 2 || !riderPosition) {
+      return { remainingPath: activeRiderPath, snappedPoint: null, offRouteDistance: 0 };
     }
-    return computeRemainingPath(routePath, riderPosition);
-  }, [isTerminal, routePath, riderPosition]);
+    return computeRemainingPath(activeRiderPath, riderPosition);
+  }, [isTerminal, activeRiderPath, riderPosition]);
 
   const remainingPath = routeTrimResult.remainingPath;
-  const fullPathLengthM = useMemo(() => computePathLengthM(routePath), [routePath]);
+  const fullPathLengthM = useMemo(() => computePathLengthM(activeRiderPath), [activeRiderPath]);
   const remainingPathLengthM = useMemo(() => computePathLengthM(remainingPath), [remainingPath]);
 
   const snappedRiderPos = useMemo(() => {
@@ -834,28 +887,25 @@ const DeliveryTrackingMap = ({
 
   const displayRiderPos = snappedRiderPos || riderPosition;
 
-  /* ─────────────────── Distance and ETA shown to the customer ─────────────────── */
+  /* ─────────────────── Distance & ETA ─────────────────── */
 
   const tripDistanceMeters = useMemo(() => {
     if (isTerminal) return null;
 
-    // While rider is en route, prefer live remaining distance for accuracy
     if (isPickedUp && remainingPathLengthM > 0) return remainingPathLengthM;
     if (isPickedUp && Number.isFinite(routeMeta.distanceMeters)) return routeMeta.distanceMeters;
 
-    // Before pickup, if rider is assigned and we routed to restaurant:
     if (isPrePickup && riderAssigned && remainingPathLengthM > 0) return remainingPathLengthM;
 
-    // Before pickup stored estimate for order journey
     const storedKm = Number(order?.tripDistanceKm ?? order?.pricing?.roadDistanceKm);
     if (Number.isFinite(storedKm) && storedKm > 0) return storedKm * 1000;
 
-    if (restaurantCoords && customerCoords) {
+    if (restaurantCoords && effectiveCustomerCoords) {
       return computeDistanceMeters(
         restaurantCoords.lat,
         restaurantCoords.lng,
-        customerCoords.lat,
-        customerCoords.lng,
+        effectiveCustomerCoords.lat,
+        effectiveCustomerCoords.lng,
       );
     }
     return null;
@@ -869,7 +919,7 @@ const DeliveryTrackingMap = ({
     order?.tripDistanceKm,
     order?.pricing?.roadDistanceKm,
     restaurantCoords,
-    customerCoords,
+    effectiveCustomerCoords,
   ]);
 
   const liveEtaSeconds = useMemo(() => {
@@ -896,96 +946,113 @@ const DeliveryTrackingMap = ({
     order?.pricing?.roadDurationMins,
   ]);
 
-  /* ─────────────────── Camera & Dynamic Bounds ─────────────────── */
+  /* ─────────────────── Camera & Dynamic Bounds (Zomato Style) ─────────────────── */
 
-  const getPrePickupPadding = useCallback(() => {
+  const getViewportPadding = useCallback(() => {
     const windowH = typeof window !== 'undefined' ? window.innerHeight : 800;
+    const windowW = typeof window !== 'undefined' ? window.innerWidth : 400;
+    const isDesktop = windowW >= 1024;
+
     return {
-      top: 90,
-      bottom: Math.min(Math.round(windowH * 0.48), 380),
-      left: 45,
-      right: 45,
+      top: 80,
+      bottom: isDesktop ? 80 : Math.min(Math.round(windowH * 0.44), 360),
+      left: isDesktop ? 480 : 45,
+      right: isDesktop ? 60 : 45,
     };
   }, []);
 
-  // Pre-pickup camera fitting: focuses strictly on Restaurant + Rider (if assigned) — no customer pin
+  // Pre-pickup camera: frames BOTH Restaurant AND Customer (and Rider if assigned)
   const fitPrePickupBounds = useCallback((mapInstance = map) => {
     if (!mapInstance || !window.google?.maps || isPickedUp || isTerminal) return;
-    if (!restaurantCoords) return;
 
-    const rLat = Number(restaurantCoords.lat ?? restaurantCoords.latitude);
-    const rLng = Number(restaurantCoords.lng ?? restaurantCoords.longitude);
-    if (!Number.isFinite(rLat) || !Number.isFinite(rLng)) return;
-
+    const points = [];
+    if (restaurantCoords && Number.isFinite(restaurantCoords.lat) && Number.isFinite(restaurantCoords.lng)) {
+      points.push(restaurantCoords);
+    }
+    if (effectiveCustomerCoords && Number.isFinite(effectiveCustomerCoords.lat) && Number.isFinite(effectiveCustomerCoords.lng)) {
+      points.push(effectiveCustomerCoords);
+    }
     const rider = displayRiderPos || currentSmoothPosRef.current;
     if (riderAssigned && rider && Number.isFinite(rider.lat) && Number.isFinite(rider.lng)) {
+      points.push(rider);
+    }
+
+    if (points.length >= 2) {
       const bounds = new window.google.maps.LatLngBounds();
-      bounds.extend(new window.google.maps.LatLng(rLat, rLng));
-      bounds.extend(new window.google.maps.LatLng(rider.lat, rider.lng));
+      points.forEach((p) => bounds.extend(p));
       try {
-        mapInstance.fitBounds(bounds, getPrePickupPadding());
+        mapInstance.fitBounds(bounds, getViewportPadding());
       } catch (err) {
         console.warn('[DeliveryTrackingMap] fitPrePickupBounds error:', err);
       }
-    } else {
+    } else if (points.length === 1) {
       try {
-        mapInstance.panTo({ lat: rLat, lng: rLng });
-        mapInstance.setZoom(16);
+        mapInstance.panTo(points[0]);
+        mapInstance.setZoom(15);
       } catch (err) {
-        console.warn('[DeliveryTrackingMap] center on restaurant error:', err);
+        console.warn('[DeliveryTrackingMap] center single point error:', err);
       }
     }
-  }, [map, isPickedUp, isTerminal, restaurantCoords, riderAssigned, displayRiderPos, getPrePickupPadding]);
+  }, [map, isPickedUp, isTerminal, restaurantCoords, effectiveCustomerCoords, riderAssigned, displayRiderPos, getViewportPadding]);
+
+  // Post-pickup camera: frames Delivery Partner AND Customer (User)
+  const fitPostPickupBounds = useCallback((mapInstance = map) => {
+    if (!isPickedUp || !mapInstance || isTerminal || !window.google?.maps) return;
+
+    const points = [];
+    const rider = displayRiderPos || currentSmoothPosRef.current;
+    if (rider && Number.isFinite(rider.lat) && Number.isFinite(rider.lng)) {
+      points.push(rider);
+    } else if (restaurantCoords) {
+      points.push(restaurantCoords);
+    }
+    if (effectiveCustomerCoords && Number.isFinite(effectiveCustomerCoords.lat) && Number.isFinite(effectiveCustomerCoords.lng)) {
+      points.push(effectiveCustomerCoords);
+    }
+
+    if (points.length >= 2) {
+      const bounds = new window.google.maps.LatLngBounds();
+      points.forEach((p) => bounds.extend(p));
+      try {
+        mapInstance.fitBounds(bounds, getViewportPadding());
+      } catch (err) {
+        console.warn('[DeliveryTrackingMap] fitPostPickupBounds error:', err);
+      }
+    } else if (points.length === 1) {
+      try {
+        mapInstance.panTo(points[0]);
+        mapInstance.setZoom(15);
+      } catch (err) {
+        console.warn('[DeliveryTrackingMap] center single point error:', err);
+      }
+    }
+  }, [map, isPickedUp, isTerminal, effectiveCustomerCoords, displayRiderPos, restaurantCoords, getViewportPadding]);
 
   const prePickupDataKey = useMemo(() => {
     if (!isPrePickup) return null;
-    const rLat = Number(restaurantCoords?.lat ?? restaurantCoords?.latitude)?.toFixed(5) || '';
-    const rLng = Number(restaurantCoords?.lng ?? restaurantCoords?.longitude)?.toFixed(5) || '';
+    const rLat = Number(restaurantCoords?.lat)?.toFixed(5) || '';
+    const rLng = Number(restaurantCoords?.lng)?.toFixed(5) || '';
+    const cLat = Number(effectiveCustomerCoords?.lat)?.toFixed(5) || '';
+    const cLng = Number(effectiveCustomerCoords?.lng)?.toFixed(5) || '';
     const rider = displayRiderPos || currentSmoothPosRef.current;
     const bLat = Number(rider?.lat)?.toFixed(5) || '';
     const bLng = Number(rider?.lng)?.toFixed(5) || '';
-    return `${rLat},${rLng}|${bLat},${bLng}`;
-  }, [isPrePickup, restaurantCoords, displayRiderPos]);
+    return `${rLat},${rLng}|${cLat},${cLng}|${bLat},${bLng}`;
+  }, [isPrePickup, restaurantCoords, effectiveCustomerCoords, displayRiderPos]);
 
   useEffect(() => {
     if (!isPrePickup || !map || !prePickupDataKey) return;
-    userInteractedRef.current = false;
-    setUserInteracted(false);
-    userPannedRef.current = false;
+    if (userPannedRef.current) return;
     fitPrePickupBounds(map);
   }, [map, isPrePickup, prePickupDataKey, fitPrePickupBounds]);
 
-  // Post-pickup live tracking camera (strictly isPickedUp)
-  const fitPostPickupBounds = useCallback((mapInstance = map) => {
-    if (!isPickedUp || !mapInstance || isTerminal || !effectiveCustomerCoords || !window.google?.maps) return;
-    const bounds = new window.google.maps.LatLngBounds();
-    const rider = displayRiderPos || currentSmoothPosRef.current;
-    bounds.extend(effectiveCustomerCoords);
-    if (rider && Number.isFinite(rider.lat) && Number.isFinite(rider.lng)) {
-      bounds.extend(rider);
-    } else if (restaurantCoords) {
-      bounds.extend(restaurantCoords);
-    }
-    try {
-      mapInstance.fitBounds(bounds, {
-        top: 90,
-        bottom: Math.min(window.innerHeight * 0.48, 380),
-        left: 45,
-        right: 45,
-      });
-    } catch (err) {
-      console.warn('[DeliveryTrackingMap] fitPostPickupBounds error:', err);
-    }
-  }, [map, isPickedUp, isTerminal, effectiveCustomerCoords, displayRiderPos, restaurantCoords]);
-
   useEffect(() => {
     if (!isPickedUp || !map || !effectiveCustomerCoords) return;
-    userPannedRef.current = false;
+    if (userPannedRef.current) return;
     fitPostPickupBounds(map);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map, isPickedUp, routeLeg]);
+  }, [map, isPickedUp, effectiveCustomerCoords, fitPostPickupBounds]);
 
-  // User manual pan and zoom interaction listeners
+  // User manual pan/zoom interaction listeners
   useEffect(() => {
     if (!map) return undefined;
 
@@ -1033,33 +1100,22 @@ const DeliveryTrackingMap = ({
     }
   }, [isTerminal, map, effectiveCustomerCoords, restaurantCoords]);
 
-  /* ─────────────────── Render Elements ─────────────────── */
+  /* ─────────────────── Render Paths & Options ─────────────────── */
 
-  // Fallback dashed line:
-  // - Pre-pickup (rider assigned): dashed line from rider to restaurant.
-  // - Post-pickup: dashed line from rider to customer.
-  // - Terminal: none.
-  const pendingLinePath = useMemo(() => {
+  // Fallback dashed line if driving route is loading
+  const fallbackDashedPath = useMemo(() => {
     if (isTerminal) return null;
-    if (routePath && routePath.length >= 2) return null;
-    if (isPickedUp && effectiveCustomerCoords) {
+    if (isPickedUp) {
+      if (remainingPath && remainingPath.length >= 2) return null;
       const origin = displayRiderPos || restaurantCoords;
-      return origin ? [origin, effectiveCustomerCoords] : null;
+      return origin && effectiveCustomerCoords ? [origin, effectiveCustomerCoords] : null;
     }
-    if (isPrePickup && riderAssigned && displayRiderPos && restaurantCoords) {
-      return [displayRiderPos, restaurantCoords];
+    if (isPrePickup) {
+      if (foodDeliveryRoute && foodDeliveryRoute.length >= 2) return null;
+      return restaurantCoords && effectiveCustomerCoords ? [restaurantCoords, effectiveCustomerCoords] : null;
     }
     return null;
-  }, [
-    isTerminal,
-    routePath,
-    isPickedUp,
-    effectiveCustomerCoords,
-    displayRiderPos,
-    restaurantCoords,
-    isPrePickup,
-    riderAssigned,
-  ]);
+  }, [isTerminal, isPickedUp, isPrePickup, remainingPath, foodDeliveryRoute, displayRiderPos, restaurantCoords, effectiveCustomerCoords]);
 
   const dashedLineOptions = useMemo(
     () => ({
@@ -1070,7 +1126,7 @@ const DeliveryTrackingMap = ({
         {
           icon: {
             path: 'M 0,-1 0,1',
-            strokeColor: palette.routePending,
+            strokeColor: palette.routePending || '#9aa1ac',
             strokeOpacity: 0.95,
             strokeWeight: 3,
             scale: 3,
@@ -1129,13 +1185,61 @@ const DeliveryTrackingMap = ({
         }}
         options={mapOptions}
       >
-        {/* Dashed fallback link when driving route is computing or unavailable */}
-        {pendingLinePath && (
-          <Polyline path={pendingLinePath} options={dashedLineOptions} />
+        {/* Fallback dashed straight line when driving route is calculating */}
+        {fallbackDashedPath && (
+          <Polyline path={fallbackDashedPath} options={dashedLineOptions} />
         )}
 
-        {/* Live road route: only when not terminal (Rider → Restaurant pre-pickup, Rider → Customer post-pickup) */}
-        {!isTerminal && remainingPath && remainingPath.length >= 2 && (
+        {/* PRE-PICKUP: Route from Restaurant → Customer (Zomato-style food journey) */}
+        {isPrePickup && foodDeliveryRoute && foodDeliveryRoute.length >= 2 && (
+          <>
+            <Polyline
+              path={foodDeliveryRoute}
+              options={{
+                strokeColor: palette.routeCasing,
+                strokeOpacity: 0.85,
+                strokeWeight: 7,
+                zIndex: 6,
+              }}
+            />
+            <Polyline
+              path={foodDeliveryRoute}
+              options={{
+                strokeColor: palette.route,
+                strokeOpacity: 0.95,
+                strokeWeight: 4,
+                zIndex: 7,
+              }}
+            />
+          </>
+        )}
+
+        {/* PRE-PICKUP: Route from Rider → Restaurant (when rider is approaching restaurant) */}
+        {isPrePickup && riderAssigned && displayRiderPos && remainingPath && remainingPath.length >= 2 && (
+          <>
+            <Polyline
+              path={remainingPath}
+              options={{
+                strokeColor: '#ffffff',
+                strokeOpacity: 0.8,
+                strokeWeight: 6,
+                zIndex: 8,
+              }}
+            />
+            <Polyline
+              path={remainingPath}
+              options={{
+                strokeColor: '#3b82f6',
+                strokeOpacity: 1,
+                strokeWeight: 4,
+                zIndex: 9,
+              }}
+            />
+          </>
+        )}
+
+        {/* POST-PICKUP: Live Road Route (Pooling Line) from Rider → Customer (Dynamically Trimmed) */}
+        {isPickedUp && remainingPath && remainingPath.length >= 2 && (
           <>
             <Polyline
               path={remainingPath}
@@ -1143,7 +1247,7 @@ const DeliveryTrackingMap = ({
                 strokeColor: palette.routeCasing,
                 strokeOpacity: 0.9,
                 strokeWeight: 9,
-                zIndex: 8,
+                zIndex: 10,
               }}
             />
             <Polyline
@@ -1152,16 +1256,20 @@ const DeliveryTrackingMap = ({
                 strokeColor: palette.route,
                 strokeOpacity: 1,
                 strokeWeight: 5,
-                zIndex: 9,
+                zIndex: 11,
               }}
             />
           </>
         )}
 
-        {/* 1. RESTAURANT MARKER: ONLY in Pre-Pickup stage. Completely removed after pickup and on delivered. */}
-        {isPrePickup && restaurantCoords && (
+        {/* 1. RESTAURANT MARKER: Shown in Pre-Pickup stage (and subtly in Post-Pickup) */}
+        {restaurantCoords && !isTerminal && (
           <OverlayView position={restaurantCoords} mapPaneName={OverlayView.MARKER_LAYER}>
-            <div className="relative flex flex-col items-center pointer-events-none -translate-x-1/2 -translate-y-1/2">
+            <div
+              className={`relative flex flex-col items-center pointer-events-none -translate-x-1/2 -translate-y-1/2 transition-opacity duration-300 ${
+                isPickedUp ? 'opacity-70 scale-90' : 'opacity-100 z-30'
+              }`}
+            >
               <div
                 className="absolute -top-12 z-50 rounded-full flex items-center px-2 py-1 shadow-lg gap-1.5"
                 style={badgeStyle}
@@ -1179,7 +1287,7 @@ const DeliveryTrackingMap = ({
                     e.target.src = restaurantFallbackIcon(palette.restaurant);
                   }}
                 />
-                <span className="text-[11px] font-bold pr-1">
+                <span className="text-[11px] font-bold pr-1 truncate max-w-[120px]">
                   {order?.restaurantName || order?.restaurantId?.name || 'Restaurant'}
                 </span>
                 <div
@@ -1195,15 +1303,17 @@ const DeliveryTrackingMap = ({
           </OverlayView>
         )}
 
-        {/* 2. CUSTOMER / USER DELIVERY LOCATION: ONLY in Post-Pickup stage. Omitted pre-pickup. */}
-        {isPickedUp && effectiveCustomerCoords && (
+        {/* 2. CUSTOMER / USER DELIVERY LOCATION: Shown in both Pre-Pickup and Post-Pickup stages */}
+        {effectiveCustomerCoords && !isTerminal && (
           <OverlayView position={effectiveCustomerCoords} mapPaneName={OverlayView.MARKER_LAYER}>
-            <div className="relative flex flex-col items-center pointer-events-none -translate-x-1/2 -translate-y-1/2">
+            <div className="relative flex flex-col items-center pointer-events-none -translate-x-1/2 -translate-y-1/2 z-30">
               <div
                 className="absolute -top-12 z-50 rounded-full flex items-center px-2.5 py-1 shadow-lg gap-1.5"
                 style={badgeStyle}
               >
-                <span className="text-[11px] font-bold">{userLiveCoords ? 'You (Live)' : 'You'}</span>
+                <span className="text-[11px] font-bold">
+                  {userLiveCoords ? 'You (Live)' : order?.address?.label || 'Home'}
+                </span>
                 <div
                   className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rotate-45"
                   style={{ backgroundColor: palette.badge }}
@@ -1236,7 +1346,7 @@ const DeliveryTrackingMap = ({
           </OverlayView>
         )}
 
-        {/* 4. RIDER MARKER: Pre-pickup (if assigned) and Post-pickup. Completely removed once terminal. */}
+        {/* 4. RIDER MARKER: Pre-pickup (if assigned) and Post-pickup (Live) */}
         {!isTerminal && displayRiderPos && (
           <OverlayView position={displayRiderPos} mapPaneName={OverlayView.MARKER_LAYER}>
             <div
@@ -1260,14 +1370,24 @@ const DeliveryTrackingMap = ({
                 </div>
               )}
 
+              {isPrePickup && (
+                <div
+                  className="absolute -top-8 z-50 whitespace-nowrap text-[10px] font-bold px-2.5 py-1 rounded-md shadow-xl flex items-center gap-1.5 bg-blue-600 text-white"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                  <span>Rider arriving</span>
+                  <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-blue-600" />
+                </div>
+              )}
+
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0">
                 <motion.div
                   animate={{ scale: [1, 2.8], opacity: [0.7, 0] }}
                   transition={{ duration: 1.8, repeat: Infinity, ease: 'easeOut' }}
                   className="w-14 h-14 rounded-full border-4"
                   style={{
-                    borderColor: `${palette.riderPulse}66`,
-                    backgroundColor: `${palette.riderPulse}1a`,
+                    borderColor: isPrePickup ? '#3b82f666' : `${palette.riderPulse}66`,
+                    backgroundColor: isPrePickup ? '#3b82f61a' : `${palette.riderPulse}1a`,
                   }}
                 />
               </div>
@@ -1294,38 +1414,46 @@ const DeliveryTrackingMap = ({
       </GoogleMap>
 
       {/* Floating Live Tracking Status Banner */}
-      {!isTerminal && riderAssigned && (() => {
-        const ageMs = lastFixAt ? clock - lastFixAt : null;
-        let text = null;
-        let tone = palette.routePending;
-        if (!isPickedUp) {
-          text = riderAtRestaurant
-            ? 'Rider is at the restaurant, collecting your order'
-            : 'Rider assigned — picking up your order';
-          tone = palette.routePending;
-        } else if (socketState === 'disconnected') {
-          text = 'Reconnecting to live tracking…';
-        } else if (!riderPosition) {
-          text = "Waiting for rider's GPS location…";
-        } else if (ageMs != null && ageMs > SIGNAL_WEAK_MS) {
-          const mins = Math.max(1, Math.round(ageMs / 60000));
-          text = `Rider's location last updated ${mins} min ago`;
-        } else {
-          text = 'Live tracking';
-          tone = palette.route;
-        }
-        if (!text) return null;
-        return (
-          <div
-            className="absolute top-12 left-3 z-10 flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold shadow-lg max-w-[calc(100%-24px)]"
-            style={badgeStyle}
-            role="status"
-          >
-            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: tone }} />
-            <span className="truncate">{text}</span>
-          </div>
-        );
-      })()}
+      {!isTerminal && (
+        (() => {
+          const ageMs = lastFixAt ? clock - lastFixAt : null;
+          let text = null;
+          let tone = palette.routePending;
+
+          if (!riderAssigned) {
+            text = 'Food is being prepared at restaurant';
+            tone = palette.restaurant;
+          } else if (!isPickedUp) {
+            text = riderAtRestaurant
+              ? 'Rider is at the restaurant, collecting order'
+              : 'Rider arriving at restaurant for pickup';
+            tone = '#3b82f6';
+          } else if (socketState === 'disconnected') {
+            text = 'Reconnecting to live tracking…';
+          } else if (!riderPosition) {
+            text = "Waiting for rider's GPS location…";
+          } else if (ageMs != null && ageMs > SIGNAL_WEAK_MS) {
+            const mins = Math.max(1, Math.round(ageMs / 60000));
+            text = `Rider location updated ${mins} min ago`;
+          } else {
+            text = 'Food on the way • Live tracking';
+            tone = palette.route;
+          }
+
+          if (!text) return null;
+
+          return (
+            <div
+              className="absolute top-12 left-3 z-10 flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold shadow-lg max-w-[calc(100%-24px)]"
+              style={badgeStyle}
+              role="status"
+            >
+              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: tone }} />
+              <span className="truncate">{text}</span>
+            </div>
+          );
+        })()
+      )}
 
       {/* Floating Distance & ETA Pill */}
       {!isTerminal && distanceText && (
@@ -1337,7 +1465,7 @@ const DeliveryTrackingMap = ({
             className="w-1.5 h-1.5 rounded-full"
             style={{ backgroundColor: isPickedUp ? palette.route : palette.routePending }}
           />
-          <span>{isPickedUp ? `${distanceText} away` : `${distanceText} to you`}</span>
+          <span>{isPickedUp ? `${distanceText} away` : `${distanceText} total distance`}</span>
           {etaText && (
             <>
               <span className="opacity-40">•</span>

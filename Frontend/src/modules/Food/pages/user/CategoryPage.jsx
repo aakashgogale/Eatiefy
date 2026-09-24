@@ -2463,6 +2463,18 @@ export default function CategoryPage({
                                   </>
                                 )}
                               </div>
+                              {(() => {
+                                const avail = getRestaurantAvailabilityStatus(restaurant)
+                                if (avail?.isOpen && avail?.closingCountdownLabel) {
+                                  return (
+                                    <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/40 text-[10px] font-medium uppercase tracking-wide">
+                                      <Timer className="h-3 w-3 flex-shrink-0" strokeWidth={2.5} />
+                                      <span>{avail.closingCountdownLabel}</span>
+                                    </div>
+                                  )
+                                }
+                                return null
+                              })()}
                             </div>
                           </div>
                           <div className="flex-shrink-0 bg-[#257d3c] text-white px-2 py-1 rounded-lg flex items-center gap-1">

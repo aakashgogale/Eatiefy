@@ -29,6 +29,7 @@ import { prepareUploadFile, prepareUploadFiles } from "@/shared/utils/imageCompr
 import { EMAIL_REGEX } from "@/shared/utils/emailValidation"
 import { OnboardingSkeleton } from "@food/components/ui/loading-skeletons"
 import OnboardingExitModal from "@/shared/components/OnboardingExitModal"
+import OnboardingHeader from "@food/components/restaurant/OnboardingHeader"
 import useOnboardingExitGuard from "@/shared/hooks/useOnboardingExitGuard"
 import { collectFcmTokenForSignup, persistModuleFcmToken, syncPendingPartnerFcmQuick, clearOnboardingFcmLocal, prefetchModuleFcmToken } from "@food/utils/firebaseMessaging"
 const debugLog = (...args) => {}
@@ -1267,16 +1268,35 @@ export default function RestaurantOnboarding() {
               setStep1(prev => ({ ...prev, ...localData.step1, location: { ...prev.location, ...localData.step1.location } }));
             }
             if (localData.step2) {
-              // Note: Files/Images must be re-hydrated from IndexedDB (handled below)
-              setStep2(prev => ({ 
-                ...prev, 
-                ...localData.step2,
+              /*
+               * Image fields are merged, never blindly overwritten.
+               *
+               * localStorage cannot hold File objects, so a picked-but-not-yet-
+               * uploaded image is stored as null / []. Spreading that over the
+               * state wiped the images that were just restored from the API or
+               * the server draft, which is why an uploaded image disappeared on
+               * refresh. Local values now win only when they actually carry one.
+               */
+              const { menuImages: localMenuImages, profileImage: localProfileImage, ...localStep2Rest } = localData.step2
+              setStep2(prev => ({
+                ...prev,
+                ...localStep2Rest,
+                menuImages: localMenuImages?.length ? localMenuImages : prev.menuImages,
+                profileImage: localProfileImage || prev.profileImage,
                 openingTime: normalizeTimeValue(localData.step2.openingTime),
                 closingTime: normalizeTimeValue(localData.step2.closingTime),
               }));
             }
             if (localData.step3) {
-              setStep3(prev => ({ ...prev, ...localData.step3 }));
+              // Same rule for the document images (PAN / GST / FSSAI).
+              const { panImage, gstImage, fssaiImage, ...localStep3Rest } = localData.step3
+              setStep3(prev => ({
+                ...prev,
+                ...localStep3Rest,
+                panImage: panImage || prev.panImage,
+                gstImage: gstImage || prev.gstImage,
+                fssaiImage: fssaiImage || prev.fssaiImage,
+              }));
             }
 
             // Restore Step
@@ -1291,22 +1311,39 @@ export default function RestaurantOnboarding() {
           }
         }
 
-        // 3b. The server draft is the source of truth for already-uploaded images of a
-        // new registrant (it also reflects removals made before the refresh).
-        const draftUploads = apiData ? null : await draftUploadsPromise
-        if (draftUploads) {
+        /*
+         * 3b. Server draft: images this registrant already uploaded.
+         *
+         * For a new registrant the draft is the source of truth (it also
+         * reflects removals made before the refresh), so it replaces what is on
+         * screen. When the restaurant already exists in the API, the draft is
+         * used only to fill fields the API had nothing for - it must not undo a
+         * saved image, but it must still rescue one the API did not return.
+         */
+        /*
+         * Applied when it arrives instead of being awaited here: the draft is
+         * only needed to fill in images, so blocking the whole screen on it
+         * delayed the form for as long as that request took. The merge below is
+         * order-independent, so it is safe to land after the first paint.
+         */
+        const preferExisting = Boolean(apiData)
+        void draftUploadsPromise.then((draftUploads) => {
+          if (!draftUploads) return
+          const draftMenuImages = (draftUploads.menuImages || []).map(toStoredImageValue).filter(Boolean)
+          const draftProfileImage = toStoredImageValue(draftUploads.profileImage)
+
           setStep2((prev) => ({
             ...prev,
-            menuImages: (draftUploads.menuImages || []).map(toStoredImageValue).filter(Boolean),
-            profileImage: toStoredImageValue(draftUploads.profileImage),
+            menuImages: preferExisting && prev.menuImages?.length ? prev.menuImages : draftMenuImages,
+            profileImage: preferExisting && prev.profileImage ? prev.profileImage : draftProfileImage,
           }))
           setStep3((prev) => ({
             ...prev,
-            panImage: toStoredImageValue(draftUploads.panImage),
-            gstImage: toStoredImageValue(draftUploads.gstImage),
-            fssaiImage: toStoredImageValue(draftUploads.fssaiImage),
+            panImage: preferExisting && prev.panImage ? prev.panImage : toStoredImageValue(draftUploads.panImage),
+            gstImage: preferExisting && prev.gstImage ? prev.gstImage : toStoredImageValue(draftUploads.gstImage),
+            fssaiImage: preferExisting && prev.fssaiImage ? prev.fssaiImage : toStoredImageValue(draftUploads.fssaiImage),
           }))
-        }
+        })
 
         // 4. Finally re-hydrate heavy files from IndexedDB if they exist
         // (files still in IndexedDB are picks whose upload had not completed)
@@ -3472,28 +3509,12 @@ export default function RestaurantOnboarding() {
         <OnboardingSkeleton />
       ) : (
         <div className="min-h-screen bg-gray-100 flex flex-col">
-          <header className="sticky top-0 z-40 px-4 py-4 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:py-5 sm:pt-[max(1.25rem,env(safe-area-inset-top))] bg-white flex items-center justify-between border-b">
-            <div className="flex items-center gap-3">
-              {step === 1 ? (
-                <button
-                  onClick={requestExit}
-                  className="w-9 h-9 flex items-center justify-center bg-gray-50 hover:bg-gray-100 border border-gray-200/80 rounded-full shadow-sm transition-all duration-200 active:scale-90 hover:shadow"
-                  aria-label="Close onboarding"
-                >
-                  <X className="w-[18px] h-[18px] text-gray-700 stroke-[2.5]" />
-                </button>
-              ) : (
-                <button
-                  onClick={handleBack}
-                  className="w-9 h-9 flex items-center justify-center bg-gray-50 hover:bg-gray-100 border border-gray-200/80 rounded-full shadow-sm transition-all duration-200 active:scale-90 hover:shadow"
-                  aria-label="Go back"
-                >
-                  <ArrowLeft className="w-[18px] h-[18px] text-gray-700 stroke-[2.5]" />
-                </button>
-              )}
-              <div className="text-sm font-semibold text-black">Restaurant onboarding</div>
-            </div>
-            <div className="flex items-center gap-3">
+          <OnboardingHeader
+            title="Restaurant onboarding"
+            onBack={step === 1 ? requestExit : handleBack}
+            variant={step === 1 ? "close" : "back"}
+            actions={(
+              <>
               {!isEditing && (
                 <Button
                   onClick={() => setIsEditing(true)}
@@ -3521,9 +3542,9 @@ export default function RestaurantOnboarding() {
                   <LogOut className="w-4 h-4" />
                 </Button>
               </div>
-            </div>
-
-          </header>
+              </>
+            )}
+          />
 
           <main
             className="flex-1 px-4 sm:px-6 py-4 space-y-4"

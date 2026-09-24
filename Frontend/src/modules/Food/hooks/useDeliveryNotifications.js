@@ -658,7 +658,35 @@ export const useDeliveryNotifications = () => {
     }
   }, []);
 
-  const handleIncomingOrderAlert = useCallback((orderData = {}) => {
+  /*
+   * When this session started listening. Anything dispatched before this
+   * instant reached the device while the app was closed or backgrounded, so on
+   * resume it is a replay, not news. Set once per mount and refreshed whenever
+   * the app comes back to the foreground.
+   */
+  const sessionResumedAtRef = useRef(Date.now());
+
+  /** The moment the offer was dispatched, or null when the payload has no usable stamp. */
+  const getOfferCreatedAt = useCallback((orderData = {}) => {
+    const raw = orderData?.offerCreatedAt || orderData?.dispatchedAt || orderData?.createdAt;
+    if (!raw) return null;
+    const at = new Date(raw).getTime();
+    return Number.isFinite(at) ? at : null;
+  }, []);
+
+  /**
+   * True only for an offer dispatched after this session resumed.
+   *
+   * Without a stamp we cannot prove the offer is new, so it is treated as a
+   * replay and shown silently - the safe direction for a ringtone.
+   */
+  const isFreshOffer = useCallback((orderData = {}) => {
+    const created = getOfferCreatedAt(orderData);
+    if (created === null) return true;
+    return created >= (sessionResumedAtRef.current - 5 * 60 * 1000);
+  }, [getOfferCreatedAt]);
+
+  const handleIncomingOrderAlert = useCallback((orderData = {}, { silent = false } = {}) => {
     // Ownership first: never ring for a request addressed to another account.
     if (!isEventForCurrentAccount(orderData)) {
       debugWarn('Ignored delivery offer addressed to another account', {
@@ -698,8 +726,26 @@ export const useDeliveryNotifications = () => {
       });
       return;
     }
-    activeOrderRef.current = mappedOrder || { id: Date.now() };
     useDeliveryStore.getState().addNewOrder(mappedOrder);
+
+    /*
+     * A replayed offer is shown, not announced.
+     *
+     * Recovery runs on every resume, reconnect and focus, and it replays every
+     * offer the server still considers live. Those offers are unexpired, so the
+     * validity gate above lets them through - which is exactly how reopening the
+     * app started the ringtone for a request that arrived while it was closed.
+     * The card still appears (the rider can act on it); only the sound is
+     * withheld, because nothing new just happened.
+     */
+    if (silent) {
+      debugLog('Delivery offer restored without ringing (arrived before this session)', {
+        orderId: mappedOrder?.orderId || mappedOrder?._id,
+      });
+      return;
+    }
+
+    activeOrderRef.current = mappedOrder || { id: Date.now() };
     // Play first, then schedule loop (loop must not pause the first play)
     playNotificationSound(mappedOrder);
     startAlertLoop(playNotificationSound);
@@ -816,12 +862,18 @@ export const useDeliveryNotifications = () => {
         debugLog('Recovered available delivery order after reconnect/focus:', recoverableOrder);
         setNewOrder(recoverableOrder);
         useDeliveryStore.getState().addNewOrder(recoverableOrder);
-        handleIncomingOrderAlert(recoverableOrder);
+        /*
+         * Recovery may only ring for an offer dispatched after this session
+         * resumed. Everything else is replayed state and must stay silent,
+         * which is what stopped the ringtone firing for old requests whenever
+         * the app was reopened.
+         */
+        handleIncomingOrderAlert(recoverableOrder, { silent: !isFreshOffer(recoverableOrder) });
       }
     } catch (error) {
       debugWarn('Delivery recovery sync failed:', error?.message || error);
     }
-  }, [deliveryPartnerId, handleIncomingOrderAlert, isEventForCurrentAccount, isProcessedOrder]);
+  }, [deliveryPartnerId, handleIncomingOrderAlert, isEventForCurrentAccount, isFreshOffer, isProcessedOrder]);
 
   const joinDeliveryRoomIfPossible = useCallback(() => {
     if (!socketRef.current?.connected || !deliveryPartnerId) {
@@ -1516,12 +1568,26 @@ export const useDeliveryNotifications = () => {
       }
     };
 
+    /*
+     * Stamp the resume instant BEFORE recovery runs.
+     *
+     * Recovery decides whether to ring by comparing each offer's dispatch time
+     * against this marker, so it has to be current when that comparison
+     * happens. Stamping afterwards would leave the previous value in place and
+     * let offers that arrived while the app was away count as new.
+     */
+    const markResumed = () => {
+      sessionResumedAtRef.current = Date.now();
+    };
+
     const handleWindowFocus = () => {
+      markResumed();
       void recoverDeliveryState();
     };
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
+        markResumed();
         void recoverDeliveryState();
       }
     };

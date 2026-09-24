@@ -1,11 +1,23 @@
 import { formatTime12Hour } from "@food/utils/outletHours"
 import { getOperatingStatus } from "@food/utils/operatingHours"
 
+/*
+ * The closing countdown is a warning, not a fact sheet.
+ *
+ * It used to appear the whole time a restaurant was open ("Closes in 8h 30m"),
+ * which told the customer nothing useful and cluttered every card. It is now
+ * shown only once closing is near enough to affect the decision to order.
+ */
+export const CLOSING_SOON_THRESHOLD_MINUTES = 120
+
 const formatClosingCountdown = (minutesUntilClose, closingTime) => {
   if (minutesUntilClose === null || minutesUntilClose === undefined) return null
 
-  if (minutesUntilClose <= 0) {
-    return closingTime ? `Closes at ${formatTime12Hour(closingTime)}` : null
+  // Only show closing countdown when the restaurant closes within 1-2 hours (120 minutes)
+  if (minutesUntilClose > CLOSING_SOON_THRESHOLD_MINUTES || minutesUntilClose < 0) return null
+
+  if (minutesUntilClose === 0) {
+    return "Closing now"
   }
 
   if (minutesUntilClose < 60) {

@@ -517,6 +517,7 @@ export const useDeliveryStore = create(
       partialize: (state) => ({
         isOnline: state.isOnline,
         focusedOrderId: state.focusedOrderId,
+        riderLocation: state.riderLocation,
       }),
     },
   ),

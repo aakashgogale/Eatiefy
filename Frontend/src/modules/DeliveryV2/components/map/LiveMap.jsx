@@ -28,15 +28,15 @@ const mapOptions = {
   rotateControl: true,
   fullscreenControl: false,
   styles: [
-    { elementType: "geometry", stylers: [{ color: "#f5f5f5" }] },
-    { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
-    { elementType: "labels.text.fill", stylers: [{ color: "#616161" }] },
-    { elementType: "labels.text.stroke", stylers: [{ color: "#f5f5f5" }] },
-    { featureType: "administrative.land_parcel", elementType: "labels.text.fill", stylers: [{ color: "#bdbdbd" }] },
-    { featureType: "poi", elementType: "geometry", stylers: [{ color: "#eeeeee" }] },
+    { featureType: "administrative", elementType: "labels.text.fill", stylers: [{ color: "#444444" }] },
+    { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#757575" }] },
+    { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#e8f5e9" }] },
     { featureType: "road", elementType: "geometry", stylers: [{ color: "#ffffff" }] },
-    { featureType: "water", elementType: "geometry", stylers: [{ color: "#c9c9c9" }] },
-    { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#9e9e9e" }] }
+    { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#fff3e0" }] },
+    { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#ffe0b2" }] },
+    { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#424242" }] },
+    { featureType: "water", elementType: "geometry", stylers: [{ color: "#c9e2f3" }] },
+    { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#78909c" }] }
   ]
 };
 const LIBRARIES = ['places', 'geometry'];
@@ -165,7 +165,7 @@ function pathLengthMeters(path) {
 const OFF_ROUTE_METERS = 60;
 const ROUTE_RETRY_AFTER_FAILURE_MS = 15000;
 
-export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineReceived, onRouteProgress, zoom = 12 }) => {
+export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineReceived, onRouteProgress, zoom = 13.5 }) => {
   const riderLocation = useDeliveryStore((state) => state.riderLocation);
   const gpsError = useDeliveryStore((state) => state.gpsError);
   const activeOrder = useDeliveryStore((state) => state.getFocusedOrder());
@@ -211,24 +211,56 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
 
   const parsePoint = useCallback((raw) => {
     if (!raw) return null;
+    if (Array.isArray(raw) && raw.length >= 2) {
+      const lng = parseFloat(raw[0]);
+      const lat = parseFloat(raw[1]);
+      return (Number.isFinite(lat) && Number.isFinite(lng)) ? { lat, lng } : null;
+    }
+    if (Array.isArray(raw.coordinates) && raw.coordinates.length >= 2) {
+      const lng = parseFloat(raw.coordinates[0]);
+      const lat = parseFloat(raw.coordinates[1]);
+      return (Number.isFinite(lat) && Number.isFinite(lng)) ? { lat, lng } : null;
+    }
+    if (raw.location) {
+      return parsePoint(raw.location);
+    }
     const lat = parseFloat(raw.lat ?? raw.latitude);
     const lng = parseFloat(raw.lng ?? raw.longitude);
     return (Number.isFinite(lat) && Number.isFinite(lng)) ? { lat, lng } : null;
   }, []);
 
-  const restaurantPoint = useMemo(() => parsePoint(activeOrder?.restaurantLocation), [activeOrder?.restaurantLocation, parsePoint]);
-  const customerPoint = useMemo(
-    () => parsePoint(activeOrder?.customerLiveLocation || activeOrder?.customerLocation),
-    [activeOrder?.customerLiveLocation, activeOrder?.customerLocation, parsePoint],
-  );
+  const restaurantPoint = useMemo(() => {
+    return parsePoint(
+      activeOrder?.restaurantLocation ||
+      activeOrder?.restaurantId?.location ||
+      activeOrder?.restaurant?.location
+    );
+  }, [activeOrder?.restaurantLocation, activeOrder?.restaurantId, activeOrder?.restaurant, parsePoint]);
+
+  const customerPoint = useMemo(() => {
+    return parsePoint(
+      activeOrder?.customerLiveLocation ||
+      activeOrder?.customerLocation ||
+      activeOrder?.deliveryAddress?.location ||
+      activeOrder?.address?.location ||
+      activeOrder?.deliveryAddress ||
+      activeOrder?.address
+    );
+  }, [
+    activeOrder?.customerLiveLocation,
+    activeOrder?.customerLocation,
+    activeOrder?.deliveryAddress,
+    activeOrder?.address,
+    parsePoint
+  ]);
 
   const targetLocation = useMemo(() => {
     if (!activeOrder) return null;
     let rawLoc = null;
     if (tripStatus === 'PICKING_UP' || tripStatus === 'REACHED_PICKUP') {
-      rawLoc = activeOrder.restaurantLocation;
+      rawLoc = activeOrder.restaurantLocation || activeOrder.restaurantId?.location || activeOrder.restaurant?.location;
     } else if (tripStatus === 'PICKED_UP' || tripStatus === 'REACHED_DROP') {
-      rawLoc = activeOrder.customerLiveLocation || activeOrder.customerLocation;
+      rawLoc = activeOrder.customerLiveLocation || activeOrder.customerLocation || activeOrder.deliveryAddress?.location || activeOrder.address?.location || activeOrder.deliveryAddress || activeOrder.address;
     }
     if (!rawLoc) return null;
     return parsePoint(rawLoc);
@@ -373,6 +405,10 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
         setRouteError(false);
         setDirections(result);
         setLastDirectionsAt(Date.now());
+
+        if (result.path && Array.isArray(result.path) && onPathReceived) {
+          onPathReceived(result.path);
+        }
         const encoded = result.routes?.[0]?.overview_polyline;
         if (encoded && onPolylineReceived) onPolylineReceived(encoded);
       } catch (err) {
@@ -397,16 +433,17 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
     routeThrottleMs,
     lastDirectionsAt,
     directions,
+    onPathReceived,
     onPolylineReceived,
   ]);
 
   useEffect(() => {
     if (directions && onPathReceived) {
-      const path = directions.routes[0]?.overview_path;
-      if (path) {
+      const path = directions.path || directions.routes?.[0]?.overview_path;
+      if (path && Array.isArray(path)) {
         const simplePath = path.map(p => ({
-          lat: typeof p.lat === 'function' ? p.lat() : (p.lat || p.latitude),
-          lng: typeof p.lng === 'function' ? p.lng() : (p.lng || p.longitude)
+          lat: typeof p.lat === 'function' ? p.lat() : (p.lat ?? p.latitude),
+          lng: typeof p.lng === 'function' ? p.lng() : (p.lng ?? p.longitude)
         }));
         onPathReceived(simplePath);
       }
@@ -468,15 +505,19 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
   const remainingPath = useMemo(() => {
     if (!directions || !parsedRiderLocation || !window.google?.maps) return [];
     
-    const fullPath = directions.routes[0].overview_path;
-    if (!fullPath || fullPath.length === 0) return [];
+    const fullPath = directions.path || directions.routes?.[0]?.overview_path;
+    if (!fullPath || !Array.isArray(fullPath) || fullPath.length === 0) return [];
 
     let closestIndex = 0;
     let minDistance = Infinity;
     const riderLatLng = new window.google.maps.LatLng(parsedRiderLocation.lat, parsedRiderLocation.lng);
 
     for (let i = 0; i < fullPath.length; i++) {
-      const distance = window.google.maps.geometry.spherical.computeDistanceBetween(riderLatLng, fullPath[i]);
+      const p = fullPath[i];
+      const pLat = typeof p.lat === 'function' ? p.lat() : (p.lat ?? p.latitude);
+      const pLng = typeof p.lng === 'function' ? p.lng() : (p.lng ?? p.longitude);
+      const ptLatLng = new window.google.maps.LatLng(pLat, pLng);
+      const distance = window.google.maps.geometry.spherical.computeDistanceBetween(riderLatLng, ptLatLng);
       if (distance < minDistance) {
         minDistance = distance;
         closestIndex = i;
@@ -485,9 +526,18 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
 
     let startIndex = closestIndex;
     if (closestIndex < fullPath.length - 1) {
-      const distToCurrent = window.google.maps.geometry.spherical.computeDistanceBetween(riderLatLng, fullPath[closestIndex]);
-      const distToNext = window.google.maps.geometry.spherical.computeDistanceBetween(riderLatLng, fullPath[closestIndex + 1]);
-      const segmentLen = window.google.maps.geometry.spherical.computeDistanceBetween(fullPath[closestIndex], fullPath[closestIndex + 1]);
+      const p1 = fullPath[closestIndex];
+      const p2 = fullPath[closestIndex + 1];
+      const p1Lat = typeof p1.lat === 'function' ? p1.lat() : (p1.lat ?? p1.latitude);
+      const p1Lng = typeof p1.lng === 'function' ? p1.lng() : (p1.lng ?? p1.longitude);
+      const p2Lat = typeof p2.lat === 'function' ? p2.lat() : (p2.lat ?? p2.latitude);
+      const p2Lng = typeof p2.lng === 'function' ? p2.lng() : (p2.lng ?? p2.longitude);
+
+      const p1LatLng = new window.google.maps.LatLng(p1Lat, p1Lng);
+      const p2LatLng = new window.google.maps.LatLng(p2Lat, p2Lng);
+      const distToCurrent = window.google.maps.geometry.spherical.computeDistanceBetween(riderLatLng, p1LatLng);
+      const distToNext = window.google.maps.geometry.spherical.computeDistanceBetween(riderLatLng, p2LatLng);
+      const segmentLen = window.google.maps.geometry.spherical.computeDistanceBetween(p1LatLng, p2LatLng);
       
       if (distToNext < segmentLen && distToNext < distToCurrent) {
         startIndex = closestIndex + 1;
@@ -496,8 +546,8 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
 
     const riderPoint = { lat: parsedRiderLocation.lat, lng: parsedRiderLocation.lng };
     const toObj = (p) => ({
-      lat: typeof p.lat === 'function' ? p.lat() : p.lat,
-      lng: typeof p.lng === 'function' ? p.lng() : p.lng
+      lat: typeof p.lat === 'function' ? p.lat() : (p.lat ?? p.latitude),
+      lng: typeof p.lng === 'function' ? p.lng() : (p.lng ?? p.longitude)
     });
 
     return [riderPoint, ...fullPath.slice(startIndex).map(toObj)];
@@ -505,13 +555,13 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
 
   useEffect(() => {
     if (!directions || !parsedRiderLocation || !window.google?.maps?.geometry) return;
-    const fullPath = directions.routes[0]?.overview_path || [];
+    const fullPath = directions.path || directions.routes?.[0]?.overview_path || [];
     if (remainingPath.length < 2 || fullPath.length < 2) return;
 
     // Distance from the rider to the nearest point of the remaining route.
     const nearest = remainingPath[1];
     const offBy = distanceBetweenMeters(parsedRiderLocation, nearest);
-    if (offBy > OFF_ROUTE_METERS && distanceBetweenMeters(parsedRiderLocation, targetLocation) > OFF_ROUTE_METERS) {
+    if (offBy > OFF_ROUTE_METERS && targetLocation && distanceBetweenMeters(parsedRiderLocation, targetLocation) > OFF_ROUTE_METERS) {
       offRouteRef.current = true;
     }
 
@@ -550,12 +600,17 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
   // Until a real position exists, show India at country zoom instead of a made-up city.
   const initialCenter = seedCenterRef.current || { lat: 20.5937, lng: 78.9629 };
 
-  // Once the first real fix arrives, move to it (only once).
+  // Once the first real fix arrives, move to it (only once) and zoom in to neighborhood view.
   const centeredOnFirstFixRef = useRef(false);
   useEffect(() => {
-    if (!map || centeredOnFirstFixRef.current || !parsedRiderLocation) return;
-    centeredOnFirstFixRef.current = true;
-    if (!activeOrder) map.panTo(parsedRiderLocation);
+    if (!map || !parsedRiderLocation) return;
+    if (!centeredOnFirstFixRef.current) {
+      centeredOnFirstFixRef.current = true;
+      if (!activeOrder) {
+        map.panTo(parsedRiderLocation);
+        map.setZoom(13.5);
+      }
+    }
   }, [map, parsedRiderLocation, activeOrder]);
 
   if (loadError) return <div className="absolute inset-0 flex items-center justify-center bg-gray-50 text-red-500 font-bold">Map Load Error</div>;

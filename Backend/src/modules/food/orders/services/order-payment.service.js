@@ -87,17 +87,16 @@ export async function createCollectQr(
   deliveryPartnerId,
   customerInfo = {},
 ) {
-  const query = mongoose.Types.ObjectId.isValid(orderId)
-    ? { _id: orderId }
-    : { orderId };
+  const filter = buildOrderIdentityFilter(orderId);
+  if (!filter) throw new NotFoundError('Order not found');
 
-  const order = await FoodOrder.findOne(query)
+  const order = await FoodOrder.findOne(filter)
     .populate('userId', 'name email phone')
     .lean();
 
   if (!order) throw new NotFoundError('Order not found');
   if (
-    order.dispatch.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()
+    order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()
   ) {
     throw new ForbiddenError('Not your order');
   }
@@ -107,67 +106,90 @@ export async function createCollectQr(
     throw new ValidationError('Order already paid');
   }
 
-  const amountDue = payment.amountDue ?? tx?.pricing?.total ?? order.pricing?.total ?? 0;
+  const amountDue = payment.amountDue ?? tx?.pricing?.total ?? order.pricing?.total ?? order.total ?? order.amount ?? 0;
   if (amountDue < 1) throw new ValidationError('No amount due');
-  if (!isRazorpayConfigured()) {
-    throw new ValidationError('QR payment not configured');
-  }
 
   const user = order.userId || {};
   const amountPaise = Math.round(amountDue * 100);
+  const displayId = String(order.order_id || order.orderId || order._id);
 
   let qrData = null;
-  try {
-    // Attempt 1: Create real Dynamic UPI QR Code via Razorpay QR Code API
-    const rzQr = await createRazorpayQrCode({
-      amountPaise,
-      name: `Order #${String(order.orderId || order._id).slice(-6)}`,
-      description: `Payment for Order #${order.orderId || order._id}`,
-      notes: {
-        foodOrderId: order._id.toString(),
-        orderDisplayId: String(order.orderId || ''),
-        purpose: 'cod_collect_qr',
-      },
-    });
 
-    const directImage = rzQr.image_url || rzQr.imageUrl || rzQr.image || rzQr.short_url || rzQr.upi_link || rzQr.url;
-    logger.info(`Razorpay QR created successfully: id=${rzQr.id}, image=${directImage}`);
+  if (isRazorpayConfigured()) {
+    try {
+      // Attempt 1: Create real Dynamic UPI QR Code via Razorpay QR Code API
+      const rzQr = await createRazorpayQrCode({
+        amountPaise,
+        name: `Order #${displayId.slice(-6)}`,
+        description: `Payment for Order #${displayId}`,
+        notes: {
+          foodOrderId: order._id.toString(),
+          orderDisplayId: displayId,
+          purpose: 'cod_collect_qr',
+        },
+      });
+
+      const directImage = rzQr.image_url || rzQr.imageUrl || rzQr.image || rzQr.short_url || rzQr.upi_link || rzQr.url;
+      logger.info(`[CollectQR] Razorpay QR created: id=${rzQr.id}, image=${directImage}`);
+
+      qrData = {
+        qrCodeId: rzQr.id,
+        paymentLinkId: rzQr.id,
+        shortUrl: directImage,
+        imageUrl: directImage,
+        status: rzQr.status || 'active',
+        expiresAt: rzQr.close_by ? new Date(rzQr.close_by * 1000) : null,
+      };
+    } catch (qrError) {
+      logger.warn(
+        `[CollectQR] Razorpay QR Code API creation failed (${qrError?.message}), falling back to Payment Link`,
+      );
+      try {
+        // Fallback 1: Create Payment Link
+        const link = await createPaymentLink({
+          amountPaise,
+          currency: 'INR',
+          description: `Order ${displayId} - COD collect`,
+          orderId: order._id.toString(),
+          customerName: customerInfo.name || user.name || 'Customer',
+          customerEmail: customerInfo.email || user.email || 'customer@example.com',
+          customerPhone: customerInfo.phone || user.phone,
+          notes: {
+            foodOrderId: order._id.toString(),
+            orderDisplayId: displayId,
+            purpose: 'cod_collect_qr',
+          },
+        });
+
+        logger.info(`[CollectQR] Razorpay Payment Link created: id=${link.id}, url=${link.short_url}`);
+        qrData = {
+          qrCodeId: link.id,
+          paymentLinkId: link.id,
+          shortUrl: link.short_url,
+          imageUrl: link.short_url,
+          status: link.status || 'created',
+          expiresAt: link.expire_by ? new Date(link.expire_by * 1000) : null,
+        };
+      } catch (linkError) {
+        logger.error(`[CollectQR] Razorpay Payment Link failed (${linkError?.message}), creating dynamic UPI QR`);
+      }
+    }
+  }
+
+  // Fallback 2: Standalone Dynamic UPI QR URI (for offline, sandbox or gateway outage)
+  if (!qrData) {
+    const upiId = process.env.MERCHANT_UPI_ID || 'eatiefy@icici';
+    const upiName = 'Eatiefy';
+    const upiUri = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(upiName)}&am=${amountDue.toFixed(2)}&cu=INR&tn=${encodeURIComponent(`Order #${displayId.slice(-6)}`)}`;
+    const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(upiUri)}`;
 
     qrData = {
-      qrCodeId: rzQr.id,
-      paymentLinkId: rzQr.id,
-      shortUrl: directImage,
-      imageUrl: directImage,
-      status: rzQr.status || 'active',
-      expiresAt: rzQr.close_by ? new Date(rzQr.close_by * 1000) : null,
-    };
-  } catch (qrError) {
-    logger.warn(
-      `Razorpay QR Code API creation failed (${qrError?.message}), falling back to Payment Link`,
-    );
-    // Fallback: Create Payment Link
-    const link = await createPaymentLink({
-      amountPaise,
-      currency: 'INR',
-      description: `Order ${order._id.toString()} - COD collect`,
-      orderId: order._id.toString(),
-      customerName: customerInfo.name || user.name || 'Customer',
-      customerEmail: customerInfo.email || user.email || 'customer@example.com',
-      customerPhone: customerInfo.phone || user.phone,
-      notes: {
-        foodOrderId: order._id.toString(),
-        orderDisplayId: String(order.orderId || ''),
-        purpose: 'cod_collect_qr',
-      },
-    });
-
-    qrData = {
-      qrCodeId: link.id,
-      paymentLinkId: link.id,
-      shortUrl: link.short_url,
-      imageUrl: link.short_url,
-      status: link.status || 'created',
-      expiresAt: link.expire_by ? new Date(link.expire_by * 1000) : null,
+      qrCodeId: `upi_${order._id}_${Date.now()}`,
+      paymentLinkId: `upi_${order._id}`,
+      shortUrl: upiUri,
+      imageUrl: qrImgUrl,
+      status: 'active',
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000),
     };
   }
 

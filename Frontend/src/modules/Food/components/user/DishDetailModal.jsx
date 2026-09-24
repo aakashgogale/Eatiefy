@@ -275,10 +275,16 @@ export default function DishDetailModal({
             {/* Variants / Customisations */}
             {hasVariants && (
               <div className="pt-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2.5">
-                  Choose Variant / Size
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="flex items-center justify-between mb-2.5">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-900 dark:text-white">Quantity</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Select any 1 option</p>
+                  </div>
+                  <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-2.5 py-0.5 rounded-full border border-red-200/60 dark:border-red-800/40">
+                    Required
+                  </span>
+                </div>
+                <div className="space-y-2.5">
                   {variants.map((v) => {
                     const vId = v.id || v._id
                     const isSelected = String(selectedVariantId) === String(vId)
@@ -287,29 +293,40 @@ export default function DishDetailModal({
                         key={vId}
                         type="button"
                         onClick={() => setSelectedVariantId(vId)}
-                        className={`flex items-center justify-between p-3 rounded-2xl border-2 transition-all text-left ${
+                        className={`w-full flex items-center justify-between p-3.5 sm:p-4 rounded-2xl border transition-all text-left cursor-pointer ${
                           isSelected
-                            ? "border-[#24963F] bg-green-50/50 dark:bg-green-950/20 text-gray-900 dark:text-white"
-                            : "border-gray-200 dark:border-gray-700 bg-white dark:bg-neutral-900 text-gray-700 dark:text-gray-300 hover:border-gray-300"
+                            ? "border-red-500 bg-red-50/50 dark:border-red-500/70 dark:bg-red-950/20 shadow-sm ring-1 ring-red-500/20"
+                            : "border-gray-200 dark:border-gray-700/80 bg-white dark:bg-[#1e1e1e] hover:border-gray-300 dark:hover:border-gray-600"
                         }`}
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-3">
                           <div
-                            className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
                               isSelected
-                                ? "border-[#24963F]"
-                                : "border-gray-400"
+                                ? "border-red-500 bg-white dark:bg-[#1e1e1e]"
+                                : "border-gray-400 dark:border-gray-500"
                             }`}
                           >
                             {isSelected && (
-                              <div className="w-2 h-2 rounded-full bg-[#24963F]" />
+                              <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
                             )}
                           </div>
-                          <span className="text-sm font-bold">{v.name}</span>
+                          <span
+                            className={`text-sm sm:text-base ${
+                              isSelected
+                                ? "font-bold text-gray-900 dark:text-white"
+                                : "font-semibold text-gray-700 dark:text-gray-300"
+                            }`}
+                          >
+                            {v.name}
+                          </span>
                         </div>
-                        <span className="text-sm font-black">
-                          {RUPEE_SYMBOL}
-                          {Math.round(v.price)}
+                        <span
+                          className={`text-sm sm:text-base font-bold ${
+                            isSelected ? "text-gray-900 dark:text-white" : "text-gray-700 dark:text-gray-300"
+                          }`}
+                        >
+                          {RUPEE_SYMBOL}{Math.round(v.price)}
                         </span>
                       </button>
                     )

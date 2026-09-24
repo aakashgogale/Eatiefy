@@ -6,8 +6,42 @@ import { getFoodDisplayOtherPrice, getFoodDisplayPrice } from '../../admin/servi
 import { withActiveCategoryFilter } from '../../shared/inactiveCategories.js';
 import { EATIEFY_99_PRICE, buildEatiefy99CandidateFilter, selectEatiefy99Foods } from '../utils/eatiefy99.js';
 import { toPublicAssetUrl } from '../../../../services/storage.service.js';
+import { FoodRestaurantOutletTimings } from '../models/outletTimings.model.js';
+import { getOperatingStatus } from '../utils/operatingHours.js';
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Keeps only the restaurants that are open at `now`, using each one's weekly
+ * outlet schedule (falling back to its own opening/closing hours when it has no
+ * schedule row). One query for all of them, not one per restaurant.
+ */
+const filterOpenRestaurants = async (restaurants = [], now = new Date()) => {
+    if (!restaurants.length) return [];
+
+    const timingsDocs = await FoodRestaurantOutletTimings.find({
+        restaurantId: { $in: restaurants.map((r) => r._id) },
+    })
+        .select('restaurantId timings')
+        .lean();
+
+    const timingsByRestaurant = new Map(
+        timingsDocs.map((doc) => [String(doc.restaurantId), doc.timings]),
+    );
+
+    return restaurants.filter((restaurant) => {
+        try {
+            const status = getOperatingStatus(
+                { timings: timingsByRestaurant.get(String(restaurant._id)), restaurant },
+                now,
+            );
+            return status.isOpen;
+        } catch {
+            // Unreadable schedule must not hide a restaurant that may well be open.
+            return true;
+        }
+    });
+};
 
 const buildCategoryKeywords = (categorySlug) => {
     const raw = String(categorySlug || '').trim().toLowerCase();
@@ -54,9 +88,21 @@ export async function listPublicFoods(query = {}) {
         return { foods: [], total: 0, requiresLocation: true, ...promoMeta };
     }
 
-    const restaurants = await FoodRestaurant.find(restaurantFilter)
-        .select('_id restaurantName zoneId profileImage rating estimatedDeliveryTime isActive isAcceptingOrders')
+    const restaurantsInZone = await FoodRestaurant.find(restaurantFilter)
+        .select('_id restaurantName zoneId profileImage rating estimatedDeliveryTime isActive isAcceptingOrders openingTime closingTime openDays')
         .lean();
+
+    /*
+     * Drop restaurants that are shut right now.
+     *
+     * `isActive` / `isAcceptingOrders` above only cover a restaurant switching
+     * itself off; one that is simply outside its opening hours stayed in, so
+     * closed kitchens' dishes kept appearing in this rail and could be added to
+     * a cart that order creation would then reject. The weekly outlet schedule
+     * is the same source of truth order creation uses
+     * (assertRestaurantOpenForOrders), read here in one batched query.
+     */
+    const restaurants = await filterOpenRestaurants(restaurantsInZone);
 
     if (!restaurants.length) {
         return { foods: [], total: 0, ...promoMeta };

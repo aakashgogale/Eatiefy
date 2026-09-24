@@ -59,15 +59,15 @@ export const normalizeFoodVariantsInput = (value = [], options = {}) => {
 
 export const serializeFoodVariants = (value = []) =>
     (Array.isArray(value) ? value : [])
-        .map((entry = {}) => {
+        .map((entry = {}, index) => {
             const name = toTrimmedString(entry?.name);
             const price = Number(entry?.price);
             if (!name || !Number.isFinite(price) || price <= 0) return null;
 
-            const variantId = entry?._id || entry?.id;
+            const variantId = String(entry?._id || entry?.id || `variant-${index}`);
             return {
-                id: variantId ? String(variantId) : '',
-                _id: variantId ? String(variantId) : '',
+                id: variantId,
+                _id: variantId,
                 name,
                 price
             };

@@ -38,8 +38,26 @@ const resolveBackPath = ({ pathname, search, state, orderType }) => {
     return explicitBackPath || "/food/user/profile/payments"
   }
 
+  if (normalizedPath === "/user/profile/support") {
+    if (state?.fromTracking || state?.orderId || state?.order?._id || state?.order?.id) {
+      const oId = state.orderId || state.order?.orderId || state.order?._id || state.order?.id
+      return explicitBackPath || (oId ? `/food/user/orders/${oId}` : "/food/user/orders")
+    }
+    return explicitBackPath || "/food/user/profile"
+  }
+
+  if (/^\/user\/help\/orders\/([^/]+)$/.test(normalizedPath)) {
+    const match = normalizedPath.match(/^\/user\/help\/orders\/([^/]+)$/)
+    const oId = match ? match[1] : ""
+    return explicitBackPath || (oId ? `/food/user/orders/${oId}` : "/food/user/orders")
+  }
+
+  if (normalizedPath === "/user/help" || /^\/user\/help(\/|$)/.test(normalizedPath)) {
+    return explicitBackPath || defaultHomePath
+  }
+
   if (
-    /^\/user\/profile\/(edit|favorites|support|coupons|about|report-safety-emergency|accessibility|logout|refer-earn|payments)$/.test(
+    /^\/user\/profile\/(edit|favorites|coupons|about|report-safety-emergency|accessibility|logout|refer-earn|payments)$/.test(
       normalizedPath,
     )
   ) {

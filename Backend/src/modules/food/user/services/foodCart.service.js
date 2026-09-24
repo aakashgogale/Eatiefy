@@ -8,6 +8,7 @@ import {
   applyOtherPriceToFood,
   loadActivePricingRules,
 } from '../../admin/services/otherPrice.service.js';
+import { serializeFoodVariants } from '../../admin/services/foodVariant.service.js';
 
 const MAX_QTY = 99;
 
@@ -64,28 +65,56 @@ async function assertRestaurantAccepting(restaurantId) {
 
 function resolveVariant(itemDoc, variantId) {
   const vid = normalizeVariantId(variantId);
-  if (!vid) {
+  const serializedVariants = serializeFoodVariants(
+    itemDoc?.variants || itemDoc?.variations || []
+  );
+
+  if (serializedVariants.length === 0) {
     return {
       variantId: '',
       variantName: '',
-      price: Number(itemDoc.price) || 0,
+      price: Number(itemDoc?.price) || 0,
     };
   }
-  const variant = (itemDoc.variants || []).find((v) => String(v._id) === vid);
+
+  if (!vid) {
+    const first = serializedVariants[0];
+    return {
+      variantId: String(first.id || first._id || 'variant-0'),
+      variantName: String(first.name || ''),
+      price: Number(first.price) || 0,
+    };
+  }
+
+  const variant = serializedVariants.find((v, index) =>
+    String(v.id || '') === vid ||
+    String(v._id || '') === vid ||
+    `variant-${index}` === vid ||
+    String(index) === vid ||
+    String(v.name || '').trim().toLowerCase() === vid.trim().toLowerCase()
+  );
+
   if (!variant) {
     throw new ValidationError('Selected option is no longer available');
   }
+
   return {
-    variantId: vid,
+    variantId: String(variant.id || variant._id || vid),
     variantName: String(variant.name || ''),
     price: Number(variant.price) || 0,
   };
 }
 
 function buildPricingSnapshot(priced, variantId = '') {
+  const vid = normalizeVariantId(variantId);
   const pricedVariant =
     (priced.variants || []).find(
-      (v) => String(v.id || v._id || '') === String(variantId || ''),
+      (v, index) =>
+        String(v.id || '') === vid ||
+        String(v._id || '') === vid ||
+        `variant-${index}` === vid ||
+        String(index) === vid ||
+        (vid && String(v.name || '').trim().toLowerCase() === vid.trim().toLowerCase()),
     ) || null;
   const basePrice =
     Number(pricedVariant?.basePrice ?? priced.basePrice ?? priced.price) || 0;

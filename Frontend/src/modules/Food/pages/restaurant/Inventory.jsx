@@ -794,6 +794,11 @@ export default function Inventory() {
   })
   // Set when a load fails, so a failed request is not rendered as "no items".
   const [inventoryError, setInventoryError] = useState("")
+  /* Menu reload trigger: bumped by the Retry button and by the token wait below. */
+  const [menuReloadKey, setMenuReloadKey] = useState(0)
+  const menuTokenWaitsRef = useRef(0)
+  const menuRetryTimerRef = useRef(null)
+  const MENU_TOKEN_MAX_WAITS = 10 // ~3s, then say so instead of retrying for ever
   const [expandedCategories, setExpandedCategories] = useState([])
   const [togglePopupOpen, setTogglePopupOpen] = useState(false)
   const [toggleTarget, setToggleTarget] = useState(null)
@@ -887,9 +892,22 @@ export default function Inventory() {
       // a refresh could leave the page empty until it was remounted.
       const restaurantId = getActiveRestaurantId()
       if (!getModuleToken("restaurant")) {
+        /*
+         * On a hard refresh this effect can run before the session is readable.
+         * It used to stop here for good - the effect never re-ran, so the page
+         * sat on an empty menu until the route was remounted. Try again shortly;
+         * the token is restored within a tick or two of the app booting.
+         */
         setLoadingInventory(false)
+        if (menuTokenWaitsRef.current < MENU_TOKEN_MAX_WAITS) {
+          menuTokenWaitsRef.current += 1
+          menuRetryTimerRef.current = window.setTimeout(() => setMenuReloadKey((k) => k + 1), 300)
+        } else {
+          setInventoryError("You appear to be signed out. Please sign in again to load your menu.")
+        }
         return
       }
+      menuTokenWaitsRef.current = 0
 
       // A different restaurant than the cached snapshot: drop it so no other
       // account's items are ever shown.
@@ -1061,7 +1079,10 @@ export default function Inventory() {
     }
     
     fetchMenuData()
-  }, [recommendedMap])
+    return () => {
+      if (menuRetryTimerRef.current) window.clearTimeout(menuRetryTimerRef.current)
+    }
+  }, [recommendedMap, menuReloadKey])
 
   // Note: Menu items are now displayed from menu API
   // Stock status updates should be managed through the menu API, not inventory API
@@ -2298,8 +2319,24 @@ export default function Inventory() {
           {/* A failed load is reported separately, so it is never mistaken for
               an empty menu. The last known items stay on screen underneath. */}
           {activeTab !== "add-ons" && !loadingInventory && inventoryError && (
-            <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <div
+              role="alert"
+              className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3"
+            >
               <p className="text-sm font-semibold text-amber-900">{inventoryError}</p>
+              {/* A failed load must be recoverable in place, not only by
+                  reloading the whole page. */}
+              <button
+                type="button"
+                onClick={() => {
+                  menuTokenWaitsRef.current = 0
+                  setInventoryError("")
+                  setMenuReloadKey((k) => k + 1)
+                }}
+                className="shrink-0 rounded-xl bg-amber-900 px-4 py-1.5 text-xs font-bold text-white transition-colors hover:bg-amber-950 active:scale-[0.98]"
+              >
+                Retry
+              </button>
             </div>
           )}
 

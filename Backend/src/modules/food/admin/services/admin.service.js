@@ -3984,9 +3984,9 @@ export async function getFoods(query) {
         list.map((f) => String(f.restaurantId)).filter(id => id && mongoose.Types.ObjectId.isValid(id))
     ));
     const restaurants = validRestaurantIds.length
-        ? await FoodRestaurant.find({ _id: { $in: validRestaurantIds } }).select('restaurantName').lean()
+        ? await FoodRestaurant.find({ _id: { $in: validRestaurantIds } }).select('restaurantName name foodType pureVegRestaurant').lean()
         : [];
-    const restaurantMap = new Map(restaurants.map((r) => [String(r._id), r.restaurantName]));
+    const restaurantMap = new Map(restaurants.map((r) => [String(r._id), r.restaurantName || r.name]));
 
     const foods = list.map((f) => ({
         id: f._id,
@@ -4030,6 +4030,16 @@ const resolveAdminFoodCategory = async ({ categoryId, categoryName, foodType, re
         }
         resolvedCategoryId = categoryDoc._id;
         resolvedCategoryName = categoryDoc.name || resolvedCategoryName;
+    } else if (resolvedCategoryName) {
+        categoryDoc = await FoodCategory.findOne({
+            name: { $regex: new RegExp(`^${resolvedCategoryName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+        })
+            .select('name foodTypeScope')
+            .lean();
+        if (categoryDoc?._id) {
+            resolvedCategoryId = categoryDoc._id;
+            resolvedCategoryName = categoryDoc.name || resolvedCategoryName;
+        }
     }
 
     if (!resolvedCategoryName) {
@@ -4209,12 +4219,18 @@ export async function updateFood(id, body) {
         const nextCategoryName = body.categoryName !== undefined
             ? String(body.categoryName || '').trim()
             : (body.category !== undefined ? String(body.category || '').trim() : doc.categoryName);
+        /*
+         * `restaurantFoodType` is what resolveAdminFoodCategory actually takes.
+         * This used to pass `pureVegRestaurant` / `pureVeganRestaurant`, which
+         * are not declared anywhere in this function, so every admin food update
+         * that touched the category or the food type threw
+         * "pureVegRestaurant is not defined" before it could save.
+         */
         const { categoryId, categoryName } = await resolveAdminFoodCategory({
             categoryId: body.categoryId !== undefined ? body.categoryId : doc.categoryId,
             categoryName: nextCategoryName,
             foodType: targetFoodType,
-            pureVegRestaurant,
-            pureVeganRestaurant,
+            restaurantFoodType,
         });
         doc.categoryId = categoryId;
         doc.categoryName = categoryName;

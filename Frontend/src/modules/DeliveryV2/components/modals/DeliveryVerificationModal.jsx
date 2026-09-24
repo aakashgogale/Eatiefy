@@ -20,35 +20,55 @@ const Backdrop = ({ onClose }) => (
   />
 );
 
-const DeliveryInstructionsPanel = ({ note }) => {
-  const text = String(note || '').trim()
-  if (!text) return null
+export const extractUserNote = (order) => {
+  if (!order) return '';
+  if (typeof order.note === 'string' && order.note.trim()) return order.note.trim();
+  if (typeof order.userNote === 'string' && order.userNote.trim()) return order.userNote.trim();
+  if (typeof order.customerNote === 'string' && order.customerNote.trim()) return order.customerNote.trim();
+  if (typeof order.deliveryNote === 'string' && order.deliveryNote.trim()) return order.deliveryNote.trim();
+  if (typeof order.deliveryInstructions === 'string' && order.deliveryInstructions.trim()) return order.deliveryInstructions.trim();
+  if (typeof order.deliveryInstruction === 'string' && order.deliveryInstruction.trim()) return order.deliveryInstruction.trim();
+  if (typeof order.instructions === 'string' && order.instructions.trim()) return order.instructions.trim();
+  if (typeof order.orderNotes === 'string' && order.orderNotes.trim()) return order.orderNotes.trim();
+  if (typeof order.restaurantNote === 'string' && order.restaurantNote.trim()) return order.restaurantNote.trim();
+  if (typeof order.deliveryAddress?.deliveryInstructions === 'string' && order.deliveryAddress.deliveryInstructions.trim()) return order.deliveryAddress.deliveryInstructions.trim();
+  if (typeof order.deliveryAddress?.instructions === 'string' && order.deliveryAddress.instructions.trim()) return order.deliveryAddress.instructions.trim();
+  if (typeof order.deliveryAddress?.note === 'string' && order.deliveryAddress.note.trim()) return order.deliveryAddress.note.trim();
+  if (typeof order.address?.deliveryInstructions === 'string' && order.address.deliveryInstructions.trim()) return order.address.deliveryInstructions.trim();
+  if (typeof order.address?.instructions === 'string' && order.address.instructions.trim()) return order.address.instructions.trim();
+  if (typeof order.address?.note === 'string' && order.address.note.trim()) return order.address.note.trim();
+  return '';
+};
+
+const DeliveryInstructionsPanel = ({ note, order }) => {
+  const text = String(note || extractUserNote(order) || '').trim();
+  if (!text) return null;
 
   return (
-    <div className="w-full rounded-3xl mb-6 overflow-hidden border border-orange-100 shadow-sm">
-      <div className="bg-linear-to-r from-orange-500 to-amber-500 px-5 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-9 h-9 bg-white/20 rounded-2xl flex items-center justify-center text-white">
-            <Package className="w-5 h-5" />
+    <div className="w-full rounded-2xl sm:rounded-3xl mb-6 overflow-hidden border border-orange-200 bg-orange-50/70 shadow-sm">
+      <div className="bg-orange-500 bg-gradient-to-r from-orange-500 to-amber-500 px-4 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 bg-white/20 rounded-xl sm:rounded-2xl flex items-center justify-center text-white shrink-0">
+            <Package className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
           </div>
           <div>
-            <p className="text-[10px] font-black text-white uppercase tracking-[0.2em]">
-              Delivery instruction
+            <p className="text-[11px] font-black text-white uppercase tracking-[0.15em] leading-tight">
+              User Note / Delivery Instruction
             </p>
-            <p className="text-[11px] font-semibold text-white/90">
+            <p className="text-[10px] sm:text-[11px] font-semibold text-white/95 leading-tight">
               Read before handover
             </p>
           </div>
         </div>
       </div>
-      <div className="bg-orange-50 px-5 py-4">
-        <p className="text-sm font-bold text-gray-950 leading-relaxed wrap-break-word">
+      <div className="bg-orange-50 px-4 sm:px-5 py-3.5 sm:py-4">
+        <p className="text-sm font-bold text-gray-950 leading-relaxed break-words">
           “{text}”
         </p>
       </div>
     </div>
-  )
-}
+  );
+};
 
 const OtpModal = ({ order, onVerified, onClose }) => {
   const [otp, setOtp] = useState(['', '', '', '']);
@@ -142,7 +162,7 @@ const OtpModal = ({ order, onVerified, onClose }) => {
           <button onClick={onClose} className="p-2 bg-gray-50 rounded-full text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
         </div>
 
-        <DeliveryInstructionsPanel note={order?.note} />
+        <DeliveryInstructionsPanel order={order} note={order?.note} />
 
         <div className="flex justify-center gap-2.5 sm:gap-3 mb-6 sm:mb-8">
           {otp.map((digit, i) => (
@@ -186,8 +206,8 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const pollingRef = useRef(null);
 
-  const orderId = order.orderId || order._id || 'ORD';
-  const amountToCollect = order.pricing?.total || order.amountToCollect || 0;
+  const orderId = order._id || order.orderId || order.order_id || 'ORD';
+  const amountToCollect = Number(order.pricing?.total ?? order.amountToCollect ?? order.total ?? order.amount ?? 0);
 
   const checkPaymentSync = useCallback(async () => {
     try {
@@ -220,11 +240,11 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
     setIsGeneratingQr(true);
     try {
       const res = await deliveryAPI.createCollectQr(orderId, {
-        name: order.userName || 'Customer',
-        phone: order.userPhone || ''
+        name: order.userName || order.customerName || order.userId?.name || 'Customer',
+        phone: order.userPhone || order.customerPhone || order.userId?.phone || ''
       });
       const data = res?.data?.data || res?.data || {};
-      const link = data.imageUrl || data.shortUrl || data.image || null;
+      const link = data.imageUrl || data.shortUrl || data.image || data.qrCode || null;
       if (link) {
         setCollectQrLink(link);
         setPaymentStatus('pending');
@@ -233,6 +253,7 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
         toast.error("Could not generate QR code");
       }
     } catch (e) {
+      console.error('[PaymentModal] QR Generation failed:', e);
       showUserFacingApiError(e, "QR Generation failed");
     } finally {
       setIsGeneratingQr(false);
@@ -245,14 +266,26 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
   // Toggle handlers
   const handleCashSelection = () => {
     setIsCashPayment(true);
-    // If we were waiting for QR, we can stop the active pending UI but keep polling in background if needed
-    // However, the user said "if delivery boy clicks cash, slider enable".
   };
 
   const handleQrSelection = () => {
     setIsCashPayment(false);
     generateQr();
   };
+
+  const isDirectImage = (url) => {
+    if (!url || typeof url !== 'string') return false;
+    if (url.startsWith('data:image/')) return true;
+    if (/\.(png|jpe?g|webp|svg|gif)(\?.*)?$/i.test(url)) return true;
+    if (url.includes('s3.ap-south-1.amazonaws.com') && url.includes('/qr_')) return true;
+    return false;
+  };
+
+  const qrImageSrc = useMemo(() => {
+    if (!collectQrLink) return '';
+    if (isDirectImage(collectQrLink)) return collectQrLink;
+    return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data=${encodeURIComponent(collectQrLink)}`;
+  }, [collectQrLink]);
 
   return (
     <>
@@ -276,7 +309,7 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
             <button onClick={onClose} className="p-2 bg-gray-50 rounded-full text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
           </div>
 
-          <DeliveryInstructionsPanel note={order?.note} />
+          <DeliveryInstructionsPanel order={order} note={order?.note} />
 
           <div className="bg-amber-50 rounded-3xl p-4 sm:p-6 border border-amber-100 mb-6 sm:mb-8">
             <div className="flex justify-between items-center mb-6">
@@ -350,21 +383,27 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
               onClick={e => e.stopPropagation()}
             >
               <h3 className="text-gray-950 font-bold text-xl mb-2">Scan to Pay</h3>
-              <p className="text-gray-500 text-sm mb-8 font-medium">Order Total: ₹{amountToCollect.toFixed(2)}</p>
-              <div className="flex flex-col items-center gap-4 bg-gray-50 rounded-3xl border-2 border-gray-100 p-3 sm:p-4 mb-4 w-full">
-                <div className="relative w-64 h-64 sm:w-72 sm:h-72 rounded-2xl border-2 border-gray-200 bg-white shadow-sm overflow-hidden flex items-center justify-center p-1.5">
-                  <img
-                    src={
-                      collectQrLink?.startsWith('http') || collectQrLink?.startsWith('data:')
-                        ? collectQrLink
-                        : `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(collectQrLink)}`
-                    }
-                    alt="Razorpay QR"
-                    className={`w-full h-full ${collectQrLink?.startsWith('http') || collectQrLink?.startsWith('data:')
-                      ? 'object-cover scale-[1.60] -translate-y-[6%] translate-x-[0.8%] origin-center'
-                      : 'object-contain p-2'
-                      }`}
-                  />
+              <p className="text-gray-500 text-sm mb-6 font-medium">Order Total: ₹{amountToCollect.toFixed(2)}</p>
+              <div className="flex flex-col items-center gap-4 bg-gray-50 rounded-3xl border-2 border-gray-100 p-4 mb-4 w-full">
+                <div className="relative w-64 h-64 sm:w-72 sm:h-72 rounded-2xl border-2 border-gray-200 bg-white shadow-sm overflow-hidden flex items-center justify-center p-3">
+                  {qrImageSrc ? (
+                    <img
+                      src={qrImageSrc}
+                      alt="Payment QR"
+                      className="w-full h-full object-contain"
+                      onError={(e) => {
+                        console.warn('[PaymentModal] QR image load error, falling back to qrserver');
+                        if (collectQrLink && !e.currentTarget.src.includes('api.qrserver.com')) {
+                          e.currentTarget.src = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data=${encodeURIComponent(collectQrLink)}`;
+                        }
+                      }}
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center gap-2 text-gray-400">
+                      <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
+                      <p className="text-xs font-semibold">Generating QR Code...</p>
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={handleManualCheck}

@@ -2,10 +2,17 @@ import { useEffect } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import { LogOut } from "lucide-react"
 
+/*
+ * Button greens are chosen for contrast, not just brand feel: white text on the
+ * old delivery green (#00B761) measured 2.64:1, well under the 4.5:1 WCAG AA
+ * minimum, which is why the label looked washed out. #008445 is the closest
+ * shade to the brand colour that passes (4.79:1); the restaurant green already
+ * did (5.02:1) and is unchanged.
+ */
 const THEMES = {
   delivery: {
     header: "bg-gradient-to-br from-[#1B5E3F] to-[#0E3220]",
-    stay: "bg-[#00B761] hover:bg-[#00A055] shadow-[#00B761]/20",
+    stay: "bg-[#008445] hover:bg-[#00783E] shadow-[#008445]/20",
   },
   restaurant: {
     header: "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]",
@@ -68,7 +75,9 @@ export default function OnboardingExitModal({
                 <LogOut className="w-8 h-8 text-white" />
               </div>
               <h3 className="text-xl font-bold text-white mb-2">{title}</h3>
-              <p className="text-white/85 text-[13px] leading-relaxed">{message}</p>
+              {/* Full white: at 85% opacity this fell to 4.15:1 on the lighter
+                  end of the header gradient, under the AA minimum. */}
+              <p className="text-white text-[13px] leading-relaxed">{message}</p>
             </div>
 
             <div className="p-6 pt-5 space-y-3 bg-white dark:bg-[#242424]">

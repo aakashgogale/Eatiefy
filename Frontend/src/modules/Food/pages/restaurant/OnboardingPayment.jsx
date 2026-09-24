@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { AlertCircle, ArrowLeft, BadgeCheck, CheckCircle2, Loader2, MapPin, ShieldCheck, Store, Tag } from "lucide-react"
+import OnboardingHeader from "@food/components/restaurant/OnboardingHeader"
 import { toast } from "sonner"
 import { restaurantAPI } from "@food/api"
 import { Button } from "@food/components/ui/button"
@@ -251,8 +252,16 @@ export default function OnboardingPayment() {
 
   if (succeeded) {
     return (
-      <div className="min-h-screen bg-[#F4F4F4] px-4 py-10">
-        <div className="mx-auto max-w-lg rounded-2xl bg-white p-6 text-center shadow-sm sm:p-8">
+      <div className="min-h-screen bg-[#F4F4F4]">
+        {/* Paid: back belongs on the verification screen, never on the form the
+            restaurant has already paid to submit. */}
+        <OnboardingHeader
+          title="Payment successful"
+          subtitle="Your registration is with our team"
+          onBack={() => navigate("/food/restaurant/pending-verification", { replace: true })}
+          backLabel="Go to verification status"
+        />
+        <div className="mx-auto mt-10 max-w-lg rounded-2xl bg-white p-6 text-center shadow-sm sm:p-8">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#2E7D52]/10">
             <CheckCircle2 className="h-8 w-8 text-[#2E7D52]" />
           </div>
@@ -321,37 +330,41 @@ export default function OnboardingPayment() {
     )
   }
 
+  /*
+   * Once paid, the hardware/browser back button must not land on the onboarding
+   * form. This page is entered with { replace: true }, so the entry behind it is
+   * whatever preceded onboarding; a back press there dropped the restaurant into
+   * a form it had already paid to submit. Holding one entry and redirecting on
+   * popstate sends them to the verification screen instead. Navigation only - no
+   * payment call is repeated.
+   */
+  useEffect(() => {
+    if (!succeeded) return undefined
+    window.history.pushState(null, "", window.location.href)
+    const onPopState = () => navigate("/food/restaurant/pending-verification", { replace: true })
+    window.addEventListener("popstate", onPopState)
+    return () => window.removeEventListener("popstate", onPopState)
+  }, [succeeded, navigate])
+
   const hasOffer = Boolean(quote?.offer && quote?.offerPrice != null)
   const currency = quote?.currency || "INR"
 
   return (
     <div className="min-h-screen bg-[#F4F4F4] pb-28">
-      <header className="sticky top-0 z-30 border-b border-gray-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-2xl items-center gap-3 px-4 py-3">
-          <button
-            type="button"
-            /*
-             * This page is always entered with { replace: true } (from the last
-             * onboarding step, and from OTP on relaunch), so there is no
-             * onboarding entry left in history — navigate(-1) fell through to
-             * whatever preceded onboarding (login/home), or left the app after a
-             * refresh. Go to the onboarding route explicitly instead; it restores
-             * the saved step and all previously entered data from storage.
-             * `replace` swaps this page rather than stacking a new entry, so
-             * back/forward cannot loop between payment and the step.
-             */
-            onClick={() => navigate("/food/restaurant/onboarding", { replace: true })}
-            className="rounded-full p-1 hover:bg-gray-100"
-            aria-label="Go back to onboarding"
-          >
-            <ArrowLeft className="h-5 w-5 text-gray-700" />
-          </button>
-          <div>
-            <h1 className="text-lg font-bold text-gray-900">Onboarding payment</h1>
-            <p className="text-xs text-gray-500">Final step — pay once and submit for approval</p>
-          </div>
-        </div>
-      </header>
+      {/*
+        Back goes to the onboarding route explicitly. This page is always entered
+        with { replace: true } (from the last step, and from OTP on relaunch), so
+        no onboarding entry is left in history and navigate(-1) fell through to
+        whatever preceded onboarding, or left the app after a refresh. The route
+        restores the saved step and previously entered data; `replace` swaps this
+        page rather than stacking, so back/forward cannot loop between the two.
+      */}
+      <OnboardingHeader
+        title="Onboarding payment"
+        subtitle="Final step — pay once and submit for approval"
+        onBack={() => navigate("/food/restaurant/onboarding", { replace: true })}
+        backLabel="Go back to onboarding"
+      />
 
       <main className="mx-auto max-w-2xl space-y-4 px-4 py-5">
         <section className="rounded-2xl bg-white p-4 shadow-sm sm:p-6">

@@ -267,7 +267,10 @@ export default function OrderHelp() {
             order: order || { _id: targetOrderId, orderId: targetOrderId },
             orderId: targetOrderId,
             type: "order",
-            step: "order_issue"
+            step: "order_issue",
+            fromTracking: true,
+            from: location.pathname,
+            backTo: location.pathname
           }
         })
         break
@@ -307,7 +310,16 @@ export default function OrderHelp() {
                 <Link to={toFoodUserPath("/user/orders")}>
                   <Button variant="outline" className="rounded-xl">View All Orders</Button>
                 </Link>
-                <Link to={toFoodUserPath("/user/profile/support")}>
+                <Link 
+                  to={toFoodUserPath("/user/profile/support")}
+                  state={{
+                    order: order || { _id: displayOrderId, orderId: displayOrderId },
+                    orderId: displayOrderId,
+                    fromTracking: true,
+                    from: location.pathname,
+                    backTo: location.pathname
+                  }}
+                >
                   <Button className="bg-[#1F6B45] hover:bg-[#1A5C3B] text-white rounded-xl">
                     <MessageCircle className="w-4 h-4 mr-1.5" /> Contact Support
                   </Button>

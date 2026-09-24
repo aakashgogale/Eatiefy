@@ -225,7 +225,7 @@ async function listNearbyOnlineDeliveryPartners(
 
   const allowedStatuses =
     process.env.NODE_ENV === 'production' ? ['approved'] : ['approved', 'pending'];
-  const STALE_GPS_MS = 10 * 60 * 1000;
+  const STALE_GPS_MS = 2 * 60 * 60 * 1000; // 2 hours window for active online partners
   const offerRadiusKm = Math.min(
     Math.max(Number(maxKm) || 15, 1),
     HARD_MAX_OFFER_DISTANCE_KM,
@@ -240,9 +240,11 @@ async function listNearbyOnlineDeliveryPartners(
 
   // Zone-first: only partners currently inside the order/restaurant zone.
   const inZonePartners = (allOnline || []).filter((p) => {
-    if (p.lastLat == null || p.lastLng == null || !p.lastLocationAt) return false;
-    const ageMs = Date.now() - new Date(p.lastLocationAt).getTime();
-    if (!Number.isFinite(ageMs) || ageMs > STALE_GPS_MS) return false;
+    if (p.lastLat == null || p.lastLng == null) return false;
+    if (p.lastLocationAt) {
+      const ageMs = Date.now() - new Date(p.lastLocationAt).getTime();
+      if (!Number.isFinite(ageMs) || ageMs > STALE_GPS_MS) return false;
+    }
     return isPartnerInsideZone(p, zoneDoc);
   });
 
@@ -324,6 +326,7 @@ export async function tryAutoAssign(orderId, options = {}) {
   const lockTimeout = 55000; // 55 seconds lock interval
 
   const dispatchableStatuses = new Set([
+    'confirmed',
     'preparing',
     'ready_for_pickup',
     'ready',

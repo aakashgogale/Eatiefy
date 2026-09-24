@@ -220,11 +220,22 @@ const attachRestaurantSocketWatchdog = () => {
   // Mobile WebViews freeze sockets in the background and the OS drops them on a
   // network change; reconnect on the way back instead of waiting for a failed
   // heartbeat to notice.
-  window.addEventListener('online', reconnectRestaurantSocket);
-  window.addEventListener('focus', reconnectRestaurantSocket);
+  /*
+   * Coming back to the foreground marks a new session for alert purposes, so
+   * the replay that follows a reconnect cannot ring for orders that arrived
+   * while the app was away. Stamped here as well as in the polling effect
+   * because this watchdog is what handles the `focus` route.
+   */
+  const resumeRestaurantSession = () => {
+    markRestaurantSessionResumed();
+    reconnectRestaurantSocket();
+  };
+
+  window.addEventListener('online', resumeRestaurantSession);
+  window.addEventListener('focus', resumeRestaurantSession);
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') reconnectRestaurantSocket();
+      if (document.visibilityState === 'visible') resumeRestaurantSession();
     });
   }
 
@@ -367,6 +378,35 @@ export const getOrderAcceptDeadline = (orderData = {}) => {
   if (!Number.isFinite(start)) return null;
   const isTakeaway = String(orderData?.orderType || orderData?.type || '').toLowerCase() === 'takeaway';
   return start + (isTakeaway ? acceptWindowSettings.takeawayMs : acceptWindowSettings.deliveryMs);
+};
+
+/*
+ * When this tab last became the active session.
+ *
+ * The accept window is ten minutes, so an order placed while the app was closed
+ * stays "ringable" long after it arrived: reopening the app inside that window
+ * used to start the ringtone for it, which is the stale-alert complaint. Orders
+ * that predate this instant are shown in the list but never announced - only a
+ * genuinely new arrival rings. Polling is what replays them, so this is stamped
+ * on resume, before the poll that follows it reads it.
+ */
+let sessionResumedAt = Date.now();
+
+const markRestaurantSessionResumed = () => {
+  sessionResumedAt = Date.now();
+};
+
+/**
+ * True only for an order that reached this restaurant after the session resumed.
+ * An order with no usable creation stamp cannot be proven new, so it is treated
+ * as a replay and stays silent - the safe direction for a ringtone.
+ */
+const isFreshRestaurantOrder = (orderData = {}) => {
+  const raw = orderData?.restaurantNotifiedAt || orderData?.createdAt;
+  if (!raw) return false;
+  const at = new Date(raw).getTime();
+  if (!Number.isFinite(at)) return false;
+  return at >= sessionResumedAt;
 };
 
 const ALERT_START_PREFIX = 'alert_start_';
@@ -873,6 +913,23 @@ export const useRestaurantNotifications = () => {
 
     updateGlobalState({ newOrder: normalizedOrder });
 
+    /*
+     * A replayed order is shown, not announced.
+     *
+     * A socket event is by definition something that just happened, so it always
+     * rings. Polling is different: it runs on every resume and returns every
+     * order still inside its ten-minute accept window, including ones that
+     * arrived while the app was closed. Ringing for those is the stale-alert
+     * bug, so the poll path only rings for an order newer than this session.
+     */
+    const isReplayedOrder = !isSocket && !isFreshRestaurantOrder(normalizedOrder);
+    if (isReplayedOrder) {
+      debugWarn('[RestaurantAlert] Order restored without ringing (arrived before this session)', {
+        orderId: getOrderAlertKey(normalizedOrder) || null,
+      });
+      return;
+    }
+
     if (!isOrderMuted(normalizedOrder)) {
       // startGlobalAlertLoop already plays the sound immediately (and then loops),
       // so we must NOT play here as well — that caused the double sound.
@@ -1257,6 +1314,9 @@ export const useRestaurantNotifications = () => {
 
     const handleVisibility = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        // Stamp before polling: the poll that follows compares each order
+        // against this marker to decide whether it may ring.
+        markRestaurantSessionResumed();
         pollOrders();
       }
     };

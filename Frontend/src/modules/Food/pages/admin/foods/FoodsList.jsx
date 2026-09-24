@@ -189,12 +189,20 @@ export default function FoodsList() {
       const restaurants = Array.from(restaurantsMap.values())
       setRestaurantsForFilter(
         restaurants
-          .map((restaurant) => ({
-            id: String(restaurant?._id || restaurant?.id || ""),
-            name: restaurant?.name || restaurant?.restaurantName || "Unknown Restaurant",
-            pureVegRestaurant: restaurant?.pureVegRestaurant === true || restaurant?.pureVeganRestaurant === true,
-            pureVeganRestaurant: restaurant?.pureVeganRestaurant === true,
-          }))
+          .map((restaurant) => {
+            const foodType = restaurant?.foodType || (restaurant?.pureVegRestaurant ? "Veg" : "Mixed")
+            const isPureVeg =
+              foodType === "Veg" ||
+              restaurant?.pureVegRestaurant === true ||
+              restaurant?.pureVeganRestaurant === true
+            return {
+              id: String(restaurant?._id || restaurant?.id || ""),
+              name: restaurant?.name || restaurant?.restaurantName || "Unknown Restaurant",
+              foodType,
+              pureVegRestaurant: isPureVeg,
+              pureVeganRestaurant: restaurant?.pureVeganRestaurant === true,
+            }
+          })
           .filter((restaurant) => restaurant.id)
           .sort((a, b) => a.name.localeCompare(b.name))
       )
@@ -393,11 +401,16 @@ export default function FoodsList() {
     const restaurant = restaurantOptions.find(
       (r) => String(r.id) === String(food.restaurantId || ""),
     )
+    const isRestaurantVeg =
+      restaurant?.pureVegRestaurant === true ||
+      restaurant?.pureVeganRestaurant === true ||
+      restaurant?.foodType === "Veg"
     const rawType = String(food.foodType || "Non-Veg")
     let nextFoodType =
-      rawType === "Vegan" ? "Veg" : rawType === "Veg" ? "Veg" : "Non-Veg" // legacy Vegan shows as Veg
-    if (restaurant?.pureVeganRestaurant === true) nextFoodType = "Veg" // was "Vegan" — option disabled
-    else if (restaurant?.pureVegRestaurant === true && nextFoodType === "Non-Veg") {
+      rawType === "Vegan" ? "Veg" : rawType === "Veg" ? "Veg" : "Non-Veg"
+    if (restaurant?.pureVeganRestaurant === true) {
+      nextFoodType = "Veg"
+    } else if (isRestaurantVeg && nextFoodType === "Non-Veg") {
       nextFoodType = "Veg"
     }
     setFoodForm({

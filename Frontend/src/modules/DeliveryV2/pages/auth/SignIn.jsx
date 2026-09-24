@@ -912,7 +912,7 @@ export default function DeliverySignIn() {
                           ))}
                         </div>
 
-                        <div className="flex flex-col items-center gap-4">
+                        <div className="flex flex-col items-center gap-3">
                           <div className="flex items-center gap-2 text-xs font-semibold">
                             {blockTimer > 0 ? (
                               <span className="text-gray-400 uppercase tracking-wider font-extrabold">Resend SMS</span>
@@ -927,6 +927,10 @@ export default function DeliverySignIn() {
                                 Didn't receive SMS? Resend SMS
                               </button>
                             )}
+                          </div>
+                          <div className="w-fit rounded-lg bg-emerald-50 dark:bg-emerald-950/30 px-3 py-1 text-xs text-emerald-800 dark:text-emerald-300 font-medium border border-emerald-200 dark:border-emerald-800/40 flex items-center gap-1.5">
+                            <span>Default OTP:</span>
+                            <span className="font-bold tracking-widest text-[#14472F] dark:text-emerald-200">1234</span>
                           </div>
                         </div>
 

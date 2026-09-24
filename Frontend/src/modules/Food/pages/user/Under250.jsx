@@ -41,6 +41,12 @@ import {
 const getLineItemIdForDish = (item, variant = null) =>
   buildCartLineId(item?.id || item?._id || "", variant?.id || variant?._id || "")
 
+const getVariantForDish = (item, preferredVariantId = "") => {
+  const variants = getFoodVariants(item)
+  if (variants.length === 0) return null
+  return variants.find((variant) => String(variant.id || variant._id) === String(preferredVariantId || "")) || variants[0]
+}
+
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -192,6 +198,7 @@ export default function Under250({ isTabActive = true }) {
   const [under30MinsFilter, setUnder30MinsFilter] = useState(initialFiltersRef.current.under30MinsFilter)
   const [showItemDetail, setShowItemDetail] = useState(false)
   const [selectedItem, setSelectedItem] = useState(null)
+  const [selectedVariantId, setSelectedVariantId] = useState("")
   const [itemDetailQuantity, setItemDetailQuantity] = useState(1)
   const [showShareOptions, setShowShareOptions] = useState(false)
   const [quantities, setQuantities] = useState({})
@@ -902,15 +909,38 @@ export default function Under250({ isTabActive = true }) {
   }, [cart])
 
   useEffect(() => {
-    if (!selectedItem || !showItemDetail) return
+    if (!selectedItem || !showItemDetail) {
+      setSelectedVariantId("")
+      return
+    }
 
-    const defaultVariant = getDefaultFoodVariant(selectedItem)
-    const lineItemId = getLineItemIdForDish(selectedItem, defaultVariant)
-    const existingQuantity = quantities[lineItemId] || 0
-    if (existingQuantity > 0) {
-      setItemDetailQuantity(existingQuantity)
+    const variants = getFoodVariants(selectedItem)
+    const variantInCart = variants.find(v => {
+      const lineItemId = getLineItemIdForDish(selectedItem, v)
+      return quantities[lineItemId] > 0
+    })
+
+    if (variantInCart) {
+      setSelectedVariantId(variantInCart.id || variantInCart._id || "")
+      const lineItemId = getLineItemIdForDish(selectedItem, variantInCart)
+      const existingQuantity = quantities[lineItemId] || 0
+      setItemDetailQuantity(existingQuantity > 0 ? existingQuantity : 1)
+    } else {
+      const defaultVariant = getDefaultFoodVariant(selectedItem)
+      setSelectedVariantId(defaultVariant?.id || defaultVariant?._id || "")
+      const lineItemId = getLineItemIdForDish(selectedItem, defaultVariant)
+      const existingQuantity = quantities[lineItemId] || 0
+      setItemDetailQuantity(existingQuantity > 0 ? existingQuantity : 1)
     }
   }, [quantities, selectedItem, showItemDetail])
+
+  useEffect(() => {
+    if (!selectedItem || !showItemDetail || !selectedVariantId) return
+    const currentVariant = getVariantForDish(selectedItem, selectedVariantId)
+    const lineItemId = getLineItemIdForDish(selectedItem, currentVariant)
+    const existingQuantity = quantities[lineItemId] || 0
+    setItemDetailQuantity(existingQuantity > 0 ? existingQuantity : 1)
+  }, [selectedVariantId])
 
   useEffect(() => {
     if (!showSortPopup) return
@@ -1550,6 +1580,12 @@ export default function Under250({ isTabActive = true }) {
                         <Clock className="h-3.5 w-3.5 md:h-4 md:w-4" strokeWidth={2.5} />
                         <span>{restaurant.deliveryTime}</span>
                       </div>
+                      {availabilityStatus?.isOpen && availabilityStatus?.closingCountdownLabel && (
+                        <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/40 text-[10px] md:text-xs font-semibold">
+                          <Timer className="h-3 w-3 md:h-3.5 md:w-3.5 flex-shrink-0" strokeWidth={2.5} />
+                          <span>{availabilityStatus.closingCountdownLabel}</span>
+                        </div>
+                      )}
                       <div className="w-[1px] h-3 bg-gray-200 dark:bg-gray-800 hidden xs:block"></div>
                       <div className="flex items-center gap-1.5 text-xs md:text-sm font-semibold text-gray-500 dark:text-gray-400">
                         <MapPin className="h-3.5 w-3.5 md:h-4 md:w-4" strokeWidth={2.5} />
@@ -1687,24 +1723,35 @@ export default function Under250({ isTabActive = true }) {
                                     </button>
                                   </div>
                                 ) : (
-                                  <Button
-                                    variant={"ghost"}
-                                    size="sm"
-                                    disabled={isOffline}
-                                    className={`h-7 md:h-8 lg:h-9 px-3 md:px-4 lg:px-5 text-xs md:text-sm lg:text-base font-bold shadow-md transition-all active:scale-95 ${isOffline
-                                      ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 border-gray-300 dark:border-gray-700 cursor-not-allowed opacity-50'
-                                      : 'bg-[#1F6B45] text-white hover:bg-[#14512F]'
-                                      }`}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      if (!isOffline) {
-                                        const defaultVariant = getDefaultFoodVariant(item)
-                                        updateItemQuantity(item, 1, e, restaurant.name, defaultVariant, restaurant)
-                                      }
-                                    }}
-                                  >
-                                    Add
-                                  </Button>
+                                  <div className="flex flex-col items-center">
+                                    <Button
+                                      variant={"ghost"}
+                                      size="sm"
+                                      disabled={isOffline}
+                                      className={`h-7 md:h-8 lg:h-9 px-3 md:px-4 lg:px-5 text-xs md:text-sm lg:text-base font-bold shadow-md transition-all active:scale-95 ${isOffline
+                                        ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 border-gray-300 dark:border-gray-700 cursor-not-allowed opacity-50'
+                                        : 'bg-[#1F6B45] text-white hover:bg-[#14512F]'
+                                        }`}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (!isOffline) {
+                                          if (hasFoodVariants(item)) {
+                                            handleItemClick(item, restaurant)
+                                          } else {
+                                            const defaultVariant = getDefaultFoodVariant(item)
+                                            updateItemQuantity(item, 1, e, restaurant.name, defaultVariant, restaurant)
+                                          }
+                                        }
+                                      }}
+                                    >
+                                      Add
+                                    </Button>
+                                    {hasFoodVariants(item) && (
+                                      <span className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 tracking-tight whitespace-nowrap mt-0.5 select-none text-center block">
+                                        customisable
+                                      </span>
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -1989,6 +2036,68 @@ export default function Under250({ isTabActive = true }) {
                     NOT ELIGIBLE FOR COUPONS
                   </p>
                 )}
+
+                {hasFoodVariants(selectedItem) && (
+                  <div className="mb-4 md:mb-6">
+                    <div className="flex items-center justify-between mb-2.5">
+                      <div>
+                        <p className="text-sm md:text-base font-bold text-gray-900 dark:text-white">Quantity</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Select any 1 option</p>
+                      </div>
+                      <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-2.5 py-0.5 rounded-full border border-red-200/60 dark:border-red-800/40">
+                        Required
+                      </span>
+                    </div>
+                    <div className="space-y-2.5">
+                      {getFoodVariants(selectedItem).map((variant) => {
+                        const vId = variant.id || variant._id
+                        const isSelected = String(selectedVariantId || "") === String(vId)
+                        return (
+                          <button
+                            key={vId}
+                            type="button"
+                            onClick={() => setSelectedVariantId(vId)}
+                            className={`w-full flex items-center justify-between p-3.5 sm:p-4 rounded-2xl border transition-all text-left cursor-pointer ${
+                              isSelected
+                                ? "border-red-500 bg-red-50/50 dark:border-red-500/70 dark:bg-red-950/20 shadow-sm ring-1 ring-red-500/20"
+                                : "border-gray-200 dark:border-gray-700/80 bg-white dark:bg-[#1e1e1e] hover:border-gray-300 dark:hover:border-gray-600"
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div
+                                className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                                  isSelected
+                                    ? "border-red-500 bg-white dark:bg-[#1e1e1e]"
+                                    : "border-gray-400 dark:border-gray-500"
+                                }`}
+                              >
+                                {isSelected && (
+                                  <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
+                                )}
+                              </div>
+                              <span
+                                className={`text-sm sm:text-base ${
+                                  isSelected
+                                    ? "font-bold text-gray-900 dark:text-white"
+                                    : "font-semibold text-gray-700 dark:text-gray-300"
+                                }`}
+                              >
+                                {variant.name}
+                              </span>
+                            </div>
+                            <span
+                              className={`text-sm sm:text-base font-bold ${
+                                isSelected ? "text-gray-900 dark:text-white" : "text-gray-700 dark:text-gray-300"
+                              }`}
+                            >
+                              {RUPEE_SYMBOL}{Math.round(variant.price)}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Bottom Action Bar */}
@@ -2045,43 +2154,53 @@ export default function Under250({ isTabActive = true }) {
                   </div>
 
                   {/* Add / Update Item Button */}
-                  <Button
-                    className={`flex-1 h-[44px] md:h-[50px] lg:h-[56px] rounded-lg md:rounded-xl font-semibold flex items-center justify-center gap-2 text-sm md:text-base lg:text-lg ${
-                      (shouldShowGrayscale || selectedItem.isRestaurantOffline)
-                        ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-600 cursor-not-allowed opacity-50'
-                        : 'bg-[#1F6B45] hover:bg-[#14512F] dark:bg-[#1F6B45] dark:hover:bg-[#14512F] text-white'
-                        }`}
-                    onClick={(e) => {
-                      if (!shouldShowGrayscale && !selectedItem.isRestaurantOffline) {
-                        const defaultVariant = getDefaultFoodVariant(selectedItem)
-                        updateItemQuantity(selectedItem, itemDetailQuantity, e, selectedItem.restaurant, defaultVariant, { restaurantId: selectedItem.restaurantId, zoneId: selectedItem.restaurantZoneId })
-                        closeItemDetail()
-                      }
-                    }}
-                    disabled={shouldShowGrayscale || selectedItem.isRestaurantOffline}
-                  >
-                    <span>{quantities[getLineItemIdForDish(selectedItem, getDefaultFoodVariant(selectedItem))] > 0 ? "Update item" : "Add item"}</span>
-                    <span className="text-base md:text-lg lg:text-xl font-bold">
-                      {RUPEE_SYMBOL}{Math.round((getDefaultFoodVariant(selectedItem)?.price ?? selectedItem.price) * itemDetailQuantity)}
-                    </span>
-                  </Button>
+                  {(() => {
+                    const activeVariant = getVariantForDish(selectedItem, selectedVariantId) || getDefaultFoodVariant(selectedItem);
+                    const activeLineItemId = getLineItemIdForDish(selectedItem, activeVariant);
+                    const lineQty = quantities[activeLineItemId] || 0;
+                    const unitPrice = activeVariant?.price ?? selectedItem.price ?? 0;
+                    const currentPrice = Math.round(unitPrice * itemDetailQuantity);
 
-                  {/* Remove Button when item is in cart */}
-                  {quantities[getLineItemIdForDish(selectedItem, getDefaultFoodVariant(selectedItem))] > 0 && (
-                    <Button
-                      variant="outline"
-                      className="h-[44px] md:h-[50px] lg:h-[56px] px-3 md:px-4 rounded-lg md:rounded-xl font-semibold text-red-600 border-red-200 hover:bg-red-50 text-xs md:text-sm"
-                      onClick={(e) => {
-                        if (!shouldShowGrayscale && !selectedItem.isRestaurantOffline) {
-                          const defaultVariant = getDefaultFoodVariant(selectedItem)
-                          updateItemQuantity(selectedItem, 0, e, selectedItem.restaurant, defaultVariant, { restaurantId: selectedItem.restaurantId, zoneId: selectedItem.restaurantZoneId })
-                          closeItemDetail()
-                        }
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  )}
+                    return (
+                      <>
+                        <Button
+                          className={`flex-1 h-[44px] md:h-[50px] lg:h-[56px] rounded-lg md:rounded-xl font-semibold flex items-center justify-center gap-2 text-sm md:text-base lg:text-lg ${
+                            (shouldShowGrayscale || selectedItem.isRestaurantOffline)
+                              ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-600 cursor-not-allowed opacity-50'
+                              : 'bg-[#1F6B45] hover:bg-[#14512F] dark:bg-[#1F6B45] dark:hover:bg-[#14512F] text-white'
+                              }`}
+                          onClick={(e) => {
+                            if (!shouldShowGrayscale && !selectedItem.isRestaurantOffline) {
+                              updateItemQuantity(selectedItem, itemDetailQuantity, e, selectedItem.restaurant, activeVariant, { restaurantId: selectedItem.restaurantId, zoneId: selectedItem.restaurantZoneId })
+                              closeItemDetail()
+                            }
+                          }}
+                          disabled={shouldShowGrayscale || selectedItem.isRestaurantOffline}
+                        >
+                          <span>{lineQty > 0 ? "Update item" : "Add item"}</span>
+                          <span className="text-base md:text-lg lg:text-xl font-bold">
+                            {RUPEE_SYMBOL}{currentPrice}
+                          </span>
+                        </Button>
+
+                        {/* Remove Button when item is in cart */}
+                        {lineQty > 0 && (
+                          <Button
+                            variant="outline"
+                            className="h-[44px] md:h-[50px] lg:h-[56px] px-3 md:px-4 rounded-lg md:rounded-xl font-semibold text-red-600 border-red-200 hover:bg-red-50 text-xs md:text-sm"
+                            onClick={(e) => {
+                              if (!shouldShowGrayscale && !selectedItem.isRestaurantOffline) {
+                                updateItemQuantity(selectedItem, 0, e, selectedItem.restaurant, activeVariant, { restaurantId: selectedItem.restaurantId, zoneId: selectedItem.restaurantZoneId })
+                                closeItemDetail()
+                              }
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             </motion.div>

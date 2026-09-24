@@ -99,11 +99,6 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
   const errorShownRef = useRef(null);
 
   useEffect(() => {
-    if (!shouldTrack) {
-      backgroundLocationManager.stop();
-      return undefined;
-    }
-
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       setGpsError?.({ kind: 'unsupported', title: 'Location not supported on this device' });
       return undefined;
@@ -112,20 +107,24 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
     let disposed = false;
     let trailingTimer = null;
 
-    // Start background anti-throttling (wake lock, web audio keep-alive, visibility listener)
-    backgroundLocationManager.start({
-      onResume: () => {
-        if (disposed) return;
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            onPosition(pos);
-            if (lastFixRef.current) publish(lastFixRef.current, { force: true });
-          },
-          onError,
-          { ...GEO_OPTIONS, maximumAge: 0 },
-        );
-      },
-    });
+    if (shouldTrack) {
+      // Start background anti-throttling (wake lock, web audio keep-alive, visibility listener)
+      backgroundLocationManager.start({
+        onResume: () => {
+          if (disposed) return;
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              onPosition(pos);
+              if (lastFixRef.current) publish(lastFixRef.current, { force: true });
+            },
+            onError,
+            { ...GEO_OPTIONS, maximumAge: 0 },
+          );
+        },
+      });
+    } else {
+      backgroundLocationManager.stop();
+    }
 
     const publish = (fix, { force = false } = {}) => {
       // A simulated test ride owns the published position while it runs.
@@ -156,6 +155,7 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
               heading: fix.heading,
               speed: fix.speed,
               accuracy: fix.accuracy,
+              timestamp: fix.timestamp || now,
             }),
           );
           if (socketSent) lastSocketRef.current = { at: now, lat: fix.lat, lng: fix.lng };
@@ -168,17 +168,20 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
         }
       }
 
-      const socketHealthy = socketConnectedRef.current && now - lastSocketRef.current.at < LOCATION_CONFIG.SOCKET_MAX_SILENCE_MS * 2;
-      const httpInterval = orderId && !socketHealthy ? LOCATION_CONFIG.HTTP_FALLBACK_MS : LOCATION_CONFIG.HTTP_HEARTBEAT_MS;
-      if (force || now - lastHttpAtRef.current >= httpInterval) {
-        lastHttpAtRef.current = now;
-        deliveryAPI
-          .updateLocation(fix.lat, fix.lng, isOnlineRef.current || activeOrders.length > 0, {
-            heading: fix.heading,
-            speed: fix.speed,
-            accuracy: fix.accuracy,
-          })
-          .catch(() => {});
+      if (shouldTrack) {
+        const socketHealthy = socketConnectedRef.current && now - lastSocketRef.current.at < LOCATION_CONFIG.SOCKET_MAX_SILENCE_MS * 2;
+        const httpInterval = orderId && !socketHealthy ? LOCATION_CONFIG.HTTP_FALLBACK_MS : LOCATION_CONFIG.HTTP_HEARTBEAT_MS;
+        if (force || now - lastHttpAtRef.current >= httpInterval) {
+          lastHttpAtRef.current = now;
+          deliveryAPI
+            .updateLocation(fix.lat, fix.lng, isOnlineRef.current || activeOrders.length > 0, {
+              heading: fix.heading,
+              speed: fix.speed,
+              accuracy: fix.accuracy,
+              timestamp: fix.timestamp || now,
+            })
+            .catch(() => {});
+        }
       }
     };
 
@@ -191,15 +194,12 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
       const acc = Number.isFinite(accuracy) ? accuracy : null;
 
       // Accuracy Filtering:
-      // If we have an active recent fix, discard updates with accuracy > MAX_ACCURACY_THRESHOLD_M.
-      // If waiting for initial lock, allow up to MAX_INITIAL_ACCURACY_M.
+      // If we have an active recent high-accuracy fix, discard updates with accuracy > MAX_ACCURACY_THRESHOLD_M.
+      // If waiting for initial lock, allow any reasonable fix so initial UI placement happens in one go.
       const hasRecentGoodFix = lastGoodFixAtRef.current > 0 && now - lastGoodFixAtRef.current < LOCATION_CONFIG.GOOD_FIX_FRESH_MS;
       if (acc != null) {
         if (hasRecentGoodFix && acc > LOCATION_CONFIG.MAX_ACCURACY_THRESHOLD_M) {
           return; // Ignore noisy fix when a good fix arrived recently
-        }
-        if (!hasRecentGoodFix && acc > LOCATION_CONFIG.MAX_INITIAL_ACCURACY_M) {
-          return; // Even initial fix cannot exceed initial threshold
         }
         if (acc <= LOCATION_CONFIG.MAX_ACCURACY_THRESHOLD_M) {
           lastGoodFixAtRef.current = now;
@@ -247,7 +247,7 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
 
         // While a simulated test ride runs, it owns the marker; real fix is still kept in lastFixRef
         if (!riderGpsPaused) setRiderLocation(fix);
-        publish(fix);
+        if (shouldTrack) publish(fix);
       }
     };
 
@@ -274,13 +274,27 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
       }
     };
 
-    navigator.geolocation.getCurrentPosition(onPosition, onError, GEO_OPTIONS);
+    // 1. Fast immediate fetch (cached/low-power GPS for instant UI lock in < 150ms)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => onPosition(pos),
+      () => {},
+      { enableHighAccuracy: false, maximumAge: 60000, timeout: 3000 }
+    );
+
+    // 2. High accuracy fresh fix
+    navigator.geolocation.getCurrentPosition(
+      (pos) => onPosition(pos),
+      onError,
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 8000 }
+    );
+
+    // 3. Continuous real-time stream
     const watchId = navigator.geolocation.watchPosition(onPosition, onError, GEO_OPTIONS);
 
     // Heartbeat: a stationary rider (no watch callbacks) still keeps the customer
     // map and the backend's availability fresh.
     const heartbeat = setInterval(() => {
-      if (lastFixRef.current) publish(lastFixRef.current);
+      if (shouldTrack && lastFixRef.current) publish(lastFixRef.current);
     }, LOCATION_CONFIG.HTTP_FALLBACK_MS);
 
     return () => {
@@ -291,6 +305,20 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
       clearInterval(heartbeat);
     };
   }, [shouldTrack, setRiderLocation, setGpsError]);
+
+  // When rider goes online, immediately push the latest known position if available
+  useEffect(() => {
+    if (isOnline && lastFixRef.current) {
+      deliveryAPI
+        .updateLocation(lastFixRef.current.lat, lastFixRef.current.lng, true, {
+          heading: lastFixRef.current.heading,
+          speed: lastFixRef.current.speed,
+          accuracy: lastFixRef.current.accuracy,
+          timestamp: lastFixRef.current.timestamp || Date.now(),
+        })
+        .catch(() => {});
+    }
+  }, [isOnline]);
 
   // The socket just (re)connected: send the latest fix straight away.
   useEffect(() => {
@@ -307,6 +335,7 @@ export function useRiderLocationSync({ emitLocation, isSocketConnected } = {}) {
           heading: fix.heading,
           speed: fix.speed,
           accuracy: fix.accuracy,
+          timestamp: fix.timestamp || Date.now(),
         });
       }
     }

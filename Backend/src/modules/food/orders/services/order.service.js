@@ -1739,12 +1739,10 @@ export async function updateOrderStatusRestaurant(
   try {
     const io = getIO();
     if (io) {
-      // Restaurant accept moves the order into preparing. Delivery dispatch must
-      // not start from the initial user-placed "confirmed" state.
+      // Restaurant accept moves the order into preparing/confirmed.
       // Only delivery orders get a rider — takeaway & dining are excluded.
       if (
-        String(orderStatus) === "preparing" &&
-        String(from) !== "preparing" &&
+        (String(orderStatus) === "preparing" || String(orderStatus) === "confirmed") &&
         order.orderType === "delivery"
       ) {
         console.log(

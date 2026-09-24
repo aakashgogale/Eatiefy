@@ -6,6 +6,7 @@ import {
   applyOtherPriceToFood,
   loadActivePricingRulesForRestaurants,
 } from '../../admin/services/otherPrice.service.js';
+import { serializeFoodVariants } from '../../admin/services/foodVariant.service.js';
 import {
   buildOrderItemsFromFoodCart,
 } from '../../user/services/foodCart.service.js';
@@ -69,7 +70,8 @@ export async function enforceMinimumFoodItemPrices(items = [], restaurantId = nu
       throw new ValidationError(`"${label}" does not belong to the selected restaurant.`);
     }
 
-    const hasVariantsInDB = doc.variants && doc.variants.length > 0;
+    const serializedVariants = serializeFoodVariants(doc.variants || doc.variations || []);
+    const hasVariantsInDB = serializedVariants.length > 0;
     if (hasVariantsInDB && !item.variantId) {
       throw new ValidationError(`Please select an option for "${label}" before adding to cart.`);
     }
@@ -85,16 +87,30 @@ export async function enforceMinimumFoodItemPrices(items = [], restaurantId = nu
     let pricingRule = priced.pricingRule || null;
 
     if (item.variantId && hasVariantsInDB) {
+      const vid = String(item.variantId).trim();
       const variant =
         (priced.variants || []).find(
-          (v) => String(v.id || v._id) === String(item.variantId),
-        ) || doc.variants.find((v) => String(v._id) === String(item.variantId));
+          (v, index) =>
+            String(v.id || '') === vid ||
+            String(v._id || '') === vid ||
+            `variant-${index}` === vid ||
+            String(index) === vid ||
+            String(v.name || '').trim().toLowerCase() === vid.trim().toLowerCase(),
+        ) ||
+        serializedVariants.find(
+          (v, index) =>
+            String(v.id || '') === vid ||
+            String(v._id || '') === vid ||
+            `variant-${index}` === vid ||
+            String(index) === vid ||
+            String(v.name || '').trim().toLowerCase() === vid.trim().toLowerCase(),
+        );
       if (!variant) {
         throw new ValidationError(
           `Selected option for "${label}" is no longer available. Please refresh your cart.`,
         );
       }
-      const variantBase = Number(variant.basePrice);
+      const variantBase = Number(variant.basePrice ?? variant.price);
       if (Number.isFinite(variantBase) && variantBase >= 0) {
         basePrice = variantBase;
         liveSellingPrice = Number(variant.price) || variantBase;

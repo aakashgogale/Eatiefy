@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { showUserFacingApiError } from '@/shared/utils/apiError';
 import { formatTripDistanceKm } from '@/modules/DeliveryV2/hooks/useProximityCheck';
 import { openCamera, openGallery } from "@food/utils/imageUploadUtils";
+import { extractUserNote } from '@/modules/DeliveryV2/components/modals/DeliveryVerificationModal';
 
 /**
  * PickupActionModal - Unified White/Green Theme with Slider Actions.
@@ -384,12 +385,12 @@ export const PickupActionModal = ({
           )}
 
           {/* Delivery Instructions (User Note) */}
-          {order?.note && (
+          {Boolean(extractUserNote(order)) && (
             <div className="bg-orange-50 border border-orange-100 rounded-2xl p-3.5 sm:p-4 flex gap-3 items-start">
               <ChefHat className="w-5 h-5 text-orange-500 mt-0.5 shrink-0" />
               <div>
-                <p className="text-[10px] font-bold text-orange-600 uppercase tracking-widest mb-1.5">User Instructions</p>
-                <p className="text-sm font-bold text-gray-800 leading-snug">"{order.note}"</p>
+                <p className="text-[10px] font-bold text-orange-600 uppercase tracking-widest mb-1.5">User Instructions / Note</p>
+                <p className="text-sm font-bold text-gray-800 leading-snug">"{extractUserNote(order)}"</p>
               </div>
             </div>
           )}

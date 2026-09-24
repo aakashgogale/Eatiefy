@@ -221,6 +221,7 @@ export const initSocket = async (server) => {
                     heading: data.heading,
                     speed: data.speed,
                     accuracy: data.accuracy,
+                    timestamp: data.timestamp,
                     requestedOrderId: data.orderId || null,
                     source: 'socket',
                     excludeSocket: socket,

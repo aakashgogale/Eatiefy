@@ -26,6 +26,8 @@ export class KalmanLocationFilter {
     this.speed = 0;
     this.heading = 0;
     this.isStationary = false;
+    this.lastHeadingLat = null;
+    this.lastHeadingLng = null;
   }
 
   /**
@@ -87,6 +89,8 @@ export class KalmanLocationFilter {
       this.speed = rawSpeed ?? 0;
       this.heading = rawHeading ?? 0;
       this.isStationary = this.speed < this.config.STATIONARY_SPEED_THRESHOLD_MPS;
+      this.lastHeadingLat = this.lat;
+      this.lastHeadingLng = this.lng;
       return this.getState();
     }
 
@@ -102,6 +106,8 @@ export class KalmanLocationFilter {
       this.timestamp = now;
       this.speed = rawSpeed ?? 0;
       if (rawHeading != null) this.heading = rawHeading;
+      this.lastHeadingLat = this.lat;
+      this.lastHeadingLng = this.lng;
       return this.getState();
     }
 
@@ -129,7 +135,10 @@ export class KalmanLocationFilter {
 
     // If candidate is stationary and displacement is within normal GPS noise radius,
     // lock position and preserve heading so the marker doesn't wobble or spin
-    const noiseRadius = Math.max(this.config.MIN_UPDATE_DISTANCE_M, Math.min(rawAcc * 0.4, 6));
+    const noiseRadius = Math.max(
+      this.config.MIN_UPDATE_DISTANCE_M,
+      Math.min(rawAcc * 0.4, this.config.STATIONARY_NOISE_THRESHOLD_M || 6)
+    );
     if (isStationaryCandidate && distanceMoved < noiseRadius) {
       this.isStationary = true;
       this.speed = 0;
@@ -173,14 +182,25 @@ export class KalmanLocationFilter {
     this.timestamp = now;
 
     // --- Heading Resolution & Smoothing ---
-    // If device supplies reliable heading while moving, smooth towards it.
-    // If not, derive heading from vector displacement only if movement is meaningful.
-    if (this.speed >= this.config.MIN_SPEED_FOR_HEADING_MPS) {
-      let targetHeading = rawHeading;
-      if (targetHeading == null && distanceMoved > this.config.MIN_UPDATE_DISTANCE_M) {
-        targetHeading = calculateHeading(this.lat, this.lng, raw.lat, raw.lng);
+    // If device supplies reliable hardware heading while moving, smooth towards it.
+    // If not, derive heading from vector displacement only if movement exceeds HEADING_MIN_MOVE_DISTANCE_M.
+    if (this.speed >= this.config.MIN_SPEED_FOR_HEADING_MPS && !this.isStationary) {
+      let targetHeading = null;
+      if (rawHeading !== null && Number.isFinite(rawHeading) && rawHeading > 0) {
+        targetHeading = rawHeading;
+      } else if (this.lastHeadingLat !== null && this.lastHeadingLng !== null) {
+        const headingDist = getHaversineDistance(this.lastHeadingLat, this.lastHeadingLng, this.lat, this.lng);
+        if (headingDist >= this.config.HEADING_MIN_MOVE_DISTANCE_M) {
+          targetHeading = calculateHeading(this.lastHeadingLat, this.lastHeadingLng, this.lat, this.lng);
+          this.lastHeadingLat = this.lat;
+          this.lastHeadingLng = this.lng;
+        }
+      } else {
+        this.lastHeadingLat = this.lat;
+        this.lastHeadingLng = this.lng;
       }
-      if (Number.isFinite(targetHeading)) {
+
+      if (targetHeading !== null && Number.isFinite(targetHeading)) {
         this.heading = this.smoothHeading(this.heading, targetHeading, 0.4);
       }
     }

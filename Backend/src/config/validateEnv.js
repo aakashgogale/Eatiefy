@@ -38,7 +38,7 @@ export const validateConfig = () => {
             missing.push(`ASSET_BASE_URL must not point at localhost in production (got "${assetBase}")`);
         }
     } else if (!config.uploadRemoteOrigin) {
-        missing.push('UPLOAD_REMOTE_ORIGIN (e.g. https://omettofood.com) so local uploads go to the server, not a local folder');
+        logger.warn('[CONFIG] UPLOAD_REMOTE_ORIGIN not set; uploads will be stored locally.');
     }
 
     if (missing.length > 0) {

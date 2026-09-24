@@ -819,9 +819,7 @@ const RestaurantCard = React.memo(({
                           : "Offline"}
                       </span>
                       {availability.isOpen &&
-                        availability.closingCountdownLabel &&
-                        availability.openingTime &&
-                        availability.closingTime && (
+                        availability.closingCountdownLabel && (
                           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-[10px] font-medium uppercase tracking-wide">
                             <Timer
                               className="h-3 w-3 flex-shrink-0"

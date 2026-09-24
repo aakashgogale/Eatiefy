@@ -13,7 +13,7 @@ import { mapOrderLocations } from '@/modules/DeliveryV2/utils/orderMapping';
 // Components
 import LiveMap from '@/modules/DeliveryV2/components/map/LiveMap';
 import { PickupActionModal } from '@/modules/DeliveryV2/components/modals/PickupActionModal';
-import { DeliveryVerificationModal } from '@/modules/DeliveryV2/components/modals/DeliveryVerificationModal';
+import { DeliveryVerificationModal, extractUserNote } from '@/modules/DeliveryV2/components/modals/DeliveryVerificationModal';
 import { OrderSummaryModal } from '@/modules/DeliveryV2/components/modals/OrderSummaryModal';
 import ActionSlider from '@/modules/DeliveryV2/components/ui/ActionSlider';
 import OrderSwitcher from '@/modules/DeliveryV2/components/orders/OrderSwitcher';
@@ -33,6 +33,7 @@ import {
 
 import { getHaversineDistance, calculateETA, calculateHeading } from '@/modules/DeliveryV2/utils/geo';
 import { setRiderGpsPaused } from '@/modules/DeliveryV2/hooks/useRiderLocationSync';
+import { computeDrivingRoute } from '@food/utils/drivingRoute';
 
 /*
  * Test-ride simulation.
@@ -48,14 +49,27 @@ import { setRiderGpsPaused } from '@/modules/DeliveryV2/hooks/useRiderLocationSy
 const SIMULATION_ENABLED =
   import.meta.env.DEV || String(import.meta.env.VITE_ENABLE_MAP_SIMULATION || '').toLowerCase() === 'true';
 /** Fraction of the current road segment covered per tick (50ms) — about 1.6 segments/sec. */
-const SIM_STEP = 0.08;
-const SIM_TICK_MS = 50;
+const SIM_STEP = 0.12;
+const SIM_TICK_MS = 60;
 /** Matches the server's broadcast throttle; no point publishing faster. */
-const SIM_PUBLISH_EVERY_MS = 2000;
+const SIM_PUBLISH_EVERY_MS = 1500;
 const SIM_FALLBACK_STEPS = 60;
 
 const parseSimPoint = (raw) => {
   if (!raw) return null;
+  if (Array.isArray(raw) && raw.length >= 2) {
+    const lng = Number(raw[0]);
+    const lat = Number(raw[1]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+  }
+  if (Array.isArray(raw.coordinates) && raw.coordinates.length >= 2) {
+    const lng = Number(raw.coordinates[0]);
+    const lat = Number(raw.coordinates[1]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+  }
+  if (raw.location) {
+    return parseSimPoint(raw.location);
+  }
   const lat = Number(raw.lat ?? raw.latitude);
   const lng = Number(raw.lng ?? raw.longitude);
   return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
@@ -120,6 +134,8 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   const { isWithinRange, distanceToTarget } = useProximityCheck();
   const { acceptOrder, reachPickup, pickUpOrder, reachDrop, completeDelivery, resetTrip } = useOrderManager();
   const { newOrder, clearNewOrder, dismissNewOrder, isOrderAlertMuted, toggleOrderAlertMuted, orderStatusUpdate, clearOrderStatusUpdate, claimedOrderId, clearClaimedOrderId, adminNotification, clearAdminNotification, isConnected: isSocketConnected, emitLocation } = useDeliveryNotificationsContext();
+  const newOrders = useDeliveryStore((state) => state.newOrders);
+  const currentOffer = newOrder || (newOrders && newOrders.length > 0 ? newOrders[0] : null);
   const companyName = useCompanyName();
   const { items: broadcastItems, unreadCount: notificationUnreadCount, markAsRead: markBroadcastAsRead, dismissAll: dismissAllBroadcast } = useNotificationInbox("delivery", { limit: 20 });
 
@@ -159,17 +175,32 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
    */
   useEffect(() => {
     if (!SIMULATION_ENABLED || !isSimMode) return undefined;
-    if (simPath.length < 2 || simIndex >= simPath.length - 1) return undefined;
+    if (!Array.isArray(simPath) || simPath.length < 2) return undefined;
 
+    let localIdx = 0;
     let progress = 0;
+
     const interval = setInterval(() => {
-      progress += SIM_STEP;
-      if (progress >= 1) {
-        setSimIndex((i) => i + 1);
+      if (localIdx >= simPath.length - 1) {
+        setIsSimMode(false);
+        toast.success('Test ride reached destination!');
         return;
       }
-      const from = simPath[simIndex];
-      const to = simPath[simIndex + 1];
+
+      progress += SIM_STEP;
+      if (progress >= 1) {
+        progress = 0;
+        localIdx += 1;
+        setSimIndex(localIdx);
+        if (localIdx >= simPath.length - 1) {
+          setIsSimMode(false);
+          toast.success('Test ride reached destination!');
+          return;
+        }
+      }
+
+      const from = simPath[localIdx];
+      const to = simPath[localIdx + 1];
       if (!from || !to) return;
 
       const lat = from.lat + (to.lat - from.lat) * progress;
@@ -180,20 +211,20 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
       mapRef.current?.panTo({ lat, lng });
 
       const now = Date.now();
-      if (now - lastSimPublishAtRef.current < SIM_PUBLISH_EVERY_MS) return;
-      lastSimPublishAtRef.current = now;
+      if (now - lastSimPublishAtRef.current >= SIM_PUBLISH_EVERY_MS) {
+        lastSimPublishAtRef.current = now;
 
-      // Same three channels the real GPS hook uses.
-      const orderId = activeOrder?.orderId || activeOrder?._id;
-      deliveryAPI.updateLocation(lat, lng, true, { heading }).catch(() => {});
-      if (orderId) {
-        emitLocation?.({ orderId, lat, lng, heading, speed: 0, accuracy: 5 });
-        writeOrderTracking(orderId, { lat, lng, heading, status: tripStatus, eta }).catch(() => {});
+        const orderId = activeOrder?.orderId || activeOrder?._id;
+        deliveryAPI.updateLocation(lat, lng, true, { heading }).catch(() => {});
+        if (orderId) {
+          emitLocation?.({ orderId, lat, lng, heading, speed: 20, accuracy: 5 });
+          writeOrderTracking(orderId, { lat, lng, heading, status: tripStatus, eta }).catch(() => {});
+        }
       }
     }, SIM_TICK_MS);
 
     return () => clearInterval(interval);
-  }, [isSimMode, simPath, simIndex, activeOrder, emitLocation, setRiderLocation, tripStatus, eta]);
+  }, [isSimMode, simPath, activeOrder, emitLocation, setRiderLocation, tripStatus, eta]);
 
   // Real GPS must not publish or move the marker while the test ride runs.
   useEffect(() => {
@@ -223,7 +254,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   }, []);
 
   /** Starts/stops the simulated ride toward the current leg's destination. */
-  const toggleSimulation = useCallback(() => {
+  const toggleSimulation = useCallback(async () => {
     if (!SIMULATION_ENABLED) return;
 
     if (isSimMode) {
@@ -234,8 +265,11 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
 
     const goingToCustomer = tripStatus === 'PICKED_UP' || tripStatus === 'REACHED_DROP';
     const target = parseSimPoint(
-      goingToCustomer ? activeOrder?.customerLocation : activeOrder?.restaurantLocation,
+      goingToCustomer
+        ? (activeOrder?.customerLiveLocation || activeOrder?.customerLocation || activeOrder?.deliveryAddress?.location || activeOrder?.address?.location || activeOrder?.deliveryAddress || activeOrder?.address)
+        : (activeOrder?.restaurantLocation || activeOrder?.restaurantId?.location || activeOrder?.restaurant?.location)
     );
+
     if (!target) {
       toast.error('Accept an order first', {
         description: 'The test ride follows the route to the restaurant or the customer.',
@@ -247,17 +281,30 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     // the destination so there is always a visible stretch to travel.
     const start =
       parseSimPoint(useDeliveryStore.getState().riderLocation) ||
-      { lat: target.lat + 0.01, lng: target.lng + 0.01 };
+      (goingToCustomer ? parseSimPoint(activeOrder?.restaurantLocation || activeOrder?.restaurantId?.location) : null) ||
+      { lat: target.lat + 0.015, lng: target.lng + 0.015 };
 
     setRiderLocation({ lat: start.lat, lng: start.lng, heading: 0 });
     setSimIndex(0);
     lastSimPublishAtRef.current = 0;
+
     // The map's road route replaces this as soon as it arrives (handleSimPath).
     setSimPath(buildFallbackPath(start, target));
     setIsSimMode(true);
     toast.warning('Test ride started', {
-      description: 'The customer app will see this simulated movement.',
+      description: goingToCustomer ? 'Simulating delivery route to customer' : 'Simulating pickup route to restaurant',
     });
+
+    // Also fetch the real driving route directly
+    try {
+      const route = await computeDrivingRoute(start, target);
+      if (route?.path && Array.isArray(route.path) && route.path.length >= 2) {
+        setSimPath(route.path);
+        setSimIndex(0);
+      }
+    } catch (e) {
+      console.warn('[Simulation] computeDrivingRoute fallback:', e);
+    }
   }, [isSimMode, tripStatus, activeOrder, setRiderLocation]);
 
   const routeProgressRef = useRef(null);
@@ -272,7 +319,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   const rollingSpeedRef = useRef([]);
   const lastAutoArrivalRef = useRef({ PICKING_UP: false, PICKED_UP: false });
 
-  const [zoom, setZoom] = useState(14);
+  const [zoom, setZoom] = useState(13.5);
 
   const isLoggingOut = useRef(false);
   const gpsBlockedToastShown = useRef(false);
@@ -562,12 +609,34 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
 
 
   const handleCenterMap = () => {
-    if (mapRef.current && useDeliveryStore.getState().riderLocation) {
-      const loc = useDeliveryStore.getState().riderLocation;
-      mapRef.current.panTo({ 
-        lat: parseFloat(loc.lat || loc.latitude), 
-        lng: parseFloat(loc.lng || loc.longitude) 
-      });
+    const loc = useDeliveryStore.getState().riderLocation;
+    if (mapRef.current && loc) {
+      const lat = parseFloat(loc.lat || loc.latitude);
+      const lng = parseFloat(loc.lng || loc.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        mapRef.current.panTo({ lat, lng });
+        mapRef.current.setZoom(13.5);
+      }
+    } else if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const fix = {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            heading: pos.coords.heading || 0,
+            speed: pos.coords.speed || 0,
+            accuracy: pos.coords.accuracy,
+            timestamp: Date.now(),
+          };
+          useDeliveryStore.getState().setRiderLocation(fix);
+          if (mapRef.current) {
+            mapRef.current.panTo({ lat: fix.lat, lng: fix.lng });
+            mapRef.current.setZoom(13.5);
+          }
+        },
+        (err) => console.warn('Center GPS error:', err),
+        { enableHighAccuracy: true, timeout: 6000 }
+      );
     }
   };
 
@@ -595,10 +664,42 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                   const nextState = !isOnline;
                   toggleOnline(); // Store action
                   if (nextState) {
-                     // Try to get location and sync immediately so we are visible for dispatch right away
-                     navigator.geolocation.getCurrentPosition((pos) => {
-                         deliveryAPI.updateLocation(pos.coords.latitude, pos.coords.longitude, true).catch(() => {});
-                     }, (err) => console.warn('Online sync position failed:', err), { enableHighAccuracy: true });
+                     // 1. Immediate sync from current known location in 0ms
+                     const currentLoc = useDeliveryStore.getState().riderLocation;
+                     if (currentLoc && Number.isFinite(Number(currentLoc.lat)) && Number.isFinite(Number(currentLoc.lng))) {
+                       deliveryAPI.updateLocation(Number(currentLoc.lat), Number(currentLoc.lng), true, {
+                         heading: currentLoc.heading || 0,
+                         speed: currentLoc.speed || 0,
+                         accuracy: currentLoc.accuracy,
+                       }).catch(() => {});
+                       if (mapRef.current) {
+                         mapRef.current.panTo({ lat: Number(currentLoc.lat), lng: Number(currentLoc.lng) });
+                         mapRef.current.setZoom(13.5);
+                       }
+                     }
+                     // 2. Immediate fresh GPS fix in parallel
+                     if (typeof navigator !== 'undefined' && navigator.geolocation) {
+                       navigator.geolocation.getCurrentPosition((pos) => {
+                           const fix = {
+                             lat: pos.coords.latitude,
+                             lng: pos.coords.longitude,
+                             heading: pos.coords.heading || 0,
+                             speed: pos.coords.speed || 0,
+                             accuracy: pos.coords.accuracy,
+                             timestamp: Date.now()
+                           };
+                           setRiderLocation(fix);
+                           deliveryAPI.updateLocation(pos.coords.latitude, pos.coords.longitude, true, {
+                             heading: fix.heading,
+                             speed: fix.speed,
+                             accuracy: fix.accuracy,
+                           }).catch(() => {});
+                           if (mapRef.current) {
+                             mapRef.current.panTo({ lat: fix.lat, lng: fix.lng });
+                             mapRef.current.setZoom(13.5);
+                           }
+                       }, (err) => console.warn('Online sync position failed:', err), { enableHighAccuracy: true, timeout: 8000 });
+                     }
                   } else {
                      deliveryAPI.updateOnlineStatus(false).catch(() => {});
                   }
@@ -926,14 +1027,14 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                         </div>
 
                         {/* Customer Instructions Panel */}
-                        {activeOrder?.note && (
+                        {Boolean(extractUserNote(activeOrder)) && (
                           <div className="w-full bg-orange-50 border border-orange-100 rounded-3xl p-5 mb-8 flex gap-4 items-start shadow-sm mx-2">
                              <div className="w-10 h-10 bg-white rounded-2xl flex items-center justify-center text-orange-500 shadow-sm shrink-0 border border-orange-50">
                                 <Package className="w-5 h-5" />
                              </div>
                              <div className="flex-1">
-                                <p className="text-[10px] font-black text-orange-600 uppercase tracking-[0.2em] mb-1.5 opacity-80">Drop Message</p>
-                                <p className="text-sm font-bold text-gray-950 leading-relaxed capitalize">"{activeOrder.note}"</p>
+                                <p className="text-[10px] font-black text-orange-600 uppercase tracking-[0.2em] mb-1.5 opacity-80">User Note / Drop Message</p>
+                                <p className="text-sm font-bold text-gray-950 leading-relaxed capitalize">"{extractUserNote(activeOrder)}"</p>
                              </div>
                           </div>
                         )}
@@ -976,17 +1077,17 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
         but nothing rendered the offer, so a rider heard the ringtone and saw the
         push while the accept / reject card never appeared.
       */}
-      {newOrder && !activeOrder && (
+      {currentOffer && !activeOrder && (
         <NewOrderModal
-          order={newOrder}
-          isMuted={isOrderAlertMuted?.(newOrder) ?? false}
-          onToggleMute={() => toggleOrderAlertMuted?.(newOrder)}
+          order={currentOffer}
+          isMuted={isOrderAlertMuted?.(currentOffer) ?? false}
+          onToggleMute={() => toggleOrderAlertMuted?.(currentOffer)}
           /* Minimise only hides the card — the offer must stay claimable. */
           onMinimize={() => dismissNewOrder()}
           /* Reject is a real decline, so this one blocklists the order. */
-          onReject={() => clearNewOrder()}
+          onReject={() => clearNewOrder(currentOffer)}
           onAccept={async () => {
-            const offered = newOrder;
+            const offered = currentOffer;
             if (isAcceptingOffer) return; // guard against a double tap
             setIsAcceptingOffer(true);
             // Stop the ringtone immediately, but do NOT blocklist the order yet:

@@ -40,6 +40,7 @@ import {
   Info,
   Phone,
   Store,
+  Timer,
 } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { Badge } from "@food/components/ui/badge"
@@ -209,6 +210,7 @@ function RestaurantDetailsContent() {
   const [showItemDetail, setShowItemDetail] = useState(false)
   const [selectedItem, setSelectedItem] = useState(null)
   const [selectedVariantId, setSelectedVariantId] = useState("")
+  const [itemDetailQuantity, setItemDetailQuantity] = useState(1)
   const [showFilterSheet, setShowFilterSheet] = useState(false)
   const [showLocationSheet, setShowLocationSheet] = useState(false)
   const [showScheduleSheet, setShowScheduleSheet] = useState(false)
@@ -315,7 +317,7 @@ function RestaurantDetailsContent() {
   const getVariantForDish = (item, preferredVariantId = "") => {
     const variants = getFoodVariants(item)
     if (variants.length === 0) return null
-    return variants.find((variant) => String(variant.id) === String(preferredVariantId || "")) || variants[0]
+    return variants.find((variant) => String(variant.id || variant._id || "") === String(preferredVariantId || "")) || variants[0]
   }
 
   const getDishQuantity = (item, preferredVariantId = "") => {
@@ -1360,21 +1362,31 @@ function RestaurantDetailsContent() {
   useEffect(() => {
     if (!selectedItem) {
       setSelectedVariantId("")
+      setItemDetailQuantity(1)
       return
     }
     const variants = getFoodVariants(selectedItem)
     const variantInCart = variants.find(v => {
       const lineItemId = getLineItemIdForDish(selectedItem, v)
-      return quantities[lineItemId] > 0
+      return (quantities[lineItemId] || 0) > 0
     })
     
+    let activeVar = null
     if (variantInCart) {
-      setSelectedVariantId(variantInCart.id)
+      const vId = variantInCart.id || variantInCart._id || ""
+      setSelectedVariantId(vId)
+      activeVar = variantInCart
     } else {
       const defaultVariant = getDefaultFoodVariant(selectedItem)
-      setSelectedVariantId(defaultVariant?.id || "")
+      const vId = defaultVariant?.id || defaultVariant?._id || ""
+      setSelectedVariantId(vId)
+      activeVar = defaultVariant
     }
-  }, [selectedItem, quantities])
+
+    const currentLineItemId = getLineItemIdForDish(selectedItem, activeVar)
+    const cartQty = quantities[currentLineItemId] || 0
+    setItemDetailQuantity(cartQty > 0 ? cartQty : 1)
+  }, [selectedItem])
 
   // Helper function to update item quantity in both local state and cart
   const updateItemQuantity = async (item, newQuantity, event = null, preferredVariant = null) => {
@@ -2462,8 +2474,8 @@ function RestaurantDetailsContent() {
                 {availabilityStatus?.isOpen ? (
                   <div className="text-gray-700 dark:text-gray-300">
                     <span className="text-green-600 dark:text-green-500 font-semibold">Open now</span>
-                    {availabilityStatus?.closingTime && (
-                      <span> • Closes {formatTimeLabel(availabilityStatus.closingTime)}</span>
+                    {availabilityStatus?.closingCountdownLabel && (
+                      <span> • {availabilityStatus.closingCountdownLabel}</span>
                     )}
                   </div>
                 ) : (
@@ -2674,9 +2686,17 @@ function RestaurantDetailsContent() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                <Clock className="h-4 w-4" />
-                <span>{restaurant?.deliveryTime || "25-30 mins"}</span>
+              <div className="flex items-center gap-3 text-sm text-gray-700 dark:text-gray-300 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  <span>{restaurant?.deliveryTime || "25-30 mins"}</span>
+                </div>
+                {availabilityStatus?.isOpen && availabilityStatus?.closingCountdownLabel && (
+                  <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/40 text-[11px] font-semibold">
+                    <Timer className="h-3.5 w-3.5 flex-shrink-0" strokeWidth={2.5} />
+                    <span>{availabilityStatus.closingCountdownLabel}</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -3178,7 +3198,12 @@ function RestaurantDetailsContent() {
                                       onClick={(e) => {
                                         e.stopPropagation()
                                         if (!shouldShowGrayscale) {
-                                          updateItemQuantity(item, 1, e, getDefaultFoodVariant(item))
+                                          const sole = getSoleActiveVariant(item)
+                                          if (hasFoodVariants(item) && !sole) {
+                                            handleItemClick(item, e)
+                                          } else {
+                                            updateItemQuantity(item, 1, e, sole || getDefaultFoodVariant(item))
+                                          }
                                         }
                                       }}
                                       disabled={shouldShowGrayscale}
@@ -3189,6 +3214,11 @@ function RestaurantDetailsContent() {
                                     >
                                       ADD <Plus size={14} className="stroke-[3px]" />
                                     </button>
+                                    {hasFoodVariants(item) && !getSoleActiveVariant(item) && (
+                                      <span className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 tracking-tight whitespace-nowrap mt-0.5 select-none text-center block">
+                                        customisable
+                                      </span>
+                                    )}
                                   </>
                                 )}
                               </div>
@@ -3401,7 +3431,8 @@ function RestaurantDetailsContent() {
                                               )}
                                             </motion.div>
                                           ) : (
-                                            <motion.button
+                                            <>
+                                              <motion.button
                                               layoutId={`add-button-sub-${item.id}`}
                                               initial={{ opacity: 0, scale: 0.9 }}
                                               animate={{ opacity: 1, scale: 1 }}
@@ -3409,7 +3440,12 @@ function RestaurantDetailsContent() {
                                               onClick={(e) => {
                                                 e.stopPropagation()
                                                 if (!shouldShowGrayscale) {
-                                                  updateItemQuantity(item, 1, e, getDefaultFoodVariant(item))
+                                                  const sole = getSoleActiveVariant(item)
+                                                  if (hasFoodVariants(item) && !sole) {
+                                                    handleItemClick(item, e)
+                                                  } else {
+                                                    updateItemQuantity(item, 1, e, sole || getDefaultFoodVariant(item))
+                                                  }
                                                 }
                                               }}
                                               disabled={shouldShowGrayscale}
@@ -3420,6 +3456,12 @@ function RestaurantDetailsContent() {
                                             >
                                               ADD <Plus size={14} className="stroke-[3px]" />
                                             </motion.button>
+                                            {hasFoodVariants(item) && !getSoleActiveVariant(item) && (
+                                              <span className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 tracking-tight whitespace-nowrap mt-0.5 select-none text-center block">
+                                                customisable
+                                              </span>
+                                            )}
+                                            </>
                                           )}
                                         </div>
                                       </div>
@@ -4080,112 +4122,142 @@ function RestaurantDetailsContent() {
 
                     {hasFoodVariants(selectedItem) && (
                       <div className="mb-4">
-                        <p className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Choose a variant</p>
-                        <div className="flex flex-wrap gap-2">
-                          {getFoodVariants(selectedItem).map((variant) => (
-                            <button
-                              key={variant.id}
-                              type="button"
-                              onClick={() => setSelectedVariantId(variant.id)}
-                              className={`rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${String(selectedVariantId || "") === String(variant.id)
-                                  ? "border-red-500 bg-red-50 text-red-600 dark:border-red-400 dark:bg-red-900/30 dark:text-red-200"
-                                  : "border-gray-200 bg-white text-gray-700 dark:border-gray-700 dark:bg-[#2a2a2a] dark:text-gray-300"
+                        <div className="flex items-center justify-between mb-2.5">
+                          <div>
+                            <p className="text-sm font-bold text-gray-900 dark:text-white">Quantity</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">Select any 1 option</p>
+                          </div>
+                          <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-2.5 py-0.5 rounded-full border border-red-200/60 dark:border-red-800/40">
+                            Required
+                          </span>
+                        </div>
+                        <div className="space-y-2.5">
+                          {getFoodVariants(selectedItem).map((variant) => {
+                            const vId = variant.id || variant._id
+                            const isSelected = String(selectedVariantId || "") === String(vId)
+                            return (
+                              <button
+                                key={vId}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedVariantId(vId)
+                                  const lineId = getLineItemIdForDish(selectedItem, variant)
+                                  const qtyInCart = quantities[lineId] || 0
+                                  setItemDetailQuantity(qtyInCart > 0 ? qtyInCart : 1)
+                                }}
+                                className={`w-full flex items-center justify-between p-3.5 sm:p-4 rounded-2xl border transition-all text-left cursor-pointer ${
+                                  isSelected
+                                    ? "border-red-500 bg-red-50/50 dark:border-red-500/70 dark:bg-red-950/20 shadow-sm ring-1 ring-red-500/20"
+                                    : "border-gray-200 dark:border-gray-700/80 bg-white dark:bg-[#1e1e1e] hover:border-gray-300 dark:hover:border-gray-600"
                                 }`}
-                            >
-                              {variant.name} · {RUPEE_SYMBOL}{Math.round(variant.price)}
-                            </button>
-                          ))}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div
+                                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                                      isSelected
+                                        ? "border-red-500 bg-white dark:bg-[#1e1e1e]"
+                                        : "border-gray-400 dark:border-gray-500"
+                                    }`}
+                                  >
+                                    {isSelected && (
+                                      <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
+                                    )}
+                                  </div>
+                                  <span
+                                    className={`text-sm sm:text-base ${
+                                      isSelected
+                                        ? "font-bold text-gray-900 dark:text-white"
+                                        : "font-semibold text-gray-700 dark:text-gray-300"
+                                    }`}
+                                  >
+                                    {variant.name}
+                                  </span>
+                                </div>
+                                <span
+                                  className={`text-sm sm:text-base font-bold ${
+                                    isSelected ? "text-gray-900 dark:text-white" : "text-gray-700 dark:text-gray-300"
+                                  }`}
+                                >
+                                  {RUPEE_SYMBOL}{Math.round(variant.price)}
+                                </span>
+                              </button>
+                            )
+                          })}
                         </div>
                       </div>
                     )}
                   </div>
 
                   {/* Bottom Action Bar */}
-                  <div className="border-t border-gray-200 dark:border-gray-800 px-3 sm:px-4 py-4 bg-white dark:bg-[#242424]">
-                    <div className="flex items-center gap-2 sm:gap-4">
+                  <div className="border-t border-gray-100 dark:border-gray-800 px-4 py-4 bg-white/95 dark:bg-[#242424]/95 backdrop-blur-md">
+                    <div className="flex items-center gap-3 sm:gap-4">
                       {/* Quantity Selector */}
-                      <div className={`flex items-center gap-1 sm:gap-3 border-2 rounded-lg px-2 sm:px-3 h-[44px] bg-white dark:bg-[#2a2a2a] ${shouldShowGrayscale
+                      <div className={`flex items-center justify-between border-2 rounded-2xl px-2 h-[48px] bg-white dark:bg-[#2a2a2a] gap-2 sm:gap-3 shadow-sm flex-shrink-0 ${shouldShowGrayscale
                         ? 'border-gray-300 dark:border-gray-700 opacity-50'
-                        : 'border-gray-300 dark:border-gray-700'
+                        : 'border-gray-200 dark:border-gray-700'
                         }`}>
                         <button
-                          onClick={(e) => {
-                            if (!shouldShowGrayscale) {
-                              updateItemQuantity(
-                                selectedItem,
-                                Math.max(1, getDishQuantity(selectedItem, selectedVariantId)) - 1,
-                                e,
-                                getVariantForDish(selectedItem, selectedVariantId),
-                              )
-                            }
-                          }}
-                          disabled={getDishQuantity(selectedItem, selectedVariantId) === 0 || shouldShowGrayscale}
-                          className={`${shouldShowGrayscale
-                            ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
-                            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white disabled:text-gray-300 dark:disabled:text-gray-600 disabled:cursor-not-allowed'
-                            }`}
+                          type="button"
+                          onClick={() => setItemDetailQuantity((q) => Math.max(1, q - 1))}
+                          disabled={itemDetailQuantity <= 1 || shouldShowGrayscale}
+                          className="w-8 h-8 rounded-full flex items-center justify-center text-red-500 disabled:opacity-30 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
                         >
-                          <Minus className="h-5 w-5" />
+                          <Minus className="h-4 w-4 stroke-[2.5]" />
                         </button>
-                        <span className={`text-lg font-semibold min-w-[1.5rem] sm:min-w-[2rem] text-center ${shouldShowGrayscale
+                        <span className={`text-base font-bold min-w-[1.5rem] text-center select-none ${shouldShowGrayscale
                           ? 'text-gray-400 dark:text-gray-600'
                           : 'text-gray-900 dark:text-white'
                           }`}>
-                          {Math.max(1, getDishQuantity(selectedItem, selectedVariantId))}
+                          {itemDetailQuantity}
                         </span>
                         <button
-                          onClick={(e) => {
-                            if (!shouldShowGrayscale) {
-                              updateItemQuantity(
-                                selectedItem,
-                                Math.max(1, getDishQuantity(selectedItem, selectedVariantId)) + 1,
-                                e,
-                                getVariantForDish(selectedItem, selectedVariantId),
-                              )
-                            }
-                          }}
+                          type="button"
+                          onClick={() => setItemDetailQuantity((q) => q + 1)}
                           disabled={shouldShowGrayscale}
-                          className={shouldShowGrayscale
-                            ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
-                            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-                          }
+                          className="w-8 h-8 rounded-full flex items-center justify-center text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
                         >
-                          <Plus className="h-5 w-5" />
+                          <Plus className="h-4 w-4 stroke-[2.5]" />
                         </button>
                       </div>
 
-                      {/* Add Item Button */}
-                      <Button
-                        className={`flex-1 h-[44px] rounded-lg font-semibold flex items-center justify-center gap-1 sm:gap-2 px-1 sm:px-4 ${shouldShowGrayscale
-                          ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-600 cursor-not-allowed opacity-50'
-                          : 'bg-red-500 hover:bg-red-600 text-white'
-                          }`}
-                        onClick={(e) => {
-                          if (!shouldShowGrayscale) {
-                            updateItemQuantity(
-                              selectedItem,
-                              Math.max(1, getDishQuantity(selectedItem, selectedVariantId)),
-                              e,
-                              getVariantForDish(selectedItem, selectedVariantId),
-                            )
-                            closeItemDetail()
-                          }
-                        }}
-                        disabled={shouldShowGrayscale}
-                      >
-                        <span className="truncate">
-                          {getDishQuantity(selectedItem, selectedVariantId) > 0
-                            ? "Update cart"
-                            : (hasFoodVariants(selectedItem) ? "Add" : "Add item")}
-                        </span>
-                        <div className="flex flex-wrap items-center justify-center gap-1 overflow-hidden">
-                          <span className="text-sm sm:text-base font-bold whitespace-nowrap">
-                            {hasFoodVariants(selectedItem)
-                              ? `${getVariantForDish(selectedItem, selectedVariantId)?.name || "Default"} · ${RUPEE_SYMBOL}${Math.round(getVariantForDish(selectedItem, selectedVariantId)?.price || selectedItem.price)}`
-                              : `${RUPEE_SYMBOL}${Math.round(selectedItem.price)}`}
-                          </span>
-                        </div>
-                      </Button>
+                      {/* Add / Update Item Button */}
+                      {(() => {
+                        const activeVariant = getVariantForDish(selectedItem, selectedVariantId) || getDefaultFoodVariant(selectedItem);
+                        const lineItemId = getLineItemIdForDish(selectedItem, activeVariant);
+                        const inCartQty = quantities[lineItemId] || 0;
+                        const unitPrice = activeVariant?.price ?? selectedItem.price ?? 0;
+                        const totalPrice = Math.round(unitPrice * itemDetailQuantity);
+
+                        return (
+                          <Button
+                            className={`flex-1 h-[48px] rounded-2xl font-bold flex items-center justify-between px-4 sm:px-5 transition-all active:scale-[0.99] ${shouldShowGrayscale
+                              ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-600 cursor-not-allowed opacity-50'
+                              : 'bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/20'
+                              }`}
+                            onClick={(e) => {
+                              if (!shouldShowGrayscale) {
+                                updateItemQuantity(
+                                  selectedItem,
+                                  itemDetailQuantity,
+                                  e,
+                                  activeVariant,
+                                )
+                                closeItemDetail()
+                              }
+                            }}
+                            disabled={shouldShowGrayscale}
+                          >
+                            <span className="text-sm sm:text-base font-bold truncate">
+                              {inCartQty > 0
+                                ? "Update cart"
+                                : (hasFoodVariants(selectedItem) ? `Add (${activeVariant?.name || "Item"})` : "Add item")}
+                            </span>
+                            <span className="text-base sm:text-lg font-extrabold whitespace-nowrap">
+                              {RUPEE_SYMBOL}{totalPrice}
+                            </span>
+                          </Button>
+                        );
+                      })()}
                     </div>
                   </div>
                 </motion.div>
