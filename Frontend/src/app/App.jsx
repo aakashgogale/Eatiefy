@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import AppRoutes from './routes'
 import SplashScreen from '@/shared/components/SplashScreen.jsx'
+import RouteErrorBoundary from '@/shared/components/RouteErrorBoundary'
 
 function App() {
+  const location = useLocation()
   const [showSplash, setShowSplash] = useState(() => {
     // sessionStorage persists across refreshes but clears when the tab/app is closed
     return !sessionStorage.getItem('ometto_session_splash_shown')
@@ -31,7 +34,12 @@ function App() {
   return (
     <>
       {/* {showSplash && <SplashScreen onFinish={handleSplashFinish} />} */}
-      <AppRoutes />
+      {/* Last-resort net for everything above the per-module boundaries (app
+          routes, maintenance gate, module providers, the lazily loaded module
+          chunks): a crash there shows a recoverable screen, never a blank page. */}
+      <RouteErrorBoundary scope="app-root" resetKey={location.pathname} showDetails={import.meta.env.DEV}>
+        <AppRoutes />
+      </RouteErrorBoundary>
     </>
   )
 }

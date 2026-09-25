@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from "react"
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react"
+import { useSearchParams } from "react-router-dom"
 import { Search, Download, ChevronDown, Eye, User, Star, ArrowUpDown, Settings, FileText, FileSpreadsheet, Loader2, Check, Columns, ExternalLink, Calendar, MapPin, CreditCard, Mail, Phone, Bike, FileCheck, Pencil, Save, Trash2, X } from "lucide-react"
 import { adminAPI } from "@food/api"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
@@ -13,6 +14,65 @@ const formatCurrency = (amount) => {
   const numericAmount = Number(amount)
   if (!Number.isFinite(numericAmount)) return "\u20B90.00"
   return `\u20B9${numericAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+/** URL query key holding the selected zone, so a filtered view survives refresh and can be shared. */
+const ZONE_QUERY_PARAM = "zone"
+
+const getZoneLabel = (zone) => zone?.name || zone?.zoneName || zone?.serviceLocation || "Unnamed zone"
+
+/** Active zones first, then alphabetical. */
+const sortZones = (zones) =>
+  [...zones].sort((a, b) => {
+    const activeDiff = Number(b?.isActive !== false) - Number(a?.isActive !== false)
+    return activeDiff || getZoneLabel(a).localeCompare(getZoneLabel(b))
+  })
+
+const withWalletSummary = (partner, wallet) => ({
+  ...partner,
+  walletSummary: wallet || null,
+  pocketBalance: wallet?.pocketBalance || 0,
+  cashInHand: wallet?.cashInHand || 0,
+  remainingCashLimit: wallet?.remainingCashLimit || 0,
+  totalEarning: wallet?.totalEarning || 0,
+  bonus: wallet?.bonus || 0,
+  totalWithdrawn: wallet?.totalWithdrawn || 0,
+  availableCashLimit: wallet?.availableCashLimit || 0,
+})
+
+/**
+ * One page of the list. Partners and their wallet figures come from two
+ * endpoints that filter (search + zone), order and page identically on the
+ * backend, so rows pair up by id. Wallet figures are optional: if they fail
+ * the partners still list, with zero balances.
+ */
+const loadDeliverymenPage = async (query) => {
+  const [partnersResult, walletsResult] = await Promise.allSettled([
+    adminAPI.getDeliveryPartners(query),
+    adminAPI.getDeliveryBoyWallets(query),
+  ])
+  if (partnersResult.status !== "fulfilled" || !partnersResult.value?.data?.success) {
+    throw partnersResult.reason || new Error("Failed to fetch delivery partners")
+  }
+  const { deliveryPartners = [], pagination = {} } = partnersResult.value.data.data || {}
+  if (walletsResult.status === "rejected") debugError("Error fetching wallet rows:", walletsResult.reason)
+  const walletRows =
+    walletsResult.status === "fulfilled" && walletsResult.value?.data?.success
+      ? walletsResult.value.data.data?.wallets || []
+      : []
+  const walletMap = new Map(walletRows.map((wallet) => [String(wallet.deliveryId), wallet]))
+
+  return {
+    total: pagination.total ?? deliveryPartners.length,
+    rows: deliveryPartners.map((partner) => withWalletSummary(partner, walletMap.get(String(partner._id)))),
+  }
+}
+
+const describeLoadError = (err) => {
+  if (err?.code === "ERR_NETWORK") return "Network error. Please check if backend server is running."
+  if (err?.response?.status === 401) return "Unauthorized. Please login again."
+  if (err?.response?.status === 403) return "Access denied. You don't have permission to view this."
+  return err?.response?.data?.message || err?.message || "Failed to fetch delivery partners. Please try again."
 }
 
 export default function DeliverymanList() {
@@ -52,138 +112,81 @@ export default function DeliverymanList() {
     actions: true,
   })
 
-  const fetchAllWalletRows = async (search = "", page = 1, limit = 20) => {
-    try {
-      const response = await adminAPI.getDeliveryBoyWallets({
-        search: search || undefined,
-        page,
-        limit,
-      })
+  const [searchParams, setSearchParams] = useSearchParams()
+  const selectedZoneId = searchParams.get(ZONE_QUERY_PARAM) || ""
+  const [zones, setZones] = useState([])
+  const [zonesStatus, setZonesStatus] = useState("loading") // loading | ready | error
 
-      if (response?.data?.success) {
-        return response.data.data?.wallets || []
-      }
+  const loadZones = useCallback(async () => {
+    setZonesStatus("loading")
+    try {
+      const response = await adminAPI.getZones({ limit: 1000 })
+      const list = response?.data?.data?.zones
+      if (!response?.data?.success || !Array.isArray(list)) throw new Error("Invalid zones response")
+      setZones(sortZones(list))
+      setZonesStatus("ready")
     } catch (err) {
-      debugError("Error fetching wallet rows:", err)
+      debugError("Error fetching zones:", err)
+      setZonesStatus("error")
     }
-    return []
-  }
+  }, [])
 
-  // Fetch delivery partners from API
-  const fetchDeliverymen = async () => {
-    try {
+  useEffect(() => {
+    loadZones()
+  }, [loadZones])
+
+  const selectZone = useCallback((zoneId) => {
+    setCurrentPage(1)
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (zoneId) next.set(ZONE_QUERY_PARAM, zoneId)
+      else next.delete(ZONE_QUERY_PARAM)
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const selectedZone = useMemo(
+    () => zones.find((zone) => String(zone._id) === selectedZoneId) || null,
+    [zones, selectedZoneId],
+  )
+
+  // A zone in the URL that no longer exists (deleted, or a stale link) is dropped.
+  useEffect(() => {
+    if (zonesStatus === "ready" && selectedZoneId && !selectedZone) selectZone("")
+  }, [zonesStatus, selectedZoneId, selectedZone, selectZone])
+
+  const listQuery = useMemo(() => ({
+    page: currentPage,
+    limit: pageSize,
+    ...(debouncedSearch ? { search: debouncedSearch } : {}),
+    ...(selectedZoneId ? { zoneId: selectedZoneId } : {}),
+  }), [currentPage, pageSize, debouncedSearch, selectedZoneId])
+  const listQueryKey = JSON.stringify(listQuery)
+
+  // The query the screen currently shows. Switching zone/page/search quickly can
+  // leave an older request in flight; its answer must not replace the new one.
+  const latestQueryKeyRef = useRef(listQueryKey)
+
+  const fetchDeliverymen = useCallback(async (query, { quiet = false } = {}) => {
+    const key = JSON.stringify(query)
+    if (!quiet) {
       setLoading(true)
       setError(null)
-      
-      const params = {
-        page: currentPage,
-        limit: pageSize,
-      }
-
-      // Add search to params if provided
-      if (debouncedSearch.trim()) {
-        params.search = debouncedSearch.trim()
-      }
-
-      const [partnersResponse, walletRowsResult] = await Promise.allSettled([
-        adminAPI.getDeliveryPartners(params),
-        fetchAllWalletRows(debouncedSearch.trim(), currentPage, pageSize),
-      ])
-
-      if (partnersResponse.status === "fulfilled" && partnersResponse.value?.data?.success) {
-        const partners = partnersResponse.value.data.data.deliveryPartners || []
-        const pagination = partnersResponse.value.data.data.pagination || {}
-        setTotalDeliverymen(pagination.total || partners.length)
-        
-        const walletRows = walletRowsResult.status === "fulfilled" ? walletRowsResult.value || [] : []
-
-        const walletMap = new Map(
-          walletRows.map((wallet) => [String(wallet.deliveryId), wallet]),
-        )
-
-        const mergedPartners = partners.map((partner) => {
-          const wallet = walletMap.get(String(partner._id))
-          return {
-            ...partner,
-            walletSummary: wallet || null,
-            pocketBalance: wallet?.pocketBalance || 0,
-            cashInHand: wallet?.cashInHand || 0,
-            remainingCashLimit: wallet?.remainingCashLimit || 0,
-            totalEarning: wallet?.totalEarning || 0,
-            bonus: wallet?.bonus || 0,
-            totalWithdrawn: wallet?.totalWithdrawn || 0,
-            availableCashLimit: wallet?.availableCashLimit || 0,
-          }
-        })
-
-        setDeliverymen(mergedPartners)
-      } else {
-        setError("Failed to fetch delivery partners")
-        setDeliverymen([])
-      }
+    }
+    try {
+      const { rows, total } = await loadDeliverymenPage(query)
+      if (key !== latestQueryKeyRef.current) return
+      setDeliverymen(rows)
+      setTotalDeliverymen(total)
     } catch (err) {
       debugError("Error fetching delivery partners:", err)
-      
-      // Better error handling
-      let errorMessage = "Failed to fetch delivery partners. Please try again."
-      
-      if (err.code === 'ERR_NETWORK') {
-        errorMessage = "Network error. Please check if backend server is running."
-      } else if (err.response?.status === 401) {
-        errorMessage = "Unauthorized. Please login again."
-      } else if (err.response?.status === 403) {
-        errorMessage = "Access denied. You don't have permission to view this."
-      } else if (err.response?.data?.message) {
-        errorMessage = err.response.data.message
-      } else if (err.message) {
-        errorMessage = err.message
-      }
-      
-      setError(errorMessage)
+      if (quiet || key !== latestQueryKeyRef.current) return
+      setError(describeLoadError(err))
       setDeliverymen([])
     } finally {
-      setLoading(false)
+      if (!quiet && key === latestQueryKeyRef.current) setLoading(false)
     }
-  }
-
-  const fetchDeliverymenQuietly = async () => {
-    try {
-      const params = { page: currentPage, limit: pageSize }
-      if (debouncedSearch.trim()) {
-        params.search = debouncedSearch.trim()
-      }
-
-      const [partnersResponse, walletRowsResult] = await Promise.allSettled([
-        adminAPI.getDeliveryPartners(params),
-        fetchAllWalletRows(debouncedSearch.trim(), currentPage, pageSize),
-      ])
-
-      if (partnersResponse.status === "fulfilled" && partnersResponse.value?.data?.success) {
-        const partners = partnersResponse.value.data.data.deliveryPartners || []
-        const walletRows = walletRowsResult.status === "fulfilled" ? walletRowsResult.value || [] : []
-        const walletMap = new Map(walletRows.map((wallet) => [String(wallet.deliveryId), wallet]))
-
-        const mergedPartners = partners.map((partner) => {
-          const wallet = walletMap.get(String(partner._id))
-          return {
-            ...partner,
-            walletSummary: wallet || null,
-            pocketBalance: wallet?.pocketBalance || 0,
-            cashInHand: wallet?.cashInHand || 0,
-            remainingCashLimit: wallet?.remainingCashLimit || 0,
-            totalEarning: wallet?.totalEarning || 0,
-            bonus: wallet?.bonus || 0,
-            totalWithdrawn: wallet?.totalWithdrawn || 0,
-            availableCashLimit: wallet?.availableCashLimit || 0,
-          }
-        })
-
-        setDeliverymen(mergedPartners)
-      }
-    } catch (err) {
-      debugError("Quiet fetch failed", err)
-    }
-  }
+  }, [])
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300)
@@ -194,18 +197,19 @@ export default function DeliverymanList() {
     setCurrentPage(1)
   }, [debouncedSearch])
 
-  // Fetch data on page or search change, and setup polling for updates
+  // Load on page / search / zone change, and keep the figures fresh while open.
   useEffect(() => {
-    fetchDeliverymen()
+    latestQueryKeyRef.current = listQueryKey
+    fetchDeliverymen(listQuery)
 
     const interval = setInterval(() => {
-      fetchDeliverymenQuietly()
+      fetchDeliverymen(listQuery, { quiet: true })
     }, 8000)
 
     return () => {
       clearInterval(interval)
     }
-  }, [currentPage, pageSize, debouncedSearch])
+  }, [listQueryKey])
 
   const filteredDeliverymen = useMemo(() => {
     // Backend already handles search; apply client-side sorting on top.
@@ -498,7 +502,73 @@ availableCashLimit: deliveryman.availableCashLimit || 0,
               <h1 className="text-2xl font-bold text-slate-900">Deliveryman List</h1>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className={`px-4 py-2.5 text-sm font-medium rounded-lg border flex items-center gap-2 transition-all whitespace-nowrap ${
+                      selectedZone
+                        ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                        : "border-slate-300 bg-white hover:bg-slate-50 text-slate-700"
+                    }`}
+                    title="Show delivery partners of one zone"
+                  >
+                    <MapPin className="w-4 h-4" />
+                    <span className="font-bold max-w-40 truncate">
+                      {selectedZone ? getZoneLabel(selectedZone) : "All Zones"}
+                    </span>
+                    <ChevronDown className="w-4 h-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64 max-h-80 overflow-y-auto">
+                  <DropdownMenuLabel>Filter by zone</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => selectZone("")} className="cursor-pointer justify-between">
+                    <span>All Zones</span>
+                    {!selectedZoneId && <Check className="w-4 h-4 text-blue-600" />}
+                  </DropdownMenuItem>
+                  {zonesStatus === "loading" && (
+                    <DropdownMenuItem disabled>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading zones...
+                    </DropdownMenuItem>
+                  )}
+                  {zonesStatus === "error" && (
+                    <DropdownMenuItem
+                      onSelect={(e) => {
+                        e.preventDefault()
+                        loadZones()
+                      }}
+                      className="cursor-pointer text-red-600"
+                    >
+                      Couldn't load zones. Tap to retry
+                    </DropdownMenuItem>
+                  )}
+                  {zonesStatus === "ready" && zones.length === 0 && (
+                    <DropdownMenuItem disabled>No zones created yet</DropdownMenuItem>
+                  )}
+                  {zones.map((zone) => {
+                    const zoneId = String(zone._id)
+                    return (
+                      <DropdownMenuItem
+                        key={zoneId}
+                        onSelect={() => selectZone(zoneId)}
+                        className="cursor-pointer justify-between gap-2"
+                      >
+                        <span className="truncate">{getZoneLabel(zone)}</span>
+                        <span className="flex items-center gap-1.5 shrink-0">
+                          {zone.isActive === false && (
+                            <span className="text-[10px] font-semibold uppercase text-slate-400">Inactive</span>
+                          )}
+                          {zoneId === selectedZoneId && <Check className="w-4 h-4 text-blue-600" />}
+                        </span>
+                      </DropdownMenuItem>
+                    )
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+
               <div className="relative flex-1 sm:flex-initial min-w-[250px]">
                 <input
                   type="text"
@@ -548,6 +618,21 @@ availableCashLimit: deliveryman.availableCashLimit || 0,
                   totalDeliverymen
                 )}
               </span>
+              {selectedZone && (
+                <span className="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                  <MapPin className="w-3.5 h-3.5" />
+                  in {getZoneLabel(selectedZone)}
+                  <button
+                    type="button"
+                    onClick={() => selectZone("")}
+                    className="p-0.5 rounded-full hover:bg-blue-100"
+                    title="Show all zones"
+                    aria-label="Clear zone filter"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+              )}
             </div>
           </div>
 
@@ -556,7 +641,7 @@ availableCashLimit: deliveryman.availableCashLimit || 0,
             <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
               <p className="text-sm text-red-700">{error}</p>
               <button
-                onClick={fetchDeliverymen}
+                onClick={() => fetchDeliverymen(listQuery)}
                 className="mt-2 text-sm text-red-600 underline hover:text-red-800"
               >
                 Retry
@@ -686,7 +771,11 @@ availableCashLimit: deliveryman.availableCashLimit || 0,
                   {filteredDeliverymen.length === 0 ? (
                     <tr>
                       <td colSpan={Object.values(visibleColumns).filter(v => v).length} className="px-6 py-8 text-center text-slate-500">
-                        {error ? "Error loading delivery partners" : "No delivery partners found"}
+                        {error
+                          ? "Error loading delivery partners"
+                          : selectedZone
+                            ? `No delivery partners found in ${getZoneLabel(selectedZone)}`
+                            : "No delivery partners found"}
                       </td>
                     </tr>
                   ) : (

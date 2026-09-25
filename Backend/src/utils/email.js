@@ -1,11 +1,14 @@
 import nodemailer from 'nodemailer';
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
+import { fileURLToPath } from 'url';
 import { config } from '../config/env.js';
 import { logger } from './logger.js';
 
 let transporter = null;
-let cachedInlineLogoAttachment = null;
+/** undefined = not looked up yet, null = no logo file available. */
+let cachedInlineLogoAttachment;
+let setupWarningsLogged = false;
 
 function invalidateTransporter() {
     transporter = null;
@@ -18,14 +21,97 @@ export function isEmailConfigured() {
 
 const PRIMARY_COLOR = '#C62828';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DEFAULT_SENDER_NAME = 'Eatiefy';
+/** Brand logo shipped with the frontend's public/ folder; embedded inline or linked by URL. */
+const LOGO_PUBLIC_PATH = 'assets/images/logo-transparent.png';
+const BACKEND_ROOT = fileURLToPath(new URL('../../', import.meta.url));
+
+/** Network-level or temporary (4xx) failures - worth one retry. Login/address errors are not. */
+const TRANSIENT_SMTP_CODES = new Set(['ECONNECTION', 'ETIMEDOUT', 'ESOCKET', 'EDNS', 'ECONNRESET']);
+
+function isValidEmail(email) {
+    return EMAIL_REGEX.test(String(email || '').trim());
+}
+
+/** Gmail / Google Workspace SMTP only sends as the signed-in account (or its verified aliases). */
+function isGoogleSmtpHost(host) {
+    return /(^|\.)(gmail|googlemail)\.com$/i.test(String(host || '').trim());
+}
+
+/** Splits "Name <address>" or "address" into its parts. */
+function parseMailbox(value) {
+    const raw = String(value || '').trim();
+    const match = raw.match(/^(.*)<\s*([^>]+?)\s*>$/);
+    if (match) return { name: match[1].trim().replace(/^["']|["']$/g, ''), address: match[2].trim() };
+    return { name: '', address: raw };
+}
+
+const domainOf = (address) => String(address || '').split('@').pop().toLowerCase();
+
+/**
+ * The effective sender, plus everything wrong with the email setup.
+ *
+ * Display name: EMAIL_FROM_NAME, else the name inside EMAIL_FROM, else "Eatiefy".
+ * Address: EMAIL_FROM, else the SMTP account (EMAIL_USER). With Gmail/Workspace
+ * SMTP, EMAIL_FROM is only used when it is on the signed-in account's own
+ * domain: Gmail rewrites any other From back to the account - or, for a
+ * verified alias, sends it without SPF/DKIM for that domain, which receiving
+ * servers junk or drop. The From used to be the SMTP login unconditionally,
+ * which is not even an address for most providers (or a mis-set EMAIL_USER).
+ */
+export function getEmailSetup() {
+    const { emailHost, emailPort, emailUser, emailPass, emailFrom, emailFromName } = config;
+    const errors = [];
+    const warnings = [];
+    if (!emailHost) errors.push('EMAIL_HOST is not set');
+    if (!emailUser) errors.push('EMAIL_USER is not set');
+    if (!emailPass) errors.push('EMAIL_PASS is not set');
+
+    const google = isGoogleSmtpHost(emailHost);
+    const account = isValidEmail(emailUser) ? emailUser.toLowerCase() : '';
+    if (emailUser && !account && google) {
+        errors.push('EMAIL_USER must be the full Gmail / Google Workspace address (e.g. name@gmail.com), not a display name');
+    }
+
+    const configured = parseMailbox(emailFrom);
+    const configuredAddress = isValidEmail(configured.address) ? configured.address.toLowerCase() : '';
+    if (emailFrom && !configuredAddress) {
+        warnings.push(`EMAIL_FROM "${emailFrom}" is not a valid email address and is ignored`);
+    }
+
+    let address = configuredAddress || account;
+    if (google && account && configuredAddress && domainOf(configuredAddress) !== domainOf(account)) {
+        warnings.push(
+            `EMAIL_FROM (${configuredAddress}) is ignored: Gmail SMTP sends as ${account}. ` +
+            `To send as @${domainOf(configuredAddress)}, sign in with an account on that domain ` +
+            '(Google Workspace) or a mail provider verified for it, with SPF/DKIM/DMARC set up.'
+        );
+        address = account;
+    }
+    if (!address) errors.push('No valid sender address: set EMAIL_FROM (or EMAIL_USER to a full email address)');
+
+    const name = emailFromName || configured.name || DEFAULT_SENDER_NAME;
+    return {
+        ok: errors.length === 0,
+        errors,
+        warnings,
+        from: address ? { name, address } : null,
+        senderAddress: address || null,
+        senderDomain: address ? domainOf(address) : null,
+        host: emailHost || null,
+        port: emailPort || 587
+    };
+}
+
+function logSetupWarningsOnce(setup) {
+    if (setupWarningsLogged || !setup.warnings.length) return;
+    setupWarningsLogged = true;
+    setup.warnings.forEach((warning) => logger.warn(`Email setup: ${warning}`));
+}
 
 function getTransporter() {
     if (transporter) return transporter;
     const { emailHost, emailPort, emailUser, emailPass } = config;
-    if (!emailHost || !emailUser || !emailPass) {
-        logger.warn('Email not configured: EMAIL_HOST, EMAIL_USER, EMAIL_PASS required');
-        return null;
-    }
     transporter = nodemailer.createTransport({
         host: emailHost,
         port: emailPort || 587,
@@ -37,9 +123,48 @@ function getTransporter() {
         },
         tls: {
             minVersion: 'TLSv1.2'
-        }
+        },
+        // Bounded: an unreachable SMTP server fails fast (and is logged) instead of
+        // holding the admin's approve request open for minutes.
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 30000
     });
     return transporter;
+}
+
+function getSmtpErrorHint(err) {
+    const code = err?.code;
+    const responseCode = Number(err?.responseCode) || 0;
+    if (code === 'EAUTH' || responseCode === 534 || responseCode === 535) {
+        return isGoogleSmtpHost(config.emailHost)
+            ? 'login rejected: EMAIL_USER must be the full Gmail/Workspace address and EMAIL_PASS a 16-character App Password (2-Step Verification enabled)'
+            : 'login rejected: check EMAIL_USER / EMAIL_PASS for this SMTP provider';
+    }
+    if (TRANSIENT_SMTP_CODES.has(code)) {
+        return `cannot reach ${config.emailHost}:${config.emailPort} - check EMAIL_HOST/EMAIL_PORT and that this server allows outbound SMTP (many cloud hosts block ports 25/465/587 until you ask them to open it)`;
+    }
+    if (code === 'EENVELOPE') return 'sender or recipient address refused';
+    if (responseCode >= 550) return 'refused by the mail server (sender not allowed for this account/domain, or the recipient does not exist)';
+    if (responseCode >= 400 && responseCode < 500) return 'temporarily refused (rate limit or provider busy)';
+    return '';
+}
+
+/** One-line description of an SMTP failure (code, SMTP status, server reply) with the likely fix. */
+export function describeSmtpError(err) {
+    const parts = [];
+    if (err?.code) parts.push(`code=${err.code}`);
+    if (err?.responseCode) parts.push(`smtp=${err.responseCode}`);
+    if (err?.command) parts.push(`command=${err.command}`);
+    const reply = String(err?.response || err?.message || err || '').split('\n')[0].trim();
+    if (reply) parts.push(`"${reply}"`);
+    const hint = getSmtpErrorHint(err);
+    return hint ? `${parts.join(' ')} -> ${hint}` : parts.join(' ');
+}
+
+function isTransientSmtpError(err) {
+    const responseCode = Number(err?.responseCode) || 0;
+    return TRANSIENT_SMTP_CODES.has(err?.code) || (responseCode >= 400 && responseCode < 500);
 }
 
 function escapeHtml(value) {
@@ -55,43 +180,44 @@ function getFrontendUrl() {
     return url || null;
 }
 
+/** Public URL of the logo: EMAIL_LOGO_URL, else the deployed frontend's copy; null when neither exists. */
 function getEatiefyLogoUrl() {
     const explicitLogo = String(process.env.EMAIL_LOGO_URL || '').trim();
     if (explicitLogo) return explicitLogo;
 
     const frontendUrl = getFrontendUrl();
     if (frontendUrl && !/localhost|127\.0\.0\.1/i.test(frontendUrl)) {
-        return `${frontendUrl}/logo-transparent.webp`;
+        return `${frontendUrl}/${LOGO_PUBLIC_PATH}`;
     }
-
-    return 'https://eatiefyindia.cloud/logo-transparent.webp';
+    return null;
 }
 
 function getInlineLogoAttachment() {
-    if (cachedInlineLogoAttachment) return cachedInlineLogoAttachment;
+    if (cachedInlineLogoAttachment !== undefined) return cachedInlineLogoAttachment;
 
-    const candidatePaths = [
-        resolve(process.cwd(), 'public', 'logo-transparent.webp'),
-        resolve(process.cwd(), '..', 'Frontend', 'public', 'logo-transparent.webp'),
-        resolve(process.cwd(), '..', 'frontend', 'public', 'logo-transparent.webp')
-    ];
+    const candidatePaths = [...new Set([
+        resolve(BACKEND_ROOT, 'public', LOGO_PUBLIC_PATH),
+        resolve(BACKEND_ROOT, '..', 'Frontend', 'public', LOGO_PUBLIC_PATH),
+        resolve(BACKEND_ROOT, '..', 'frontend', 'public', LOGO_PUBLIC_PATH),
+        resolve(process.cwd(), 'public', LOGO_PUBLIC_PATH),
+        resolve(process.cwd(), '..', 'Frontend', 'public', LOGO_PUBLIC_PATH)
+    ])];
 
     const logoPath = candidatePaths.find((p) => existsSync(p));
+    cachedInlineLogoAttachment = null;
     if (!logoPath) return null;
 
     try {
-        const content = readFileSync(logoPath);
         cachedInlineLogoAttachment = {
-            filename: 'eatiefy-logo.webp',
-            content,
-            contentType: 'image/webp',
+            filename: 'eatiefy-logo.png',
+            content: readFileSync(logoPath),
+            contentType: 'image/png',
             cid: 'eatiefy-logo'
         };
-        return cachedInlineLogoAttachment;
     } catch (error) {
         logger.warn(`Inline email logo load failed: ${error?.message || error}`);
-        return null;
     }
+    return cachedInlineLogoAttachment;
 }
 
 function getFirstName(name) {
@@ -100,85 +226,103 @@ function getFirstName(name) {
     return value.split(/\s+/)[0];
 }
 
-function isValidEmail(email) {
-    return EMAIL_REGEX.test(String(email || '').trim());
-}
-
-function resolveFromHeader(displayName = 'Eatiefy') {
-    const emailUser = String(config.emailUser || '').trim();
-    if (emailUser) {
-        // Gmail SMTP requires the From address to match the authenticated account.
-        return `${displayName} <${emailUser}>`;
-    }
-
-    const from = String(config.emailFrom || 'noreply@example.com').trim();
-    if (from.includes('<')) return from;
-    return `${displayName} <${from}>`;
-}
-
 /**
  * Reusable internal email sender using the shared SMTP transporter.
- * @returns {Promise<boolean>} true if sent, false if skipped/failed
+ *
+ * Success means the SMTP server accepted the message (logged with its message
+ * id and reply). A refused recipient counts as a failure, and every failure is
+ * logged with the real SMTP error - nothing is assumed to have been sent.
+ * @returns {Promise<boolean>} true if accepted for delivery, false if skipped/failed
  */
-async function sendEmail({ to, subject, html, text, fromDisplay, logLabel = 'Email' }) {
-    const trans = getTransporter();
-    if (!trans) {
-        logger.warn(`${logLabel} skipped: SMTP not configured`);
+async function sendEmail({ to, subject, html, text, logLabel = 'Email' }) {
+    const setup = getEmailSetup();
+    logSetupWarningsOnce(setup);
+    if (!setup.ok) {
+        logger.error(`${logLabel} to ${to} NOT sent - email setup invalid: ${setup.errors.join('; ')}`);
         return false;
     }
 
     const inlineLogo = getInlineLogoAttachment();
-    const attachments = inlineLogo ? [inlineLogo] : [];
+    const message = {
+        from: setup.from,
+        to,
+        subject,
+        text,
+        html,
+        attachments: inlineLogo ? [inlineLogo] : []
+    };
 
-    try {
-        await trans.sendMail({
-            from: fromDisplay || resolveFromHeader('Eatiefy'),
-            to,
-            subject,
-            text,
-            html,
-            attachments
-        });
-        logger.info(`${logLabel} sent to ${to}`);
-        return true;
-    } catch (err) {
-        const detail = err?.response || err?.code || err?.message || err;
-        logger.error(`Failed to send ${logLabel} to ${to}:`, detail);
-        invalidateTransporter();
-
-        const retryTrans = getTransporter();
-        if (!retryTrans) return false;
-
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
         try {
-            await retryTrans.sendMail({
-                from: fromDisplay || resolveFromHeader('Eatiefy'),
-                to,
-                subject,
-                text,
-                html,
-                attachments
-            });
-            logger.info(`${logLabel} sent to ${to} (after SMTP retry)`);
+            const info = await getTransporter().sendMail(message);
+            const rejected = (info?.rejected || []).map(String);
+            if (rejected.length) {
+                logger.error(`${logLabel} to ${to} NOT delivered - SMTP refused ${rejected.join(', ')}: ${String(info?.response || '').trim()}`);
+                return false;
+            }
+            logger.info(
+                `${logLabel} accepted by SMTP for ${to} (from ${setup.senderAddress}, messageId ${info?.messageId || 'n/a'}, reply "${String(info?.response || '').trim()}")`
+            );
             return true;
-        } catch (retryErr) {
-            const retryDetail = retryErr?.response || retryErr?.code || retryErr?.message || retryErr;
-            logger.error(`Failed to send ${logLabel} to ${to} after retry:`, retryDetail);
+        } catch (err) {
             invalidateTransporter();
-            return false;
+            const willRetry = attempt === 1 && isTransientSmtpError(err);
+            logger.error(
+                `${logLabel} to ${to} failed${attempt > 1 ? ' after retry' : ''}: ${describeSmtpError(err)}${willRetry ? ' (retrying once)' : ''}`
+            );
+            if (!willRetry) return false;
         }
+    }
+    return false;
+}
+
+/**
+ * Checks the setup and signs in to the SMTP server without sending anything.
+ * @returns {Promise<object>} getEmailSetup() plus { verified, error }
+ */
+export async function verifyEmailTransport() {
+    const setup = getEmailSetup();
+    if (!setup.ok) return { ...setup, verified: false, error: setup.errors.join('; ') };
+    try {
+        await getTransporter().verify();
+        return { ...setup, verified: true, error: null };
+    } catch (err) {
+        invalidateTransporter();
+        return { ...setup, verified: false, error: describeSmtpError(err) };
+    }
+}
+
+/**
+ * Logs whether email works, once at startup - so a broken production mail
+ * setup shows in the logs immediately, not after owners miss their emails.
+ */
+export async function logEmailHealth() {
+    if (!isEmailConfigured()) {
+        logger.warn('Email is NOT configured (EMAIL_HOST / EMAIL_USER / EMAIL_PASS) - approval and notification emails will not be sent');
+        return;
+    }
+    const health = await verifyEmailTransport();
+    health.warnings.forEach((warning) => logger.warn(`Email setup: ${warning}`));
+    setupWarningsLogged = true;
+    if (health.verified) {
+        logger.info(`Email ready: sending as ${health.from.name} <${health.senderAddress}> via ${health.host}:${health.port}`);
+    } else {
+        logger.error(`Email is NOT working - emails will fail until fixed: ${health.error}`);
     }
 }
 
 function buildEmailHeaderHtml() {
-    const logoUrl = getEatiefyLogoUrl();
-    const safeLogoUrl = escapeHtml(logoUrl);
     const inlineLogo = getInlineLogoAttachment();
-    const logoSrc = inlineLogo ? 'cid:eatiefy-logo' : safeLogoUrl;
+    const logoSrc = inlineLogo ? 'cid:eatiefy-logo' : getEatiefyLogoUrl();
+    // Without any logo source, a text wordmark - never a broken image.
+    const brand = logoSrc
+        ? `<img src="${escapeHtml(logoSrc)}" alt="Eatiefy" width="150" style="display: block; margin: 0 auto; max-width: 150px; width: 150px; height: auto; border: 0; outline: none; text-decoration: none; border-radius: 12px;" />`
+        : '<span style="color: #ffffff; font-size: 26px; font-weight: 800; letter-spacing: 0.5px;">Eatiefy</span>';
 
     return `
           <tr>
             <td style="background: ${PRIMARY_COLOR}; padding: 24px 32px; text-align: center;">
-              <img src="${logoSrc}" alt="Eatiefy" width="150" style="display: block; margin: 0 auto; max-width: 150px; width: 150px; height: auto; border: 0; outline: none; text-decoration: none; border-radius: 12px;" />
+              ${brand}
             </td>
           </tr>`;
 }
@@ -299,12 +443,6 @@ function buildEatiefyEmailHtml({
  * @returns {Promise<boolean>} true if sent, false if skipped/failed
  */
 export async function sendAdminResetOtpEmail(to, otp) {
-    const trans = getTransporter();
-    if (!trans) {
-        logger.warn('Admin OTP email skipped: SMTP not configured');
-        return false;
-    }
-    const from = config.emailFrom || config.emailUser;
     const subject = 'Your password reset code – Eatiefy Admin';
     const html = `
 <!DOCTYPE html>
@@ -326,7 +464,6 @@ export async function sendAdminResetOtpEmail(to, otp) {
         subject,
         html,
         text,
-        fromDisplay: `Eatiefy <${config.emailUser || from}>`,
         logLabel: 'Admin reset OTP email'
     });
 }

@@ -56,3 +56,33 @@ export function isChunkLoadError(error) {
   if (!error) return false
   return CHUNK_LOAD_ERROR_PATTERN.test(`${error.name || ""} ${error.message || error}`)
 }
+
+/*
+ * Same session key and cooldown as the inline chunk-failure handler in
+ * index.html, so the two can never reload in a loop between them.
+ */
+const CHUNK_RELOAD_STORAGE_KEY = "chunk_reload_timestamp"
+const CHUNK_RELOAD_COOLDOWN_MS = 10000
+
+/**
+ * Reloads once to pick up the current build after a chunk failed to load (a
+ * deploy replaced the hashed files, or a flaky network dropped the request).
+ *
+ * index.html does this for uncaught errors, but an error boundary catches the
+ * failure first and React then no longer reports it to `window` - so boundaries
+ * must trigger it themselves. Returns false (no reload) inside the cooldown or
+ * when session storage is unavailable, so a chunk that is really missing shows
+ * the fallback screen instead of reloading forever.
+ */
+export function reloadForChunkError() {
+  if (typeof window === "undefined") return false
+  try {
+    const last = Number(window.sessionStorage.getItem(CHUNK_RELOAD_STORAGE_KEY) || 0)
+    if (Date.now() - last <= CHUNK_RELOAD_COOLDOWN_MS) return false
+    window.sessionStorage.setItem(CHUNK_RELOAD_STORAGE_KEY, String(Date.now()))
+  } catch {
+    return false
+  }
+  window.location.reload()
+  return true
+}

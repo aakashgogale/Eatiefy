@@ -5,7 +5,7 @@ import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
 import { DeliverySupportTicket } from '../../delivery/models/supportTicket.model.js';
 import { FoodZone } from '../models/zone.model.js';
-import { assertZoneCoversLocation } from '../../shared/zoneLocation.js';
+import { assertZoneCoversLocation, isPointInZone } from '../../shared/zoneLocation.js';
 import { getIO, rooms } from '../../../../config/socket.js';
 import { FoodOnboardingPayment } from '../../restaurant/models/onboardingPayment.model.js';
 import { getRestaurantTypeLabel } from '../../shared/restaurantTypes.js';
@@ -5362,58 +5362,96 @@ export async function updateDeliverySupportTicket(id, body = {}) {
 }
 
 // ----- Delivery partners (approved list) -----
+const escapeRegexTerm = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Newest first; `_id` breaks createdAt ties so every query pages identically. */
+const DELIVERY_PARTNER_LIST_SORT = { createdAt: -1, _id: -1 };
+
+/**
+ * `$or` clauses selecting the delivery partners who work in a zone - any of:
+ *  - last known GPS position inside the zone's polygon (where they ride now)
+ *  - registered city matching the zone's name / service location
+ *  - an order in that zone has been assigned to them
+ * A zone none of these match yields a clause matching nobody: an empty zone
+ * must list no one, never fall back to every partner.
+ */
+async function getZoneDeliveryPartnerClauses(zoneId) {
+    if (!mongoose.Types.ObjectId.isValid(zoneId)) {
+        throw new ValidationError('Invalid zone');
+    }
+    const zone = await FoodZone.findById(zoneId)
+        .select('name zoneName serviceLocation coordinates')
+        .lean();
+    if (!zone) throw new NotFoundError('Zone not found');
+
+    // Bounding box first (plain range query on the numeric fix), exact
+    // point-in-polygon after - avoids $geoWithin rejecting imperfect polygons.
+    const ring = (zone.coordinates || [])
+        .map((c) => ({ lat: Number(c?.latitude), lng: Number(c?.longitude) }))
+        .filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lng));
+    const insideZoneQuery = ring.length >= 3
+        ? FoodDeliveryPartner.find({
+            status: 'approved',
+            lastLat: { $gte: Math.min(...ring.map((c) => c.lat)), $lte: Math.max(...ring.map((c) => c.lat)) },
+            lastLng: { $gte: Math.min(...ring.map((c) => c.lng)), $lte: Math.max(...ring.map((c) => c.lng)) },
+        }).select('_id lastLat lastLng').lean()
+        : Promise.resolve([]);
+
+    const [inBox, orderPartnerIds] = await Promise.all([
+        insideZoneQuery,
+        FoodOrder.find({
+            zoneId: new mongoose.Types.ObjectId(zoneId),
+            'dispatch.deliveryPartnerId': { $ne: null },
+        }).distinct('dispatch.deliveryPartnerId'),
+    ]);
+
+    const memberIds = [
+        ...inBox.filter((p) => isPointInZone(p.lastLat, p.lastLng, zone)).map((p) => p._id),
+        ...orderPartnerIds.filter(Boolean),
+    ];
+    const zoneNames = [...new Set(
+        [zone.name, zone.zoneName, zone.serviceLocation]
+            .map((s) => String(s || '').trim())
+            .filter(Boolean)
+    )];
+
+    const clauses = [];
+    if (memberIds.length > 0) clauses.push({ _id: { $in: memberIds } });
+    if (zoneNames.length > 0) {
+        clauses.push({ city: { $in: zoneNames.map((n) => new RegExp(`^${escapeRegexTerm(n)}$`, 'i')) } });
+    }
+    return clauses.length > 0 ? clauses : [{ _id: { $in: [] } }];
+}
+
+/**
+ * Filter for the approved-partner lists: the Deliveryman List and the wallet
+ * figures shown in it. Both endpoints must select - and page through - exactly
+ * the same partners, because the list pairs their rows by id; they used to
+ * filter differently (the wallets ignored email/city/state search and the zone).
+ */
+async function buildDeliveryPartnerListFilter({ search, zoneId } = {}) {
+    const clauses = [{ status: 'approved' }];
+    const term = typeof search === 'string' ? search.trim() : '';
+    if (term) {
+        const rx = new RegExp(escapeRegexTerm(term), 'i');
+        clauses.push({ $or: [{ name: rx }, { phone: rx }, { email: rx }, { city: rx }, { state: rx }] });
+    }
+    if (zoneId) {
+        clauses.push({ $or: await getZoneDeliveryPartnerClauses(zoneId) });
+    }
+    return clauses.length === 1 ? clauses[0] : { $and: clauses };
+}
+
 export async function getDeliveryPartners(query) {
     const { page = 1, limit = 1000, search, zoneId } = query;
-    const filter = { status: 'approved' };
-    if (search && typeof search === 'string' && search.trim()) {
-        const term = search.trim();
-        filter.$or = [
-            { name: { $regex: term, $options: 'i' } },
-            { phone: { $regex: term, $options: 'i' } },
-            { email: { $regex: term, $options: 'i' } },
-            { city: { $regex: term, $options: 'i' } },
-            { state: { $regex: term, $options: 'i' } }
-        ];
-    }
-
-    if (zoneId && mongoose.Types.ObjectId.isValid(zoneId)) {
-        const zoneDoc = await FoodZone.findById(zoneId).select('serviceLocation name zoneName').lean();
-        const zoneNames = [zoneDoc?.serviceLocation, zoneDoc?.name, zoneDoc?.zoneName]
-            .filter(Boolean)
-            .map((s) => String(s).trim());
-        const zoneRegexes = zoneNames.map(
-            (z) => new RegExp(`^${z.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
-        );
-
-        const zonePartnerIds = await FoodOrder.find({
-            zoneId: new mongoose.Types.ObjectId(zoneId),
-            'dispatch.deliveryPartnerId': { $ne: null }
-        }).distinct('dispatch.deliveryPartnerId');
-
-        const deliveryOr = [];
-        if (zoneRegexes.length > 0) {
-            deliveryOr.push({ city: { $in: zoneRegexes } });
-        }
-        if (zonePartnerIds.length > 0) {
-            deliveryOr.push({ _id: { $in: zonePartnerIds.filter(Boolean) } });
-        }
-
-        if (deliveryOr.length > 0) {
-            if (filter.$or) {
-                filter.$and = [{ $or: filter.$or }, { $or: deliveryOr }];
-                delete filter.$or;
-            } else {
-                filter.$or = deliveryOr;
-            }
-        }
-    }
+    const filter = await buildDeliveryPartnerListFilter({ search, zoneId });
 
     const skip = Math.max(0, (Number(page) || 1) - 1) * Math.max(1, Math.min(1000, Number(limit) || 100));
     const limitNum = Math.max(1, Math.min(1000, Number(limit) || 100));
 
     const [list, total] = await Promise.all([
         FoodDeliveryPartner.find(filter)
-            .sort({ createdAt: -1 })
+            .sort(DELIVERY_PARTNER_LIST_SORT)
             .skip(skip)
             .limit(limitNum)
             .lean(),
@@ -6620,17 +6658,12 @@ export async function getDeliveryWallets(query = {}) {
     const page = parseInt(query.page, 10) || 1;
     const skip = (page - 1) * limit;
 
-    const filter = { status: 'approved' };
-    if (query.search) {
-        filter.$or = [
-            { name: new RegExp(query.search, 'i') },
-            { phone: new RegExp(query.search, 'i') }
-        ];
-    }
+    // Same partners, same order as getDeliveryPartners for the same query.
+    const filter = await buildDeliveryPartnerListFilter({ search: query.search, zoneId: query.zoneId });
 
     const [partners, total] = await Promise.all([
         FoodDeliveryPartner.find(filter)
-            .sort({ createdAt: -1 })
+            .sort(DELIVERY_PARTNER_LIST_SORT)
             .skip(skip)
             .limit(limit)
             .lean(),

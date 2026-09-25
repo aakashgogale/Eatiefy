@@ -47,6 +47,7 @@ import {
 } from "lucide-react"
 import { resolveMediaUrl } from "@/shared/utils/mediaUrl"
 import { reportError } from "@/shared/utils/errorReporter"
+import RouteErrorBoundary from "@/shared/components/RouteErrorBoundary"
 import { isVegMenuItem } from "@food/utils/vegMode"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Card, CardContent } from "@food/components/ui/card"
@@ -113,6 +114,9 @@ const AnimatedCheckmark = ({ delay = 0 }) => (
     />
   </motion.svg>
 )
+
+/** Shown while the map cannot be drawn (no coordinates yet, or the map failed). */
+const MAP_PLACEHOLDER = <div className="relative h-full w-full bg-gradient-to-b from-gray-100 to-gray-200" />;
 
 // Real Delivery Map Component with User Live Location
 const DeliveryMap = React.memo(({ orderId, order, isVisible, fallbackCustomerCoords = null, userLiveCoords = null, userLocationAccuracy = null, onEtaUpdate = null }) => {
@@ -225,27 +229,27 @@ const DeliveryMap = React.memo(({ orderId, order, isVisible, fallbackCustomerCoo
   ].filter(Boolean), [order?.orderId, order?.mongoId, order?._id, orderId, order?.id]);
 
   if (!isVisible || !orderId || !order || (!restaurantCoords && !customerCoords)) {
-    return (
-      <div
-        className="relative h-full w-full bg-gradient-to-b from-gray-100 to-gray-200"
-      />
-    );
+    return MAP_PLACEHOLDER;
   }
 
   return (
     <div className="relative w-full h-full overflow-hidden">
-      <DeliveryTrackingMap
-        orderId={orderId}
-        orderTrackingIds={orderTrackingIdsList}
-        restaurantCoords={restaurantCoords}
-        customerCoords={customerCoords}
+      {/* A map failure (Maps SDK, odd coordinates) must never take the order
+          screen down with it - the rest of the tracking page keeps working. */}
+      <RouteErrorBoundary scope="order-tracking-map" resetKey={orderId} fallback={MAP_PLACEHOLDER}>
+        <DeliveryTrackingMap
+          orderId={orderId}
+          orderTrackingIds={orderTrackingIdsList}
+          restaurantCoords={restaurantCoords}
+          customerCoords={customerCoords}
 
-        userLiveCoords={userLiveCoords}
-        userLocationAccuracy={userLocationAccuracy}
-        deliveryBoyData={deliveryBoyData}
-        order={order}
-        onEtaUpdate={onEtaUpdate}
-      />
+          userLiveCoords={userLiveCoords}
+          userLocationAccuracy={userLocationAccuracy}
+          deliveryBoyData={deliveryBoyData}
+          order={order}
+          onEtaUpdate={onEtaUpdate}
+        />
+      </RouteErrorBoundary>
     </div>
   );
 });
@@ -672,6 +676,50 @@ const describeCancelledBy = (status, cancelledBy) => {
   return 'Order cancelled';
 };
 
+/** Timeline position for a status; x.5 = between steps (the earlier step stays active). */
+function getTimelineIndex(status, isTakeaway) {
+  const s = String(status || '').toLowerCase();
+  if (['placed', 'pending', 'created'].includes(s)) return 0;
+  if (['confirmed', 'accepted'].includes(s)) return 1;
+  if (['preparing', 'cooking', 'processed'].includes(s)) return 2;
+  if (['assigned', 'at_pickup', 'reached_pickup'].includes(s)) return 2.5;
+  if (['ready', 'ready_for_pickup'].includes(s)) return isTakeaway ? 3 : 2.5;
+  if (['on_way', 'picked_up', 'out_for_delivery', 'en_route_to_delivery', 'at_drop', 'reached_drop', 'at_delivery'].includes(s)) return 3;
+  if (['delivered', 'completed'].includes(s)) return 4;
+  return 0;
+}
+
+/** Filled connector length at each whole step, used while the timeline steps through. */
+const STEP_CONNECTOR_WIDTHS = ['12%', '30%', '50%', '85%', '100%'];
+
+/** How long each step stays lit when the timeline has to move several steps at once. */
+const STEP_ADVANCE_MS = 800;
+
+/**
+ * Moves the timeline forward one step at a time.
+ *
+ * The restaurant's single "Accept" takes the order straight from `created` to
+ * `preparing` in the backend, so the timeline used to jump from Placed to
+ * Cooking with Confirmed already ticked - it never showed as its own step.
+ * Stepping through lights Placed -> Confirmed -> Cooking in order, and on open
+ * the timeline walks up to the current step. The settled position is always
+ * the real one; a backwards move (never expected) applies at once.
+ */
+function useStepByStep(targetIdx) {
+  const [shownIdx, setShownIdx] = useState(0);
+  useEffect(() => {
+    if (shownIdx >= targetIdx) {
+      if (shownIdx !== targetIdx) setShownIdx(targetIdx);
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      setShownIdx((prev) => Math.min(targetIdx, Math.floor(prev) + 1));
+    }, STEP_ADVANCE_MS);
+    return () => clearTimeout(timer);
+  }, [shownIdx, targetIdx]);
+  return shownIdx;
+}
+
 const LiveTrackingStepper = memo(({
   status,
   isCancelled,
@@ -681,6 +729,19 @@ const LiveTrackingStepper = memo(({
   cancelledBy = '',
   orderStatusRaw = ''
 }) => {
+  // A rider heading to / waiting at the restaurant does not advance the kitchen
+  // steps - those follow the restaurant's own status (accepted but not cooking
+  // yet stays on "Confirmed").
+  const uiStatus = String(status || '').toLowerCase();
+  const kitchenStatus = mapBackendOrderStatusToUi(orderStatusRaw);
+  const stepperStatus =
+    ['assigned', 'at_pickup'].includes(uiStatus) && ['placed', 'confirmed'].includes(kitchenStatus)
+      ? kitchenStatus
+      : uiStatus;
+  const targetIdx = getTimelineIndex(stepperStatus, isTakeaway);
+  const shownIdx = useStepByStep(targetIdx);
+  const isSettled = shownIdx === targetIdx;
+
   if (isCancelled) {
     const reason = String(cancellationReason || '').trim();
     return (
@@ -785,42 +846,15 @@ const LiveTrackingStepper = memo(({
 
   const visibleSteps = isTakeaway ? takeawaySteps : deliverySteps;
 
-  // A rider heading to / waiting at the restaurant does not advance the kitchen
-  // steps - those follow the restaurant's own status (accepted but not cooking
-  // yet stays on "Confirmed").
-  const uiStatus = String(status || '').toLowerCase();
-  const kitchenStatus = mapBackendOrderStatusToUi(orderStatusRaw);
-  const stepperStatus =
-    ['assigned', 'at_pickup'].includes(uiStatus) && ['placed', 'confirmed'].includes(kitchenStatus)
-      ? kitchenStatus
-      : uiStatus;
-
-  const getStepStatus = (stepKey, index) => {
-    const s = stepperStatus;
-    let currentIdx = 0;
-
-    if (['placed', 'pending', 'created'].includes(s)) {
-      currentIdx = 0;
-    } else if (['confirmed', 'accepted'].includes(s)) {
-      currentIdx = 1;
-    } else if (['preparing', 'cooking', 'processed'].includes(s)) {
-      currentIdx = 2;
-    } else if (['assigned', 'at_pickup', 'reached_pickup'].includes(s)) {
-      currentIdx = 2.5;
-    } else if (['ready', 'ready_for_pickup'].includes(s)) {
-      currentIdx = isTakeaway ? 3 : 2.5;
-    } else if (['on_way', 'picked_up', 'out_for_delivery', 'en_route_to_delivery', 'at_drop', 'reached_drop', 'at_delivery'].includes(s)) {
-      currentIdx = 3;
-    } else if (['delivered', 'completed'].includes(s)) {
-      currentIdx = 4;
-    }
-
-    if (index < Math.floor(currentIdx)) return 'completed';
-    if (index === Math.floor(currentIdx)) return 'active';
+  const getStepStatus = (index) => {
+    const step = Math.floor(shownIdx);
+    if (index < step) return 'completed';
+    if (index === step) return 'active';
     return 'upcoming';
   };
 
   const getConnectorWidth = () => {
+    if (!isSettled) return STEP_CONNECTOR_WIDTHS[Math.floor(shownIdx)] || STEP_CONNECTOR_WIDTHS[0];
     const s = stepperStatus;
     if (['placed', 'pending', 'created'].includes(s)) return '12%';
     if (['confirmed', 'accepted'].includes(s)) return '30%';
@@ -860,7 +894,7 @@ const LiveTrackingStepper = memo(({
         {/* Step Nodes */}
         <div className="flex items-center justify-between relative z-10">
           {visibleSteps.map((s, idx) => {
-            const stepState = getStepStatus(s.key, idx);
+            const stepState = getStepStatus(idx);
             const Icon = s.icon;
             const isCompleted = stepState === 'completed';
             const isActive = stepState === 'active';
@@ -1630,12 +1664,13 @@ export default function OrderTracking() {
   const handleCopyOtp = (e) => {
     if (e && e.stopPropagation) e.stopPropagation();
     if (!customerDeliveryOtp) return;
-    try {
-      navigator.clipboard.writeText(String(customerDeliveryOtp));
-      toast.success("Delivery OTP copied to clipboard! 📋");
-    } catch {
-      toast.info(`Delivery OTP: ${customerDeliveryOtp}`);
-    }
+    // writeText is async and rejects when clipboard access is denied or the
+    // page is not secure; a sync try/catch missed that (unhandled rejection,
+    // and a "copied" toast for nothing copied). Show the OTP instead.
+    Promise.resolve()
+      .then(() => navigator.clipboard.writeText(String(customerDeliveryOtp)))
+      .then(() => toast.success("Delivery OTP copied to clipboard! 📋"))
+      .catch(() => toast.info(`Delivery OTP: ${customerDeliveryOtp}`));
   };
 
   useEffect(() => {

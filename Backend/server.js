@@ -103,6 +103,12 @@ const startServer = async () => {
         server = httpServer.listen(config.port, config.host, () => {
             logger.info(`Server running in ${config.nodeEnv} mode on ${config.host}:${config.port}`);
             console.log(`🌐 [URL] http://localhost:${config.port}`);
+
+            // Email health at boot (SMTP sign-in, no mail sent) so a broken
+            // production mail setup is visible in the logs right away.
+            import('./src/utils/email.js')
+                .then(({ logEmailHealth }) => logEmailHealth())
+                .catch((err) => logger.error(`Email health check failed: ${err?.message || err}`));
         });
 
         const runExpire = async () => {

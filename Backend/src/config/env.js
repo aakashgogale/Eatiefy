@@ -170,14 +170,17 @@ export const config = {
     razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET,
     razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET, // ✅ NEW
 
-    // Email (SMTP) – for admin forgot password OTP etc.
-    emailHost: process.env.EMAIL_HOST,
+    // Email (SMTP) – approval/rejection emails, admin forgot password OTP etc.
+    emailHost: String(process.env.EMAIL_HOST || '').trim(),
     emailPort: Number(process.env.EMAIL_PORT) || 587,
-    emailUser: process.env.EMAIL_USER,
+    emailUser: String(process.env.EMAIL_USER || '').trim(),
     emailPass: process.env.EMAIL_PASS ? String(process.env.EMAIL_PASS).replace(/\s/g, '') : '',
-    emailFrom: String(process.env.EMAIL_FROM || process.env.EMAIL_USER || 'noreply@example.com')
+    // Sender exactly as configured ("addr" or "Name <addr>"); the mailer decides
+    // the effective sender from this and the SMTP account (see utils/email.js).
+    emailFrom: String(process.env.EMAIL_FROM || '')
         .replace(/^["']|["']$/g, '')
         .trim(),
+    emailFromName: String(process.env.EMAIL_FROM_NAME || '').trim(),
     adminEmail: process.env.ADMIN_EMAIL,
     adminNotificationEmails: process.env.ADMIN_NOTIFICATION_EMAILS
         ? process.env.ADMIN_NOTIFICATION_EMAILS.split(',').map((e) => e.trim()).filter(Boolean)

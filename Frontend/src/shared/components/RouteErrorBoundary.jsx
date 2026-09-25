@@ -1,6 +1,6 @@
 import React from "react"
 import { Link } from "react-router-dom"
-import { reportError, isChunkLoadError } from "@/shared/utils/errorReporter"
+import { reportError, isChunkLoadError, reloadForChunkError } from "@/shared/utils/errorReporter"
 
 /**
  * Catches runtime errors from the routes it wraps.
@@ -18,6 +18,12 @@ import { reportError, isChunkLoadError } from "@/shared/utils/errorReporter"
  * - title / message   fallback copy
  * - actions     [{ label, to }] links shown instead of the default "Go back"
  * - showDetails show the raw error text (default true)
+ * - fallback    replaces the full-screen card, for a boundary around one part
+ *               of a screen: a node, or ({ error, retry }) => node
+ *
+ * A failed lazy chunk (new deploy, dropped request) reloads the page once on its
+ * own, as the index.html handler does for uncaught errors; inside the cooldown
+ * the fallback is shown and "Try again" reloads.
  */
 export default class RouteErrorBoundary extends React.Component {
   constructor(props) {
@@ -30,11 +36,14 @@ export default class RouteErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, info) {
+    const chunkLoadFailed = isChunkLoadError(error)
     reportError(error, {
       scope: this.props.scope || "RouteErrorBoundary",
       componentStack: info?.componentStack,
       path: typeof window !== "undefined" ? window.location.pathname : undefined,
+      chunkLoadFailed,
     })
+    if (chunkLoadFailed) reloadForChunkError()
   }
 
   componentDidUpdate(prevProps) {
@@ -56,6 +65,11 @@ export default class RouteErrorBoundary extends React.Component {
   render() {
     const { error } = this.state
     if (!error) return this.props.children
+
+    const { fallback } = this.props
+    if (fallback !== undefined) {
+      return typeof fallback === "function" ? fallback({ error, retry: this.handleRetry }) : fallback
+    }
 
     const {
       title = "Something went wrong",
