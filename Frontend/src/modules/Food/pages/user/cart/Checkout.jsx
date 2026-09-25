@@ -169,8 +169,8 @@ export default function Checkout() {
               quantity: item.quantity || 1,
               price: item.price || 0
             })),
-            pricing: { total: pricing?.total || total },
-            total: pricing?.total || total,
+            pricing: { total },
+            total,
             restaurant: cart[0]?.restaurant || cart[0]?.name || "Selected Restaurant",
             status: "confirmed"
           },

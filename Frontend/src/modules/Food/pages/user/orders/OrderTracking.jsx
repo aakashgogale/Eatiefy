@@ -1,4 +1,4 @@
-import { useParams, Link, useSearchParams, useNavigate } from "react-router-dom"
+import { useParams, Link, useSearchParams, useNavigate, useLocation } from "react-router-dom"
 import React, { useState, useEffect, useMemo, useRef, useCallback, memo } from "react"
 import { motion, AnimatePresence, useMotionValue, animate } from "framer-motion"
 import { toast } from "sonner"
@@ -46,6 +46,7 @@ import {
   AlertCircle
 } from "lucide-react"
 import { resolveMediaUrl } from "@/shared/utils/mediaUrl"
+import { reportError } from "@/shared/utils/errorReporter"
 import { isVegMenuItem } from "@food/utils/vegMode"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Card, CardContent } from "@food/components/ui/card"
@@ -373,13 +374,15 @@ const transformOrderForTracking = (apiOrder, previousOrder = null, explicitResta
     restaurantLocation: {
       coordinates: restaurantCoords
     },
-    items: apiOrder?.items?.map(item => ({
-      name: item.name,
-      variantName: item.variantName || '',
-      quantity: item.quantity,
-      price: item.price,
-      isVeg: isVegMenuItem(item),
-    })) || previousOrder?.items || [],
+    items: Array.isArray(apiOrder?.items)
+      ? apiOrder.items.filter(Boolean).map(item => ({
+        name: item.name,
+        variantName: item.variantName || '',
+        quantity: item.quantity,
+        price: item.price,
+        isVeg: isVegMenuItem(item),
+      }))
+      : (previousOrder?.items || []),
     total: apiOrder?.pricing?.total || previousOrder?.total || 0,
     // Backend canonical field is orderStatus; keep legacy `status` for UI compatibility.
     status: apiOrder?.orderStatus || apiOrder?.status || previousOrder?.status || 'pending',
@@ -598,6 +601,37 @@ function normalizeLookupId(value) {
   const raw = String(value).trim();
   if (!raw || raw === "undefined" || raw === "null") return "";
   return raw;
+}
+
+/**
+ * The order the cart hands over in router state right after placing it.
+ *
+ * Rendering it at once means the confirmation screen never waits on - or
+ * depends on - the first fetch: a slow network, or a new order that is not
+ * readable yet, can no longer leave the customer without a screen. Only used
+ * when it is the order in the URL, so stale state can never show another order.
+ */
+function getPlacedOrderSeed(routeState, orderId) {
+  const seed = routeState?.order;
+  if (!seed || typeof seed !== "object") return null;
+  const target = normalizeLookupId(orderId);
+  const seedIds = [seed._id, seed.orderId, seed.id, seed.mongoId].map(normalizeLookupId);
+  if (!target || !seedIds.includes(target)) return null;
+  try {
+    return transformOrderForTracking(seed);
+  } catch (err) {
+    reportError(err, { scope: "order-tracking", stage: "seed-transform", orderId: target });
+    return null;
+  }
+}
+
+/** Backoff for the first load when nothing is on screen yet. */
+const INITIAL_FETCH_RETRY_DELAYS_MS = [1000, 2500, 5000];
+
+/** Network failures, timeouts, rate limits and 5xx are worth retrying; a 4xx is not. */
+function isTransientFetchError(err) {
+  const status = err?.response?.status;
+  return !status || status === 408 || status === 429 || status >= 500;
 }
 
 /** "Cancelled by Restaurant", "Cancelled by you", ... from the backend enum. */
@@ -1004,18 +1038,27 @@ export default function OrderTracking() {
   const goBack = useAppBackNavigation()
   const companyName = useCompanyName()
   const { orderId } = useParams()
+  const routeLocation = useLocation()
   const [searchParams] = useSearchParams()
   const confirmed = searchParams.get("confirmed") === "true"
+  // Arrived straight from placing this order - its first fetch can race the write.
+  const isFreshOrder = confirmed || Boolean(routeLocation.state?.fromOrderPlaced)
   const { getOrderById } = useOrders()
   const { profile, getDefaultAddress } = useProfile()
   const { location: userLiveLocation } = useUserLocation()
 
   const { isConnected: isSocketConnected } = useUserNotifications()
 
-  // State for order data
-  const [order, setOrder] = useState(null)
-  const [loading, setLoading] = useState(true)
+  // State for order data (seeded from the cart hand-off when available)
+  const [order, setOrder] = useState(() => getPlacedOrderSeed(routeLocation.state, orderId))
+  const [loading, setLoading] = useState(() => order == null)
   const [error, setError] = useState(null)
+  // Latest order for async callbacks (poll) that outlive the render they came from.
+  const orderRef = useRef(order)
+  const isFreshOrderRef = useRef(isFreshOrder)
+  useEffect(() => {
+    orderRef.current = order
+  }, [order])
 
   const [showConfirmation, setShowConfirmation] = useState(confirmed)
   const [orderStatus, setOrderStatus] = useState('placed')
@@ -1151,24 +1194,6 @@ export default function OrderTracking() {
       setDeliveryInstructions(inst);
     }
   }, [order?.deliveryInstructions, order?.note]);
-
-  // When modal opens, sync latest instructions and re-validate order status from backend
-  useEffect(() => {
-    if (isInstructionsModalOpen) {
-      const currentInst = order?.deliveryInstructions || order?.note || "";
-      setDeliveryInstructions(currentInst);
-      if (typeof fetchOrderDetailsWithFallback === "function") {
-        fetchOrderDetailsWithFallback({ force: true })
-          .then((response) => {
-            if (response?.data?.success && response?.data?.data?.order) {
-              const apiOrder = response.data.data.order;
-              setOrder((prev) => transformOrderForTracking(apiOrder, prev));
-            }
-          })
-          .catch(() => {});
-      }
-    }
-  }, [isInstructionsModalOpen, fetchOrderDetailsWithFallback]);
 
   // OTP received via socket event (deliveryDropOtp)
   useEffect(() => {
@@ -1306,6 +1331,26 @@ export default function OrderTracking() {
 
   const resolveOrderFromList = useCallback((id) => stableOpsRef.current.resolveOrderFromList(id), [])
   const fetchOrderDetailsWithFallback = useCallback((opts) => stableOpsRef.current.fetchOrderDetailsWithFallback(opts), [])
+
+  /*
+   * When the instructions modal opens, sync the latest note and re-validate the
+   * order status from the backend.
+   *
+   * Must stay below the `fetchOrderDetailsWithFallback` declaration: the deps
+   * array is evaluated during render, and reading a `const` before its line runs
+   * throws "Cannot access ... before initialization" - which crashed every
+   * render of this screen and left a blank page after placing an order.
+   */
+  useEffect(() => {
+    if (!isInstructionsModalOpen) return
+    setDeliveryInstructions(order?.deliveryInstructions || order?.note || "")
+    fetchOrderDetailsWithFallback({ force: true })
+      .then((response) => {
+        const apiOrder = response?.data?.success ? response?.data?.data?.order : null
+        if (apiOrder) setOrder((prev) => transformOrderForTracking(apiOrder, prev))
+      })
+      .catch((err) => reportError(err, { scope: "order-tracking", stage: "instructions-refresh", orderId }))
+  }, [isInstructionsModalOpen, fetchOrderDetailsWithFallback]);
 
   // Clear OTP when order is finalized.
   useEffect(() => {
@@ -1583,8 +1628,9 @@ export default function OrderTracking() {
 
     let isSubscribed = true;
     let requestInProgress = false;
+    let retryTimer = null;
 
-    const poll = async (isInitial = false) => {
+    const poll = async (isInitial = false, attempt = 0) => {
       if (!isSubscribed || requestInProgress) return;
       if (terminalPollStopRef.current && !isInitial) return;
 
@@ -1599,6 +1645,20 @@ export default function OrderTracking() {
 
       requestInProgress = true;
       const requestStartedAt = Date.now();
+      let retryScheduled = false;
+      /*
+       * First load failed with nothing on screen. A just-placed order can take a
+       * moment to become readable, and a slow/flaky network drops requests - so
+       * retry those with backoff before settling on the error screen.
+       */
+      const scheduleInitialRetry = (err) => {
+        const delay = INITIAL_FETCH_RETRY_DELAYS_MS[attempt];
+        if (!isInitial || orderRef.current || delay == null) return false;
+        if (!isFreshOrderRef.current && !isTransientFetchError(err)) return false;
+        retryTimer = setTimeout(() => poll(true, attempt + 1), delay);
+        retryScheduled = true;
+        return true;
+      };
       try {
         const response = await fetchOrderDetailsWithFallback({ force: isInitial });
         if (!isSubscribed) return;
@@ -1629,12 +1689,16 @@ export default function OrderTracking() {
           return;
         }
 
-        if (isInitial && !order) {
+        if (isInitial && !orderRef.current) {
+          if (scheduleInitialRetry(null)) return;
+          reportError(new Error(response?.data?.message || 'Order not found'), {
+            scope: 'order-tracking', stage: 'initial-load-empty', orderId, attempt,
+          });
           setError(response?.data?.message || 'Order not found');
           terminalPollStopRef.current = true;
         }
       } catch (err) {
-        if (isInitial && !order) {
+        if (isInitial && !orderRef.current) {
           try {
             const matchedOrder = await resolveOrderFromList(orderId);
             if (matchedOrder) {
@@ -1646,12 +1710,16 @@ export default function OrderTracking() {
             }
           } catch { }
           if (!isSubscribed) return;
+          if (scheduleInitialRetry(err)) return;
+          reportError(err, {
+            scope: 'order-tracking', stage: 'initial-load', orderId, attempt, status: err?.response?.status,
+          });
           setError(err?.response?.data?.message || 'Failed to fetch order details');
           terminalPollStopRef.current = true;
         }
       } finally {
         requestInProgress = false;
-        if (isInitial && isSubscribed) setLoading(false);
+        if (isInitial && isSubscribed && !retryScheduled) setLoading(false);
       }
     };
 
@@ -1663,6 +1731,7 @@ export default function OrderTracking() {
 
     return () => {
       isSubscribed = false;
+      clearTimeout(retryTimer);
     };
   }, [orderId, fetchOrderDetailsWithFallback, resolveOrderFromList, getOrderById]);
 
@@ -1682,6 +1751,14 @@ export default function OrderTracking() {
 
     return () => clearInterval(interval);
   }, [orderId, isSocketConnected]);
+
+  // "Try again" on the error screen: restart the initial load (and polling).
+  const handleRetryLoad = useCallback(() => {
+    setError(null);
+    setLoading(true);
+    terminalPollStopRef.current = false;
+    pollRef.current?.(true);
+  }, []);
 
   useEffect(() => {
     if (!order) return
@@ -2063,28 +2140,47 @@ export default function OrderTracking() {
   // RENDER (Final JSX)
   // --------------------------------------------------------------------------
 
-  // Loading state (moved after hooks)
-  if (loading) {
-    return (
-      <AnimatedPage className="min-h-screen bg-gray-50 dark:bg-[#141414] p-4">
-        <div className="max-w-lg mx-auto text-center py-20">
-          <Loader2 className="w-8 h-8 animate-spin text-gray-600 dark:text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-600 dark:text-gray-400">Loading order details...</p>
-        </div>
-      </AnimatedPage>
-    )
-  }
+  // Nothing to show yet: loading, or the load failed. Once an order is on
+  // screen (fetched or handed over by the cart) a later failure never replaces
+  // it - polling simply tries again.
+  if (!order) {
+    if (loading) {
+      return (
+        <AnimatedPage className="min-h-screen bg-gray-50 dark:bg-[#141414] p-4">
+          <div className="max-w-lg mx-auto text-center py-20">
+            <Loader2 className="w-8 h-8 animate-spin text-gray-600 dark:text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-600 dark:text-gray-400">
+              {isFreshOrder ? "Confirming your order..." : "Loading order details..."}
+            </p>
+          </div>
+        </AnimatedPage>
+      )
+    }
 
-  // Error state (moved after hooks)
-  if (error || !order) {
     return (
       <AnimatedPage className="min-h-screen bg-gray-50 dark:bg-[#141414] p-4">
         <div className="max-w-lg mx-auto text-center py-20">
-          <h1 className="text-lg sm:text-xl md:text-2xl font-bold mb-4 dark:text-white">Order Not Found</h1>
-          <p className="text-gray-600 dark:text-gray-400 mb-6">{error || 'The order you\'re looking for doesn\'t exist.'}</p>
-          <Link to={toFoodUserPath("/user/orders")}>
-            <Button className="text-white border-0" style={{ backgroundColor: "var(--module-theme-color, #EB590E)" }}>Back to Orders</Button>
-          </Link>
+          <h1 className="text-lg sm:text-xl md:text-2xl font-bold mb-4 dark:text-white">
+            {isFreshOrder ? "We couldn't load your order yet" : "Order Not Found"}
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400 mb-6">
+            {isFreshOrder
+              ? "Your order is saved to your account. Check your connection and try again, or open My Orders."
+              : (error || 'The order you\'re looking for doesn\'t exist.')}
+          </p>
+          <div className="flex items-center justify-center gap-3">
+            <Button
+              onClick={handleRetryLoad}
+              className="text-white border-0"
+              style={{ backgroundColor: "var(--module-theme-color, #EB590E)" }}
+            >
+              <RefreshCw className="w-4 h-4" />
+              Try again
+            </Button>
+            <Link to={toFoodUserPath("/user/orders")}>
+              <Button variant="outline" className="dark:text-white">Back to Orders</Button>
+            </Link>
+          </div>
         </div>
       </AnimatedPage>
     )

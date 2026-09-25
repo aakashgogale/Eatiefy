@@ -10,7 +10,9 @@ import { initPushNotificationClient, registerWebPushForCurrentModule } from "@fo
 import {
   getCategorySlugFromPath,
   isExactMainTabPath,
+  toFoodUserPath,
 } from "@food/utils/mainTabRoutes"
+import RouteErrorBoundary from "@/shared/components/RouteErrorBoundary"
 import {
   getCategoryLastClick,
   normalizeBrowsePath,
@@ -60,10 +62,20 @@ const UserRouterWrapper = () => {
                        location.pathname.includes('shipping') ||
                        location.pathname.includes('cancellation');
 
+  // App-wide safety net for the user app: a render error anywhere below shows a
+  // recoverable screen instead of unmounting everything to a blank page.
   return (
-    <Suspense fallback={isPolicyPage ? <PageLoader /> : <AppShellSkeleton />}>
-      <UserRouter />
-    </Suspense>
+    <RouteErrorBoundary
+      scope="user-app"
+      resetKey={location.pathname}
+      showDetails={import.meta.env.DEV}
+      message="This screen could not be opened. Please try again."
+      actions={[{ label: "Go home", to: toFoodUserPath("/user") }]}
+    >
+      <Suspense fallback={isPolicyPage ? <PageLoader /> : <AppShellSkeleton />}>
+        <UserRouter />
+      </Suspense>
+    </RouteErrorBoundary>
   )
 }
 

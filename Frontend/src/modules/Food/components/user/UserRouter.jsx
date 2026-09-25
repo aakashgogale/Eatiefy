@@ -95,6 +95,31 @@ const SubmitComplaint = lazy(() => import("@food/pages/user/complaints/SubmitCom
 
 import { AppShellSkeleton } from "@food/components/ui/loading-skeletons"
 import { Loader2 } from "lucide-react"
+import RouteErrorBoundary from "@/shared/components/RouteErrorBoundary"
+import { toFoodUserPath } from "@food/utils/mainTabRoutes"
+
+/**
+ * Boundary for the order placement -> confirmation -> tracking screens. It sits
+ * inside the layout, so a failure keeps the app chrome and offers My Orders
+ * (where a placed order always appears) as the way forward - never a blank page.
+ */
+const OrderFlowBoundary = ({ scope, message, children }) => {
+  const location = useLocation()
+  return (
+    <RouteErrorBoundary
+      scope={scope}
+      resetKey={location.pathname}
+      showDetails={import.meta.env.DEV}
+      title="We couldn't load this screen"
+      message={message}
+      actions={[{ label: "My Orders", to: toFoodUserPath("/user/orders") }]}
+    >
+      {children}
+    </RouteErrorBoundary>
+  )
+}
+
+const ORDER_SAVED_MESSAGE = "Your order is saved to your account. Try again, or open My Orders to see its latest status."
 
 const PageLoader = () => (
   <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center p-6 bg-white dark:bg-[#141414]">
@@ -241,15 +266,15 @@ export default function UserRouter() {
             )}
 
             {/* Cart */}
-            <Route path="cart" element={<Cart />} />
-            <Route path="cart/checkout" element={<Checkout />} />
+            <Route path="cart" element={<OrderFlowBoundary scope="cart" message="Your cart is saved. Try again, or check My Orders if you already placed this order."><Cart /></OrderFlowBoundary>} />
+            <Route path="cart/checkout" element={<OrderFlowBoundary scope="checkout" message="Your cart is saved. Try again, or check My Orders if you already placed this order."><Checkout /></OrderFlowBoundary>} />
             <Route path="cart/select-address" element={<SelectAddress />} />
 
             {/* Orders */}
-            <Route path="orders" element={<Orders />} />
-            <Route path="orders/:orderId" element={<OrderTracking />} />
-            <Route path="orders/:orderId/invoice" element={<OrderInvoice />} />
-            <Route path="orders/:orderId/details" element={<UserOrderDetails />} />
+            <Route path="orders" element={<OrderFlowBoundary scope="orders-list" message="We couldn't show your orders right now. Please try again."><Orders /></OrderFlowBoundary>} />
+            <Route path="orders/:orderId" element={<OrderFlowBoundary scope="order-tracking" message={ORDER_SAVED_MESSAGE}><OrderTracking /></OrderFlowBoundary>} />
+            <Route path="orders/:orderId/invoice" element={<OrderFlowBoundary scope="order-invoice" message={ORDER_SAVED_MESSAGE}><OrderInvoice /></OrderFlowBoundary>} />
+            <Route path="orders/:orderId/details" element={<OrderFlowBoundary scope="order-details" message={ORDER_SAVED_MESSAGE}><UserOrderDetails /></OrderFlowBoundary>} />
 
             {/* Offers */}
             <Route path="offers" element={<Offers />} />

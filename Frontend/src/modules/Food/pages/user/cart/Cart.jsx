@@ -26,6 +26,7 @@ import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { filterPublicOffers, mapPublicOfferToCartCoupon } from "@food/utils/offerUtils"
 import { isVegMenuItem } from "@food/utils/vegMode"
 import { toFoodUserPath } from "@food/utils/mainTabRoutes"
+import { reportError } from "@/shared/utils/errorReporter"
 import dishFallbackImage from "@food/assets/dish_fallback.webp"
 import SafeImage from "@food/components/SafeImage"
 const zoopSound = "/assets/media/zomato_sms.mp3"
@@ -108,6 +109,20 @@ const CONFETTI_PIECES = Array.from({ length: 36 }, (_, i) => ({
 
 /** Six sparkle directions radiating from the success tick. */
 const SPARKLE_ANGLES = Array.from({ length: 6 }, (_, i) => i * 60)
+
+/*
+ * Order creation for a Razorpay redirect return, keyed by payment id. The cart
+ * can mount more than once for the same return (StrictMode, or the layout
+ * remounting while auth/zone checks settle on a slow network); every mount must
+ * share one request, or the same payment would be submitted twice.
+ */
+const redirectOrderRequests = new Map()
+
+/** First usable id on a created order, or null. */
+const getPlacedOrderId = (order) =>
+  [order?._id, order?.orderId, order?.id]
+    .map((value) => (value == null ? "" : String(value).trim()))
+    .find(Boolean) || null
 
 export default function Cart() {
   const companyName = useCompanyName()
@@ -423,6 +438,52 @@ export default function Cart() {
     preloadRazorpayScript()
   }, [])
 
+  // Guards the same-frame double tap before `isPlacingOrder` disables the button.
+  const placeOrderLockRef = useRef(false)
+
+  /**
+   * The single success path for every payment method (COD, wallet, Razorpay
+   * modal and Razorpay redirect). These used to repeat it with different null
+   * checks, and `order._id` on a response without an order threw after payment.
+   *
+   * A 2xx means the server created the order; only an explicit
+   * `success: false` is a failure. If the body carries no usable order id
+   * (malformed or proxied), the order still exists - so the customer is never
+   * asked to place or pay again: the cart is cleared and "Track Your Order"
+   * falls back to My Orders.
+   */
+  const completePlacedOrder = (response, { stage, successMessage } = {}) => {
+    const body = response?.data
+    if (body?.success === false) {
+      throw new Error(body.message || "Your order could not be confirmed. Please try again.")
+    }
+    const order = body?.data?.order && typeof body.data.order === "object" ? body.data.order : null
+    const orderId = getPlacedOrderId(order)
+    if (!orderId) {
+      reportError(new Error("Order placed but the response has no order id"), {
+        scope: "order-placement",
+        stage,
+        status: response?.status,
+      })
+    }
+
+    setPlacedOrderId(orderId)
+    setPlacedOrderObj(order)
+    setShowOrderSuccess(true)
+    if (successMessage) toast.success(successMessage)
+    window.dispatchEvent(new CustomEvent("order-placed", { detail: { order } }))
+    clearCart()
+    setRestaurantNote("")
+    setShowRestaurantNoteInput(false)
+    try {
+      window.localStorage.removeItem(CART_ORDER_NOTE_STORAGE_KEY)
+      window.localStorage.removeItem("pendingOrderPayload")
+      window.localStorage.removeItem("pendingOrderSavings")
+    } catch {
+      // ignore storage errors
+    }
+  }
+
   // Handle Razorpay redirect callback
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -431,54 +492,66 @@ export default function Cart() {
     const razorpay_order_id = searchParams.get('razorpay_order_id');
     const razorpay_signature = searchParams.get('razorpay_signature');
     const error_code = searchParams.get('error[code]');
+    const clearCallbackParams = () => window.history.replaceState({}, '', window.location.pathname);
 
     if (error_code) {
-        toast.error("Payment failed: " + (searchParams.get('error[description]') || "Unknown error"));
-        window.history.replaceState({}, '', window.location.pathname);
-    } else if (razorpay_payment_id && razorpay_order_id && razorpay_signature) {
-        const processRedirectPayment = async () => {
-            const savedPayloadRaw = window.localStorage.getItem('pendingOrderPayload');
-            if (savedPayloadRaw) {
-                try {
-                    setIsPlacingOrder(true);
-                    const orderPayload = JSON.parse(savedPayloadRaw);
-                    
-                    const createOrderPayload = {
-                      ...orderPayload,
-                      razorpayOrderId: razorpay_order_id,
-                      razorpayPaymentId: razorpay_payment_id,
-                      razorpaySignature: razorpay_signature,
-                    };
-
-                    const createResponse = await orderAPI.createOrder(createOrderPayload);
-                    if (createResponse.data?.success) {
-                      const { order } = createResponse.data.data;
-                      setPlacedOrderId(order._id || order.orderId);
-                      setPlacedOrderObj(order);
-                      setShowOrderSuccess(true);
-                      window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }));
-                      clearCart();
-                      setRestaurantNote("");
-                      setShowRestaurantNoteInput(false);
-                      try { window.localStorage.removeItem(CART_ORDER_NOTE_STORAGE_KEY) } catch {}
-                      window.localStorage.removeItem('pendingOrderPayload');
-                      window.localStorage.removeItem('pendingOrderSavings');
-                    }
-                } catch (error) {
-                    debugError("Order creation after redirect payment error:", error);
-                    const errorMessage =
-                      error?.response?.data?.message ||
-                      error?.message ||
-                      "Payment verified but order creation failed. Please contact support.";
-                    alert(errorMessage);
-                } finally {
-                    setIsPlacingOrder(false);
-                    window.history.replaceState({}, '', window.location.pathname);
-                }
-            }
-        };
-        processRedirectPayment();
+      toast.error("Payment failed: " + (searchParams.get('error[description]') || "Unknown error"));
+      clearCallbackParams();
+      return;
     }
+    if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature) return;
+
+    let orderPayload = null;
+    try {
+      orderPayload = JSON.parse(window.localStorage.getItem('pendingOrderPayload') || "null");
+    } catch (error) {
+      reportError(error, { scope: "order-placement", stage: "razorpay-redirect-payload" });
+    }
+    if (!orderPayload) {
+      // Paid, but this browser holds no saved order (e.g. the payment app opened
+      // the return link elsewhere). The payment webhook creates the order on the
+      // server, so say so - a silent cart invites paying a second time.
+      toast.info("Payment received. Your order is being confirmed - check My Orders in a moment.");
+      clearCallbackParams();
+      return;
+    }
+
+    let cancelled = false;
+    let request = redirectOrderRequests.get(razorpay_payment_id);
+    if (!request) {
+      request = orderAPI.createOrder({
+        ...orderPayload,
+        razorpayOrderId: razorpay_order_id,
+        razorpayPaymentId: razorpay_payment_id,
+        razorpaySignature: razorpay_signature,
+      });
+      redirectOrderRequests.set(razorpay_payment_id, request);
+    }
+    setIsPlacingOrder(true);
+
+    request
+      .then((response) => {
+        if (!cancelled) completePlacedOrder(response, { stage: "razorpay-redirect" });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        reportError(error, { scope: "order-placement", stage: "razorpay-redirect", status: error?.response?.status });
+        alert(
+          error?.response?.data?.message ||
+          error?.message ||
+          "Payment verified but order creation failed. Please contact support."
+        );
+      })
+      .finally(() => {
+        if (cancelled) return;
+        redirectOrderRequests.delete(razorpay_payment_id);
+        setIsPlacingOrder(false);
+        clearCallbackParams();
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -1924,9 +1997,12 @@ export default function Cart() {
       return
     }
 
+    if (placeOrderLockRef.current || isPlacingOrder) return
+    placeOrderLockRef.current = true
     setIsPlacingOrder(true)
 
-    // Use API_BASE_URL from config (supports both dev and production)
+    // Which step of placement is running, so a failure is reported with its exact point.
+    let stage = "validate"
 
     try {
       debugLog("?? Starting order placement process...")
@@ -2176,66 +2252,37 @@ export default function Cart() {
         return
       }
 
-      // Cash flow: order placed without online payment
-      if (selectedPaymentMethod === "cash") {
+      // Cash / wallet: the order is created directly, no online payment step.
+      if (selectedPaymentMethod === "cash" || selectedPaymentMethod === "wallet") {
+        const isWallet = selectedPaymentMethod === "wallet"
+        stage = `create-order:${selectedPaymentMethod}`
         const orderResponse = await orderAPI.createOrder(orderPayload)
-        debugLog("? Cash order created successfully:", orderResponse.data)
-        const { order } = orderResponse.data.data
-
-        toast.success("Order placed with Cash on Delivery")
-        setPlacedOrderId(order?._id || order?.orderId || order?.id || null)
-        setPlacedOrderObj(order)
-        setShowOrderSuccess(true)
-        window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
-        clearCart()
-        setRestaurantNote("")
-        setShowRestaurantNoteInput(false)
-        try {
-          window.localStorage.removeItem(CART_ORDER_NOTE_STORAGE_KEY)
-        } catch {
-          // ignore
-        }
+        completePlacedOrder(orderResponse, {
+          stage,
+          successMessage: isWallet ? "Order placed with Wallet payment" : "Order placed with Cash on Delivery",
+        })
         setIsPlacingOrder(false)
-        return
-      }
 
-      // Wallet flow: order placed with wallet payment
-      if (selectedPaymentMethod === "wallet") {
-        const orderResponse = await orderAPI.createOrder(orderPayload)
-        debugLog("? Wallet order created successfully:", orderResponse.data)
-        const { order } = orderResponse.data.data
-
-        toast.success("Order placed with Wallet payment")
-        setPlacedOrderId(order?._id || order?.orderId || order?.id || null)
-        setPlacedOrderObj(order)
-        setShowOrderSuccess(true)
-        window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
-        clearCart()
-        setRestaurantNote("")
-        setShowRestaurantNoteInput(false)
-        try {
-          window.localStorage.removeItem(CART_ORDER_NOTE_STORAGE_KEY)
-        } catch {
-          // ignore
-        }
-        setIsPlacingOrder(false)
-        // Refresh wallet balance
-        try {
-          const walletResponse = await userAPI.getWallet()
-          if (walletResponse?.data?.success && walletResponse?.data?.data?.wallet) {
-            setWalletBalance(walletResponse.data.data.wallet.balance || 0)
+        if (isWallet) {
+          // Refresh wallet balance
+          try {
+            const walletResponse = await userAPI.getWallet()
+            if (walletResponse?.data?.success && walletResponse?.data?.data?.wallet) {
+              setWalletBalance(walletResponse.data.data.wallet.balance || 0)
+            }
+          } catch (error) {
+            debugError("Error refreshing wallet balance:", error)
           }
-        } catch (error) {
-          debugError("Error refreshing wallet balance:", error)
         }
         return
       }
 
       // Online payment (Razorpay) flow: Initiate payment order FIRST (no DB order created yet)
+      stage = "initiate-online-payment"
       const initiateResponse = await orderAPI.initiateOnlinePayment(orderPayload)
       debugLog("? Online payment initiated successfully:", initiateResponse.data)
 
-      const razorpay = initiateResponse.data.data
+      const razorpay = initiateResponse?.data?.data
 
       if (!razorpay || !razorpay.orderId || !razorpay.key) {
         debugError("? Razorpay initialization failed:", { razorpay })
@@ -2259,6 +2306,7 @@ export default function Cart() {
       const formattedPhone = userPhone.replace(/\D/g, "").slice(-10)
 
       // Get company name for Razorpay
+      stage = "open-payment-gateway"
       const companyName = await getCompanyNameAsync()
 
       // Flag to prevent duplicate execution (onError + onClose)
@@ -2299,41 +2347,26 @@ export default function Cart() {
           paymentHandled = true
           try {
             debugLog("? Payment successful, creating order in DB...", {
-              razorpay_order_id: response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id
+              razorpay_order_id: response?.razorpay_order_id,
+              razorpay_payment_id: response?.razorpay_payment_id
             })
 
             // Now create the order in DB with payment signature verification
             const createOrderPayload = {
               ...orderPayload,
-              razorpayOrderId: response.razorpay_order_id,
-              razorpayPaymentId: response.razorpay_payment_id,
-              razorpaySignature: response.razorpay_signature,
+              razorpayOrderId: response?.razorpay_order_id,
+              razorpayPaymentId: response?.razorpay_payment_id,
+              razorpaySignature: response?.razorpay_signature,
             }
 
             const createResponse = await orderAPI.createOrder(createOrderPayload)
-            debugLog("? Order created after payment:", createResponse.data)
-
-            if (createResponse.data?.success) {
-              const { order } = createResponse.data.data
-              setPlacedOrderId(order._id || order.orderId)
-              setPlacedOrderObj(order)
-              setShowOrderSuccess(true)
-              window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
-              clearCart()
-              setRestaurantNote("")
-              setShowRestaurantNoteInput(false)
-              try {
-                window.localStorage.removeItem(CART_ORDER_NOTE_STORAGE_KEY)
-              } catch {
-                // ignore
-              }
-              setIsPlacingOrder(false)
-            } else {
-              throw new Error(createResponse.data?.message || "Payment verified but order creation failed")
-            }
+            completePlacedOrder(createResponse, { stage: "create-order:razorpay" })
           } catch (error) {
-            debugError("? Order creation after payment error:", error)
+            reportError(error, {
+              scope: "order-placement",
+              stage: "create-order:razorpay",
+              status: error?.response?.status,
+            })
             const errorMessage =
               error?.response?.data?.message ||
               error?.response?.data?.error?.message ||
@@ -2341,6 +2374,7 @@ export default function Cart() {
               error?.message ||
               "Payment verification failed. Please contact support."
             alert(errorMessage)
+          } finally {
             setIsPlacingOrder(false)
           }
         },
@@ -2377,39 +2411,30 @@ export default function Cart() {
         }
       })
     } catch (error) {
-      debugError("? Order creation error:", error)
+      reportError(error, {
+        scope: "order-placement",
+        stage,
+        paymentMethod: selectedPaymentMethod,
+        status: error?.response?.status,
+        code: error?.code,
+      })
 
       let errorMessage = "Failed to create order. Please try again."
 
+      const isNetworkError = error?.code === 'ERR_NETWORK' || error?.message === 'Network Error'
+      const isTimeout = error?.code === 'ECONNABORTED' || error?.code === 'ETIMEDOUT' || Boolean(error?.message?.includes('timeout'))
+
+      // The create request may have reached the server before the connection
+      // dropped - "try again" here could place the same order twice.
+      if (!error?.response && (isNetworkError || isTimeout) && stage.startsWith("create-order")) {
+        errorMessage = "We lost the connection while placing your order, so it may already be placed. Please check My Orders before trying again."
+      }
       // Handle network errors
-      if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
-        const backendUrl = API_BASE_URL.replace('/api', '');
-        errorMessage = `Network Error: Cannot connect to backend server.\n\n` +
-          `Expected backend URL: ${backendUrl}\n\n` +
-          `Please check:\n` +
-          `1. Backend server is running\n` +
-          `2. Backend is accessible at ${backendUrl}\n` +
-          `3. Check browser console (F12) for more details\n\n` +
-          `If backend is not running, start it with:\n` +
-          `cd eatiefyfood/backend && npm start`
-
-        debugError("?? Network Error Details:", {
-          code: error.code,
-          message: error.message,
-          config: {
-            url: error.config?.url,
-            baseURL: error.config?.baseURL,
-            fullUrl: error.config?.baseURL + error.config?.url,
-            method: error.config?.method
-          },
-          backendUrl: backendUrl,
-          apiBaseUrl: API_BASE_URL
-        })
-
-        // Backend disconnected - no health check (new backend in progress)
+      else if (isNetworkError) {
+        errorMessage = "Network error. Please check your internet connection and try again."
       }
       // Handle timeout errors
-      else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      else if (isTimeout) {
         errorMessage = "Request timed out. The server is taking too long to respond. Please try again."
       }
       // Handle other axios errors
@@ -2424,6 +2449,8 @@ export default function Cart() {
 
       alert(errorMessage)
       setIsPlacingOrder(false)
+    } finally {
+      placeOrderLockRef.current = false
     }
   }
 
@@ -2435,7 +2462,13 @@ export default function Cart() {
     setOrderSuccessSavingsAmount(0)
     setShowOrderSuccess(false)
     setShowPlacingOrder(false)
-    navigate(toFoodUserPath(`/user/orders/${placedOrderId}?confirmed=true`), {
+    // Only a confirmed order id opens tracking; without one (malformed response)
+    // the placed order is still listed in My Orders - never `/orders/null`.
+    if (!placedOrderId) {
+      navigate(toFoodUserPath("/user/orders"), { replace: true })
+      return
+    }
+    navigate(toFoodUserPath(`/user/orders/${encodeURIComponent(placedOrderId)}?confirmed=true`), {
       replace: true,
       state: { order: placedOrderObj, fromOrderPlaced: true, from: 'cart' }
     })
