@@ -1,5 +1,6 @@
 import { toast } from "sonner";
 import { getCachedSettings, getModuleFaviconUrl } from "@food/utils/businessSettings";
+import { getRestaurantPushRingRefusal, logRefusedRing } from "@food/utils/restaurantAlertSession";
 import { showNotificationToast } from "@/shared/utils/customToasts";
 import { userAPI, restaurantAPI, deliveryAPI, adminAPI } from "@food/api";
 import { initializeApp, getApp, getApps } from "firebase/app";
@@ -70,7 +71,6 @@ function getPushSoundSources(moduleName = normalizeModuleFromPath()) {
 const ORDER_ALERT_PUSH_TYPES = new Set([
   "new_order",
   "new_order_available",
-  "new_dining_booking",
 ]);
 
 function shouldPlayAlertSoundForPush(payload = {}) {
@@ -79,11 +79,21 @@ function shouldPlayAlertSoundForPush(payload = {}) {
     return false;
   }
 
-  const type = String(
-    payload?.data?.type || payload?.data?.notificationType || "",
-  ).toLowerCase();
+  const data = payload?.data || {};
+  const type = String(data.type || data.notificationType || "").toLowerCase();
+  if (!ORDER_ALERT_PUSH_TYPES.has(type)) return false;
 
-  return ORDER_ALERT_PUSH_TYPES.has(type);
+  if (moduleName === "restaurant") {
+    const refusal = getRestaurantPushRingRefusal(data);
+    if (refusal) {
+      logRefusedRing("push", refusal, {
+        orderId: data.orderMongoId || data.orderId || null,
+        restaurantId: data.restaurantId || null,
+      });
+      return false;
+    }
+  }
+  return true;
 }
 
 /** Bundled Eatiefy icon — regenerate with `npm run build:favicon`. */

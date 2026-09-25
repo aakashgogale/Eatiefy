@@ -10,6 +10,15 @@ import {
   stopActivePushPlayback,
 } from '@food/utils/firebaseMessaging';
 import { normalizeRestaurantOrderView } from '@food/utils/restaurantOrderPricing';
+import {
+  RESTAURANT_DECIDABLE_STATUSES,
+  setActiveRestaurant,
+  clearActiveRestaurant,
+  hasActiveRestaurant,
+  isForActiveRestaurant,
+  isRealOrderId,
+  logRefusedRing,
+} from '@food/utils/restaurantAlertSession';
 
 const alertSound = '/assets/media/restaurant_alert.mp3';
 const debugLog = (...args) => {};
@@ -177,6 +186,26 @@ let globalAlertLoopStartedAt = 0;
 let globalAlertLoopKey = '';
 let globalAlertDeadline = 0;
 
+/*
+ * Every id of each order that arrived through a genuine `new_order` socket event
+ * in this app session and passed the ring gate. Only these may ever ring - the
+ * popup/queue re-arming the alert, an unmute, or resuming after the first tap
+ * can re-ring an announced order but can never start ringing for anything else
+ * (orders loaded by the API poll, stale state, placeholders).
+ */
+const announcedOrderIds = new Set();
+
+/*
+ * Browsers only allow sound after a user gesture. The unlock runs once per page,
+ * not once per component using this hook: each mount used to add another
+ * one-shot tap handler, and after the first unlock that handler called play()
+ * on the element already loaded with the real ringtone - so navigating to
+ * another screen and tapping anything rang the full ringtone with no order.
+ */
+let alertAudioUnlocked = false;
+let alertAudioUnlockAttached = false;
+let alertAudioUnlockInFlight = false;
+
 // Socket and Polling references
 let globalSocket = null;
 let globalSocketConnected = false;
@@ -270,6 +299,8 @@ export const teardownRestaurantNotifications = () => {
   globalActiveOrder = null;
   globalNewOrder = null;
   globalNewReservation = null;
+  clearActiveRestaurant();
+  announcedOrderIds.clear();
 
   lastAlertAtByOrder.clear();
   lastBrowserNotificationAtByOrder.clear();
@@ -517,10 +548,21 @@ const stopGlobalAlertLoop = () => {
   stopWebViewNativeNotification();
 };
 
-const isSilentUnlockSource = (audio) => !audio?.src || String(audio.src).startsWith('data:');
+const ensureGlobalAlertAudio = () => {
+  if (typeof window === 'undefined') return null;
+  if (!globalAudio) {
+    globalAudio = new Audio(resolveAudioSource(alertSound));
+    globalAudio.preload = 'auto';
+    preloadAudio().then((src) => {
+      if (globalAudio && globalAudio.paused) globalAudio.src = src;
+    });
+  }
+  return globalAudio;
+};
 
 /**
- * Plays the order ringtone.
+ * Plays the order ringtone. Internal: only startGlobalAlertLoop (after the ring
+ * gate) and its keep-alive tick call it - it is not exposed to components.
  *
  * With `loop` the full track repeats seamlessly until stopGlobalAlertLoop(). The
  * loop used to rewind a 28-second ringtone to 0 every 4.5 seconds, so restaurants
@@ -538,18 +580,9 @@ const playGlobalNotificationSound = async (orderData = {}, { loop = false } = {}
       } catch (_) {}
     }
 
-    if (typeof window === 'undefined') return;
+    if (!ensureGlobalAlertAudio()) return;
 
-    if (!globalAudio) {
-      globalAudio = new Audio(resolveAudioSource(alertSound));
-      globalAudio.preload = 'auto';
-      preloadAudio().then((src) => {
-        if (globalAudio && globalAudio.paused) globalAudio.src = src;
-      });
-    } else if (isSilentUnlockSource(globalAudio)) {
-      globalAudio.src = resolveAudioSource(alertSound);
-    }
-
+    // Also claims the element from an in-flight silent unlock (see unlockAlertAudio).
     globalAudio.muted = false;
     globalAudio.volume = 1;
 
@@ -613,15 +646,15 @@ const isAlertSoundPlaying = () =>
   Boolean((globalAudio && !globalAudio.paused) || (globalFallbackAudio && !globalFallbackAudio.paused));
 
 const startGlobalAlertLoop = (orderData) => {
-  // Last line of defence: every caller (socket, poll, resume-after-interaction,
-  // unmute) goes through here, so nothing can ring without a real, still-open order.
-  if (!isRingableOrder(orderData)) {
-    if (orderData) {
-      debugWarn('[RestaurantAlert] Ignored ring request without a live order', {
-        orderId: getOrderAlertKey(orderData) || null,
-        orderStatus: orderData?.orderStatus ?? null,
-      });
-    }
+  // Last line of defence: every caller (socket arrival, the Orders page re-arming
+  // a queued order, unmute, resume after the first tap) goes through here. It may
+  // only ring a real order of this restaurant, still awaiting its decision, that
+  // arrived through a genuine new_order event in this session.
+  const refusal =
+    getOrderRingRefusal(orderData) ||
+    (wasOrderAnnounced(orderData) ? '' : 'not announced by a new_order event in this session');
+  if (refusal) {
+    if (orderData) logRefusedRing('alert', refusal, describeOrderForLog(orderData));
     return;
   }
   const orderId = getOrderAlertKey(orderData);
@@ -761,8 +794,6 @@ const isOrderMuted = (orderData = {}) => {
  * A ring now requires: a real order identity, a status the restaurant can still
  * act on, not already handled, and still inside its accept window.
  */
-const RESTAURANT_DECIDABLE_STATUSES = new Set(['created', 'pending', 'new']);
-
 export const isRingableOrder = (orderData) => {
   if (!orderData || typeof orderData !== 'object') return false;
 
@@ -786,6 +817,35 @@ export const isRingableOrder = (orderData) => {
 
   return true;
 };
+
+const getRestaurantRef = (orderData = {}) =>
+  orderData?.restaurantId ?? orderData?.restaurant_id ?? orderData?.restaurant ?? null;
+
+/**
+ * Why this order must not ring, or '' when it may. Checked for every ring:
+ * a real order id, the signed-in restaurant's own order, and still awaiting its
+ * decision (status, not already handled, inside the accept window).
+ */
+const getOrderRingRefusal = (orderData) => {
+  if (!orderData || typeof orderData !== 'object') return 'no order data';
+  if (!isRealOrderId(getOrderAlertKey(orderData))) return 'no valid order id';
+  if (!hasActiveRestaurant()) return 'signed-in restaurant not verified yet';
+  if (!isForActiveRestaurant(getRestaurantRef(orderData))) return 'order is not for the signed-in restaurant';
+  if (!isRingableOrder(orderData)) return 'order is not awaiting this restaurant (status, already handled, or accept window over)';
+  return '';
+};
+
+const markOrderAnnounced = (orderData) => {
+  getOrderIdVariants(orderData).forEach((id) => announcedOrderIds.add(id));
+};
+
+const wasOrderAnnounced = (orderData) => getOrderIdVariants(orderData).some((id) => announcedOrderIds.has(id));
+
+const describeOrderForLog = (orderData) => ({
+  orderId: getOrderAlertKey(orderData || {}) || null,
+  orderStatus: orderData?.orderStatus ?? orderData?.status ?? null,
+  restaurantId: getRestaurantRef(orderData || {}) || null,
+});
 
 const shouldProcessOrderAlert = (orderData = {}) => {
   const key = getOrderAlertKey(orderData);
@@ -868,8 +928,83 @@ const showBackgroundOrderNotification = async (orderData) => {
 };
 
 /**
+ * Unlocks audio on the first user gesture - silently.
+ *
+ * The ringtone element is played MUTED and paused straight away, which is all
+ * the browser needs to allow later playback; the ringtone is never heard here.
+ * A ring already sounding is left alone, and a ring that starts meanwhile
+ * un-mutes the element (playGlobalNotificationSound), which this respects.
+ */
+const unlockAlertAudio = async () => {
+  if (typeof window === 'undefined' || alertAudioUnlocked || alertAudioUnlockInFlight) return;
+  alertAudioUnlockInFlight = true;
+  window.__userHasInteracted = true;
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (AudioCtx) {
+      try {
+        const ctx = new AudioCtx();
+        if (ctx.state === 'suspended') await ctx.resume();
+        const buffer = ctx.createBuffer(1, 1, 22050);
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        source.start(0);
+      } catch (_) {}
+    }
+
+    const audio = ensureGlobalAlertAudio();
+    if (audio && audio.paused) {
+      audio.muted = true;
+      try {
+        await audio.play();
+      } finally {
+        // Still muted = nothing claimed it for a real ring: put it back silently.
+        if (audio.muted) {
+          try {
+            audio.pause();
+            audio.currentTime = 0;
+          } catch (_) {}
+          audio.muted = false;
+        }
+      }
+    }
+    alertAudioUnlocked = true;
+    detachAlertAudioUnlock();
+  } catch (_) {
+    // Not unlocked (the browser wanted another gesture): the next one retries.
+  } finally {
+    alertAudioUnlockInFlight = false;
+  }
+
+  // An announced order that could not sound before the first tap rings now,
+  // through the same gate as every other ring.
+  if (alertAudioUnlocked && globalActiveOrder && !globalIsMuted && !isOrderMuted(globalActiveOrder)) {
+    startGlobalAlertLoop(globalActiveOrder);
+  }
+};
+
+const attachAlertAudioUnlock = () => {
+  if (typeof window === 'undefined' || alertAudioUnlocked || alertAudioUnlockAttached) return;
+  alertAudioUnlockAttached = true;
+  window.addEventListener('pointerdown', unlockAlertAudio, { passive: true });
+  document.addEventListener('touchstart', unlockAlertAudio, { passive: true });
+  document.addEventListener('click', unlockAlertAudio);
+  document.addEventListener('keydown', unlockAlertAudio);
+};
+
+function detachAlertAudioUnlock() {
+  if (typeof window === 'undefined') return;
+  window.removeEventListener('pointerdown', unlockAlertAudio);
+  document.removeEventListener('touchstart', unlockAlertAudio);
+  document.removeEventListener('click', unlockAlertAudio);
+  document.removeEventListener('keydown', unlockAlertAudio);
+  alertAudioUnlockAttached = false;
+}
+
+/**
  * Hook for restaurant to receive real-time order notifications with sound
- * @returns {object} - { newOrder, playSound, isConnected, isMuted, setMuted, clearNewOrder, stopSound }
+ * @returns {object} - { newOrder, isConnected, isMuted, setMuted, clearNewOrder, stopSound, startAlertLoop, ... }
  */
 export const useRestaurantNotifications = () => {
   const [localState, setLocalState] = useState({
@@ -901,9 +1036,13 @@ export const useRestaurantNotifications = () => {
         if (response.data?.success && response.data.data?.restaurant) {
           const restaurant = response.data.data.restaurant;
           if (restaurant.status !== "approved") {
+            // Not a live restaurant: nothing may ring for it.
+            clearActiveRestaurant();
             return;
           }
           const id = restaurant._id?.toString() || restaurant.restaurantId;
+          // The server-verified signed-in restaurant: only its orders can ring.
+          setActiveRestaurant(restaurant);
           refreshAcceptWindowSettings();
           // Fresh login/mount: clear any stale/cached notification state
           markRestaurantSessionStarted();
@@ -916,31 +1055,29 @@ export const useRestaurantNotifications = () => {
     fetchRestaurantId();
   }, []);
 
+  /*
+   * The ONLY place a ring starts: a genuine `new_order` socket event carrying a
+   * real order of the signed-in restaurant that is still awaiting its decision
+   * and arrived during this session. Anything else is refused - and logged -
+   * before it can touch the popup or the ringtone.
+   */
   const handleIncomingOrderAlert = useCallback((orderData, source = 'unknown') => {
-    // Ring alert must trigger ONLY on a genuine real-time new_order socket event from backend
     if (source !== 'socket') {
+      logRefusedRing(source, 'rings start only from a new_order socket event', describeOrderForLog(orderData));
       return;
     }
 
     const normalizedOrder = normalizeRestaurantOrderView(orderData);
 
-    /*
-     * Reject anything that is not a live order awaiting a decision before it can
-     * touch the popup or the ringtone.
-     */
-    if (!isRingableOrder(normalizedOrder)) {
-      debugWarn(`[RestaurantAlert] Ignored "${source}" event that is not a live new order`, {
-        orderId: getOrderAlertKey(normalizedOrder || {}) || null,
-        orderStatus: normalizedOrder?.orderStatus ?? null,
-      });
+    const refusal = getOrderRingRefusal(normalizedOrder);
+    if (refusal) {
+      logRefusedRing(source, refusal, describeOrderForLog(normalizedOrder));
       return;
     }
 
-    // Timestamp must be after this session started
+    // Timestamp must be after this session started (a replay after reconnect is not new).
     if (!isFreshRestaurantOrder(normalizedOrder)) {
-      debugWarn('[RestaurantAlert] Order arrived before this session - ignored ring', {
-        orderId: getOrderAlertKey(normalizedOrder) || null,
-      });
+      logRefusedRing(source, 'order arrived before this session (replay)', describeOrderForLog(normalizedOrder));
       return;
     }
 
@@ -963,6 +1100,7 @@ export const useRestaurantNotifications = () => {
       return;
     }
 
+    markOrderAnnounced(normalizedOrder);
     updateGlobalState({ newOrder: normalizedOrder });
 
     if (!isOrderMuted(normalizedOrder)) {
@@ -1101,11 +1239,13 @@ export const useRestaurantNotifications = () => {
       handleIncomingOrderAlert(normalizedOrder, 'socket');
     });
 
+    /*
+     * Reservation badge only - no sound. The order ringtone is reserved for real
+     * new orders; this listener rang it for whatever payload arrived, and no
+     * backend code emits 'new_dining_booking' at all.
+     */
     globalSocket.on('new_dining_booking', (bookingData) => {
       updateGlobalState({ newReservation: bookingData });
-      if (!globalIsMuted) {
-        playGlobalNotificationSound(bookingData, { loop: false });
-      }
     });
 
     /*
@@ -1445,91 +1585,9 @@ export const useRestaurantNotifications = () => {
     };
   }, []);
 
-  // Track user interaction for audio unlocking
+  // Audio unlock on the first gesture: attached once per page, silent (see unlockAlertAudio).
   useEffect(() => {
-    const handleUserInteraction = async () => {
-      if (typeof window === 'undefined') return;
-
-      try {
-        window.__userHasInteracted = true;
-
-        // Unlock WebAudio silently
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        if (AudioCtx) {
-          try {
-            const ctx = new AudioCtx();
-            if (ctx.state === 'suspended') {
-              await ctx.resume();
-            }
-            const buf = ctx.createBuffer(1, 1, 22050);
-            const srcNode = ctx.createBufferSource();
-            srcNode.buffer = buf;
-            srcNode.connect(ctx.destination);
-            srcNode.start(0);
-          } catch (_) {}
-        }
-
-        // Unlock HTML5 Audio element specifically for iOS WebKit using a tiny silent audio clip
-        if (!globalAudio && typeof window !== 'undefined') {
-          globalAudio = new Audio();
-          globalAudio.preload = 'auto';
-          globalAudio.volume = 1;
-          // Silent MP3 base64 to safely unlock the Audio element without any "leaked" sound
-          globalAudio.src = 'data:audio/mpeg;base64,//OlkAAAAAAAAAAAAAAAAAAAAAAASWAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-        }
-        if (globalAudio) {
-          try {
-            const p = globalAudio.play();
-            if (p && typeof p.then === 'function') {
-              p.then(() => {
-                // A real alert may have started meanwhile; only reset the silent clip.
-                if (!isSilentUnlockSource(globalAudio)) return;
-                globalAudio.pause();
-                globalAudio.currentTime = 0;
-                // Once unlocked, switch to the actual alert sound so it's ready
-                preloadAudio().then(src => {
-                  if (globalAudio && globalAudio.paused) globalAudio.src = src;
-                });
-              }).catch(() => {
-                // If it failed to play, still try to load the actual source
-                preloadAudio().then(src => {
-                  if (globalAudio && globalAudio.paused) globalAudio.src = src;
-                });
-              });
-            }
-          } catch (_) {}
-        }
-
-        // If there's an active order pending that is fresh, ringable and unmuted, resume the alarm
-        if (globalActiveOrder && !globalIsMuted && !isOrderMuted(globalActiveOrder)) {
-          if (isRingableOrder(globalActiveOrder) && isFreshRestaurantOrder(globalActiveOrder)) {
-            startGlobalAlertLoop(globalActiveOrder);
-          } else {
-            globalActiveOrder = null;
-            updateGlobalState({ activeOrder: null });
-          }
-        }
-      } catch (error) {
-        // ignore
-      }
-
-      document.removeEventListener('click', handleUserInteraction);
-      document.removeEventListener('touchstart', handleUserInteraction);
-      document.removeEventListener('keydown', handleUserInteraction);
-      window.removeEventListener('pointerdown', handleUserInteraction);
-    };
-
-    document.addEventListener('click', handleUserInteraction, { once: true });
-    document.addEventListener('touchstart', handleUserInteraction, { once: true });
-    document.addEventListener('keydown', handleUserInteraction, { once: true });
-    window.addEventListener('pointerdown', handleUserInteraction, { once: true, passive: true });
-
-    return () => {
-      document.removeEventListener('click', handleUserInteraction);
-      document.removeEventListener('touchstart', handleUserInteraction);
-      document.removeEventListener('keydown', handleUserInteraction);
-      window.removeEventListener('pointerdown', handleUserInteraction);
-    };
+    attachAlertAudioUnlock();
   }, []);
 
   const setMuted = useCallback((nextMuted) => {
@@ -1616,7 +1674,7 @@ export const useRestaurantNotifications = () => {
     isConnected: localState.isConnected,
     isMuted: localState.isMuted,
     setMuted,
-    playNotificationSound: playGlobalNotificationSound,
+    // No raw "play sound" is exposed: every ring must go through the gate.
     stopSound: stopGlobalAlertLoop,
     startAlertLoop: startGlobalAlertLoop,
     mutedOrderIds: localState.mutedOrderIds || new Set(),

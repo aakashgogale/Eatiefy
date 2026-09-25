@@ -613,6 +613,10 @@ export async function notifyRestaurantNewOrder(orderDoc) {
           tag: notificationTag,
           orderId: displayOrderId,
           orderMongoId: orderMongoId,
+          // Addressee + state, so the app rings only for its own restaurant's
+          // new orders (a device token can still be tied to another account).
+          restaurantId: String(orderDoc.restaurantId?._id || orderDoc.restaurantId || ""),
+          orderStatus: String(orderDoc.orderStatus || ""),
           link: "/food/restaurant",
           targetUrl: "/food/restaurant",
         },
