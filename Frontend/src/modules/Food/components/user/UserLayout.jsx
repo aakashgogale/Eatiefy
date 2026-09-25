@@ -16,6 +16,7 @@ import DesktopNavbar from "./DesktopNavbar"
 import BackToTop from "./BackToTop"
 import { useUserNotifications } from "../../hooks/useUserNotifications"
 import { useUserAppLiveRefresh } from "../../hooks/useUserAppLiveRefresh"
+import { showNotificationToast } from "@/shared/utils/customToasts"
 import { useProfile } from "@food/context/ProfileContext"
 import { useLocation as useGeoLocation } from "../../hooks/useLocation"
 import { useZone } from "../../hooks/useZone"
@@ -163,10 +164,29 @@ export function useLocationSelector() {
 function LocationSelectorProvider({ children }) {
   const navigate = useNavigate()
 
-  const openLocationSelector = useCallback(() => {
+  const openLocationSelector = useCallback((customState = {}) => {
     // Navigate to the standalone address selector page
-    // Using window.location.pathname to avoid hook issues in some contexts
-    navigate("/food/user/address-selector", { state: { from: window.location.pathname } })
+    // Check if customState is a DOM Event (e.g. from onClick={openLocationSelector})
+    const isEvent = customState && (customState.nativeEvent || customState._reactName || typeof customState.preventDefault === 'function')
+    const sanitizedState = isEvent || typeof customState !== 'object' ? {} : customState
+
+    const currentPath = (typeof window !== "undefined" ? (window.location.pathname + window.location.search) : "") || "/food/user"
+    const returnTo = sanitizedState.returnTo || sanitizedState.from || sanitizedState.backTo || currentPath
+
+    try {
+      if (typeof window !== "undefined" && returnTo && !returnTo.includes("address-selector")) {
+        sessionStorage.setItem("address_selector_return_to", returnTo)
+      }
+    } catch {}
+
+    navigate("/food/user/address-selector", { 
+      state: { 
+        from: returnTo, 
+        returnTo: returnTo, 
+        backTo: returnTo,
+        ...sanitizedState 
+      } 
+    })
   }, [navigate])
 
   const closeLocationSelector = useCallback(() => { }, [])
@@ -215,23 +235,7 @@ function UserLayoutContent() {
   useEffect(() => {
     const handleNotificationToast = (e) => {
       const { title, message } = e.detail || {}
-      toast.custom(() => (
-        <div className="w-[calc(100vw-32px)] sm:w-[380px] bg-white shadow-[0_8px_30px_rgb(0,0,0,0.12)] rounded-3xl pointer-events-auto flex items-center gap-4 p-3.5 border border-gray-50 animate-in fade-in slide-in-from-top-4">
-          <div className="flex-shrink-0">
-            <div className="h-12 w-12 rounded-2xl bg-[#14231A] flex items-center justify-center shadow-lg">
-              <img src="/assets/images/eatiefy-toast-logo.png" alt="Eatiefy" className="w-7 h-7 object-contain" />
-            </div>
-          </div>
-          <div className="flex-1 pr-1 min-w-0">
-            <p className="text-[13px] font-bold text-gray-900 leading-tight truncate">{title || "Notification"}</p>
-            {message ? <p className="text-[12px] font-medium text-gray-500 mt-0.5 line-clamp-2 leading-snug">{message}</p> : null}
-          </div>
-        </div>
-      ), {
-        id: 'user-notif-toast',
-        duration: 6000,
-        position: 'top-center',
-      })
+      showNotificationToast({ title, message })
     }
     window.addEventListener('show-user-notification-toast', handleNotificationToast)
     return () => window.removeEventListener('show-user-notification-toast', handleNotificationToast)

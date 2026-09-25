@@ -35,7 +35,9 @@ const errorHandler = (err, req, res, next) => {
         error: message,
         message,
         // Only app-defined codes travel to the client; multer codes stay internal.
-        ...(typeof err.code === 'string' && !MULTER_STATUS[err.code] ? { code: err.code } : {})
+        ...(typeof err.code === 'string' && !MULTER_STATUS[err.code] ? { code: err.code } : {}),
+        ...(err.field ? { field: err.field } : {}),
+        ...(err.errors ? { errors: err.errors } : {})
     });
 };
 

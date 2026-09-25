@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 /**
  * Guards onboarding exit on the first step only.
@@ -9,52 +9,77 @@ export default function useOnboardingExitGuard({
   onPreviousStep,
   onExit,
   hasUnsavedProgress = () => true,
+  enabled = true,
 }) {
   const [showExitModal, setShowExitModal] = useState(false)
+  const isFirstStepRef = useRef(isFirstStep)
+  const onPreviousStepRef = useRef(onPreviousStep)
+  const onExitRef = useRef(onExit)
+  const hasUnsavedProgressRef = useRef(hasUnsavedProgress)
+  const enabledRef = useRef(enabled)
+
+  isFirstStepRef.current = isFirstStep
+  onPreviousStepRef.current = onPreviousStep
+  onExitRef.current = onExit
+  hasUnsavedProgressRef.current = hasUnsavedProgress
+  enabledRef.current = enabled
 
   const handleStay = useCallback(() => {
     setShowExitModal(false)
   }, [])
 
   const handleExit = useCallback(() => {
-    onExit?.()
-  }, [onExit])
+    setShowExitModal(false)
+    onExitRef.current?.()
+  }, [])
 
   const requestExit = useCallback(() => {
-    if (hasUnsavedProgress()) {
+    if (hasUnsavedProgressRef.current?.()) {
       setShowExitModal(true)
       return
     }
 
-    onExit?.()
-  }, [hasUnsavedProgress, onExit])
+    onExitRef.current?.()
+  }, [])
 
   const handleBack = useCallback(() => {
-    if (isFirstStep) {
+    if (isFirstStepRef.current) {
       requestExit()
       return
     }
 
-    onPreviousStep?.()
-  }, [isFirstStep, onPreviousStep, requestExit])
+    onPreviousStepRef.current?.()
+  }, [requestExit])
 
   useEffect(() => {
-    window.history.pushState(null, "", window.location.href)
+    if (!enabled) return undefined
+
+    // Push initial guard state ONCE on mount so popstate is captured
+    try {
+      window.history.pushState({ onboardingGuard: true }, "", window.location.href)
+    } catch {}
 
     const handlePopState = () => {
-      window.history.pushState(null, "", window.location.href)
+      if (!enabledRef.current) return
 
-      if (isFirstStep) {
+      // Maintain trap state while inside onboarding
+      try {
+        window.history.pushState({ onboardingGuard: true }, "", window.location.href)
+      } catch {}
+
+      if (isFirstStepRef.current) {
         requestExit()
         return
       }
 
-      onPreviousStep?.()
+      onPreviousStepRef.current?.()
     }
 
     window.addEventListener("popstate", handlePopState)
-    return () => window.removeEventListener("popstate", handlePopState)
-  }, [isFirstStep, onPreviousStep, requestExit])
+    return () => {
+      window.removeEventListener("popstate", handlePopState)
+    }
+  }, [enabled, requestExit])
 
   return {
     showExitModal,
@@ -64,3 +89,4 @@ export default function useOnboardingExitGuard({
     requestExit,
   }
 }
+

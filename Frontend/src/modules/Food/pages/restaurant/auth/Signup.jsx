@@ -319,22 +319,6 @@ export default function RestaurantSignup() {
               Login
             </button>
           </div>
-
-          {/* Demo credentials / info bar */}
-          <div className="mt-8 w-full max-w-lg rounded-lg border border-orange-100 bg-orange-50 px-4 py-3 text-xs sm:text-sm text-gray-800 flex items-start gap-3">
-            <div className="mt-0.5 text-primary-orange">
-              <AlertCircle className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="font-semibold mb-1">Demo Credentials</div>
-              <div>
-                <span className="font-semibold">Phone :</span> +91 9876543210
-              </div>
-              <div>
-                <span className="font-semibold">OTP :</span> 1234
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Simple keyframe animations */}

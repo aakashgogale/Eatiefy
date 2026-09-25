@@ -282,7 +282,7 @@ export const teardownRestaurantNotifications = () => {
     } catch (_) {}
   }
 
-  markRestaurantSessionResumed();
+  markRestaurantSessionStarted();
 
   updateGlobalState({ newOrder: null, newReservation: null, activeOrder: null, socketConnected: false });
 };
@@ -405,10 +405,28 @@ export const getOrderAcceptDeadline = (orderData = {}) => {
  * genuinely new arrival rings. Polling is what replays them, so this is stamped
  * on resume, before the poll that follows it reads it.
  */
-let sessionResumedAt = Date.now();
+let sessionStartedAt = Date.now();
 
 export const markRestaurantSessionResumed = () => {
-  sessionResumedAt = Date.now();
+  sessionStartedAt = Date.now();
+};
+
+export const markRestaurantSessionStarted = () => {
+  sessionStartedAt = Date.now();
+  stopGlobalAlertLoop();
+  globalActiveOrder = null;
+  globalNewOrder = null;
+  globalNewReservation = null;
+  lastAlertAtByOrder.clear();
+  lastBrowserNotificationAtByOrder.clear();
+  if (typeof window !== 'undefined') {
+    try {
+      Object.keys(localStorage).forEach((k) => {
+        if (k.startsWith(ALERT_START_PREFIX)) localStorage.removeItem(k);
+      });
+    } catch (_) {}
+  }
+  updateGlobalState({ newOrder: null, newReservation: null, activeOrder: null });
 };
 
 /**
@@ -423,7 +441,7 @@ const isFreshRestaurantOrder = (orderData = {}) => {
   const at = new Date(raw).getTime();
   if (!Number.isFinite(at)) return false;
   // Guard: Order creation time must not predate this session's resume/mount timestamp.
-  if (at < sessionResumedAt - 3000) return false;
+  if (at < sessionStartedAt - 3000) return false;
   // Must also be within normal accept window (not an old order)
   const now = Date.now();
   if (now - at > DEFAULT_ACCEPT_WINDOW_MS) return false;
@@ -887,7 +905,8 @@ export const useRestaurantNotifications = () => {
           }
           const id = restaurant._id?.toString() || restaurant.restaurantId;
           refreshAcceptWindowSettings();
-          markRestaurantSessionResumed();
+          // Fresh login/mount: clear any stale/cached notification state
+          markRestaurantSessionStarted();
           setRestaurantId(id);
         }
       } catch (error) {
@@ -898,18 +917,29 @@ export const useRestaurantNotifications = () => {
   }, []);
 
   const handleIncomingOrderAlert = useCallback((orderData, source = 'unknown') => {
-    const isSocket = source === 'socket';
+    // Ring alert must trigger ONLY on a genuine real-time new_order socket event from backend
+    if (source !== 'socket') {
+      return;
+    }
+
     const normalizedOrder = normalizeRestaurantOrderView(orderData);
 
     /*
      * Reject anything that is not a live order awaiting a decision before it can
-     * touch the popup or the ringtone - an event with no order payload used to
-     * ring for ten minutes.
+     * touch the popup or the ringtone.
      */
     if (!isRingableOrder(normalizedOrder)) {
       debugWarn(`[RestaurantAlert] Ignored "${source}" event that is not a live new order`, {
         orderId: getOrderAlertKey(normalizedOrder || {}) || null,
         orderStatus: normalizedOrder?.orderStatus ?? null,
+      });
+      return;
+    }
+
+    // Timestamp must be after this session started
+    if (!isFreshRestaurantOrder(normalizedOrder)) {
+      debugWarn('[RestaurantAlert] Order arrived before this session - ignored ring', {
+        orderId: getOrderAlertKey(normalizedOrder) || null,
       });
       return;
     }
@@ -922,39 +952,21 @@ export const useRestaurantNotifications = () => {
       }
     }
 
-    // Past its accept window (e.g. an old order seen on login): nothing to ring for.
+    // Past its accept window: nothing to ring for.
     const deadline = getOrderAcceptDeadline(normalizedOrder);
     if (deadline && Date.now() >= deadline) {
       return;
     }
 
-    /*
-     * A replayed order is shown, not announced.
-     *
-     * A socket event is by definition something that just happened, so it always
-     * rings if fresh. Polling is different: it runs on every resume and returns every
-     * order still inside its accept window, including ones that arrived while the app was closed.
-     * Ringing for those is the false-positive alert bug, so the poll path only rings for
-     * an order newer than this session.
-     */
-    const isReplayedOrder = !isSocket && !isFreshRestaurantOrder(normalizedOrder);
-    if (isReplayedOrder) {
-      debugWarn('[RestaurantAlert] Order restored without ringing (arrived before this session)', {
-        orderId: getOrderAlertKey(normalizedOrder) || null,
-      });
-      return;
-    }
-
     const deduped = !shouldProcessOrderAlert(normalizedOrder);
-    if (deduped && !isSocket) {
+    if (deduped) {
       return;
     }
 
     updateGlobalState({ newOrder: normalizedOrder });
 
     if (!isOrderMuted(normalizedOrder)) {
-      // startGlobalAlertLoop already plays the sound immediately (and then loops),
-      // so we must NOT play here as well — that caused the double sound.
+      // startGlobalAlertLoop already plays the sound immediately (and then loops)
       startGlobalAlertLoop(normalizedOrder);
     }
 
@@ -1176,6 +1188,12 @@ export const useRestaurantNotifications = () => {
           id: `admin-rejected-${data?.orderId || Date.now()}`
         });
         dispatchNotificationInboxRefresh();
+      } else if (status === 'cancelled_by_user' || data?.cancelledBy === 'customer') {
+        toast.error(`Order ${friendlyOrderId || ''} was cancelled by the customer.`, {
+          duration: 6000,
+          id: `user-cancelled-${data?.orderId || data?._id || Date.now()}`
+        });
+        dispatchNotificationInboxRefresh();
       }
 
       if (status === 'delivered') {
@@ -1191,6 +1209,58 @@ export const useRestaurantNotifications = () => {
         }
         dispatchNotificationInboxRefresh();
       }
+    });
+
+    globalSocket.on('order_cancelled_by_user', (data) => {
+      const payload = {
+        ...(data || {}),
+        orderStatus: 'cancelled_by_user',
+        status: 'cancelled_by_user',
+        cancelledBy: 'customer',
+      };
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('restaurantOrderStatusUpdate', {
+            detail: payload,
+          }),
+        );
+        window.dispatchEvent(
+          new CustomEvent('orderCancelledByUser', {
+            detail: payload,
+          }),
+        );
+      }
+
+      const cancelledIds = getOrderIdVariants(payload);
+      cancelledIds.forEach((id) => processedOrderIds.add(id));
+      saveProcessedOrderIds();
+      forgetAlertStart(payload);
+
+      const activeIds = globalActiveOrder ? getOrderIdVariants(globalActiveOrder) : [];
+      if (activeIds.some((id) => cancelledIds.includes(id))) {
+        stopGlobalAlertLoop();
+        globalActiveOrder = null;
+        updateGlobalState({ activeOrder: null });
+      }
+
+      const pendingIds = globalNewOrder ? getOrderIdVariants(globalNewOrder) : [];
+      if (pendingIds.some((id) => cancelledIds.includes(id))) {
+        updateGlobalState({ newOrder: null });
+      }
+
+      const isMongoId = (val) => /^[0-9a-fA-F]{24}$/.test(String(val || '').trim());
+      const friendlyOrderId = (() => {
+        const candidate = payload?.orderId || payload?.order_id || '';
+        return candidate && !isMongoId(candidate) ? `#${candidate}` : '';
+      })();
+
+      toast.error(`Order ${friendlyOrderId || ''} was cancelled by the customer.`, {
+        duration: 6000,
+        id: `user-cancelled-${payload?.orderId || payload?._id || Date.now()}`,
+      });
+
+      dispatchNotificationInboxRefresh();
     });
 
     globalSocket.on('admin_notification', () => {
@@ -1297,36 +1367,15 @@ export const useRestaurantNotifications = () => {
           }
         }
 
-        if (pending.length === 0) {
-          // Nothing left to answer: silence any alert for an order that was
-          // handled or expired while this device missed the socket event - but
-          // only if that alert started well before this snapshot was requested.
-          const alertPredatesSnapshot =
-            globalAlertLoopStartedAt > 0 && globalAlertLoopStartedAt < requestedAt - 5000;
-          if (globalActiveOrder && (alertPredatesSnapshot || !globalAlertLoopTimer)) {
+        // If an order was actively ringing, ensure it is still pending in DB; if not, stop ringing
+        if (globalActiveOrder) {
+          const activeKeys = new Set(getOrderIdVariants(globalActiveOrder));
+          const activeStillPending = pending.find((o) => getOrderIdVariants(o).some((id) => activeKeys.has(id)));
+          if (!activeStillPending) {
+            stopGlobalAlertLoop();
             globalActiveOrder = null;
             updateGlobalState({ activeOrder: null });
-            stopGlobalAlertLoop();
           }
-          return;
-        }
-
-        const activeKeys = globalActiveOrder ? new Set(getOrderIdVariants(globalActiveOrder)) : new Set();
-        const activeStillPending = pending.find((o) => getOrderIdVariants(o).some((id) => activeKeys.has(id)));
-        const firstUnmuted = pending.find((o) => !isOrderMuted(o));
-
-        // Keep ringing for the current order; only move on when it was handled,
-        // or was muted while another order still needs an answer.
-        if (activeStillPending && (!isOrderMuted(activeStillPending) || !firstUnmuted)) {
-          if (!globalAlertLoopTimer && !isOrderMuted(activeStillPending) && isFreshRestaurantOrder(activeStillPending)) {
-            startGlobalAlertLoop(normalizeRestaurantOrderView(activeStillPending));
-          }
-          return;
-        }
-
-        const target = firstUnmuted || pending[0];
-        if (target && isFreshRestaurantOrder(target)) {
-          handleIncomingOrderAlert(target, 'poll');
         }
       } catch (error) {
         // ignore
@@ -1338,9 +1387,6 @@ export const useRestaurantNotifications = () => {
 
     const handleVisibility = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        // Stamp before polling: the poll that follows compares each order
-        // against this marker to decide whether it may ring.
-        markRestaurantSessionResumed();
         pollOrders();
       }
     };
@@ -1352,7 +1398,7 @@ export const useRestaurantNotifications = () => {
     return () => {
       // Polling remains alive globally
     };
-  }, [restaurantId, handleIncomingOrderAlert]);
+  }, [restaurantId]);
 
   // Request browser notification permission once on user interaction
   useEffect(() => {

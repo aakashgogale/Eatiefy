@@ -6,10 +6,12 @@ const toFoodPath = (value) => {
   if (typeof value !== "string") return null
   const trimmed = value.trim()
   if (!trimmed) return null
+  if (trimmed.includes("address-selector")) return null
   if (trimmed.startsWith("/food/")) return trimmed
   if (trimmed === "/food") return trimmed
   if (trimmed.startsWith("/user/")) return `/food${trimmed}`
   if (trimmed === "/user") return "/food/user"
+  if (trimmed.startsWith("/")) return `/food/user${trimmed}`
   return null
 }
 
@@ -135,7 +137,15 @@ const resolveBackPath = ({ pathname, search, state, orderType }) => {
   }
 
   if (normalizedPath === "/user/address-selector") {
-    return explicitBackPath || defaultHomePath
+    let savedReturnTo = null
+    try {
+      if (typeof window !== "undefined") {
+        savedReturnTo = sessionStorage.getItem("address_selector_return_to")
+      }
+    } catch {}
+    const candidate = explicitBackPath || toFoodPath(savedReturnTo)
+    if (candidate) return candidate
+    return defaultHomePath
   }
 
   if (/^\/user\/collections\/[^/]+$/.test(normalizedPath)) {

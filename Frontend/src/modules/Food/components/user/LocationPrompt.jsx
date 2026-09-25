@@ -62,7 +62,15 @@ export default function LocationPrompt() {
     setShowPrompt(false)
     document.body.style.overflow = ""
     localStorage.setItem("locationPromptDismissed", "true")
-    navigate("/food/user/address-selector")
+    const currentPath = (typeof window !== "undefined" ? (window.location.pathname + window.location.search) : "") || "/food/user"
+    try {
+      if (typeof window !== "undefined" && currentPath && !currentPath.includes("address-selector")) {
+        sessionStorage.setItem("address_selector_return_to", currentPath)
+      }
+    } catch {}
+    navigate("/food/user/address-selector", {
+      state: { from: currentPath, returnTo: currentPath, backTo: currentPath }
+    })
   }
 
   const handleDismiss = () => {

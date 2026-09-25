@@ -276,13 +276,19 @@ export async function resolvePlaceSuggestion(suggestion) {
   }
 
   if (Number.isFinite(suggestion?.latitude) && Number.isFinite(suggestion?.longitude)) {
+    const secondaryParts = String(suggestion.secondaryText || suggestion.display || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+    const resolvedCity = secondaryParts.length > 0 ? secondaryParts[0] : ""
+    const resolvedState = secondaryParts.length > 1 ? secondaryParts[1] : ""
     return {
       formattedAddress: suggestion.display || "",
       addressLine1: suggestion.mainText || suggestion.display || "",
       addressLine2: "",
       area: "",
-      city: "Indore",
-      state: "Madhya Pradesh",
+      city: resolvedCity,
+      state: resolvedState,
       pincode: "",
       landmark: suggestion.mainText || "",
       latitude: Number(suggestion.latitude),

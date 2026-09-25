@@ -2,6 +2,11 @@ import { Navigate } from "react-router-dom"
 import { isModuleAuthenticated } from "@food/utils/auth"
 
 function getRestaurantPendingRedirect() {
+  const pendingStatus = localStorage.getItem("restaurant_pendingStatus")
+  if (pendingStatus === "pending" || pendingStatus === "rejected" || pendingStatus === "banned") {
+    return "/food/restaurant/pending-verification"
+  }
+
   const userStr = localStorage.getItem("restaurant_user")
   if (!userStr) return null
 

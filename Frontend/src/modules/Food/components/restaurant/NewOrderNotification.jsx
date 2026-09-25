@@ -12,7 +12,7 @@ export default function NewOrderNotification({ order, onClose, onViewOrder }) {
   const [showAllItems, setShowAllItems] = useState(false);
   const VISIBLE_LIMIT = 4;
 
-  if (!order) return null;
+  if (!order || String(order.status || order.orderStatus || '').toLowerCase().includes('cancel')) return null;
 
   const handleViewOrder = () => {
     if (onViewOrder) {

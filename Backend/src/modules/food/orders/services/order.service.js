@@ -8,6 +8,7 @@ import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model
 import { FoodZone } from '../../admin/models/zone.model.js';
 import { ValidationError, ForbiddenError, NotFoundError } from '../../../../core/auth/errors.js';
 import { buildPaginationOptions, buildPaginatedResult } from '../../../../utils/helpers.js';
+import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodOffer } from '../../admin/models/offer.model.js';
 import { FoodOfferUsage } from '../../admin/models/offerUsage.model.js';
 import { FoodSystemConfig } from '../../admin/models/systemConfig.model.js';
@@ -50,6 +51,7 @@ import {
   sanitizeOrderForExternal,
   toDeliveryFacingOrder,
   toRestaurantFacingOrder,
+  enrichOrdersWithFoodImages,
   emitDeliveryDropOtpToUser,
   notifyOwnersSafely,
   notifyOwnerSafely,
@@ -865,8 +867,10 @@ export async function listOrdersUser(userId, query) {
       .lean(),
     FoodOrder.countDocuments(filter),
   ]);
+  const normalizedDocs = docs.map((doc) => normalizeOrderForClient(doc));
+  await enrichOrdersWithFoodImages(normalizedDocs);
   return buildPaginatedResult({
-    docs: docs.map((doc) => normalizeOrderForClient(doc)),
+    docs: normalizedDocs,
     total,
     page,
     limit,
@@ -893,7 +897,11 @@ export async function getOrderById(
     .lean();
   if (!order) throw new NotFoundError("Order not found");
 
-  if (admin) return normalizeOrderForClient(order);
+  if (admin) {
+    const adminNormalized = normalizeOrderForClient(order);
+    await enrichOrdersWithFoodImages([adminNormalized]);
+    return adminNormalized;
+  }
 
   const orderUserId = order.userId?._id?.toString() || order.userId?.toString();
   const orderRestaurantId = order.restaurantId?._id?.toString() || order.restaurantId?.toString();
@@ -916,10 +924,14 @@ export async function getOrderById(
   }
 
   if (deliveryPartnerId) {
-    return toDeliveryFacingOrder(order);
+    const delOrder = toDeliveryFacingOrder(order);
+    await enrichOrdersWithFoodImages([delOrder]);
+    return delOrder;
   }
   if (restaurantId) {
-    return toRestaurantFacingOrder(order);
+    const resOrder = toRestaurantFacingOrder(order);
+    await enrichOrdersWithFoodImages([resOrder]);
+    return resOrder;
   }
 
   if (userId) {
@@ -946,6 +958,7 @@ export async function getOrderById(
     }
 
     const out = normalizeOrderForClient(order);
+    await enrichOrdersWithFoodImages([out]);
     delete out.deliveryOtp;
     out.deliveryVerification = {
       ...(order.deliveryVerification || {}),
@@ -1339,15 +1352,33 @@ export async function cancelOrder(orderId, userId, reason, refundDestination = "
         orderMongoId: order._id?.toString?.(),
         orderId: order.order_id || order.orderId || order._id.toString(),
         _id: order._id.toString(),
+        id: order._id.toString(),
+        order_id: order.order_id || order.orderId || order._id.toString(),
         orderStatus: order.orderStatus,
         status: order.orderStatus,
         cancelledBy: order.cancelledBy || "customer",
         cancellationReason: order.cancellationReason || "",
         cancelledAt: order.cancelledAt,
-        message: `Order #${order.order_id || order._id} has been cancelled successfully.${refundDetail}`
+        message: `Order #${order.order_id || order._id} has been cancelled by the customer.`
       };
-      io.to(rooms.user(userId)).emit("order_status_update", payload);
+      // Explicit real-time event for restaurant app popup & state handling
+      io.to(rooms.restaurant(order.restaurantId)).emit("order_cancelled_by_user", payload);
       io.to(rooms.restaurant(order.restaurantId)).emit("order_status_update", payload);
+      io.to(rooms.user(userId)).emit("order_status_update", payload);
+
+      const trackingIds = [
+        order._id?.toString?.(),
+        order.order_id ? String(order.order_id) : '',
+        order.orderId ? String(order.orderId) : '',
+        payload.orderId,
+      ].filter(Boolean);
+      for (const tId of new Set(trackingIds)) {
+        io.to(rooms.tracking(tId)).emit("order_status_update", payload);
+      }
+
+      if (order.dispatch?.deliveryPartnerId) {
+        io.to(rooms.delivery(order.dispatch.deliveryPartnerId)).emit("order_status_update", payload);
+      }
     }
   } catch (err) {
     logger.warn(`cancelOrder socket emit failed: ${err?.message || err}`);
@@ -1471,7 +1502,9 @@ export async function listOrdersRestaurant(restaurantId, query) {
       .lean(),
     FoodOrder.countDocuments(filter),
   ]);
-  return buildPaginatedResult({ docs: docs.map(d => toRestaurantFacingOrder(d)), total, page, limit });
+  const mapped = docs.map(d => toRestaurantFacingOrder(d));
+  await enrichOrdersWithFoodImages(mapped);
+  return buildPaginatedResult({ docs: mapped, total, page, limit });
 }
 
 export async function updateOrderStatusRestaurant(
@@ -1488,13 +1521,30 @@ export async function updateOrderStatusRestaurant(
   }).select("+deliveryOtp");
   if (!order) throw new NotFoundError("Order not found");
   const from = order.orderStatus;
+
+  // Backend Guard: If order was already cancelled (e.g. by customer or admin), reject action immediately
+  if (from && String(from).includes("cancel")) {
+    const cancelMsg = from === "cancelled_by_user"
+      ? "Order has already been cancelled by the customer."
+      : from === "cancelled_by_admin"
+      ? "Order has already been cancelled by admin."
+      : "Order has already been cancelled.";
+    throw new ValidationError(cancelMsg);
+  }
+
   if (!isStatusAdvance(from, orderStatus)) {
-    // If order is already at a further-forward status (e.g. 'preparing' when accepting),
+    // If order is already at a further-forward non-cancelled status (e.g. 'preparing' when accepting),
     // treat as success — the outcome is already achieved
-    if (STATUS_PRIORITY[from] > STATUS_PRIORITY[orderStatus]) {
-      return toRestaurantFacingOrder(order);
+    if (!String(from).includes("cancel") && STATUS_PRIORITY[from] > STATUS_PRIORITY[orderStatus]) {
+      const resOrder = toRestaurantFacingOrder(order);
+      await enrichOrdersWithFoodImages([resOrder]);
+      return resOrder;
     }
-    throw new ValidationError(`Current order status '${from}' is further ahead than '${orderStatus}'. Order cannot be moved backwards.`);
+    throw new ValidationError(
+      String(from).includes("cancel")
+        ? "Order has already been cancelled."
+        : `Current order status '${from}' is further ahead than '${orderStatus}'. Order cannot be moved backwards.`
+    );
   }
   const isCancelling = String(orderStatus).includes("cancel");
   if (isCancelling) {
@@ -1553,11 +1603,21 @@ export async function updateOrderStatusRestaurant(
       restaurantId: new mongoose.Types.ObjectId(restaurantId),
     });
     if (!latest) throw new NotFoundError("Order not found");
+    if (latest.orderStatus && String(latest.orderStatus).includes("cancel")) {
+      const cancelMsg = latest.orderStatus === "cancelled_by_user"
+        ? "Order has already been cancelled by the customer."
+        : latest.orderStatus === "cancelled_by_admin"
+        ? "Order has already been cancelled by admin."
+        : "Order has already been cancelled.";
+      throw new ValidationError(cancelMsg);
+    }
     if (
       latest.orderStatus === orderStatus ||
-      STATUS_PRIORITY[latest.orderStatus] > STATUS_PRIORITY[orderStatus]
+      (!String(latest.orderStatus).includes("cancel") && STATUS_PRIORITY[latest.orderStatus] > STATUS_PRIORITY[orderStatus])
     ) {
-      return toRestaurantFacingOrder(latest);
+      const resOrder = toRestaurantFacingOrder(latest);
+      await enrichOrdersWithFoodImages([resOrder]);
+      return resOrder;
     }
     throw new ValidationError(
       `Order status changed to '${latest.orderStatus}' while updating. Please refresh and try again.`
@@ -1647,6 +1707,16 @@ export async function updateOrderStatusRestaurant(
       console.log(`[DEBUG] Emitting order_status_update to rooms: ${restRoom}, ${userRoom}`);
       io.to(restRoom).emit("order_status_update", payload);
       io.to(userRoom).emit("order_status_update", payload);
+
+      const trackingIds = [
+        order._id?.toString?.(),
+        order.order_id ? String(order.order_id) : '',
+        order.orderId ? String(order.orderId) : '',
+        payload.displayOrderId,
+      ].filter(Boolean);
+      for (const tId of new Set(trackingIds)) {
+        io.to(rooms.tracking(tId)).emit("order_status_update", payload);
+      }
       
       // Notify assigned rider via socket if they exist
       const assignedRiderId = order.dispatch?.deliveryPartnerId;
@@ -1850,7 +1920,9 @@ export async function updateOrderStatusRestaurant(
       await order.save();
     }
 
-    return toRestaurantFacingOrder(order);
+    const resOrder = toRestaurantFacingOrder(order);
+    await enrichOrdersWithFoodImages([resOrder]);
+    return resOrder;
 }
 
 /**
@@ -2553,6 +2625,16 @@ export async function completeTakeawayOrderRestaurant(orderId, restaurantId, otp
       };
       io.to(rooms.restaurant(restaurantId)).emit("order_status_update", payload);
       io.to(rooms.user(order.userId)).emit("order_status_update", payload);
+
+      const trackingIds = [
+        order._id?.toString?.(),
+        order.order_id ? String(order.order_id) : '',
+        order.orderId ? String(order.orderId) : '',
+        payload.orderId,
+      ].filter(Boolean);
+      for (const tId of new Set(trackingIds)) {
+        io.to(rooms.tracking(tId)).emit("order_status_update", payload);
+      }
     }
 
     await notifyOwnersSafely(
@@ -2649,6 +2731,16 @@ export async function acceptOrderAdmin(orderId, adminId) {
       };
       io.to(rooms.restaurant(order.restaurantId)).emit("order_status_update", restaurantPayload);
       io.to(rooms.user(order.userId)).emit("order_status_update", userPayload);
+
+      const trackingIds = [
+        order._id?.toString?.(),
+        order.order_id ? String(order.order_id) : '',
+        order.orderId ? String(order.orderId) : '',
+        userPayload.orderId,
+      ].filter(Boolean);
+      for (const tId of new Set(trackingIds)) {
+        io.to(rooms.tracking(tId)).emit("order_status_update", userPayload);
+      }
     }
   } catch (_) {}
 
@@ -2728,6 +2820,16 @@ export async function rejectOrderAdmin(orderId, reason, adminId) {
       };
       io.to(rooms.restaurant(order.restaurantId)).emit("order_status_update", restaurantPayload);
       io.to(rooms.user(order.userId)).emit("order_status_update", userPayload);
+
+      const trackingIds = [
+        order._id?.toString?.(),
+        order.order_id ? String(order.order_id) : '',
+        order.orderId ? String(order.orderId) : '',
+        userPayload.orderId,
+      ].filter(Boolean);
+      for (const tId of new Set(trackingIds)) {
+        io.to(rooms.tracking(tId)).emit("order_status_update", userPayload);
+      }
     }
   } catch (_) {}
 
@@ -2931,6 +3033,15 @@ export async function updateOrderStatusesAdmin(orderId, adminId, { orderStatus, 
       }
       if (order.userId) {
         io.to(rooms.user(order.userId)).emit("order_status_update", payload);
+      }
+      const trackingIds = [
+        order._id?.toString?.(),
+        order.order_id ? String(order.order_id) : '',
+        order.orderId ? String(order.orderId) : '',
+        payload.orderId,
+      ].filter(Boolean);
+      for (const tId of new Set(trackingIds)) {
+        io.to(rooms.tracking(tId)).emit("order_status_update", payload);
       }
     }
   } catch (_) {}

@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from "react"
 import { createPortal } from "react-dom"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useLocation as useRouterLocation } from "react-router-dom"
 import { ChevronLeft, ChevronRight, Plus, MapPin, Navigation, Home, Building2, Briefcase, X, Crosshair, Search, Pencil, Trash2 } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
@@ -106,6 +106,7 @@ const showAddressRemovedBrandedToast = () => {
 
 export default function AddressSelectorPage() {
   const navigate = useNavigate()
+  const routerLocation = useRouterLocation()
   const goBack = useAppBackNavigation()
   const { location, loading, requestLocation, requestLocationFast } = useGeoLocation()
   const { addresses = [], addAddress, updateAddress, deleteAddress, setDefaultAddress, userProfile, isAuthenticated, loading: profileLoading } = useProfile()
@@ -200,9 +201,31 @@ export default function AddressSelectorPage() {
     }
   }, [])
 
-  const handleBack = () => {
+  const handleBack = useCallback(() => {
+    const state = routerLocation.state
+    let returnTo = state?.returnTo || state?.from || state?.backTo
+    if (!returnTo) {
+      try {
+        if (typeof window !== "undefined") {
+          returnTo = sessionStorage.getItem("address_selector_return_to")
+        }
+      } catch {}
+    }
+
+    try {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("address_selector_return_to")
+      }
+    } catch {}
+
+    if (returnTo && typeof returnTo === "string" && !returnTo.includes("address-selector")) {
+      const normalizedTarget = returnTo.startsWith("/") ? returnTo : `/${returnTo}`
+      navigate(normalizedTarget, { replace: true })
+      return
+    }
+
     goBack()
-  }
+  }, [routerLocation.state, navigate, goBack])
 
   const addressAutocompleteSuggestions = useMemo(() => {
     const q = String(addressAutocompleteValue || "").trim().toLowerCase()

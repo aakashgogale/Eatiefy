@@ -6,6 +6,11 @@ const ASSET_BASE_URL = String(
     "https://omettofood.com"
 ).replace(/\/$/, "");
 
+const UPLOAD_BASE_URL = String(
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_UPLOAD_BASE_URL) ||
+    `${ASSET_BASE_URL}/uploads`
+).replace(/\/$/, "");
+
 const rewriteUploadsUrl = (absoluteUrl) => {
   try {
     const parsed = new URL(absoluteUrl);
@@ -13,7 +18,7 @@ const rewriteUploadsUrl = (absoluteUrl) => {
     if (!match) return absoluteUrl;
     const filename = match[1];
     if (!filename || filename.includes("..")) return absoluteUrl;
-    return `${ASSET_BASE_URL}/uploads/${filename}${parsed.search || ""}`;
+    return `${UPLOAD_BASE_URL}/${filename}${parsed.search || ""}`;
   } catch {
     return absoluteUrl;
   }
@@ -48,7 +53,7 @@ export const normalizeImageUrl = (imageUrl, backendOrigin = "") => {
   if (/uploads\//i.test(normalized) || normalized.startsWith("/uploads")) {
     const filename = normalized.replace(/^.*\/uploads\//i, "").replace(/^\/+/, "");
     if (filename && !filename.includes("..")) {
-      return `${ASSET_BASE_URL}/uploads/${filename}`;
+      return `${UPLOAD_BASE_URL}/${filename}`;
     }
   }
 

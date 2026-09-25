@@ -159,6 +159,20 @@ export async function getRestaurants(req, res, next) {
     }
 }
 
+export async function getRestaurantCounts(req, res, next) {
+    try {
+        const data = await adminService.getRestaurantCounts(req.query || {});
+        res.status(200).json({
+            success: true,
+            message: 'Restaurant counts fetched successfully',
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+
 export async function getRestaurantReport(req, res, next) {
     try {
         const data = await adminService.getRestaurantReport(req.query || {});
@@ -1149,6 +1163,25 @@ export async function approveRestaurant(req, res, next) {
             success: true,
             message: 'Restaurant approved successfully',
             data: restaurant
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function checkRestaurantDuplicate(req, res, next) {
+    try {
+        const { email, phone, primaryContact, excludeRestaurantId } = req.query;
+        const result = await adminService.checkRestaurantDuplicate({
+            email,
+            phone,
+            primaryContact,
+            excludeRestaurantId
+        });
+        res.json({
+            success: true,
+            available: result.available,
+            errors: result.errors
         });
     } catch (error) {
         next(error);

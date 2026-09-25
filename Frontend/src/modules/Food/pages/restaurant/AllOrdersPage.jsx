@@ -17,6 +17,7 @@ import { DateRangeCalendar } from "@food/components/ui/date-range-calendar"
 import { restaurantAPI } from "@food/api"
 import { useKeyboardAwareSheet } from "@food/hooks/useIsKeyboardOpen"
 import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications"
+import { resolveMediaUrl } from "@/shared/utils/mediaUrl"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -191,7 +192,8 @@ export default function AllOrdersPage() {
     const items = (order.items || []).map(item => ({
       name: item.name || 'Item',
       quantity: item.quantity || 1,
-      price: item.price || 0
+      price: item.price || 0,
+      image: resolveMediaUrl(item.image || item.imageUrl || item.foodItem?.image || item.itemImage || item.foodImage || item.photo) || item.image || null,
     }))
     
     // Determine status (backend: orderStatus)
@@ -686,11 +688,18 @@ export default function AllOrdersPage() {
             {/* Order Items */}
             <div className="space-y-2">
               {order.items.slice(0, 2).map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between">
-                  <span className="text-sm text-gray-900">
-                    {item.quantity} x {item.name}
-                  </span>
-                  <span className="text-sm text-gray-500">{formatMoney(item.price)}</span>
+                <div key={idx} className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    {item.image && (
+                      <div className="w-8 h-8 rounded-lg overflow-hidden bg-slate-100 shrink-0 border border-slate-200">
+                        <img src={item.image} alt={item.name} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.parentElement.style.display = 'none'; }} />
+                      </div>
+                    )}
+                    <span className="text-sm text-gray-900 truncate">
+                      {item.quantity} x {item.name}
+                    </span>
+                  </div>
+                  <span className="text-sm text-gray-500 shrink-0">{formatMoney(item.price)}</span>
                 </div>
               ))}
               {order.items.length > 2 && (

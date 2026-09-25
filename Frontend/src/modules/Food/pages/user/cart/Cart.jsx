@@ -1897,7 +1897,7 @@ export default function Cart() {
   const handlePlaceOrder = async () => {
     if (!hasSavedAddress) {
       toast.error("Please choose a delivery location to continue")
-      openLocationSelector()
+      openLocationSelector({ from: "/food/user/cart", returnTo: "/food/user/cart" })
       return
     }
 
@@ -2528,7 +2528,7 @@ export default function Cart() {
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={openLocationSelector}
+                        onClick={() => openLocationSelector({ from: "/food/user/cart", returnTo: "/food/user/cart" })}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold tracking-wide transition-colors active:scale-[0.98] shadow-sm"
                       >
                         <MapPin className="w-3.5 h-3.5" />
@@ -3100,8 +3100,8 @@ export default function Cart() {
                     </div>
                     <button
                       type="button"
-                       onClick={openLocationSelector}
-                       className="p-2 text-[#1F6B45] bg-[#1F6B4505] rounded-full hover:bg-[#1F6B4510] transition-colors dark:bg-[#1F6B4515] dark:hover:bg-[#1F6B4520]"
+                      onClick={() => openLocationSelector({ from: "/food/user/cart", returnTo: "/food/user/cart" })}
+                      className="p-2 text-[#1F6B45] bg-[#1F6B4505] rounded-full hover:bg-[#1F6B4510] transition-colors dark:bg-[#1F6B4515] dark:hover:bg-[#1F6B4520]"
                        aria-label="Open location selector"
                      >
                        <ChevronRight className="h-5 w-5" />
@@ -3170,7 +3170,7 @@ export default function Cart() {
                       />
                     </div>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                      Agar aap kisi aur ke liye order kar rahe ho, to yahan uska naam aur phone save kar do.
+                      If you are ordering for someone else, please enter their name and phone number here.
                     </p>
                   </div>
                 )}

@@ -74,13 +74,17 @@ export async function listPublicFoods(query = {}) {
         isAcceptingOrders: { $ne: false }
     };
 
+    const uLat = query.lat != null && query.lat !== '' ? Number(query.lat) : null;
+    const uLng = query.lng != null && query.lng !== '' ? Number(query.lng) : null;
+    const hasCoords = Number.isFinite(uLat) && Number.isFinite(uLng);
+
     // Same serviceability rule as the restaurant listing: only restaurants in the
     // caller's service zone, and nothing at all when no zone can be resolved —
     // this rail must never surface food from an out-of-zone restaurant.
     const serviceZone = await resolveServiceZone({
         zoneId: zoneIdRaw,
-        lat: query.lat,
-        lng: query.lng
+        lat: hasCoords ? uLat : undefined,
+        lng: hasCoords ? uLng : undefined
     });
     if (serviceZone) {
         restaurantFilter.$and = [buildZoneServiceabilityClause(serviceZone)];
@@ -88,9 +92,36 @@ export async function listPublicFoods(query = {}) {
         return { foods: [], total: 0, requiresLocation: true, ...promoMeta };
     }
 
-    const restaurantsInZone = await FoodRestaurant.find(restaurantFilter)
-        .select('_id restaurantName zoneId profileImage rating estimatedDeliveryTime isActive isAcceptingOrders openingTime closingTime openDays')
+    let restaurantsInZone = await FoodRestaurant.find(restaurantFilter)
+        .select('_id restaurantName zoneId profileImage rating estimatedDeliveryTime isActive isAcceptingOrders openingTime closingTime openDays location')
         .lean();
+
+    if (hasCoords && restaurantsInZone.length > 0) {
+        restaurantsInZone.forEach((r) => {
+            const coords = r?.location?.coordinates;
+            if (Array.isArray(coords) && coords.length >= 2) {
+                const rLng = Number(coords[0]);
+                const rLat = Number(coords[1]);
+                if (Number.isFinite(rLat) && Number.isFinite(rLng)) {
+                    const dLat = ((rLat - uLat) * Math.PI) / 180;
+                    const dLng = ((rLng - uLng) * Math.PI) / 180;
+                    const a =
+                        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                        Math.cos((uLat * Math.PI) / 180) *
+                            Math.cos((rLat * Math.PI) / 180) *
+                            Math.sin(dLng / 2) *
+                            Math.sin(dLng / 2);
+                    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                    r._distanceKm = 6371 * c;
+                } else {
+                    r._distanceKm = 999999;
+                }
+            } else {
+                r._distanceKm = 999999;
+            }
+        });
+        restaurantsInZone.sort((a, b) => (a._distanceKm || 0) - (b._distanceKm || 0));
+    }
 
     /*
      * Drop restaurants that are shut right now.
@@ -145,14 +176,17 @@ export async function listPublicFoods(query = {}) {
         list = await selectEatiefy99Foods(list);
     }
 
-    const foods = list
+    let foods = list
         .map((food) => {
             const restaurant = restaurantMap.get(String(food.restaurantId));
+            const distKm = restaurant?._distanceKm;
             return {
                 id: food._id,
                 _id: food._id,
                 restaurantId: food.restaurantId,
                 restaurantName: restaurant?.restaurantName || 'Unknown Restaurant',
+                distance: Number.isFinite(distKm) && distKm < 9999 ? `${distKm.toFixed(1)} km` : '',
+                distanceKm: Number.isFinite(distKm) && distKm < 9999 ? distKm : null,
                 categoryId: food.categoryId || null,
                 categoryName: food.categoryName || '',
                 category: food.categoryName || '',
@@ -169,8 +203,13 @@ export async function listPublicFoods(query = {}) {
                 approvalStatus: food.approvalStatus || 'approved'
             };
         })
-        .filter((food) => food.isAvailable !== false)
-        .slice(0, limit);
+        .filter((food) => food.isAvailable !== false);
+
+    if (hasCoords) {
+        foods.sort((a, b) => (a.distanceKm ?? 999999) - (b.distanceKm ?? 999999));
+    }
+
+    foods = foods.slice(0, limit);
 
     return { foods, total: foods.length, ...promoMeta };
 }

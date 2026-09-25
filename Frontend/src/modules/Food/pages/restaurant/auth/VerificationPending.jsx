@@ -9,8 +9,9 @@ import {
   getModuleToken,
   getRestaurantPendingPhone,
   clearModuleAuth,
+  clearRestaurantRegistrationToken,
 } from "@food/utils/auth"
-import { clearOnboardingFromLocalStorage } from "@food/utils/onboardingUtils"
+import { clearOnboardingFromLocalStorage, clearAllFilesFromDB } from "@food/utils/onboardingUtils"
 import {
   enablePendingVerificationPush,
   getWebNotificationPermission,
@@ -91,6 +92,34 @@ export default function VerificationPending() {
     const phone = pendingPhone || getRestaurantPendingPhone() || ""
     if (phone) syncPendingPartnerFcmQuick("restaurant", phone)
   }
+
+  // Ensure any previous registration draft or cached files are completely wiped on mount
+  useEffect(() => {
+    clearOnboardingFromLocalStorage()
+    clearRestaurantRegistrationToken()
+    clearAllFilesFromDB().catch(() => {})
+  }, [])
+
+  // Trap back button on pending verification so it exits the registration flow properly
+  useEffect(() => {
+    try {
+      window.history.pushState({ pendingVerification: true }, "", window.location.href)
+    } catch {}
+
+    const onPopState = () => {
+      syncFcmBeforeLeave()
+      clearModuleAuth("restaurant")
+      clearRestaurantPendingPhone()
+      localStorage.removeItem("restaurant_pendingStatus")
+      localStorage.removeItem("restaurant_pendingMessage")
+      navigate("/food/restaurant/login", { replace: true })
+    }
+
+    window.addEventListener("popstate", onPopState)
+    return () => {
+      window.removeEventListener("popstate", onPopState)
+    }
+  }, [navigate, pendingPhone])
 
   useEffect(() => {
     let cancelled = false

@@ -8,6 +8,8 @@ import { toast } from "sonner"
 import { getCompanyNameAsync } from "@food/utils/businessSettings"
 import { isVegMenuItem } from "@food/utils/vegMode"
 import { toFoodUserPath } from "@food/utils/mainTabRoutes"
+import dishFallbackImage from "@food/assets/dish_fallback.webp"
+import SafeImage from "@food/components/SafeImage"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -785,19 +787,15 @@ Order again from this restaurant in the ${companyName} app.`
 
                       return (
                         <div key={item._id || item.id || item.itemId || idx} className="flex items-start gap-3">
-                          {/* Item Image - Hidden on very small screens to save space */}
-                          {itemImage && (
-                            <div className="hidden sm:block w-10 h-10 rounded-lg bg-gray-100 overflow-hidden flex-shrink-0">
-                              <img
-                                src={itemImage}
-                                alt={itemName}
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  e.target.style.display = 'none'
-                                }}
-                              />
-                            </div>
-                          )}
+                          {/* Item Image */}
+                          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-gray-100 dark:bg-gray-800 overflow-hidden flex-shrink-0 border border-gray-100 dark:border-gray-800 shadow-xs">
+                            <SafeImage
+                              src={itemImage}
+                              fallbackSrc={dishFallbackImage}
+                              alt={itemName}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
 
                           <div className="flex-1 min-w-0">
                             <div className="flex items-start gap-2">

@@ -408,13 +408,15 @@ export async function getRestaurants(query) {
     }
     if (status && ['pending', 'approved', 'rejected', 'banned'].includes(status)) {
         filter.status = status;
+    } else {
+        filter.status = { $ne: 'deleted' };
     }
     const [restaurants, total] = await Promise.all([
         FoodRestaurant.find(filter)
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
-            .select('restaurantName location area city profileImage coverImages status ownerName ownerPhone zoneId rating totalRatings pureVegRestaurant')
+            .select('restaurantName location area city profileImage coverImages status ownerName ownerPhone zoneId rating totalRatings pureVegRestaurant isActive')
             .populate('zoneId', 'name zoneName')
             .lean(),
         FoodRestaurant.countDocuments(filter)
@@ -426,6 +428,66 @@ export async function getRestaurants(query) {
         limit,
     };
 }
+
+export async function getRestaurantCounts(query = {}) {
+    const filter = { status: { $ne: 'deleted' } };
+    if (query.zoneId && mongoose.Types.ObjectId.isValid(String(query.zoneId).trim())) {
+        filter.zoneId = new mongoose.Types.ObjectId(String(query.zoneId).trim());
+    }
+
+    const [stats] = await FoodRestaurant.aggregate([
+        { $match: filter },
+        {
+            $group: {
+                _id: null,
+                total: { $sum: 1 },
+                approved: { $sum: { $cond: [{ $eq: ['$status', 'approved'] }, 1, 0] } },
+                active: {
+                    $sum: {
+                        $cond: [
+                            {
+                                $and: [
+                                    { $eq: ['$status', 'approved'] },
+                                    { $ne: ['$isActive', false] }
+                                ]
+                            },
+                            1,
+                            0
+                        ]
+                    }
+                },
+                inactive: {
+                    $sum: {
+                        $cond: [
+                            {
+                                $and: [
+                                    { $eq: ['$status', 'approved'] },
+                                    { $eq: ['$isActive', false] }
+                                ]
+                            },
+                            1,
+                            0
+                        ]
+                    }
+                },
+                pending: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] } },
+                rejected: { $sum: { $cond: [{ $eq: ['$status', 'rejected'] }, 1, 0] } },
+                banned: { $sum: { $cond: [{ $eq: ['$status', 'banned'] }, 1, 0] } }
+            }
+        }
+    ]);
+
+    return {
+        total: stats?.total || 0,
+        approved: stats?.approved || 0,
+        active: stats?.active || 0,
+        inactive: stats?.inactive || 0,
+        pending: stats?.pending || 0,
+        rejected: stats?.rejected || 0,
+        banned: stats?.banned || 0
+    };
+}
+
 
 
 const CANCELLED_ORDER_STATUSES = ['cancelled_by_user', 'cancelled_by_restaurant', 'cancelled_by_admin'];
@@ -535,9 +597,12 @@ export async function getDashboardStats(query = {}) {
     if (periodRange) {
         orderMatch.createdAt = { $gte: periodRange.start, $lte: periodRange.end };
     }
-    // Zone scope via restaurant (matches Transaction Report + listOrdersAdmin).
+    // Zone scope via restaurant (matches Transaction Report + listOrdersAdmin) and direct zoneId.
     if (zoneId) {
-        orderMatch.restaurantId = { $in: zoneRestaurantIds || [] };
+        orderMatch.$or = [
+            { zoneId: zoneId },
+            { restaurantId: { $in: zoneRestaurantIds || [] } }
+        ];
     }
 
     const restaurantMatch = {};
@@ -548,6 +613,32 @@ export async function getDashboardStats(query = {}) {
     const zoneScopedRestaurantMatch = zoneId
         ? { restaurantId: { $in: zoneRestaurantIds || [] } }
         : {};
+
+    let deliveryFilter = {};
+    if (zoneId) {
+        const zoneDoc = await FoodZone.findById(zoneId).select('serviceLocation name zoneName').lean();
+        const zoneNames = [zoneDoc?.serviceLocation, zoneDoc?.name, zoneDoc?.zoneName]
+            .filter(Boolean)
+            .map((s) => String(s).trim());
+        const zoneRegexes = zoneNames.map(
+            (z) => new RegExp(`^${z.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+        );
+
+        const zonePartnerIds = await FoodOrder.find({
+            $or: [{ zoneId }, { restaurantId: { $in: zoneRestaurantIds || [] } }],
+            'dispatch.deliveryPartnerId': { $ne: null }
+        }).distinct('dispatch.deliveryPartnerId');
+
+        const deliveryOr = [];
+        if (zoneRegexes.length > 0) {
+            deliveryOr.push({ city: { $in: zoneRegexes } });
+        }
+        if (zonePartnerIds.length > 0) {
+            deliveryOr.push({ _id: { $in: zonePartnerIds.filter(Boolean) } });
+        }
+
+        deliveryFilter = deliveryOr.length > 0 ? { $or: deliveryOr } : { _id: { $in: [] } };
+    }
 
     const [
         orderTotalsAgg,
@@ -802,16 +893,17 @@ export async function getDashboardStats(query = {}) {
         ]),
         FoodRestaurant.countDocuments({ ...restaurantMatch, status: 'approved' }),
         FoodRestaurant.countDocuments({ ...restaurantMatch, status: 'pending' }),
-        FoodDeliveryPartner.countDocuments({ status: 'approved' }),
-        FoodDeliveryPartner.countDocuments({ status: 'pending' }),
+        FoodDeliveryPartner.countDocuments({ status: 'approved', ...deliveryFilter }),
+        FoodDeliveryPartner.countDocuments({ status: 'pending', ...deliveryFilter }),
         FoodItem.countDocuments({ approvalStatus: 'approved', ...zoneScopedRestaurantMatch }),
         FoodAddon.countDocuments({ approvalStatus: 'approved', isDeleted: { $ne: true }, ...zoneScopedRestaurantMatch }),
-        // Total Customers is always the count of all registered users. A customer is
-        // not tied to a zone (they can order from anywhere), so the zone filter does
-        // not apply here — it stays the same across all zones.
-        FoodUser.countDocuments({}),
+        zoneId
+            ? FoodOrder.find(orderMatch).distinct('userId').then((ids) => ids.filter(Boolean).length)
+            : periodRange
+                ? FoodUser.countDocuments({ createdAt: { $gte: periodRange.start, $lte: periodRange.end } })
+                : FoodUser.countDocuments({}),
         FoodRestaurant.find({ ...restaurantMatch, status: 'pending' }).sort({ createdAt: -1 }).limit(5).select('restaurantName createdAt').lean(),
-        FoodDeliveryPartner.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(5).select('name createdAt').lean(),
+        FoodDeliveryPartner.find({ status: 'pending', ...deliveryFilter }).sort({ createdAt: -1 }).limit(5).select('name createdAt').lean(),
         FoodOrder.find({ 
             ...orderMatch,
             orderStatus: { $in: PENDING_ORDER_STATUSES },
@@ -4247,6 +4339,75 @@ export async function deleteFood(id) {
     return deleted ? { id } : null;
 }
 
+/** Check for duplicate email, owner phone, or primary contact number across active restaurants */
+export async function checkRestaurantDuplicate({ email, phone, primaryContact, excludeRestaurantId } = {}) {
+    const errors = {};
+    const toStr = (v) => (v != null && v !== undefined ? String(v).trim() : '');
+    const cleanEmail = toStr(email).toLowerCase();
+    const rawPhone = toStr(phone);
+    const phoneDigits = rawPhone.replace(/\D/g, '').slice(-15);
+    const phoneLast10 = phoneDigits ? phoneDigits.slice(-10) : '';
+    const rawPrimary = toStr(primaryContact);
+    const primaryDigits = rawPrimary.replace(/\D/g, '').slice(-15);
+    const primaryLast10 = primaryDigits ? primaryDigits.slice(-10) : '';
+
+    const idFilter = excludeRestaurantId && mongoose.Types.ObjectId.isValid(excludeRestaurantId)
+        ? { _id: { $ne: new mongoose.Types.ObjectId(excludeRestaurantId) } }
+        : {};
+
+    if (cleanEmail) {
+        const emailPattern = new RegExp(`^${cleanEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+        const emailMatch = await FoodRestaurant.findOne({
+            ...idFilter,
+            ownerEmail: emailPattern,
+            status: { $ne: 'deleted' }
+        }).select('_id restaurantName ownerEmail').lean();
+
+        if (emailMatch) {
+            errors.ownerEmail = 'This email is already registered with another restaurant';
+        }
+    }
+
+    if (phoneLast10) {
+        const phonePattern = new RegExp(`${phoneLast10}$`);
+        const phoneMatch = await FoodRestaurant.findOne({
+            ...idFilter,
+            status: { $ne: 'deleted' },
+            $or: [
+                { ownerPhoneLast10: phoneLast10 },
+                { ownerPhone: { $regex: phonePattern } },
+                { ownerPhoneDigits: { $regex: phonePattern } }
+            ]
+        }).select('_id restaurantName ownerPhone').lean();
+
+        if (phoneMatch) {
+            errors.ownerPhone = 'This phone number is already registered with another restaurant';
+        }
+    }
+
+    if (primaryLast10 && primaryLast10 !== phoneLast10) {
+        const primaryPattern = new RegExp(`${primaryLast10}$`);
+        const primaryMatch = await FoodRestaurant.findOne({
+            ...idFilter,
+            status: { $ne: 'deleted' },
+            $or: [
+                { primaryContactNumber: { $regex: primaryPattern } },
+                { ownerPhoneLast10: primaryLast10 },
+                { ownerPhone: { $regex: primaryPattern } }
+            ]
+        }).select('_id restaurantName primaryContactNumber').lean();
+
+        if (primaryMatch) {
+            errors.primaryContactNumber = 'This primary contact number is already registered with another restaurant';
+        }
+    }
+
+    return {
+        available: Object.keys(errors).length === 0,
+        errors
+    };
+}
+
 /** Admin creates a restaurant (JSON body with image URLs already uploaded). Single API. */
 export async function createRestaurantByAdmin(body) {
     const loc = body.location || {};
@@ -4362,9 +4523,54 @@ export async function createRestaurantByAdmin(body) {
         doc.pureVegRestaurant = true;
     }
 
+    // Verify duplicate email, phone, or contact number before creating
+    const duplicateCheck = await checkRestaurantDuplicate({
+        email: doc.ownerEmail,
+        phone: doc.ownerPhone,
+        primaryContact: doc.primaryContactNumber
+    });
+    if (!duplicateCheck.available) {
+        const firstField = Object.keys(duplicateCheck.errors)[0];
+        const errorMsg = duplicateCheck.errors[firstField];
+        const error = new ValidationError(errorMsg);
+        error.statusCode = 409;
+        error.field = firstField;
+        error.errors = duplicateCheck.errors;
+        throw error;
+    }
+
     await assertZoneCoversLocation(doc.zoneId, doc.location?.latitude, doc.location?.longitude);
 
-    const restaurant = await FoodRestaurant.create(doc);
+    let restaurant;
+    try {
+        restaurant = await FoodRestaurant.create(doc);
+    } catch (e) {
+        if (e?.code === 11000 || e?.name === 'MongoServerError') {
+            const keyPattern = e?.keyPattern || {};
+            if (keyPattern.ownerEmail) {
+                const err = new ValidationError('This owner email is already registered with another restaurant');
+                err.statusCode = 409;
+                err.field = 'ownerEmail';
+                err.errors = { ownerEmail: err.message };
+                throw err;
+            }
+            if (keyPattern.ownerPhone || keyPattern.ownerPhoneLast10) {
+                const err = new ValidationError('This owner phone number is already registered with another restaurant');
+                err.statusCode = 409;
+                err.field = 'ownerPhone';
+                err.errors = { ownerPhone: err.message };
+                throw err;
+            }
+            if (keyPattern.restaurantNameNormalized && keyPattern.ownerPhoneLast10) {
+                const err = new ValidationError('A restaurant with this name and owner phone is already registered');
+                err.statusCode = 409;
+                err.field = 'restaurantName';
+                err.errors = { restaurantName: err.message };
+                throw err;
+            }
+        }
+        throw e;
+    }
 
     try {
         const { seedOutletTimingsForRestaurant } = await import(
@@ -5157,7 +5363,7 @@ export async function updateDeliverySupportTicket(id, body = {}) {
 
 // ----- Delivery partners (approved list) -----
 export async function getDeliveryPartners(query) {
-    const { page = 1, limit = 1000, search } = query;
+    const { page = 1, limit = 1000, search, zoneId } = query;
     const filter = { status: 'approved' };
     if (search && typeof search === 'string' && search.trim()) {
         const term = search.trim();
@@ -5168,6 +5374,38 @@ export async function getDeliveryPartners(query) {
             { city: { $regex: term, $options: 'i' } },
             { state: { $regex: term, $options: 'i' } }
         ];
+    }
+
+    if (zoneId && mongoose.Types.ObjectId.isValid(zoneId)) {
+        const zoneDoc = await FoodZone.findById(zoneId).select('serviceLocation name zoneName').lean();
+        const zoneNames = [zoneDoc?.serviceLocation, zoneDoc?.name, zoneDoc?.zoneName]
+            .filter(Boolean)
+            .map((s) => String(s).trim());
+        const zoneRegexes = zoneNames.map(
+            (z) => new RegExp(`^${z.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+        );
+
+        const zonePartnerIds = await FoodOrder.find({
+            zoneId: new mongoose.Types.ObjectId(zoneId),
+            'dispatch.deliveryPartnerId': { $ne: null }
+        }).distinct('dispatch.deliveryPartnerId');
+
+        const deliveryOr = [];
+        if (zoneRegexes.length > 0) {
+            deliveryOr.push({ city: { $in: zoneRegexes } });
+        }
+        if (zonePartnerIds.length > 0) {
+            deliveryOr.push({ _id: { $in: zonePartnerIds.filter(Boolean) } });
+        }
+
+        if (deliveryOr.length > 0) {
+            if (filter.$or) {
+                filter.$and = [{ $or: filter.$or }, { $or: deliveryOr }];
+                delete filter.$or;
+            } else {
+                filter.$or = deliveryOr;
+            }
+        }
     }
 
     const skip = Math.max(0, (Number(page) || 1) - 1) * Math.max(1, Math.min(1000, Number(limit) || 100));

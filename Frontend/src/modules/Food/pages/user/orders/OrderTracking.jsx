@@ -42,7 +42,8 @@ import {
   ExternalLink,
   ShieldCheck,
   HelpCircle,
-  CreditCard
+  CreditCard,
+  AlertCircle
 } from "lucide-react"
 import { resolveMediaUrl } from "@/shared/utils/mediaUrl"
 import { isVegMenuItem } from "@food/utils/vegMode"
@@ -448,35 +449,69 @@ const transformOrderForTracking = (apiOrder, previousOrder = null, explicitResta
       apiOrder?.cancellationReason || previousOrder?.cancellationReason || '',
     cancelledBy: apiOrder?.cancelledBy || previousOrder?.cancelledBy || '',
     cancelledAt: apiOrder?.cancelledAt || previousOrder?.cancelledAt || null,
-    deliveryInstructions: apiOrder?.deliveryInstructions || previousOrder?.deliveryInstructions || ''
+    deliveryInstructions: apiOrder?.deliveryInstructions || apiOrder?.note || previousOrder?.deliveryInstructions || previousOrder?.note || ''
   }
+}
+
+const STATUS_RANK = {
+  placed: 1,
+  created: 1,
+  pending: 1,
+  confirmed: 2,
+  accepted: 2,
+  preparing: 3,
+  cooking: 3,
+  processed: 3,
+  assigned: 4,
+  at_pickup: 5,
+  reached_pickup: 5,
+  ready: 6,
+  ready_for_pickup: 6,
+  picked_up: 7,
+  on_way: 8,
+  out_for_delivery: 8,
+  en_route_to_delivery: 8,
+  at_drop: 9,
+  reached_drop: 9,
+  at_delivery: 9,
+  delivered: 10,
+  completed: 10,
+  cancelled: 99,
+  cancelled_by_user: 99,
+  cancelled_by_restaurant: 99,
+  cancelled_by_admin: 99,
+};
+
+function getStatusRank(status) {
+  const s = String(status || '').toLowerCase();
+  return STATUS_RANK[s] || 0;
 }
 
 /**
  * Backend uses `orderStatus` (created, confirmed, preparing, ready_for_pickup, picked_up, delivered, cancelled_*).
- * This page used to read legacy `status` only — so UI never updated. Map canonical + legacy values to tracking steps.
+ * Map canonical + legacy values to tracking steps.
  */
 function mapBackendOrderStatusToUi(raw) {
-  const s = String(raw || "").toLowerCase()
-  if (!s || s === "pending" || s === "created") return "placed"
-  if (s === "confirmed" || s === "accepted") return "confirmed"
-  if (s === "preparing" || s === "processed") return "preparing"
-  if (s === "ready" || s === "ready_for_pickup" || s === "reached_pickup" || s === "order_confirmed") return "ready"
-  if (s === "picked_up" || s === "out_for_delivery" || s === "en_route_to_delivery") return "on_way"
-  if (s === "reached_drop" || s === "at_drop" || s === "at_delivery") return "at_drop"
-  if (s === "delivered" || s === "completed") return "delivered"
-  if (s.includes("cancelled") || s === "cancelled") return "cancelled"
-  return "placed"
+  const s = String(raw || "").toLowerCase();
+  if (!s || s === "pending" || s === "created") return "placed";
+  if (s === "confirmed" || s === "accepted") return "confirmed";
+  if (s === "preparing" || s === "cooking" || s === "processed") return "preparing";
+  if (s === "ready" || s === "ready_for_pickup" || s === "reached_pickup" || s === "order_confirmed") return "ready";
+  if (s === "picked_up" || s === "out_for_delivery" || s === "en_route_to_delivery") return "on_way";
+  if (s === "reached_drop" || s === "at_drop" || s === "at_delivery") return "at_drop";
+  if (s === "delivered" || s === "completed") return "delivered";
+  if (s.includes("cancelled") || s === "cancelled") return "cancelled";
+  return "placed";
 }
 
 function mapOrderToTrackingUiStatus(orderLike) {
-  if (!orderLike) return "placed"
-  const statusRaw = orderLike.status || orderLike.orderStatus
-  const phase = orderLike.deliveryState?.currentPhase
+  if (!orderLike) return "placed";
+  const statusRaw = orderLike.status || orderLike.orderStatus;
+  const phase = orderLike.deliveryState?.currentPhase;
 
   // Terminal states handled first
-  if (isFoodOrderCancelledStatus(statusRaw)) return "cancelled"
-  if (statusRaw === "delivered" || statusRaw === "completed") return "delivered"
+  if (isFoodOrderCancelledStatus(statusRaw)) return "cancelled";
+  if (statusRaw === "delivered" || statusRaw === "completed") return "delivered";
 
   // Live Ride / Phase-based mapping (Highest priority for precision)
   const isRiderAccepted =
@@ -484,98 +519,108 @@ function mapOrderToTrackingUiStatus(orderLike) {
     orderLike.dispatchStatus === "accepted" ||
     orderLike.assignmentInfo?.status === "accepted" ||
     orderLike.deliveryPartner?.status === "accepted";
-  const hasRider = Boolean(orderLike.deliveryPartnerId || orderLike.dispatch?.deliveryPartnerId)
+  const hasRider = Boolean(orderLike.deliveryPartnerId || orderLike.dispatch?.deliveryPartnerId);
 
-  if (phase === "reached_drop" || phase === "at_drop" || statusRaw === "at_drop") return "at_drop"
-  if (phase === "en_route_to_delivery" || statusRaw === "picked_up" || statusRaw === "out_for_delivery") return "on_way"
-  if (phase === "at_pickup" && hasRider && isRiderAccepted) return "at_pickup"
-  if (phase === "en_route_to_pickup" && hasRider && isRiderAccepted) return "assigned"
-
-  /*
-   * Rider accepted but has not reported a pickup phase yet.
-   *
-   * Accepting never writes `deliveryState.currentPhase` on the backend, so the
-   * phase check above could not fire and "Rider is arriving" was unreachable -
-   * the screen sat on "Cooking" from rider acceptance right up to pickup. The
-   * assignment itself is the signal.
-   */
-  if (isRiderAccepted && hasRider) {
-    const s = String(statusRaw || "").toLowerCase()
-    // Not at the restaurant yet (that phase returned above), so the rider is still
-    // on the way there even if the kitchen has already marked the food ready.
-    if (s === "ready_for_pickup" || s === "ready" || s === "preparing" || s === "confirmed") return "assigned"
-  }
+  if (phase === "reached_drop" || phase === "at_drop" || statusRaw === "at_drop" || statusRaw === "reached_drop") return "at_drop";
+  if (phase === "en_route_to_delivery" || statusRaw === "picked_up" || statusRaw === "out_for_delivery" || statusRaw === "on_way") return "on_way";
+  if (phase === "at_pickup" || statusRaw === "reached_pickup") return "at_pickup";
+  if (phase === "en_route_to_pickup" || (hasRider && isRiderAccepted && (statusRaw === "ready_for_pickup" || statusRaw === "ready" || statusRaw === "preparing" || statusRaw === "confirmed"))) return "assigned";
 
   // Fallback to basic status mapping
-  return mapBackendOrderStatusToUi(statusRaw)
+  return mapBackendOrderStatusToUi(statusRaw);
 }
 
 /** Prefer live delivery phase when present (socket / polling include deliveryState). */
 function isFoodOrderCancelledStatus(statusRaw) {
-  const s = String(statusRaw || "").toLowerCase()
-  return s === "cancelled" || s.includes("cancelled")
+  const s = String(statusRaw || "").toLowerCase();
+  return s === "cancelled" || s.includes("cancelled");
 }
 
 /**
- * Apply a fetched order without letting it undo a newer live update.
- *
- * If a socket status landed after this fetch was sent, the response describes
- * an older moment - keep the live status fields from the current state and
- * take everything else (rider details, map, pricing) from the response.
+ * Backend order.service.js allowedStatuses: ['created', 'confirmed', 'preparing']
+ * Once the order moves beyond preparing (e.g. ready_for_pickup, picked_up, on_way, at_drop, delivered, cancelled),
+ * instructions can no longer be edited.
+ */
+function canEditOrderInstructions(orderLike) {
+  if (!orderLike) return false;
+  const rawStatus = String(orderLike.orderStatus || orderLike.status || "").toLowerCase().trim();
+
+  if (isFoodOrderCancelledStatus(rawStatus)) return false;
+  if (rawStatus === "delivered" || rawStatus === "completed") return false;
+
+  const editableStatuses = [
+    "created",
+    "placed",
+    "pending",
+    "confirmed",
+    "accepted",
+    "preparing",
+    "cooking",
+    "processed",
+  ];
+
+  return editableStatuses.includes(rawStatus);
+}
+
+/**
+ * Apply a fetched order without letting it undo a newer live update or revert to a lower status rank.
  */
 function mergeFetchedOrder(fetched, prev, requestStartedAt, lastRealtimeAt) {
-  if (!prev || !fetched || !(lastRealtimeAt > requestStartedAt)) return fetched
-  return {
-    ...fetched,
-    status: prev.status,
-    deliveryState: prev.deliveryState,
-    dispatch: prev.dispatch,
-    deliveryPartnerId: prev.deliveryPartnerId,
-    deliveryPartner: fetched.deliveryPartner || prev.deliveryPartner,
+  if (!prev) return fetched;
+  if (!fetched) return prev;
+
+  const prevStatus = prev.status || prev.orderStatus;
+  const fetchedStatus = fetched.status || fetched.orderStatus;
+  const prevRank = getStatusRank(prevStatus);
+  const fetchedRank = getStatusRank(fetchedStatus);
+
+  const isPrevAhead = prevRank > fetchedRank && !isFoodOrderCancelledStatus(fetchedStatus);
+  const isSocketNewer = lastRealtimeAt > requestStartedAt;
+
+  if (isPrevAhead || isSocketNewer) {
+    return {
+      ...fetched,
+      status: prev.status,
+      orderStatus: prev.orderStatus || prev.status,
+      deliveryState: prev.deliveryState || fetched.deliveryState,
+      dispatch: prev.dispatch || fetched.dispatch,
+      deliveryPartnerId: prev.deliveryPartnerId || fetched.deliveryPartnerId,
+      deliveryPartner: fetched.deliveryPartner || prev.deliveryPartner,
+      deliveryVerification: prev.deliveryVerification || fetched.deliveryVerification,
+    };
   }
+
+  return fetched;
 }
 
 function normalizeLookupId(value) {
-  if (value == null) return ""
-  const raw = String(value).trim()
-  if (!raw || raw === "undefined" || raw === "null") return ""
-  return raw
-}
-
-// Interactive Live Tracking Stepper
-/** Rider journey shown once a delivery partner has accepted the order. */
-const RIDER_STEPS = [
-  { key: 'rider_accepted', title: 'Accepted', icon: ShieldCheck },
-  { key: 'rider_at_restaurant', title: 'At Restaurant', icon: UtensilsCrossed },
-  { key: 'rider_picked_up', title: 'Picked Up', icon: Package },
-  { key: 'rider_on_way', title: 'On Way', icon: Bike },
-  { key: 'rider_delivered', title: 'Delivered', icon: CheckCircle2 },
-]
-
-/** Index of the active rider step; RIDER_STEPS.length means every step is done. */
-const riderStepIndex = (status) => {
-  if (status === 'assigned') return 0
-  if (status === 'at_pickup' || status === 'ready') return 1
-  // Pickup and departure are one backend transition: picked up is done, on way is live.
-  if (status === 'on_way') return 3
-  if (status === 'at_drop') return 4
-  if (status === 'delivered') return RIDER_STEPS.length
-  return 0
+  if (value == null) return "";
+  const raw = String(value).trim();
+  if (!raw || raw === "undefined" || raw === "null") return "";
+  return raw;
 }
 
 /** "Cancelled by Restaurant", "Cancelled by you", ... from the backend enum. */
 const describeCancelledBy = (status, cancelledBy) => {
-  const by = String(cancelledBy || '').toLowerCase()
-  const s = String(status || '').toLowerCase()
-  if (by === 'customer' || by === 'user' || s === 'cancelled_by_user') return 'Cancelled by you'
-  if (by === 'restaurant' || s === 'cancelled_by_restaurant') return 'Cancelled by the restaurant'
-  if (by === 'admin' || s === 'cancelled_by_admin') return 'Cancelled by support'
-  return 'Order cancelled'
-}
+  const by = String(cancelledBy || '').toLowerCase();
+  const s = String(status || '').toLowerCase();
+  if (by === 'customer' || by === 'user' || s === 'cancelled_by_user') return 'Cancelled by you';
+  if (by === 'restaurant' || s === 'cancelled_by_restaurant') return 'Cancelled by the restaurant';
+  if (by === 'admin' || s === 'cancelled_by_admin') return 'Cancelled by support';
+  return 'Order cancelled';
+};
 
-const LiveTrackingStepper = memo(({ status, isCancelled, riderMode = false, cancellationReason = '', cancelledBy = '', orderStatusRaw = '' }) => {
+const LiveTrackingStepper = memo(({
+  status,
+  isCancelled,
+  riderMode = false,
+  isTakeaway = false,
+  cancellationReason = '',
+  cancelledBy = '',
+  orderStatusRaw = ''
+}) => {
   if (isCancelled) {
-    const reason = String(cancellationReason || '').trim()
+    const reason = String(cancellationReason || '').trim();
     return (
       <div className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-2xl p-4 flex items-start gap-3">
         <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/60 flex items-center justify-center text-red-600 dark:text-red-400 shrink-0">
@@ -586,8 +631,6 @@ const LiveTrackingStepper = memo(({ status, isCancelled, riderMode = false, canc
           <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
             {describeCancelledBy(orderStatusRaw, cancelledBy)}
           </p>
-          {/* The reason the restaurant gave. Rejecting an order requires one, so
-              this is missing only for older orders cancelled before it was. */}
           {reason ? (
             <p className="text-xs text-red-700 dark:text-red-300 mt-1.5">
               <span className="font-semibold">Reason:</span> {reason}
@@ -602,7 +645,7 @@ const LiveTrackingStepper = memo(({ status, isCancelled, riderMode = false, canc
     );
   }
 
-  const steps = [
+  const deliverySteps = [
     {
       key: 'placed',
       title: 'Placed',
@@ -640,25 +683,82 @@ const LiveTrackingStepper = memo(({ status, isCancelled, riderMode = false, canc
     }
   ];
 
-  const riderIdx = riderMode ? riderStepIndex(status) : null;
-  const visibleSteps = riderMode ? RIDER_STEPS : steps;
+  const takeawaySteps = [
+    {
+      key: 'placed',
+      title: 'Placed',
+      fullTitle: 'Order Placed',
+      desc: 'Received by kitchen',
+      icon: ShoppingBag
+    },
+    {
+      key: 'confirmed',
+      title: 'Confirmed',
+      fullTitle: 'Order Confirmed',
+      desc: 'Accepted by kitchen',
+      icon: UtensilsCrossed
+    },
+    {
+      key: 'preparing',
+      title: 'Cooking',
+      fullTitle: 'Preparing Food',
+      desc: 'Fresh meal in progress',
+      icon: Flame
+    },
+    {
+      key: 'ready',
+      title: 'Ready',
+      fullTitle: 'Ready for Pickup',
+      desc: 'Collect at restaurant',
+      icon: Package
+    },
+    {
+      key: 'delivered',
+      title: 'Picked Up',
+      fullTitle: 'Order Picked Up',
+      desc: 'Enjoy your meal!',
+      icon: CheckCircle2
+    }
+  ];
+
+  const visibleSteps = isTakeaway ? takeawaySteps : deliverySteps;
 
   const getStepStatus = (stepKey, index) => {
-    if (riderMode) {
-      if (index < riderIdx) return 'completed';
-      if (index === riderIdx) return 'active';
-      return 'upcoming';
-    }
+    const s = String(status || '').toLowerCase();
     let currentIdx = 0;
-    if (status === 'confirmed') currentIdx = 1;
-    else if (status === 'preparing') currentIdx = 2;
-    else if (['assigned', 'at_pickup', 'ready'].includes(status)) currentIdx = 2.5;
-    else if (['on_way', 'at_drop'].includes(status)) currentIdx = 3;
-    else if (status === 'delivered') currentIdx = 4;
+
+    if (['placed', 'pending', 'created'].includes(s)) {
+      currentIdx = 0;
+    } else if (['confirmed', 'accepted'].includes(s)) {
+      currentIdx = 1;
+    } else if (['preparing', 'cooking', 'processed'].includes(s)) {
+      currentIdx = 2;
+    } else if (['assigned', 'at_pickup', 'reached_pickup'].includes(s)) {
+      currentIdx = 2.5;
+    } else if (['ready', 'ready_for_pickup'].includes(s)) {
+      currentIdx = isTakeaway ? 3 : 2.5;
+    } else if (['on_way', 'picked_up', 'out_for_delivery', 'en_route_to_delivery', 'at_drop', 'reached_drop', 'at_delivery'].includes(s)) {
+      currentIdx = 3;
+    } else if (['delivered', 'completed'].includes(s)) {
+      currentIdx = 4;
+    }
 
     if (index < Math.floor(currentIdx)) return 'completed';
     if (index === Math.floor(currentIdx)) return 'active';
     return 'upcoming';
+  };
+
+  const getConnectorWidth = () => {
+    const s = String(status || '').toLowerCase();
+    if (['placed', 'pending', 'created'].includes(s)) return '12%';
+    if (['confirmed', 'accepted'].includes(s)) return '30%';
+    if (['preparing', 'cooking', 'processed'].includes(s)) return '50%';
+    if (['assigned', 'at_pickup', 'reached_pickup'].includes(s)) return '68%';
+    if (['ready', 'ready_for_pickup'].includes(s)) return isTakeaway ? '80%' : '72%';
+    if (['on_way', 'picked_up', 'out_for_delivery', 'en_route_to_delivery'].includes(s)) return '85%';
+    if (['at_drop', 'reached_drop', 'at_delivery'].includes(s)) return '92%';
+    if (['delivered', 'completed'].includes(s)) return '100%';
+    return '12%';
   };
 
   return (
@@ -669,7 +769,7 @@ const LiveTrackingStepper = memo(({ status, isCancelled, riderMode = false, canc
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
           </span>
-          <span>{riderMode ? 'Delivery Partner' : 'Order Timeline'}</span>
+          <span>{isTakeaway ? 'Takeaway Timeline' : 'Order Timeline'}</span>
         </h3>
         <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
           Live Tracking
@@ -681,17 +781,7 @@ const LiveTrackingStepper = memo(({ status, isCancelled, riderMode = false, canc
         <div className="absolute top-6 left-6 right-6 h-1 bg-gray-100 dark:bg-zinc-800 rounded-full overflow-hidden">
           <div 
             className="h-full bg-emerald-500 transition-all duration-700 ease-out rounded-full"
-            style={{
-              width: riderMode
-                ? `${Math.min(100, 10 + (riderIdx / RIDER_STEPS.length) * 90)}%`
-                :
-                status === 'placed' ? '12%' :
-                status === 'confirmed' ? '30%' :
-                status === 'preparing' ? '50%' :
-                ['assigned', 'at_pickup', 'ready'].includes(status) ? '65%' :
-                ['on_way', 'at_drop'].includes(status) ? '85%' :
-                status === 'delivered' ? '100%' : '10%'
-            }}
+            style={{ width: getConnectorWidth() }}
           />
         </div>
 
@@ -1050,12 +1140,35 @@ export default function OrderTracking() {
   });
 
 
+  const isInstructionsEditable = useMemo(() => {
+    return canEditOrderInstructions(order);
+  }, [order]);
+
   // Sync delivery instructions from order when loaded/refreshed
   useEffect(() => {
-    if (order?.deliveryInstructions != null) {
-      setDeliveryInstructions(order.deliveryInstructions)
+    const inst = order?.deliveryInstructions || order?.note;
+    if (inst != null) {
+      setDeliveryInstructions(inst);
     }
-  }, [order?.deliveryInstructions])
+  }, [order?.deliveryInstructions, order?.note]);
+
+  // When modal opens, sync latest instructions and re-validate order status from backend
+  useEffect(() => {
+    if (isInstructionsModalOpen) {
+      const currentInst = order?.deliveryInstructions || order?.note || "";
+      setDeliveryInstructions(currentInst);
+      if (typeof fetchOrderDetailsWithFallback === "function") {
+        fetchOrderDetailsWithFallback({ force: true })
+          .then((response) => {
+            if (response?.data?.success && response?.data?.data?.order) {
+              const apiOrder = response.data.data.order;
+              setOrder((prev) => transformOrderForTracking(apiOrder, prev));
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }, [isInstructionsModalOpen, fetchOrderDetailsWithFallback]);
 
   // OTP received via socket event (deliveryDropOtp)
   useEffect(() => {
@@ -1628,7 +1741,7 @@ export default function OrderTracking() {
       const payload = event?.detail || {};
       const { message, status, estimatedDeliveryTime, orderId: evtOrderId, orderMongoId } = payload;
 
-      const evtKeys = [evtOrderId, orderMongoId, payload?._id].filter(Boolean).map(String)
+      const evtKeys = [evtOrderId, orderMongoId, payload?._id, payload?.displayOrderId, payload?.id].filter(Boolean).map(String)
       /*
        * Strict match. An event with no id used to match EVERY open tracking
        * screen, so with two active orders one order's status could overwrite
@@ -1852,6 +1965,10 @@ export default function OrderTracking() {
   };
 
   const handleUpdateInstructions = async () => {
+    if (!isInstructionsEditable) {
+      toast.error("Instructions can no longer be updated for this order");
+      return;
+    }
     try {
       setIsUpdatingInstructions(true);
       const response = await orderAPI.updateOrderInstructions(resolvedLookupId || orderId, deliveryInstructions);
@@ -1862,7 +1979,7 @@ export default function OrderTracking() {
         if (updatedOrder) {
           setOrder(prev => transformOrderForTracking(updatedOrder, prev));
         } else {
-          setOrder(prev => ({ ...prev, deliveryInstructions }));
+          setOrder(prev => ({ ...prev, deliveryInstructions, note: deliveryInstructions }));
         }
       } else {
         toast.error(response.data?.message || "Failed to update instructions");
@@ -1988,42 +2105,42 @@ export default function OrderTracking() {
     },
     preparing: {
       title: "Food is being prepared",
-      subtitle: typeof estimatedTime === 'number' ? `Arriving in ${estimatedTime} mins` : "Cooking your meal",
+      subtitle: typeof estimatedTime === 'number' && estimatedTime > 0 ? `Arriving in ~${estimatedTime} mins` : "Cooking your fresh meal",
       color: "bg-green-600",
       iconType: 'food'
     },
     assigned: {
       title: "Rider is arriving",
-      subtitle: "A delivery partner is arriving at the restaurant",
+      subtitle: "Delivery partner is heading to the restaurant",
       color: "bg-green-600",
       iconType: 'rider'
     },
     at_pickup: {
       title: "Rider at restaurant",
-      subtitle: "Rider is waiting for your order",
+      subtitle: "Delivery partner is waiting for your order",
       color: "bg-green-600",
       iconType: 'rider'
     },
     ready: {
-      title: "Handover in progress",
-      subtitle: "Rider is picking up your order",
+      title: order?.orderType === "takeaway" ? "Ready for pickup" : "Handover in progress",
+      subtitle: order?.orderType === "takeaway" ? "Your order is ready to collect at the restaurant" : "Rider is collecting your order from the kitchen",
       color: "bg-green-600",
       iconType: 'rider'
     },
     on_way: {
       title: "Out for delivery",
-      subtitle: typeof estimatedTime === 'number' ? `Arriving in ${estimatedTime} mins` : "Rider is out for delivery",
+      subtitle: typeof estimatedTime === 'number' && estimatedTime > 0 ? `Arriving in ~${estimatedTime} mins` : "Rider is out for delivery",
       color: "bg-green-600",
       iconType: 'rider'
     },
     at_drop: {
-      title: "Arrived at location",
-      subtitle: "Please come to the door",
+      title: "Rider has arrived",
+      subtitle: "Delivery partner is at your door — please share OTP",
       color: "bg-green-600",
       iconType: 'rider'
     },
     delivered: {
-      title: "Order delivered",
+      title: order?.orderType === "takeaway" ? "Order picked up" : "Order delivered",
       subtitle: "Enjoy your meal!",
       color: "bg-green-600",
       iconType: 'delivered'
@@ -2748,6 +2865,7 @@ export default function OrderTracking() {
             status={orderStatus}
             isCancelled={isCancelledOrder}
             riderMode={isRiderJourney}
+            isTakeaway={order?.orderType === 'takeaway'}
             cancellationReason={order?.cancellationReason || order?.note || ''}
             cancelledBy={order?.cancelledBy}
             orderStatusRaw={order?.status}
@@ -2861,7 +2979,7 @@ export default function OrderTracking() {
                   onClick={() => setIsInstructionsModalOpen(true)}
                   className="text-xs font-bold text-[#EB590E] hover:underline shrink-0 pt-0.5"
                 >
-                  Edit Note
+                  {isInstructionsEditable ? "Edit Note" : (order?.deliveryInstructions || order?.note ? "View Note" : "Note Details")}
                 </button>
               )}
             </div>
@@ -3164,6 +3282,7 @@ export default function OrderTracking() {
             status={orderStatus}
             isCancelled={isCancelledOrder}
             riderMode={isRiderJourney}
+            isTakeaway={order?.orderType === 'takeaway'}
             cancellationReason={order?.cancellationReason || order?.note || ''}
             cancelledBy={order?.cancelledBy}
             orderStatusRaw={order?.status}
@@ -3277,7 +3396,7 @@ export default function OrderTracking() {
                   onClick={() => setIsInstructionsModalOpen(true)}
                   className="text-xs font-bold text-[#EB590E] hover:underline shrink-0 pt-0.5"
                 >
-                  Edit Note
+                  {isInstructionsEditable ? "Edit Note" : (order?.deliveryInstructions || order?.note ? "View Note" : "Note Details")}
                 </button>
               )}
             </div>
@@ -3540,24 +3659,56 @@ export default function OrderTracking() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Add instructions for the delivery partner to help them find your address or know where to leave your order.
-            </p>
-            <Textarea
-              value={deliveryInstructions}
-              onChange={(e) => setDeliveryInstructions(e.target.value)}
-              placeholder="E.g. Ring the doorbell, leave at the front desk..."
-              className="min-h-[120px] resize-none border-gray-200 dark:border-zinc-700 rounded-xl bg-gray-50 dark:bg-zinc-800 text-gray-800 dark:text-gray-200 text-base"
-              style={{ "--tw-ring-color": `rgba(${themeRgb}, 0.45)` }}
-            />
-            <Button
-              onClick={handleUpdateInstructions}
-              disabled={isUpdatingInstructions}
-              className="w-full text-white font-bold h-12 rounded-xl border-none"
-              style={{ backgroundImage: `linear-gradient(to right, ${themeColor}, rgba(${themeRgb}, 0.78))` }}
-            >
-              {isUpdatingInstructions ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Save Instructions"}
-            </Button>
+            {isInstructionsEditable ? (
+              <>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Add instructions for the delivery partner to help them find your address or know where to leave your order.
+                </p>
+                <Textarea
+                  value={deliveryInstructions}
+                  onChange={(e) => setDeliveryInstructions(e.target.value)}
+                  placeholder="E.g. Ring the doorbell, leave at the front desk..."
+                  className="min-h-[120px] resize-none border-gray-200 dark:border-zinc-700 rounded-xl bg-gray-50 dark:bg-zinc-800 text-gray-800 dark:text-gray-200 text-base focus:ring-2"
+                  style={{ "--tw-ring-color": `rgba(${themeRgb}, 0.45)` }}
+                />
+                <Button
+                  onClick={handleUpdateInstructions}
+                  disabled={isUpdatingInstructions}
+                  className="w-full text-white font-bold h-12 rounded-xl border-none"
+                  style={{ backgroundImage: `linear-gradient(to right, ${themeColor}, rgba(${themeRgb}, 0.78))` }}
+                >
+                  {isUpdatingInstructions ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Save Instructions"}
+                </Button>
+              </>
+            ) : (
+              <>
+                <div className="flex items-start gap-2.5 p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 text-amber-800 dark:text-amber-200 text-xs font-medium">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                  <span className="leading-relaxed">
+                    Instructions can no longer be updated for this order because it has already progressed past the preparation stage.
+                  </span>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                    {deliveryInstructions ? "Saved Instructions" : "Instructions"}
+                  </label>
+                  <Textarea
+                    value={deliveryInstructions || "No instructions were provided for this order."}
+                    readOnly
+                    disabled
+                    className="min-h-[100px] resize-none border-gray-200 dark:border-zinc-700 rounded-xl bg-gray-100/80 dark:bg-zinc-800/50 text-gray-600 dark:text-gray-400 text-sm cursor-not-allowed select-text opacity-90"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsInstructionsModalOpen(false)}
+                  className="w-full font-bold h-11 rounded-xl border-gray-200 dark:border-zinc-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-zinc-800"
+                >
+                  Close
+                </Button>
+              </>
+            )}
           </div>
         </DialogContent>
       </Dialog>

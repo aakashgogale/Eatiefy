@@ -190,19 +190,34 @@ function buildEatiefyEmailHtml({
     bannerMessage,
     infoRows = [],
     introParagraphs = [],
-    footerParagraphs = []
+    footerParagraphs = [],
+    actionButton = null
 }) {
-    const bannerBg = bannerType === 'success' ? '#E8F5E9' : '#FFEBEE';
-    const bannerBorder = bannerType === 'success' ? '#43A047' : PRIMARY_COLOR;
-    const bannerColor = bannerType === 'success' ? '#2E7D32' : PRIMARY_COLOR;
+    let bannerBg = '#E8F5E9';
+    let bannerBorder = '#43A047';
+    let bannerColor = '#2E7D32';
+
+    if (bannerType === 'rejection') {
+        bannerBg = '#FFEBEE';
+        bannerBorder = PRIMARY_COLOR;
+        bannerColor = PRIMARY_COLOR;
+    } else if (bannerType === 'info') {
+        bannerBg = '#E3F2FD';
+        bannerBorder = '#1976D2';
+        bannerColor = '#1565C0';
+    } else if (bannerType === 'warning' || bannerType === 'alert') {
+        bannerBg = '#FFF8E1';
+        bannerBorder = '#FFA000';
+        bannerColor = '#E65100';
+    }
 
     const infoHtml = infoRows.length
-        ? `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin: 20px 0; border-collapse: collapse;">
+        ? `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin: 20px 0; border-collapse: collapse; background: #fafafa; border-radius: 8px; border: 1px solid #eeeeee;">
         ${infoRows
             .map(
                 (row) => `<tr>
-          <td style="padding: 10px 0; border-bottom: 1px solid #f0f0f0; color: #666; font-size: 14px; width: 38%; vertical-align: top;">${escapeHtml(row.label)}</td>
-          <td style="padding: 10px 0; border-bottom: 1px solid #f0f0f0; color: #222; font-size: 14px; font-weight: 600; vertical-align: top;">${escapeHtml(row.value)}</td>
+          <td style="padding: 10px 14px; border-bottom: 1px solid #f0f0f0; color: #666; font-size: 14px; width: 38%; vertical-align: top;">${escapeHtml(row.label)}</td>
+          <td style="padding: 10px 14px; border-bottom: 1px solid #f0f0f0; color: #222; font-size: 14px; font-weight: 600; vertical-align: top;">${escapeHtml(row.value)}</td>
         </tr>`
             )
             .join('')}
@@ -219,6 +234,14 @@ function buildEatiefyEmailHtml({
 
     const bannerMessageHtml = bannerMessage
         ? `<p style="margin: 8px 0 0; color: #444; font-size: 14px; line-height: 1.6;">${bannerMessage}</p>`
+        : '';
+
+    const buttonHtml = actionButton && actionButton.url
+        ? `<div style="text-align: center; margin: 28px 0 20px;">
+            <a href="${escapeHtml(actionButton.url)}" style="background: ${PRIMARY_COLOR}; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-size: 15px; font-weight: 600; display: inline-block;">
+                ${escapeHtml(actionButton.text || 'View in Eatiefy')}
+            </a>
+          </div>`
         : '';
 
     return `<!DOCTYPE html>
@@ -243,6 +266,7 @@ function buildEatiefyEmailHtml({
               </div>
               ${introHtml}
               ${infoHtml}
+              ${buttonHtml}
               ${footerHtml}
               <div style="margin-top: 28px; padding-top: 20px; border-top: 1px solid #eee;">
                 <p style="margin: 0 0 8px; color: #666; font-size: 14px; font-weight: 600;">Need help?</p>
@@ -308,6 +332,134 @@ export async function sendAdminResetOtpEmail(to, otp) {
 }
 
 /**
+ * Send registration received confirmation email to restaurant owner.
+ * @param {{ to: string, restaurantName: string, ownerName?: string, restaurantId?: string, ownerPhone?: string, city?: string }} params
+ * @returns {Promise<boolean>}
+ */
+export async function sendRestaurantRegistrationReceivedEmail({
+    to,
+    restaurantName,
+    ownerName,
+    restaurantId,
+    ownerPhone,
+    city
+}) {
+    const recipient = String(to || '').trim().toLowerCase();
+    if (!isValidEmail(recipient)) {
+        logger.warn('Restaurant registration email skipped: invalid ownerEmail');
+        return false;
+    }
+
+    const safeName = escapeHtml(restaurantName || 'your restaurant');
+    const ownerDisplayName = getFirstName(ownerName);
+    const subject = `📋 Registration Received: ${restaurantName || 'Restaurant'} | Eatiefy`;
+
+    const infoRows = [
+        { label: 'Restaurant Name', value: restaurantName || '—' },
+        ...(ownerName ? [{ label: 'Owner Name', value: ownerName }] : []),
+        ...(ownerPhone ? [{ label: 'Registered Phone', value: ownerPhone }] : []),
+        ...(city ? [{ label: 'City', value: city }] : []),
+        { label: 'Application Status', value: 'Pending Admin Verification' }
+    ];
+
+    const html = buildEatiefyEmailHtml({
+        greeting: `Hello ${escapeHtml(ownerDisplayName)},`,
+        bannerType: 'info',
+        bannerTitle: 'Registration Received!',
+        bannerMessage: `Thank you for registering <strong>${safeName}</strong> on Eatiefy. Your application is now in review.`,
+        introParagraphs: [
+            'Our onboarding team is reviewing your restaurant details, documents, and FSSAI information.',
+            'Once verified, your account will be activated and you will be able to log in to the Eatiefy Restaurant Portal, configure your menu, and start receiving orders.'
+        ],
+        infoRows,
+        footerParagraphs: [
+            'We typically process registrations within 24 to 48 hours. You will receive an email confirmation as soon as your account is approved.'
+        ]
+    });
+
+    const text = [
+        `Hello ${ownerDisplayName},`,
+        '',
+        `Thank you for registering ${restaurantName || 'your restaurant'} on Eatiefy.`,
+        'Your application is currently under review by our onboarding team.',
+        '',
+        `Restaurant: ${restaurantName || '—'}`,
+        `Status: Pending Admin Verification`,
+        '',
+        'You will receive an email update once your account has been reviewed.',
+        '',
+        'Team Eatiefy'
+    ].join('\n');
+
+    return sendEmail({
+        to: recipient,
+        subject,
+        html,
+        text,
+        logLabel: `Restaurant registration confirmation email${restaurantId ? ` (${restaurantId})` : ''}`
+    });
+}
+
+/**
+ * Send profile update acknowledgment email to restaurant owner.
+ * @param {{ to: string, restaurantName: string, ownerName?: string, restaurantId?: string }} params
+ * @returns {Promise<boolean>}
+ */
+export async function sendRestaurantProfileUpdateReceivedEmail({
+    to,
+    restaurantName,
+    ownerName,
+    restaurantId
+}) {
+    const recipient = String(to || '').trim().toLowerCase();
+    if (!isValidEmail(recipient)) {
+        logger.warn('Restaurant profile update email skipped: invalid ownerEmail');
+        return false;
+    }
+
+    const safeName = escapeHtml(restaurantName || 'your restaurant');
+    const ownerDisplayName = getFirstName(ownerName);
+    const subject = `📝 Profile Changes Under Review: ${restaurantName || 'Restaurant'} | Eatiefy`;
+
+    const html = buildEatiefyEmailHtml({
+        greeting: `Hello ${escapeHtml(ownerDisplayName)},`,
+        bannerType: 'info',
+        bannerTitle: 'Profile Changes Submitted',
+        bannerMessage: `Your updated profile details for <strong>${safeName}</strong> have been submitted for admin review.`,
+        introParagraphs: [
+            'Our team will verify the updated details and documents shortly.',
+            'Your changes will become visible across the platform once approved by our team.'
+        ],
+        infoRows: [
+            { label: 'Restaurant', value: restaurantName || '—' },
+            { label: 'Status', value: 'Pending Changes Approval' }
+        ],
+        footerParagraphs: [
+            'You will receive an email update as soon as the review is complete.'
+        ]
+    });
+
+    const text = [
+        `Hello ${ownerDisplayName},`,
+        '',
+        `Your updated profile details for ${restaurantName || 'your restaurant'} have been submitted for admin review.`,
+        '',
+        `Restaurant: ${restaurantName || '—'}`,
+        'Status: Pending Changes Approval',
+        '',
+        'Team Eatiefy'
+    ].join('\n');
+
+    return sendEmail({
+        to: recipient,
+        subject,
+        html,
+        text,
+        logLabel: `Restaurant profile update email${restaurantId ? ` (${restaurantId})` : ''}`
+    });
+}
+
+/**
  * @param {{ to: string, restaurantName: string, restaurantId?: string, isChangesApproval?: boolean }} params
  * @returns {Promise<boolean>}
  */
@@ -329,7 +481,7 @@ export async function sendRestaurantApprovalEmail({ to, restaurantName, restaura
         bannerTitle: 'Congratulations!',
         infoRows: [
             { label: 'Restaurant', value: restaurantName || '—' },
-            { label: 'Status', value: isChangesApproval ? 'Changes Approved' : 'Approved' }
+            { label: 'Status', value: isChangesApproval ? 'Changes Approved' : 'Approved & Live' }
         ],
         introParagraphs: isChangesApproval
             ? [
@@ -350,7 +502,7 @@ export async function sendRestaurantApprovalEmail({ to, restaurantName, restaura
             : `${restaurantName || 'Your restaurant'} has been approved on Eatiefy. You can now start receiving orders through the Eatiefy app.`,
         '',
         `Restaurant: ${restaurantName || '—'}`,
-        `Status: ${isChangesApproval ? 'Changes Approved' : 'Approved'}`,
+        `Status: ${isChangesApproval ? 'Changes Approved' : 'Approved & Live'}`,
         '',
         'Team Eatiefy'
     ].join('\n');
@@ -386,7 +538,7 @@ export async function sendRestaurantRejectionEmail({
 
     const subject = isChangesRejection
         ? 'Your Restaurant Changes have been Rejected | Eatiefy'
-        : 'Your Restaurant has been Rejected | Eatiefy';
+        : 'Your Restaurant Registration Update | Eatiefy';
 
     const html = buildEatiefyEmailHtml({
         greeting: 'Hello,',
@@ -396,7 +548,7 @@ export async function sendRestaurantRejectionEmail({
             ? `We reviewed the updated details for <strong>${safeName}</strong> and were unable to approve the changes at this time.`
             : `We reviewed the registration for <strong>${safeName}</strong> and were unable to approve it at this time.`,
         introParagraphs: [
-            'Please review the reason below, update your documents or profile details, and reapply when ready. Our team is happy to assist if you need clarification.'
+            'Please review the reason below, update your documents or profile details in the app, and reapply when ready. Our team is happy to assist if you need clarification.'
         ],
         infoRows: [
             { label: 'Restaurant', value: restaurantName || '—' },
@@ -429,6 +581,122 @@ export async function sendRestaurantRejectionEmail({
 }
 
 /**
+ * Send registration received confirmation email to delivery partner.
+ * @param {{ to: string, partnerName: string, partnerId?: string, phone?: string, vehicleType?: string, city?: string }} params
+ * @returns {Promise<boolean>}
+ */
+export async function sendDeliveryRegistrationReceivedEmail({
+    to,
+    partnerName,
+    partnerId,
+    phone,
+    vehicleType,
+    city
+}) {
+    const recipient = String(to || '').trim().toLowerCase();
+    if (!isValidEmail(recipient)) {
+        logger.warn('Delivery registration confirmation skipped: invalid email');
+        return false;
+    }
+
+    const firstName = escapeHtml(getFirstName(partnerName));
+    const subject = `🛵 Welcome to Eatiefy Delivery – Application Received!`;
+
+    const infoRows = [
+        { label: 'Partner Name', value: partnerName || '—' },
+        ...(phone ? [{ label: 'Phone', value: phone }] : []),
+        ...(vehicleType ? [{ label: 'Vehicle Type', value: vehicleType }] : []),
+        ...(city ? [{ label: 'City', value: city }] : []),
+        { label: 'Application Status', value: 'Pending Admin Verification' }
+    ];
+
+    const html = buildEatiefyEmailHtml({
+        greeting: `Hello ${firstName},`,
+        bannerType: 'info',
+        bannerTitle: 'Application Received!',
+        bannerMessage: `Thank you for applying to join the Eatiefy delivery fleet. We have received your details.`,
+        introParagraphs: [
+            'Our operations team is verifying your submitted documents (Driving License, ID Proof, and vehicle information).',
+            'Once verified, your account will be activated and you can start accepting orders and earning with Eatiefy.'
+        ],
+        infoRows,
+        footerParagraphs: [
+            'You will receive an email update once your application has been verified.'
+        ]
+    });
+
+    const text = [
+        `Hello ${getFirstName(partnerName)},`,
+        '',
+        'Thank you for applying to join Eatiefy Delivery.',
+        'Our team is reviewing your documents and application.',
+        '',
+        `Partner Name: ${partnerName || '—'}`,
+        'Status: Pending Admin Verification',
+        '',
+        'Team Eatiefy'
+    ].join('\n');
+
+    return sendEmail({
+        to: recipient,
+        subject,
+        html,
+        text,
+        logLabel: `Delivery registration confirmation email${partnerId ? ` (${partnerId})` : ''}`
+    });
+}
+
+/**
+ * Send profile update acknowledgment email to delivery partner.
+ * @param {{ to: string, partnerName: string, partnerId?: string }} params
+ * @returns {Promise<boolean>}
+ */
+export async function sendDeliveryProfileUpdateReceivedEmail({
+    to,
+    partnerName,
+    partnerId
+}) {
+    const recipient = String(to || '').trim().toLowerCase();
+    if (!isValidEmail(recipient)) {
+        logger.warn('Delivery profile update email skipped: invalid email');
+        return false;
+    }
+
+    const firstName = escapeHtml(getFirstName(partnerName));
+    const subject = `📝 Delivery Profile Changes Received | Eatiefy`;
+
+    const html = buildEatiefyEmailHtml({
+        greeting: `Hello ${firstName},`,
+        bannerType: 'info',
+        bannerTitle: 'Changes Received',
+        bannerMessage: 'Your updated delivery profile details have been submitted for review.',
+        introParagraphs: [
+            'Our team is reviewing the updated information. Your account will continue to function normally.'
+        ],
+        infoRows: [
+            { label: 'Partner Name', value: partnerName || '—' },
+            { label: 'Status', value: 'Details Updated / Under Review' }
+        ]
+    });
+
+    const text = [
+        `Hello ${getFirstName(partnerName)},`,
+        '',
+        'Your updated delivery profile details have been submitted on Eatiefy.',
+        '',
+        'Team Eatiefy'
+    ].join('\n');
+
+    return sendEmail({
+        to: recipient,
+        subject,
+        html,
+        text,
+        logLabel: `Delivery profile update email${partnerId ? ` (${partnerId})` : ''}`
+    });
+}
+
+/**
  * @param {{ to: string, partnerName: string, partnerId?: string, isChangesApproval?: boolean }} params
  * @returns {Promise<boolean>}
  */
@@ -453,7 +721,7 @@ export async function sendDeliveryApprovalEmail({ to, partnerName, partnerId, is
             : 'Your account is approved. You can now go online and start earning with Eatiefy.',
         infoRows: [
             { label: 'Partner Name', value: partnerName || '—' },
-            { label: 'Status', value: isChangesApproval ? 'Changes Approved' : 'Approved' }
+            { label: 'Status', value: isChangesApproval ? 'Changes Approved' : 'Approved & Active' }
         ],
         introParagraphs: [
             'Open the Eatiefy delivery app, go online, and start accepting delivery requests in your zone.'
@@ -468,7 +736,7 @@ export async function sendDeliveryApprovalEmail({ to, partnerName, partnerId, is
             : 'Your delivery partner account has been approved on Eatiefy.',
         '',
         `Partner: ${partnerName || '—'}`,
-        `Status: ${isChangesApproval ? 'Changes Approved' : 'Approved'}`,
+        `Status: ${isChangesApproval ? 'Changes Approved' : 'Approved & Active'}`,
         '',
         'Team Eatiefy'
     ].join('\n');
@@ -504,7 +772,7 @@ export async function sendDeliveryRejectionEmail({
 
     const subject = isChangesRejection
         ? 'Your Delivery Partner Changes have been Rejected | Eatiefy'
-        : 'Your Delivery Partner Account has been Rejected | Eatiefy';
+        : 'Your Delivery Partner Application Update | Eatiefy';
 
     const html = buildEatiefyEmailHtml({
         greeting: 'Hello,',
@@ -514,7 +782,7 @@ export async function sendDeliveryRejectionEmail({
             ? `Hi <strong>${firstName}</strong>, we reviewed your updated profile details and were unable to approve the changes at this time.`
             : `Hi <strong>${firstName}</strong>, we reviewed your delivery partner application and were unable to approve it at this time.`,
         introParagraphs: [
-            'Please review the reason below, correct any issues with your documents or profile, and reapply when ready.'
+            'Please review the reason below, correct any issues with your documents or profile in the app, and reapply when ready.'
         ],
         infoRows: [
             { label: 'Partner Name', value: partnerName || '—' },
@@ -545,3 +813,84 @@ export async function sendDeliveryRejectionEmail({
         logLabel: `Delivery rejection email${partnerId ? ` (${partnerId})` : ''}`
     });
 }
+
+/**
+ * Helper to get all admin emails to notify.
+ */
+export function getAdminNotificationRecipients() {
+    const list = [];
+    if (Array.isArray(config.adminNotificationEmails)) {
+        list.push(...config.adminNotificationEmails);
+    }
+    if (config.adminEmail && isValidEmail(config.adminEmail)) {
+        list.push(config.adminEmail);
+    }
+    // Fallback to emailUser if it's a valid email
+    if (config.emailUser && isValidEmail(config.emailUser)) {
+        list.push(config.emailUser);
+    }
+    // Filter out dummy/example emails and duplicates
+    return [...new Set(list)].filter((e) => isValidEmail(e) && !e.includes('example.com'));
+}
+
+/**
+ * Send alert email to Admin(s) for key platform events (new restaurant registration, new rider, changes).
+ * @param {{ type: string, subject: string, title?: string, message?: string, details?: Array<{label: string, value: any}>, link?: string }} params
+ * @returns {Promise<boolean>}
+ */
+export async function sendAdminAlertEmail({
+    subject,
+    title = 'Admin Notification',
+    message = '',
+    details = []
+}) {
+    const recipients = getAdminNotificationRecipients();
+    if (!recipients.length) {
+        logger.info(`Admin alert email skipped: no admin email configured`);
+        return false;
+    }
+
+    const formattedSubject = `🔔 [Eatiefy Admin] ${subject}`;
+    const formattedRows = Array.isArray(details)
+        ? details.map((d) => ({ label: String(d.label || ''), value: String(d.value ?? '—') }))
+        : [];
+
+    const html = buildEatiefyEmailHtml({
+        greeting: 'Hello Admin,',
+        bannerType: 'warning',
+        bannerTitle: title,
+        bannerMessage: message ? escapeHtml(message) : undefined,
+        introParagraphs: [
+            'A new submission requires review in the Eatiefy Admin Panel.'
+        ],
+        infoRows: formattedRows,
+        footerParagraphs: [
+            'Please log into the Admin Panel to review and take action.'
+        ]
+    });
+
+    const text = [
+        'Admin Alert - Eatiefy',
+        title,
+        message,
+        '',
+        ...formattedRows.map((r) => `${r.label}: ${r.value}`),
+        '',
+        'Please review in the Eatiefy Admin Panel.'
+    ].join('\n');
+
+    let allSent = true;
+    for (const recipient of recipients) {
+        const sent = await sendEmail({
+            to: recipient,
+            subject: formattedSubject,
+            html,
+            text,
+            logLabel: `Admin Alert Email (${subject})`
+        });
+        if (!sent) allSent = false;
+    }
+
+    return allSent;
+}
+

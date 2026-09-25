@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { logger } from '../../../../utils/logger.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
+import { FoodItem } from '../../admin/models/food.model.js';
 import {
   sendNotificationToOwner,
   sendNotificationToOwners,
@@ -583,6 +584,7 @@ export async function notifyRestaurantNewOrder(orderDoc) {
         idempotencyKey: eventKey,
         notificationTag,
       };
+      await enrichOrdersWithFoodImages([payload]);
       logger.info(
         `[RestaurantOrders] Emitting new_order to ${rooms.restaurant(orderDoc.restaurantId)} for order ${orderMongoId}`,
       );
@@ -696,4 +698,101 @@ export function isOtpMatch(expectedOtp, enteredOtp) {
   }
 
   return false;
+}
+
+export async function enrichOrdersWithFoodImages(orders) {
+  if (!orders) return orders;
+  const list = Array.isArray(orders) ? orders : [orders];
+  if (list.length === 0) return orders;
+
+  const missingItemIds = [];
+  const missingItemNames = [];
+
+  for (const order of list) {
+    const items = order?.items || order?.orderItems || [];
+    for (const item of items) {
+      if (!item.image && !item.imageUrl) {
+        const idStr = String(item.itemId || item.id || item._id || '').trim();
+        if (idStr && mongoose.Types.ObjectId.isValid(idStr)) {
+          missingItemIds.push(idStr);
+        }
+        if (item.name) {
+          missingItemNames.push(String(item.name).trim());
+        }
+      }
+    }
+  }
+
+  if (missingItemIds.length === 0 && missingItemNames.length === 0) {
+    return orders;
+  }
+
+  const foodDocsMap = new Map();
+  const foodDocsByName = new Map();
+
+  try {
+    if (missingItemIds.length > 0) {
+      const foods = await FoodItem.find({ _id: { $in: missingItemIds } })
+        .select('_id image foodType name restaurantId')
+        .lean();
+      for (const f of foods) {
+        if (f.image) {
+          foodDocsMap.set(String(f._id), f.image);
+          if (f.name) {
+            const restId = String(f.restaurantId || '');
+            const lowerName = String(f.name).toLowerCase().trim();
+            if (restId) foodDocsByName.set(`${restId}_${lowerName}`, f.image);
+            if (!foodDocsByName.has(lowerName)) {
+              foodDocsByName.set(lowerName, f.image);
+            }
+          }
+        }
+      }
+    }
+
+    if (missingItemNames.length > 0) {
+      const uniqueNames = [...new Set(missingItemNames.map(n => n.toLowerCase().trim()))];
+      const regexConditions = uniqueNames.map(n => ({
+        name: { $regex: new RegExp(`^${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+      }));
+      if (regexConditions.length > 0) {
+        const foods = await FoodItem.find({ $or: regexConditions })
+          .select('_id image foodType name restaurantId')
+          .lean();
+        for (const f of foods) {
+          if (f.image) {
+            const restId = String(f.restaurantId || '');
+            const lowerName = String(f.name).toLowerCase().trim();
+            if (restId) foodDocsByName.set(`${restId}_${lowerName}`, f.image);
+            if (!foodDocsByName.has(lowerName)) {
+              foodDocsByName.set(lowerName, f.image);
+            }
+          }
+        }
+      }
+    }
+
+    for (const order of list) {
+      const items = order?.items || order?.orderItems || [];
+      const restId = String(order.restaurantId?._id || order.restaurantId || '');
+      for (const item of items) {
+        if (!item.image && !item.imageUrl) {
+          const idStr = String(item.itemId || item.id || item._id || '').trim();
+          const byId = idStr ? foodDocsMap.get(idStr) : null;
+          if (byId) {
+            item.image = byId;
+          } else if (item.name) {
+            const lowerName = String(item.name).toLowerCase().trim();
+            const byRestAndName = restId ? foodDocsByName.get(`${restId}_${lowerName}`) : null;
+            const byName = foodDocsByName.get(lowerName);
+            item.image = byRestAndName || byName || '';
+          }
+        }
+      }
+    }
+  } catch (enrichErr) {
+    logger.warn(`[enrichOrdersWithFoodImages] Error enriching food images: ${enrichErr?.message || enrichErr}`);
+  }
+
+  return orders;
 }

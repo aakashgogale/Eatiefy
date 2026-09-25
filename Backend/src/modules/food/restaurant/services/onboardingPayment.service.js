@@ -503,6 +503,38 @@ const submitRestaurantForApproval = async (payment) => {
         logger.warn(`[ONBOARD-PAY] Admin notification failed: ${error?.message || error}`);
     }
 
+    try {
+        if (updated.ownerEmail) {
+            const { sendRestaurantRegistrationReceivedEmail } = await import('../../../../utils/email.js');
+            void sendRestaurantRegistrationReceivedEmail({
+                to: updated.ownerEmail,
+                restaurantName: updated.restaurantName,
+                ownerName: updated.ownerName,
+                restaurantId: String(updated._id),
+                ownerPhone: updated.ownerPhone,
+                city: updated.location?.city || updated.city || ''
+            });
+        }
+
+        const { sendAdminAlertEmail } = await import('../../../../utils/email.js');
+        void sendAdminAlertEmail({
+            type: 'restaurant_onboarding_submitted',
+            subject: `New Restaurant Onboarding (Paid): "${updated.restaurantName}"`,
+            title: 'New Restaurant Onboarding (Paid) 🏪',
+            message: `Restaurant "${updated.restaurantName}" completed onboarding payment and is pending admin approval.`,
+            details: [
+                { label: 'Restaurant Name', value: updated.restaurantName },
+                { label: 'Owner Name', value: updated.ownerName || '—' },
+                { label: 'Phone', value: updated.ownerPhone || '—' },
+                { label: 'Email', value: updated.ownerEmail || '—' },
+                { label: 'Amount Paid', value: `₹${payment.pricing?.finalAmount ?? 0}` },
+                { label: 'Restaurant ID', value: String(updated._id) }
+            ]
+        });
+    } catch (emailErr) {
+        logger.warn(`[ONBOARD-PAY] Email notification failed: ${emailErr?.message || emailErr}`);
+    }
+
     return updated;
 };
 
@@ -548,8 +580,12 @@ export const verifyOnboardingPayment = async (restaurantId, payload = {}) => {
 
     let signatureVerified = false;
     if (isRazorpayConfigured()) {
-        if (!signature) throw new ValidationError('razorpaySignature is required');
+        if (!signature) {
+            logger.warn(`[ONBOARD-PAY-SECURITY] Missing razorpaySignature for verification of order ${orderId}, restaurant ${restaurant._id}`);
+            throw new ValidationError('razorpaySignature is required');
+        }
         if (!verifyPaymentSignature(orderId, paymentId, signature)) {
+            logger.warn(`[ONBOARD-PAY-SECURITY] Signature verification failed for order ${orderId}, payment ${paymentId}, restaurant ${restaurant._id}`);
             throw new ValidationError('Payment verification failed');
         }
         signatureVerified = true;
@@ -562,13 +598,19 @@ export const verifyOnboardingPayment = async (restaurantId, payload = {}) => {
             });
             const currency = String(gatewayPayment?.currency || 'INR').toUpperCase();
             if (currency !== String(payment.pricing?.currency || 'INR').toUpperCase()) {
+                logger.error(`[ONBOARD-PAY-MISMATCH] Currency mismatch for order ${orderId}: expected ${payment.pricing?.currency}, got ${gatewayPayment?.currency}`);
                 throw new Error('Payment currency mismatch');
             }
+            logger.info(`[ONBOARD-PAY-VERIFIED] Server-side gateway verification passed for order ${orderId}, payment ${paymentId}`);
         } catch (error) {
+            logger.error(`[ONBOARD-PAY-MISMATCH] Gateway payment assertion failed for order ${orderId}, payment ${paymentId}: ${error?.message || error}`);
             throw new ValidationError(error?.message || 'Payment verification failed');
         }
     } else if (config.nodeEnv === 'production') {
+        logger.error(`[ONBOARD-PAY-CONFIG] Payment gateway is not configured in production environment for restaurant ${restaurant._id}`);
         throw new ValidationError('Payment gateway is not configured');
+    } else {
+        logger.warn(`[ONBOARD-PAY-DEV] Non-production bypass without Razorpay credentials for restaurant ${restaurant._id}`);
     }
 
     // The discarded attempt gave its offer slot back; take it again now that the
@@ -613,24 +655,39 @@ export const cancelOnboardingPayment = async (restaurantId, payload = {}) => {
             let gatewayPayment = null;
             try {
                 gatewayPayment = await findGatewayPaymentForOrder(orderId);
-            } catch {
+            } catch (err) {
                 // Gateway unreachable: leave the attempt open rather than cancelling a
                 // payment that may have succeeded. The webhook will settle it.
+                logger.warn(`[ONBOARD-PAY-GATEWAY] Gateway check error during cancel for order ${orderId}: ${err?.message || err}`);
                 return { released: false, deferred: true, payment: toOnboardingPaymentView(pendingRecord) };
             }
 
             if (gatewayPayment) {
-                logger.info(
-                    `[ONBOARD-PAY] Client reported ${status} for order ${orderId} but the gateway ` +
-                    'captured it; recording the payment instead'
-                );
-                const { payment: finalized } = await finalizeOnboardingPayment({
-                    payment: pendingRecord,
-                    razorpayPaymentId: gatewayPayment.id,
-                    signatureVerified: true,
-                    confirmedVia: 'cancel_recovery'
-                });
-                return { released: false, paid: true, payment: toOnboardingPaymentView(finalized) };
+                try {
+                    assertRazorpayPaymentMatches(gatewayPayment, {
+                        orderId,
+                        amountPaise: pendingRecord.amountPaise
+                    });
+                    const currency = String(gatewayPayment?.currency || 'INR').toUpperCase();
+                    if (currency !== String(pendingRecord.pricing?.currency || 'INR').toUpperCase()) {
+                        throw new Error('Payment currency mismatch');
+                    }
+                    logger.info(
+                        `[ONBOARD-PAY-RECOVERY] Client reported ${status} for order ${orderId} but the gateway ` +
+                        `captured it (${gatewayPayment.id}); recording the payment instead`
+                    );
+                    const { payment: finalized } = await finalizeOnboardingPayment({
+                        payment: pendingRecord,
+                        razorpayPaymentId: gatewayPayment.id,
+                        signatureVerified: true,
+                        confirmedVia: 'cancel_recovery'
+                    });
+                    return { released: false, paid: true, payment: toOnboardingPaymentView(finalized) };
+                } catch (mismatchErr) {
+                    logger.warn(
+                        `[ONBOARD-PAY-MISMATCH] Gateway payment found on cancel but failed assertion for order ${orderId}: ${mismatchErr?.message || mismatchErr}`
+                    );
+                }
             }
         }
     }
@@ -651,12 +708,17 @@ export const cancelOnboardingPayment = async (restaurantId, payload = {}) => {
         { new: true, sort: { createdAt: -1 } }
     ).lean();
 
-    if (!cancelled) return { released: false, payment: null };
+    if (!cancelled) {
+        logger.info(`[ONBOARD-PAY] No active 'created' payment to cancel for restaurant ${restaurant._id}`);
+        return { released: false, payment: null };
+    }
 
     if (cancelled.pricing?.offerId) {
         await releaseOfferSlot(cancelled.pricing.offerId);
         logger.info(`[ONBOARD-PAY] Released offer slot after ${status} payment ${cancelled._id}`);
     }
+
+    logger.info(`[ONBOARD-PAY] Payment ${cancelled._id} successfully marked as ${status} (Reason: ${reason || 'N/A'})`);
 
     return { released: true, payment: toOnboardingPaymentView(cancelled) };
 };

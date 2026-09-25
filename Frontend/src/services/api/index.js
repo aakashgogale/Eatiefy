@@ -901,6 +901,11 @@ export const adminAPI = {
       params: { status: "approved", limit: 1000, ...params },
       contextModule: "admin",
     }),
+  getRestaurantCounts: (params = {}) =>
+    apiClient.get("/food/admin/restaurants/counts", {
+      params,
+      contextModule: "admin",
+    }),
 
   /** Delivery Boy Payout Rules (admin) */
   getCommissionRules: (params) =>

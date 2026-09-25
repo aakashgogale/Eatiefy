@@ -52,14 +52,26 @@ export const resolveServiceZone = async ({ zoneId, lat, lng } = {}) => {
     const rawZoneId = String(zoneId || '').trim();
     const selection = 'name zoneName isActive coordinates serviceLocation location';
 
+    const latitude = toFinite(lat);
+    const longitude = toFinite(lng);
+
     if (rawZoneId && mongoose.Types.ObjectId.isValid(rawZoneId)) {
         const zone = await FoodZone.findById(rawZoneId).select(selection).lean();
-        if (zone && zone.isActive !== false) return zone;
+        if (zone && zone.isActive !== false) {
+            // If coordinates are also provided, ensure they actually fall inside this zone.
+            // If they belong to a different location/city, detect the actual zone for those coordinates.
+            if (latitude !== null && longitude !== null) {
+                if (isPointInZone(latitude, longitude, zone)) {
+                    return zone;
+                }
+                const activeZones = await FoodZone.find({ isActive: true }).select(selection).lean();
+                return activeZones.find((z) => isPointInZone(latitude, longitude, z)) || null;
+            }
+            return zone;
+        }
         return null;
     }
 
-    const latitude = toFinite(lat);
-    const longitude = toFinite(lng);
     if (latitude === null || longitude === null) return null;
 
     const activeZones = await FoodZone.find({ isActive: true }).select(selection).lean();

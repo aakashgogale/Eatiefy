@@ -524,7 +524,11 @@ const DeliveryTrackingMap = ({
       if (!data) return;
       const status = String(data.orderStatus || data.status || '').toLowerCase();
       const matches = trackingIds.some(
-        (id) => String(id) === String(data.orderId) || String(id) === String(data.orderMongoId),
+        (id) =>
+          String(id) === String(data.orderId) ||
+          String(id) === String(data.orderMongoId) ||
+          String(id) === String(data._id) ||
+          String(id) === String(data.displayOrderId),
       );
       if (matches || !data.orderId) {
         if (status) {
@@ -545,6 +549,10 @@ const DeliveryTrackingMap = ({
               dispatchStatus: data.dispatchStatus,
               deliveryPartnerId: data.deliveryPartnerId,
               deliveryVerification: data.deliveryVerification,
+              cancellationReason: data.cancellationReason,
+              cancelledBy: data.cancelledBy,
+              cancelledAt: data.cancelledAt,
+              note: data.note,
               updatedAt: data.updatedAt,
               message: data.message,
               timestamp: new Date().toISOString(),
@@ -561,6 +569,7 @@ const DeliveryTrackingMap = ({
         setLiveOrderStatus((prev) => {
           if (TERMINAL_STATUSES.has(incomingStatus)) return incomingStatus;
           if (PICKED_UP_STATUSES.has(incomingStatus)) return incomingStatus;
+          if (incomingStatus === 'at_pickup' || incomingStatus === 'assigned' || incomingStatus === 'ready') return incomingStatus;
           return prev;
         });
       }
@@ -569,7 +578,10 @@ const DeliveryTrackingMap = ({
 
     socket.on('tracking-ended', (data) => {
       const matches = trackingIds.some(
-        (id) => String(id) === String(data?.orderId) || String(id) === String(data?.orderMongoId),
+        (id) =>
+          String(id) === String(data?.orderId) ||
+          String(id) === String(data?.orderMongoId) ||
+          String(id) === String(data?._id),
       );
       if (matches || !data?.orderId) {
         setTrackingEnded(true);

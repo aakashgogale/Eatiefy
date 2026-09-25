@@ -165,20 +165,39 @@ export const loadPublicLandingSettings = async (zoneId) => {
             settings = {
                 ...globalSettings,
                 ...settings,
-                exploreMoreHeading: settings.exploreMoreHeading && settings.exploreMoreHeading !== 'Explore more' ? settings.exploreMoreHeading : globalSettings.exploreMoreHeading,
-                recommendedRestaurantIds: settings.recommendedRestaurantIds && settings.recommendedRestaurantIds.length > 0 ? settings.recommendedRestaurantIds : globalSettings.recommendedRestaurantIds,
-                festBannerImageUrl: settings.festBannerImageUrl ? settings.festBannerImageUrl : globalSettings.festBannerImageUrl,
-                festBannerTopColor: settings.festBannerTopColor ? settings.festBannerTopColor : globalSettings.festBannerTopColor,
+                exploreMoreHeading: settings.exploreMoreHeading && settings.exploreMoreHeading !== 'Explore more' ? settings.exploreMoreHeading : globalSettings?.exploreMoreHeading,
+                recommendedRestaurantIds: settings.recommendedRestaurantIds && settings.recommendedRestaurantIds.length > 0 ? settings.recommendedRestaurantIds : (globalSettings?.recommendedRestaurantIds || []),
+                festBannerImageUrl: settings.festBannerImageUrl ? settings.festBannerImageUrl : globalSettings?.festBannerImageUrl,
+                festBannerTopColor: settings.festBannerTopColor ? settings.festBannerTopColor : globalSettings?.festBannerTopColor,
             };
         }
 
         const ids = settings?.recommendedRestaurantIds || [];
         let recommendedRestaurants = [];
         if (Array.isArray(ids) && ids.length > 0) {
-            recommendedRestaurants = await FoodRestaurant.find({ _id: { $in: ids }, status: 'approved' })
+            const query = { _id: { $in: ids }, status: 'approved' };
+            if (zoneId) {
+                query.zoneId = zoneId;
+            }
+            recommendedRestaurants = await FoodRestaurant.find(query)
                 .select('restaurantName area city profileImage coverImages menuImages slug rating cuisines pureVegRestaurant isAcceptingOrders isActive openingTime closingTime openDays zoneId')
                 .lean();
         }
+
+        // If zone has no curated recommended restaurants, dynamically pick top-rated approved restaurants in that zone
+        if (zoneId && recommendedRestaurants.length === 0) {
+            recommendedRestaurants = await FoodRestaurant.find({
+                zoneId,
+                status: 'approved',
+                isActive: { $ne: false },
+                isAcceptingOrders: { $ne: false },
+            })
+                .sort({ rating: -1, totalRatings: -1 })
+                .limit(10)
+                .select('restaurantName area city profileImage coverImages menuImages slug rating cuisines pureVegRestaurant isAcceptingOrders isActive openingTime closingTime openDays zoneId')
+                .lean();
+        }
+
         const payload = {
             ...settings,
             recommendedRestaurantIds: undefined,
@@ -190,7 +209,16 @@ export const loadPublicLandingSettings = async (zoneId) => {
 
 export const getPublicLandingSettingsController = async (req, res, next) => {
     try {
-        const payload = await loadPublicLandingSettings(req.query?.zoneId);
+        let zoneId = req.query?.zoneId;
+        const lat = req.query?.lat;
+        const lng = req.query?.lng;
+
+        if (!zoneId && lat != null && lng != null) {
+            const { detectZoneIdForPoint } = await import('../../utils/zoneGeo.js');
+            zoneId = await detectZoneIdForPoint(Number(lat), Number(lng));
+        }
+
+        const payload = await loadPublicLandingSettings(zoneId);
         return sendResponse(res, 200, 'Landing settings fetched', payload);
     } catch (error) {
         next(error);

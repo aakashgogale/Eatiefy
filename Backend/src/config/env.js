@@ -122,7 +122,8 @@ export const config = {
     uploadRemoteOrigin: String(process.env.UPLOAD_REMOTE_ORIGIN || '').replace(/\/+$/, ''),
     uploadInternalSecret: process.env.UPLOAD_INTERNAL_SECRET || process.env.JWT_ACCESS_SECRET || '',
     // Keep serving /uploads from Express. Off in production once nginx owns it.
-    serveUploadsFromNode: process.env.SERVE_UPLOADS_FROM_NODE === 'true',
+    serveUploadsFromNode: process.env.SERVE_UPLOADS_FROM_NODE === 'true' || 
+                          (process.env.SERVE_UPLOADS_FROM_NODE !== 'false' && process.env.NODE_ENV !== 'production'),
 
     // Redis
     /*
@@ -176,5 +177,9 @@ export const config = {
     emailPass: process.env.EMAIL_PASS ? String(process.env.EMAIL_PASS).replace(/\s/g, '') : '',
     emailFrom: String(process.env.EMAIL_FROM || process.env.EMAIL_USER || 'noreply@example.com')
         .replace(/^["']|["']$/g, '')
-        .trim()
+        .trim(),
+    adminEmail: process.env.ADMIN_EMAIL,
+    adminNotificationEmails: process.env.ADMIN_NOTIFICATION_EMAILS
+        ? process.env.ADMIN_NOTIFICATION_EMAILS.split(',').map((e) => e.trim()).filter(Boolean)
+        : []
 };

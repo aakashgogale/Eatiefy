@@ -255,6 +255,39 @@ export const registerDeliveryPartner = async (payload, files, draftImageRefs = {
         console.error('Failed to notify admins of new delivery partner registration:', e);
     }
 
+    try {
+        if (partner.email) {
+            const { sendDeliveryRegistrationReceivedEmail } = await import('../../../../utils/email.js');
+            void sendDeliveryRegistrationReceivedEmail({
+                to: partner.email,
+                partnerName: partner.name,
+                partnerId: String(partner._id),
+                phone: partner.phone,
+                vehicleType: partner.vehicleType,
+                city: partner.city
+            });
+        }
+
+        const { sendAdminAlertEmail } = await import('../../../../utils/email.js');
+        void sendAdminAlertEmail({
+            type: 'delivery_registration',
+            subject: `New Delivery Partner Application: "${partner.name}"`,
+            title: 'New Delivery Partner Application 🛵',
+            message: `A new delivery partner "${partner.name}" has signed up and submitted documents for verification.`,
+            details: [
+                { label: 'Partner Name', value: partner.name },
+                { label: 'Phone', value: partner.phone || '—' },
+                { label: 'Email', value: partner.email || '—' },
+                { label: 'Vehicle Type', value: partner.vehicleType || '—' },
+                { label: 'Vehicle Number', value: partner.vehicleNumber || '—' },
+                { label: 'City', value: partner.city || '—' },
+                { label: 'Partner ID', value: String(partner._id) }
+            ]
+        });
+    } catch (emailErr) {
+        logger.warn(`[DeliveryRegister-Email] Email failed: ${emailErr?.message || emailErr}`);
+    }
+
     return partner.toObject();
 };
 

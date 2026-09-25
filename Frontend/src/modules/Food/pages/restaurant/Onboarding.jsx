@@ -19,11 +19,11 @@ import {
 import { restaurantAPI, zoneAPI, uploadAPI, api } from "@food/api"
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
-import { determineStepToShow, clearOnboardingFromLocalStorage, clearAllFilesFromDB, hasRestaurantStep1Progress } from "@food/utils/onboardingUtils"
+import { determineStepToShow, clearOnboardingFromLocalStorage, clearAllFilesFromDB, hasRestaurantStep1Progress, isRestaurantOnboardingComplete } from "@food/utils/onboardingUtils"
 import { toast } from "sonner"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
-import { clearModuleAuth, clearAuthData, isModuleAuthenticated, getModuleToken, getRestaurantRegistrationToken, clearRestaurantRegistrationToken } from "@food/utils/auth"
+import { clearModuleAuth, clearAuthData, isModuleAuthenticated, getModuleToken, getRestaurantRegistrationToken, clearRestaurantRegistrationToken, getRestaurantPendingPhone } from "@food/utils/auth"
 import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
 import { prepareUploadFile, prepareUploadFiles } from "@/shared/utils/imageCompressor"
 import { EMAIL_REGEX } from "@/shared/utils/emailValidation"
@@ -1146,6 +1146,17 @@ export default function RestaurantOnboarding() {
 
         const currentPhone = getVerifiedPhoneFromStoredRestaurant()
         let localData = loadOnboardingFromLocalStorage()
+        const pendingStatus = localStorage.getItem("restaurant_pendingStatus")
+
+        // If registration was already submitted and in pending state, do not allow re-entering Step 1
+        if (pendingStatus === "pending" && !localData) {
+          clearTimeout(failSafeTimer)
+          navigate("/food/restaurant/pending-verification", {
+            replace: true,
+            state: { phone: currentPhone || getRestaurantPendingPhone() || "" },
+          })
+          return
+        }
 
         // Kick the stored-file reads off now; they are local and do not need to
         // queue behind the network request below.
@@ -1185,6 +1196,40 @@ export default function RestaurantOnboarding() {
 
         // 2. Hydrate from API if exists
         if (apiData) {
+          const status = String(apiData.status || "").toLowerCase()
+          if (status === "approved") {
+            clearTimeout(failSafeTimer)
+            navigate("/food/restaurant", { replace: true })
+            return
+          }
+          if (status === "pending" || status === "banned") {
+            clearTimeout(failSafeTimer)
+            navigate("/food/restaurant/pending-verification", {
+              replace: true,
+              state: {
+                phone: apiData.ownerPhone || apiData.phone || getRestaurantPendingPhone() || "",
+                isRejected: false,
+                isDisabled: status === "banned",
+              },
+            })
+            return
+          }
+          if (status === "payment_pending" || apiData.onboarding?.paymentRequired) {
+            clearTimeout(failSafeTimer)
+            if (apiData.onboarding?.onboardingToken) {
+              try {
+                localStorage.setItem(ONBOARDING_TOKEN_KEY, apiData.onboarding.onboardingToken)
+              } catch {}
+            }
+            navigate("/food/restaurant/onboarding/payment", { replace: true })
+            return
+          }
+          if (isRestaurantOnboardingComplete(apiData)) {
+            clearTimeout(failSafeTimer)
+            navigate("/food/restaurant", { replace: true })
+            return
+          }
+
           setHasExistingRestaurantProfile(true)
           const onboarding = apiData.onboarding || {}
           const s1 = onboarding.step1 || {}

@@ -74,6 +74,7 @@ router.patch('/restaurants/complaints/:id', adminController.updateRestaurantComp
 
 // ----- Restaurants -----
 router.get('/restaurants', adminController.getRestaurants);
+router.get('/restaurants/counts', adminController.getRestaurantCounts);
 router.get('/dashboard-stats', adminController.getDashboardStats);
 router.get('/reports/restaurants', adminController.getRestaurantReport);
 router.get('/reports/transactions', adminController.getTransactionReport);
@@ -81,6 +82,7 @@ router.get('/reports/tax', adminController.getTaxReport);
 router.get('/reports/tax/:id', adminController.getTaxReportDetail);
 router.get('/restaurants/pending', adminController.getPendingRestaurants);
 router.get('/restaurants/reviews', adminController.getRestaurantReviews);
+router.get('/restaurants/check-duplicate', adminController.checkRestaurantDuplicate);
 router.get('/restaurants/:id', adminController.getRestaurantById);
 router.get('/restaurants/:id/analytics', adminController.getRestaurantAnalytics);
 router.get('/restaurants/:id/menu', adminController.getRestaurantMenuById);

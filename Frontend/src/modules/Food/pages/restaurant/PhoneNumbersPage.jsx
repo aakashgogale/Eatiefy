@@ -1,9 +1,10 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import { motion, AnimatePresence } from "framer-motion"
 import { ArrowLeft, Edit, Phone, Users, ChevronDown, X } from "lucide-react"
 import { useKeyboardAwareSheet } from "@food/hooks/useIsKeyboardOpen"
+import { restaurantAPI } from "@food/api"
 
 export default function PhoneNumbersPage() {
   const navigate = useNavigate()
@@ -20,12 +21,33 @@ export default function PhoneNumbersPage() {
   const [otp, setOtp] = useState(["", "", "", "", "", ""])
   const [pendingPhoneData, setPendingPhoneData] = useState(null) // Store phone data to save after OTP verification
 
-  // Phone numbers data - only mobile now
+  // Phone numbers data - dynamically loaded from restaurant profile
   const [phoneData, setPhoneData] = useState({
-    orderReminder1: "+91-9981127415",
-    orderReminder2: "+91-9981127415",
-    restaurantPage: "+91-9981127415"
+    orderReminder1: "",
+    orderReminder2: "",
+    restaurantPage: ""
   })
+
+  useEffect(() => {
+    const fetchRestaurantPhone = async () => {
+      try {
+        const response = await restaurantAPI.getCurrentRestaurant()
+        const restaurant = response?.data?.data?.restaurant || response?.data?.restaurant || response?.data?.data
+        if (restaurant) {
+          const mainPhone = restaurant.primaryContactNumber || restaurant.ownerPhone || restaurant.phone || ""
+          const formatted = mainPhone.startsWith("+") ? mainPhone : mainPhone ? `+91-${mainPhone}` : ""
+          setPhoneData({
+            orderReminder1: formatted,
+            orderReminder2: formatted,
+            restaurantPage: formatted
+          })
+        }
+      } catch (err) {
+        console.error("Failed to load restaurant phone numbers:", err)
+      }
+    }
+    fetchRestaurantPhone()
+  }, [])
 
   // Country codes
   const countryCodes = [

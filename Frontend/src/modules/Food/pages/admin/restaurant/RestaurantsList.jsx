@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react"
+import { useState, useMemo, useEffect, useRef, useCallback } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { Search, Download, ChevronDown, Eye, Settings, ArrowUpDown, Loader2, X, MapPin, Phone, Mail, Clock, Star, Building2, User, FileText, CreditCard, Calendar, Image as ImageIcon, ExternalLink, ShieldX, AlertTriangle, Trash2, Plus, ShieldCheck, CheckCircle2, Utensils, UtensilsCrossed, Store } from "lucide-react"
 import { adminAPI, restaurantAPI, uploadAPI } from "@food/api"
@@ -218,180 +218,227 @@ export default function RestaurantsList() {
     return `REST${lastDigits}`
   }
 
-  // Fetch restaurants from backend API
+  // Fetch zones from backend API
   useEffect(() => {
     let cancelled = false
-    const fetchRestaurants = async () => {
+    const fetchZones = async () => {
       try {
-        setLoading(true)
-        setError(null)
+        setZonesLoading(true)
+        const response = await adminAPI.getZones({ page: 1, limit: 1000 })
+        const zoneData = response?.data?.data
+        const list = Array.isArray(zoneData?.zones)
+          ? zoneData.zones
+          : Array.isArray(zoneData)
+            ? zoneData
+            : []
+        if (!cancelled) setZones(list)
+      } catch (err) {
+        debugError("Error fetching zones:", err)
+        if (!cancelled) setZones([])
+      } finally {
+        if (!cancelled) setZonesLoading(false)
+      }
+    }
+    fetchZones()
+    return () => { cancelled = true }
+  }, [])
 
-        const zoneLabelFromRestaurant = (restaurant) => {
-          const zid = restaurant?.zoneId
-          const zoneName =
-            (typeof zid === "object" ? (zid?.name || zid?.zoneName) : "") ||
-            ""
-          if (zoneName) return zoneName
+  // Fetch restaurants from backend API
+  const fetchRestaurants = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
 
-          const zoneIdString =
-            typeof zid === "string"
-              ? zid
-              : (zid?._id || zid?.id || "")
-          if (zoneIdString && Array.isArray(zones) && zones.length > 0) {
-            const match = zones.find((z) => (z?._id || z?.id) === zoneIdString)
-            const label = match?.name || match?.zoneName
-            if (label) return label
-          }
+      const [response, bannedResponse, pendingResponse, rejectedOnlyResponse, zonesResponse] = await Promise.all([
+        adminAPI.getApprovedRestaurants({ status: "approved", limit: 1000, page: 1 }),
+        adminAPI.getApprovedRestaurants({ status: "banned", limit: 1000, page: 1 }).catch(() => null),
+        adminAPI.getPendingRestaurants({ limit: 1000, page: 1 }).catch(() => null),
+        adminAPI.getApprovedRestaurants({ status: "rejected", limit: 1000, page: 1 }).catch(() => null),
+        adminAPI.getZones({ page: 1, limit: 1000 }).catch(() => null),
+      ])
 
-          return (
-            restaurant?.zone ||
-            restaurant?.location?.area ||
-            restaurant?.location?.city ||
-            restaurant?.area ||
-            restaurant?.city ||
-            "N/A"
-          )
+      const fetchedZones = Array.isArray(zonesResponse?.data?.data?.zones)
+        ? zonesResponse.data.data.zones
+        : Array.isArray(zonesResponse?.data?.data)
+          ? zonesResponse.data.data
+          : []
+      if (fetchedZones.length > 0) {
+        setZones(fetchedZones)
+      }
+
+      const zoneLabelFromRestaurant = (restaurant, availableZones = fetchedZones) => {
+        const zid = restaurant?.zoneId || restaurant?.location?.zoneId
+        const zoneName =
+          (typeof zid === "object" ? (zid?.name || zid?.zoneName || zid?.serviceLocation) : "") ||
+          ""
+        if (zoneName) return zoneName
+
+        const zoneIdString =
+          typeof zid === "string"
+            ? zid
+            : (zid?._id || zid?.id || "")
+        const lookupList = Array.isArray(availableZones) && availableZones.length > 0 ? availableZones : zones
+        if (zoneIdString && Array.isArray(lookupList) && lookupList.length > 0) {
+          const match = lookupList.find((z) => String(z?._id || z?.id) === String(zoneIdString))
+          const label = match?.name || match?.zoneName || match?.serviceLocation
+          if (label) return label
         }
 
-        const extractRestaurantPayload = (apiResponse) => {
-          const body = apiResponse?.data
-          const data = body?.data
-          const list = Array.isArray(data?.restaurants)
-            ? data.restaurants
-            : Array.isArray(data)
-              ? data
-              : Array.isArray(body?.restaurants)
-                ? body.restaurants
-                : []
-          const total = Number(data?.total ?? body?.total ?? list.length) || list.length
-          return { list, total, body }
-        }
+        return (
+          restaurant?.zone ||
+          restaurant?.location?.area ||
+          restaurant?.location?.city ||
+          restaurant?.area ||
+          restaurant?.city ||
+          "N/A"
+        )
+      }
 
-        // APIs are paginated — pull a large page so list/stats are not truncated
-        const [response, bannedResponse, pendingResponse, rejectedOnlyResponse] = await Promise.all([
-          adminAPI.getApprovedRestaurants({ status: "approved", limit: 1000, page: 1 }),
-          adminAPI.getApprovedRestaurants({ status: "banned", limit: 1000, page: 1 }).catch(() => null),
-          adminAPI.getPendingRestaurants({ limit: 1000, page: 1 }).catch(() => null),
-          adminAPI.getApprovedRestaurants({ status: "rejected", limit: 1000, page: 1 }).catch(() => null),
-        ])
+      const extractRestaurantPayload = (apiResponse) => {
+        const body = apiResponse?.data
+        const data = body?.data
+        const list = Array.isArray(data?.restaurants)
+          ? data.restaurants
+          : Array.isArray(data)
+            ? data
+            : Array.isArray(body?.restaurants)
+              ? body.restaurants
+              : []
+        const total = Number(data?.total ?? body?.total ?? list.length) || list.length
+        return { list, total, body }
+      }
 
-        if (cancelled) return
-
-        let mappedBanned = []
-        let bannedCnt = 0
-        if (bannedResponse?.data) {
-          const { list: bannedList, total } = extractRestaurantPayload(bannedResponse)
-          bannedCnt = total
-          mappedBanned = bannedList.map((restaurant, index) => ({
+      let mappedBanned = []
+      let bannedCnt = 0
+      if (bannedResponse?.data) {
+        const { list: bannedList, total } = extractRestaurantPayload(bannedResponse)
+        bannedCnt = total
+        mappedBanned = bannedList.map((restaurant, index) => {
+          const zid = restaurant?.zoneId || restaurant?.location?.zoneId
+          const zoneIdStr = typeof zid === "string" ? zid : String(zid?._id || zid?.id || "")
+          return {
             id: restaurant._id || restaurant.id || index + 1,
             _id: restaurant._id,
             name: restaurant.name || restaurant.restaurantName || "N/A",
             ownerName: restaurant.ownerName || "N/A",
             ownerPhone: restaurant.ownerPhone || restaurant.phone || "N/A",
-            zone: zoneLabelFromRestaurant(restaurant),
+            zone: zoneLabelFromRestaurant(restaurant, fetchedZones),
+            zoneId: zoneIdStr,
             approvalStatus: "banned",
             isActive: false,
             rating: restaurant.ratings?.average || restaurant.rating || 0,
             logo: getPrimaryRestaurantImage(restaurant, PLACEHOLDER_40),
             originalData: restaurant,
-          }))
-        }
-        if (!cancelled) {
-          setBannedCount(bannedCnt)
-          setBannedRestaurants(mappedBanned)
-        }
+          }
+        })
+      }
+      setBannedCount(bannedCnt)
+      setBannedRestaurants(mappedBanned)
 
-        let pendingCnt = 0
-        let rejectedCnt = 0
-        let mappedRejectedList = []
-        if (pendingResponse?.data) {
-          const { list } = extractRestaurantPayload(pendingResponse)
-          pendingCnt = list.filter((r) => String(r.status || "").toLowerCase() === "pending").length
-        }
-        if (rejectedOnlyResponse?.data) {
-          const { list: rawRejected, total } = extractRestaurantPayload(rejectedOnlyResponse)
-          rejectedCnt = total
-          mappedRejectedList = rawRejected.map((restaurant, index) => ({
+      let pendingCnt = 0
+      let rejectedCnt = 0
+      let mappedRejectedList = []
+      if (pendingResponse?.data) {
+        const { list } = extractRestaurantPayload(pendingResponse)
+        pendingCnt = list.filter((r) => String(r.status || "").toLowerCase() === "pending").length
+      }
+      if (rejectedOnlyResponse?.data) {
+        const { list: rawRejected, total } = extractRestaurantPayload(rejectedOnlyResponse)
+        rejectedCnt = total
+        mappedRejectedList = rawRejected.map((restaurant, index) => {
+          const zid = restaurant?.zoneId || restaurant?.location?.zoneId
+          const zoneIdStr = typeof zid === "string" ? zid : String(zid?._id || zid?.id || "")
+          return {
             id: restaurant._id || restaurant.id || index + 1,
             _id: restaurant._id,
             name: restaurant.restaurantName || restaurant.name || "N/A",
             ownerName: restaurant.ownerName || "N/A",
             ownerPhone: restaurant.ownerPhone || restaurant.phone || "N/A",
-            zone: restaurant.zone || zoneLabelFromRestaurant(restaurant),
+            zone: restaurant.zone || zoneLabelFromRestaurant(restaurant, fetchedZones),
+            zoneId: zoneIdStr,
             approvalStatus: "rejected",
             isActive: false,
             rating: restaurant.ratings?.average || restaurant.rating || 0,
             logo: getPrimaryRestaurantImage(restaurant, PLACEHOLDER_40),
             originalData: restaurant,
-          }))
-        } else if (pendingResponse?.data) {
-          const { list } = extractRestaurantPayload(pendingResponse)
-          const rawRejected = list.filter((r) => String(r.status || "").toLowerCase() === "rejected")
-          rejectedCnt = rawRejected.length
-          mappedRejectedList = rawRejected.map((restaurant, index) => ({
+          }
+        })
+      } else if (pendingResponse?.data) {
+        const { list } = extractRestaurantPayload(pendingResponse)
+        const rawRejected = list.filter((r) => String(r.status || "").toLowerCase() === "rejected")
+        rejectedCnt = rawRejected.length
+        mappedRejectedList = rawRejected.map((restaurant, index) => {
+          const zid = restaurant?.zoneId || restaurant?.location?.zoneId
+          const zoneIdStr = typeof zid === "string" ? zid : String(zid?._id || zid?.id || "")
+          return {
             id: restaurant._id || restaurant.id || index + 1,
             _id: restaurant._id,
             name: restaurant.restaurantName || restaurant.name || "N/A",
             ownerName: restaurant.ownerName || "N/A",
             ownerPhone: restaurant.ownerPhone || restaurant.phone || "N/A",
-            zone: restaurant.zone || zoneLabelFromRestaurant(restaurant),
+            zone: restaurant.zone || zoneLabelFromRestaurant(restaurant, fetchedZones),
+            zoneId: zoneIdStr,
             approvalStatus: "rejected",
             isActive: false,
             rating: restaurant.ratings?.average || restaurant.rating || 0,
             logo: getPrimaryRestaurantImage(restaurant, PLACEHOLDER_40),
             originalData: restaurant,
-          }))
-        }
-        if (!cancelled) {
-          setPendingCount(pendingCnt)
-          setRejectedCount(rejectedCnt)
-          setRejectedRestaurants(mappedRejectedList)
-        }
+          }
+        })
+      }
+      setPendingCount(pendingCnt)
+      setRejectedCount(rejectedCnt)
+      setRejectedRestaurants(mappedRejectedList)
 
-        const { list: rawList, body } = extractRestaurantPayload(response)
+      const { list: rawList, body } = extractRestaurantPayload(response)
 
-        if (rawList.length > 0 || body?.success === true) {
-          const mappedRestaurants = rawList.map((restaurant, index) => ({
+      if (rawList.length > 0 || body?.success === true) {
+        const mappedRestaurants = rawList.map((restaurant, index) => {
+          const zid = restaurant?.zoneId || restaurant?.location?.zoneId
+          const zoneIdStr = typeof zid === "string" ? zid : String(zid?._id || zid?.id || "")
+          return {
             id: restaurant._id || restaurant.id || index + 1,
             _id: restaurant._id,
             name: restaurant.name || restaurant.restaurantName || "N/A",
             ownerName: restaurant.ownerName || "N/A",
             ownerPhone: restaurant.ownerPhone || restaurant.phone || "N/A",
-            zone: zoneLabelFromRestaurant(restaurant),
+            zone: zoneLabelFromRestaurant(restaurant, fetchedZones),
+            zoneId: zoneIdStr,
             approvalStatus: normalizeApprovalStatus(restaurant),
-            isActive: restaurant.isActive !== false,
+            isActive: restaurant.isActive !== false && restaurant.status !== 'banned',
             rating: restaurant.ratings?.average || restaurant.rating || 0,
             logo: getPrimaryRestaurantImage(restaurant, PLACEHOLDER_40),
             originalData: restaurant,
-          }))
-          if (!cancelled) setRestaurants(mappedRestaurants)
-        } else {
-          if (!cancelled) setRestaurants([])
-        }
-      } catch (err) {
-        if (cancelled) return
-        debugError("Error fetching restaurants:", err)
-        const status = err?.response?.status
-        const serverMessage = err?.response?.data?.message || err?.response?.data?.error
-        if (status === 401) {
-          setError(serverMessage || "Session expired or not logged in. Please log in as admin.")
-          setRestaurants([])
-          try {
-            clearModuleAuth("admin")
-          } catch (_) {}
-          navigate("/admin/login", { replace: true, state: { from: "/admin/food/restaurants" } })
-          return
-        }
-        setError(serverMessage || err.message || "Failed to fetch restaurants")
+          }
+        })
+        setRestaurants(mappedRestaurants)
+      } else {
         setRestaurants([])
-      } finally {
-        if (!cancelled) setLoading(false)
       }
+    } catch (err) {
+      debugError("Error fetching restaurants:", err)
+      const status = err?.response?.status
+      const serverMessage = err?.response?.data?.message || err?.response?.data?.error
+      if (status === 401) {
+        setError(serverMessage || "Session expired or not logged in. Please log in as admin.")
+        setRestaurants([])
+        try {
+          clearModuleAuth("admin")
+        } catch (_) {}
+        navigate("/admin/login", { replace: true, state: { from: "/admin/food/restaurants" } })
+        return
+      }
+      setError(serverMessage || err.message || "Failed to fetch restaurants")
+      setRestaurants([])
+    } finally {
+      setLoading(false)
     }
+  }, [navigate])
 
+  useEffect(() => {
     fetchRestaurants()
-    return () => { cancelled = true }
-  }, [])
+  }, [fetchRestaurants])
+
 
   const [searchParams] = useSearchParams()
   const restaurantIdFromUrl = searchParams.get("restaurantId")
@@ -411,14 +458,55 @@ export default function RestaurantsList() {
     zone: "",
   })
 
+  const matchRestaurantZone = (r, selectedZone) => {
+    if (!selectedZone || selectedZone === "All" || selectedZone === "all" || selectedZone === "") return true
+    const target = String(selectedZone).toLowerCase().trim()
+    const candidates = [
+      r.zone,
+      r.zoneId,
+      r.originalData?.zoneId,
+      r.originalData?.zone,
+      r.originalData?.zone?.name,
+      r.originalData?.zone?.zoneName,
+      r.originalData?.zone?.serviceLocation,
+      r.originalData?.serviceLocation,
+      r.originalData?.location?.zoneId,
+      r.originalData?.location?.zoneName,
+    ]
+    return candidates.some((c) => {
+      if (!c) return false
+      if (typeof c === "object") {
+        return (
+          String(c.name || "").toLowerCase().trim() === target ||
+          String(c.zoneName || "").toLowerCase().trim() === target ||
+          String(c.serviceLocation || "").toLowerCase().trim() === target ||
+          String(c._id || "").trim() === target
+        )
+      }
+      return String(c).toLowerCase().trim() === target
+    })
+  }
+
+  const zoneFilteredActive = useMemo(() => {
+    return restaurants.filter((r) => matchRestaurantZone(r, filters.zone))
+  }, [restaurants, filters.zone])
+
+  const zoneFilteredBanned = useMemo(() => {
+    return bannedRestaurants.filter((r) => matchRestaurantZone(r, filters.zone))
+  }, [bannedRestaurants, filters.zone])
+
+  const zoneFilteredRejected = useMemo(() => {
+    return rejectedRestaurants.filter((r) => matchRestaurantZone(r, filters.zone))
+  }, [rejectedRestaurants, filters.zone])
+
   const filteredRestaurants = useMemo(() => {
     let result = []
     if (viewMode === "active") {
-      result = [...restaurants]
+      result = [...zoneFilteredActive]
     } else if (viewMode === "banned") {
-      result = [...bannedRestaurants]
+      result = [...zoneFilteredBanned]
     } else if (viewMode === "rejected") {
-      result = [...rejectedRestaurants]
+      result = [...zoneFilteredRejected]
     }
 
     if (searchQuery.trim()) {
@@ -436,10 +524,6 @@ export default function RestaurantsList() {
       } else if (filters.all === "Inactive") {
         result = result.filter(restaurant => restaurant.isActive !== true)
       }
-    }
-
-    if (filters.zone) {
-      result = result.filter(restaurant => restaurant.zone === filters.zone)
     }
 
     // Apply Sorting
@@ -483,7 +567,7 @@ export default function RestaurantsList() {
     }
 
     return result
-  }, [restaurants, bannedRestaurants, rejectedRestaurants, viewMode, searchQuery, filters, sortConfig])
+  }, [zoneFilteredActive, zoneFilteredBanned, zoneFilteredRejected, viewMode, searchQuery, filters.all, sortConfig, restaurants])
 
   const modalRestaurant = restaurantDetails || selectedRestaurant?.originalData || selectedRestaurant
   const detailsApprovalStatus = modalRestaurant ? normalizeApprovalStatus(modalRestaurant) : "pending"
@@ -496,9 +580,11 @@ export default function RestaurantsList() {
     setSortConfig({ key, direction })
   }
 
-  const totalRestaurants = restaurants.length + bannedCount + pendingCount + rejectedCount
-  const activeRestaurants = restaurants.filter(r => r.isActive === true).length
-  const inactiveRestaurants = restaurants.filter(r => r.isActive !== true).length
+  const totalRestaurants = zoneFilteredActive.length + zoneFilteredBanned.length + zoneFilteredRejected.length
+  const activeRestaurants = zoneFilteredActive.filter(r => r.isActive === true).length
+  const inactiveRestaurants = zoneFilteredActive.filter(r => r.isActive !== true).length
+  const displayRejectedCount = zoneFilteredRejected.length
+  const displayBannedCount = zoneFilteredBanned.length
 
   // Show full phone number without masking
   const formatPhone = (phone) => {
@@ -785,6 +871,7 @@ export default function RestaurantsList() {
 
       setIsEditingLocation(false)
       alert("Restaurant location updated successfully")
+      fetchRestaurants().catch(() => {})
     } catch (err) {
       debugError("Error saving restaurant location:", err)
       alert(err?.response?.data?.message || "Failed to update restaurant location")
@@ -976,6 +1063,7 @@ export default function RestaurantsList() {
       setIsEditingDetails(false)
       setProfileImageFile(null)
       alert("Restaurant details updated successfully")
+      fetchRestaurants().catch(() => {})
     } catch (err) {
       debugError("Error updating restaurant details:", err)
       alert(err?.response?.data?.message || "Failed to update restaurant details")
@@ -1043,6 +1131,9 @@ export default function RestaurantsList() {
         // Close dialog
         setBanConfirmDialog(null)
         alert(`Restaurant ${isBanning ? 'banned' : 'unbanned'} successfully`)
+
+        // Re-fetch all restaurants & counts dynamically from DB
+        await fetchRestaurants()
       } catch (apiErr) {
         debugError("API Error:", apiErr)
         setBanConfirmDialog(null)
@@ -1079,15 +1170,28 @@ export default function RestaurantsList() {
       try {
         await adminAPI.deleteRestaurant(restaurantId)
 
-        // Remove from local state on success
+        // Optimistically remove from local state on success across all lists
         setRestaurants(prevRestaurants =>
           prevRestaurants.filter(r =>
-            r.id !== restaurant.id && r._id !== restaurant._id
+            r.id !== restaurantId && r._id !== restaurantId
+          )
+        )
+        setBannedRestaurants(prev =>
+          prev.filter(r =>
+            r.id !== restaurantId && r._id !== restaurantId
+          )
+        )
+        setRejectedRestaurants(prev =>
+          prev.filter(r =>
+            r.id !== restaurantId && r._id !== restaurantId
           )
         )
 
         // Close dialog
         setDeleteConfirmDialog(null)
+
+        // Re-fetch live DB data and counts immediately
+        await fetchRestaurants()
 
         // Show success message
         alert(`Restaurant "${restaurant.name}" deleted successfully!`)
@@ -1119,12 +1223,40 @@ export default function RestaurantsList() {
     <div className="h-full overflow-y-auto bg-slate-50 p-4 lg:p-6">
       <div className="max-w-7xl mx-auto">
         {/* Page Header */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-slate-900">Restaurants List</h1>
+              <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shadow-xs shrink-0">
+                <Store className="w-5 h-5" />
+              </div>
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Restaurants List</h1>
+                <p className="text-xs text-slate-500 mt-0.5">Manage and monitor all restaurants across zones</p>
+              </div>
             </div>
 
+            {/* Zone Filter Dropdown */}
+            <div className="flex items-center gap-2">
+              <div className="relative min-w-[200px] w-full sm:w-auto">
+                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-600 pointer-events-none" />
+                <select
+                  value={filters.zone}
+                  onChange={(e) => setFilters((prev) => ({ ...prev, zone: e.target.value }))}
+                  className="w-full sm:w-[220px] pl-9 pr-8 py-2 text-sm font-semibold rounded-lg border border-slate-200 bg-slate-50 hover:bg-white text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer appearance-none shadow-2xs transition-all"
+                >
+                  <option value="">All Zones</option>
+                  {zones.map((zone) => {
+                    const zName = zone.zoneName || zone.name || zone.serviceLocation || "Unnamed Zone"
+                    return (
+                      <option key={zone._id || zone.id || zName} value={zName}>
+                        {zName}
+                      </option>
+                    )
+                  })}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1196,7 +1328,7 @@ export default function RestaurantsList() {
                   {loading ? (
                     <span className="inline-block w-12 h-6 rounded bg-slate-200 animate-pulse" />
                   ) : (
-                    rejectedCount
+                    displayRejectedCount
                   )}
                 </p>
               </div>
@@ -1215,7 +1347,7 @@ export default function RestaurantsList() {
                   {loading ? (
                     <span className="inline-block w-12 h-6 rounded bg-slate-200 animate-pulse" />
                   ) : (
-                    bannedCount
+                    displayBannedCount
                   )}
                 </p>
               </div>
@@ -1228,15 +1360,16 @@ export default function RestaurantsList() {
 
         {/* Restaurants List Section */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-            <div className="flex items-center gap-3">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
+            {/* View Mode Tabs */}
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => setViewMode("active")}
                 className={`px-4 py-2.5 text-sm font-semibold rounded-lg border transition-all outline-none ${
                   viewMode === "active"
-                    ? "border-blue-600 bg-blue-50/50 text-blue-600"
-                    : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                    ? "border-blue-600 bg-blue-50/70 text-blue-600 shadow-xs"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                 }`}
               >
                 Restaurants List
@@ -1246,8 +1379,8 @@ export default function RestaurantsList() {
                 onClick={() => setViewMode("rejected")}
                 className={`px-4 py-2.5 text-sm font-semibold rounded-lg border transition-all outline-none ${
                   viewMode === "rejected"
-                    ? "border-red-600 bg-red-50/50 text-red-600"
-                    : "border-red-200/80 bg-white text-red-500 hover:bg-red-50/50"
+                    ? "border-red-600 bg-red-50/70 text-red-600 shadow-xs"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                 }`}
               >
                 Rejected Restaurants
@@ -1257,52 +1390,67 @@ export default function RestaurantsList() {
                 onClick={() => setViewMode("banned")}
                 className={`px-4 py-2.5 text-sm font-semibold rounded-lg border transition-all outline-none ${
                   viewMode === "banned"
-                    ? "border-rose-600 bg-rose-50/50 text-rose-600"
-                    : "border-rose-200/80 bg-white text-rose-500 hover:bg-rose-50/50"
+                    ? "border-rose-600 bg-rose-50/70 text-rose-600 shadow-xs"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                 }`}
               >
                 Banned Restaurants
               </button>
             </div>
 
-            <div className="flex items-center gap-3">
+            {/* Right Action Tools: Search, Export, Add Restaurant */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              {/* Search Bar */}
+              <div className="relative min-w-[240px] sm:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Ex: search by Restaurant name"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9 pr-8 py-2 w-full text-sm rounded-lg border border-slate-300 bg-white text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Export Dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="px-3.5 py-2 text-sm font-medium rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center gap-2 transition-all shadow-2xs whitespace-nowrap">
+                    <Download className="w-4 h-4 text-slate-500" />
+                    <span>Export</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48 bg-white border border-slate-200 rounded-lg shadow-lg z-50">
+                  <DropdownMenuLabel className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Export Format</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleExport} className="cursor-pointer flex items-center gap-2 text-sm text-slate-700 hover:bg-slate-50 py-2">
+                    <FileText className="w-4 h-4 text-blue-600" />
+                    Export as PDF
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {/* Add Restaurant Button */}
               {viewMode === "active" && (
                 <button
+                  type="button"
                   onClick={() => navigate("/admin/food/restaurants/add")}
-                  className="px-4 py-2.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2 transition-all"
+                  className="px-4 py-2 text-sm font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center gap-2 shadow-xs transition-all whitespace-nowrap"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Add Restaurant</span>
                 </button>
               )}
-              <div className="relative flex-1 sm:flex-initial min-w-[250px]">
-                <input
-                  type="text"
-                  placeholder="Ex: search by Restaurant n"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 pr-4 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              </div>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="px-4 py-2.5 text-sm font-medium rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-2 transition-all">
-                    <Download className="w-4 h-4" />
-                    <span>Export</span>
-                    <ChevronDown className="w-3 h-3" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56 bg-white border border-slate-200 rounded-lg shadow-lg z-50 animate-in fade-in-0 zoom-in-95 duration-200 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95">
-                  <DropdownMenuLabel>Export Format</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleExport} className="cursor-pointer flex items-center gap-2">
-                    <FileText className="w-4 h-4" />
-                    PDF
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
             </div>
           </div>
 

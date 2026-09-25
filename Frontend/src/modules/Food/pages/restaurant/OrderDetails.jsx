@@ -27,6 +27,7 @@ import {
   resolveRestaurantItemUnitPrice,
 } from "@food/utils/restaurantOrderPricing"
 import dishFallbackImage from "@food/assets/dish_fallback.webp"
+import { resolveMediaUrl } from "@/shared/utils/mediaUrl"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -277,7 +278,7 @@ export default function OrderDetails() {
               name: item.name,
               quantity: item.quantity,
               price: resolveRestaurantItemUnitPrice(item),
-              image: item.image,
+              image: resolveMediaUrl(item.image || item.imageUrl || item.foodItem?.image || item.itemImage || item.foodImage || item.photo) || item.image || null,
               type: item.isVeg || item.foodType === 'Veg' ? 'Veg' : 'Non-Veg',
               variantName: item.variantName || ''
             })) || [],

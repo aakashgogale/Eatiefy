@@ -5,6 +5,7 @@ import { API_BASE_URL } from '@food/api/config';
 import { userAPI } from '@food/api';
 import { dispatchNotificationInboxRefresh } from '@food/hooks/useNotificationInbox';
 import { isModuleAuthenticated } from '@food/utils/auth';
+import { shouldSkipDuplicateOsNotification } from '@food/utils/firebaseMessaging';
 
 const debugLog = (...args) => {
   if (import.meta.env.DEV) {
@@ -144,23 +145,23 @@ function handleOrderStatusUpdate(data = {}) {
     data.message || `Your order status is now ${String(data.orderStatus || '').replace(/_/g, ' ')}`;
 
   const isImportant =
-    String(data.orderStatus).includes('cancel') ||
-    ['ready_for_pickup', 'ready', 'confirmed', 'delivered', 'out_for_delivery'].includes(
-      data.orderStatus,
+    String(data.orderStatus || data.status || '').includes('cancel') ||
+    ['ready_for_pickup', 'ready', 'confirmed', 'delivered', 'out_for_delivery', 'picked_up', 'at_drop', 'on_way'].includes(
+      data.orderStatus || data.status,
     );
 
-  const statusKey = `${mongoId || readableId}:${String(data.orderStatus || '')}`;
+  const statusKey = `${mongoId || readableId}:${String(data.orderStatus || data.status || '')}`;
   const now = Date.now();
   const isDuplicateToast =
     statusKey === shared.lastStatusToast.key &&
     now - shared.lastStatusToast.at < ORDER_STATUS_DEDUPE_MS;
 
-  if (isImportant && !isDuplicateToast) {
+  if (isImportant && !isDuplicateToast && !shouldSkipDuplicateOsNotification(data)) {
     shared.lastStatusToast = { key: statusKey, at: now };
     window.dispatchEvent(
       new CustomEvent('show-user-notification-toast', { detail: { title, message } }),
     );
-    if (data.orderStatus === 'delivered') {
+    if (data.orderStatus === 'delivered' || data.status === 'delivered') {
       dispatchNotificationInboxRefresh();
     }
   }
@@ -168,19 +169,19 @@ function handleOrderStatusUpdate(data = {}) {
   window.dispatchEvent(
     new CustomEvent('orderStatusNotification', {
       detail: {
-        // Real identifiers, untouched. `orderId` used to be rewritten to a
-        // shortened "FOD-xxxxxx" label, so a screen opened by Mongo id could only
-        // match the event through `orderMongoId` - and silently ignored any
-        // update that did not carry it.
         orderMongoId: mongoId || undefined,
         orderId: rawOrderId || undefined,
         displayOrderId: readableId,
-        status: data.orderStatus,
-        orderStatus: data.orderStatus,
+        status: data.orderStatus || data.status,
+        orderStatus: data.orderStatus || data.status,
         dispatchStatus: data.dispatchStatus,
         deliveryPartnerId: data.deliveryPartnerId,
         deliveryState: data.deliveryState,
         deliveryVerification: data.deliveryVerification,
+        cancellationReason: data.cancellationReason,
+        cancelledBy: data.cancelledBy,
+        cancelledAt: data.cancelledAt,
+        note: data.note,
         updatedAt: data.updatedAt,
         title,
         message,

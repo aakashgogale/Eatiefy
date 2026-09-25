@@ -67,36 +67,11 @@ export default function AuthCallback() {
           }
         }
 
-        // If no code and no token, it might be a direct redirect (for demo purposes)
         if (!code) {
-          // Simulate OAuth flow for demo
-          await new Promise((resolve) => setTimeout(resolve, 2000))
-
-          // In a real app, you would:
-          // 1. Exchange the code for tokens
-          // 2. Get user info from the provider
-          // 3. Create/login user in your backend
-          // 4. Set authentication tokens
-
-          // For now, if we don't have a token, we can't really log them in properly
-          // unless this is just a mockup
-
-          // Store auth success in sessionStorage
-          sessionStorage.setItem("oauthSuccess", JSON.stringify({
-            provider: providerParam,
-            timestamp: Date.now(),
-          }))
-
-          // Redirect to home after short delay
-          setTimeout(() => {
-            navigate("/food/user")
-          }, 1500)
+          setStatus("error")
+          setError("No authentication code or token received from provider.")
           return
         }
-
-        // Backend disconnected - new backend in progress. OAuth callback disabled.
-        setStatus("error")
-        setError("OAuth is temporarily disabled. Backend is being rebuilt.")
       } catch (err) {
         setStatus("error")
         setError(

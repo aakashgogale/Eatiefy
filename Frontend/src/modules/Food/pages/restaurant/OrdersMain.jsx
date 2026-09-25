@@ -25,6 +25,7 @@ import {
   ShoppingBag,
   MapPin,
   RotateCw,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import BottomNavOrders from "@food/components/restaurant/BottomNavOrders";
@@ -41,6 +42,7 @@ import {
   getRestaurantItemLineTotal,
   getRestaurantOrderTotal,
 } from "@food/utils/restaurantOrderPricing";
+import { resolveMediaUrl } from "@/shared/utils/mediaUrl";
 const debugLog = (...args) => { };
 const debugWarn = (...args) => { };
 const debugError = (...args) => { };
@@ -100,6 +102,23 @@ const HIDDEN_FROM_ORDERS_TAB = new Set([
   "refunded"
 ]);
 
+const extractOrderImage = (order) => {
+  const item = order?.items?.[0] || order?.orderItems?.[0];
+  const rawImage =
+    item?.image ||
+    item?.imageUrl ||
+    item?.foodItem?.image ||
+    item?.dish?.image ||
+    item?.itemImage ||
+    item?.foodImage ||
+    item?.photo ||
+    order?.image ||
+    order?.photoUrl ||
+    order?.imageUrl ||
+    null;
+  return resolveMediaUrl(rawImage) || null;
+};
+
 const transformOrderForList = (order) => {
   const normalizedStatus = String(order?.status || "").toLowerCase();
   // Filter out cancelled, delivered, refunded, completed orders from front of Orders tab
@@ -131,8 +150,8 @@ const transformOrderForList = (order) => {
     itemsSummary:
       order.items?.map((item) => `${item.quantity}x ${item.name}${item.variantName ? ` (${item.variantName})` : ''}`).join(", ") ||
       "No items",
-    photoUrl: order.items?.[0]?.image || null,
-    photoAlt: order.items?.[0]?.name || "Order",
+    photoUrl: extractOrderImage(order),
+    photoAlt: order.items?.[0]?.name || order.orderItems?.[0]?.name || "Order",
     paymentMethod: order.paymentMethod || order.payment?.method || null,
     deliveryPartnerId: order.deliveryPartnerId || null,
     dispatchStatus: order.dispatch?.status || null,
@@ -194,8 +213,8 @@ function CompletedOrders({ onSelectOrder, refreshToken = 0 }) {
               order.items
                 ?.map((item) => `${item.quantity}x ${item.name}${item.variantName ? ` (${item.variantName})` : ''}`)
                 .join(", ") || "No items",
-            photoUrl: order.items?.[0]?.image || null,
-            photoAlt: order.items?.[0]?.name || "Order",
+            photoUrl: extractOrderImage(order),
+            photoAlt: order.items?.[0]?.name || order.orderItems?.[0]?.name || "Order",
             amount: order.pricing?.total || order.total || 0,
             paymentMethod: order.paymentMethod || order.payment?.method || null,
             restaurantNote: order.restaurantNote || order.note || null,
@@ -414,8 +433,8 @@ function CancelledOrders({ onSelectOrder, refreshToken = 0 }) {
               order.items
                 ?.map((item) => `${item.quantity}x ${item.name}${item.variantName ? ` (${item.variantName})` : ''}`)
                 .join(", ") || "No items",
-            photoUrl: order.items?.[0]?.image || null,
-            photoAlt: order.items?.[0]?.name || "Order",
+            photoUrl: extractOrderImage(order),
+            photoAlt: order.items?.[0]?.name || order.orderItems?.[0]?.name || "Order",
             amount: order.pricing?.total || order.total || 0,
             paymentMethod: order.paymentMethod || order.payment?.method || null,
             restaurantNote: order.restaurantNote || order.note || null,
@@ -1916,6 +1935,7 @@ function OrdersMainInner() {
       lastOrderToastRef.current = { key: toastKey, at: now };
 
       setShowRejectPopup(false);
+      if (stopSound) stopSound();
 
       const targetId = payload?.orderMongoId || payload?.orderId || payload?._id || payload?.id;
 
@@ -1930,6 +1950,7 @@ function OrdersMainInner() {
             ...base,
             status: cancelledStatus,
             orderStatus: cancelledStatus,
+            cancelledBy: payload?.cancelledBy || "customer",
           };
         });
       }
@@ -1944,14 +1965,38 @@ function OrdersMainInner() {
       "restaurantOrderStatusUpdate",
       onRestaurantOrderStatusUpdate,
     );
+    window.addEventListener(
+      "orderCancelledByUser",
+      onRestaurantOrderStatusUpdate,
+    );
 
     return () => {
       window.removeEventListener(
         "restaurantOrderStatusUpdate",
         onRestaurantOrderStatusUpdate,
       );
+      window.removeEventListener(
+        "orderCancelledByUser",
+        onRestaurantOrderStatusUpdate,
+      );
     };
-  }, [popupOrder, newOrder]);
+  }, [popupOrder, newOrder, stopSound, clearNewOrder]);
+
+  // Auto-dismiss popup after a brief moment when an order is cancelled
+  useEffect(() => {
+    const activePopupOrder = popupOrder || newOrder;
+    const currentStatus = activePopupOrder?.orderStatus || activePopupOrder?.status;
+    if (showNewOrderPopup && isAnyCancelledStatus(currentStatus)) {
+      if (stopSound) stopSound();
+      const timer = setTimeout(() => {
+        setShowNewOrderPopup(false);
+        setPopupOrder(null);
+        const orderId = resolveOrderActionId(activePopupOrder);
+        if (orderId && clearNewOrder) clearNewOrder(orderId);
+      }, 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [showNewOrderPopup, popupOrder, newOrder, stopSound, clearNewOrder]);
 
   /*
    * Keep the order tabs live when someone ELSE moves an order.
@@ -2421,6 +2466,21 @@ function OrdersMainInner() {
       } catch (error) {
         debugError("? Error accepting order:", error);
         const errorMessage = error.response?.data?.message || error.message || "";
+        const lowerMsg = errorMessage.toLowerCase();
+
+        // If order was already cancelled (e.g. by customer or admin)
+        if (lowerMsg.includes("cancel") || lowerMsg.includes("already cancelled")) {
+          toast.error("Order has already been cancelled by the customer.");
+          setShowNewOrderPopup(false);
+          setPopupOrder(null);
+          clearNewOrder(orderId);
+          setOrderQueue((prev) => prev.filter((o) => resolveOrderActionId(o) !== orderId));
+          requestOrdersRefresh();
+          setIsAcceptingOrder(false);
+          setAcceptSwipeProgressValue(0);
+          acceptInFlightRef.current = false;
+          return;
+        }
 
         // If order already moved to a forward status, treat as success
         if (errorMessage.includes('further ahead') || errorMessage.includes('cannot be moved backwards')) {
@@ -2429,6 +2489,11 @@ function OrdersMainInner() {
           // fall through to close popup
         } else if (error.response?.status === 404) {
           toast.error("Order not found. It may have been cancelled or already processed.");
+          setShowNewOrderPopup(false);
+          setPopupOrder(null);
+          clearNewOrder(orderId);
+          setOrderQueue((prev) => prev.filter((o) => resolveOrderActionId(o) !== orderId));
+          requestOrdersRefresh();
           setIsAcceptingOrder(false);
           setAcceptSwipeProgressValue(0);
           acceptInFlightRef.current = false;
@@ -3546,6 +3611,9 @@ function OrdersMainInner() {
                       : "Just now";
 
                     const renderItem = (item, index) => {
+                      const itemImg = resolveMediaUrl(
+                        item.image || item.imageUrl || item.foodItem?.image || item.itemImage || item.foodImage || item.photo
+                      );
                       const isVeg = item.isVeg !== false && item.veg !== false && !String(item.type || '').toLowerCase().includes('non');
                       const variantText = 
                         (typeof item.variantName === 'string' && item.variantName.trim()) ||
@@ -3566,6 +3634,19 @@ function OrdersMainInner() {
                       return (
                         <div key={index} className="flex items-start justify-between gap-3 bg-gradient-to-r from-slate-50/90 via-white to-slate-50/70 p-3 sm:p-3.5 rounded-xl border border-slate-200/90 shadow-xs hover:shadow-sm transition-all">
                           <div className="flex items-start gap-2.5 flex-1 min-w-0">
+                            {/* Food Photo if available */}
+                            {itemImg && (
+                              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-lg overflow-hidden bg-slate-100 shrink-0 border border-slate-200/80 shadow-xs self-center">
+                                <img
+                                  src={itemImg}
+                                  alt={item.name}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => { e.currentTarget.parentElement.style.display = 'none'; }}
+                                  loading="lazy"
+                                />
+                              </div>
+                            )}
+
                             {/* Veg / Non-Veg Icon */}
                             <div className={`w-4 sm:w-5 h-4 sm:h-5 border-2 shrink-0 rounded-[4px] flex items-center justify-center p-[2px] mt-0.5 ${isVeg ? "border-emerald-600 bg-emerald-50/80" : "border-rose-600 bg-rose-50/80"}`}>
                               <div className={`w-2 sm:w-2.5 h-2 sm:h-2.5 rounded-full ${isVeg ? "bg-emerald-600" : "bg-rose-600"}`} />
@@ -3752,15 +3833,29 @@ function OrdersMainInner() {
 
                     if (anyCancelled) {
                       return (
-                        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-                          <p className="text-sm font-semibold text-red-700">
-                            {userCancelled
-                              ? "Order canceled by user"
-                              : "Order cancelled"}
-                          </p>
-                          <p className="mt-1 text-xs text-[#2E7D52]">
+                        <div className="rounded-2xl border-2 border-red-200 bg-red-50 p-4 text-center">
+                          <div className="flex items-center justify-center gap-2 mb-1.5">
+                            <XCircle className="w-5 h-5 text-red-600 shrink-0" />
+                            <p className="text-sm font-bold text-red-700">
+                              {userCancelled
+                                ? "Cancelled by user"
+                                : "Order cancelled"}
+                            </p>
+                          </div>
+                          <p className="text-xs text-red-600 font-medium mb-3">
                             This order is no longer available for acceptance.
                           </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowNewOrderPopup(false);
+                              setPopupOrder(null);
+                              clearNewOrder(resolveOrderActionId(activePopupOrder));
+                            }}
+                            className="w-full py-2.5 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
+                          >
+                            Dismiss
+                          </button>
                         </div>
                       );
                     }
@@ -3821,7 +3916,7 @@ function OrdersMainInner() {
                         <button
                           onClick={handleRejectClick}
                           disabled={isAcceptingOrder}
-                          className="w-full bg-white border-2 border-red-500 text-[#2E7D52] py-3 rounded-lg font-semibold text-sm hover:bg-red-50 transition-colors disabled:opacity-60">
+                          className="w-full bg-white border-2 border-red-500 text-red-600 py-3 rounded-lg font-semibold text-sm hover:bg-red-50 transition-colors disabled:opacity-60 cursor-pointer">
                           Reject Order
                         </button>
                       </div>
@@ -4072,7 +4167,7 @@ function OrdersMainInner() {
                   {/* Photo */}
                   <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 flex-shrink-0 shadow-sm">
                     {verifyingOrder.photoUrl ? (
-                      <img src={verifyingOrder.photoUrl} alt={verifyingOrder.photoAlt || "Food"} className="w-full h-full object-cover" />
+                      <img src={resolveMediaUrl(verifyingOrder.photoUrl)} alt={verifyingOrder.photoAlt || "Food"} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
                         <ShoppingBag className="w-6 h-6 text-slate-300" />
@@ -4335,6 +4430,13 @@ const OrderCard = memo(function OrderCard({
   acceptedAt = null,
   adminStatusNote
 }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const resolvedPhoto = !imageFailed && photoUrl ? resolveMediaUrl(photoUrl) : null;
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [photoUrl]);
+
   const normalizedStatus = String(status || "").toLowerCase();
   const normalizedType = String(type || "").toLowerCase();
   const isReady = normalizedStatus === "ready";
@@ -4367,8 +4469,14 @@ const OrderCard = memo(function OrderCard({
 
         {/* Photo Container - Centered vertically and slightly larger */}
         <div className="h-[60px] w-[60px] rounded-lg overflow-hidden bg-slate-50 flex-shrink-0 border border-slate-100 self-center flex items-center justify-center">
-          {photoUrl ? (
-            <img src={photoUrl} alt={photoAlt} className="h-full w-full object-cover" />
+          {resolvedPhoto ? (
+            <img
+              src={resolvedPhoto}
+              alt={photoAlt || "Food"}
+              className="h-full w-full object-cover"
+              onError={() => setImageFailed(true)}
+              loading="lazy"
+            />
           ) : (
             <div className="h-full w-full flex items-center justify-center p-1 bg-slate-50">
               <span className="text-[8px] font-bold text-slate-300 text-center leading-none uppercase">
@@ -4616,8 +4724,8 @@ function PreparingOrders({
                 order.items
                   ?.map((item) => `${item.quantity}x ${item.name}${item.variantName ? ` (${item.variantName})` : ''}`)
                   .join(", ") || "No items",
-              photoUrl: order.items?.[0]?.image || null,
-              photoAlt: order.items?.[0]?.name || "Order",
+              photoUrl: extractOrderImage(order),
+              photoAlt: order.items?.[0]?.name || order.orderItems?.[0]?.name || "Order",
               deliveryPartnerId: order.deliveryPartnerId || null,
               dispatchStatus: order.dispatch?.status || null,
               deliveryPhase: order.deliveryState?.currentPhase || order.deliveryState?.status || null,
@@ -4926,8 +5034,8 @@ function ReadyOrders({ onSelectOrder, onVerifyTakeaway, refreshToken = 0 }) {
               order.items
                 ?.map((item) => `${item.quantity}x ${item.name}${item.variantName ? ` (${item.variantName})` : ''}`)
                 .join(", ") || "No items",
-            photoUrl: order.items?.[0]?.image || null,
-            photoAlt: order.items?.[0]?.name || "Order",
+            photoUrl: extractOrderImage(order),
+            photoAlt: order.items?.[0]?.name || order.orderItems?.[0]?.name || "Order",
             paymentMethod: order.paymentMethod || order.payment?.method || null,
             deliveryPartnerId: order.deliveryPartnerId || null,
             dispatchStatus: order.dispatch?.status || null,
@@ -5057,8 +5165,8 @@ const OutForDeliveryOrders = ({ onSelectOrder, refreshToken = 0 }) => {
               order.items
                 ?.map((item) => `${item.quantity}x ${item.name}${item.variantName ? ` (${item.variantName})` : ''}`)
                 .join(", ") || "No items",
-            photoUrl: order.items?.[0]?.image || null,
-            photoAlt: order.items?.[0]?.name || "Order",
+            photoUrl: extractOrderImage(order),
+            photoAlt: order.items?.[0]?.name || order.orderItems?.[0]?.name || "Order",
             paymentMethod: order.paymentMethod || order.payment?.method || null,
             deliveryPartnerId: order.deliveryPartnerId || null,
             dispatchStatus: order.dispatch?.status || null,

@@ -350,6 +350,36 @@ const notifyAdminsAboutRestaurantProfileReview = async (restaurantId, restaurant
     } catch (e) {
         console.error('Failed to notify admins of restaurant profile resubmission:', e);
     }
+
+    try {
+        const doc = await FoodRestaurant.findById(restaurantId).select('ownerEmail ownerName ownerPhone restaurantName').lean();
+        const safeName = restaurantName || doc?.restaurantName || 'Restaurant';
+        if (doc?.ownerEmail) {
+            const { sendRestaurantProfileUpdateReceivedEmail } = await import('../../../../utils/email.js');
+            void sendRestaurantProfileUpdateReceivedEmail({
+                to: doc.ownerEmail,
+                restaurantName: safeName,
+                ownerName: doc.ownerName,
+                restaurantId: String(restaurantId)
+            });
+        }
+        const { sendAdminAlertEmail } = await import('../../../../utils/email.js');
+        void sendAdminAlertEmail({
+            type: 'restaurant_profile_updated',
+            subject: `Restaurant Profile Changes: "${safeName}"`,
+            title: 'Restaurant Profile Changes Submitted 📝',
+            message: `Restaurant "${safeName}" has submitted updated profile / menu / document details for admin review.`,
+            details: [
+                { label: 'Restaurant Name', value: safeName },
+                { label: 'Owner Name', value: doc?.ownerName || '—' },
+                { label: 'Phone', value: doc?.ownerPhone || '—' },
+                { label: 'Email', value: doc?.ownerEmail || '—' },
+                { label: 'Restaurant ID', value: String(restaurantId) }
+            ]
+        });
+    } catch (err) {
+        logger.warn(`[ProfileReview-Email] Failed to dispatch profile update emails: ${err?.message || err}`);
+    }
 };
 
 /**
@@ -604,19 +634,54 @@ export const registerRestaurant = async (payload, files, draftImageRefs = {}) =>
 
         // When a fee is due the restaurant is not in the admin queue yet; the
         // notification is sent from finalizeOnboardingPayment once payment clears.
-        if (!onboardingFeeDue) try {
-            const { notifyAdminsSafely } = await import('../../../../core/notifications/firebase.service.js');
-            void notifyAdminsSafely({
-                title: 'New Restaurant Registration 🏪',
-                body: `A new restaurant "${restaurant.restaurantName}" has registered and is pending approval.`,
-                data: {
-                    type: 'new_registration',
-                    subType: 'restaurant',
-                    id: String(restaurant._id)
+        if (!onboardingFeeDue) {
+            try {
+                const { notifyAdminsSafely } = await import('../../../../core/notifications/firebase.service.js');
+                void notifyAdminsSafely({
+                    title: 'New Restaurant Registration 🏪',
+                    body: `A new restaurant "${restaurant.restaurantName}" has registered and is pending approval.`,
+                    data: {
+                        type: 'new_registration',
+                        subType: 'restaurant',
+                        id: String(restaurant._id)
+                    }
+                });
+            } catch (e) {
+                console.error('Failed to notify admins of new restaurant registration:', e);
+            }
+
+            try {
+                if (restaurant.ownerEmail) {
+                    const { sendRestaurantRegistrationReceivedEmail } = await import('../../../../utils/email.js');
+                    void sendRestaurantRegistrationReceivedEmail({
+                        to: restaurant.ownerEmail,
+                        restaurantName: restaurant.restaurantName,
+                        ownerName: restaurant.ownerName,
+                        restaurantId: String(restaurant._id),
+                        ownerPhone: restaurant.ownerPhone,
+                        city: restaurant.location?.city || restaurant.city || ''
+                    });
                 }
-            });
-        } catch (e) {
-            console.error('Failed to notify admins of new restaurant registration:', e);
+
+                const { sendAdminAlertEmail } = await import('../../../../utils/email.js');
+                void sendAdminAlertEmail({
+                    type: 'restaurant_registration',
+                    subject: `New Restaurant Registration: "${restaurant.restaurantName}"`,
+                    title: 'New Restaurant Registration 🏪',
+                    message: `A new restaurant "${restaurant.restaurantName}" has registered and is awaiting review.`,
+                    details: [
+                        { label: 'Restaurant Name', value: restaurant.restaurantName },
+                        { label: 'Owner Name', value: restaurant.ownerName || '—' },
+                        { label: 'Phone', value: restaurant.ownerPhone || '—' },
+                        { label: 'Email', value: restaurant.ownerEmail || '—' },
+                        { label: 'City', value: restaurant.location?.city || restaurant.city || restaurant.location?.area || '—' },
+                        { label: 'Food Type', value: restaurant.foodType || (restaurant.pureVegRestaurant ? 'Pure Veg' : 'Mixed') },
+                        { label: 'Restaurant ID', value: String(restaurant._id) }
+                    ]
+                });
+            } catch (emailErr) {
+                logger.warn(`[Register-Email] Restaurant registration email failed: ${emailErr?.message || emailErr}`);
+            }
         }
 
         return {

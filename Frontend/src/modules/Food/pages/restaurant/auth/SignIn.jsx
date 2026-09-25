@@ -150,7 +150,7 @@ export default function RestaurantSignIn() {
                 <Input
                   id="email"
                   type="email"
-                  placeholder="test.restaurant@gmail.com"
+                  placeholder="restaurant@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="h-11 pl-9 border-gray-300 rounded-md shadow-sm focus-visible:ring-primary-orange focus-visible:ring-2 transition-colors placeholder:text-gray-400"
@@ -226,22 +226,6 @@ export default function RestaurantSignIn() {
             >
               Sign up
             </button>
-          </div>
-
-          {/* Demo credentials / info bar */}
-          <div className="mt-8 w-full max-w-lg rounded-lg border border-orange-100 bg-orange-50 px-4 py-3 text-xs sm:text-sm text-gray-800 flex items-start gap-3">
-            <div className="mt-0.5 text-primary-orange">
-              <CheckSquare className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="font-semibold mb-1">Demo Credentials</div>
-              <div>
-                <span className="font-semibold">Email :</span> test.restaurant@gmail.com
-              </div>
-              <div>
-                <span className="font-semibold">Password :</span> 12345678
-              </div>
-            </div>
           </div>
         </div>
 

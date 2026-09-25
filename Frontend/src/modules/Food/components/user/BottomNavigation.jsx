@@ -145,7 +145,7 @@ export default function BottomNavigation() {
             <History className={`h-5 w-5 transition-transform duration-300 ${isReorder ? "scale-110" : "text-gray-500 dark:text-gray-400"}`} strokeWidth={isReorder ? 2.5 : 2} style={isReorder ? { color: activeColor } : undefined} />
           </div>
           <span className={`text-[10px] sm:text-xs font-semibold tracking-wide transition-all ${isReorder ? "" : "text-gray-500 dark:text-gray-400 opacity-80"}`}>
-            Reorder
+            Orders
           </span>
         </Link>
 
