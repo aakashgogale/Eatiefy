@@ -36,6 +36,25 @@ const TERMINAL_STATUSES = new Set([
   'cancelled_by_admin',
 ]);
 
+/**
+ * Map banner while no rider has the order - it follows the restaurant's own
+ * status. It used to say "Food is being prepared" for every rider-less order,
+ * including ones the restaurant had not accepted yet.
+ */
+const WAITING_FOR_RESTAURANT_TEXT = 'Waiting for the restaurant to accept your order';
+const RESTAURANT_ACCEPTED_TEXT = 'Restaurant accepted your order';
+const FOOD_READY_TEXT = 'Food is ready, assigning a delivery partner';
+const PRE_RIDER_BANNER_TEXT = {
+  created: WAITING_FOR_RESTAURANT_TEXT,
+  pending: WAITING_FOR_RESTAURANT_TEXT,
+  placed: WAITING_FOR_RESTAURANT_TEXT,
+  confirmed: RESTAURANT_ACCEPTED_TEXT,
+  accepted: RESTAURANT_ACCEPTED_TEXT,
+  preparing: 'Food is being prepared at restaurant',
+  ready_for_pickup: FOOD_READY_TEXT,
+  ready: FOOD_READY_TEXT,
+};
+
 /** Packets older than this (by their own timestamp) are ignored as stale. */
 const STALE_PACKET_MS = 10 * 60 * 1000;
 /** Allowed clock skew when ordering packets from different sources. */
@@ -1433,7 +1452,7 @@ const DeliveryTrackingMap = ({
           let tone = palette.routePending;
 
           if (!riderAssigned) {
-            text = 'Food is being prepared at restaurant';
+            text = PRE_RIDER_BANNER_TEXT[liveOrderStatus] || 'Tracking your order';
             tone = palette.restaurant;
           } else if (!isPickedUp) {
             text = riderAtRestaurant

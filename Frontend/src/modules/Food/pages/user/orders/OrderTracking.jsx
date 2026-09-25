@@ -345,6 +345,9 @@ const transformOrderForTracking = (apiOrder, previousOrder = null, explicitResta
     id: apiOrder?.orderId || apiOrder?._id,
     mongoId: apiOrder?._id || null,
     orderId: apiOrder?.orderId || apiOrder?._id,
+    // Takeaway vs delivery decides the timeline steps and copy; without it every
+    // takeaway order was shown the delivery flow (rider, "On Way").
+    orderType: apiOrder?.orderType || previousOrder?.orderType || 'delivery',
     restaurant: apiOrder?.restaurantName || previousOrder?.restaurant || 'Restaurant',
     restaurantPhone:
       apiOrder?.restaurantPhone ||
@@ -456,6 +459,13 @@ const transformOrderForTracking = (apiOrder, previousOrder = null, explicitResta
   }
 }
 
+/**
+ * Order statuses in flow order - mirrors STATUS_PRIORITY in the backend
+ * (orders/services/order.helpers.js). Legacy aliases share the rank of the
+ * status they stand for. `ready_for_pickup` sits BELOW `reached_pickup` there:
+ * ranking it higher made a fetched "rider reached restaurant" look older than
+ * the food-ready state and it was thrown away.
+ */
 const STATUS_RANK = {
   placed: 1,
   created: 1,
@@ -465,20 +475,19 @@ const STATUS_RANK = {
   preparing: 3,
   cooking: 3,
   processed: 3,
-  assigned: 4,
+  ready: 4,
+  ready_for_pickup: 4,
   at_pickup: 5,
   reached_pickup: 5,
-  ready: 6,
-  ready_for_pickup: 6,
-  picked_up: 7,
-  on_way: 8,
-  out_for_delivery: 8,
-  en_route_to_delivery: 8,
-  at_drop: 9,
-  reached_drop: 9,
-  at_delivery: 9,
-  delivered: 10,
-  completed: 10,
+  picked_up: 6,
+  on_way: 6,
+  out_for_delivery: 6,
+  en_route_to_delivery: 6,
+  at_drop: 7,
+  reached_drop: 7,
+  at_delivery: 7,
+  delivered: 8,
+  completed: 8,
   cancelled: 99,
   cancelled_by_user: 99,
   cancelled_by_restaurant: 99,
@@ -507,29 +516,48 @@ function mapBackendOrderStatusToUi(raw) {
   return "placed";
 }
 
+/** A delivery partner has actually taken the order (not merely been offered it). */
+function hasAcceptedRider(orderLike) {
+  const hasRider = Boolean(orderLike?.deliveryPartnerId || orderLike?.dispatch?.deliveryPartnerId);
+  const accepted =
+    orderLike?.dispatch?.status === "accepted" ||
+    orderLike?.dispatchStatus === "accepted" ||
+    orderLike?.assignmentInfo?.status === "accepted" ||
+    orderLike?.deliveryPartner?.status === "accepted";
+  return hasRider && accepted;
+}
+
+/**
+ * The tracking step for an order.
+ *
+ * The restaurant's `orderStatus` is the backbone of the flow; the rider's
+ * `deliveryState.currentPhase` only refines it once a rider has accepted. The
+ * backend schema defaults that phase to "en_route_to_pickup" on EVERY new order,
+ * so reading it on its own put orders the restaurant had not even accepted on
+ * "Rider is arriving" and the Cooking step.
+ */
 function mapOrderToTrackingUiStatus(orderLike) {
   if (!orderLike) return "placed";
-  const statusRaw = orderLike.status || orderLike.orderStatus;
-  const phase = orderLike.deliveryState?.currentPhase;
+  const statusRaw = String(orderLike.status || orderLike.orderStatus || "").toLowerCase();
+  const rank = getStatusRank(statusRaw);
 
   // Terminal states handled first
   if (isFoodOrderCancelledStatus(statusRaw)) return "cancelled";
-  if (statusRaw === "delivered" || statusRaw === "completed") return "delivered";
+  if (rank === STATUS_RANK.delivered) return "delivered";
 
-  // Live Ride / Phase-based mapping (Highest priority for precision)
-  const isRiderAccepted =
-    orderLike.dispatch?.status === "accepted" ||
-    orderLike.dispatchStatus === "accepted" ||
-    orderLike.assignmentInfo?.status === "accepted" ||
-    orderLike.deliveryPartner?.status === "accepted";
-  const hasRider = Boolean(orderLike.deliveryPartnerId || orderLike.dispatch?.deliveryPartnerId);
+  // Nothing past "placed" can have happened until the restaurant accepts.
+  if (!statusRaw || rank === STATUS_RANK.created) return "placed";
 
-  if (phase === "reached_drop" || phase === "at_drop" || statusRaw === "at_drop" || statusRaw === "reached_drop") return "at_drop";
-  if (phase === "en_route_to_delivery" || statusRaw === "picked_up" || statusRaw === "out_for_delivery" || statusRaw === "on_way") return "on_way";
-  if (phase === "at_pickup" || statusRaw === "reached_pickup") return "at_pickup";
-  if (phase === "en_route_to_pickup" || (hasRider && isRiderAccepted && (statusRaw === "ready_for_pickup" || statusRaw === "ready" || statusRaw === "preparing" || statusRaw === "confirmed"))) return "assigned";
+  const riderAccepted = hasAcceptedRider(orderLike);
+  const riderPhase = riderAccepted ? String(orderLike.deliveryState?.currentPhase || "").toLowerCase() : "";
 
-  // Fallback to basic status mapping
+  if (rank === STATUS_RANK.reached_drop || riderPhase === "at_drop") return "at_drop";
+  if (rank === STATUS_RANK.picked_up || riderPhase === "en_route_to_delivery") return "on_way";
+  if (rank === STATUS_RANK.reached_pickup || riderPhase === "at_pickup") return "at_pickup";
+  // Rider accepted and heading to the restaurant (even if the food is already ready).
+  if (riderAccepted) return "assigned";
+
+  // No rider yet: the restaurant's own progress.
   return mapBackendOrderStatusToUi(statusRaw);
 }
 
@@ -757,8 +785,18 @@ const LiveTrackingStepper = memo(({
 
   const visibleSteps = isTakeaway ? takeawaySteps : deliverySteps;
 
+  // A rider heading to / waiting at the restaurant does not advance the kitchen
+  // steps - those follow the restaurant's own status (accepted but not cooking
+  // yet stays on "Confirmed").
+  const uiStatus = String(status || '').toLowerCase();
+  const kitchenStatus = mapBackendOrderStatusToUi(orderStatusRaw);
+  const stepperStatus =
+    ['assigned', 'at_pickup'].includes(uiStatus) && ['placed', 'confirmed'].includes(kitchenStatus)
+      ? kitchenStatus
+      : uiStatus;
+
   const getStepStatus = (stepKey, index) => {
-    const s = String(status || '').toLowerCase();
+    const s = stepperStatus;
     let currentIdx = 0;
 
     if (['placed', 'pending', 'created'].includes(s)) {
@@ -783,7 +821,7 @@ const LiveTrackingStepper = memo(({
   };
 
   const getConnectorWidth = () => {
-    const s = String(status || '').toLowerCase();
+    const s = stepperStatus;
     if (['placed', 'pending', 'created'].includes(s)) return '12%';
     if (['confirmed', 'accepted'].includes(s)) return '30%';
     if (['preparing', 'cooking', 'processed'].includes(s)) return '50%';
@@ -2217,11 +2255,12 @@ export default function OrderTracking() {
       color: "bg-green-600",
       iconType: 'rider'
     },
+    // Food is ready and no rider has taken it yet (an accepted rider is "assigned").
     ready: {
-      title: order?.orderType === "takeaway" ? "Ready for pickup" : "Handover in progress",
-      subtitle: order?.orderType === "takeaway" ? "Your order is ready to collect at the restaurant" : "Rider is collecting your order from the kitchen",
+      title: order?.orderType === "takeaway" ? "Ready for pickup" : "Food is ready",
+      subtitle: order?.orderType === "takeaway" ? "Your order is ready to collect at the restaurant" : "Assigning a delivery partner to pick it up",
       color: "bg-green-600",
-      iconType: 'rider'
+      iconType: order?.orderType === "takeaway" ? 'rider' : 'food'
     },
     on_way: {
       title: "Out for delivery",
