@@ -14,7 +14,8 @@ const pricingSnapshotSchema = new mongoose.Schema(
         offerPrice: { type: Number, default: null },
         finalAmount: { type: Number, required: true },
         currency: { type: String, default: 'INR' },
-        /** Where the base price came from: 'zone_rule' | 'global_rule' | 'system_default' */
+        /** Where the base price came from: 'zone_rule' | 'global_rule'. 'system_default' only
+         *  appears on records from before the built-in fallback prices were removed. */
         priceSource: { type: String, default: 'system_default' },
         pricingRuleId: { type: mongoose.Schema.Types.ObjectId, default: null },
         offerId: { type: mongoose.Schema.Types.ObjectId, default: null },

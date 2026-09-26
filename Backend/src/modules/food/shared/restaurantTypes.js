@@ -2,9 +2,9 @@
  * Restaurant/business types used for one-time onboarding pricing.
  *
  * The values are stable slugs persisted on the restaurant document; labels are
- * for display only. Base prices here are the last-resort fallback used when an
- * admin has configured neither a zone rule nor a global rule — admins manage
- * live pricing through FoodOnboardingPricingRule.
+ * for display only. There is no built-in fee: a restaurant is charged only when an
+ * admin has configured an active FoodOnboardingPricingRule for its zone or for all
+ * zones.
  */
 export const RESTAURANT_TYPES = Object.freeze({
     FAMILY_RESTAURANT: 'family_restaurant',
@@ -20,14 +20,6 @@ export const RESTAURANT_TYPE_LABELS = Object.freeze({
     [RESTAURANT_TYPES.CAFE]: 'Cafe',
     [RESTAURANT_TYPES.CLOUD_KITCHEN]: 'Cloud Kitchen',
     [RESTAURANT_TYPES.STREET_FOOD]: 'Street Food'
-});
-
-/** Seed/fallback base prices in INR (rupees, not paise). */
-export const DEFAULT_ONBOARDING_BASE_PRICE = Object.freeze({
-    [RESTAURANT_TYPES.FAMILY_RESTAURANT]: 999,
-    [RESTAURANT_TYPES.CAFE]: 699,
-    [RESTAURANT_TYPES.CLOUD_KITCHEN]: 899,
-    [RESTAURANT_TYPES.STREET_FOOD]: 499
 });
 
 export const isValidRestaurantType = (value) =>

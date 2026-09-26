@@ -90,6 +90,14 @@ export default function OnboardingPayment() {
     return () => window.removeEventListener("popstate", onPopState)
   }, [succeeded, navigate])
 
+  // The server found no fee due (onboarding payment switched off, or no admin pricing
+  // rule for this zone and type) and has already submitted the restaurant for approval.
+  const finishWithoutFee = useCallback(() => {
+    clearOnboardingSession()
+    toast.success("No onboarding fee is due. Your restaurant has been sent for approval.")
+    navigate("/food/restaurant/pending-verification", { replace: true })
+  }, [navigate])
+
   const loadQuote = useCallback(async () => {
     if (!token) {
       setLoading(false)
@@ -107,6 +115,10 @@ export default function OnboardingPayment() {
         setPaidSummary(data.payment || null)
         return
       }
+      if (data.submitted) {
+        finishWithoutFee()
+        return
+      }
 
       setQuote(data.quote || null)
       setRestaurant(data.restaurant || null)
@@ -118,7 +130,7 @@ export default function OnboardingPayment() {
     } finally {
       setLoading(false)
     }
-  }, [token])
+  }, [token, finishWithoutFee])
 
   useEffect(() => {
     loadQuote()
@@ -174,6 +186,10 @@ export default function OnboardingPayment() {
         setPaidSummary(orderData.payment || null)
         return
       }
+      if (orderData.submitted) {
+        finishWithoutFee()
+        return
+      }
 
       const rzp = orderData.razorpay || {}
       orderId = rzp.orderId || ""
@@ -222,6 +238,8 @@ export default function OnboardingPayment() {
               if (data.alreadyPaid) {
                 setSucceeded(true)
                 setPaidSummary(data.payment || null)
+              } else if (data.submitted) {
+                finishWithoutFee()
               } else if (data.quote) {
                 setQuote(data.quote)
               }
@@ -249,6 +267,8 @@ export default function OnboardingPayment() {
             if (data.alreadyPaid) {
               setSucceeded(true)
               setPaidSummary(data.payment || null)
+            } else if (data.submitted) {
+              finishWithoutFee()
             } else if (data.quote) {
               setQuote(data.quote)
             }
@@ -272,6 +292,8 @@ export default function OnboardingPayment() {
             if (data.alreadyPaid) {
               setSucceeded(true)
               setPaidSummary(data.payment || null)
+            } else if (data.submitted) {
+              finishWithoutFee()
             } else if (data.quote) {
               setQuote(data.quote)
             }

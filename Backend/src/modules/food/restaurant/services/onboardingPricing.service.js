@@ -3,11 +3,7 @@ import { ValidationError } from '../../../../core/auth/errors.js';
 import { FoodOnboardingPricingRule } from '../../admin/models/onboardingPricingRule.model.js';
 import { FoodOnboardingOffer } from '../../admin/models/onboardingOffer.model.js';
 import { FoodZone } from '../../admin/models/zone.model.js';
-import {
-    DEFAULT_ONBOARDING_BASE_PRICE,
-    getRestaurantTypeLabel,
-    isValidRestaurantType
-} from '../../shared/restaurantTypes.js';
+import { getRestaurantTypeLabel, isValidRestaurantType } from '../../shared/restaurantTypes.js';
 
 /** Money is stored in rupees; round to paise precision to avoid float drift. */
 const toMoney = (value) => Math.round(Number(value) * 100) / 100;
@@ -19,7 +15,8 @@ const toObjectId = (value) =>
 
 /**
  * Resolve the base onboarding fee for a (zone, type) pair.
- * Order: active zone rule -> active global rule -> built-in default.
+ * Order: active zone rule -> active global ("All zones") rule -> no fee (0).
+ * Only a rule an admin created can make a restaurant pay.
  */
 export const resolveBasePrice = async (zoneId, restaurantType) => {
     if (!isValidRestaurantType(restaurantType)) {
@@ -59,9 +56,9 @@ export const resolveBasePrice = async (zoneId, restaurantType) => {
     }
 
     return {
-        basePrice: toMoney(DEFAULT_ONBOARDING_BASE_PRICE[restaurantType] ?? 0),
+        basePrice: 0,
         currency: 'INR',
-        priceSource: 'system_default',
+        priceSource: 'not_configured',
         pricingRuleId: null
     };
 };
@@ -74,12 +71,15 @@ export const resolveBasePrice = async (zoneId, restaurantType) => {
 export const findApplicableOffer = async (zoneId, restaurantType, basePrice) => {
     const zoneObjectId = toObjectId(zoneId);
     if (!zoneObjectId || !isValidRestaurantType(restaurantType)) return null;
+    // An offer discounts a configured fee; with no fee there is nothing to discount.
+    if (!(toMoney(basePrice) > 0)) return null;
 
     const now = new Date();
     const candidates = await FoodOnboardingOffer.find({
         zoneId: zoneObjectId,
         restaurantType,
         isActive: true,
+        deletedAt: null,
         startsAt: { $lte: now },
         endsAt: { $gte: now },
         $expr: { $lt: ['$consumedCount', '$maxRedemptions'] }
@@ -118,6 +118,7 @@ export const buildOnboardingQuote = async ({ zoneId, restaurantType }) => {
         originalPrice: toMoney(basePrice),
         offerPrice: offer ? toMoney(offer.offerPrice) : null,
         finalAmount,
+        feeRequired: finalAmount > 0,
         savings: offer ? toMoney(basePrice - offer.offerPrice) : 0,
         priceSource,
         pricingRuleId: pricingRuleId ? String(pricingRuleId) : null,
@@ -151,6 +152,7 @@ export const reserveOfferSlot = async (offerId) => {
         {
             _id: id,
             isActive: true,
+            deletedAt: null,
             startsAt: { $lte: now },
             endsAt: { $gte: now },
             $expr: { $lt: ['$consumedCount', '$maxRedemptions'] }
@@ -160,7 +162,11 @@ export const reserveOfferSlot = async (offerId) => {
     ).lean();
 };
 
-/** Promote a held reservation to a confirmed redemption (payment verified). */
+/**
+ * Promote a held reservation to a confirmed redemption (payment verified).
+ * Redeem and release deliberately ignore `deletedAt`: a payment started before an admin
+ * deleted the offer must still settle its slot on the retired offer.
+ */
 export const redeemOfferSlot = async (offerId) => {
     const id = toObjectId(offerId);
     if (!id) return null;

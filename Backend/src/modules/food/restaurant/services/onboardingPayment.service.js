@@ -11,7 +11,7 @@ import {
     redeemOfferSlot,
     releaseOfferSlot
 } from './onboardingPricing.service.js';
-import { getRestaurantTypeLabel } from '../../shared/restaurantTypes.js';
+import { getRestaurantTypeLabel, isValidRestaurantType } from '../../shared/restaurantTypes.js';
 import {
     createRazorpayOrder,
     getRazorpayKeyId,
@@ -72,6 +72,58 @@ const assertPayable = (restaurant) => {
         throw new ValidationError('Service zone is missing. Please complete onboarding again.');
     }
 };
+
+/**
+ * Same rule registration applies: a fee is due only while onboarding payment is on and
+ * an active admin pricing rule (zone or all-zones) prices this restaurant above zero.
+ */
+const isOnboardingFeeDue = async (restaurant) => {
+    if (!(await isRestaurantOnboardingPaymentEnabled())) return false;
+    if (!isValidRestaurantType(restaurant.restaurantType) || !restaurant.zoneId) return false;
+    const quote = await buildOnboardingQuote({
+        zoneId: restaurant.zoneId,
+        restaurantType: restaurant.restaurantType
+    });
+    return quote.feeRequired;
+};
+
+/**
+ * A restaurant waits in `payment_pending` only while a fee is actually due. When the
+ * admin has since switched onboarding payment off, or removed/disabled the pricing rule
+ * that covered its zone and type, sending it to a checkout would be a dead end, so it
+ * moves into the approval queue. It lands on `pending` — admin approval is as required
+ * as ever — and existing payment rows are left untouched, so a payment already in
+ * flight can still be verified and credited.
+ *
+ * @returns {Promise<boolean>} true when no fee is due and the restaurant was released
+ */
+export const releaseIfNoOnboardingFeeDue = async (restaurantId) => {
+    const restaurant = await loadOnboardingRestaurant(restaurantId);
+    if (restaurant.status !== 'payment_pending') return false;
+    if (await isOnboardingFeeDue(restaurant)) return false;
+
+    await FoodRestaurant.updateOne(
+        { _id: restaurant._id, status: 'payment_pending' },
+        {
+            $set: {
+                status: 'pending',
+                'onboardingPayment.status': 'not_required',
+                submittedForApprovalAt: new Date()
+            }
+        }
+    );
+    logger.info(`[ONBOARD-PAY] No onboarding fee due for ${restaurant._id}; moved to the approval queue`);
+    return true;
+};
+
+/** Response for a restaurant that turned out to owe nothing: it is already submitted. */
+const noFeeDueResponse = () => ({
+    alreadyPaid: false,
+    submitted: true,
+    feeRequired: false,
+    payment: null,
+    quote: null
+});
 
 /**
  * Release the offer slot held by a stale, never-completed checkout so a later
@@ -213,6 +265,8 @@ export const getOnboardingPaymentQuote = async (restaurantId) => {
         };
     }
 
+    if (await releaseIfNoOnboardingFeeDue(restaurant._id)) return noFeeDueResponse();
+
     // Nothing to quote while onboarding payment is switched off.
     await assertOnboardingPaymentEnabled();
     assertPayable(restaurant);
@@ -264,6 +318,8 @@ export const createOnboardingPaymentOrder = async (restaurantId) => {
     if (alreadyPaid) {
         return { alreadyPaid: true, payment: toOnboardingPaymentView(alreadyPaid) };
     }
+
+    if (await releaseIfNoOnboardingFeeDue(restaurant._id)) return noFeeDueResponse();
 
     // No new Razorpay order may be created while onboarding payment is off.
     await assertOnboardingPaymentEnabled();

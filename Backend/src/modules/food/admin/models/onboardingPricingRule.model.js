@@ -6,7 +6,7 @@ import { RESTAURANT_TYPE_VALUES } from '../../shared/restaurantTypes.js';
  *
  * `zoneId: null` is the global default rule for a restaurant type, used when the
  * restaurant's zone has no rule of its own. Resolution order is:
- *   zone rule -> global rule -> DEFAULT_ONBOARDING_BASE_PRICE constant.
+ *   zone rule -> global rule -> no onboarding fee.
  */
 const onboardingPricingRuleSchema = new mongoose.Schema(
     {

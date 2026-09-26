@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Check, Edit, Loader2, Plus, RefreshCw, Trash2, X } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { adminAPI } from "@food/api"
@@ -78,6 +78,132 @@ const Field = ({ label, children, hint }) => (
 const inputClass =
   "mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900"
 
+const timeOf = (value) => {
+  const t = Date.parse(value)
+  return Number.isFinite(t) ? t : 0
+}
+
+// Mirrors the backend's isLive rule; only paints an optimistic toggle until the
+// server's copy of the row arrives.
+const wouldBeLive = (offer, now = Date.now()) =>
+  timeOf(offer.startsAt) <= now && now <= timeOf(offer.endsAt) && offer.remainingSlots > 0
+
+// Same resolution as the backend's resolveBasePrice: an active rule for the zone, else an
+// active "All zones" rule, else no fee. Display only; checkout always recomputes it.
+const feeFor = (rules, zoneId, restaurantType) => {
+  const active = rules.filter((rule) => rule.isActive && rule.restaurantType === restaurantType)
+  const rule = active.find((r) => r.zoneId && r.zoneId === zoneId) || active.find((r) => !r.zoneId)
+  return rule ? Number(rule.basePrice) || 0 : 0
+}
+
+/** Why an enabled offer cannot reach restaurants, or "" when it can apply. */
+const offerBlockedReason = (offer, rules) => {
+  const fee = feeFor(rules, offer.zoneId, offer.restaurantType)
+  if (fee <= 0) return "No active pricing rule for this zone and type, so there is no fee to discount."
+  if (Number(offer.offerPrice) >= fee) return `Offer price is not below the ${money(fee)} fee.`
+  return ""
+}
+
+/**
+ * Fold a fetched list into the rows on screen, matching by id. Server order wins, but a
+ * snapshot taken before one of this page's writes landed must not undo it: rows with an
+ * action in flight keep their local value, a row already held in a newer version
+ * (updatedAt) keeps it, and rows deleted here stay deleted.
+ */
+const mergeFetchedRows = (fetched, current, inFlight, deleted) => {
+  const currentById = new Map(current.map((row) => [row.id, row]))
+  return fetched
+    .filter((row) => !deleted.has(row.id))
+    .map((row) => {
+      const local = currentById.get(row.id)
+      if (!local) return row
+      if (inFlight.has(row.id) || timeOf(local.updatedAt) > timeOf(row.updatedAt)) return local
+      return row
+    })
+}
+
+/**
+ * Server-owned rows edited in place by per-row actions (toggle, delete).
+ *
+ * Every action is addressed by row id and settled with the document the API returns,
+ * so rows never reorder under the admin's cursor and no list reload races the write.
+ * A row runs one action at a time; a settle that is no longer current for its row, or
+ * lands after unmount, leaves state alone.
+ */
+function useServerRows() {
+  const [rows, setRows] = useState([])
+  const [busy, setBusy] = useState({})
+  const inFlightRef = useRef(new Map())
+  const deletedRef = useRef(new Set())
+  const tokenRef = useRef(0)
+  const mountedRef = useRef(false)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  const replaceAll = useCallback((fetched) => {
+    setRows((current) => mergeFetchedRows(fetched, current, inFlightRef.current, deletedRef.current))
+  }, [])
+
+  const replaceRow = useCallback((row) => {
+    if (!row?.id) return
+    setRows((current) => current.map((item) => (item.id === row.id ? row : item)))
+  }, [])
+
+  /**
+   * @param {string} id row id the request targets
+   * @param {"toggle"|"delete"|"save"} action
+   * @param {{ request: () => Promise<object|undefined>, optimistic?: { apply: object, revert: object }, remove?: boolean }} options
+   *   `request` resolves to the server's copy of the row (unused when `remove`).
+   * @returns {Promise<{ ok: boolean, row?: object, gone?: boolean, error?: unknown, skipped?: boolean }>}
+   */
+  const run = useCallback(async (id, action, { request, optimistic, remove = false }) => {
+    if (!id || inFlightRef.current.has(id)) return { ok: false, skipped: true }
+    const token = ++tokenRef.current
+    inFlightRef.current.set(id, token)
+    const isCurrent = () => mountedRef.current && inFlightRef.current.get(id) === token
+    const patchRow = (patch) =>
+      setRows((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)))
+    const dropRow = () => {
+      deletedRef.current.add(id)
+      setRows((current) => current.filter((item) => item.id !== id))
+    }
+
+    setBusy((prev) => ({ ...prev, [id]: action }))
+    if (optimistic) patchRow(optimistic.apply)
+
+    try {
+      const row = await request()
+      if (isCurrent()) {
+        if (remove) dropRow()
+        // Without a usable body the optimistic patch already holds the value the server accepted.
+        else if (row?.id === id) replaceRow(row)
+      }
+      return { ok: true, row }
+    } catch (error) {
+      const gone = error?.response?.status === 404
+      if (isCurrent()) {
+        if (gone) dropRow()
+        else if (optimistic) patchRow(optimistic.revert)
+      }
+      return { ok: false, gone, error }
+    } finally {
+      if (inFlightRef.current.get(id) === token) {
+        inFlightRef.current.delete(id)
+        if (mountedRef.current) {
+          setBusy(({ [id]: _settled, ...rest }) => rest)
+        }
+      }
+    }
+  }, [replaceRow])
+
+  return { rows, busy, replaceAll, run }
+}
+
 /**
  * Admin console for the one-time restaurant onboarding fee: zone/type pricing rules,
  * limited promotional offers, and a read-only review of collected payments.
@@ -96,8 +222,10 @@ export default function OnboardingPricing() {
     }
   })
   const [bootstrap, setBootstrap] = useState({ restaurantTypes: [], zones: [] })
-  const [rules, setRules] = useState([])
-  const [offers, setOffers] = useState([])
+  const ruleRows = useServerRows()
+  const offerRows = useServerRows()
+  const rules = ruleRows.rows
+  const offers = offerRows.rows
   const [payments, setPayments] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -114,32 +242,51 @@ export default function OnboardingPricing() {
     return map
   }, [bootstrap.zones])
 
+  // Only the newest load may write state: a newer one aborts the older, and an older
+  // response that still resolves is ignored by its sequence number.
+  const loadSeqRef = useRef(0)
+  const loadAbortRef = useRef(null)
+  const replaceRules = ruleRows.replaceAll
+  const replaceOffers = offerRows.replaceAll
+
   const load = useCallback(async ({ silent = false } = {}) => {
+    loadAbortRef.current?.abort()
+    const controller = new AbortController()
+    loadAbortRef.current = controller
+    const seq = ++loadSeqRef.current
+    const isLatest = () => seq === loadSeqRef.current && !controller.signal.aborted
+
     try {
       if (silent) setRefreshing(true)
       else setLoading(true)
 
+      const config = { signal: controller.signal }
       const [bootstrapRes, rulesRes, offersRes, paymentsRes] = await Promise.all([
-        adminAPI.getOnboardingPricingBootstrap(),
-        adminAPI.getOnboardingPricingRules(),
-        adminAPI.getOnboardingOffers(),
-        adminAPI.getOnboardingPayments({ limit: 50 }),
+        adminAPI.getOnboardingPricingBootstrap(config),
+        adminAPI.getOnboardingPricingRules({}, config),
+        adminAPI.getOnboardingOffers({}, config),
+        adminAPI.getOnboardingPayments({ limit: 50 }, config),
       ])
+      if (!isLatest()) return
 
       setBootstrap(bootstrapRes?.data?.data || { restaurantTypes: [], zones: [] })
-      setRules(rulesRes?.data?.data?.rules || [])
-      setOffers(offersRes?.data?.data?.offers || [])
+      replaceRules(rulesRes?.data?.data?.rules || [])
+      replaceOffers(offersRes?.data?.data?.offers || [])
       setPayments(paymentsRes?.data?.data?.payments || [])
     } catch (error) {
+      if (!isLatest()) return
       toast.error(error?.response?.data?.message || "Failed to load onboarding pricing")
     } finally {
-      setLoading(false)
-      setRefreshing(false)
+      if (seq === loadSeqRef.current) {
+        setLoading(false)
+        setRefreshing(false)
+      }
     }
-  }, [])
+  }, [replaceRules, replaceOffers])
 
   useEffect(() => {
     load()
+    return () => loadAbortRef.current?.abort()
   }, [load])
 
   // ---- Pricing rules ----
@@ -174,11 +321,23 @@ export default function OnboardingPricing() {
         isActive: ruleForm.isActive,
         notes: ruleForm.notes,
       }
-      if (ruleForm.id) await adminAPI.updateOnboardingPricingRule(ruleForm.id, body)
-      else await adminAPI.createOnboardingPricingRule(body)
-      toast.success(ruleForm.id ? "Pricing rule updated" : "Pricing rule created")
+      const editingId = ruleForm.id
+      if (editingId) {
+        // Runs under the row's lock so it cannot interleave with a toggle/delete of the same rule,
+        // and settles the row in place from the saved document.
+        const result = await ruleRows.run(editingId, "save", {
+          request: async () =>
+            (await adminAPI.updateOnboardingPricingRule(editingId, body))?.data?.data?.rule,
+        })
+        if (result.skipped) return
+        if (!result.ok) throw result.error
+      } else {
+        await adminAPI.createOnboardingPricingRule(body)
+      }
+      toast.success(editingId ? "Pricing rule updated" : "Pricing rule created")
       setShowRuleForm(false)
-      await load({ silent: true })
+      // A new rule needs the server's ordering.
+      if (!editingId) await load({ silent: true })
     } catch (error) {
       toast.error(error?.response?.data?.message || "Could not save the pricing rule")
     } finally {
@@ -187,24 +346,35 @@ export default function OnboardingPricing() {
   }
 
   const toggleRule = async (rule) => {
-    try {
-      await adminAPI.toggleOnboardingPricingRule(rule.id, !rule.isActive)
-      toast.success(rule.isActive ? "Rule disabled" : "Rule enabled")
-      await load({ silent: true })
-    } catch (error) {
-      toast.error(error?.response?.data?.message || "Could not update the rule")
+    const nextActive = !rule.isActive
+    const result = await ruleRows.run(rule.id, "toggle", {
+      request: async () =>
+        (await adminAPI.toggleOnboardingPricingRule(rule.id, nextActive))?.data?.data?.rule,
+      optimistic: { apply: { isActive: nextActive }, revert: { isActive: rule.isActive } },
+    })
+    if (result.skipped) return
+    if (result.ok) {
+      const isActive = result.row?.id === rule.id ? result.row.isActive : nextActive
+      // An open edit form for this rule must not save the pre-toggle status back.
+      setRuleForm((form) => (form.id === rule.id ? { ...form, isActive } : form))
+      toast.success(isActive ? "Rule enabled" : "Rule disabled")
+    } else if (result.gone) {
+      toast.error("This pricing rule no longer exists")
+    } else {
+      toast.error(result.error?.response?.data?.message || "Could not update the rule")
     }
   }
 
   const deleteRule = async (rule) => {
     if (!window.confirm(`Delete the ${rule.restaurantTypeLabel} rule for ${rule.zoneName}?`)) return
-    try {
-      await adminAPI.deleteOnboardingPricingRule(rule.id)
-      toast.success("Pricing rule deleted")
-      await load({ silent: true })
-    } catch (error) {
-      toast.error(error?.response?.data?.message || "Could not delete the rule")
-    }
+    const result = await ruleRows.run(rule.id, "delete", {
+      remove: true,
+      request: () => adminAPI.deleteOnboardingPricingRule(rule.id),
+    })
+    if (result.skipped) return
+    if (result.ok) toast.success("Pricing rule deleted")
+    else if (result.gone) toast.info("This pricing rule was already deleted")
+    else toast.error(result.error?.response?.data?.message || "Could not delete the rule")
   }
 
   // ---- Offers ----
@@ -251,11 +421,23 @@ export default function OnboardingPricing() {
         endsAt: new Date(offerForm.endsAt).toISOString(),
         isActive: offerForm.isActive,
       }
-      if (offerForm.id) await adminAPI.updateOnboardingOffer(offerForm.id, body)
-      else await adminAPI.createOnboardingOffer(body)
-      toast.success(offerForm.id ? "Offer updated" : "Offer created")
+      const editingId = offerForm.id
+      if (editingId) {
+        // Runs under the row's lock so it cannot interleave with a toggle/delete of the same offer,
+        // and settles the row in place from the saved document.
+        const result = await offerRows.run(editingId, "save", {
+          request: async () =>
+            (await adminAPI.updateOnboardingOffer(editingId, body))?.data?.data?.offer,
+        })
+        if (result.skipped) return
+        if (!result.ok) throw result.error
+      } else {
+        await adminAPI.createOnboardingOffer(body)
+      }
+      toast.success(editingId ? "Offer updated" : "Offer created")
       setShowOfferForm(false)
-      await load({ silent: true })
+      // A new offer needs the server's ordering.
+      if (!editingId) await load({ silent: true })
     } catch (error) {
       toast.error(error?.response?.data?.message || "Could not save the offer")
     } finally {
@@ -264,25 +446,58 @@ export default function OnboardingPricing() {
   }
 
   const toggleOffer = async (offer) => {
-    try {
-      await adminAPI.toggleOnboardingOffer(offer.id, !offer.isActive)
-      toast.success(offer.isActive ? "Offer disabled" : "Offer enabled")
-      await load({ silent: true })
-    } catch (error) {
-      toast.error(error?.response?.data?.message || "Could not update the offer")
+    const nextActive = !offer.isActive
+    const result = await offerRows.run(offer.id, "toggle", {
+      request: async () =>
+        (await adminAPI.toggleOnboardingOffer(offer.id, nextActive))?.data?.data?.offer,
+      optimistic: {
+        apply: { isActive: nextActive, isLive: nextActive && wouldBeLive(offer) },
+        revert: { isActive: offer.isActive, isLive: offer.isLive },
+      },
+    })
+    if (result.skipped) return
+    if (result.ok) {
+      const isActive = result.row?.id === offer.id ? result.row.isActive : nextActive
+      // The offer form has no status field, so an open edit would silently save the old one back.
+      setOfferForm((form) => (form.id === offer.id ? { ...form, isActive } : form))
+      toast.success(isActive ? "Offer enabled" : "Offer disabled")
+    } else if (result.gone) {
+      toast.error("This offer no longer exists")
+    } else {
+      toast.error(result.error?.response?.data?.message || "Could not update the offer")
     }
   }
 
   const deleteOffer = async (offer) => {
-    if (!window.confirm(`Delete the offer "${offer.name}"?`)) return
-    try {
-      await adminAPI.deleteOnboardingOffer(offer.id)
-      toast.success("Offer deleted")
-      await load({ silent: true })
-    } catch (error) {
-      toast.error(error?.response?.data?.message || "Could not delete the offer")
-    }
+    const inUse = [
+      offer.usedSlots > 0 && `${offer.usedSlots} restaurant(s) already paid with it`,
+      offer.heldSlots > 0 && `${offer.heldSlots} restaurant(s) are in checkout with it`,
+    ].filter(Boolean)
+    const message = inUse.length
+      ? `Delete the offer "${offer.name}"?\n\n${inUse.join(" and ")}. It stops immediately and ` +
+        "disappears from this list; their payments keep the offer price and stay in Onboarding Payments."
+      : `Delete the offer "${offer.name}"?`
+    if (!window.confirm(message)) return
+    const result = await offerRows.run(offer.id, "delete", {
+      remove: true,
+      request: async () => (await adminAPI.deleteOnboardingOffer(offer.id))?.data?.data,
+    })
+    if (result.skipped) return
+    if (result.ok) toast.success(result.row?.archived ? "Offer deleted — payment history kept" : "Offer deleted")
+    else if (result.gone) toast.info("This offer was already deleted")
+    else toast.error(result.error?.response?.data?.message || "Could not delete the offer")
   }
+
+  const offerFormFee =
+    offerForm.zoneId && offerForm.restaurantType
+      ? feeFor(rules, offerForm.zoneId, offerForm.restaurantType)
+      : null
+  const offerFormFeeHint =
+    offerFormFee == null
+      ? undefined
+      : offerFormFee > 0
+        ? `Current fee for this zone and type: ${money(offerFormFee)}`
+        : "No pricing rule for this zone and type yet; the offer applies once one is added."
 
   if (loading) {
     return (
@@ -334,8 +549,8 @@ export default function OnboardingPricing() {
         <section className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-slate-500">
-              A zone rule wins over the “All zones” default. Without either, the built-in base price
-              applies.
+              A zone rule wins over the “All zones” rule. Without either, restaurants join without
+              an onboarding fee.
             </p>
             <Button onClick={() => openRuleForm()} className="gap-1.5">
               <Plus className="h-4 w-4" />
@@ -377,7 +592,7 @@ export default function OnboardingPricing() {
                     <option value="">Select type</option>
                     {bootstrap.restaurantTypes.map((type) => (
                       <option key={type.value} value={type.value}>
-                        {type.label} (default {money(type.defaultBasePrice)})
+                        {type.label}
                       </option>
                     ))}
                   </select>
@@ -405,7 +620,11 @@ export default function OnboardingPricing() {
                 </Field>
               </div>
               <div className="mt-3 flex gap-2">
-                <Button onClick={saveRule} disabled={saving} className="gap-1.5">
+                <Button
+                  onClick={saveRule}
+                  disabled={saving || Boolean(ruleRows.busy[ruleForm.id])}
+                  className="gap-1.5"
+                >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                   Save rule
                 </Button>
@@ -431,55 +650,70 @@ export default function OnboardingPricing() {
                 {rules.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
-                      No pricing rules yet — the built-in default prices apply.
+                      No pricing rules yet — restaurants join without an onboarding fee.
                     </td>
                   </tr>
                 ) : (
-                  rules.map((rule) => (
-                    <tr key={rule.id}>
-                      <td className="px-4 py-3 font-medium text-slate-800">
-                        {rule.zoneId ? zoneNameById.get(rule.zoneId) || rule.zoneName : "All zones (default)"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">{rule.restaurantTypeLabel}</td>
-                      <td className="px-4 py-3 font-semibold text-slate-900">
-                        {money(rule.basePrice, rule.currency)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusPill(rule.isActive)}`}
-                        >
-                          {rule.isActive ? "Active" : "Inactive"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => openRuleForm(rule)}
-                            className="rounded-lg bg-blue-50 p-2 text-blue-700"
-                            title="Edit"
+                  rules.map((rule) => {
+                    const busyAction = ruleRows.busy[rule.id]
+                    return (
+                      <tr
+                        key={rule.id}
+                        aria-busy={Boolean(busyAction)}
+                        className={busyAction === "delete" ? "opacity-50" : undefined}
+                      >
+                        <td className="px-4 py-3 font-medium text-slate-800">
+                          {rule.zoneId ? zoneNameById.get(rule.zoneId) || rule.zoneName : "All zones (default)"}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700">{rule.restaurantTypeLabel}</td>
+                        <td className="px-4 py-3 font-semibold text-slate-900">
+                          {money(rule.basePrice, rule.currency)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusPill(rule.isActive)}`}
                           >
-                            <Edit className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleRule(rule)}
-                            className="rounded-lg bg-slate-100 px-2.5 py-2 text-xs font-semibold text-slate-700"
-                          >
-                            {rule.isActive ? "Disable" : "Enable"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => deleteRule(rule)}
-                            className="rounded-lg bg-rose-50 p-2 text-rose-700"
-                            title="Delete"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                            {rule.isActive ? "Active" : "Inactive"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => openRuleForm(rule)}
+                              className="rounded-lg bg-blue-50 p-2 text-blue-700 disabled:opacity-40"
+                              disabled={Boolean(busyAction)}
+                              title="Edit"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => toggleRule(rule)}
+                              className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60"
+                              disabled={Boolean(busyAction)}
+                            >
+                              {busyAction === "toggle" && <Loader2 className="h-3 w-3 animate-spin" />}
+                              {rule.isActive ? "Disable" : "Enable"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteRule(rule)}
+                              className="rounded-lg bg-rose-50 p-2 text-rose-700 disabled:opacity-40"
+                              disabled={Boolean(busyAction)}
+                              title="Delete"
+                            >
+                              {busyAction === "delete" ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })
                 )}
               </tbody>
             </table>
@@ -566,7 +800,7 @@ export default function OnboardingPricing() {
                     onChange={(e) => setOfferForm({ ...offerForm, originalPrice: e.target.value })}
                   />
                 </Field>
-                <Field label="Offer price (₹)">
+                <Field label="Offer price (₹)" hint={offerFormFeeHint}>
                   <input
                     type="number"
                     min="0"
@@ -593,7 +827,11 @@ export default function OnboardingPricing() {
                 </Field>
               </div>
               <div className="mt-3 flex gap-2">
-                <Button onClick={saveOffer} disabled={saving} className="gap-1.5">
+                <Button
+                  onClick={saveOffer}
+                  disabled={saving || Boolean(offerRows.busy[offerForm.id])}
+                  className="gap-1.5"
+                >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                   Save offer
                 </Button>
@@ -625,71 +863,97 @@ export default function OnboardingPricing() {
                     </td>
                   </tr>
                 ) : (
-                  offers.map((offer) => (
-                    <tr key={offer.id}>
-                      <td className="px-4 py-3 font-medium text-slate-800">{offer.name}</td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {offer.zoneName || zoneNameById.get(offer.zoneId) || "—"}
-                        <span className="block text-[11px] text-slate-500">
-                          {offer.restaurantTypeLabel}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-slate-400 line-through">{money(offer.originalPrice)}</span>{" "}
-                        <span className="font-semibold text-emerald-700">{money(offer.offerPrice)}</span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        <span className="font-semibold text-slate-900">{offer.usedSlots}</span> used
-                        {offer.heldSlots > 0 && (
-                          <span className="block text-[11px] text-amber-600">
-                            {offer.heldSlots} in checkout
+                  offers.map((offer) => {
+                    const busyAction = offerRows.busy[offer.id]
+                    const blocked = offer.isActive ? offerBlockedReason(offer, rules) : ""
+                    return (
+                      <tr
+                        key={offer.id}
+                        aria-busy={Boolean(busyAction)}
+                        className={busyAction === "delete" ? "opacity-50" : undefined}
+                      >
+                        <td className="px-4 py-3 font-medium text-slate-800">{offer.name}</td>
+                        <td className="px-4 py-3 text-slate-700">
+                          {offer.zoneName || zoneNameById.get(offer.zoneId) || "—"}
+                          <span className="block text-[11px] text-slate-500">
+                            {offer.restaurantTypeLabel}
                           </span>
-                        )}
-                        <span className="block text-[11px] text-slate-500">
-                          {offer.remainingSlots} of {offer.maxRedemptions} left
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-[11px] text-slate-600">
-                        {formatDate(offer.startsAt)}
-                        <span className="block">→ {formatDate(offer.endsAt)}</span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusPill(offer.isLive)}`}
-                        >
-                          {offer.isLive ? "Live" : offer.isActive ? "Scheduled / Exhausted" : "Inactive"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => openOfferForm(offer)}
-                            className="rounded-lg bg-blue-50 p-2 text-blue-700"
-                            title="Edit"
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-slate-400 line-through">{money(offer.originalPrice)}</span>{" "}
+                          <span className="font-semibold text-emerald-700">{money(offer.offerPrice)}</span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-700">
+                          <span className="font-semibold text-slate-900">{offer.usedSlots}</span> used
+                          {offer.heldSlots > 0 && (
+                            <span className="block text-[11px] text-amber-600">
+                              {offer.heldSlots} in checkout
+                            </span>
+                          )}
+                          <span className="block text-[11px] text-slate-500">
+                            {offer.remainingSlots} of {offer.maxRedemptions} left
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-[11px] text-slate-600">
+                          {formatDate(offer.startsAt)}
+                          <span className="block">→ {formatDate(offer.endsAt)}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                              blocked ? "border-amber-200 bg-amber-50 text-amber-700" : statusPill(offer.isLive)
+                            }`}
                           >
-                            <Edit className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleOffer(offer)}
-                            className="rounded-lg bg-slate-100 px-2.5 py-2 text-xs font-semibold text-slate-700"
-                          >
-                            {offer.isActive ? "Disable" : "Enable"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => deleteOffer(offer)}
-                            className="rounded-lg bg-rose-50 p-2 text-rose-700 disabled:opacity-40"
-                            disabled={offer.usedSlots > 0}
-                            title={offer.usedSlots > 0 ? "Used offers can only be disabled" : "Delete"}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                            {blocked
+                              ? "Not applied"
+                              : offer.isLive
+                                ? "Live"
+                                : offer.isActive
+                                  ? "Scheduled / Exhausted"
+                                  : "Inactive"}
+                          </span>
+                          {blocked && (
+                            <span className="mt-1 block max-w-[220px] text-[11px] text-amber-700">{blocked}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => openOfferForm(offer)}
+                              className="rounded-lg bg-blue-50 p-2 text-blue-700 disabled:opacity-40"
+                              disabled={Boolean(busyAction)}
+                              title="Edit"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => toggleOffer(offer)}
+                              className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60"
+                              disabled={Boolean(busyAction)}
+                            >
+                              {busyAction === "toggle" && <Loader2 className="h-3 w-3 animate-spin" />}
+                              {offer.isActive ? "Disable" : "Enable"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteOffer(offer)}
+                              className="rounded-lg bg-rose-50 p-2 text-rose-700 disabled:opacity-40"
+                              disabled={Boolean(busyAction)}
+                              title="Delete"
+                            >
+                              {busyAction === "delete" ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })
                 )}
               </tbody>
             </table>

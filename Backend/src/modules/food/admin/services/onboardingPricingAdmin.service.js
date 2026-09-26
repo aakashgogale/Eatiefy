@@ -5,7 +5,6 @@ import { FoodOnboardingOffer } from '../models/onboardingOffer.model.js';
 import { FoodZone } from '../models/zone.model.js';
 import { FoodOnboardingPayment } from '../../restaurant/models/onboardingPayment.model.js';
 import {
-    DEFAULT_ONBOARDING_BASE_PRICE,
     RESTAURANT_TYPE_LABELS,
     RESTAURANT_TYPE_VALUES,
     getRestaurantTypeLabel,
@@ -48,7 +47,7 @@ const parseDate = (value, label) => {
     return date;
 };
 
-/** Static metadata the admin forms need (types + defaults + zones). */
+/** Static metadata the admin forms need (types + zones). */
 export const getOnboardingPricingBootstrap = async () => {
     const zones = await FoodZone.find({ isActive: true })
         .select('name zoneName serviceLocation')
@@ -58,8 +57,7 @@ export const getOnboardingPricingBootstrap = async () => {
     return {
         restaurantTypes: RESTAURANT_TYPE_VALUES.map((value) => ({
             value,
-            label: RESTAURANT_TYPE_LABELS[value],
-            defaultBasePrice: DEFAULT_ONBOARDING_BASE_PRICE[value]
+            label: RESTAURANT_TYPE_LABELS[value]
         })),
         zones: zones.map((zone) => ({
             id: String(zone._id),
@@ -96,9 +94,10 @@ export const listOnboardingPricingRules = async (query = {}) => {
     if (query.status === 'active') filter.isActive = true;
     if (query.status === 'inactive') filter.isActive = false;
 
+    // _id breaks ties so equal keys never swap rows between two fetches.
     const rules = await FoodOnboardingPricingRule.find(filter)
         .populate('zoneId', 'name zoneName')
-        .sort({ isActive: -1, updatedAt: -1 })
+        .sort({ isActive: -1, updatedAt: -1, _id: -1 })
         .lean();
 
     return { rules: rules.map(toRuleView), total: rules.length };
@@ -199,22 +198,36 @@ export const setOnboardingPricingRuleStatus = async (id, isActiveRaw, adminId = 
         }
     }
 
-    const updated = await FoodOnboardingPricingRule.findByIdAndUpdate(
-        id,
-        { $set: { isActive, updatedBy: adminId || null } },
-        { new: true }
-    )
-        .populate('zoneId', 'name zoneName')
-        .lean();
+    let updated;
+    try {
+        updated = await FoodOnboardingPricingRule.findByIdAndUpdate(
+            id,
+            { $set: { isActive, updatedBy: adminId || null } },
+            { new: true }
+        )
+            .populate('zoneId', 'name zoneName')
+            .lean();
+    } catch (error) {
+        // Two admins enabling rival rules at once: the unique partial index rejects the loser.
+        if (error?.code === 11000) {
+            throw new ValidationError(
+                'Another active rule already covers this zone and restaurant type. Disable it first.'
+            );
+        }
+        throw error;
+    }
+    if (!updated) throw new NotFoundError('Pricing rule not found');
 
     return toRuleView(updated);
 };
 
 export const deleteOnboardingPricingRule = async (id) => {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) throw new ValidationError('Invalid pricing rule id');
-    const deleted = await FoodOnboardingPricingRule.findByIdAndDelete(id).lean();
+    const deleted = await FoodOnboardingPricingRule.findByIdAndDelete(id)
+        .populate('zoneId', 'name zoneName')
+        .lean();
     if (!deleted) throw new NotFoundError('Pricing rule not found');
-    return { id: String(deleted._id) };
+    return { id: String(deleted._id), rule: toRuleView(deleted) };
 };
 
 // ----- Promotional offers -----
@@ -248,8 +261,11 @@ const toOfferView = (offer) => {
     };
 };
 
+// Offers an admin deleted but payments still reference; see `deletedAt` on the model.
+const NOT_DELETED = { deletedAt: null };
+
 export const listOnboardingOffers = async (query = {}) => {
-    const filter = {};
+    const filter = { ...NOT_DELETED };
     if (query.zoneId) {
         const oid = toObjectId(query.zoneId);
         if (!oid) throw new ValidationError('Invalid zoneId');
@@ -259,9 +275,10 @@ export const listOnboardingOffers = async (query = {}) => {
     if (query.status === 'active') filter.isActive = true;
     if (query.status === 'inactive') filter.isActive = false;
 
+    // _id breaks ties so equal keys never swap rows between two fetches.
     const offers = await FoodOnboardingOffer.find(filter)
         .populate('zoneId', 'name zoneName')
-        .sort({ isActive: -1, startsAt: -1 })
+        .sort({ isActive: -1, startsAt: -1, _id: -1 })
         .lean();
 
     return { offers: offers.map(toOfferView), total: offers.length };
@@ -311,7 +328,7 @@ export const upsertOnboardingOffer = async (body = {}, adminId = null) => {
     let saved;
     if (offerId) {
         if (!mongoose.Types.ObjectId.isValid(offerId)) throw new ValidationError('Invalid offer id');
-        const current = await FoodOnboardingOffer.findById(offerId).lean();
+        const current = await FoodOnboardingOffer.findOne({ _id: offerId, ...NOT_DELETED }).lean();
         if (!current) throw new NotFoundError('Offer not found');
         // Slots already taken must stay honoured — an admin cannot shrink the cap below them.
         if (maxRedemptions < (current.consumedCount || 0)) {
@@ -319,13 +336,14 @@ export const upsertOnboardingOffer = async (body = {}, adminId = null) => {
                 `This offer already has ${current.consumedCount} claimed slot(s); the limit cannot be lower than that.`
             );
         }
-        saved = await FoodOnboardingOffer.findByIdAndUpdate(
-            offerId,
+        saved = await FoodOnboardingOffer.findOneAndUpdate(
+            { _id: offerId, ...NOT_DELETED },
             { $set: payload },
             { new: true, runValidators: true }
         )
             .populate('zoneId', 'name zoneName')
             .lean();
+        if (!saved) throw new NotFoundError('Offer not found');
     } else {
         const created = await FoodOnboardingOffer.create({ ...payload, createdBy: adminId || null });
         saved = await FoodOnboardingOffer.findById(created._id).populate('zoneId', 'name zoneName').lean();
@@ -336,8 +354,8 @@ export const upsertOnboardingOffer = async (body = {}, adminId = null) => {
 
 export const setOnboardingOfferStatus = async (id, isActiveRaw, adminId = null) => {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) throw new ValidationError('Invalid offer id');
-    const updated = await FoodOnboardingOffer.findByIdAndUpdate(
-        id,
+    const updated = await FoodOnboardingOffer.findOneAndUpdate(
+        { _id: id, ...NOT_DELETED },
         { $set: { isActive: parseBoolean(isActiveRaw, true), updatedBy: adminId || null } },
         { new: true }
     )
@@ -347,17 +365,43 @@ export const setOnboardingOfferStatus = async (id, isActiveRaw, adminId = null) 
     return toOfferView(updated);
 };
 
-export const deleteOnboardingOffer = async (id) => {
+/**
+ * Deletes an offer for good from the admin's point of view.
+ *
+ * An offer nothing refers to is removed outright. One that payments reference, or that
+ * an open checkout is holding a slot on, is retired instead: switched off and hidden
+ * from the admin list and checkout, but kept so those payments still resolve their
+ * offer and late confirmations/releases still update its slot counters.
+ *
+ * @returns {{ id: string, offer: object, archived: boolean }}
+ */
+export const deleteOnboardingOffer = async (id, adminId = null) => {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) throw new ValidationError('Invalid offer id');
-    const offer = await FoodOnboardingOffer.findById(id).lean();
-    if (!offer) throw new NotFoundError('Offer not found');
-    if ((offer.redeemedCount || 0) > 0) {
-        throw new ValidationError(
-            'This offer has already been used by paying restaurants and must be disabled instead of deleted.'
-        );
+
+    const referenced = await FoodOnboardingPayment.exists({ 'pricing.offerId': id });
+    if (!referenced) {
+        // The slot guards live in the same operation, so a checkout reserving a slot in
+        // between makes this match nothing and the offer is retired below instead.
+        const removed = await FoodOnboardingOffer.findOneAndDelete({
+            _id: id,
+            ...NOT_DELETED,
+            consumedCount: { $not: { $gt: 0 } },
+            redeemedCount: { $not: { $gt: 0 } }
+        })
+            .populate('zoneId', 'name zoneName')
+            .lean();
+        if (removed) return { id: String(removed._id), offer: toOfferView(removed), archived: false };
     }
-    await FoodOnboardingOffer.findByIdAndDelete(id);
-    return { id: String(id) };
+
+    const retired = await FoodOnboardingOffer.findOneAndUpdate(
+        { _id: id, ...NOT_DELETED },
+        { $set: { isActive: false, deletedAt: new Date(), deletedBy: adminId || null, updatedBy: adminId || null } },
+        { new: true }
+    )
+        .populate('zoneId', 'name zoneName')
+        .lean();
+    if (!retired) throw new NotFoundError('Offer not found');
+    return { id: String(retired._id), offer: toOfferView(retired), archived: true };
 };
 
 // ----- Payment review -----

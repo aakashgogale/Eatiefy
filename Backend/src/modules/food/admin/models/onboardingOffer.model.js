@@ -82,6 +82,17 @@ const onboardingOfferSchema = new mongoose.Schema(
         updatedBy: {
             type: mongoose.Schema.Types.ObjectId,
             default: null
+        },
+        /** Set when an admin deletes an offer that payments already reference: it leaves
+         *  the admin list and checkout for good, but the document stays so those payments
+         *  and their slot accounting (late confirmations, releases) keep resolving. */
+        deletedAt: {
+            type: Date,
+            default: null
+        },
+        deletedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            default: null
         }
     },
     {

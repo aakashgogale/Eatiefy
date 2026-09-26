@@ -101,7 +101,7 @@ export async function toggleOffer(req, res, next) {
 
 export async function removeOffer(req, res, next) {
     try {
-        ok(res, 'Onboarding offer deleted', await service.deleteOnboardingOffer(req.params.id));
+        ok(res, 'Onboarding offer deleted', await service.deleteOnboardingOffer(req.params.id, req.user?.userId));
     } catch (error) {
         next(error);
     }

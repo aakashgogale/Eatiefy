@@ -945,10 +945,10 @@ export const adminAPI = {
     }),
 
   /** Restaurant onboarding pricing rules (admin) */
-  getOnboardingPricingBootstrap: () =>
-    apiClient.get("/food/admin/onboarding/pricing/bootstrap", { contextModule: "admin" }),
-  getOnboardingPricingRules: (params = {}) =>
-    apiClient.get("/food/admin/onboarding/pricing/rules", { params, contextModule: "admin" }),
+  getOnboardingPricingBootstrap: (config = {}) =>
+    apiClient.get("/food/admin/onboarding/pricing/bootstrap", { ...config, contextModule: "admin" }),
+  getOnboardingPricingRules: (params = {}, config = {}) =>
+    apiClient.get("/food/admin/onboarding/pricing/rules", { ...config, params, contextModule: "admin" }),
   createOnboardingPricingRule: (body) =>
     apiClient.post("/food/admin/onboarding/pricing/rules", body ?? {}, { contextModule: "admin" }),
   updateOnboardingPricingRule: (id, body) =>
@@ -959,8 +959,8 @@ export const adminAPI = {
     apiClient.delete(`/food/admin/onboarding/pricing/rules/${id}`, { contextModule: "admin" }),
 
   /** Restaurant onboarding promotional offers (admin) */
-  getOnboardingOffers: (params = {}) =>
-    apiClient.get("/food/admin/onboarding/offers", { params, contextModule: "admin" }),
+  getOnboardingOffers: (params = {}, config = {}) =>
+    apiClient.get("/food/admin/onboarding/offers", { ...config, params, contextModule: "admin" }),
   createOnboardingOffer: (body) =>
     apiClient.post("/food/admin/onboarding/offers", body ?? {}, { contextModule: "admin" }),
   updateOnboardingOffer: (id, body) =>
@@ -971,8 +971,8 @@ export const adminAPI = {
     apiClient.delete(`/food/admin/onboarding/offers/${id}`, { contextModule: "admin" }),
 
   /** Onboarding payment review (admin) */
-  getOnboardingPayments: (params = {}) =>
-    apiClient.get("/food/admin/onboarding/payments", { params, contextModule: "admin" }),
+  getOnboardingPayments: (params = {}, config = {}) =>
+    apiClient.get("/food/admin/onboarding/payments", { ...config, params, contextModule: "admin" }),
 
   /** Fee Settings (admin) */
   getFeeSettings: (params) =>
