@@ -111,15 +111,25 @@ const toFiniteCoordinate = (value) => {
 
 /** Ray-casting point-in-polygon over a zone's [{latitude, longitude}] ring. */
 const isPointInZone = (lat, lng, zone) => {
-  const polygon = Array.isArray(zone?.coordinates) ? zone.coordinates : []
+  let polygon = []
+  if (Array.isArray(zone?.coordinates)) {
+    polygon = zone.coordinates
+  } else if (Array.isArray(zone?.coordinates?.coordinates?.[0])) {
+    polygon = zone.coordinates.coordinates[0].map((pt) => ({
+      latitude: pt[1],
+      longitude: pt[0],
+    }))
+  }
   if (polygon.length < 3) return false
 
   let inside = false
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const xi = Number(polygon[i]?.longitude)
-    const yi = Number(polygon[i]?.latitude)
-    const xj = Number(polygon[j]?.longitude)
-    const yj = Number(polygon[j]?.latitude)
+    const ptI = polygon[i]
+    const ptJ = polygon[j]
+    const xi = Number(ptI?.longitude ?? ptI?.lng ?? (Array.isArray(ptI) ? ptI[0] : NaN))
+    const yi = Number(ptI?.latitude ?? ptI?.lat ?? (Array.isArray(ptI) ? ptI[1] : NaN))
+    const xj = Number(ptJ?.longitude ?? ptJ?.lng ?? (Array.isArray(ptJ) ? ptJ[0] : NaN))
+    const yj = Number(ptJ?.latitude ?? ptJ?.lat ?? (Array.isArray(ptJ) ? ptJ[1] : NaN))
     if (![xi, yi, xj, yj].every(Number.isFinite)) continue
     if (yj === yi) continue
     const intersect = yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi
@@ -699,11 +709,91 @@ export default function RestaurantOnboarding() {
     return zones.filter((zone) => isPointInZone(selectedLat, selectedLng, zone))
   }, [zones, hasSelectedLocation, selectedLat, selectedLng])
 
+  const displayZones = useMemo(() => {
+    if (selectableZones.length > 0) return selectableZones
+    return zones
+  }, [selectableZones, zones])
+
   const isSelectedZoneValid = useMemo(() => {
     const zoneId = String(step1.zoneId || "").trim()
     if (!zoneId) return true
+    if (selectableZones.length === 0) {
+      const z = zones.find((item) => String(item?._id || item?.id) === zoneId)
+      if (z) {
+        const zoneName = String(z.name || z.zoneName || z.serviceLocation || "").trim().toLowerCase()
+        const locCity = String(step1.location?.city || "").trim().toLowerCase()
+        if (!locCity || zoneName.includes(locCity) || locCity.includes(zoneName)) return true
+      }
+    }
     return selectableZones.some((zone) => String(zone?._id || zone?.id) === zoneId)
-  }, [selectableZones, step1.zoneId])
+  }, [selectableZones, step1.zoneId, zones, step1.location?.city])
+
+  // When location matches a single zone and no zone selected yet, auto-select it!
+  useEffect(() => {
+    if (hasSelectedLocation && selectableZones.length === 1 && !step1.zoneId) {
+      const autoZone = selectableZones[0]
+      const autoZoneId = String(autoZone?._id || autoZone?.id || "")
+      const autoCity = String(autoZone?.name || autoZone?.zoneName || autoZone?.serviceLocation || "").trim()
+      setStep1((prev) => ({
+        ...prev,
+        zoneId: autoZoneId,
+        location: {
+          ...prev.location,
+          city: autoCity || prev.location?.city || "",
+        },
+      }))
+    }
+  }, [hasSelectedLocation, selectableZones, step1.zoneId])
+
+  // Dynamic city list derived from active service zones and live database
+  const availableCities = useMemo(() => {
+    const citySet = new Set()
+
+    // 1. Live zones created in admin (e.g. Ratlam, Indore, Ujjain)
+    ;(zones || []).forEach((z) => {
+      const zName = String(z?.name || z?.zoneName || "").trim()
+      if (zName) citySet.add(zName)
+      const sLoc = String(z?.serviceLocation || "").trim()
+      if (sLoc && !["main point", "point", "default"].includes(sLoc.toLowerCase())) {
+        citySet.add(sLoc)
+      }
+    })
+
+    // 2. Currently selected zone's city
+    if (step1.zoneId) {
+      const currentZone = (zones || []).find((z) => String(z?._id || z?.id) === String(step1.zoneId))
+      if (currentZone) {
+        const name = String(currentZone.name || currentZone.zoneName || currentZone.serviceLocation || "").trim()
+        if (name) citySet.add(name)
+      }
+    }
+
+    // 3. User's currently set location city (from geocode or previous edit)
+    if (step1.location?.city && step1.location.city.trim()) {
+      citySet.add(step1.location.city.trim())
+    }
+
+    // 4. Fallback major cities
+    const fallbackCities = [
+      "Indore",
+      "Ratlam",
+      "Ujjain",
+      "Bhopal",
+      "Gwalior",
+      "Jabalpur",
+      "Mumbai",
+      "Pune",
+      "Delhi",
+      "Bangalore",
+      "Ahmedabad",
+      "Hyderabad",
+      "Chennai",
+      "Kolkata",
+    ]
+    fallbackCities.forEach((c) => citySet.add(c))
+
+    return Array.from(citySet).filter(Boolean)
+  }, [zones, step1.zoneId, step1.location?.city])
 
   // Picking a location outside the chosen zone clears the now-invalid selection so
   // an out-of-zone pairing can never reach the submit payload.
@@ -2268,12 +2358,26 @@ export default function RestaurantOnboarding() {
             <Label className="text-xs text-gray-700">Service zone*</Label>
             <select
               value={step1.zoneId || ""}
-              onChange={(e) => setStep1({ ...step1, zoneId: e.target.value })}
+              onChange={(e) => {
+                const selectedZId = e.target.value
+                const matchedZone = (zones || []).find((z) => String(z?._id || z?.id) === String(selectedZId))
+                const zoneCity = matchedZone
+                  ? String(matchedZone.name || matchedZone.zoneName || matchedZone.serviceLocation || "").trim()
+                  : ""
+                setStep1((prev) => ({
+                  ...prev,
+                  zoneId: selectedZId,
+                  location: {
+                    ...prev.location,
+                    city: zoneCity || prev.location?.city || "",
+                  },
+                }))
+              }}
               className="mt-1 w-full h-9 rounded-md border border-input bg-white px-3 text-sm"
               disabled={zonesLoading || !isEditing}
             >
               <option value="">{zonesLoading ? "Loading zones..." : "Select a zone"}</option>
-              {selectableZones.map((z) => {
+              {displayZones.map((z) => {
                 const id = String(z?._id || z?.id || "")
                 return (
                   <option key={id} value={id}>
@@ -2283,8 +2387,8 @@ export default function RestaurantOnboarding() {
               })}
             </select>
             {hasSelectedLocation && !zonesLoading && selectableZones.length === 0 ? (
-              <p className="text-[11px] text-red-600 mt-1">
-                No service zone covers the selected location yet. Please choose a different address.
+              <p className="text-[11px] text-amber-600 mt-1">
+                Your selected location is slightly outside the exact mapped zone boundary. You can still select your zone below.
               </p>
             ) : (
               <p className="text-[11px] text-gray-500 mt-1">
@@ -2328,8 +2432,14 @@ export default function RestaurantOnboarding() {
                       const state = addr.state || ""
                       const pincode = addr.postcode || ""
 
+                      const matchedZone = (zones || []).find((z) => {
+                        const zName = String(z?.name || z?.zoneName || z?.serviceLocation || "").trim().toLowerCase()
+                        return city && zName === city.trim().toLowerCase()
+                      })
+
                       setStep1((prev) => ({
                         ...prev,
+                        zoneId: prev.zoneId || (matchedZone ? String(matchedZone._id || matchedZone.id) : prev.zoneId),
                         location: {
                           ...prev.location,
                           formattedAddress: display,
@@ -2408,29 +2518,28 @@ export default function RestaurantOnboarding() {
           />
           <Select
             value={step1.location?.city || ""}
-            onValueChange={(value) =>
-              setStep1({
-                ...step1,
-                location: { ...step1.location, city: value },
+            disabled={!isEditing}
+            onValueChange={(value) => {
+              const matchedZone = (zones || []).find((z) => {
+                const zName = String(z?.name || z?.zoneName || z?.serviceLocation || "").trim().toLowerCase()
+                return zName === String(value || "").trim().toLowerCase()
               })
-            }
+              setStep1((prev) => ({
+                ...prev,
+                zoneId: matchedZone ? String(matchedZone._id || matchedZone.id) : prev.zoneId,
+                location: { ...prev.location, city: value },
+              }))
+            }}
           >
             <SelectTrigger className="bg-white text-sm text-gray-700">
               <SelectValue placeholder="Select City*" />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Indore">Indore</SelectItem>
-              <SelectItem value="Bhopal">Bhopal</SelectItem>
-              <SelectItem value="Gwalior">Gwalior</SelectItem>
-              <SelectItem value="Jabalpur">Jabalpur</SelectItem>
-              <SelectItem value="Mumbai">Mumbai</SelectItem>
-              <SelectItem value="Pune">Pune</SelectItem>
-              <SelectItem value="Delhi">Delhi</SelectItem>
-              <SelectItem value="Bangalore">Bangalore</SelectItem>
-              <SelectItem value="Ahmedabad">Ahmedabad</SelectItem>
-              <SelectItem value="Hyderabad">Hyderabad</SelectItem>
-              <SelectItem value="Chennai">Chennai</SelectItem>
-              <SelectItem value="Kolkata">Kolkata</SelectItem>
+            <SelectContent className="max-h-60 overflow-y-auto z-[999999]">
+              {availableCities.map((cityName) => (
+                <SelectItem key={cityName} value={cityName}>
+                  {cityName}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -2601,8 +2710,13 @@ export default function RestaurantOnboarding() {
           if (!place?.geometry) return
 
           const parsed = parsePlace(place)
+          const matchedZone = (zones || []).find((z) => {
+            const zName = String(z?.name || z?.zoneName || z?.serviceLocation || "").trim().toLowerCase()
+            return parsed.city && zName === parsed.city.trim().toLowerCase()
+          })
           setStep1((prev) => ({
             ...prev,
+            zoneId: prev.zoneId || (matchedZone ? String(matchedZone._id || matchedZone.id) : prev.zoneId),
             location: {
               ...prev.location,
               formattedAddress: parsed.formattedAddress || prev.location.formattedAddress,
