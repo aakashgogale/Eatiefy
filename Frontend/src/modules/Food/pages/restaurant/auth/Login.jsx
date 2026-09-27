@@ -438,7 +438,8 @@ export default function RestaurantLogin() {
           return
         }
 
-        if (/invalid/i.test(message)) {
+        // Only a real code mismatch is "Invalid OTP"; any other failure shows its own reason.
+        if (/^invalid otp/i.test(message.trim())) {
           setOtpError("Invalid OTP")
         } else {
           toast.error(message)
@@ -473,33 +474,45 @@ export default function RestaurantLogin() {
     await handleVerify(code, action)
   }
 
+  // A box holds one digit, so a longer value is either a digit typed over the one
+  // already there or a whole code inserted at once (SMS autofill, keyboard suggestion,
+  // paste). Both used to shift digits into the wrong boxes, sending a different code
+  // than the one on screen and failing as "Invalid OTP".
   const handleChange = (index, value) => {
     if (index === 0 && value) {
       setOtpError("")
     }
 
-    if (value.length > 1) {
-      const digits = value.replace(/\D/g, "").slice(0, 4 - index).split("")
-      if (digits.length > 0) {
-        const newOtp = [...otp]
-        digits.forEach((digit, i) => {
-          if (index + i < 4) {
-            newOtp[index + i] = digit
-          }
+    let digits = String(value).replace(/\D/g, "")
+    const previous = otp[index]
+    if (digits.length > 1 && previous) {
+      // Drop the digit the box already held (the caret sat after or before it).
+      if (digits.startsWith(previous)) digits = digits.slice(1)
+      else if (digits.endsWith(previous)) digits = digits.slice(0, -1)
+    }
+
+    if (digits.length > 1) {
+      // A complete code always fills from the first box, wherever it was inserted.
+      const start = digits.length >= 4 ? 0 : index
+      const newOtp = [...otp]
+      digits
+        .slice(0, 4 - start)
+        .split("")
+        .forEach((digit, i) => {
+          newOtp[start + i] = digit
         })
-        setOtp(newOtp)
-        inputRefs.current[Math.min(3, index + digits.length)]?.focus()
-      }
+      setOtp(newOtp)
+      inputRefs.current[Math.min(3, start + digits.length)]?.focus()
       return
     }
 
-    if (value && !/^\d$/.test(value)) return
+    if (value && !digits) return
 
     const newOtp = [...otp]
-    newOtp[index] = value
+    newOtp[index] = digits
     setOtp(newOtp)
 
-    if (value && index < 3) {
+    if (digits && index < 3) {
       inputRefs.current[index + 1]?.focus()
     }
   }
@@ -735,6 +748,7 @@ export default function RestaurantLogin() {
                         ref={(el) => (inputRefs.current[index] = el)}
                         type="tel"
                         inputMode="numeric"
+                        autoComplete={index === 0 ? "one-time-code" : "off"}
                         required
                         disabled={loading || blockTimer > 0}
                         autoFocus={index === 0}

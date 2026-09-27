@@ -246,6 +246,11 @@ export const createOrUpdateOtp = async (phone) => {
         logger.info(
             `${config.useDefaultOtp ? 'Default OTP mode' : 'Default test phone'} enabled – OTP is ${otp} for phone ${normalizedPhone}`
         );
+    } else if (existing?.otp && existing.otpExpiresAt > now) {
+        // A code that is still valid is sent again instead of being replaced: a double
+        // tap, a network retry or "Resend SMS" must not invalidate the SMS the user
+        // already received (typing that code used to fail as "Invalid OTP").
+        otp = existing.otp;
     } else {
         otp = generateOtpCode();
     }
@@ -333,7 +338,14 @@ export const verifyOtp = async (phone, otp, preserveOtp = false) => {
         return { valid: false, reason: 'OTP expired' };
     }
 
-    if (record.otp !== otp) {
+    // Compare digit strings, so "1234", " 1234" and 1234 are the same code.
+    const entered = String(otp ?? '').replace(/\D/g, '');
+    if (String(record.otp) !== entered) {
+        // Never log the code itself; the timing shows whether a newer request replaced it.
+        logger.warn(
+            `[OTP-Verify] Wrong code for ******${normalizedPhone.slice(-4)}: ${entered.length} digit(s) entered, ` +
+            `current code issued ${Math.round((now - record.lastRequestAt) / 1000)}s ago, requests in window ${record.requestCount}`
+        );
         return { valid: false, reason: 'Invalid OTP' };
     }
 

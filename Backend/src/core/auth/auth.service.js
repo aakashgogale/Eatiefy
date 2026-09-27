@@ -426,7 +426,8 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
   const isDeleted = existingRestaurant && existingRestaurant.status === "deleted";
   const preserveOtp = isDeleted && !confirmAction;
 
-  console.log(`[DEBUG] Restaurant OTP Login Attempt: phone=${phone}, otp=${otp}, confirmAction=${confirmAction}`);
+  // The code itself is never logged: anyone reading the logs could sign in with it.
+  console.log(`[DEBUG] Restaurant OTP Login Attempt: phone=${phone}, otpDigits=${String(otp ?? "").length}, confirmAction=${confirmAction}`);
   const result = await verifyOtp(phone, otp, preserveOtp);
   if (!result.valid) {
     throw new AuthError(result.reason || "OTP verification failed");
