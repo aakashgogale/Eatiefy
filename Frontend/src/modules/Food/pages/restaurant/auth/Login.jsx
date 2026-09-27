@@ -306,6 +306,22 @@ export default function RestaurantLogin() {
         setDeletedAccountData(data)
         setShowRestorePopup(true)
         setLoading(false)
+      } else if (data.onboardingPaymentPending === true) {
+        // Onboarding was saved but the one-time fee is still unpaid: the server sends a
+        // payment-scoped token instead of a login token, so resume on the payment step.
+        // (Without this branch the missing access token threw and read as "Invalid OTP".)
+        isSuccessRef.current = true
+        sessionStorage.removeItem("restaurantAuthData")
+        sessionStorage.removeItem(getBlockKey(phoneVal))
+        sessionStorage.removeItem(getResendKey(phoneVal))
+        setRestaurantPendingPhone(phoneVal)
+        try {
+          localStorage.setItem("restaurant_onboardingToken", data.onboardingToken || "")
+          localStorage.setItem("restaurant_onboardingRestaurantId", data.restaurantId || "")
+        } catch {}
+        setShowRestorePopup(false)
+        setLoading(false)
+        navigate("/food/restaurant/onboarding/payment", { replace: true })
       } else if (data.pendingApproval === true) {
         isSuccessRef.current = true
         sessionStorage.removeItem("restaurantAuthData")
@@ -397,7 +413,13 @@ export default function RestaurantLogin() {
         }
       }
     } catch (err) {
-      const message = err?.response?.data?.error || err?.response?.data?.message || "Invalid OTP. Please try again."
+      // Without a server response (network drop, or an error after a successful
+      // verify) the code was not rejected, so never report it as "Invalid OTP".
+      const message =
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        (err?.response ? "Invalid OTP. Please try again." : "Could not complete sign-in. Please try again.")
+      if (!err?.response) console.error("Restaurant OTP sign-in failed after the request:", err)
       setOtp(["", "", "", ""])
 
       const isBlocked = message.toLowerCase().includes("blocked") || 
