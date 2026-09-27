@@ -603,6 +603,8 @@ export const adminAPI = {
       { isCodBlocked: isCodBlocked === true },
       { contextModule: "admin" },
     ),
+  deleteCustomer: (id) =>
+    apiClient.delete(`/food/admin/customers/${String(id)}`, { contextModule: "admin" }),
 
   /** Sub Admins */
   getSubAdmins: (params = {}) =>

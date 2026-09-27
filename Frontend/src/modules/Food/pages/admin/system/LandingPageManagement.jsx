@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from "react"
 import { Upload, Trash2, Image as ImageIcon, Loader2, AlertCircle, CheckCircle2, ArrowUp, ArrowDown, Layout, Tag, UtensilsCrossed, ChefHat, Megaphone, Search, Star, Store } from "lucide-react"
 import api from "@food/api"
-import { adminAPI } from "@food/api"
+import { adminAPI, invalidatePublicConfigCache } from "@food/api"
+import { invalidatePublicAppConfig } from "@food/services/publicAppConfig"
 import { getModuleToken } from "@food/utils/auth"
 import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
@@ -15,6 +16,38 @@ const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
+const findMatchingExploreIcon = (list = [], slotId = "") => {
+  if (!Array.isArray(list)) return null;
+  return (
+    list.find((i) => {
+      if (!i) return false;
+      const dbLabel = String(i.label || i.name || "").toLowerCase().trim();
+      const linkType = String(i.linkType || "").toLowerCase().trim();
+      const path = String(i.targetPath || i.link || "").toLowerCase().trim();
+
+      if (slotId === "under-250") {
+        return (
+          linkType === "under-250" ||
+          dbLabel === "eatiefy 99" ||
+          dbLabel === "under 250" ||
+          dbLabel.includes("99") ||
+          dbLabel.includes("250") ||
+          path.includes("under-250")
+        );
+      }
+      if (slotId === "offers") {
+        return linkType === "offers" || dbLabel.includes("offer") || dbLabel.includes("deal") || path.includes("offers");
+      }
+      if (slotId === "gourmet") {
+        return linkType === "gourmet" || dbLabel.includes("gourmet") || path.includes("gourmet");
+      }
+      if (slotId === "collection") {
+        return linkType === "collections" || dbLabel.includes("collection") || dbLabel.includes("favorite") || path.includes("favorite");
+      }
+      return false;
+    }) || null
+  );
+};
 
 export default function LandingPageManagement() {
   const [activeTab, setActiveTab] = useState('banners')
@@ -764,38 +797,49 @@ export default function LandingPageManagement() {
   const handleIconUpdate = async (file, label, link, itemId) => {
     if (!file) return
 
-    // Find existing item by label
-    const existingItem = exploreMore.find(item => item.label?.toLowerCase() === label.toLowerCase())
+    // Find existing item by smart slot match
+    const existingItem = findMatchingExploreIcon(exploreMore, itemId)
 
     const preparedFile = await prepareUploadFile(file)
+
+    // Normalize label for 99 / under-250 to ensure perfect consistency
+    const finalLabel = (itemId === 'under-250' || label.toLowerCase().includes('99') || label.toLowerCase().includes('250'))
+      ? 'Eatiefy 99'
+      : label
+    const finalLink = (itemId === 'under-250')
+      ? '/food/user/under-250'
+      : link
 
     // Create FormData
     const formData = new FormData()
     formData.append('image', preparedFile)
-      if(selectedZoneId) formData.append('zoneId', selectedZoneId)
+    if (selectedZoneId) formData.append('zoneId', selectedZoneId)
+    formData.append('label', finalLabel)
+    formData.append('link', finalLink)
 
     try {
       setExploreIconsUploading(prev => ({ ...prev, [itemId]: true }))
       let res;
 
-      if (existingItem) {
-        // Update existing
-        res = await api.patch(`/food/hero-banners/landing/explore-more/${existingItem._id}`, formData, getAuthConfig({
-          headers: { 'Content-Type': 'multipart/form-data' }
-        }))
+      // If existingItem is a zone override or we are in global mode, PATCH the existing item
+      if (existingItem && (!selectedZoneId || !existingItem.isFallbackFromGlobal)) {
+        res = await api.patch(`/food/hero-banners/landing/explore-more/${existingItem._id}`, formData, getAuthConfig())
       } else {
-        // Create new
-        formData.append('label', label)
-        formData.append('link', link)
-        res = await api.post('/food/hero-banners/landing/explore-more', formData, getAuthConfig({
-          headers: { 'Content-Type': 'multipart/form-data' }
-        }))
+        // Otherwise create new (e.g. creating zone-specific override or initial creation)
+        res = await api.post('/food/hero-banners/landing/explore-more', formData, getAuthConfig())
       }
 
       if (res.data?.success) {
-        setSuccess(`${label} icon updated successfully!`)
+        setSuccess(`${finalLabel} icon updated successfully!`)
         setTimeout(() => setSuccess(null), 3000)
         await fetchExploreMore()
+        invalidatePublicAppConfig()
+        invalidatePublicConfigCache()
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("eatiefy:refresh"))
+          window.dispatchEvent(new CustomEvent("businessSettingsUpdated"))
+          window.dispatchEvent(new Event("storage"))
+        }
       }
     } catch (err) {
       debugError('Upload failed', err)
@@ -2008,22 +2052,19 @@ export default function LandingPageManagement() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                   {[
-                    { id: 'offers', label: 'Offers', link: '/user/offers' },
-                    { id: 'gourmet', label: 'Gourmet', link: '/user/gourmet' },
-                    { id: 'collection', label: 'Collections', link: '/user/profile/favorites' },
-                    { id: 'under-250', label: 'Under 250', link: '/food/user/under-250' }
+                    { id: 'offers', label: 'Offers', subtitle: 'Hot Deals', link: '/food/user/offers' },
+                    { id: 'gourmet', label: 'Gourmet', subtitle: 'Premium', link: '/food/user/gourmet' },
+                    { id: 'under-250', label: 'Eatiefy 99', subtitle: 'Under ₹99', link: '/food/user/under-250' },
+                    { id: 'collection', label: 'Collections', subtitle: 'Favorites', link: '/food/user/profile/favorites' },
                   ].map((item) => {
                     // Find matching item from DB
-                    const dbItem = exploreMore.find(i => {
-                      const dbLabel = i.label?.toLowerCase().trim() || ""
-                      const itemLabel = item.label.toLowerCase().trim()
-                      return dbLabel === itemLabel || dbLabel.replace(/s$/, '') === itemLabel.replace(/s$/, '')
-                    })
+                    const dbItem = findMatchingExploreIcon(exploreMore, item.id)
                     const iconSrc = dbItem?.imageUrl || dbItem?.iconUrl || null
 
                     return (
                       <div key={item.id} className="border border-slate-200 rounded-lg p-4 flex flex-col items-center relative">
-                        <span className="text-sm font-semibold text-slate-700 mb-3">{item.label}</span>
+                        <span className="text-sm font-semibold text-slate-700">{item.label}</span>
+                        <span className="text-xs text-slate-400 mb-3">{item.subtitle}</span>
 
                         <div className="w-24 h-24 mb-4 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center overflow-hidden relative group">
                           {iconSrc ? (
@@ -2061,7 +2102,7 @@ export default function LandingPageManagement() {
                             className={`w-full flex items-center justify-center gap-2 px-4 py-2 text-xs font-medium rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors cursor-pointer ${exploreIconsUploading[item.id] ? 'opacity-50 pointer-events-none' : ''}`}
                           >
                             <Upload className="w-3 h-3" />
-                            {dbItem ? 'Change Icon' : 'Upload Icon'}
+                            {iconSrc ? 'Change Icon' : 'Upload Icon'}
                           </label>
                         </div>
                       </div>

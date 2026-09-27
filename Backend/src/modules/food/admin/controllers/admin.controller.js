@@ -68,6 +68,27 @@ export async function updateCustomerCodStatus(req, res, next) {
     }
 }
 
+export async function deleteCustomer(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid customer id' });
+        }
+        const result = await adminService.deleteCustomer(id);
+        if (!result) {
+            return res.status(404).json({ success: false, message: 'Customer not found' });
+        }
+        res.status(200).json({
+            success: true,
+            message: 'Customer deleted successfully',
+            data: result
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+
 // ----- Safety / Emergency Reports -----
 export async function getSafetyEmergencyReports(req, res, next) {
     try {

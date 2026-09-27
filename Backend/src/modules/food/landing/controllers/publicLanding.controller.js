@@ -91,41 +91,53 @@ export const getPublicDiningBannersController = async (req, res, next) => {
 
 /** Shared by the standalone route and the aggregated /public/app-config payload. */
 export const loadPublicExploreIcons = async (zoneId) => {
-    {
-        let globalDocs = await FoodExploreIcon.find({ zoneId: null, isActive: true }).sort({ sortOrder: 1, createdAt: -1 }).lean();
-        let zoneDocs = zoneId ? await FoodExploreIcon.find({ zoneId, isActive: true }).sort({ sortOrder: 1, createdAt: -1 }).lean() : [];
+    const globalDocs = await FoodExploreIcon.find({
+        $or: [{ zoneId: null }, { zoneId: { $exists: false } }],
+        isActive: true
+    }).sort({ sortOrder: 1, createdAt: -1 }).lean();
+    const zoneDocs = zoneId ? await FoodExploreIcon.find({ zoneId, isActive: true }).sort({ sortOrder: 1, createdAt: -1 }).lean() : [];
+    
+    const getSlotKey = (doc) => {
+        if (!doc) return '';
+        if (doc.linkType && doc.linkType !== 'custom') return doc.linkType;
+        const lower = String(doc.label || '').toLowerCase().trim();
+        const path = String(doc.targetPath || doc.link || '').toLowerCase();
+        if (lower.includes('99') || lower.includes('250') || path.includes('under-250')) return 'under-250';
+        if (lower.includes('offer') || path.includes('offers')) return 'offers';
+        if (lower.includes('gourmet') || path.includes('gourmet')) return 'gourmet';
+        if (lower.includes('collection') || lower.includes('favorite') || path.includes('favorite')) return 'collections';
+        return lower;
+    };
+
+    let docs = [];
+    if (!zoneId || zoneDocs.length === 0) {
+        docs = globalDocs;
+    } else {
+        const zoneMap = new Map();
+        zoneDocs.forEach(doc => {
+            zoneMap.set(getSlotKey(doc), doc);
+        });
         
-        let docs = [];
-        if (!zoneId || zoneDocs.length === 0) {
-            docs = globalDocs;
-        } else {
-            const zoneMap = new Map();
-            zoneDocs.forEach(doc => {
-                const key = doc.linkType && doc.linkType !== 'custom' ? doc.linkType : doc.label.toLowerCase();
-                zoneMap.set(key, doc);
-            });
-            
-            const usedZoneKeys = new Set();
-            for (const gDoc of globalDocs) {
-                const key = gDoc.linkType && gDoc.linkType !== 'custom' ? gDoc.linkType : gDoc.label.toLowerCase();
-                if (zoneMap.has(key)) {
-                    docs.push(zoneMap.get(key));
-                    usedZoneKeys.add(key);
-                } else {
-                    docs.push(gDoc);
-                }
+        const usedZoneKeys = new Set();
+        for (const gDoc of globalDocs) {
+            const key = getSlotKey(gDoc);
+            if (zoneMap.has(key)) {
+                docs.push(zoneMap.get(key));
+                usedZoneKeys.add(key);
+            } else {
+                docs.push(gDoc);
             }
-            
-            for (const [key, doc] of zoneMap.entries()) {
-                if (!usedZoneKeys.has(key)) {
-                    docs.push(doc);
-                }
-            }
-            
-            docs.sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
         }
-        return docs.map(({ targetPath, sortOrder, ...rest }) => ({ ...rest, link: targetPath, order: sortOrder }));
+        
+        for (const [key, doc] of zoneMap.entries()) {
+            if (!usedZoneKeys.has(key)) {
+                docs.push(doc);
+            }
+        }
+        
+        docs.sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
     }
+    return docs.map(({ targetPath, sortOrder, ...rest }) => ({ ...rest, link: targetPath, order: sortOrder }));
 };
 
 export const getPublicExploreIconsController = async (req, res, next) => {

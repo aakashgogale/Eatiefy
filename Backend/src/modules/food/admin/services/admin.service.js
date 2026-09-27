@@ -2034,6 +2034,39 @@ export async function updateCustomerCodStatus(id, isCodBlocked) {
     return updatedDoc.toObject();
 }
 
+export async function deleteCustomer(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const user = await FoodUser.findById(id).lean();
+    if (!user) return null;
+
+    const recipientEmail = user.email;
+    const recipientName = user.name || 'User';
+
+    if (recipientEmail) {
+        try {
+            const { sendAccountDeletionEmail } = await import('../../../../utils/email.js');
+            await sendAccountDeletionEmail({
+                to: recipientEmail,
+                name: recipientName,
+                accountType: 'User',
+                details: [
+                    ...(user.phone ? [{ label: 'Registered Phone', value: user.phone }] : [])
+                ]
+            });
+        } catch (emailErr) {
+            logger.error(`[DELETE-EMAIL] User ${id} deletion email failed for ${recipientEmail}: ${emailErr?.message || emailErr}`);
+        }
+    }
+
+    await FoodUser.updateOne(
+        { _id: id },
+        { isActive: false, deletedAt: new Date(), fcmTokens: [], fcmTokenMobile: [] }
+    );
+    await FoodRefreshToken.deleteMany({ userId: id });
+
+    return { id: user._id, name: recipientName, email: recipientEmail };
+}
+
 export async function getSupportTickets(query = {}) {
     const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 1000);
     const page = Math.max(parseInt(query.page, 10) || 1, 1);
@@ -5087,6 +5120,26 @@ export async function deleteRestaurant(id) {
     const restaurant = await FoodRestaurant.findById(restaurantId).lean();
     if (!restaurant) return null;
 
+    const recipientEmail = restaurant.ownerEmail || restaurant.email;
+    const recipientName = restaurant.restaurantName || restaurant.ownerName || 'Restaurant';
+
+    if (recipientEmail) {
+        try {
+            const { sendAccountDeletionEmail } = await import('../../../../utils/email.js');
+            await sendAccountDeletionEmail({
+                to: recipientEmail,
+                name: recipientName,
+                accountType: 'Restaurant',
+                details: [
+                    ...(restaurant.ownerPhone ? [{ label: 'Registered Phone', value: restaurant.ownerPhone }] : []),
+                    ...(restaurant.city ? [{ label: 'City', value: restaurant.city }] : [])
+                ]
+            });
+        } catch (emailErr) {
+            logger.error(`[DELETE-EMAIL] Restaurant ${restaurantId} deletion email failed for ${recipientEmail}: ${emailErr?.message || emailErr}`);
+        }
+    }
+
     const [foods, addons, categories] = await Promise.all([
         FoodItem.find({ restaurantId }).select('image').lean(),
         FoodAddon.find({ restaurantId }).select('draft.image draft.images published.image published.images').lean(),
@@ -7122,6 +7175,26 @@ export async function deleteDeliveryPartner(id, { writeOffCashInHand, adminId } 
                 );
             }
         });
+    }
+
+    const recipientEmail = partner.email;
+    const recipientName = partner.name || 'Delivery Partner';
+
+    if (recipientEmail) {
+        try {
+            const { sendAccountDeletionEmail } = await import('../../../../utils/email.js');
+            await sendAccountDeletionEmail({
+                to: recipientEmail,
+                name: recipientName,
+                accountType: 'Delivery Partner',
+                details: [
+                    ...(partner.phone ? [{ label: 'Registered Phone', value: partner.phone }] : []),
+                    ...(partner.vehicleType ? [{ label: 'Vehicle Type', value: partner.vehicleType }] : [])
+                ]
+            });
+        } catch (emailErr) {
+            logger.error(`[DELETE-EMAIL] Delivery Partner ${partnerId} deletion email failed for ${recipientEmail}: ${emailErr?.message || emailErr}`);
+        }
     }
 
     const deleted = await FoodDeliveryPartner.findOneAndDelete({ _id: partnerId }).lean();

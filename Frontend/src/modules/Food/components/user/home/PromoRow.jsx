@@ -42,9 +42,34 @@ export default function PromoRow({ handleVegModeChange, navigate, isVegMode, tog
   ];
 
   const promoCardsData = defaultItems.map((item) => {
-    const dbItem = (exploreIcons || []).find(
-      (db) => db.label?.toLowerCase() === item.value.toLowerCase()
-    );
+    const dbItem = (exploreIcons || []).find((db) => {
+      if (!db) return false;
+      const dbLabel = String(db.label || db.name || '').toLowerCase().trim();
+      const linkType = String(db.linkType || '').toLowerCase().trim();
+      const path = String(db.targetPath || db.link || '').toLowerCase().trim();
+
+      if (item.id === 'under-250') {
+        return (
+          linkType === 'under-250' ||
+          dbLabel === 'eatiefy 99' ||
+          dbLabel === 'under 250' ||
+          dbLabel.includes('99') ||
+          dbLabel.includes('250') ||
+          path.includes('under-250')
+        );
+      }
+      if (item.id === 'offers') {
+        return linkType === 'offers' || dbLabel.includes('offer') || dbLabel.includes('deal') || path.includes('offers');
+      }
+      if (item.id === 'gourmet') {
+        return linkType === 'gourmet' || dbLabel.includes('gourmet') || path.includes('gourmet');
+      }
+      if (item.id === 'collections') {
+        return linkType === 'collections' || dbLabel.includes('collection') || dbLabel.includes('favorite') || path.includes('favorite');
+      }
+      return dbLabel === item.value.toLowerCase().trim();
+    });
+
     if (dbItem) {
       const dbUrl = dbItem.imageUrl || dbItem.iconUrl;
       const rawLink = dbItem.link || dbItem.targetPath;

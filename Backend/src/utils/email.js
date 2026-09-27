@@ -1031,3 +1031,105 @@ export async function sendAdminAlertEmail({
     return allSent;
 }
 
+/**
+ * Send account deletion notification email to User, Restaurant, or Delivery Partner.
+ * Reuses the existing Eatiefy branded email builder and SMTP transporter.
+ *
+ * @param {{
+ *   to: string,
+ *   name: string,
+ *   accountType: 'User' | 'Restaurant' | 'Delivery Partner',
+ *   reason?: string,
+ *   details?: Array<{ label: string, value: any }>
+ * }} params
+ * @returns {Promise<boolean>}
+ */
+export async function sendAccountDeletionEmail({
+    to,
+    name,
+    accountType = 'Account',
+    reason,
+    details = []
+}) {
+    const recipient = String(to || '').trim().toLowerCase();
+    if (!isValidEmail(recipient)) {
+        logger.warn(`Account deletion email skipped: invalid email "${to}" for ${accountType} (${name || 'unknown'})`);
+        return false;
+    }
+
+    const safeName = escapeHtml(name || accountType);
+    const firstName = escapeHtml(getFirstName(name));
+
+    let typeDisplay = 'Account';
+    let bannerTitle = 'Account Deleted';
+    let bannerMessage = `Your ${accountType} account has been deleted by the administrator.`;
+    let introText = `Your Eatiefy ${accountType} account associated with this email address has been deleted from our platform.`;
+
+    if (/restaurant/i.test(accountType)) {
+        typeDisplay = 'Restaurant Account';
+        bannerTitle = 'Restaurant Account Deleted';
+        bannerMessage = `The restaurant profile <strong>${safeName}</strong> has been removed from Eatiefy.`;
+        introText = `This email is to notify you that your restaurant account (<strong>${safeName}</strong>) on Eatiefy has been deleted by the administration. You will no longer receive orders or have access to the restaurant portal.`;
+    } else if (/delivery/i.test(accountType)) {
+        typeDisplay = 'Delivery Partner Account';
+        bannerTitle = 'Delivery Partner Account Deleted';
+        bannerMessage = `Your delivery partner account has been removed from Eatiefy.`;
+        introText = `This email is to notify you that your delivery partner account on Eatiefy has been deleted. You will no longer be able to go online, accept delivery tasks, or access the delivery app.`;
+    } else {
+        typeDisplay = 'User Account';
+        bannerTitle = 'User Account Deleted';
+        bannerMessage = `Your Eatiefy user account has been deleted.`;
+        introText = `This email is to notify you that your Eatiefy user account has been deleted by the administration.`;
+    }
+
+    const subject = `Notice: Your ${typeDisplay} has been Deleted | Eatiefy`;
+
+    const infoRows = [
+        { label: 'Account Name', value: name || '—' },
+        { label: 'Account Type', value: typeDisplay },
+        ...(reason ? [{ label: 'Reason', value: reason }] : []),
+        ...(Array.isArray(details) ? details.map((d) => ({ label: String(d.label || ''), value: String(d.value ?? '—') })) : []),
+        { label: 'Status', value: 'Deleted / Deactivated' }
+    ];
+
+    const html = buildEatiefyEmailHtml({
+        greeting: `Hello ${firstName},`,
+        bannerType: 'rejection',
+        bannerTitle,
+        bannerMessage,
+        introParagraphs: [
+            introText,
+            'If you believe this action was taken in error or if you have any questions regarding pending settlements or your data, please contact our support team immediately.'
+        ],
+        infoRows,
+        footerParagraphs: [
+            'Thank you for having been a part of the Eatiefy community.'
+        ]
+    });
+
+    const text = [
+        `Hello ${getFirstName(name)},`,
+        '',
+        `Your ${typeDisplay} on Eatiefy has been deleted by the administrator.`,
+        '',
+        `Account Name: ${name || '—'}`,
+        `Account Type: ${typeDisplay}`,
+        ...(reason ? [`Reason: ${reason}`] : []),
+        ...(Array.isArray(details) ? details.map((d) => `${d.label}: ${d.value}`) : []),
+        'Status: Deleted / Deactivated',
+        '',
+        'If you believe this action was taken in error or need further assistance, please contact Eatiefy support.',
+        '',
+        'Team Eatiefy'
+    ].join('\n');
+
+    return sendEmail({
+        to: recipient,
+        subject,
+        html,
+        text,
+        logLabel: `${typeDisplay} deletion email to ${recipient}`
+    });
+}
+
+

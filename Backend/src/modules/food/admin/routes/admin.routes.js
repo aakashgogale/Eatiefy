@@ -58,6 +58,8 @@ router.get('/customers', adminController.getCustomers);
 router.get('/customers/:id', adminController.getCustomerById);
 router.patch('/customers/:id/status', adminController.updateCustomerStatus);
 router.patch('/customers/:id/cod-status', adminController.updateCustomerCodStatus);
+router.delete('/customers/:id', adminController.deleteCustomer);
+router.delete('/users/:id', adminController.deleteCustomer);
 
 // ----- Safety / Emergency Reports -----
 router.get('/safety-emergency-reports', adminController.getSafetyEmergencyReports);

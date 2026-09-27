@@ -7,11 +7,58 @@ const ICON_MAX_WIDTH = 400;
 /**
  * List all explore icons (admin). Sorted by sortOrder.
  */
+const getSlotKey = (doc) => {
+    if (!doc) return '';
+    if (doc.linkType && doc.linkType !== 'custom') return doc.linkType;
+    const lower = String(doc.label || '').toLowerCase().trim();
+    const path = String(doc.targetPath || doc.link || '').toLowerCase();
+    if (lower.includes('99') || lower.includes('250') || path.includes('under-250')) return 'under-250';
+    if (lower.includes('offer') || path.includes('offers')) return 'offers';
+    if (lower.includes('gourmet') || path.includes('gourmet')) return 'gourmet';
+    if (lower.includes('collection') || lower.includes('favorite') || path.includes('favorite')) return 'collections';
+    return lower;
+};
+
+/**
+ * List all explore icons (admin).
+ * If zoneId is given, merges zone-specific overrides on top of global icons so admin always sees active icons.
+ */
 export const listExploreIcons = async (zoneId = null) => {
-    let query = zoneId ? { zoneId } : { zoneId: null };
-    return FoodExploreIcon.find(query)
-        .sort({ sortOrder: 1, createdAt: -1 })
-        .lean();
+    const globalQuery = {
+        $or: [{ zoneId: null }, { zoneId: { $exists: false } }]
+    };
+
+    if (!zoneId) {
+        return FoodExploreIcon.find(globalQuery)
+            .sort({ sortOrder: 1, createdAt: -1 })
+            .lean();
+    }
+
+    const [globalDocs, zoneDocs] = await Promise.all([
+        FoodExploreIcon.find(globalQuery).sort({ sortOrder: 1, createdAt: -1 }).lean(),
+        FoodExploreIcon.find({ zoneId }).sort({ sortOrder: 1, createdAt: -1 }).lean()
+    ]);
+
+    const zoneMap = new Map();
+    zoneDocs.forEach(d => zoneMap.set(getSlotKey(d), d));
+
+    const result = [];
+    const used = new Set();
+    for (const g of globalDocs) {
+        const k = getSlotKey(g);
+        if (zoneMap.has(k)) {
+            result.push(zoneMap.get(k));
+            used.add(k);
+        } else {
+            result.push({ ...g, isFallbackFromGlobal: true });
+        }
+    }
+    for (const [k, d] of zoneMap.entries()) {
+        if (!used.has(k)) {
+            result.push(d);
+        }
+    }
+    return result;
 };
 
 /**
@@ -35,7 +82,7 @@ const uploadIcon = async (buffer) => {
 /**
  * Create one explore icon from uploaded file + label + link.
  * @param {{ buffer: Buffer }} file - multer file (req.file)
- * @param {{ label: string, link?: string }} meta
+ * @param {{ label: string, link?: string, zoneId?: string }} meta
  */
 export const createExploreIcon = async (file, meta) => {
     if (!file?.buffer) {
@@ -55,7 +102,7 @@ export const createExploreIcon = async (file, meta) => {
     if (lowerLabel === 'offers') linkType = 'offers';
     else if (lowerLabel === 'gourmet') linkType = 'gourmet';
     else if (lowerLabel === 'collections') linkType = 'collections';
-    else if (lowerLabel === 'under 250' || lowerLabel === 'under-250') linkType = 'under-250';
+    else if (lowerLabel === 'under 250' || lowerLabel === 'under-250' || lowerLabel.includes('99') || lowerLabel.includes('250')) linkType = 'under-250';
 
     const doc = await FoodExploreIcon.create({
         label,
@@ -100,7 +147,7 @@ export const updateExploreIcon = async (id, payload) => {
         if (lowerLabel === 'offers') updates.linkType = 'offers';
         else if (lowerLabel === 'gourmet') updates.linkType = 'gourmet';
         else if (lowerLabel === 'collections') updates.linkType = 'collections';
-        else if (lowerLabel === 'under 250' || lowerLabel === 'under-250') updates.linkType = 'under-250';
+        else if (lowerLabel === 'under 250' || lowerLabel === 'under-250' || lowerLabel.includes('99') || lowerLabel.includes('250')) updates.linkType = 'under-250';
         else updates.linkType = 'custom';
     }
     if (payload?.link !== undefined) {

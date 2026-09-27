@@ -920,16 +920,65 @@ export const deleteAccount = async (id, role) => {
 
   try {
     if (role === ROLES.USER) {
+      const user = await FoodUser.findById(id).lean();
+      if (user?.email) {
+        try {
+          const { sendAccountDeletionEmail } = await import('../../utils/email.js');
+          await sendAccountDeletionEmail({
+            to: user.email,
+            name: user.name || 'User',
+            accountType: 'User',
+            details: [
+              ...(user.phone ? [{ label: 'Registered Phone', value: user.phone }] : [])
+            ]
+          });
+        } catch (emailErr) {
+          logger.error(`[DELETE-EMAIL] User ${id} deletion email error: ${emailErr?.message || emailErr}`);
+        }
+      }
       // Soft delete user: deactivate and pull tokens. 
       // We DO NOT delete orders, transactions, or wallet history to preserve admin revenue data.
       await FoodUser.updateOne({ _id: id }, { isActive: false, deletedAt: new Date(), fcmTokens: [], fcmTokenMobile: [] });
       await FoodRefreshToken.deleteMany({ userId: id });
     } else if (role === ROLES.RESTAURANT) {
+      const restaurant = await FoodRestaurant.findById(id).lean();
+      const recipientEmail = restaurant?.ownerEmail || restaurant?.email;
+      if (recipientEmail) {
+        try {
+          const { sendAccountDeletionEmail } = await import('../../utils/email.js');
+          await sendAccountDeletionEmail({
+            to: recipientEmail,
+            name: restaurant?.restaurantName || restaurant?.ownerName || 'Restaurant',
+            accountType: 'Restaurant',
+            details: [
+              ...(restaurant?.ownerPhone ? [{ label: 'Registered Phone', value: restaurant.ownerPhone }] : [])
+            ]
+          });
+        } catch (emailErr) {
+          logger.error(`[DELETE-EMAIL] Restaurant ${id} deletion email error: ${emailErr?.message || emailErr}`);
+        }
+      }
       // Soft delete restaurant: mark as deleted.
       // We keep orders and transactions for admin analytics.
       await FoodRestaurant.updateOne({ _id: id }, { status: "deleted", deletedAt: new Date(), fcmTokens: [], fcmTokenMobile: [], isAcceptingOrders: false });
       await FoodRefreshToken.deleteMany({ userId: id });
     } else if (role === ROLES.DELIVERY_PARTNER) {
+      const partner = await FoodDeliveryPartner.findById(id).lean();
+      if (partner?.email) {
+        try {
+          const { sendAccountDeletionEmail } = await import('../../utils/email.js');
+          await sendAccountDeletionEmail({
+            to: partner.email,
+            name: partner.name || 'Delivery Partner',
+            accountType: 'Delivery Partner',
+            details: [
+              ...(partner.phone ? [{ label: 'Registered Phone', value: partner.phone }] : [])
+            ]
+          });
+        } catch (emailErr) {
+          logger.error(`[DELETE-EMAIL] Delivery Partner ${id} deletion email error: ${emailErr?.message || emailErr}`);
+        }
+      }
       // Soft delete delivery partner: mark as deleted.
       await FoodDeliveryPartner.updateOne({ _id: id }, { status: "deleted", deletedAt: new Date(), fcmTokens: [], fcmTokenMobile: [], availabilityStatus: "offline" });
       await FoodRefreshToken.deleteMany({ userId: id });
@@ -943,6 +992,7 @@ export const deleteAccount = async (id, role) => {
     throw error;
   }
 };
+
 
 /** Get the current balance for any role (User, Restaurant, Delivery) before account deletion. */
 export const checkAccountBalance = async (userId, role) => {
