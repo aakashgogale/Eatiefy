@@ -328,6 +328,19 @@ export const adminAPI = {
     }),
   getDeliveryPartnerById: (id) =>
     apiClient.get(`/food/admin/delivery/${id}`, { contextModule: "admin" }),
+  updateDeliveryPartner: (id, payload) =>
+    apiClient.patch(`/food/admin/delivery/${String(id)}`, payload, {
+      contextModule: "admin",
+    }),
+  /**
+   * Permanently delete a delivery partner. A 409 with code CASH_IN_HAND_WRITE_OFF_REQUIRED
+   * means the rider holds COD cash; repeat with `writeOffCashInHand` set to that amount.
+   */
+  deleteDeliveryPartner: (id, { writeOffCashInHand } = {}) =>
+    apiClient.delete(`/food/admin/delivery-partners/${String(id)}`, {
+      params: writeOffCashInHand != null ? { writeOffCashInHand } : undefined,
+      contextModule: "admin",
+    }),
   approveDeliveryPartner: (id) =>
     apiClient.patch(
       `/food/admin/delivery/${String(id)}/approve`,

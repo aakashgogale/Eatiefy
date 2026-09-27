@@ -25,7 +25,7 @@ const defaultFormData = {
   image: "",
   status: true,
   type: "",
-  zoneId: "global",
+  zoneId: "",
   foodTypeScope: "Both",
 }
 
@@ -43,9 +43,10 @@ const scopeBadgeClass = (scope) => {
 }
 
 const zoneLabel = (zone) => {
-  if (!zone) return "Global"
+  if (!zone) return "—"
   if (typeof zone === "string") {
     const value = zone.trim()
+    if (value === "global") return "Global"
     if (/^[a-f0-9]{24}$/i.test(value)) return `Zone ID ${value.slice(-6)}`
     return value
   }
@@ -55,6 +56,7 @@ const zoneLabel = (zone) => {
 export default function Category() {
   const [searchQuery, setSearchQuery] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [selectedZone, setSelectedZone] = useState("all")
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(() => {
     try {
@@ -90,7 +92,7 @@ export default function Category() {
     let cancelled = false
     setZonesLoading(true)
     adminAPI
-      .getZones({ limit: 1000 })
+      .getZones({ limit: 1000, isActive: true })
       .then((res) => {
         const list =
           res?.data?.data?.zones ||
@@ -118,11 +120,11 @@ export default function Category() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [debouncedSearch, showPendingOnly])
+  }, [debouncedSearch, showPendingOnly, selectedZone])
 
   useEffect(() => {
     fetchCategories()
-  }, [debouncedSearch, showPendingOnly, currentPage, pageSize])
+  }, [debouncedSearch, showPendingOnly, selectedZone, currentPage, pageSize])
 
   const fetchCategories = async ({ silent = false } = {}) => {
     try {
@@ -133,6 +135,7 @@ export default function Category() {
       }
       if (debouncedSearch) params.search = debouncedSearch
       if (showPendingOnly) params.approvalStatus = "pending"
+      if (selectedZone && selectedZone !== "all") params.zoneId = selectedZone
 
       const response = await adminAPI.getCategories(params)
       const list = response?.data?.data?.categories || response?.data?.categories || []
@@ -172,7 +175,7 @@ export default function Category() {
 
   const handleAddNew = () => {
     setEditingCategory(null)
-    setFormData(defaultFormData)
+    setFormData({ ...defaultFormData, zoneId: selectedZone !== "all" ? selectedZone : "" })
     setSelectedImageFile(null)
     setImagePreview(null)
     setIsModalOpen(true)
@@ -183,14 +186,14 @@ export default function Category() {
     const zoneIdValue =
       typeof category?.zoneId === "string"
         ? category.zoneId
-        : category?.zoneId?._id || category?.zoneId?.id || "global"
+        : category?.zoneId?._id || category?.zoneId?.id || ""
 
     setFormData({
       name: category?.name || "",
       image: category?.image || "",
       status: category?.status !== false,
       type: category?.type || "",
-      zoneId: zoneIdValue || "global",
+      zoneId: zoneIdValue || "",
       foodTypeScope: category?.foodTypeScope || "Both",
     })
     setSelectedImageFile(null)
@@ -344,6 +347,11 @@ export default function Category() {
   const handleSubmit = async (event) => {
     event.preventDefault()
 
+    if (!formData.zoneId || formData.zoneId === "global") {
+      toast.error("Zone selection is mandatory")
+      return
+    }
+
     try {
       setUploadingImage(true)
       let imageUrl = String(formData.image || "").trim()
@@ -359,7 +367,7 @@ export default function Category() {
         type: String(formData.type || "").trim(),
         status: Boolean(formData.status),
         image: imageUrl || undefined,
-        zoneId: formData.zoneId || "global",
+        zoneId: formData.zoneId,
         foodTypeScope: formData.foodTypeScope,
       }
 
@@ -427,6 +435,23 @@ export default function Category() {
               />
             </div>
 
+            <select
+              value={selectedZone}
+              onChange={(event) => setSelectedZone(event.target.value)}
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-slate-900"
+            >
+              <option value="all">All Zones</option>
+              {zones.map((zone) => {
+                const id = String(zone?._id || zone?.id || "")
+                const label = zone?.name || zone?.zoneName || zone?.serviceLocation || id
+                return (
+                  <option key={id} value={id}>
+                    {label}
+                  </option>
+                )
+              })}
+            </select>
+
             <button
               onClick={handleExportPDF}
               disabled={categories.length === 0}
@@ -481,7 +506,7 @@ export default function Category() {
                   const creatorName = category?.createdByRestaurant?.name || category?.restaurant?.name || "Admin"
                   const approvalStatus = category?.approvalStatus || "pending"
                   const isRestaurantCategory = Boolean(category?.createdByRestaurantId || category?.restaurantId)
-                  const zoneText = zoneLabel(category?.zoneId)
+                  const zoneText = category?.zoneName || zoneLabel(category?.zoneId)
 
                   return (
                     <tr key={category.id} className="align-top hover:bg-slate-50/80">
@@ -650,13 +675,15 @@ export default function Category() {
                     <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
                       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
                         <div>
-                          <label className="mb-2 block text-sm font-medium text-slate-700">Zone</label>
+                          <label className="mb-2 block text-sm font-medium text-slate-700">
+                            Zone <span className="text-red-500">*</span>
+                          </label>
                           <select
                             value={formData.zoneId}
                             onChange={(event) => setFormData((prev) => ({ ...prev, zoneId: event.target.value }))}
                             className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-slate-900"
                           >
-                            <option value="global">Global (all zones)</option>
+                            <option value="">Select Zone</option>
                             {zonesLoading && <option value="" disabled>Loading zones...</option>}
                             {zones.map((zone) => {
                               const id = String(zone?._id || zone?.id || "")

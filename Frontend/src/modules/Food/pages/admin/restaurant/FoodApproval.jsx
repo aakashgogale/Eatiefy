@@ -106,6 +106,9 @@ export default function FoodApproval() {
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [zones, setZones] = useState([])
+  const [selectedZone, setSelectedZone] = useState("all")
+  const [zonesLoading, setZonesLoading] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(() => {
     try {
@@ -122,6 +125,33 @@ export default function FoodApproval() {
   const [processing, setProcessing] = useState(false)
   const isMountedRef = useRef(true)
 
+  // Fetch active zones dynamically
+  useEffect(() => {
+    let active = true
+    setZonesLoading(true)
+    adminAPI
+      .getZones({ limit: 1000, isActive: true })
+      .then((res) => {
+        const payload = res?.data?.data ?? res?.data
+        const list = Array.isArray(payload?.zones)
+          ? payload.zones
+          : Array.isArray(payload)
+            ? payload
+            : []
+        if (active) setZones(list)
+      })
+      .catch(() => {
+        if (active) setZones([])
+      })
+      .finally(() => {
+        if (active) setZonesLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
+
   // Fetch pending food approval requests
   const fetchFoodRequests = useCallback(async ({ silent = false } = {}) => {
     try {
@@ -130,6 +160,7 @@ export default function FoodApproval() {
       }
       const response = await adminAPI.getPendingFoodApprovals({
         search: debouncedSearch || undefined,
+        zoneId: selectedZone !== 'all' ? selectedZone : undefined,
         page: currentPage,
         limit: pageSize,
       })
@@ -157,12 +188,16 @@ export default function FoodApproval() {
         setLoading(false)
       }
     }
-  }, [debouncedSearch, currentPage, pageSize])
+  }, [debouncedSearch, selectedZone, currentPage, pageSize])
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300)
     return () => clearTimeout(t)
   }, [searchQuery])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [debouncedSearch, selectedZone])
 
   useEffect(() => {
     setCurrentPage(1)
@@ -310,8 +345,8 @@ export default function FoodApproval() {
             </div>
           </div>
 
-          {/* Search Bar */}
-          <div className="mb-4">
+          {/* Filter Bar */}
+          <div className="flex flex-col sm:flex-row gap-3 mb-4">
             <div className="relative flex-1">
               <span className="absolute inset-y-0 left-2.5 flex items-center text-gray-400">
                 <Search className="w-4 h-4" />
@@ -323,6 +358,21 @@ export default function FoodApproval() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full rounded-md border border-gray-300 bg-white py-1.5 pl-9 pr-3 text-sm focus:outline-none focus:border-[#006fbd] focus:ring-1 focus:ring-[#006fbd]"
               />
+            </div>
+            <div className="w-full sm:w-56">
+              <select
+                value={selectedZone}
+                onChange={(e) => setSelectedZone(e.target.value)}
+                disabled={zonesLoading}
+                className="w-full rounded-md border border-gray-300 bg-white py-1.5 px-3 text-sm text-gray-700 focus:outline-none focus:border-[#006fbd] focus:ring-1 focus:ring-[#006fbd]"
+              >
+                <option value="all">All Zones</option>
+                {zones.map((zone) => (
+                  <option key={zone._id || zone.id} value={String(zone._id || zone.id)}>
+                    {zone.zoneName || zone.name || zone.serviceLocation || 'Unnamed Zone'}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -342,6 +392,9 @@ export default function FoodApproval() {
                       </th>
                       <th className="px-3 py-3 !text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">
                         Restaurant
+                      </th>
+                      <th className="px-3 py-3 !text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                        Zone
                       </th>
                       <th className="px-3 py-3 !text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">
                         Category
@@ -372,7 +425,7 @@ export default function FoodApproval() {
                   <tbody className="divide-y divide-gray-200 bg-white">
                     {filteredRequests.length === 0 ? (
                       <tr>
-                        <td colSpan="10" className="px-3 py-8 text-center text-sm text-gray-500">
+                        <td colSpan="11" className="px-3 py-8 text-center text-sm text-gray-500">
                           {loading ? "Loading..." : "No food or add-on records found."}
                         </td>
                       </tr>
@@ -387,6 +440,11 @@ export default function FoodApproval() {
                               <div className="font-semibold text-gray-900 truncate">{request.restaurantName || '-'}</div>
                               <div className="text-gray-500 text-xs truncate" title={request.restaurantId}>{request.restaurantId || '-'}</div>
                             </div>
+                          </td>
+                          <td className="px-3 py-3 text-xs text-gray-700 !text-center whitespace-nowrap">
+                            <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700 border border-blue-200">
+                              {request.zoneName || "—"}
+                            </span>
                           </td>
                           <td className="px-3 py-3 text-sm text-gray-700 !text-center max-w-[150px] truncate" title={request.category}>
                             {request.category || '-'}
@@ -500,6 +558,7 @@ export default function FoodApproval() {
                    <h3 className="font-bold text-xs text-blue-700 uppercase tracking-wider mb-1">Restaurant</h3>
                    <p className="text-sm font-semibold text-gray-900">{selectedRequest.restaurantName || '-'}</p>
                    <p className="text-xs text-gray-500">ID: {selectedRequest.restaurantId || '-'}</p>
+                   <p className="text-xs text-blue-800 font-medium mt-1">Zone: {selectedRequest.zoneName || '—'}</p>
                 </div>
                 <div className="flex flex-col items-end gap-1">
                     <div className="px-3 py-1 bg-white rounded-full border border-blue-100 text-[10px] font-bold text-blue-600">

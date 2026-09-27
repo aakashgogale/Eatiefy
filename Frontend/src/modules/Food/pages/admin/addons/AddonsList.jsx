@@ -35,6 +35,9 @@ const getAddonImage = (addon) =>
 export default function AddonsList() {
   const [searchQuery, setSearchQuery] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [zones, setZones] = useState([])
+  const [selectedZone, setSelectedZone] = useState("all")
+  const [zonesLoading, setZonesLoading] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(() => {
     try {
@@ -52,7 +55,7 @@ export default function AddonsList() {
   const [showDetailModal, setShowDetailModal] = useState(false)
   const [editingAddon, setEditingAddon] = useState(null)
   const [showEditModal, setShowEditModal] = useState(false)
-  const [editForm, setEditForm] = useState({ name: "", price: "", description: "", isAvailable: true })
+  const [editForm, setEditForm] = useState({ name: "", price: "", description: "", isAvailable: true, zoneId: "" })
   const [editImagePreview, setEditImagePreview] = useState("")
   const [editImageFile, setEditImageFile] = useState(null)
 
@@ -63,7 +66,33 @@ export default function AddonsList() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [debouncedSearch])
+  }, [debouncedSearch, selectedZone])
+
+  useEffect(() => {
+    let isCancelled = false
+    const fetchZones = async () => {
+      try {
+        setZonesLoading(true)
+        const res = await adminAPI.getZones({ limit: 1000, isActive: true })
+        const data = res?.data?.data ?? res?.data
+        const list = Array.isArray(data?.zones)
+          ? data.zones
+          : Array.isArray(data)
+            ? data
+            : []
+        if (!isCancelled) setZones(list)
+      } catch (error) {
+        debugError("Error fetching zones:", error)
+        if (!isCancelled) setZones([])
+      } finally {
+        if (!isCancelled) setZonesLoading(false)
+      }
+    }
+    fetchZones()
+    return () => {
+      isCancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     const fetchAddons = async () => {
@@ -72,6 +101,7 @@ export default function AddonsList() {
         const response = await adminAPI.getRestaurantAddons({
           approvalStatus: "approved",
           search: debouncedSearch || undefined,
+          zoneId: selectedZone !== "all" ? selectedZone : undefined,
           page: currentPage,
           limit: pageSize,
         })
@@ -99,7 +129,7 @@ export default function AddonsList() {
     }
 
     fetchAddons()
-  }, [debouncedSearch, currentPage, pageSize])
+  }, [debouncedSearch, selectedZone, currentPage, pageSize])
 
   const filteredAddons = useMemo(() => {
     const result = Array.isArray(addons) ? [...addons] : []
@@ -121,6 +151,7 @@ export default function AddonsList() {
       price: addon?.draft?.price ?? addon?.price ?? "",
       description: addon?.draft?.description || addon?.description || "",
       isAvailable: addon?.isAvailable !== false,
+      zoneId: String(addon?.zoneId?._id || addon?.zoneId || addon?.restaurant?.zoneId || ""),
     })
     const img =
       addon?.draft?.image ||
@@ -136,6 +167,10 @@ export default function AddonsList() {
   const handleSaveEdit = async () => {
     const id = editingAddon?.id || editingAddon?._id
     if (!id) return
+    if (!editForm.zoneId) {
+      toast.error("Zone selection is mandatory")
+      return
+    }
     if (!editForm.name.trim()) {
       toast.error("Name is required")
       return
@@ -161,7 +196,9 @@ export default function AddonsList() {
         isAvailable: editForm.isAvailable,
         image: imageUrl,
         images: imageUrl ? [imageUrl] : [],
+        zoneId: editForm.zoneId,
       })
+      const resolvedZoneName = zones.find(z => String(z._id || z.id) === String(editForm.zoneId))?.name || ""
       setAddons((prev) =>
         (prev || []).map((a) =>
           String(a.id || a._id) === String(id)
@@ -173,6 +210,8 @@ export default function AddonsList() {
                 description: editForm.description.trim(),
                 image: imageUrl || a.image,
                 images: imageUrl ? [imageUrl] : a.images,
+                zoneId: editForm.zoneId,
+                zoneName: resolvedZoneName || a.zoneName,
               }
             : a,
         ),
@@ -227,15 +266,29 @@ export default function AddonsList() {
         </div>
 
         <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="relative w-full sm:w-96">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search add-ons or restaurant..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 pr-4 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400"
-            />
+          <div className="flex items-center gap-3 flex-wrap flex-1">
+            <div className="relative w-full sm:w-80">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search add-ons or restaurant..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 pr-4 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400"
+              />
+            </div>
+            <select
+              value={selectedZone}
+              onChange={(e) => setSelectedZone(e.target.value)}
+              className="px-4 py-2.5 min-w-[170px] text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400"
+            >
+              <option value="all">All Zones</option>
+              {zones.map((zone) => (
+                <option key={zone._id || zone.id} value={zone._id || zone.id}>
+                  {zone.name || zone.zoneName}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="text-sm text-slate-600">
             Showing <span className="font-semibold">{countLabel}</span>
@@ -261,6 +314,9 @@ export default function AddonsList() {
                   Restaurant
                 </th>
                 <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+                  Zone
+                </th>
+                <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                   Price
                 </th>
                 <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-700 uppercase tracking-wider">
@@ -271,7 +327,7 @@ export default function AddonsList() {
             <tbody className="bg-white divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-20 text-center">
+                  <td colSpan={7} className="px-6 py-20 text-center">
                     <div className="flex flex-col items-center justify-center">
                       <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-2" />
                       <p className="text-sm text-slate-500">Loading add-ons...</p>
@@ -280,10 +336,10 @@ export default function AddonsList() {
                 </tr>
               ) : filteredAddons.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-20 text-center">
+                  <td colSpan={7} className="px-6 py-20 text-center">
                     <div className="flex flex-col items-center justify-center">
                       <p className="text-lg font-semibold text-slate-700 mb-1">No Data Found</p>
-                      <p className="text-sm text-slate-500">No add-ons match your search</p>
+                      <p className="text-sm text-slate-500">No add-ons match your search or zone filter</p>
                     </div>
                   </td>
                 </tr>
@@ -318,6 +374,11 @@ export default function AddonsList() {
                           <span className="text-xs text-slate-500">{addon.restaurant.ownerPhone}</span>
                         ) : null}
                       </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                        {addon?.zoneName || addon?.zone?.name || addon?.restaurant?.zoneName || "—"}
+                      </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="text-sm font-medium text-slate-900">
@@ -402,6 +463,10 @@ export default function AddonsList() {
                   <span className="text-slate-900">{selectedAddon?.restaurant?.name || "-"}</span>
                 </p>
                 <p>
+                  <span className="font-semibold text-slate-700">Zone:</span>{" "}
+                  <span className="text-slate-900">{selectedAddon?.zoneName || selectedAddon?.zone?.name || selectedAddon?.restaurant?.zoneName || "—"}</span>
+                </p>
+                <p>
                   <span className="font-semibold text-slate-700">Price:</span>{" "}
                   <span className="text-slate-900">₹{Number(selectedAddon?.draft?.price ?? 0).toFixed(2)}</span>
                 </p>
@@ -456,6 +521,23 @@ export default function AddonsList() {
                 />
                 <p className="text-xs text-slate-500">PNG, JPG, WEBP up to 5MB</p>
               </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Zone <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={editForm.zoneId}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, zoneId: e.target.value }))}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm bg-white"
+              >
+                <option value="">Select zone</option>
+                {zones.map((zone) => (
+                  <option key={zone._id || zone.id} value={zone._id || zone.id}>
+                    {zone.name || zone.zoneName}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>

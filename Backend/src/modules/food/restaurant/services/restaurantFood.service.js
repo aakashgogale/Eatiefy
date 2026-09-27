@@ -95,7 +95,7 @@ const getRestaurantContext = async (restaurantId) => {
     }
 
     const restaurant = await FoodRestaurant.findById(restaurantId)
-        .select('foodType pureVegRestaurant')
+        .select('foodType pureVegRestaurant zoneId')
         .lean();
     if (!restaurant?._id) {
         throw new ValidationError('Restaurant not found');
@@ -106,6 +106,7 @@ const getRestaurantContext = async (restaurantId) => {
         restaurantId: new mongoose.Types.ObjectId(String(restaurantId)),
         foodType,
         pureVegRestaurant: foodType === 'Veg',
+        zoneId: restaurant.zoneId || null,
     };
 };
 
@@ -234,6 +235,7 @@ export async function createRestaurantFood(restaurantId, body = {}) {
 
     const doc = await FoodItem.create({
         restaurantId,
+        zoneId: context.zoneId || null,
         categoryId: categoryObjectId,
         categoryName: categoryName || '',
         name,

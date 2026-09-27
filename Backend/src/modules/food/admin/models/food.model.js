@@ -30,6 +30,7 @@ const foodSchema = new mongoose.Schema(
         approvedAt: { type: Date },
         rejectedAt: { type: Date },
         actionType: { type: String, enum: ['NEW', 'UPDATED'], default: 'NEW' },
+        zoneId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodZone', index: true, default: null },
         oldData: { type: mongoose.Schema.Types.Mixed, default: null },
         newData: { type: mongoose.Schema.Types.Mixed, default: null }
     },
@@ -41,6 +42,8 @@ const foodSchema = new mongoose.Schema(
 
 foodSchema.index({ createdAt: -1 });
 foodSchema.index({ restaurantId: 1, createdAt: -1 });
+foodSchema.index({ zoneId: 1, approvalStatus: 1, createdAt: -1 });
+foodSchema.index({ zoneId: 1, restaurantId: 1 });
 foodSchema.index({ approvalStatus: 1, createdAt: -1 });
 foodSchema.index({ approvalStatus: 1, requestedAt: -1 });
 foodSchema.index({ requestedAt: -1, createdAt: -1 });

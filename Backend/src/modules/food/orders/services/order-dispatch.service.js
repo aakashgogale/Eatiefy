@@ -235,11 +235,12 @@ async function listNearbyOnlineDeliveryPartners(
     availabilityStatus: 'online',
     status: { $in: allowedStatuses },
   })
-    .select('_id status lastLat lastLng lastLocationAt name')
+    .select('_id status lastLat lastLng lastLocationAt name zoneId')
     .lean();
 
-  // Zone-first: only partners currently inside the order/restaurant zone.
+  // Zone-first: only partners assigned to this zone (or without zoneId yet) and currently inside the order/restaurant zone.
   const inZonePartners = (allOnline || []).filter((p) => {
+    if (p.zoneId && String(p.zoneId) !== String(zoneDoc._id)) return false;
     if (p.lastLat == null || p.lastLng == null) return false;
     if (p.lastLocationAt) {
       const ageMs = Date.now() - new Date(p.lastLocationAt).getTime();

@@ -174,6 +174,12 @@ export default function AdminRouter() {
           {/* Default Admin Redirect */}
           <Route path="/" element={<Navigate to="food" replace />} />
 
+          {/* Direct aliases for restaurant routes accessed without /food prefix */}
+          <Route path="restaurants/add" element={<Navigate to="/admin/food/restaurants/add" replace />} />
+          <Route path="restaurants/edit/:id" element={<Navigate to="/admin/food/restaurants" replace />} />
+          <Route path="restaurants" element={<Navigate to="/admin/food/restaurants" replace />} />
+          <Route path="restaurants/*" element={<Navigate to="/admin/food/restaurants" replace />} />
+
           {/* FOOD ADMIN - All food related routes nested here */}
           <Route path="food/*">
             <Route index element={<AdminHome />} />

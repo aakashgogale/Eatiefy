@@ -41,6 +41,7 @@ const foodCategorySchema = new mongoose.Schema(
 );
 
 foodCategorySchema.index({ isApproved: 1, createdAt: -1 });
+foodCategorySchema.index({ zoneId: 1, isApproved: 1, createdAt: -1 });
 foodCategorySchema.index({ restaurantId: 1, isApproved: 1, createdAt: -1 });
 foodCategorySchema.index({ approvalStatus: 1, createdAt: -1 });
 foodCategorySchema.index({ createdByRestaurantId: 1, createdAt: -1 });

@@ -3,6 +3,7 @@ import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js'
 import { logger } from '../../../../utils/logger.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
+import { resolveZoneIdForPartner } from '../../delivery/services/delivery.service.js';
 import { DeliverySupportTicket } from '../../delivery/models/supportTicket.model.js';
 import { FoodZone } from '../models/zone.model.js';
 import { assertZoneCoversLocation, isPointInZone } from '../../shared/zoneLocation.js';
@@ -15,6 +16,7 @@ import {
 } from '../../shared/supportTicketWorkflow.js';
 import { FoodCategory } from '../models/category.model.js';
 import { FoodItem } from '../models/food.model.js';
+import { FoodPricingRule } from '../models/foodPricingRule.model.js';
 import { FoodOffer } from '../models/offer.model.js';
 import { FoodOfferUsage } from '../models/offerUsage.model.js';
 import { DeliveryBonusTransaction } from '../models/deliveryBonusTransaction.model.js';
@@ -616,28 +618,9 @@ export async function getDashboardStats(query = {}) {
 
     let deliveryFilter = {};
     if (zoneId) {
-        const zoneDoc = await FoodZone.findById(zoneId).select('serviceLocation name zoneName').lean();
-        const zoneNames = [zoneDoc?.serviceLocation, zoneDoc?.name, zoneDoc?.zoneName]
-            .filter(Boolean)
-            .map((s) => String(s).trim());
-        const zoneRegexes = zoneNames.map(
-            (z) => new RegExp(`^${z.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
-        );
-
-        const zonePartnerIds = await FoodOrder.find({
-            $or: [{ zoneId }, { restaurantId: { $in: zoneRestaurantIds || [] } }],
-            'dispatch.deliveryPartnerId': { $ne: null }
-        }).distinct('dispatch.deliveryPartnerId');
-
-        const deliveryOr = [];
-        if (zoneRegexes.length > 0) {
-            deliveryOr.push({ city: { $in: zoneRegexes } });
+        if (mongoose.Types.ObjectId.isValid(String(zoneId))) {
+            deliveryFilter = { zoneId: new mongoose.Types.ObjectId(String(zoneId)) };
         }
-        if (zonePartnerIds.length > 0) {
-            deliveryOr.push({ _id: { $in: zonePartnerIds.filter(Boolean) } });
-        }
-
-        deliveryFilter = deliveryOr.length > 0 ? { $or: deliveryOr } : { _id: { $in: [] } };
     }
 
     const [
@@ -3593,15 +3576,13 @@ export async function getCategories(query) {
         const term = String(query.search).trim();
         filter.$or = [{ name: { $regex: term, $options: 'i' } }];
     }
-    // Optional zone filter for admin list.
-    // - zoneId=global => only global categories (zoneId missing)
-    // - zoneId=<ObjectId> => only categories bound to that zone
+    // Zone filter for admin list.
     if (query.zoneId && String(query.zoneId).trim()) {
         const zid = String(query.zoneId).trim();
-        if (zid === 'global') {
-            filter.$or = [...(filter.$or || []), { zoneId: { $exists: false } }, { zoneId: null }];
-        } else if (mongoose.Types.ObjectId.isValid(zid)) {
+        if (mongoose.Types.ObjectId.isValid(zid)) {
             filter.zoneId = new mongoose.Types.ObjectId(zid);
+        } else if (zid === 'global') {
+            filter.$or = [...(filter.$or || []), { zoneId: { $exists: false } }, { zoneId: null }];
         }
     }
     if (query.approvalStatus) {
@@ -3652,18 +3633,38 @@ export async function getCategories(query) {
                 .filter(Boolean)
         )
     );
-    const restaurants = restaurantIds.length
-        ? await FoodRestaurant.find({ _id: { $in: restaurantIds } })
-            .select('restaurantName ownerName ownerPhone')
-            .lean()
-        : [];
-    const restaurantMap = new Map(restaurants.map((restaurant) => [String(restaurant._id), restaurant]));
+    const categoryZoneIds = Array.from(
+        new Set(list.map((c) => c?.zoneId ? String(c.zoneId) : null).filter(Boolean))
+    );
 
-    const hydratedList = list.map((category) => ({
-        ...category,
-        restaurantId: category?.restaurantId ? restaurantMap.get(String(category.restaurantId)) || category.restaurantId : category.restaurantId,
-        createdByRestaurantId: category?.createdByRestaurantId ? restaurantMap.get(String(category.createdByRestaurantId)) || category.createdByRestaurantId : category.createdByRestaurantId
-    }));
+    const [restaurants, zones] = await Promise.all([
+        restaurantIds.length
+            ? FoodRestaurant.find({ _id: { $in: restaurantIds } })
+                .select('restaurantName ownerName ownerPhone')
+                .lean()
+            : [],
+        categoryZoneIds.length
+            ? FoodZone.find({ _id: { $in: categoryZoneIds } })
+                .select('name zoneName serviceLocation')
+                .lean()
+            : []
+    ]);
+
+    const restaurantMap = new Map(restaurants.map((restaurant) => [String(restaurant._id), restaurant]));
+    const zoneMap = new Map(zones.map((zone) => [String(zone._id), zone]));
+
+    const hydratedList = list.map((category) => {
+        const zId = category?.zoneId ? String(category.zoneId) : null;
+        const zDoc = zId ? zoneMap.get(zId) : null;
+        return {
+            ...category,
+            zoneId: zId,
+            zoneName: zDoc ? (zDoc.name || zDoc.zoneName || zDoc.serviceLocation || 'Zone') : (zId ? 'Zone' : 'Unassigned'),
+            zone: zDoc || null,
+            restaurantId: category?.restaurantId ? restaurantMap.get(String(category.restaurantId)) || category.restaurantId : category.restaurantId,
+            createdByRestaurantId: category?.createdByRestaurantId ? restaurantMap.get(String(category.createdByRestaurantId)) || category.createdByRestaurantId : category.createdByRestaurantId
+        };
+    });
     const categories = hydratedList.map((category) => serializeCategoryForResponse(category, { includeCounts: true, statsById }));
 
     return { categories, total, page, limit };
@@ -3672,20 +3673,22 @@ export async function getCategories(query) {
 export async function createCategory(body) {
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     if (!name) throw new ValidationError('Category name is required');
+
+    if (!body.zoneId || !mongoose.Types.ObjectId.isValid(String(body.zoneId))) {
+        throw new ValidationError('A valid Zone selection is mandatory');
+    }
+    const zoneOid = new mongoose.Types.ObjectId(String(body.zoneId));
+    const zoneExists = await FoodZone.exists({ _id: zoneOid, isActive: true });
+    if (!zoneExists) {
+        throw new ValidationError('Selected zone is invalid, deactivated, or deleted');
+    }
+
     const doc = new FoodCategory({
         name,
         image: typeof body.image === 'string' ? body.image.trim() : '',
         type: typeof body.type === 'string' ? body.type.trim() : '',
         foodTypeScope: normalizeCategoryFoodTypeScope(body.foodTypeScope, 'Both'),
-        zoneId:
-            body.zoneId && String(body.zoneId).trim()
-                ? (() => {
-                    const zid = String(body.zoneId).trim();
-                    if (zid === 'global') return undefined;
-                    if (!mongoose.Types.ObjectId.isValid(zid)) throw new ValidationError('Invalid zoneId');
-                    return new mongoose.Types.ObjectId(zid);
-                })()
-                : undefined,
+        zoneId: zoneOid,
         isActive: body.isActive !== false,
         sortOrder: Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0,
         // Admin-created categories are globally available immediately.
@@ -3788,16 +3791,17 @@ export async function updateCategory(id, body) {
     }
     if (body.type !== undefined) doc.type = String(body.type || '').trim();
     if (body.foodTypeScope !== undefined) doc.foodTypeScope = nextFoodTypeScope;
-    if (!doc.restaurantId && doc.createdByRestaurantId) {
-        doc.zoneId = undefined;
-    } else if (body.zoneId !== undefined) {
+    if (body.zoneId !== undefined) {
         const raw = String(body.zoneId || '').trim();
-        if (!raw || raw === 'global') {
-            doc.zoneId = undefined;
-        } else {
-            if (!mongoose.Types.ObjectId.isValid(raw)) throw new ValidationError('Invalid zoneId');
-            doc.zoneId = new mongoose.Types.ObjectId(raw);
+        if (!raw || !mongoose.Types.ObjectId.isValid(raw)) {
+            throw new ValidationError('A valid Zone selection is mandatory');
         }
+        const zoneOid = new mongoose.Types.ObjectId(raw);
+        const zoneExists = await FoodZone.exists({ _id: zoneOid, isActive: true });
+        if (!zoneExists) {
+            throw new ValidationError('Selected zone is invalid, deactivated, or deleted');
+        }
+        doc.zoneId = zoneOid;
     }
     if (body.isActive !== undefined) doc.isActive = body.isActive !== false;
     if (body.sortOrder !== undefined) doc.sortOrder = Number(body.sortOrder) || 0;
@@ -3848,6 +3852,25 @@ export async function getRestaurantAddonsAdmin(query = {}) {
         filter.restaurantId = new mongoose.Types.ObjectId(String(query.restaurantId));
     }
 
+    if (query.zoneId && mongoose.Types.ObjectId.isValid(String(query.zoneId))) {
+        const zoneOid = new mongoose.Types.ObjectId(String(query.zoneId));
+        const matchingRestaurants = await FoodRestaurant.find({ zoneId: zoneOid }).select('_id').lean();
+        const matchingRestIds = matchingRestaurants.map((restaurant) => restaurant._id);
+        const zoneCondition = {
+            $or: [
+                { zoneId: zoneOid },
+                { zoneId: null, restaurantId: { $in: matchingRestIds } },
+                { zoneId: { $exists: false }, restaurantId: { $in: matchingRestIds } }
+            ]
+        };
+        if (filter.$or) {
+            filter.$and = [{ $or: filter.$or }, zoneCondition];
+            delete filter.$or;
+        } else {
+            filter.$or = zoneCondition.$or;
+        }
+    }
+
     if (query.search && String(query.search).trim()) {
         const raw = String(query.search).trim().slice(0, 80);
         const term = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -3857,10 +3880,21 @@ export async function getRestaurantAddonsAdmin(query = {}) {
             .select('_id')
             .lean();
 
-        filter.$or = [
-            { 'draft.name': { $regex: term, $options: 'i' } },
-            { restaurantId: { $in: matchingRestaurantIds.map((restaurant) => restaurant._id) } }
-        ];
+        const searchCondition = {
+            $or: [
+                { 'draft.name': { $regex: term, $options: 'i' } },
+                { restaurantId: { $in: matchingRestaurantIds.map((restaurant) => restaurant._id) } }
+            ]
+        };
+
+        if (filter.$or) {
+            filter.$and = [...(filter.$and || []), { $or: filter.$or }, searchCondition];
+            delete filter.$or;
+        } else if (filter.$and) {
+            filter.$and.push(searchCondition);
+        } else {
+            filter.$or = searchCondition.$or;
+        }
     }
 
     const [list, total] = await Promise.all([
@@ -3868,34 +3902,49 @@ export async function getRestaurantAddonsAdmin(query = {}) {
             .sort({ requestedAt: -1, createdAt: -1 })
             .skip(skip)
             .limit(limit)
-            .populate('restaurantId', 'restaurantName ownerName ownerPhone')
+            .populate('restaurantId', 'restaurantName ownerName ownerPhone zoneId')
             .lean(),
         FoodAddon.countDocuments(filter)
     ]);
 
-    const addons = list.map((a) => ({
-        id: a._id,
-        _id: a._id,
-        restaurantId: a.restaurantId?._id ? String(a.restaurantId._id) : String(a.restaurantId),
-        restaurant: a.restaurantId?._id
-            ? {
-                _id: a.restaurantId._id,
-                name: a.restaurantId.restaurantName || '',
-                ownerName: a.restaurantId.ownerName || '',
-                ownerPhone: a.restaurantId.ownerPhone || ''
-            }
-            : null,
-        approvalStatus: a.approvalStatus || 'pending',
-        rejectionReason: a.rejectionReason || '',
-        requestedAt: a.requestedAt,
-        approvedAt: a.approvedAt,
-        rejectedAt: a.rejectedAt,
-        isAvailable: a.isAvailable !== false,
-        draft: a.draft || null,
-        published: a.published || null,
-        createdAt: a.createdAt,
-        updatedAt: a.updatedAt
-    }));
+    const addonZoneIds = Array.from(new Set(
+        list.map((a) => a.zoneId ? String(a.zoneId) : (a.restaurantId?.zoneId ? String(a.restaurantId.zoneId) : null)).filter(Boolean)
+    ));
+    const zones = addonZoneIds.length
+        ? await FoodZone.find({ _id: { $in: addonZoneIds } }).select('name zoneName serviceLocation').lean()
+        : [];
+    const zoneMap = new Map(zones.map((z) => [String(z._id), z.name || z.zoneName || z.serviceLocation || 'Zone']));
+
+    const addons = list.map((a) => {
+        const resolvedZoneId = a.zoneId ? String(a.zoneId) : (a.restaurantId?.zoneId ? String(a.restaurantId.zoneId) : null);
+        const resolvedZoneName = resolvedZoneId ? (zoneMap.get(resolvedZoneId) || '') : '';
+        return {
+            id: a._id,
+            _id: a._id,
+            zoneId: resolvedZoneId,
+            zoneName: resolvedZoneName,
+            restaurantId: a.restaurantId?._id ? String(a.restaurantId._id) : String(a.restaurantId),
+            restaurant: a.restaurantId?._id
+                ? {
+                    _id: a.restaurantId._id,
+                    name: a.restaurantId.restaurantName || '',
+                    ownerName: a.restaurantId.ownerName || '',
+                    ownerPhone: a.restaurantId.ownerPhone || '',
+                    zoneId: a.restaurantId.zoneId ? String(a.restaurantId.zoneId) : null
+                }
+                : null,
+            approvalStatus: a.approvalStatus || 'pending',
+            rejectionReason: a.rejectionReason || '',
+            requestedAt: a.requestedAt,
+            approvedAt: a.approvedAt,
+            rejectedAt: a.rejectedAt,
+            isAvailable: a.isAvailable !== false,
+            draft: a.draft || null,
+            published: a.published || null,
+            createdAt: a.createdAt,
+            updatedAt: a.updatedAt
+        };
+    });
 
     return { addons, total, page, limit };
 }
@@ -3906,6 +3955,18 @@ export async function updateRestaurantAddonAdmin(addonId, body) {
     
     const addon = await FoodAddon.findOne({ _id, isDeleted: { $ne: true } });
     if (!addon) return null;
+
+    if (body.zoneId !== undefined) {
+        if (!body.zoneId || !mongoose.Types.ObjectId.isValid(String(body.zoneId))) {
+            throw new ValidationError('A valid Zone selection is mandatory');
+        }
+        const zoneOid = new mongoose.Types.ObjectId(String(body.zoneId));
+        const zoneExists = await FoodZone.exists({ _id: zoneOid, isActive: true });
+        if (!zoneExists) {
+            throw new ValidationError('Selected zone is invalid, deactivated, or deleted');
+        }
+        addon.zoneId = zoneOid;
+    }
 
     const updatePayload = {};
     if (body.name !== undefined) updatePayload.name = String(body.name || '').trim();
@@ -4051,12 +4112,42 @@ export async function getFoods(query) {
     if (query.restaurantId && mongoose.Types.ObjectId.isValid(query.restaurantId)) {
         filter.restaurantId = query.restaurantId;
     }
+
+    if (query.zoneId && mongoose.Types.ObjectId.isValid(String(query.zoneId))) {
+        const zoneOid = new mongoose.Types.ObjectId(String(query.zoneId));
+        const matchingRestaurants = await FoodRestaurant.find({ zoneId: zoneOid }).select('_id').lean();
+        const matchingRestIds = matchingRestaurants.map((restaurant) => restaurant._id);
+        const zoneCondition = {
+            $or: [
+                { zoneId: zoneOid },
+                { zoneId: null, restaurantId: { $in: matchingRestIds } },
+                { zoneId: { $exists: false }, restaurantId: { $in: matchingRestIds } }
+            ]
+        };
+        if (filter.$or) {
+            filter.$and = [{ $or: filter.$or }, zoneCondition];
+            delete filter.$or;
+        } else {
+            filter.$or = zoneCondition.$or;
+        }
+    }
+
     if (query.search && String(query.search).trim()) {
         const term = String(query.search).trim();
-        filter.$or = [
-            { name: { $regex: term, $options: 'i' } },
-            { categoryName: { $regex: term, $options: 'i' } }
-        ];
+        const searchCondition = {
+            $or: [
+                { name: { $regex: term, $options: 'i' } },
+                { categoryName: { $regex: term, $options: 'i' } }
+            ]
+        };
+        if (filter.$or) {
+            filter.$and = [...(filter.$and || []), { $or: filter.$or }, searchCondition];
+            delete filter.$or;
+        } else if (filter.$and) {
+            filter.$and.push(searchCondition);
+        } else {
+            filter.$or = searchCondition.$or;
+        }
     }
     if (query.approvalStatus && ['pending', 'approved', 'rejected'].includes(String(query.approvalStatus))) {
         filter.approvalStatus = String(query.approvalStatus);
@@ -4076,31 +4167,46 @@ export async function getFoods(query) {
         list.map((f) => String(f.restaurantId)).filter(id => id && mongoose.Types.ObjectId.isValid(id))
     ));
     const restaurants = validRestaurantIds.length
-        ? await FoodRestaurant.find({ _id: { $in: validRestaurantIds } }).select('restaurantName name foodType pureVegRestaurant').lean()
+        ? await FoodRestaurant.find({ _id: { $in: validRestaurantIds } }).select('restaurantName name foodType pureVegRestaurant zoneId').lean()
         : [];
     const restaurantMap = new Map(restaurants.map((r) => [String(r._id), r.restaurantName || r.name]));
+    const restaurantZoneMap = new Map(restaurants.map((r) => [String(r._id), r.zoneId ? String(r.zoneId) : null]));
 
-    const foods = list.map((f) => ({
-        id: f._id,
-        _id: f._id,
-        restaurantId: f.restaurantId,
-        restaurantName: restaurantMap.get(String(f.restaurantId)) || 'Unknown Restaurant',
-        categoryId: f.categoryId || null,
-        categoryName: f.categoryName || '',
-        name: f.name,
-        description: f.description || '',
-        price: getFoodDisplayPrice(f),
-        variants: serializeFoodVariants(f.variants),
-        variations: serializeFoodVariants(f.variants),
-        image: f.image || '',
-        foodType: f.foodType || 'Non-Veg',
-        isAvailable: f.isAvailable !== false,
-        isRecommended: f.isRecommended === true,
-        preparationTime: f.preparationTime || '',
-        approvalStatus: f.approvalStatus || 'approved',
-        createdAt: f.createdAt,
-        updatedAt: f.updatedAt
-    }));
+    const foodZoneIds = Array.from(new Set(
+        list.map((f) => f.zoneId ? String(f.zoneId) : (restaurantZoneMap.get(String(f.restaurantId)) || null)).filter(Boolean)
+    ));
+    const zones = foodZoneIds.length
+        ? await FoodZone.find({ _id: { $in: foodZoneIds } }).select('name zoneName serviceLocation').lean()
+        : [];
+    const zoneMap = new Map(zones.map((z) => [String(z._id), z.name || z.zoneName || z.serviceLocation || 'Zone']));
+
+    const foods = list.map((f) => {
+        const resolvedZoneId = f.zoneId ? String(f.zoneId) : (restaurantZoneMap.get(String(f.restaurantId)) || null);
+        const resolvedZoneName = resolvedZoneId ? (zoneMap.get(resolvedZoneId) || '') : '';
+        return {
+            id: f._id,
+            _id: f._id,
+            restaurantId: f.restaurantId,
+            restaurantName: restaurantMap.get(String(f.restaurantId)) || 'Unknown Restaurant',
+            zoneId: resolvedZoneId,
+            zoneName: resolvedZoneName,
+            categoryId: f.categoryId || null,
+            categoryName: f.categoryName || '',
+            name: f.name,
+            description: f.description || '',
+            price: getFoodDisplayPrice(f),
+            variants: serializeFoodVariants(f.variants),
+            variations: serializeFoodVariants(f.variants),
+            image: f.image || '',
+            foodType: f.foodType || 'Non-Veg',
+            isAvailable: f.isAvailable !== false,
+            isRecommended: f.isRecommended === true,
+            preparationTime: f.preparationTime || '',
+            approvalStatus: f.approvalStatus || 'approved',
+            createdAt: f.createdAt,
+            updatedAt: f.updatedAt
+        };
+    });
 
     return { foods, total, page, limit };
 }
@@ -4213,11 +4319,21 @@ export async function createFood(body) {
         throw new ValidationError('Valid restaurantId is required');
     }
     const restaurant = await FoodRestaurant.findById(restaurantId)
-        .select('foodType pureVegRestaurant')
+        .select('foodType pureVegRestaurant zoneId')
         .lean();
     if (!restaurant?._id) {
         throw new ValidationError('Restaurant not found');
     }
+
+    if (!body.zoneId || !mongoose.Types.ObjectId.isValid(String(body.zoneId))) {
+        throw new ValidationError('A valid Zone selection is mandatory');
+    }
+    const zoneOid = new mongoose.Types.ObjectId(String(body.zoneId));
+    const zoneExists = await FoodZone.exists({ _id: zoneOid, isActive: true });
+    if (!zoneExists) {
+        throw new ValidationError('Selected zone is invalid, deactivated, or deleted');
+    }
+
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     if (!name) throw new ValidationError('Food name is required');
     const foodType = normalizeDishFoodType(body.foodType);
@@ -4242,6 +4358,7 @@ export async function createFood(body) {
 
     const doc = new FoodItem({
         restaurantId,
+        zoneId: zoneOid,
         categoryId,
         categoryName: resolvedCategoryName,
         name,
@@ -4273,6 +4390,19 @@ export async function updateFood(id, body) {
     if (!restaurant?._id) {
         throw new ValidationError('Restaurant not found');
     }
+
+    if (body.zoneId !== undefined) {
+        if (!body.zoneId || !mongoose.Types.ObjectId.isValid(String(body.zoneId))) {
+            throw new ValidationError('A valid Zone selection is mandatory');
+        }
+        const zoneOid = new mongoose.Types.ObjectId(String(body.zoneId));
+        const zoneExists = await FoodZone.exists({ _id: zoneOid, isActive: true });
+        if (!zoneExists) {
+            throw new ValidationError('Selected zone is invalid, deactivated, or deleted');
+        }
+        doc.zoneId = zoneOid;
+    }
+
     if (body.name !== undefined) doc.name = String(body.name || '').trim();
     if (body.description !== undefined) doc.description = String(body.description || '').trim();
     const restaurantFoodType = restaurant.foodType || (restaurant.pureVegRestaurant ? 'Veg' : 'Mixed');
@@ -5212,15 +5342,23 @@ export async function getDeliveryJoinRequests(query) {
             ]
         });
     }
-    if (zone && zone.trim()) {
+    const requestedZoneId = query.zoneId || (zone && mongoose.Types.ObjectId.isValid(String(zone)) ? zone : null);
+    if (requestedZoneId && mongoose.Types.ObjectId.isValid(String(requestedZoneId))) {
+        andParts.push({ zoneId: new mongoose.Types.ObjectId(String(requestedZoneId)) });
+    } else if (zone && typeof zone === 'string' && zone.trim()) {
         const z = zone.trim();
-        andParts.push({
+        const matchedZone = await FoodZone.findOne({
             $or: [
-                { city: { $regex: z, $options: 'i' } },
-                { state: { $regex: z, $options: 'i' } },
-                { address: { $regex: z, $options: 'i' } }
+                { name: new RegExp(`^${escapeRegexTerm(z)}$`, 'i') },
+                { zoneName: new RegExp(`^${escapeRegexTerm(z)}$`, 'i') },
+                { serviceLocation: new RegExp(`^${escapeRegexTerm(z)}$`, 'i') }
             ]
-        });
+        }).select('_id').lean();
+        if (matchedZone) {
+            andParts.push({ zoneId: matchedZone._id });
+        } else {
+            andParts.push({ _id: { $in: [] } });
+        }
     }
     if (andParts.length) filter.$and = andParts;
     if (vehicleType && vehicleType.trim()) {
@@ -5230,25 +5368,35 @@ export async function getDeliveryJoinRequests(query) {
     const skip = Math.max(0, (Number(page) || 1) - 1) * Math.max(1, Math.min(1000, Number(limit) || 100));
     const limitNum = Math.max(1, Math.min(1000, Number(limit) || 100));
 
-    const list = await FoodDeliveryPartner.find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limitNum)
-        .lean();
+    const [list, zoneDocs] = await Promise.all([
+        FoodDeliveryPartner.find(filter)
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limitNum)
+            .lean(),
+        FoodZone.find({}).select('_id name zoneName serviceLocation').lean()
+    ]);
 
-    const requests = list.map((doc, index) => ({
-        _id: doc._id,
-        sl: skip + index + 1,
-        name: doc.name || '',
-        email: doc.email || '',
-        phone: doc.phone || '',
-        zone: doc.city || doc.state || doc.address || '',
-        vehicleType: doc.vehicleType || '',
-        status: doc.status === 'rejected' ? 'denied' : doc.status,
-        rejectionReason: doc.rejectionReason || undefined,
-        profilePhoto: doc.profilePhoto || null,
-        profileImage: doc.profilePhoto ? { url: doc.profilePhoto } : null
-    }));
+    const zoneMap = new Map((zoneDocs || []).map((z) => [String(z._id), z.name || z.zoneName || z.serviceLocation || '']));
+
+    const requests = list.map((doc, index) => {
+        const resolvedZoneName = doc.zoneId ? (zoneMap.get(String(doc.zoneId)) || '') : '';
+        return {
+            _id: doc._id,
+            sl: skip + index + 1,
+            name: doc.name || '',
+            email: doc.email || '',
+            phone: doc.phone || '',
+            zoneId: doc.zoneId ? String(doc.zoneId) : null,
+            zone: resolvedZoneName || doc.city || doc.state || doc.address || '',
+            zoneName: resolvedZoneName,
+            vehicleType: doc.vehicleType || '',
+            status: doc.status === 'rejected' ? 'denied' : doc.status,
+            rejectionReason: doc.rejectionReason || undefined,
+            profilePhoto: doc.profilePhoto || null,
+            profileImage: doc.profilePhoto ? { url: doc.profilePhoto } : null
+        };
+    });
 
     return { requests };
 }
@@ -5375,59 +5523,10 @@ const DELIVERY_PARTNER_LIST_SORT = { createdAt: -1, _id: -1 };
  * A zone none of these match yields a clause matching nobody: an empty zone
  * must list no one, never fall back to every partner.
  */
-async function getZoneDeliveryPartnerClauses(zoneId) {
-    if (!mongoose.Types.ObjectId.isValid(zoneId)) {
-        throw new ValidationError('Invalid zone');
-    }
-    const zone = await FoodZone.findById(zoneId)
-        .select('name zoneName serviceLocation coordinates')
-        .lean();
-    if (!zone) throw new NotFoundError('Zone not found');
-
-    // Bounding box first (plain range query on the numeric fix), exact
-    // point-in-polygon after - avoids $geoWithin rejecting imperfect polygons.
-    const ring = (zone.coordinates || [])
-        .map((c) => ({ lat: Number(c?.latitude), lng: Number(c?.longitude) }))
-        .filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lng));
-    const insideZoneQuery = ring.length >= 3
-        ? FoodDeliveryPartner.find({
-            status: 'approved',
-            lastLat: { $gte: Math.min(...ring.map((c) => c.lat)), $lte: Math.max(...ring.map((c) => c.lat)) },
-            lastLng: { $gte: Math.min(...ring.map((c) => c.lng)), $lte: Math.max(...ring.map((c) => c.lng)) },
-        }).select('_id lastLat lastLng').lean()
-        : Promise.resolve([]);
-
-    const [inBox, orderPartnerIds] = await Promise.all([
-        insideZoneQuery,
-        FoodOrder.find({
-            zoneId: new mongoose.Types.ObjectId(zoneId),
-            'dispatch.deliveryPartnerId': { $ne: null },
-        }).distinct('dispatch.deliveryPartnerId'),
-    ]);
-
-    const memberIds = [
-        ...inBox.filter((p) => isPointInZone(p.lastLat, p.lastLng, zone)).map((p) => p._id),
-        ...orderPartnerIds.filter(Boolean),
-    ];
-    const zoneNames = [...new Set(
-        [zone.name, zone.zoneName, zone.serviceLocation]
-            .map((s) => String(s || '').trim())
-            .filter(Boolean)
-    )];
-
-    const clauses = [];
-    if (memberIds.length > 0) clauses.push({ _id: { $in: memberIds } });
-    if (zoneNames.length > 0) {
-        clauses.push({ city: { $in: zoneNames.map((n) => new RegExp(`^${escapeRegexTerm(n)}$`, 'i')) } });
-    }
-    return clauses.length > 0 ? clauses : [{ _id: { $in: [] } }];
-}
-
 /**
  * Filter for the approved-partner lists: the Deliveryman List and the wallet
  * figures shown in it. Both endpoints must select - and page through - exactly
- * the same partners, because the list pairs their rows by id; they used to
- * filter differently (the wallets ignored email/city/state search and the zone).
+ * the same partners, strictly matching zoneId.
  */
 async function buildDeliveryPartnerListFilter({ search, zoneId } = {}) {
     const clauses = [{ status: 'approved' }];
@@ -5437,7 +5536,11 @@ async function buildDeliveryPartnerListFilter({ search, zoneId } = {}) {
         clauses.push({ $or: [{ name: rx }, { phone: rx }, { email: rx }, { city: rx }, { state: rx }] });
     }
     if (zoneId) {
-        clauses.push({ $or: await getZoneDeliveryPartnerClauses(zoneId) });
+        if (!mongoose.Types.ObjectId.isValid(String(zoneId))) {
+            throw new ValidationError('Invalid zone');
+        }
+        const zoneOid = new mongoose.Types.ObjectId(String(zoneId));
+        clauses.push({ zoneId: zoneOid });
     }
     return clauses.length === 1 ? clauses[0] : { $and: clauses };
 }
@@ -5449,14 +5552,17 @@ export async function getDeliveryPartners(query) {
     const skip = Math.max(0, (Number(page) || 1) - 1) * Math.max(1, Math.min(1000, Number(limit) || 100));
     const limitNum = Math.max(1, Math.min(1000, Number(limit) || 100));
 
-    const [list, total] = await Promise.all([
+    const [list, total, zoneDocs] = await Promise.all([
         FoodDeliveryPartner.find(filter)
             .sort(DELIVERY_PARTNER_LIST_SORT)
             .skip(skip)
             .limit(limitNum)
             .lean(),
-        FoodDeliveryPartner.countDocuments(filter)
+        FoodDeliveryPartner.countDocuments(filter),
+        FoodZone.find({}).select('_id name zoneName serviceLocation').lean()
     ]);
+
+    const zoneMap = new Map((zoneDocs || []).map((z) => [String(z._id), z.name || z.zoneName || z.serviceLocation || '']));
 
     // Fetch total orders for these partners in real-time
     const partnerIds = list.map((p) => p._id);
@@ -5501,22 +5607,27 @@ export async function getDeliveryPartners(query) {
         (ratingAgg || []).map((r) => [String(r._id), { avg: Math.round((r.avg || 0) * 10) / 10, count: r.count }])
     );
 
-    const deliveryPartners = list.map((doc, index) => ({
-        _id: doc._id,
-        sl: skip + index + 1,
-        name: doc.name || '',
-        email: doc.email || '',
-        phone: doc.phone || '',
-        deliveryId: doc._id ? `DP-${doc._id.toString().slice(-8).toUpperCase()}` : null,
-        zone: doc.city || doc.state || doc.address || '',
-        vehicleType: doc.vehicleType || '',
-        status: doc.status,
-        totalOrders: countsMap.get(String(doc._id)) || 0,
-        rating: ratingMap.get(String(doc._id))?.avg || 0,
-        totalRatings: ratingMap.get(String(doc._id))?.count || 0,
-        profilePhoto: doc.profilePhoto || null,
-        profileImage: doc.profilePhoto ? { url: doc.profilePhoto } : null
-    }));
+    const deliveryPartners = list.map((doc, index) => {
+        const resolvedZoneName = doc.zoneId ? (zoneMap.get(String(doc.zoneId)) || '') : '';
+        return {
+            _id: doc._id,
+            sl: skip + index + 1,
+            name: doc.name || '',
+            email: doc.email || '',
+            phone: doc.phone || '',
+            deliveryId: doc._id ? `DP-${doc._id.toString().slice(-8).toUpperCase()}` : null,
+            zoneId: doc.zoneId ? String(doc.zoneId) : null,
+            zone: resolvedZoneName || doc.city || doc.state || doc.address || '',
+            zoneName: resolvedZoneName,
+            vehicleType: doc.vehicleType || '',
+            status: doc.status,
+            totalOrders: countsMap.get(String(doc._id)) || 0,
+            rating: ratingMap.get(String(doc._id))?.avg || 0,
+            totalRatings: ratingMap.get(String(doc._id))?.count || 0,
+            profilePhoto: doc.profilePhoto || null,
+            profileImage: doc.profilePhoto ? { url: doc.profilePhoto } : null
+        };
+    });
 
     return {
         deliveryPartners,
@@ -6119,6 +6230,11 @@ export async function getDeliveryPartnerById(id) {
     if (!partner) return null;
     const deliveryId = partner._id ? `DP-${partner._id.toString().slice(-8).toUpperCase()}` : null;
 
+    let zoneDoc = null;
+    if (partner.zoneId && mongoose.Types.ObjectId.isValid(String(partner.zoneId))) {
+        zoneDoc = await FoodZone.findById(partner.zoneId).select('_id name zoneName serviceLocation').lean();
+    }
+
     // Average rating from actual order ratings (consistent with My Reviews; the
     // stored partner.rating aggregate can drift from real data).
     const ratingAgg = await FoodOrder.aggregate([
@@ -6133,8 +6249,13 @@ export async function getDeliveryPartnerById(id) {
     const computedRating = ratingAgg?.[0]?.avg ? Math.round(ratingAgg[0].avg * 10) / 10 : 0;
     const computedTotalRatings = ratingAgg?.[0]?.count || 0;
 
+    const resolvedZoneName = zoneDoc ? (zoneDoc.name || zoneDoc.zoneName || zoneDoc.serviceLocation || '') : '';
+
     return {
         ...partner,
+        zoneId: partner.zoneId ? String(partner.zoneId) : null,
+        zoneName: resolvedZoneName,
+        zone: resolvedZoneName || partner.city || partner.state || partner.address || '',
         rating: computedRating,
         totalRatings: computedTotalRatings,
         email: partner.email || null,
@@ -6240,25 +6361,38 @@ export async function getDeliverymanReviews(query = {}) {
     return { reviews, total, page, limit };
 }
 
-export async function approveDeliveryPartner(id) {
+export async function approveDeliveryPartner(id, body = {}) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
 
     logger.info(`[ADMIN-APPROVE] approveDeliveryPartner service called id=${id}`);
 
     const existing = await FoodDeliveryPartner.findById(id)
-        .select('status email name pendingApprovalType')
+        .select('status email name pendingApprovalType zoneId city state address')
         .lean();
     if (!existing) return null;
     const isChangesApproval = existing.pendingApprovalType === 'changes';
 
+    const updateSet = {
+        status: 'approved',
+        approvedAt: new Date(),
+        pendingApprovalType: 'registration'
+    };
+
+    if (body?.zoneId && mongoose.Types.ObjectId.isValid(String(body.zoneId))) {
+        updateSet.zoneId = new mongoose.Types.ObjectId(String(body.zoneId));
+    } else if (!existing.zoneId) {
+        const resolved = await resolveZoneIdForPartner({
+            city: existing.city,
+            address: existing.address,
+            state: existing.state
+        });
+        if (resolved) updateSet.zoneId = resolved;
+    }
+
     const updated = await FoodDeliveryPartner.findByIdAndUpdate(
         id,
         {
-            $set: {
-                status: 'approved',
-                approvedAt: new Date(),
-                pendingApprovalType: 'registration'
-            },
+            $set: updateSet,
             $unset: {
                 rejectedAt: 1,
                 rejectionReason: 1
@@ -6316,6 +6450,42 @@ export async function approveDeliveryPartner(id) {
         console.warn('Referral crediting failed (delivery approval):', e?.message || e);
     }
     return updated;
+}
+
+export async function updateDeliveryPartner(id, body = {}) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        throw new ValidationError('Invalid delivery partner ID');
+    }
+    const partner = await FoodDeliveryPartner.findById(id);
+    if (!partner) {
+        throw new NotFoundError('Delivery partner not found');
+    }
+
+    const allowedFields = ['name', 'phone', 'email', 'countryCode', 'address', 'city', 'state', 'vehicleType', 'vehicleName', 'vehicleNumber', 'status'];
+    for (const f of allowedFields) {
+        if (body[f] !== undefined) {
+            partner[f] = body[f];
+        }
+    }
+
+    if (body.zoneId !== undefined) {
+        if (body.zoneId && mongoose.Types.ObjectId.isValid(String(body.zoneId))) {
+            const z = await FoodZone.findById(body.zoneId).select('_id').lean();
+            if (z) partner.zoneId = z._id;
+        } else if (!body.zoneId) {
+            partner.zoneId = null;
+        }
+    } else if (body.city !== undefined || body.address !== undefined || body.state !== undefined) {
+        const autoZone = await resolveZoneIdForPartner({
+            city: partner.city,
+            address: partner.address,
+            state: partner.state
+        });
+        if (autoZone) partner.zoneId = autoZone;
+    }
+
+    await partner.save();
+    return getDeliveryPartnerById(partner._id);
 }
 
 export async function rejectDeliveryPartner(id, reason) {
@@ -6474,8 +6644,37 @@ export async function updateZone(id, body) {
 }
 
 export async function deleteZone(id) {
-    const zone = await FoodZone.findByIdAndDelete(id);
-    return zone ? { id } : null;
+    if (!id || !mongoose.Types.ObjectId.isValid(String(id))) {
+        throw new ValidationError('Invalid zone id');
+    }
+    const zoneOid = new mongoose.Types.ObjectId(String(id));
+    const zone = await FoodZone.findById(zoneOid);
+    if (!zone) return null;
+
+    // Restrict deletion if zone is linked to any dependent records
+    const [foodCount, addonCount, pricingRuleCount, categoryCount, restaurantCount] = await Promise.all([
+        FoodItem.countDocuments({ zoneId: zoneOid }),
+        FoodAddon.countDocuments({ zoneId: zoneOid, isDeleted: { $ne: true } }),
+        FoodPricingRule.countDocuments({ zoneId: zoneOid, isDeleted: false }),
+        FoodCategory.countDocuments({ zoneId: zoneOid }),
+        FoodRestaurant.countDocuments({ zoneId: zoneOid })
+    ]);
+
+    const blockers = [];
+    if (foodCount > 0) blockers.push(`${foodCount} food item(s)`);
+    if (addonCount > 0) blockers.push(`${addonCount} add-on(s)`);
+    if (pricingRuleCount > 0) blockers.push(`${pricingRuleCount} pricing rule(s)`);
+    if (categoryCount > 0) blockers.push(`${categoryCount} category/categories`);
+    if (restaurantCount > 0) blockers.push(`${restaurantCount} restaurant(s)`);
+
+    if (blockers.length > 0) {
+        throw new ValidationError(
+            `Cannot delete zone "${zone.name}" because it is currently assigned to ${blockers.join(', ')}. Please reassign or delete these records first, or deactivate the zone instead.`
+        );
+    }
+
+    await FoodZone.findByIdAndDelete(zoneOid);
+    return { id: String(zoneOid), name: zone.name };
 }
 
 // ----- Withdrawals (admin) -----
@@ -6651,25 +6850,12 @@ export async function updateDeliveryWithdrawalStatus(id, { status, adminNote, re
 }
 
 /**
- * Fetch delivery partner wallets with financial summary
+ * Wallet figures for the given partners, derived from their ledgers: delivered orders
+ * (earnings and COD cash), completed cash deposits, bonuses and withdrawals. The
+ * Deliveryman List and the delete-partner guard both read them from here, so the
+ * amount an admin sees is the amount the guard checks.
  */
-export async function getDeliveryWallets(query = {}) {
-    const limit = parseInt(query.limit, 10) || 20;
-    const page = parseInt(query.page, 10) || 1;
-    const skip = (page - 1) * limit;
-
-    // Same partners, same order as getDeliveryPartners for the same query.
-    const filter = await buildDeliveryPartnerListFilter({ search: query.search, zoneId: query.zoneId });
-
-    const [partners, total] = await Promise.all([
-        FoodDeliveryPartner.find(filter)
-            .sort(DELIVERY_PARTNER_LIST_SORT)
-            .skip(skip)
-            .limit(limit)
-            .lean(),
-        FoodDeliveryPartner.countDocuments(filter)
-    ]);
-
+async function computeDeliveryWalletRows(partners) {
     const cashLimitSettings = await FoodDeliveryCashLimit.findOne({ isActive: true }).lean();
     const globalLimit = Number(cashLimitSettings?.deliveryCashLimit || 0);
 
@@ -6800,6 +6986,31 @@ export async function getDeliveryWallets(query = {}) {
         };
     });
 
+    return wallets;
+}
+
+/**
+ * Fetch delivery partner wallets with financial summary
+ */
+export async function getDeliveryWallets(query = {}) {
+    const limit = parseInt(query.limit, 10) || 20;
+    const page = parseInt(query.page, 10) || 1;
+    const skip = (page - 1) * limit;
+
+    // Same partners, same order as getDeliveryPartners for the same query.
+    const filter = await buildDeliveryPartnerListFilter({ search: query.search, zoneId: query.zoneId });
+
+    const [partners, total] = await Promise.all([
+        FoodDeliveryPartner.find(filter)
+            .sort(DELIVERY_PARTNER_LIST_SORT)
+            .skip(skip)
+            .limit(limit)
+            .lean(),
+        FoodDeliveryPartner.countDocuments(filter)
+    ]);
+
+    const wallets = await computeDeliveryWalletRows(partners);
+
     return { 
         wallets, 
         pagination: { 
@@ -6808,6 +7019,161 @@ export async function getDeliveryWallets(query = {}) {
             limit, 
             pages: Math.ceil(total / limit) || 1 
         } 
+    };
+}
+
+const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;
+
+/** A rider's job on an order is over once it is delivered or cancelled in any way. */
+const isFinishedOrderStatus = (status) => status === 'delivered' || String(status).startsWith('cancelled');
+
+/**
+ * Permanently delete a delivery partner (admin).
+ *
+ * Refused while work or money is still in flight: an order assigned to the rider that
+ * is not delivered or cancelled, a withdrawal awaiting approval, or a cash deposit
+ * awaiting confirmation. COD cash still in the rider's hand is refused too unless the
+ * admin acknowledges writing off that exact amount (`writeOffCashInHand`) — once the
+ * rider is gone nothing else could ever settle it.
+ *
+ * Removes the partner, wallet, login sessions, inbox, support tickets, onboarding
+ * draft and uploaded documents, cancels unpaid incentives and releases orders still
+ * being offered to them. Orders and money history (withdrawals, cash deposits, bonuses,
+ * incentives) stay for accounting; their admin views already show a missing rider as
+ * "N/A". Unlike a self-deleted account (status "deleted", restorable at login) nothing
+ * is left to restore: the phone can only register again as a new partner.
+ */
+export async function deleteDeliveryPartner(id, { writeOffCashInHand, adminId } = {}) {
+    if (!id || !mongoose.Types.ObjectId.isValid(String(id))) {
+        throw new ValidationError('Invalid delivery partner id');
+    }
+    const partnerId = new mongoose.Types.ObjectId(String(id));
+    const partner = await FoodDeliveryPartner.findById(partnerId).lean();
+    if (!partner) throw new NotFoundError('Delivery partner not found');
+    const name = partner.name || 'This delivery partner';
+
+    const finishedStatuses = FoodOrder.schema.path('orderStatus').enumValues.filter(isFinishedOrderStatus);
+    const [activeOrders, pendingWithdrawals, pendingCashDeposits, [walletRow]] = await Promise.all([
+        FoodOrder.find({
+            'dispatch.deliveryPartnerId': partnerId,
+            'dispatch.status': { $in: ['assigned', 'accepted'] },
+            orderStatus: { $nin: finishedStatuses }
+        })
+            .select('order_id')
+            .lean(),
+        FoodDeliveryWithdrawal.countDocuments({ deliveryPartnerId: partnerId, status: 'pending' }),
+        FoodDeliveryCashDeposit.countDocuments(
+            getManualCashSubmissionFilter({ deliveryPartnerId: partnerId, status: 'Pending' })
+        ),
+        computeDeliveryWalletRows([partner])
+    ]);
+
+    if (activeOrders.length) {
+        const refs = activeOrders.map((order) => `#${order.order_id || order._id}`).join(', ');
+        throw new ValidationError(
+            `${name} is on ${activeOrders.length} active order(s) (${refs}). Let the order be delivered, or cancel/reassign it, before deleting.`,
+            'DELIVERY_PARTNER_HAS_ACTIVE_ORDERS'
+        );
+    }
+    if (pendingWithdrawals > 0) {
+        throw new ValidationError(
+            `${name} has a withdrawal request waiting for approval. Approve or reject it in Delivery Withdrawal first.`,
+            'DELIVERY_PARTNER_HAS_PENDING_WITHDRAWAL'
+        );
+    }
+    if (pendingCashDeposits > 0) {
+        throw new ValidationError(
+            `${name} has a cash deposit waiting for confirmation. Resolve it in Cash Confirmations first.`,
+            'DELIVERY_PARTNER_HAS_PENDING_CASH_DEPOSIT'
+        );
+    }
+    const cashInHand = roundMoney(walletRow?.cashInHand);
+    if (cashInHand > 0 && roundMoney(writeOffCashInHand) !== cashInHand) {
+        const error = new ValidationError(
+            `${name} still holds ₹${cashInHand.toLocaleString('en-IN')} of collected COD cash. Deleting the account writes this amount off.`,
+            'CASH_IN_HAND_WRITE_OFF_REQUIRED'
+        );
+        error.statusCode = 409;
+        error.cashInHand = cashInHand;
+        throw error;
+    }
+
+    // End every session first: the auth middleware refuses any token whose user has no
+    // refresh session left, so the rider app is signed out on its next request.
+    await FoodRefreshToken.deleteMany({ userId: partnerId });
+
+    // Orders still being offered to this rider go back to dispatch now instead of
+    // waiting for the offer to time out.
+    const { liveOfferElemMatch } = await import('../../orders/services/delivery-offer.util.js');
+    const offeredOrders = await FoodOrder.find({
+        'dispatch.offeredTo': { $elemMatch: liveOfferElemMatch(partnerId) }
+    })
+        .select('_id')
+        .lean();
+    if (offeredOrders.length) {
+        const { rejectOrderDelivery } = await import('../../orders/services/order.service.js');
+        const released = await Promise.allSettled(
+            offeredOrders.map((order) => rejectOrderDelivery(String(order._id), partnerId))
+        );
+        released.forEach((outcome, index) => {
+            if (outcome.status === 'rejected') {
+                logger.warn(
+                    `[ADMIN-DELETE-DELIVERY] Could not release offer on order ${offeredOrders[index]._id}: ${outcome.reason?.message || outcome.reason}`
+                );
+            }
+        });
+    }
+
+    const deleted = await FoodDeliveryPartner.findOneAndDelete({ _id: partnerId }).lean();
+    if (!deleted) throw new NotFoundError('Delivery partner not found');
+
+    const [{ FoodNotification }, { clearDeliveryDraft, DELIVERY_DRAFT_FIELDS }, { invalidateRiderActiveOrders }] =
+        await Promise.all([
+            import('../../../../core/notifications/models/notification.model.js'),
+            import('../../delivery/services/deliveryOnboardingDraft.service.js'),
+            import('../../delivery/services/riderLocation.service.js')
+        ]);
+    invalidateRiderActiveOrders(partnerId);
+
+    // The rider's own data goes with the account; history other parties rely on stays.
+    const cleanup = await Promise.allSettled([
+        FoodDeliveryWallet.deleteMany({ deliveryPartnerId: partnerId }),
+        DeliverySupportTicket.deleteMany({ deliveryPartnerId: partnerId }),
+        FoodNotification.deleteMany({ ownerType: 'DELIVERY_PARTNER', ownerId: partnerId }),
+        FoodEarningAddonHistory.updateMany(
+            { deliveryPartnerId: partnerId, status: 'pending' },
+            { $set: { status: 'cancelled', cancelledAt: new Date(), cancelReason: 'Delivery partner deleted' } }
+        ),
+        clearDeliveryDraft(String(deleted.phone || '').replace(/\D/g, '').slice(-10)),
+        deleteStoredAssets([...DELIVERY_DRAFT_FIELDS, 'upiQrCode'].map((field) => deleted[field]))
+    ]);
+    cleanup.forEach((outcome) => {
+        if (outcome.status === 'rejected') {
+            logger.warn(
+                `[ADMIN-DELETE-DELIVERY] Cleanup step failed for ${partnerId}: ${outcome.reason?.message || outcome.reason}`
+            );
+        }
+    });
+
+    // Close any socket the rider app still holds; all delivery emits target this room.
+    try {
+        const { getIO, rooms } = await import('../../../../config/socket.js');
+        getIO()?.in(rooms.delivery(partnerId)).disconnectSockets(true);
+    } catch (err) {
+        logger.warn(`[ADMIN-DELETE-DELIVERY] Socket disconnect failed for ${partnerId}: ${err?.message || err}`);
+    }
+
+    const pocketBalance = roundMoney(walletRow?.pocketBalance);
+    logger.info(
+        `[ADMIN-DELETE-DELIVERY] Partner ${partnerId} (${deleted.name || '-'}) deleted by admin ${adminId || 'unknown'}; ` +
+        `cash written off ₹${cashInHand}, unpaid pocket balance ₹${pocketBalance}, offers released ${offeredOrders.length}`
+    );
+
+    return {
+        id: String(partnerId),
+        name: deleted.name || '',
+        cashWrittenOff: cashInHand,
+        pocketBalanceForfeited: pocketBalance
     };
 }
 

@@ -1397,10 +1397,38 @@ export async function getDeliveryPartnerById(req, res, next) {
     }
 }
 
+/** DELETE /food/admin/delivery-partners/:id[?writeOffCashInHand=<amount>] — permanent delete. */
+export async function deleteDeliveryPartner(req, res, next) {
+    try {
+        logger.info(`[ADMIN-DELETE-DELIVERY] HTTP DELETE /delivery-partners/${req.params.id} admin=${req.user?.userId || 'unknown'}`);
+        const result = await adminService.deleteDeliveryPartner(req.params.id, {
+            writeOffCashInHand: req.query?.writeOffCashInHand,
+            adminId: req.user?.userId
+        });
+        res.status(200).json({
+            success: true,
+            message: `${result.name || 'Delivery partner'} deleted permanently`,
+            data: result
+        });
+    } catch (error) {
+        // The admin has to confirm the exact amount, so it travels with the refusal.
+        if (error?.code === 'CASH_IN_HAND_WRITE_OFF_REQUIRED') {
+            return res.status(409).json({
+                success: false,
+                message: error.message,
+                error: error.message,
+                code: error.code,
+                data: { cashInHand: error.cashInHand }
+            });
+        }
+        next(error);
+    }
+}
+
 export async function approveDeliveryPartner(req, res, next) {
     try {
         logger.info(`[ADMIN-APPROVE] HTTP PATCH /delivery/${req.params.id}/approve admin=${req.user?.userId || 'unknown'}`);
-        const partner = await adminService.approveDeliveryPartner(req.params.id);
+        const partner = await adminService.approveDeliveryPartner(req.params.id, req.body || {});
         if (!partner) {
             return res.status(404).json({
                 success: false,
@@ -1411,6 +1439,19 @@ export async function approveDeliveryPartner(req, res, next) {
             success: true,
             message: 'Delivery partner approved successfully',
             data: partner
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function updateDeliveryPartner(req, res, next) {
+    try {
+        const partner = await adminService.updateDeliveryPartner(req.params.id, req.body || {});
+        res.status(200).json({
+            success: true,
+            message: 'Delivery partner updated successfully',
+            data: { delivery: partner, partner }
         });
     } catch (error) {
         next(error);

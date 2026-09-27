@@ -19,6 +19,7 @@ const debugError = (...args) => {}
 
 const createFoodForm = () => ({
   restaurantId: "",
+  zoneId: "",
   categoryId: "",
   categoryName: "",
   name: "",
@@ -98,6 +99,9 @@ function FoodImageThumb({ name, src, size = "md", className = "" }) {
 export default function FoodsList() {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedRestaurant, setSelectedRestaurant] = useState("all")
+  const [zones, setZones] = useState([])
+  const [selectedZone, setSelectedZone] = useState("all")
+  const [zonesLoading, setZonesLoading] = useState(false)
   const [foods, setFoods] = useState([])
   const [totalFoods, setTotalFoods] = useState(0)
   const [restaurantsForFilter, setRestaurantsForFilter] = useState([])
@@ -124,6 +128,7 @@ export default function FoodsList() {
     const defaultForm = createFoodForm()
     const isBasicDirty = 
       foodForm.restaurantId !== defaultForm.restaurantId ||
+      foodForm.zoneId !== defaultForm.zoneId ||
       foodForm.categoryId !== defaultForm.categoryId ||
       foodForm.categoryName !== defaultForm.categoryName ||
       foodForm.name !== defaultForm.name ||
@@ -198,6 +203,7 @@ export default function FoodsList() {
             return {
               id: String(restaurant?._id || restaurant?.id || ""),
               name: restaurant?.name || restaurant?.restaurantName || "Unknown Restaurant",
+              zoneId: String(restaurant?.zoneId?._id || restaurant?.zoneId || ""),
               foodType,
               pureVegRestaurant: isPureVeg,
               pureVeganRestaurant: restaurant?.pureVeganRestaurant === true,
@@ -210,6 +216,29 @@ export default function FoodsList() {
       debugError("Error fetching restaurants for filter:", error)
     }
   }, [])
+
+  const fetchZones = useCallback(async () => {
+    try {
+      setZonesLoading(true)
+      const res = await adminAPI.getZones({ limit: 1000, isActive: true })
+      const data = res?.data?.data ?? res?.data
+      const list = Array.isArray(data?.zones)
+        ? data.zones
+        : Array.isArray(data)
+          ? data
+          : []
+      setZones(list)
+    } catch (error) {
+      debugError("Error fetching zones:", error)
+      setZones([])
+    } finally {
+      setZonesLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchZones()
+  }, [fetchZones])
 
   useEffect(() => {
     fetchRestaurantsForFilter()
@@ -236,6 +265,7 @@ export default function FoodsList() {
         limit: pageSize,
         ...(searchQuery.trim() && { search: searchQuery.trim() }),
         ...(selectedRestaurant !== "all" && { restaurantId: selectedRestaurant }),
+        ...(selectedZone !== "all" && { zoneId: selectedZone }),
       }
 
       const foodsRes = await adminAPI.getFoods(params)
@@ -260,6 +290,8 @@ export default function FoodsList() {
               status: f.isAvailable !== false && String(f.approvalStatus || "").toLowerCase() !== "rejected",
               restaurantId: String(f.restaurantId || ""),
               restaurantName: f.restaurantName || "Unknown Restaurant",
+              zoneId: String(f.zoneId?._id || f.zoneId || ""),
+              zoneName: f.zoneName || f.zoneId?.name || "",
               categoryId: String(f.categoryId || ""),
               categoryName: f.categoryName || "",
               price: getFoodDisplayPrice(f),
@@ -283,7 +315,7 @@ export default function FoodsList() {
     } finally {
       setLoading(false)
     }
-  }, [currentPage, pageSize, searchQuery, selectedRestaurant])
+  }, [currentPage, pageSize, searchQuery, selectedRestaurant, selectedZone])
 
   useEffect(() => {
     const delay = searchQuery ? 250 : 0
@@ -351,7 +383,7 @@ export default function FoodsList() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchQuery, selectedRestaurant, pageSize])
+  }, [searchQuery, selectedRestaurant, selectedZone, pageSize])
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -378,6 +410,7 @@ export default function FoodsList() {
     const preselectedRestaurant = restaurantOptions.find(
       (r) => String(r.id) === String(preselectedRestaurantId),
     )
+    const preselectedZoneId = selectedZone !== "all" ? selectedZone : (preselectedRestaurant?.zoneId || "")
     const defaultFoodType = preselectedRestaurant?.pureVeganRestaurant === true
       ? "Vegan"
       : preselectedRestaurant?.pureVegRestaurant === true
@@ -386,6 +419,7 @@ export default function FoodsList() {
     setFoodForm({
       ...createFoodForm(),
       restaurantId: preselectedRestaurantId,
+      zoneId: preselectedZoneId,
       foodType: defaultFoodType,
     })
     setSelectedImageFile(null)
@@ -415,6 +449,7 @@ export default function FoodsList() {
     }
     setFoodForm({
       restaurantId: String(food.restaurantId || ""),
+      zoneId: String(food.zoneId || restaurant?.zoneId || ""),
       categoryId: String(food.categoryId || ""),
       categoryName: String(food.categoryName || ""),
       name: String(food.name || ""),
@@ -535,6 +570,10 @@ export default function FoodsList() {
       toast.error("Please select a restaurant")
       return
     }
+    if (!foodForm.zoneId) {
+      toast.error("Please select a zone")
+      return
+    }
     if (!String(foodForm.categoryName || "").trim()) {
       toast.error("Please select or enter a category")
       return
@@ -610,6 +649,7 @@ export default function FoodsList() {
 
       const payload = {
         restaurantId: foodForm.restaurantId,
+        zoneId: foodForm.zoneId,
         categoryId: foodForm.categoryId || undefined,
         categoryName: String(foodForm.categoryName || "").trim(),
         name: foodForm.name.trim(),
@@ -720,6 +760,18 @@ export default function FoodsList() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             </div>
             <select
+              value={selectedZone}
+              onChange={(e) => setSelectedZone(e.target.value)}
+              className="px-4 py-2.5 min-w-[170px] text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400"
+            >
+              <option value="all">All Zones</option>
+              {zones.map((zone) => (
+                <option key={zone._id || zone.id} value={zone._id || zone.id}>
+                  {zone.name || zone.zoneName}
+                </option>
+              ))}
+            </select>
+            <select
               value={selectedRestaurant}
               onChange={(e) => setSelectedRestaurant(e.target.value)}
               className="px-4 py-2.5 min-w-[220px] text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400"
@@ -754,6 +806,9 @@ export default function FoodsList() {
                   Restaurant
                 </th>
                 <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+                  Zone
+                </th>
+                <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                   Category
                 </th>
                 <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-700 uppercase tracking-wider">
@@ -764,7 +819,7 @@ export default function FoodsList() {
             <tbody className="bg-white divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-20 text-center">
+                  <td colSpan={7} className="px-6 py-20 text-center">
                     <div className="flex flex-col items-center justify-center">
                       <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-2" />
                       <p className="text-sm text-slate-500">Loading foods...</p>
@@ -773,10 +828,10 @@ export default function FoodsList() {
                 </tr>
               ) : foods.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-20 text-center">
+                  <td colSpan={7} className="px-6 py-20 text-center">
                     <div className="flex flex-col items-center justify-center">
                       <p className="text-lg font-semibold text-slate-700 mb-1">No Data Found</p>
-                      <p className="text-sm text-slate-500">No food items match your search or restaurant filter</p>
+                      <p className="text-sm text-slate-500">No food items match your search, zone, or restaurant filter</p>
                     </div>
                   </td>
                 </tr>
@@ -805,6 +860,11 @@ export default function FoodsList() {
                       <div className="flex flex-col">
                         <span className="text-sm font-medium text-slate-800">{food.restaurantName || "-"}</span>
                       </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                        {food.zoneName || "—"}
+                      </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-col">
@@ -888,6 +948,7 @@ export default function FoodsList() {
               </div>
               <div className="grid grid-cols-2 gap-4 text-sm bg-slate-50 border border-slate-200 rounded-lg p-4">
                 <p><span className="font-semibold text-slate-700">Restaurant:</span> <span className="text-slate-900">{selectedFood.restaurantName || "-"}</span></p>
+                <p><span className="font-semibold text-slate-700">Zone:</span> <span className="text-slate-900">{selectedFood.zoneName || "-"}</span></p>
                 <p><span className="font-semibold text-slate-700">Price:</span> <span className="text-slate-900">{selectedFood.variants?.length ? `Starting from \u20B9${selectedFood.price}` : `\u20B9${selectedFood.price}`}</span></p>
                 <p><span className="font-semibold text-slate-700">Category:</span> <span className="text-slate-900">{selectedFood.categoryName || "-"}</span></p>
                 <p><span className="font-semibold text-slate-700">Food Type:</span> <span className="text-slate-900">{selectedFood.foodType || "-"}</span></p>
@@ -948,6 +1009,23 @@ export default function FoodsList() {
           <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Zone <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={foodForm.zoneId}
+                  onChange={(e) => setFoodForm((prev) => ({ ...prev, zoneId: e.target.value }))}
+                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white"
+                >
+                  <option value="">Select zone</option>
+                  {zones.map((zone) => (
+                    <option key={zone._id || zone.id} value={zone._id || zone.id}>
+                      {zone.name || zone.zoneName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Restaurant</label>
                 <select
                   value={foodForm.restaurantId}
@@ -962,6 +1040,7 @@ export default function FoodsList() {
                     setFoodForm((prev) => ({
                       ...prev,
                       restaurantId: nextRestaurantId,
+                      zoneId: nextRestaurant?.zoneId || prev.zoneId,
                       categoryId: "",
                       categoryName: "",
                       foodType: forceVegan

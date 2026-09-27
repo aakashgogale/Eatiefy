@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useLayoutEffect } from "react"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
 import { useNavigate } from "react-router-dom"
 import { Building2, Info, Tag, Upload, Calendar, FileText, MapPin, CheckCircle2, X, Image as ImageIcon, Clock, Loader2 } from "lucide-react"
@@ -54,6 +54,13 @@ const timeStringToMinutes = (value = "") => {
   return hours * 60 + minutes
 }
 
+const timeToString = (date) => {
+  if (!date) return ""
+  const hours = date.getHours().toString().padStart(2, "0")
+  const minutes = date.getMinutes().toString().padStart(2, "0")
+  return `${hours}:${minutes}`
+}
+
 const normalizeTimeValue = (value) => {
   if (!value) return ""
   const raw = String(value).trim()
@@ -106,13 +113,6 @@ const stringToTime = (timeString) => {
   }
   const [hours, minutes] = normalized.split(":").map(Number)
   return new Date(2000, 0, 1, hours || 0, minutes || 0)
-}
-
-const timeToString = (date) => {
-  if (!date) return ""
-  const hours = date.getHours().toString().padStart(2, "0")
-  const minutes = date.getMinutes().toString().padStart(2, "0")
-  return `${hours}:${minutes}`
 }
 
 const getStoredFileLabel = (value) => {
@@ -230,6 +230,15 @@ export default function AddRestaurant() {
   const [zones, setZones] = useState([])
   const [zonesLoading, setZonesLoading] = useState(false)
   const [isHydrated, setIsHydrated] = useState(false)
+
+  const locationSearchInputRef = useRef(null)
+  const placesAutocompleteRef = useRef(null)
+  const mapsScriptLoadedRef = useRef(false)
+
+  // Manual search states for fallback
+  const [locationSearchValue, setLocationSearchValue] = useState("")
+  const [locationSuggestions, setLocationSuggestions] = useState([])
+  const [isSearchingLocation, setIsSearchingLocation] = useState(false)
 
   // Step 1: Basic Info
   const [step1, setStep1] = useState({
@@ -789,15 +798,6 @@ export default function AddRestaurant() {
       }
     }
   }
-
-  const locationSearchInputRef = useRef(null)
-  const placesAutocompleteRef = useRef(null)
-  const mapsScriptLoadedRef = useRef(false)
-
-  // Manual search states for fallback
-  const [locationSearchValue, setLocationSearchValue] = useState("")
-  const [locationSuggestions, setLocationSuggestions] = useState([])
-  const [isSearchingLocation, setIsSearchingLocation] = useState(false)
 
   const applyLocation = (parsed) => {
     if (!parsed) return

@@ -97,6 +97,9 @@ export default function DeliverymanList() {
   const [editValues, setEditValues] = useState({ pocketBalance: "", cashInHand: "" })
   const [savingDeliveryId, setSavingDeliveryId] = useState(null)
   const [deletingDeliveryId, setDeletingDeliveryId] = useState(null)
+  // Partners deleted in this session. A list request already in flight when the delete
+  // lands (the 8s refresh) must not put the row back.
+  const deletedIdsRef = useRef(new Set())
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" })
   const [visibleColumns, setVisibleColumns] = useState({
     si: true,
@@ -176,7 +179,7 @@ export default function DeliverymanList() {
     try {
       const { rows, total } = await loadDeliverymenPage(query)
       if (key !== latestQueryKeyRef.current) return
-      setDeliverymen(rows)
+      setDeliverymen(rows.filter((row) => !deletedIdsRef.current.has(String(row._id))))
       setTotalDeliverymen(total)
     } catch (err) {
       debugError("Error fetching delivery partners:", err)
@@ -458,35 +461,55 @@ availableCashLimit: deliveryman.availableCashLimit || 0,
       return
     }
 
+    const name = deliveryman?.name || "this delivery partner"
+    const pocketBalance = Number(deliveryman?.pocketBalance) || 0
     const confirmed = window.confirm(
-      `Deactivate ${deliveryman?.name || "this delivery partner"}?\n\nThis will block the account and log them out, while preserving profile, wallet, and history.`,
+      `Permanently delete ${name}?\n\n` +
+        "Their account, wallet, documents and login are removed from the database and cannot be restored. " +
+        "Orders and payment history stay for your records." +
+        (pocketBalance > 0
+          ? `\n\nUnpaid pocket balance of ${formatCurrency(pocketBalance)} will no longer be payable to them.`
+          : ""),
     )
+    if (!confirmed) return
 
-    if (!confirmed) {
-      return
-    }
-
+    setDeletingDeliveryId(deliverymanId)
     try {
-      setDeletingDeliveryId(deliverymanId)
-      const response = await adminAPI.deleteDeliveryPartner(deliverymanId)
+      let response
+      try {
+        response = await adminAPI.deleteDeliveryPartner(deliverymanId)
+      } catch (err) {
+        // The rider still holds COD cash: the server names the exact amount, and only an
+        // explicit write-off of that amount lets the delete through.
+        const body = err?.response?.data
+        if (err?.response?.status !== 409 || body?.code !== "CASH_IN_HAND_WRITE_OFF_REQUIRED") throw err
+        const cashInHand = Number(body?.data?.cashInHand)
+        const writeOff = window.confirm(
+          `${body.message}\n\nDelete anyway and write off ${formatCurrency(cashInHand)}?`,
+        )
+        if (!writeOff) return
+        response = await adminAPI.deleteDeliveryPartner(deliverymanId, { writeOffCashInHand: cashInHand })
+      }
 
       if (!response?.data?.success) {
-        toast.error(response?.data?.message || "Failed to deactivate delivery partner")
+        toast.error(response?.data?.message || "Failed to delete delivery partner")
         return
       }
 
-      const wasViewingDeletedPartner = Boolean(
-        viewDetails && String(viewDetails._id) === deliverymanId,
-      )
+      const wasViewingDeletedPartner = Boolean(viewDetails && String(viewDetails._id) === deliverymanId)
+      deletedIdsRef.current.add(deliverymanId)
       setDeliverymen((prev) => prev.filter((item) => String(item._id) !== deliverymanId))
+      setTotalDeliverymen((prev) => Math.max(0, prev - 1))
       setViewDetails((prev) => (prev && String(prev._id) === deliverymanId ? null : prev))
-      if (wasViewingDeletedPartner) {
-        setIsViewOpen(false)
-      }
-      toast.success(response?.data?.message || "Delivery partner deactivated successfully")
+      if (wasViewingDeletedPartner) setIsViewOpen(false)
+      toast.success(response.data.message || "Delivery partner deleted")
+
+      // Refill the page from the server; step back when this was the page's last row.
+      if (deliverymen.length === 1 && currentPage > 1) setCurrentPage((page) => page - 1)
+      else fetchDeliverymen(listQuery, { quiet: true })
     } catch (err) {
       debugError("Error deleting delivery partner:", err)
-      toast.error(err?.response?.data?.message || "Failed to deactivate delivery partner")
+      toast.error(err?.response?.data?.message || "Failed to delete delivery partner")
     } finally {
       setDeletingDeliveryId(null)
     }
@@ -934,7 +957,7 @@ availableCashLimit: deliveryman.availableCashLimit || 0,
                               </button>
                               <button
                                 onClick={() => handleDelete(dm)}
-                                disabled={deletingDeliveryId === String(dm._id)}
+                                disabled={Boolean(deletingDeliveryId)}
                                 className="p-1.5 rounded bg-red-50 text-red-600 hover:bg-red-100 transition-colors disabled:opacity-50"
                                 title="Delete Delivery Partner"
                               >
@@ -1034,6 +1057,56 @@ availableCashLimit: deliveryman.availableCashLimit || 0,
                       }`}>
                         {viewDetails.status === 'blocked' ? 'Rejected' : (viewDetails.status?.charAt(0).toUpperCase() + viewDetails.status?.slice(1) || "N/A")}
                       </span>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 uppercase flex items-center gap-1">
+                        <MapPin className="w-3 h-3" /> Zone
+                      </label>
+                      <div className="flex items-center gap-2 mt-1">
+                        <select
+                          value={viewDetails.zoneId || ""}
+                          onChange={async (e) => {
+                            const newZoneId = e.target.value;
+                            const partnerId = viewDetails._id;
+                            try {
+                              const res = await adminAPI.updateDeliveryPartner(partnerId, { zoneId: newZoneId || null });
+                              if (res?.data?.success) {
+                                toast.success("Zone updated successfully");
+                                const updatedData = res.data.data?.delivery || res.data.data?.partner || res.data.data || {};
+                                setViewDetails((prev) => ({
+                                  ...prev,
+                                  zoneId: newZoneId || null,
+                                  zoneName: updatedData.zoneName || updatedData.zone || "",
+                                  zone: updatedData.zone || updatedData.zoneName || "",
+                                }));
+                                setDeliverymen((prev) =>
+                                  prev.map((item) =>
+                                    String(item._id) === String(partnerId)
+                                      ? {
+                                          ...item,
+                                          zoneId: newZoneId || null,
+                                          zoneName: updatedData.zoneName || updatedData.zone || "",
+                                          zone: updatedData.zone || updatedData.zoneName || "",
+                                        }
+                                      : item,
+                                  ),
+                                );
+                                fetchDeliverymen(listQuery, { quiet: true });
+                              }
+                            } catch (err) {
+                              toast.error(err?.response?.data?.message || "Failed to update zone");
+                            }
+                          }}
+                          className="w-full text-xs border border-slate-300 rounded px-2.5 py-1.5 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                        >
+                          <option value="">No Zone Assigned</option>
+                          {zones.map((z) => (
+                            <option key={String(z._id)} value={String(z._id)}>
+                              {getZoneLabel(z)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                     {viewDetails.rejectionReason && (
                       <div className="col-span-2">

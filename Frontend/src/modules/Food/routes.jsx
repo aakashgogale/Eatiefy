@@ -402,6 +402,9 @@ export default function App() {
             }
           />
 
+          {/* Admin Module - redirect to global /admin portal */}
+          <Route path="admin/*" element={<Navigate to="/admin" replace />} />
+
           {/* User Module - Explicitly mapped to /user and the catch-all for /food/ and / */}
           {/* NOTE: /user/food is a common mis-navigation - redirect to correct /food/user home */}
           <Route path="user/food" element={<Navigate to="/food/user" replace />} />

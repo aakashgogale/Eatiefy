@@ -223,8 +223,12 @@ router.get('/delivery/support-tickets', adminController.getSupportTickets);
 router.patch('/delivery/support-tickets/:id', adminController.updateSupportTicket);
 router.get('/delivery/partners', adminController.getDeliveryPartners);
 router.get('/delivery/:id', adminController.getDeliveryPartnerById);
+router.patch('/delivery/:id', adminController.updateDeliveryPartner);
+router.patch('/delivery-partners/:id', adminController.updateDeliveryPartner);
 router.patch('/delivery/:id/approve', adminController.approveDeliveryPartner);
 router.patch('/delivery/:id/reject', adminController.rejectDeliveryPartner);
+// Named after the Deliveryman List page so sub-admin "delete" permission for that page applies.
+router.delete('/delivery-partners/:id', adminController.deleteDeliveryPartner);
 
 // ----- Zones -----
 // ----- Restaurant onboarding pricing, offers & payments -----

@@ -46,8 +46,8 @@ const requireValidZoneId = (zoneId) => {
 };
 
 async function assertZoneExists(zoneOid) {
-  const exists = await FoodZone.exists({ _id: zoneOid });
-  if (!exists) throw new ValidationError('Invalid zoneId');
+  const exists = await FoodZone.exists({ _id: zoneOid, isActive: true });
+  if (!exists) throw new ValidationError('Selected zone is invalid, deactivated, or deleted');
 }
 
 async function getRestaurantIdsInZone(zoneOid) {

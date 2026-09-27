@@ -1,5 +1,7 @@
 import mongoose from 'mongoose';
 import { FoodDeliveryPartner } from '../models/deliveryPartner.model.js';
+import { FoodZone } from '../../admin/models/zone.model.js';
+import { detectZoneIdForPoint } from '../../utils/zoneGeo.js';
 import { DeliverySupportTicket } from '../models/supportTicket.model.js';
 import { DeliveryBonusTransaction } from '../../admin/models/deliveryBonusTransaction.model.js';
 import { FoodEarningAddon } from '../../admin/models/earningAddon.model.js';
@@ -106,9 +108,62 @@ function appendPartnerFcmToken(partner, fcmToken, platform = 'web') {
     partner[field] = [...existing, token].slice(-10);
 }
 
+export const resolveZoneIdForPartner = async ({ zoneId, city, address, state, lat, lng } = {}) => {
+    // 1. Direct zoneId provided (signup / admin edit)
+    if (zoneId && mongoose.Types.ObjectId.isValid(String(zoneId))) {
+        const zone = await FoodZone.findById(zoneId).select('_id isActive').lean();
+        if (zone) return zone._id;
+    }
+
+    // 2. GPS coordinates provided
+    if (lat != null && lng != null && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
+        try {
+            const detected = await detectZoneIdForPoint(Number(lat), Number(lng));
+            if (detected) return detected;
+        } catch {
+            /* ignore */
+        }
+    }
+
+    // 3. Match against active zones by city, address, or state
+    const candidates = [city, address, state].map((s) => String(s || '').trim()).filter(Boolean);
+    if (candidates.length === 0) return null;
+
+    const activeZones = await FoodZone.find({ isActive: true })
+        .select('_id name zoneName serviceLocation')
+        .lean();
+    if (!activeZones.length) return null;
+
+    // Exact string match (case-insensitive)
+    for (const text of candidates) {
+        const tLower = text.toLowerCase();
+        for (const z of activeZones) {
+            const names = [z.name, z.zoneName, z.serviceLocation]
+                .filter(Boolean)
+                .map((s) => s.trim().toLowerCase());
+            if (names.includes(tLower)) return z._id;
+        }
+    }
+
+    // Word boundary / token match (e.g. "Indore, MP" -> "Indore")
+    for (const text of candidates) {
+        const words = text.toLowerCase().split(/[\s,.-]+/).filter((w) => w.length >= 3);
+        for (const w of words) {
+            for (const z of activeZones) {
+                const names = [z.name, z.zoneName, z.serviceLocation]
+                    .filter(Boolean)
+                    .map((s) => s.trim().toLowerCase());
+                if (names.includes(w)) return z._id;
+            }
+        }
+    }
+
+    return null;
+};
+
 export const registerDeliveryPartner = async (payload, files, draftImageRefs = {}) => {
     const { 
-        name, phone, email, countryCode, address, city, state, 
+        name, phone, email, countryCode, address, city, state, zoneId,
         vehicleType, vehicleName, vehicleNumber, drivingLicenseNumber, panNumber, aadharNumber,
         fcmToken, platform 
     } = payload;
@@ -164,6 +219,13 @@ export const registerDeliveryPartner = async (payload, files, draftImageRefs = {
     const normalizedEmail =
         email && String(email).trim() ? String(email).trim().toLowerCase() : undefined;
 
+    const resolvedZoneId = await resolveZoneIdForPartner({
+        zoneId,
+        city,
+        address,
+        state
+    });
+
     let partner;
 
     try {
@@ -175,6 +237,7 @@ export const registerDeliveryPartner = async (payload, files, draftImageRefs = {
             address,
             city,
             state,
+            zoneId: resolvedZoneId || undefined,
             vehicleType,
             vehicleName,
             vehicleNumber: normalizedVehicleNumber,
@@ -298,7 +361,7 @@ export const updateDeliveryPartnerProfile = async (userId, payload, files) => {
     }
 
     const {
-        name, email, countryCode, address, city, state,
+        name, email, countryCode, address, city, state, zoneId,
         vehicleType, vehicleName, vehicleNumber, drivingLicenseNumber, panNumber, aadharNumber,
         fcmToken, platform
     } = payload;
@@ -312,6 +375,21 @@ export const updateDeliveryPartnerProfile = async (userId, payload, files) => {
     if (address !== undefined) partner.address = address;
     if (city !== undefined) partner.city = city;
     if (state !== undefined) partner.state = state;
+    if (zoneId !== undefined) {
+        if (zoneId && mongoose.Types.ObjectId.isValid(String(zoneId))) {
+            const z = await FoodZone.findById(zoneId).select('_id').lean();
+            if (z) partner.zoneId = z._id;
+        } else if (!zoneId) {
+            partner.zoneId = null;
+        }
+    } else if (city !== undefined || address !== undefined || state !== undefined) {
+        const autoZone = await resolveZoneIdForPartner({
+            city: city ?? partner.city,
+            address: address ?? partner.address,
+            state: state ?? partner.state
+        });
+        if (autoZone) partner.zoneId = autoZone;
+    }
     if (vehicleType !== undefined) partner.vehicleType = vehicleType;
     if (vehicleName !== undefined) partner.vehicleName = vehicleName;
     if (vehicleNumber !== undefined) partner.vehicleNumber = vehicleNumber;
@@ -353,6 +431,15 @@ export const updateDeliveryPartnerDetails = async (userId, payload) => {
     const partner = await FoodDeliveryPartner.findById(userId);
     if (!partner) {
         throw new ValidationError('Delivery partner not found');
+    }
+
+    if (payload?.zoneId !== undefined) {
+        if (payload.zoneId && mongoose.Types.ObjectId.isValid(String(payload.zoneId))) {
+            const z = await FoodZone.findById(payload.zoneId).select('_id').lean();
+            if (z) partner.zoneId = z._id;
+        } else if (!payload.zoneId) {
+            partner.zoneId = null;
+        }
     }
 
     const vehicle = payload?.vehicle;

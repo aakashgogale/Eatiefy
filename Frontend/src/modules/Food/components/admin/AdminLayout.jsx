@@ -3,6 +3,7 @@ import { Outlet, useLocation, useNavigate, Navigate } from "react-router-dom"
 import { ArrowLeft } from "lucide-react"
 import AdminSidebar from "./AdminSidebar"
 import AdminNavbar from "./AdminNavbar"
+import RouteErrorBoundary from "@/shared/components/RouteErrorBoundary"
 import { API_BASE_URL } from "@food/api/config"
 import { adminAPI } from "@food/api"
 import {
@@ -399,7 +400,17 @@ export default function AdminLayout() {
 
         {/* Page Content */}
         <main ref={mainRef} className="flex-1 min-h-0 w-full max-w-full overflow-x-hidden overflow-y-auto bg-neutral-100">
-          <Outlet />
+          <RouteErrorBoundary
+            scope="admin-page"
+            resetKey={location.pathname}
+            message="This admin screen could not be loaded. Please try again or go back."
+            actions={[
+              { label: "Restaurants List", to: "/admin/food/restaurants" },
+              { label: "Admin Dashboard", to: "/admin/food" }
+            ]}
+          >
+            <Outlet />
+          </RouteErrorBoundary>
         </main>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import { FoodAddon } from '../models/foodAddon.model.js';
+import { FoodRestaurant } from '../models/restaurant.model.js';
 import { deleteReplacedAssets, deleteStoredAssets, extractAssetUrls } from '../../../../services/storage.service.js';
 
 const escapeRegex = (s) => String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -90,19 +91,21 @@ export async function createRestaurantAddon(restaurantId, body) {
 
     // Prevent duplicates per restaurant among non-deleted docs (case-insensitive exact).
     const exact = `^${escapeRegex(name)}$`;
-    const exists = await FoodAddon.findOne({
-        restaurantId: rid,
-        isDeleted: { $ne: true },
-        'draft.name': { $regex: exact, $options: 'i' }
-    })
-        .select('_id')
-        .lean();
+    const [exists, restaurant] = await Promise.all([
+        FoodAddon.findOne({
+            restaurantId: rid,
+            isDeleted: { $ne: true },
+            'draft.name': { $regex: exact, $options: 'i' }
+        }).select('_id').lean(),
+        FoodRestaurant.findById(rid).select('zoneId').lean()
+    ]);
     if (exists?._id) {
         throw new ValidationError('Add-on already exists');
     }
 
     const doc = await FoodAddon.create({
         restaurantId: rid,
+        zoneId: restaurant?.zoneId || null,
         draft: {
             name,
             description: String(body.description || '').trim(),
