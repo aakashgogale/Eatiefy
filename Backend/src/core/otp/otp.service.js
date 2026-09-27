@@ -214,16 +214,7 @@ export const createOrUpdateOtp = async (phone) => {
     const now = new Date();
     const useStaticOtp = shouldUseStaticOtp(normalizedPhone);
 
-    // 1. Blocked User Check (Professional back-off)
-    if (!useStaticOtp && existing && existing.blockedUntil && existing.blockedUntil > now) {
-        const remainingMs = existing.blockedUntil - now;
-        logger.warn(`[OTP REQUEST] Blocked phone: ${normalizedPhone}, Failures: ${existing.totalFailures}`);
-        const mins = Math.floor(remainingMs / 60000);
-        const secs = Math.ceil((remainingMs % 60000) / 1000);
-        throw new ValidationError(`Security Alert: Too many failed attempts. Try again after ${mins}:${String(secs).padStart(2, '0')} minutes.`);
-    }
-
-    // 2. Rate Limiting Logic (OTP Requests)
+    // 1. Rate Limiting Logic (OTP Requests)
     if (existing) {
         const windowMs = (config.otpRateWindow || 600) * 1000;
         const isInWindow = now - existing.lastRequestAt < windowMs;
@@ -337,52 +328,14 @@ export const verifyOtp = async (phone, otp, preserveOtp = false) => {
         return { valid: false, reason: 'OTP not found. Please request a new OTP.' };
     }
 
-    // 1. Check if user is currently blocked
-    if (record.blockedUntil && record.blockedUntil > now) {
-        const rem = record.blockedUntil - now;
-        const mins = Math.floor(rem / 60000);
-        const secs = Math.ceil((rem % 60000) / 1000);
-        return { valid: false, reason: `Too many attempts. Blocked for ${mins}:${String(secs).padStart(2, '0')} more minutes.` };
-    }
-
-    // 2. Increment and Check attempts (Always count attempts even if expired/wrong)
-    record.attempts += 1;
-
-    // Trigger Penalty if max attempts reached (e.g. 4th failure)
-    if (record.attempts >= config.otpMaxAttempts) {
-        record.totalFailures += 1;
-        console.info(`[OTP BLOCK] Phone: ${normalizedPhone}, Failure Count: ${record.totalFailures}`);
-        // 1st block: 1 min, subsequent blocks: 10 min
-        const penaltyMinutes = record.totalFailures === 1 ? 1 : 10;
-        record.blockedUntil = new Date(now.getTime() + penaltyMinutes * 60000);
-        // Reset attempts so they get fresh tries after the block expires
-        record.attempts = 0;
-        // Extend record expiry to keep the block active in DB
-        record.expiresAt = new Date(record.blockedUntil.getTime() + 3600000); 
-        await record.save();
-
-        return { 
-            valid: false, 
-            reason: `Max attempts exceeded. Blocked for ${penaltyMinutes} minutes.` 
-        };
-    }
-
-    // 3. Check if OTP itself has expired
+    // Check if OTP itself has expired
     if (record.otpExpiresAt < now) {
-        await record.save(); // Save the incremented attempt
         return { valid: false, reason: 'OTP expired' };
     }
 
     if (record.otp !== otp) {
-        await record.save();
         return { valid: false, reason: 'Invalid OTP' };
     }
-
-    // OTP is correct! Reset attempts, penalty counters, and request count
-    record.attempts = 0;
-    record.totalFailures = 0;
-    record.blockedUntil = null;
-    record.requestCount = 1; // Reset request count for live OTPs
 
     if (!preserveOtp) {
         console.info(`✅ [OTP-Verify] OTP verified and deleted for ${normalizedPhone}`);

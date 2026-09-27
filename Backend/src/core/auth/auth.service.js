@@ -1185,14 +1185,10 @@ export const resetAdminPasswordWithOtp = async (email, otp, newPassword) => {
     await record.deleteOne();
     throw new AuthError("OTP has expired. Please request a new code.");
   }
-  if (record.attempts >= (config.otpMaxAttempts || 5)) {
-    throw new AuthError("Too many attempts. Please request a new code.");
-  }
-  record.attempts += 1;
   if (record.otp !== otpStr) {
-    await record.save();
     throw new AuthError("Invalid OTP.");
   }
+
 
   const admin = await FoodAdmin.findOne({ email: normalizedEmail });
   if (!admin) {

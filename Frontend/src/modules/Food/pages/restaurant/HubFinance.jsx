@@ -869,10 +869,12 @@ export default function HubFinance() {
                   <div className="space-y-3">
                     {withdrawalRequests.slice(0, 8).map((request, index) => {
                       const status = formatWithdrawalStatus(request?.status)
+                      const isRejected = String(request?.status || '').toLowerCase() === 'rejected'
+                      const reason = request?.rejectionReason || request?.reason || request?.adminNote
                       return (
                         <div
                           key={request?._id || request?.id || index}
-                          className="border border-gray-200 rounded-lg p-3"
+                          className={`border rounded-lg p-3 ${isRejected ? 'border-red-200 bg-red-50/20' : 'border-gray-200'}`}
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div>
@@ -884,7 +886,7 @@ export default function HubFinance() {
                               </p>
                               {request?.processedAt ? (
                                 <p className="text-xs text-gray-500 mt-0.5">
-                                  Processed: {formatDateTime(request?.processedAt)}
+                                  {isRejected ? 'Rejected' : 'Processed'}: {formatDateTime(request?.processedAt)}
                                 </p>
                               ) : null}
                             </div>
@@ -892,9 +894,16 @@ export default function HubFinance() {
                               {status}
                             </span>
                           </div>
+                          {isRejected && reason ? (
+                            <div className="mt-2.5 pt-2 border-t border-red-100 flex items-start gap-1.5 text-xs text-red-700">
+                              <span className="font-semibold shrink-0">Reason:</span>
+                              <span className="break-words">{reason}</span>
+                            </div>
+                          ) : null}
                         </div>
                       )
                     })}
+
                     {withdrawalRequests.length > 8 ? (
                       <button
                         type="button"

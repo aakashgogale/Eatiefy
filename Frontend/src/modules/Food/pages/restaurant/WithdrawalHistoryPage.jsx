@@ -32,7 +32,8 @@ export default function WithdrawalHistoryPage() {
           amount: h.amount,
           status: h.status === 'approved' ? 'Approved' : h.status === 'rejected' ? 'Rejected' : 'Pending',
           requestedAt: h.createdAt,
-          processedAt: h.processedAt
+          processedAt: h.processedAt,
+          rejectionReason: h.rejectionReason || h.reason || h.adminNote || ''
         }))
         
         setWithdrawalRequests(mapped)
@@ -71,23 +72,33 @@ export default function WithdrawalHistoryPage() {
         <div className="flex gap-2">
           <button
             onClick={() => setWithdrawalHistoryTab('pending')}
-            className={`flex-1 px-4 py-3 rounded-lg font-medium text-sm transition-colors ${
+            className={`flex-1 px-3 py-2.5 rounded-lg font-medium text-xs sm:text-sm transition-colors ${
               withdrawalHistoryTab === 'pending'
                 ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white"
                 : "bg-gray-100 text-gray-600 hover:bg-gray-200"
             }`}
           >
-            Withdrawal Pending
+            Pending
           </button>
           <button
             onClick={() => setWithdrawalHistoryTab('successful')}
-            className={`flex-1 px-4 py-3 rounded-lg font-medium text-sm transition-colors ${
+            className={`flex-1 px-3 py-2.5 rounded-lg font-medium text-xs sm:text-sm transition-colors ${
               withdrawalHistoryTab === 'successful'
                 ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white"
                 : "bg-gray-100 text-gray-600 hover:bg-gray-200"
             }`}
           >
-            Withdrawal Successful
+            Successful
+          </button>
+          <button
+            onClick={() => setWithdrawalHistoryTab('rejected')}
+            className={`flex-1 px-3 py-2.5 rounded-lg font-medium text-xs sm:text-sm transition-colors ${
+              withdrawalHistoryTab === 'rejected'
+                ? "bg-gradient-to-br from-red-600 to-red-700 text-white"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
+          >
+            Rejected
           </button>
         </div>
       </div>
@@ -138,7 +149,7 @@ export default function WithdrawalHistoryPage() {
                     ))
                 )}
               </div>
-            ) : (
+            ) : withdrawalHistoryTab === 'successful' ? (
               <div className="space-y-3">
                 {withdrawalRequests
                   .filter(req => req.status === 'Approved' || req.status === 'Processed')
@@ -178,10 +189,68 @@ export default function WithdrawalHistoryPage() {
                     ))
                 )}
               </div>
+            ) : (
+              <div className="space-y-3">
+                {withdrawalRequests
+                  .filter(req => req.status === 'Rejected')
+                  .length === 0 ? (
+                  <div className="text-center py-12">
+                    <Wallet className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-500 text-lg font-medium">No rejected withdrawal requests</p>
+                  </div>
+                ) : (
+                  withdrawalRequests
+                    .filter(req => req.status === 'Rejected')
+                    .map((request) => (
+                      <div
+                        key={request.id}
+                        className="bg-white rounded-lg p-4 border border-red-200 bg-red-50/20 shadow-sm"
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <p className="text-lg font-bold text-gray-900 mb-1">
+                              ₹{request.amount?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </p>
+                            <p className="text-xs text-gray-600">
+                              Requested: {request.requestedAt ? new Date(request.requestedAt).toLocaleString('en-IN', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              }) : 'N/A'}
+                            </p>
+                            {request.processedAt ? (
+                              <p className="text-xs text-gray-600 mt-0.5">
+                                Rejected: {new Date(request.processedAt).toLocaleString('en-IN', {
+                                  day: 'numeric',
+                                  month: 'short',
+                                  year: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </p>
+                            ) : null}
+                          </div>
+                          <span className="px-3 py-1 bg-red-100 text-red-800 rounded-full text-xs font-medium">
+                            Rejected
+                          </span>
+                        </div>
+                        {request.rejectionReason ? (
+                          <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800 flex flex-col gap-1">
+                            <span className="font-semibold uppercase tracking-wider text-[11px] text-red-900">Rejection Reason</span>
+                            <span className="text-red-700 leading-relaxed font-medium">{request.rejectionReason}</span>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))
+                )}
+              </div>
             )}
           </>
         )}
       </div>
+
 
       <BottomNavOrders />
     </div>

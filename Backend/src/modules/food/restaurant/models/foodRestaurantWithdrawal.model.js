@@ -30,6 +30,7 @@ const foodRestaurantWithdrawalSchema = new mongoose.Schema({
     },
     adminNote: String,
     rejectionReason: String,
+    reason: String,
     transactionId: String, // Final bank transaction reference from admin
     processedAt: Date
 }, { 

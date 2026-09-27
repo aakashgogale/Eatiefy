@@ -6787,13 +6787,16 @@ export async function getWithdrawals(query = {}) {
     return { requests, total, page, limit };
 }
 
-export async function updateWithdrawalStatus(id, { status, adminNote, rejectionReason, transactionId }) {
+export async function updateWithdrawalStatus(id, { status, adminNote, rejectionReason, transactionId, reason } = {}) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) throw new ValidationError('Invalid withdrawal ID');
     
+    const reasonText = String(rejectionReason || reason || adminNote || '').trim();
+
     const update = {
         status: String(status).toLowerCase(),
-        adminNote,
-        rejectionReason,
+        adminNote: adminNote || reasonText,
+        rejectionReason: reasonText,
+        reason: reasonText,
         transactionId,
         processedAt: new Date()
     };
@@ -6807,6 +6810,7 @@ export async function updateWithdrawalStatus(id, { status, adminNote, rejectionR
     if (!updated) throw new ValidationError('Withdrawal request not found');
     return updated;
 }
+
 
 export async function getDeliveryWithdrawals(query = {}) {
     const limit = parseInt(query.limit, 10) || 100;
