@@ -10,6 +10,8 @@ import { refreshSidebarBadges } from "@food/components/admin/AdminSidebar"
 import { useAdminBadgeListRefresh } from "@food/hooks/useAdminBadgeListRefresh"
 import { getRestaurantDisplayAddress } from "@food/utils/restaurantLocation"
 import AdminListPagination from "@food/components/admin/AdminListPagination"
+import AdminZoneSelect from "@food/components/admin/zones/AdminZoneSelect"
+import { useAdminZoneFilter } from "@food/hooks/useAdminZoneFilter"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -51,25 +53,34 @@ export default function JoiningRequest() {
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [showFilterDialog, setShowFilterDialog] = useState(false)
   const [filters, setFilters] = useState({
-    zone: "",
     dateFrom: "",
     dateTo: ""
   })
+  const { zones, zonesLoading, zoneId, setZoneId } = useAdminZoneFilter()
   const today = new Date().toISOString().slice(0, 10)
 
   // Track first render to avoid duplicate fetch in React StrictMode
   const hasFetchedOnceRef = useRef(false)
+  // Only the newest fetch may write the list, so a quick zone/page switch cannot
+  // be overwritten by a slower earlier response.
+  const fetchSeqRef = useRef(0)
 
   const fetchRequests = async ({ silent = false } = {}) => {
+    const seq = ++fetchSeqRef.current
+    const isLatest = () => seq === fetchSeqRef.current
     try {
       if (!silent) setLoading(true)
       setError(null)
 
+      // Status and zone are filtered by the API so pagination and totals match the list.
       const response = await adminAPI.getPendingRestaurants({
+        status: "pending",
+        zoneId: zoneId || undefined,
         search: debouncedSearch || undefined,
         page: currentPage,
         limit: pageSize,
       })
+      if (!isLatest()) return
       const payload = response?.data?.data
       const list = Array.isArray(payload?.restaurants)
         ? payload.restaurants
@@ -84,13 +95,13 @@ export default function JoiningRequest() {
       )
     } catch (err) {
       debugError("Error fetching restaurant requests:", err)
-      if (!silent) {
+      if (!silent && isLatest()) {
         setError(err.message || "Failed to fetch restaurant requests")
         setPendingRequests([])
         setTotalItems(0)
       }
     } finally {
-      if (!silent) setLoading(false)
+      if (!silent && isLatest()) setLoading(false)
     }
   }
 
@@ -101,13 +112,13 @@ export default function JoiningRequest() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [debouncedSearch])
+  }, [debouncedSearch, zoneId])
 
-  useAdminBadgeListRefresh("restaurants", fetchRequests, [debouncedSearch, currentPage, pageSize])
+  useAdminBadgeListRefresh("restaurants", fetchRequests, [debouncedSearch, currentPage, pageSize, zoneId])
 
   useEffect(() => {
     fetchRequests()
-  }, [debouncedSearch, currentPage, pageSize])
+  }, [debouncedSearch, currentPage, pageSize, zoneId])
 
   useEffect(() => {
     const onFocus = () => fetchRequests({ silent: true })
@@ -126,18 +137,8 @@ export default function JoiningRequest() {
 
   const currentRequests = pendingRequests
 
-  // Get unique zones and business models for filter options
-  const filterOptions = useMemo(() => {
-    const zones = [...new Set(currentRequests.map(r => r.zone).filter(Boolean))]
-    return { zones }
-  }, [currentRequests])
-
   const filteredRequests = useMemo(() => {
     let filtered = currentRequests
-
-    if (filters.zone) {
-      filtered = filtered.filter(request => request.zone === filters.zone)
-    }
 
     if (filters.dateFrom || filters.dateTo) {
       filtered = filtered.filter(request => {
@@ -209,13 +210,12 @@ export default function JoiningRequest() {
 
   const clearFilters = () => {
     setFilters({
-      zone: "",
       dateFrom: "",
       dateTo: ""
     })
   }
 
-  const hasActiveFilters = filters.zone || filters.dateFrom || filters.dateTo
+  const hasActiveFilters = filters.dateFrom || filters.dateTo
 
   const handleApprove = (request) => {
     setSelectedRequest(request)
@@ -387,8 +387,14 @@ export default function JoiningRequest() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <button 
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <AdminZoneSelect
+                value={zoneId}
+                onChange={setZoneId}
+                zones={zones}
+                loading={zonesLoading}
+              />
+              <button
                 onClick={() => setShowFilterDialog(true)}
                 className={`px-4 py-2.5 text-sm font-medium rounded-lg border transition-all flex items-center gap-2 ${
                   hasActiveFilters 
@@ -400,7 +406,7 @@ export default function JoiningRequest() {
                 Filter
                 {hasActiveFilters && (
                   <span className="ml-1 px-1.5 py-0.5 bg-blue-600 text-white text-xs rounded-full">
-                    {[filters.zone, filters.dateFrom, filters.dateTo].filter(Boolean).length}
+                    {[filters.dateFrom, filters.dateTo].filter(Boolean).length}
                   </span>
                 )}
               </button>
@@ -573,7 +579,7 @@ export default function JoiningRequest() {
           <AdminListPagination
             currentPage={currentPage}
             pageSize={pageSize}
-            totalItems={filters.zone || filters.dateFrom || filters.dateTo ? sortedRequests.length : totalItems}
+            totalItems={filters.dateFrom || filters.dateTo ? sortedRequests.length : totalItems}
             onPageChange={setCurrentPage}
             onPageSizeChange={(size) => {
               setPageSize(size)

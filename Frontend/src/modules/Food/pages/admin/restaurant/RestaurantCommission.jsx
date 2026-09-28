@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useRef } from "react"
 import { 
   Search, Plus, Edit, Trash2, ArrowUpDown, 
   Loader2, X, Building2, AlertTriangle
@@ -8,6 +8,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { adminAPI } from "@food/api"
 import { API_BASE_URL } from "@food/api/config"
 import { toast } from "sonner"
+import AdminZoneSelect from "@food/components/admin/zones/AdminZoneSelect"
+import { useAdminZoneFilter } from "@food/hooks/useAdminZoneFilter"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -33,10 +35,15 @@ export default function RestaurantCommission() {
     notes: ""
   })
   const [formErrors, setFormErrors] = useState({})
+  const { zones, zonesLoading, zoneId, setZoneId } = useAdminZoneFilter()
+  // Only the newest load may write state, so a quick zone switch cannot be
+  // overwritten by the slower response of the previous zone.
+  const loadSeqRef = useRef(0)
   const [visibleColumns, setVisibleColumns] = useState({
     si: true,
     restaurant: true,
     restaurantId: true,
+    zone: true,
     defaultCommission: true,
     status: true,
     actions: true,
@@ -68,21 +75,30 @@ export default function RestaurantCommission() {
     )
   }, [approvedRestaurants, searchQuery])
 
-  // Fetch data on component mount
+  // Reload whenever the zone filter changes
   useEffect(() => {
     // Single fast call to avoid multiple API requests on load
     fetchBootstrap()
-  }, [])
+  }, [zoneId])
 
+  /**
+   * Commissions and the approved restaurants for the selected zone in one call.
+   * Also used after every change so `hasCommissionSetup` in the "Add" picker
+   * stays in step with the commission list.
+   */
   const fetchBootstrap = async () => {
+    const seq = ++loadSeqRef.current
+    const isLatest = () => seq === loadSeqRef.current
     try {
       setLoading(true)
-      const response = await adminAPI.getRestaurantCommissionBootstrap()
+      const response = await adminAPI.getRestaurantCommissionBootstrap(zoneId ? { zoneId } : {})
+      if (!isLatest()) return
       const data = response?.data?.data
       setCommissions(Array.isArray(data?.commissions) ? data.commissions : [])
       setApprovedRestaurants(Array.isArray(data?.restaurants) ? data.restaurants : [])
     } catch (error) {
       debugError('Error fetching bootstrap:', error)
+      if (!isLatest()) return
       if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
         toast.error(`Cannot connect to backend server. Please ensure the backend is running on ${API_BASE_URL.replace('/api', '')}`)
       } else {
@@ -164,7 +180,7 @@ export default function RestaurantCommission() {
   const handleToggleStatus = async (commission) => {
     try {
       await adminAPI.toggleRestaurantCommissionStatus(commission._id)
-      await fetchCommissions()
+      await fetchBootstrap()
       toast.success('Commission status updated successfully')
     } catch (error) {
       debugError('Error toggling status:', error)
@@ -256,7 +272,7 @@ export default function RestaurantCommission() {
     try {
       setDeleting(true)
       await adminAPI.deleteRestaurantCommission(selectedCommission._id)
-      await fetchCommissions()
+      await fetchBootstrap()
       toast.success('Commission deleted successfully')
       setIsDeleteOpen(false)
       setSelectedCommission(null)
@@ -315,7 +331,7 @@ export default function RestaurantCommission() {
         toast.success('Commission created successfully')
       }
 
-      await fetchCommissions()
+      await fetchBootstrap()
       setIsAddEditOpen(false)
       setSelectedCommission(null)
       setSelectedRestaurant(null)
@@ -331,6 +347,7 @@ export default function RestaurantCommission() {
     si: "Serial Number",
     restaurant: "Restaurant Name",
     restaurantId: "Restaurant ID",
+    zone: "Zone",
     defaultCommission: "Default Commission",
     status: "Status",
     actions: "Actions",
@@ -363,7 +380,7 @@ export default function RestaurantCommission() {
             </div>
           </div>
 
-          <div className="mb-4 flex items-center gap-3">
+          <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-3">
             <div className="relative w-full max-w-xl">
               <input
                 type="text"
@@ -401,6 +418,11 @@ export default function RestaurantCommission() {
                     {visibleColumns.restaurantId && (
                       <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                         Restaurant ID
+                      </th>
+                    )}
+                    {visibleColumns.zone && (
+                      <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+                        Zone
                       </th>
                     )}
                     {visibleColumns.defaultCommission && (
@@ -445,6 +467,11 @@ export default function RestaurantCommission() {
                             <span className="text-sm text-slate-700">
                               {commission.restaurantId || commission.restaurant?.restaurantId || '-'}
                             </span>
+                          </td>
+                        )}
+                        {visibleColumns.zone && (
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="text-sm text-slate-700">{commission.zoneName || '-'}</span>
                           </td>
                         )}
                         {visibleColumns.defaultCommission && (
@@ -533,7 +560,10 @@ export default function RestaurantCommission() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="font-medium text-sm text-slate-900">{restaurant.name}</p>
-                        <p className="text-xs text-slate-500 mt-0.5">{restaurant.restaurantId}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {restaurant.restaurantId}
+                          {restaurant.zoneName ? ` · ${restaurant.zoneName}` : ""}
+                        </p>
                       </div>
                       <Building2 className="w-4 h-4 text-slate-400" />
                     </div>

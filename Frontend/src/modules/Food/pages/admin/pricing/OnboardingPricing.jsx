@@ -3,6 +3,8 @@ import { Check, Edit, Loader2, Plus, RefreshCw, Trash2, X } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
+import AdminZoneSelect from "@food/components/admin/zones/AdminZoneSelect"
+import { useAdminZoneFilter } from "@food/hooks/useAdminZoneFilter"
 
 const TABS = [
   { id: "pricing", label: "Pricing Rules" },
@@ -242,6 +244,21 @@ export default function OnboardingPricing() {
     return map
   }, [bootstrap.zones])
 
+  const { zones: filterZones, zonesLoading: filterZonesLoading, zoneId, setZoneId } = useAdminZoneFilter()
+  // Rules and offers stay loaded in full because the fee shown for an offer
+  // (feeFor) needs every rule; the zone filter only narrows what is listed.
+  // A zone's list includes the "All zones" rules it falls back to.
+  const visibleRules = useMemo(
+    () => (zoneId ? rules.filter((rule) => !rule.zoneId || rule.zoneId === zoneId) : rules),
+    [rules, zoneId],
+  )
+  const visibleOffers = useMemo(
+    () => (zoneId ? offers.filter((offer) => offer.zoneId === zoneId) : offers),
+    [offers, zoneId],
+  )
+  // New rules/offers start in the filtered zone when the forms can offer it.
+  const formDefaultZoneId = zoneId && zoneNameById.has(zoneId) ? zoneId : ""
+
   // Only the newest load may write state: a newer one aborts the older, and an older
   // response that still resolves is ignored by its sequence number.
   const loadSeqRef = useRef(0)
@@ -265,7 +282,8 @@ export default function OnboardingPricing() {
         adminAPI.getOnboardingPricingBootstrap(config),
         adminAPI.getOnboardingPricingRules({}, config),
         adminAPI.getOnboardingOffers({}, config),
-        adminAPI.getOnboardingPayments({ limit: 50 }, config),
+        // Payments are paged, so the zone filter has to run on the server.
+        adminAPI.getOnboardingPayments({ limit: 50, ...(zoneId ? { zoneId } : {}) }, config),
       ])
       if (!isLatest()) return
 
@@ -282,10 +300,13 @@ export default function OnboardingPricing() {
         setRefreshing(false)
       }
     }
-  }, [replaceRules, replaceOffers])
+  }, [replaceRules, replaceOffers, zoneId])
 
+  // After the first load, a zone switch refreshes in place instead of blanking the page.
+  const loadedOnceRef = useRef(false)
   useEffect(() => {
-    load()
+    load({ silent: loadedOnceRef.current })
+    loadedOnceRef.current = true
     return () => loadAbortRef.current?.abort()
   }, [load])
 
@@ -302,7 +323,7 @@ export default function OnboardingPricing() {
             isActive: rule.isActive,
             notes: rule.notes || "",
           }
-        : emptyRule(),
+        : { ...emptyRule(), zoneId: formDefaultZoneId || GLOBAL_ZONE },
     )
     setShowRuleForm(true)
   }
@@ -397,7 +418,7 @@ export default function OnboardingPricing() {
             endsAt: toDateTimeLocal(offer.endsAt),
             isActive: offer.isActive,
           }
-        : emptyOffer(),
+        : { ...emptyOffer(), zoneId: formDefaultZoneId },
     )
     setShowOfferForm(true)
   }
@@ -519,15 +540,23 @@ export default function OnboardingPricing() {
             One-time joining fee per zone and restaurant type, plus limited promotional offers.
           </p>
         </div>
-        <Button
-          variant="outline"
-          onClick={() => load({ silent: true })}
-          disabled={refreshing}
-          className="gap-1.5"
-        >
-          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <AdminZoneSelect
+            value={zoneId}
+            onChange={setZoneId}
+            zones={filterZones}
+            loading={filterZonesLoading}
+          />
+          <Button
+            variant="outline"
+            onClick={() => load({ silent: true })}
+            disabled={refreshing}
+            className="gap-1.5"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        </div>
       </header>
 
       <div className="flex flex-wrap gap-2 border-b border-slate-200">
@@ -650,14 +679,16 @@ export default function OnboardingPricing() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {rules.length === 0 ? (
+                {visibleRules.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
-                      No pricing rules yet — restaurants join without an onboarding fee.
+                      {zoneId
+                        ? "No pricing rule applies to this zone — restaurants here join without an onboarding fee."
+                        : "No pricing rules yet — restaurants join without an onboarding fee."}
                     </td>
                   </tr>
                 ) : (
-                  rules.map((rule) => {
+                  visibleRules.map((rule) => {
                     const busyAction = ruleRows.busy[rule.id]
                     return (
                       <tr
@@ -859,14 +890,14 @@ export default function OnboardingPricing() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {offers.length === 0 ? (
+                {visibleOffers.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                      No promotional offers configured.
+                      {zoneId ? "No promotional offers for this zone." : "No promotional offers configured."}
                     </td>
                   </tr>
                 ) : (
-                  offers.map((offer) => {
+                  visibleOffers.map((offer) => {
                     const busyAction = offerRows.busy[offer.id]
                     const blocked = offer.isActive ? offerBlockedReason(offer, rules) : ""
                     return (
@@ -988,7 +1019,7 @@ export default function OnboardingPricing() {
                 {payments.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                      No onboarding payments yet.
+                      {zoneId ? "No onboarding payments for this zone yet." : "No onboarding payments yet."}
                     </td>
                   </tr>
                 ) : (

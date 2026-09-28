@@ -1,12 +1,14 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { Search, Download, ChevronDown, Eye, Settings, ArrowUpDown, Loader2, X, MapPin, Phone, Mail, Clock, Star, Building2, User, FileText, CreditCard, Calendar, Image as ImageIcon, ExternalLink, ShieldX, AlertTriangle, Trash2, Plus, ShieldCheck, CheckCircle2, Utensils, UtensilsCrossed, Store } from "lucide-react"
+import { Search, Download, ChevronDown, Eye, Settings, ArrowUpDown, Loader2, X, MapPin, Phone, Mail, Clock, Star, Building2, User, FileText, CreditCard, Calendar, Image as ImageIcon, ExternalLink, ShieldX, AlertTriangle, Plus, ShieldCheck, CheckCircle2, Utensils, UtensilsCrossed, Store } from "lucide-react"
 import { adminAPI, restaurantAPI, uploadAPI } from "@food/api"
 import { clearModuleAuth } from "@food/utils/auth"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { exportRestaurantsToPDF } from "@food/components/admin/restaurants/restaurantsExportUtils"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
 import { formatRestaurantDisplayAddress, getRestaurantDisplayAddress } from "@food/utils/restaurantLocation"
+import AdminZoneSelect from "@food/components/admin/zones/AdminZoneSelect"
+import { useAdminZoneFilter } from "@food/hooks/useAdminZoneFilter"
 
 // Import icons from Dashboard-icons
 const debugLog = (...args) => {}
@@ -135,8 +137,6 @@ export default function RestaurantsList() {
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [banConfirmDialog, setBanConfirmDialog] = useState(null) // { restaurant, action: 'ban' | 'unban' }
   const [banning, setBanning] = useState(false)
-  const [deleteConfirmDialog, setDeleteConfirmDialog] = useState(null) // { restaurant }
-  const [deleting, setDeleting] = useState(false)
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" })
   const [isEditingDetails, setIsEditingDetails] = useState(false)
   const [savingDetails, setSavingDetails] = useState(false)
@@ -176,6 +176,15 @@ export default function RestaurantsList() {
   })
   const locationSearchInputRef = useRef(null)
   const placesAutocompleteRef = useRef(null)
+  const {
+    zones: filterZones,
+    zonesLoading: filterZonesLoading,
+    zoneId: selectedZoneId,
+    setZoneId: setSelectedZoneId,
+  } = useAdminZoneFilter()
+  // Only the newest list fetch may write state, so a quick zone switch cannot
+  // be overwritten by the slower response of the previous zone.
+  const fetchSeqRef = useRef(0)
 
   // Format Restaurant ID to REST format (e.g., REST422829)
   const formatRestaurantId = (id) => {
@@ -245,17 +254,22 @@ export default function RestaurantsList() {
 
   // Fetch restaurants from backend API
   const fetchRestaurants = useCallback(async () => {
+    const seq = ++fetchSeqRef.current
+    const isLatest = () => seq === fetchSeqRef.current
     try {
       setLoading(true)
       setError(null)
 
+      // Filtered by zone on the server, so lists, counts and export all match the selected zone.
+      const zoneParams = selectedZoneId ? { zoneId: selectedZoneId } : {}
       const [response, bannedResponse, pendingResponse, rejectedOnlyResponse, zonesResponse] = await Promise.all([
-        adminAPI.getApprovedRestaurants({ status: "approved", limit: 1000, page: 1 }),
-        adminAPI.getApprovedRestaurants({ status: "banned", limit: 1000, page: 1 }).catch(() => null),
-        adminAPI.getPendingRestaurants({ limit: 1000, page: 1 }).catch(() => null),
-        adminAPI.getApprovedRestaurants({ status: "rejected", limit: 1000, page: 1 }).catch(() => null),
+        adminAPI.getApprovedRestaurants({ status: "approved", limit: 1000, page: 1, ...zoneParams }),
+        adminAPI.getApprovedRestaurants({ status: "banned", limit: 1000, page: 1, ...zoneParams }).catch(() => null),
+        adminAPI.getPendingRestaurants({ limit: 1000, page: 1, ...zoneParams }).catch(() => null),
+        adminAPI.getApprovedRestaurants({ status: "rejected", limit: 1000, page: 1, ...zoneParams }).catch(() => null),
         adminAPI.getZones({ page: 1, limit: 1000 }).catch(() => null),
       ])
+      if (!isLatest()) return
 
       const fetchedZones = Array.isArray(zonesResponse?.data?.data?.zones)
         ? zonesResponse.data.data.zones
@@ -417,6 +431,7 @@ export default function RestaurantsList() {
       }
     } catch (err) {
       debugError("Error fetching restaurants:", err)
+      if (!isLatest()) return
       const status = err?.response?.status
       const serverMessage = err?.response?.data?.message || err?.response?.data?.error
       if (status === 401) {
@@ -431,9 +446,9 @@ export default function RestaurantsList() {
       setError(serverMessage || err.message || "Failed to fetch restaurants")
       setRestaurants([])
     } finally {
-      setLoading(false)
+      if (isLatest()) setLoading(false)
     }
-  }, [navigate])
+  }, [navigate, selectedZoneId])
 
   useEffect(() => {
     fetchRestaurants()
@@ -502,11 +517,11 @@ export default function RestaurantsList() {
   const filteredRestaurants = useMemo(() => {
     let result = []
     if (viewMode === "active") {
-      result = [...zoneFilteredActive]
+      result = [...restaurants]
     } else if (viewMode === "banned") {
-      result = [...zoneFilteredBanned]
+      result = [...bannedRestaurants]
     } else if (viewMode === "rejected") {
-      result = [...zoneFilteredRejected]
+      result = [...rejectedRestaurants]
     }
 
     if (searchQuery.trim()) {
@@ -567,7 +582,7 @@ export default function RestaurantsList() {
     }
 
     return result
-  }, [zoneFilteredActive, zoneFilteredBanned, zoneFilteredRejected, viewMode, searchQuery, filters.all, sortConfig, restaurants])
+  }, [restaurants, bannedRestaurants, rejectedRestaurants, viewMode, searchQuery, filters.all, sortConfig])
 
   const modalRestaurant = restaurantDetails || selectedRestaurant?.originalData || selectedRestaurant
   const detailsApprovalStatus = modalRestaurant ? normalizeApprovalStatus(modalRestaurant) : "pending"
@@ -580,11 +595,11 @@ export default function RestaurantsList() {
     setSortConfig({ key, direction })
   }
 
-  const totalRestaurants = zoneFilteredActive.length + zoneFilteredBanned.length + zoneFilteredRejected.length
-  const activeRestaurants = zoneFilteredActive.filter(r => r.isActive === true).length
-  const inactiveRestaurants = zoneFilteredActive.filter(r => r.isActive !== true).length
-  const displayRejectedCount = zoneFilteredRejected.length
-  const displayBannedCount = zoneFilteredBanned.length
+  const totalRestaurants = restaurants.length + bannedRestaurants.length + rejectedRestaurants.length
+  const activeRestaurants = restaurants.filter(r => r.isActive === true).length
+  const inactiveRestaurants = restaurants.filter(r => r.isActive !== true).length
+  const displayRejectedCount = rejectedRestaurants.length
+  const displayBannedCount = bannedRestaurants.length
 
   // Show full phone number without masking
   const formatPhone = (phone) => {

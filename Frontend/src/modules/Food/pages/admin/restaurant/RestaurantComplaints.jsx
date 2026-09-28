@@ -1,6 +1,8 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
+import AdminZoneSelect from "@food/components/admin/zones/AdminZoneSelect"
+import { useAdminZoneFilter } from "@food/hooks/useAdminZoneFilter"
 import { Search, Filter, AlertCircle, CheckCircle, Clock, XCircle, FileText, Edit } from "lucide-react"
 import {
   Select,
@@ -67,23 +69,37 @@ export default function RestaurantComplaints() {
   })
   const [editingComplaint, setEditingComplaint] = useState(null)
   const [updateData, setUpdateData] = useState({ status: '', adminResponse: '' })
+  const { zones, zonesLoading, zoneId, setZoneId } = useAdminZoneFilter()
+  // Only the newest fetch may write state, so a quick filter change cannot be
+  // overwritten by a slower earlier response.
+  const fetchSeqRef = useRef(0)
 
   useEffect(() => {
     fetchComplaints()
-  }, [filters])
+  }, [filters, zoneId])
+
+  const handleZoneChange = (nextZoneId) => {
+    setZoneId(nextZoneId)
+    // Keep the same object on page 1 so the zone change triggers a single fetch.
+    setFilters((prev) => (prev.page === 1 ? prev : { ...prev, page: 1 }))
+  }
 
   const fetchComplaints = async () => {
+    const seq = ++fetchSeqRef.current
+    const isLatest = () => seq === fetchSeqRef.current
     try {
       setLoading(true)
       const params = {
         page: filters.page,
         limit: filters.limit,
       }
+      if (zoneId) params.zoneId = zoneId
       if (filters.status && filters.status !== 'all') params.status = filters.status
       if (filters.complaintType && filters.complaintType !== 'all') params.complaintType = filters.complaintType
       if (filters.search) params.search = filters.search
 
       const response = await adminAPI.getRestaurantComplaints(params)
+      if (!isLatest()) return
       if (response?.data?.success) {
         setComplaints(response.data.data.complaints || [])
         setStats(response.data.data.stats || stats)
@@ -96,9 +112,9 @@ export default function RestaurantComplaints() {
       }
     } catch (error) {
       debugError('Error fetching complaints:', error)
-      toast.error('Failed to fetch complaints')
+      if (isLatest()) toast.error('Failed to fetch complaints')
     } finally {
-      setLoading(false)
+      if (isLatest()) setLoading(false)
     }
   }
 
@@ -174,6 +190,12 @@ export default function RestaurantComplaints() {
             />
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <AdminZoneSelect
+              value={zoneId}
+              onChange={handleZoneChange}
+              zones={zones}
+              loading={zonesLoading}
+            />
             <Select value={filters.status || 'all'} onValueChange={(value) => setFilters({ ...filters, status: value, page: 1 })}>
               <SelectTrigger className="w-full sm:w-[140px]">
                 <SelectValue placeholder="All Status" />

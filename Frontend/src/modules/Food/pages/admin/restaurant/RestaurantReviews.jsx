@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Search, Download, ChevronDown, Star, ArrowUpDown, Settings, FileText, FileSpreadsheet, Code, Check, Columns, Loader2, Eye, Utensils } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@food/components/ui/dialog"
@@ -6,6 +6,8 @@ import { exportReviewsToCSV, exportReviewsToExcel, exportReviewsToPDF, exportRev
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
 import AdminListPagination from "@food/components/admin/AdminListPagination"
+import AdminZoneSelect from "@food/components/admin/zones/AdminZoneSelect"
+import { useAdminZoneFilter } from "@food/hooks/useAdminZoneFilter"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -38,6 +40,11 @@ export default function RestaurantReviews() {
     date: true,
   })
 
+  const { zones, zonesLoading, zoneId, setZoneId } = useAdminZoneFilter()
+  // Only the newest fetch may write state, so a quick filter change cannot be
+  // overwritten by a slower earlier response.
+  const fetchSeqRef = useRef(0)
+
   const filteredReviews = reviews
 
   useEffect(() => {
@@ -47,17 +54,21 @@ export default function RestaurantReviews() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [debouncedSearch])
+  }, [debouncedSearch, zoneId])
 
   useEffect(() => {
+    const seq = ++fetchSeqRef.current
+    const isLatest = () => seq === fetchSeqRef.current
     const fetchReviews = async () => {
       try {
         setIsLoading(true)
         const response = await adminAPI.getRestaurantReviews({
+          zoneId: zoneId || undefined,
           search: debouncedSearch || undefined,
           page: currentPage,
           limit: pageSize,
         })
+        if (!isLatest()) return
         if (response?.data?.success && response?.data?.data?.reviews) {
           setReviews(response.data.data.reviews)
           setTotalItems(
@@ -71,16 +82,17 @@ export default function RestaurantReviews() {
         }
       } catch (error) {
         debugError('Error fetching restaurant reviews:', error)
+        if (!isLatest()) return
         setReviews([])
         setTotalItems(0)
         toast.error('Failed to load restaurant reviews')
       } finally {
-        setIsLoading(false)
+        if (isLatest()) setIsLoading(false)
       }
     }
 
     fetchReviews()
-  }, [debouncedSearch, currentPage, pageSize])
+  }, [debouncedSearch, currentPage, pageSize, zoneId])
 
   const handleExport = (format) => {
     if (filteredReviews.length === 0) {
@@ -180,7 +192,13 @@ export default function RestaurantReviews() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <AdminZoneSelect
+                value={zoneId}
+                onChange={setZoneId}
+                zones={zones}
+                loading={zonesLoading}
+              />
               <div className="relative flex-1 sm:flex-initial min-w-[250px]">
                 <input
                   type="text"
