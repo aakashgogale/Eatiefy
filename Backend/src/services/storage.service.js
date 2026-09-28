@@ -326,6 +326,19 @@ export const storeImageBuffer = async (buffer, folder = 'uploads', options = {})
     };
 };
 
+/*
+ * Stored extension for untranscoded files, keyed by the (already allow-listed)
+ * MIME type. The extension used to come from the client's file name, and the
+ * MIME type is also client-supplied, so "x.html" labelled video/mp4 was written
+ * as .html and served from our own origin - stored XSS able to read the auth
+ * tokens every app keeps in localStorage.
+ */
+const RAW_FILE_EXTENSIONS = {
+    'video/mp4': 'mp4',
+    'video/quicktime': 'mov',
+    'video/webm': 'webm'
+};
+
 /** Store a video/raw buffer (no transcoding). Images should use storeImageBuffer. */
 export const storeFileBuffer = async (buffer, folder = 'uploads', originalName = '', options = {}) => {
     if (!buffer || !buffer.length) {
@@ -342,8 +355,11 @@ export const storeFileBuffer = async (buffer, folder = 'uploads', originalName =
         });
     }
 
-    const rawExt = path.extname(String(originalName || '')).replace(/[^.A-Za-z0-9]/g, '') || '.bin';
-    const stored = await writeBufferToDisk(buffer, folder, rawExt.replace('.', ''));
+    const ext = RAW_FILE_EXTENSIONS[String(options.mimeType || '').toLowerCase()];
+    if (!ext) {
+        throw new ValidationError('Unsupported file type');
+    }
+    const stored = await writeBufferToDisk(buffer, folder, ext);
     if (options.replaceUrl) {
         await deleteStoredAsset(options.replaceUrl);
     }

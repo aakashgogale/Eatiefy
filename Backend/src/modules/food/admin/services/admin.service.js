@@ -2012,7 +2012,9 @@ export async function updateCustomerStatus(id, isActive) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     const updatedDoc = await FoodUser.findByIdAndUpdate(
         id,
-        { $set: { isActive: Boolean(isActive) } },
+        // deletedAt marks a self-deleted account that may be restored at sign-in.
+        // An admin decision replaces it, so a blocked account can never be "restored".
+        { $set: { isActive: Boolean(isActive), deletedAt: null } },
         { new: true }
     );
     if (!updatedDoc) return null;

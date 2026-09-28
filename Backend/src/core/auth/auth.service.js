@@ -132,6 +132,14 @@ export const verifyUserOtpAndLogin = async (
   const trimmedName = typeof name === "string" ? name.trim() : "";
   const existingUser = await FoodUser.findOne({ phone });
   
+  // Only a self-deleted account (deletedAt set) offers restore / start fresh. An
+  // account an admin blocked is also isActive=false but has no deletedAt, and the
+  // restore flow used to flip it back to active - a blocked user could unblock
+  // themselves just by signing in again.
+  if (existingUser && existingUser.isActive === false && !existingUser.deletedAt) {
+    throw new AuthError("Your account has been deactivated. Please contact support.");
+  }
+
   // Decide if we should preserve the OTP record for a subsequent Restore/New action
   const isDeletedAccount = existingUser && existingUser.isActive === false;
   
@@ -178,6 +186,7 @@ export const verifyUserOtpAndLogin = async (
     if (confirmAction === "restore") {
       // Restore the account
       userDoc.isActive = true;
+      userDoc.deletedAt = null;
       await userDoc.save();
       logger.info({ userId: userDoc._id }, "User account restored successfully");
     } else if (confirmAction === "new") {
@@ -1103,6 +1112,8 @@ export const changeAdminPassword = async (
   }
   admin.password = newPassword;
   await admin.save();
+  // A changed password must end every existing session, including a stolen one.
+  await FoodRefreshToken.deleteMany({ userId: admin._id });
 
   try {
     const { notifyAdminsSafely } = await import("../../core/notifications/firebase.service.js");
@@ -1131,9 +1142,17 @@ export const requestAdminForgotPasswordOtp = async (email) => {
     throw new ValidationError("Email is required");
   }
 
+  const genericResponse = {
+    success: true,
+    message: "If this email is registered, you will receive an OTP shortly.",
+  };
+
+  // Same answer whether or not the email exists, so this endpoint cannot be used
+  // to discover which addresses are admin accounts.
   const admin = await FoodAdmin.findOne({ email: normalizedEmail });
   if (!admin) {
-    throw new AuthError("This email is not registered as an admin account.");
+    logger.warn(`Admin reset OTP requested for unknown email ${normalizedEmail}`);
+    return genericResponse;
   }
 
   const otp = config.useDefaultOtp
@@ -1159,11 +1178,10 @@ export const requestAdminForgotPasswordOtp = async (email) => {
     );
   }
 
-  return {
-    success: true,
-    message: "If this email is registered, you will receive an OTP shortly.",
-  };
+  return genericResponse;
 };
+
+const ADMIN_RESET_MAX_ATTEMPTS = 5;
 
 /** Admin forgot password: verify OTP and set new password in one call. */
 export const resetAdminPasswordWithOtp = async (email, otp, newPassword) => {
@@ -1186,7 +1204,23 @@ export const resetAdminPasswordWithOtp = async (email, otp, newPassword) => {
     await record.deleteOne();
     throw new AuthError("OTP has expired. Please request a new code.");
   }
-  if (record.otp !== otpStr) {
+  if ((record.attempts || 0) >= ADMIN_RESET_MAX_ATTEMPTS) {
+    await record.deleteOne();
+    throw new AuthError("Too many incorrect attempts. Please request a new code.");
+  }
+  const expectedOtp = Buffer.from(String(record.otp));
+  const providedOtp = Buffer.from(otpStr);
+  if (expectedOtp.length !== providedOtp.length || !crypto.timingSafeEqual(expectedOtp, providedOtp)) {
+    // Without a cap the 6-digit code for the admin account could be brute-forced.
+    const updated = await AdminResetOtp.findOneAndUpdate(
+      { _id: record._id },
+      { $inc: { attempts: 1 } },
+      { new: true },
+    ).lean();
+    if ((updated?.attempts ?? ADMIN_RESET_MAX_ATTEMPTS) >= ADMIN_RESET_MAX_ATTEMPTS) {
+      await AdminResetOtp.deleteOne({ _id: record._id });
+      throw new AuthError("Too many incorrect attempts. Please request a new code.");
+    }
     throw new AuthError("Invalid OTP.");
   }
 
@@ -1200,6 +1234,8 @@ export const resetAdminPasswordWithOtp = async (email, otp, newPassword) => {
   admin.password = newPassword;
   await admin.save();
   await record.deleteOne();
+  // Whoever held a session before the reset (possibly the reason for it) is signed out.
+  await FoodRefreshToken.deleteMany({ userId: admin._id });
 
   try {
     const { notifyAdminsSafely } = await import("../../core/notifications/firebase.service.js");

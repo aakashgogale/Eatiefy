@@ -403,6 +403,11 @@ orderSchema.index({ 'dispatch.offeredTo.partnerId': 1, 'dispatch.status': 1, ord
 orderSchema.index({ 'dispatch.offeredTo.action': 1, 'dispatch.offeredTo.expiresAt': 1 });
 orderSchema.index({ 'payment.status': 1, createdAt: -1 });
 orderSchema.index({ 'payment.method': 1, createdAt: -1 });
+// One Razorpay payment pays for one order (blocks replay and webhook/app double-create).
+orderSchema.index(
+    { 'payment.razorpay.paymentId': 1 },
+    { unique: true, partialFilterExpression: { 'payment.razorpay.paymentId': { $gt: '' } } }
+);
 
 orderSchema.pre('save', async function (next) {
     if (!this.order_id) {

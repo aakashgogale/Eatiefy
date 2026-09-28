@@ -61,7 +61,9 @@ export const authMiddleware = (req, res, next) => {
                         return sendError(res, 401, 'Restaurant account is disabled');
                     }
                     if (doc.status !== 'approved') {
-                        const url = req.originalUrl || '';
+                        // Path only: originalUrl carries the query string, so "?x=/profile"
+                        // used to satisfy these checks on any route.
+                        const url = String(req.originalUrl || '').split('?')[0].replace(/\/+$/, '');
                         const isAllowedRoute =
                             url.endsWith('/current') ||
                             url.includes('/profile') ||

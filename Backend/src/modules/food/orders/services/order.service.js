@@ -93,7 +93,11 @@ export async function createOrderFromPendingIntent(rzOrderId, rzPaymentId, rzSig
   dto.razorpaySignature = rzSignature;
   
   try {
-    const result = await createOrder(userId, dto);
+    // The webhook body was HMAC-verified with the webhook secret, but there is
+    // no checkout signature here. createOrder used to demand one, so this
+    // recovery path always failed: the customer was charged and no order was
+    // created. The payment is still re-fetched from Razorpay and amount-checked.
+    const result = await createOrder(userId, dto, { gatewayVerified: true });
     pendingOnlinePayments.delete(rzOrderId);
     return result?.order || null;
   } catch (err) {
@@ -183,8 +187,30 @@ export async function initiateOnlinePayment(userId, dto) {
   };
 }
 
+/**
+ * The order a Razorpay payment has already paid for, if any. One payment must
+ * pay for exactly one order: without this a single successful checkout
+ * (order id + payment id + signature) could be replayed to place the same
+ * order again and again for free.
+ */
+async function findOrderForRazorpayPayment({ rzOrderId, rzPaymentId }) {
+  const or = [];
+  if (rzPaymentId) or.push({ "payment.razorpay.paymentId": rzPaymentId });
+  if (rzOrderId) or.push({ "payment.razorpay.orderId": rzOrderId });
+  if (!or.length) return null;
+  return FoodOrder.findOne({ $or: or }).lean();
+}
+
+function reuseOrderForPayment(existing, userId) {
+  if (String(existing.userId) !== String(userId)) {
+    throw new ValidationError("This payment has already been used");
+  }
+  // Same customer retrying (double tap, network retry, webhook raced the app).
+  return { order: normalizeOrderForClient(existing), razorpay: null };
+}
+
 // ----- Create order -----
-export async function createOrder(userId, dto) {
+export async function createOrder(userId, dto, { gatewayVerified = false } = {}) {
   // Admin module toggles are enforced here too — hiding the UI is not enough to
   // stop a direct API call for a module that has been switched off.
   const requestedOrderType = dto?.orderType || "delivery";
@@ -345,9 +371,15 @@ export async function createOrder(userId, dto) {
       throw new ValidationError("Payment details (razorpayOrderId, razorpayPaymentId, razorpaySignature) are required for online payment");
     }
 
-    const valid = verifyPaymentSignature(rzOrderId, rzPaymentId, rzSignature);
+    const valid = gatewayVerified || verifyPaymentSignature(rzOrderId, rzPaymentId, rzSignature);
     if (!valid) throw new ValidationError("Payment verification failed: Invalid signature");
 
+    const alreadyPlaced = await findOrderForRazorpayPayment({ rzOrderId, rzPaymentId });
+    if (alreadyPlaced) return reuseOrderForPayment(alreadyPlaced, userId);
+
+    if (gatewayVerified && !isRazorpayConfigured()) {
+      throw new ValidationError("Payment gateway is not configured");
+    }
     if (isRazorpayConfigured()) {
       try {
         const rzPayment = await fetchRazorpayPayment(rzPaymentId);
@@ -621,7 +653,23 @@ export async function createOrder(userId, dto) {
 
   let razorpayPayload = null;
 
-  await order.save();
+  try {
+    await order.save();
+  } catch (saveErr) {
+    // Unique payment id index: a concurrent request with the same payment won.
+    if (saveErr?.code === 11000 && paymentMethod === "razorpay") {
+      const winner = await findOrderForRazorpayPayment({
+        rzOrderId: payment.razorpay?.orderId,
+        rzPaymentId: payment.razorpay?.paymentId,
+      });
+      if (winner) return reuseOrderForPayment(winner, userId);
+    }
+    throw saveErr;
+  }
+  if (paymentMethod === "razorpay" && payment.razorpay?.orderId) {
+    // The app placed it; the webhook must not create a second copy.
+    pendingOnlinePayments.delete(payment.razorpay.orderId);
+  }
 
   try {
     await clearFoodCart(userId);
@@ -751,6 +799,13 @@ export async function verifyPayment(userId, dto) {
     dto.razorpaySignature,
   );
   if (!valid) throw new ValidationError("Payment verification failed");
+
+  // A payment that already settled a different order cannot settle this one too.
+  const paidElsewhere = await FoodOrder.exists({
+    _id: { $ne: order._id },
+    "payment.razorpay.paymentId": String(dto.razorpayPaymentId || "").trim(),
+  });
+  if (paidElsewhere) throw new ValidationError("This payment has already been used");
 
   // Bind to Razorpay API: amount + order id + status (defense in depth)
   try {

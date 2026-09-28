@@ -12,35 +12,30 @@ const privateMax =
         : config.rateLimitMaxRequests;
 
 /**
- * Resolve the real client IP behind Vite / nginx / Cloudflare / mobile gateways.
+ * Resolve the real client IP.
+ *
+ * req.ip already walks X-Forwarded-For only as far as TRUST_PROXY allows, so it
+ * is the address the nearest trusted proxy saw. The left-most X-Forwarded-For
+ * entry, X-Real-IP and friends are whatever the client chose to send when they
+ * reach us through nginx, so keying the limiter on them let anyone reset their
+ * budget per request (e.g. unlimited admin-login guesses). CF-Connecting-IP is
+ * only honoured when TRUST_CF_CONNECTING_IP=true, i.e. the origin is reachable
+ * through Cloudflare alone.
  */
+const trustCfConnectingIp = /^(true|1|yes|on)$/i.test(String(process.env.TRUST_CF_CONNECTING_IP || '').trim());
+
 export function getClientIp(req) {
     if (req.clientIp) return req.clientIp;
 
-    const headerFirst = (value) => {
-        if (!value) return null;
-        const raw = Array.isArray(value) ? value[0] : String(value);
-        const first = raw.split(',')[0]?.trim();
-        return first || null;
-    };
+    if (trustCfConnectingIp) {
+        const raw = req.headers['cf-connecting-ip'];
+        const fromCf = String(Array.isArray(raw) ? raw[0] : raw || '').split(',')[0].trim();
+        if (fromCf) return stripIpv6Mapped(fromCf);
+    }
 
-    // Prefer left-most X-Forwarded-For (original client). Nginx sets this.
-    // CF-Connecting-IP only when Cloudflare is in front.
-    const fromForwarded = headerFirst(req.headers['x-forwarded-for']);
-    const fromCf = headerFirst(req.headers['cf-connecting-ip']);
-    const fromRealIp = headerFirst(req.headers['x-real-ip']);
-    const fromTrueClient = headerFirst(req.headers['true-client-ip']);
-
-    // If Cloudflare is present, trust CF first; otherwise XFF / X-Real-IP from nginx.
-    const picked =
-        fromCf ||
-        fromForwarded ||
-        fromRealIp ||
-        fromTrueClient ||
-        (req.ip ? stripIpv6Mapped(req.ip) : null) ||
-        stripIpv6Mapped(req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown');
-
-    return stripIpv6Mapped(picked);
+    return stripIpv6Mapped(
+        req.ip || req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown'
+    );
 }
 
 function stripIpv6Mapped(ip) {
@@ -166,9 +161,12 @@ function buildPrivateKey(req) {
 
 function buildAuthKey(req) {
     const ip = getClientIp(req);
+    // Last 10 digits, the same normalisation the OTP store uses: otherwise
+    // "9876543210", "919876543210", "0919876543210"... each got a fresh budget
+    // against the one OTP record they all resolve to.
     const phone =
         req.body?.phone != null
-            ? String(req.body.phone).replace(/\D/g, '').slice(-15)
+            ? String(req.body.phone).replace(/\D/g, '').slice(-10)
             : '';
     // Prefer phone so same number isn't blocked by shared IP; keep IP for no-body calls.
     return phone ? `auth:phone:${phone}` : `auth:ip:${ip}`;

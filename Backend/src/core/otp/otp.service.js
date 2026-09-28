@@ -235,6 +235,7 @@ export const createOrUpdateOtp = async (phone) => {
     }
 
     let otp;
+    let reusedCode = false;
     // if (config.useDefaultOtp) {
     //     otp = '1234';
     //     logger.info(`Default OTP mode enabled – OTP is ${otp} for phone ${normalizedPhone}`);
@@ -246,11 +247,16 @@ export const createOrUpdateOtp = async (phone) => {
         logger.info(
             `${config.useDefaultOtp ? 'Default OTP mode' : 'Default test phone'} enabled – OTP is ${otp} for phone ${normalizedPhone}`
         );
-    } else if (existing?.otp && existing.otpExpiresAt > now) {
+    } else if (
+        existing?.otp &&
+        existing.otpExpiresAt > now &&
+        (existing.attempts || 0) < Math.max(1, config.otpMaxAttempts || 4)
+    ) {
         // A code that is still valid is sent again instead of being replaced: a double
         // tap, a network retry or "Resend SMS" must not invalidate the SMS the user
         // already received (typing that code used to fail as "Invalid OTP").
         otp = existing.otp;
+        reusedCode = true;
     } else {
         otp = generateOtpCode();
     }
@@ -274,7 +280,8 @@ export const createOrUpdateOtp = async (phone) => {
         existing.otp = otp;
         existing.otpExpiresAt = otpExpiresAt;
         existing.expiresAt = expiresAt;
-        existing.attempts = 0;
+        // Re-sending the same code must not hand out a fresh set of guesses for it.
+        if (!reusedCode) existing.attempts = 0;
         existing.lastRequestAt = now;
         await existing.save();
     } else {
@@ -338,14 +345,34 @@ export const verifyOtp = async (phone, otp, preserveOtp = false) => {
         return { valid: false, reason: 'OTP expired' };
     }
 
+    // A 4-digit code is only safe while guesses are capped: without this limit
+    // the whole code space can be tried inside one OTP lifetime.
+    const maxAttempts = Math.max(1, config.otpMaxAttempts || 4);
+    if ((record.attempts || 0) >= maxAttempts) {
+        return { valid: false, reason: 'Too many incorrect attempts. Please request a new OTP.' };
+    }
+
     // Compare digit strings, so "1234", " 1234" and 1234 are the same code.
     const entered = String(otp ?? '').replace(/\D/g, '');
-    if (String(record.otp) !== entered) {
+    const expected = Buffer.from(String(record.otp));
+    const provided = Buffer.from(entered);
+    const matches = expected.length === provided.length && crypto.timingSafeEqual(expected, provided);
+    if (!matches) {
+        // Atomic increment so parallel guesses cannot all slip under the limit.
+        const updated = await FoodOtp.findOneAndUpdate(
+            { _id: record._id },
+            { $inc: { attempts: 1, totalFailures: 1 } },
+            { new: true }
+        ).lean();
+        const used = updated?.attempts ?? maxAttempts;
         // Never log the code itself; the timing shows whether a newer request replaced it.
         logger.warn(
             `[OTP-Verify] Wrong code for ******${normalizedPhone.slice(-4)}: ${entered.length} digit(s) entered, ` +
             `current code issued ${Math.round((now - record.lastRequestAt) / 1000)}s ago, requests in window ${record.requestCount}`
         );
+        if (used >= maxAttempts) {
+            return { valid: false, reason: 'Too many incorrect attempts. Please request a new OTP.' };
+        }
         return { valid: false, reason: 'Invalid OTP' };
     }
 
