@@ -7,6 +7,7 @@ import { ValidationError } from '../../../../core/auth/errors.js';
 import { haversineKm, assertRestaurantDeliversToZone } from './order.helpers.js';
 import { fetchDrivingDistanceKm } from '../utils/googleMaps.js';
 import { resolveFeeSettingsForZone } from '../../admin/services/zoneScopedSettings.service.js';
+import { isTakeawayEnabled } from '../../admin/services/moduleAccess.service.js';
 import {
   enforceMinimumFoodItemPrices,
   resolveCheckoutItems,
@@ -23,11 +24,24 @@ export async function calculateOrderPricing(userId, dto) {
   if (!restaurantId) throw new ValidationError('Restaurant id required');
 
   const restaurant = await FoodRestaurant.findById(restaurantId)
-    .select("status location zoneId restaurantName")
+    .select("status location zoneId restaurantName takeawaySettings")
     .lean();
   if (!restaurant) throw new ValidationError("Restaurant not found");
   if (restaurant.status !== "approved")
     throw new ValidationError("Restaurant not available");
+
+  // Takeaway needs the admin module on and the restaurant to offer pickup.
+  // Checked here so the cart, the Razorpay initiation and order creation all
+  // agree: only order creation used to check it, so an online payment for a
+  // pickup the restaurant does not offer was taken and the order then failed.
+  if (String(dto.orderType || "delivery").toLowerCase() === "takeaway") {
+    if (!(await isTakeawayEnabled())) {
+      throw new ValidationError("Takeaway is currently unavailable", "TAKEAWAY_UNAVAILABLE");
+    }
+    if (restaurant.takeawaySettings?.isEnabled !== true) {
+      throw new ValidationError("Takeaway is not available for this restaurant", "TAKEAWAY_UNAVAILABLE");
+    }
+  }
 
   assertRestaurantDeliversToZone(restaurant, {
     zoneId: dto.zoneId,

@@ -12,6 +12,7 @@ import { useProfile } from "@food/context/ProfileContext"
 import { useOrders } from "@food/context/OrdersContext"
 import { useLocation as useUserLocation } from "@food/hooks/useLocation"
 import { useZone } from "@food/hooks/useZone"
+import { useTakeawayEnabled } from "@food/hooks/useModuleAccess"
 import { useLocationSelector } from "@food/components/user/UserLayout"
 import { authAPI, orderAPI, restaurantAPI, adminAPI, userAPI, API_ENDPOINTS } from "@food/api"
 import { API_BASE_URL } from "@food/api/config"
@@ -373,6 +374,41 @@ export default function Cart() {
   const [loadingRestaurant, setLoadingRestaurant] = useState(false)
   const [pricing, setPricing] = useState(null)
   const [loadingPricing, setLoadingPricing] = useState(false)
+  // Only the newest pricing request may update the screen (switching delivery /
+  // takeaway quickly must not leave the other mode's price showing).
+  const pricingRequestSeqRef = useRef(0)
+
+  // Where a takeaway order is collected. The detail API has no top-level
+  // `address`, so this used to show the placeholder "Restaurant Address".
+  const pickupAddressText = useMemo(() => {
+    const loc = restaurantData?.location || {}
+    const fromLocation = String(loc.formattedAddress || loc.address || "").trim()
+    if (fromLocation) return fromLocation
+    return [
+      restaurantData?.addressLine1 || loc.addressLine1,
+      restaurantData?.addressLine2 || loc.addressLine2,
+      restaurantData?.area || loc.area,
+      restaurantData?.city || loc.city,
+    ]
+      .map((part) => String(part || "").trim())
+      .filter(Boolean)
+      .join(", ")
+  }, [restaurantData])
+  const pickupDirectionsUrl = useMemo(() => {
+    const coords = restaurantData?.location?.coordinates
+    if (!Array.isArray(coords) || coords.length !== 2) return ""
+    const [lng, lat] = coords.map(Number)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return ""
+    return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`
+  }, [restaurantData])
+
+  // Home delivery or takeaway is chosen right here in the cart. Takeaway is
+  // offered only while the admin module is on and this restaurant accepts
+  // pickup; the rest of the cart and the backend already apply takeaway rules
+  // (no address, no delivery fee, pickup COD settings).
+  const takeawayModuleEnabled = useTakeawayEnabled()
+  const restaurantOffersTakeaway = restaurantData?.takeawaySettings?.isEnabled === true
+  const canChooseTakeaway = takeawayModuleEnabled && restaurantOffersTakeaway && orderType !== "dining"
 
   // Use backend pricing if available, otherwise fallback to item sums
   const subtotal = pricing?.subtotal || cart.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0)
@@ -1098,6 +1134,24 @@ export default function Cart() {
     fetchRestaurantData()
   }, [cart.length, cart[0]?.restaurantId, cart[0]?.restaurant, showOrderSuccess, showPlacingOrder, showSavingsCongrats])
 
+  // A takeaway choice made earlier (the Takeaway tab, a previous cart) must not
+  // carry over to a restaurant, or a moment, where pickup is not offered.
+  useEffect(() => {
+    if (orderType !== "takeaway" || cart.length === 0 || !restaurantData) return
+    if (showOrderSuccess || showPlacingOrder) return
+    if (!takeawayModuleEnabled || !restaurantOffersTakeaway) {
+      setOrderType("delivery")
+      toast.info("Takeaway isn't available for this restaurant, so your order is set to home delivery.")
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderType, cart.length, restaurantData, takeawayModuleEnabled, restaurantOffersTakeaway, showOrderSuccess, showPlacingOrder])
+
+  const handleOrderTypeChange = (nextType) => {
+    if (nextType === orderType || isPlacingOrder) return
+    if (nextType === "takeaway" && !canChooseTakeaway) return
+    setOrderType(nextType)
+  }
+
   // Fetch approved addons for the restaurant
   useEffect(() => {
     const fetchAddonsWithId = async (idToUse) => {
@@ -1256,8 +1310,12 @@ export default function Cart() {
       // For takeaway, we don't need a delivery address to calculate pricing, but we MUST have a restaurantId
       const canCalculate = cart.length > 0 && resolvedRestaurantId && (orderType === "takeaway" || hasSavedAddress)
       
+      const requestSeq = ++pricingRequestSeqRef.current
+
       if (!canCalculate) {
         setPricing(null)
+        // An older request may still be in flight; it no longer owns the spinner.
+        setLoadingPricing(false)
         return
       }
 
@@ -1292,6 +1350,7 @@ export default function Cart() {
         debugLog("Recalculating pricing with body:", requestBody)
 
         const response = await orderAPI.calculateOrder(requestBody)
+        if (requestSeq !== pricingRequestSeqRef.current) return
 
         if (response?.data?.success && response?.data?.data?.pricing) {
           setPricing(response.data.data.pricing)
@@ -1317,11 +1376,18 @@ export default function Cart() {
               setAppliedCoupon(null)
               setCouponCode("")
               setManualCouponCode("")
-              toast.error("Applied coupon is not valid for this order type")
+              toast.error(response.data.data.pricing.couponError || "Applied coupon is not valid for this order type")
             }
           }
         }
       } catch (error) {
+        if (requestSeq !== pricingRequestSeqRef.current) return
+        // Takeaway was switched off (admin module or this restaurant) while the
+        // customer was in the cart: fall back to delivery instead of failing at checkout.
+        if (error?.response?.data?.code === "TAKEAWAY_UNAVAILABLE" && orderType === "takeaway") {
+          setOrderType("delivery")
+          toast.info(error.response.data.message || "Takeaway isn't available right now, so your order is set to home delivery.")
+        }
         // Network errors or 404 errors - silently handle, fallback to frontend calculation
         if (error.code !== 'ERR_NETWORK' && error.response?.status !== 404) {
           debugError("Error calculating pricing:", error)
@@ -1329,7 +1395,7 @@ export default function Cart() {
         // Fallback to frontend calculation if backend fails
         setPricing(null)
       } finally {
-        setLoadingPricing(false)
+        if (requestSeq === pricingRequestSeqRef.current) setLoadingPricing(false)
       }
     }
 
@@ -1412,6 +1478,10 @@ export default function Cart() {
   // Use backend pricing if available, otherwise fallback to database fee settings
   // subtotal is declared at the top of the component
   const fallbackDeliveryFee = (() => {
+    // Pickup has no delivery fee (same rule as the backend).
+    if (orderType === "takeaway") {
+      return 0
+    }
     if (appliedCoupon?.freeDelivery) {
       return 0
     }
@@ -1461,7 +1531,7 @@ export default function Cart() {
     ? `Distance ${Number(deliveryFeeBreakdown.distanceKm).toFixed(1)} km`
     : null
   const platformFee = pricing != null ? (pricing.platformFee ?? 0) : (feeSettings.platformFee ?? 0)
-  const packagingFee = pricing != null ? (pricing.packagingFee ?? 0) : (feeSettings.packagingFee ?? 0)
+  const packagingFee = pricing != null ? (pricing.packagingFee ?? 0) : (orderType === "takeaway" ? 0 : (feeSettings.packagingFee ?? 0))
   const gstCharges = pricing != null ? (pricing.tax ?? 0) : Math.round(subtotal * ((feeSettings.gstRate ?? 0) / 100))
   const discount = pricing?.discount || (appliedCoupon ? Math.min(appliedCoupon.discount, subtotal * 0.5) : 0)
   const totalBeforeDiscount = subtotal + deliveryFee + platformFee + packagingFee + gstCharges
@@ -1487,7 +1557,9 @@ export default function Cart() {
       ? "Wallet"
       : selectedPaymentMethod === "razorpay"
         ? "Online Payment"
-        : "Cash on Delivery"
+        : orderType === "takeaway"
+          ? "Pay at Pickup"
+          : "Cash on Delivery"
 
   // Restaurant name from data or cart
   const restaurantName = restaurantData?.name || cart[0]?.restaurant || "Restaurant"
@@ -1932,8 +2004,8 @@ export default function Cart() {
     setCouponCode("")
     setManualCouponCode("")
 
-    // Recalculate pricing without coupon
-    if (cart.length > 0 && hasSavedAddress) {
+    // Recalculate pricing without coupon (takeaway needs no address)
+    if (cart.length > 0 && (orderType === "takeaway" || hasSavedAddress)) {
       try {
         const items = cart.map(item => ({
           itemId: item.itemId || item.id,
@@ -1969,7 +2041,8 @@ export default function Cart() {
 
 
   const handlePlaceOrder = async () => {
-    if (!hasSavedAddress) {
+    // A pickup order needs no delivery address.
+    if (orderType !== "takeaway" && !hasSavedAddress) {
       toast.error("Please choose a delivery location to continue")
       openLocationSelector({ from: "/food/user/cart", returnTo: "/food/user/cart" })
       return
@@ -2217,12 +2290,16 @@ export default function Cart() {
         useCart: true,
         // Server loads items from DB food cart; do not trust client cart lines/prices.
         items: [],
-        address: {
-          ...defaultAddress,
-          phone: recipientPhone || defaultAddress?.phone || "",
-          name: recipientName,
-          fullName: recipientName,
-        },
+        // Pickup has no delivery address. Sending a partial one (name/phone only)
+        // fails validation ("Street required") for customers with no saved address.
+        address: orderType === "takeaway"
+          ? undefined
+          : {
+              ...defaultAddress,
+              phone: recipientPhone || defaultAddress?.phone || "",
+              name: recipientName,
+              fullName: recipientName,
+            },
         customerName: recipientName,
         customerPhone: recipientPhone || defaultAddress?.phone || "",
         restaurantId: finalRestaurantId,
@@ -2260,7 +2337,11 @@ export default function Cart() {
         const orderResponse = await orderAPI.createOrder(orderPayload)
         completePlacedOrder(orderResponse, {
           stage,
-          successMessage: isWallet ? "Order placed with Wallet payment" : "Order placed with Cash on Delivery",
+          successMessage: isWallet
+            ? "Order placed with Wallet payment"
+            : orderType === "takeaway"
+              ? "Takeaway order placed. Pay at pickup"
+              : "Order placed with Cash on Delivery",
         })
         setIsPlacingOrder(false)
 
@@ -2927,6 +3008,49 @@ export default function Cart() {
                 )}
               </div>
 
+              {/* Home delivery or takeaway - only for restaurants that offer pickup */}
+              {canChooseTakeaway && (
+                <div className="bg-white dark:bg-[#242424] px-4 md:px-6 py-4 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
+                  <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">How do you want your order?</p>
+                  <div role="radiogroup" aria-label="Order type" className="grid grid-cols-2 gap-3">
+                    {[
+                      { value: "delivery", label: "Home delivery", hint: "Delivered to your address", Icon: MapPin },
+                      { value: "takeaway", label: "Takeaway", hint: "Pick up from the restaurant", Icon: ShoppingBag },
+                    ].map(({ value, label, hint, Icon }) => {
+                      const active = orderType === value
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          disabled={isPlacingOrder}
+                          onClick={() => handleOrderTypeChange(value)}
+                          className={`rounded-xl border-2 p-3 text-left transition-colors active:scale-[0.98] disabled:opacity-60 ${
+                            active
+                              ? "border-[#1F6B45] bg-[#1F6B45]/5 dark:bg-[#1F6B45]/15"
+                              : "border-slate-200 dark:border-gray-700 bg-white dark:bg-[#1a1a1a] hover:border-[#1F6B45]/40"
+                          }`}
+                        >
+                          <span className="flex items-center gap-2">
+                            <Icon className={`h-4 w-4 ${active ? "text-[#1F6B45]" : "text-gray-400"}`} />
+                            <span className={`text-sm font-bold ${active ? "text-[#1F6B45]" : "text-gray-800 dark:text-gray-200"}`}>
+                              {label}
+                            </span>
+                          </span>
+                          <span className="mt-1 block text-[11px] text-gray-500 dark:text-gray-400">{hint}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {orderType === "takeaway" && (
+                    <p className="mt-3 text-[11px] text-gray-500 dark:text-gray-400">
+                      No delivery fee. Collect your order from the restaurant when it's ready.
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Delivery Time - Hidden in Takeaway */}
               {orderType !== "takeaway" && (
                 <div className="bg-white dark:bg-[#242424] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
@@ -3009,11 +3133,22 @@ export default function Cart() {
                     <div className="flex-1">
                       <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest leading-none">PICKUP FROM</h3>
                       <p className="text-lg font-black text-gray-900 dark:text-white mt-1.5 leading-tight">
-                        {restaurantData?.name || cart[0]?.restaurant || "Restaurant"}
+                        {restaurantData?.name || restaurantData?.restaurantName || cart[0]?.restaurant || "Restaurant"}
                       </p>
                       <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 font-medium">
-                        {restaurantData?.address || restaurantData?.location?.address || "Restaurant Address"}
+                        {pickupAddressText || "Restaurant address"}
                       </p>
+                      {pickupDirectionsUrl && (
+                        <a
+                          href={pickupDirectionsUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-[#1F6B45] hover:underline"
+                        >
+                          <MapPin className="h-3.5 w-3.5" />
+                          Get directions
+                        </a>
+                      )}
                       <div className="mt-4 flex items-center gap-2">
                         <div className="flex items-center gap-2 text-green-600 dark:text-green-400 text-[11px] font-black bg-green-50 dark:bg-green-900/10 px-3 py-1.5 rounded-lg border border-green-100 dark:border-green-900/20">
                           <CheckCircle2 className="h-4 w-4" />
@@ -3440,7 +3575,9 @@ export default function Cart() {
                           ? `Pay ${RUPEE_SYMBOL}${total.toFixed(2)} online (Razorpay)`
                           : selectedPaymentMethod === "wallet"
                             ? `Pay ${RUPEE_SYMBOL}${total.toFixed(2)} from Wallet`
-                            : `Pay on delivery (COD)`}
+                            : orderType === "takeaway"
+                              ? `Pay ${RUPEE_SYMBOL}${total.toFixed(2)} at pickup`
+                              : `Pay on delivery (COD)`}
                       </p>
                     </div>
                   </div>
@@ -3737,8 +3874,8 @@ export default function Cart() {
                         },
                         {
                           id: 'cash',
-                          name: 'Cash on Delivery',
-                          description: 'Pay when order arrives',
+                          name: orderType === 'takeaway' ? 'Pay at Pickup' : 'Cash on Delivery',
+                          description: orderType === 'takeaway' ? 'Pay at the restaurant when you collect' : 'Pay when order arrives',
                           icon: <Banknote className="w-5 h-5" />,
                           color: 'bg-orange-50 text-#14512F dark:bg-orange-900/40 dark:text-orange-400',
                           selectedColor: 'bg-[#1F6B45] text-white',
