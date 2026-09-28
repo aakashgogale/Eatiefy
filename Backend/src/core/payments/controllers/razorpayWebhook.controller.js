@@ -8,7 +8,9 @@ import { logger } from '../../../utils/logger.js';
 import {
     findOnboardingPaymentByGatewayOrderId,
     finalizeOnboardingPayment,
-    cancelOnboardingPayment
+    cancelOnboardingPayment,
+    findOnboardingPaymentByQrCodeId,
+    settleOnboardingQrPayment
 } from '../../../modules/food/restaurant/services/onboardingPayment.service.js';
 
 function signaturesMatch(expectedHex, received) {
@@ -85,6 +87,26 @@ export const handleRazorpayWebhook = async (req, res) => {
     logger.info(`Razorpay Webhook Received: ${event}`);
 
     try {
+        // Scan-to-pay UPI QR on the restaurant onboarding page. QR payments carry no
+        // Razorpay order id, so they are matched by the QR code instead.
+        const qrCodeId = payload?.qr_code?.entity?.id;
+        if ((event === 'qr_code.credited' || event === 'payment.captured') && qrCodeId) {
+            const onboardingQrPayment = await findOnboardingPaymentByQrCodeId(qrCodeId);
+            if (onboardingQrPayment) {
+                const paymentObj = payload?.payment?.entity || {};
+                const { paid } = await settleOnboardingQrPayment(
+                    onboardingQrPayment,
+                    paymentObj,
+                    'upi_qr_webhook'
+                );
+                logger.info(
+                    `Webhook [${event}]: onboarding QR ${qrCodeId} payment ${paymentObj.id || 'n/a'} ` +
+                    (paid ? 'credited' : 'not credited (not successful or amount mismatch)')
+                );
+                return res.status(200).json({ status: 'ok' });
+            }
+        }
+
         if (event === 'payment.captured') {
             const paymentObj = payload?.payment?.entity || {};
             const rzOrderId = paymentObj.order_id;

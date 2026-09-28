@@ -60,8 +60,14 @@ const onboardingPaymentSchema = new mongoose.Schema(
             razorpayOrderId: { type: String, default: '', trim: true },
             razorpayPaymentId: { type: String, default: '', trim: true },
             signatureVerified: { type: Boolean, default: false },
-            /** 'checkout_verify' | 'webhook' — which path confirmed the payment first. */
-            confirmedVia: { type: String, default: '' }
+            /** 'checkout_verify' | 'webhook' | 'upi_qr_*' — which path confirmed the payment first. */
+            confirmedVia: { type: String, default: '' },
+            /** Scan-to-pay UPI QR currently shown for this attempt (Razorpay QR Codes API). */
+            qrCodeId: { type: String, default: '', trim: true },
+            qrImageUrl: { type: String, default: '', trim: true },
+            qrCloseBy: { type: Date, default: null },
+            /** Every QR ever issued for this attempt, so a replaced one that still gets paid is found. */
+            qrCodeIds: { type: [String], default: [] }
         },
         /** True while this record holds a reserved offer slot that has not been released. */
         offerSlotHeld: { type: Boolean, default: false },
@@ -93,6 +99,8 @@ onboardingPaymentSchema.index(
     { unique: true, name: 'uniq_paid_per_restaurant', partialFilterExpression: { status: 'paid' } }
 );
 onboardingPaymentSchema.index({ restaurantId: 1, status: 1, createdAt: -1 });
+// QR webhooks and status checks find the attempt by any QR it issued.
+onboardingPaymentSchema.index({ 'gateway.qrCodeIds': 1 });
 
 export const FoodOnboardingPayment = mongoose.model(
     'FoodOnboardingPayment',

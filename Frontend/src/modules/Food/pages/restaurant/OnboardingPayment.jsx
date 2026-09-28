@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { AlertCircle, ArrowLeft, BadgeCheck, CheckCircle2, Loader2, MapPin, ShieldCheck, Store, Tag } from "lucide-react"
+import { AlertCircle, ArrowLeft, BadgeCheck, CheckCircle2, Loader2, MapPin, QrCode, RefreshCw, ShieldCheck, Store, Tag } from "lucide-react"
 import OnboardingHeader from "@food/components/restaurant/OnboardingHeader"
 import { toast } from "sonner"
 import { restaurantAPI } from "@food/api"
@@ -69,6 +69,15 @@ export default function OnboardingPayment() {
   const [succeeded, setSucceeded] = useState(false)
   const [paidSummary, setPaidSummary] = useState(null)
   const payInFlightRef = useRef(false)
+
+  // Scan-to-pay UPI QR. Razorpay Checkout shows UPI app buttons on phones but no QR,
+  // so the page can show one itself: same attempt, amount and offer as "Pay".
+  const [qr, setQr] = useState(null)
+  const [qrLoading, setQrLoading] = useState(false)
+  const [qrError, setQrError] = useState("")
+  // Ticks once a second while a QR is shown, only to re-render the countdown.
+  const [, setQrClockTick] = useState(0)
+  const qrCheckInFlightRef = useRef(false)
 
   useEffect(() => {
     preloadRazorpayScript()
@@ -170,11 +179,94 @@ export default function OnboardingPayment() {
     [token],
   )
 
+  const markPaid = useCallback((payment, message) => {
+    setQr(null)
+    setPaidSummary(payment || null)
+    setSucceeded(true)
+    setPaymentError("")
+    clearOnboardingSession()
+    toast.success(message)
+  }, [])
+
+  const qrCodeId = qr?.qrCodeId || ""
+  const qrCloseAt = qr?.closeBy ? new Date(qr.closeBy).getTime() : 0
+  // Derived at render time so a fresh QR never flashes as expired before the first tick.
+  const qrSecondsLeft = qrCloseAt ? Math.max(0, Math.round((qrCloseAt - Date.now()) / 1000)) : 0
+  const qrExpired = Boolean(qr) && qrSecondsLeft <= 0
+
+  const handleShowQr = async () => {
+    if (qrLoading || processing || succeeded) return
+    setQrLoading(true)
+    setQrError("")
+    try {
+      const response = await restaurantAPI.createOnboardingPaymentQr(token)
+      const data = response?.data?.data || {}
+      if (data.alreadyPaid) {
+        markPaid(data.payment, "Payment confirmed. Your restaurant is now with our team for approval.")
+        return
+      }
+      if (data.submitted) {
+        finishWithoutFee()
+        return
+      }
+      if (!data.qr?.qrCodeId || !data.qr?.imageUrl) {
+        throw new Error("Could not create the UPI QR. Please use the Pay button instead.")
+      }
+      setQr(data.qr)
+    } catch (error) {
+      setQrError(error?.response?.data?.message || error?.message || "Could not create the UPI QR.")
+    } finally {
+      setQrLoading(false)
+    }
+  }
+
+  const checkQrStatus = useCallback(async () => {
+    if (!qrCodeId || qrCheckInFlightRef.current) return
+    qrCheckInFlightRef.current = true
+    try {
+      const response = await restaurantAPI.getOnboardingPaymentQrStatus(token, qrCodeId)
+      const data = response?.data?.data || {}
+      if (data.paid) {
+        markPaid(data.payment, "Payment received. Your restaurant is now with our team for approval.")
+      }
+    } catch {
+      // Not a verdict: the next poll (or the webhook) settles it.
+    } finally {
+      qrCheckInFlightRef.current = false
+    }
+  }, [qrCodeId, token, markPaid])
+
+  useEffect(() => {
+    if (!qrCloseAt) return undefined
+    const timer = setInterval(() => setQrClockTick((n) => n + 1), 1000)
+    return () => clearInterval(timer)
+  }, [qrCloseAt])
+
+  // Poll while the QR is on screen, and for a minute after it expires in case the
+  // payment went through at the last second. Returning from a UPI app checks at once.
+  useEffect(() => {
+    if (!qrCodeId || succeeded) return undefined
+    const poll = () => {
+      if (typeof document !== "undefined" && document.hidden) return
+      if (Date.now() > qrCloseAt + 60 * 1000) return
+      checkQrStatus()
+    }
+    const timer = setInterval(poll, 4000)
+    document.addEventListener("visibilitychange", poll)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener("visibilitychange", poll)
+    }
+  }, [qrCodeId, qrCloseAt, succeeded, checkQrStatus])
+
   const handlePay = async () => {
     if (payInFlightRef.current || processing || succeeded) return
     payInFlightRef.current = true
     setProcessing(true)
     setPaymentError("")
+    // Checkout takes over from the QR; closing checkout discards the attempt and its QR.
+    setQr(null)
+    setQrError("")
 
     let orderId = ""
     try {
@@ -484,6 +576,96 @@ export default function OnboardingPayment() {
             </p>
           )}
         </section>
+
+        {gatewayConfigured && quote?.finalAmount > 0 && (
+          <section className="rounded-2xl bg-white p-4 shadow-sm sm:p-6">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2E7D52]/10 text-[#2E7D52]">
+                <QrCode className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-sm font-bold text-gray-900">Pay by scanning a UPI QR</h2>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  Scan with Google Pay, PhonePe, Paytm, BHIM or any UPI app. Cards, net banking and
+                  UPI apps are available with the Pay button below.
+                </p>
+              </div>
+            </div>
+
+            {qr ? (
+              <div className="mt-4 flex flex-col items-center text-center">
+                <div className="relative rounded-2xl border border-gray-200 bg-white p-2">
+                  <img
+                    src={qr.imageUrl}
+                    alt={`UPI QR code to pay ${formatMoney(qr.amount, qr.currency)}`}
+                    className={`h-60 w-60 object-contain ${qrExpired ? "opacity-20" : ""}`}
+                  />
+                  {qrExpired && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="rounded-full bg-gray-900/85 px-3 py-1 text-xs font-semibold text-white">
+                        QR expired
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <p className="mt-3 text-base font-extrabold text-gray-900">
+                  {formatMoney(qr.amount, qr.currency)}
+                </p>
+                {qrExpired ? (
+                  <Button
+                    variant="outline"
+                    className="mt-3 border-[#2E7D52] text-[#2E7D52]"
+                    disabled={qrLoading}
+                    onClick={handleShowQr}
+                  >
+                    {qrLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                    Get a new QR
+                  </Button>
+                ) : (
+                  <>
+                    <p className="mt-1 flex items-center gap-1.5 text-xs text-gray-600">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-[#2E7D52]" />
+                      Waiting for payment · expires in {Math.floor(qrSecondsLeft / 60)}:
+                      {String(qrSecondsLeft % 60).padStart(2, "0")}
+                    </p>
+                    <p className="mt-2 max-w-xs text-[11px] leading-relaxed text-gray-500">
+                      Paying from this phone? Take a screenshot, then open it from your UPI app's
+                      scanner ("Scan from gallery"). This page updates as soon as the payment arrives.
+                    </p>
+                    <button
+                      type="button"
+                      className="mt-3 text-xs font-semibold text-[#2E7D52] hover:underline"
+                      onClick={checkQrStatus}
+                    >
+                      I've paid — check now
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : (
+              <Button
+                variant="outline"
+                className="mt-4 h-11 w-full border-[#2E7D52] text-[#2E7D52] hover:bg-[#2E7D52]/5"
+                disabled={qrLoading || processing}
+                onClick={handleShowQr}
+              >
+                {qrLoading ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Creating QR…
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <QrCode className="h-4 w-4" />
+                    Show UPI QR code
+                  </span>
+                )}
+              </Button>
+            )}
+
+            {qrError && <p className="mt-2 text-center text-xs text-red-600">{qrError}</p>}
+          </section>
+        )}
 
         {paymentError && (
           <div

@@ -63,7 +63,9 @@ import {
     getOnboardingPaymentQuoteController,
     createOnboardingPaymentOrderController,
     verifyOnboardingPaymentController,
-    cancelOnboardingPaymentController
+    cancelOnboardingPaymentController,
+    createOnboardingPaymentQrController,
+    getOnboardingQrPaymentStatusController
 } from '../controllers/onboardingPayment.controller.js';
 import { onboardingAuthMiddleware, registrationAuthMiddleware } from '../../../../core/auth/onboardingToken.js';
 import {
@@ -130,6 +132,8 @@ router.get('/onboarding/payment/quote', onboardingAuthMiddleware, getOnboardingP
 router.post('/onboarding/payment/order', onboardingAuthMiddleware, createOnboardingPaymentOrderController);
 router.post('/onboarding/payment/verify', onboardingAuthMiddleware, verifyOnboardingPaymentController);
 router.post('/onboarding/payment/cancel', onboardingAuthMiddleware, cancelOnboardingPaymentController);
+router.post('/onboarding/payment/qr', onboardingAuthMiddleware, createOnboardingPaymentQrController);
+router.get('/onboarding/payment/qr/status', onboardingAuthMiddleware, getOnboardingQrPaymentStatusController);
 
 // Public: approved restaurants list (for user app)
 router.get('/restaurants', cacheResponse(300, 'restaurants'), listApprovedRestaurantsController);

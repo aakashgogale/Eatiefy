@@ -161,6 +161,8 @@ export async function createRazorpayQrCode({
     name,
     description,
     notes = {},
+    // Unix seconds. Razorpay allows 2 minutes to 2 hours for a single-use QR.
+    closeBy,
 }) {
     const instance = getRazorpayInstance();
     if (!instance) throw new Error('Razorpay not configured');
@@ -173,11 +175,20 @@ export async function createRazorpayQrCode({
         fixed_amount: true,
         payment_amount: Math.round(amountPaise),
         description: description || `Payment for order ${foodOrderId}`,
+        ...(Number.isFinite(closeBy) ? { close_by: Math.floor(closeBy) } : {}),
         notes: {
-            foodOrderId,
+            ...(foodOrderId ? { foodOrderId } : {}),
             ...(notes || {}),
         },
     });
+}
+
+/** Stops a QR code from accepting payments. Closing an already-closed QR throws. */
+export async function closeRazorpayQrCode(qrCodeId) {
+    const instance = getRazorpayInstance();
+    if (!instance) throw new Error('Razorpay not configured');
+    if (!qrCodeId) throw new Error('qrCodeId is required');
+    return instance.qrCode.close(String(qrCodeId));
 }
 
 export async function fetchRazorpayQrCode(qrCodeId) {

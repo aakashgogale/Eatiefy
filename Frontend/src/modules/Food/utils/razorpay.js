@@ -149,6 +149,25 @@ export const initRazorpayPayment = async (options) => {
       retry: {
         enabled: false,
       },
+      // "Scan UPI QR" first, with every default method (cards, UPI apps, net banking,
+      // wallets) still listed below it. Razorpay renders the QR where it supports it;
+      // where it does not, the block is left out and the defaults show as before.
+      ...(options.showUpiQr === false
+        ? {}
+        : {
+            config: {
+              display: {
+                blocks: {
+                  upi_qr: {
+                    name: 'Scan UPI QR',
+                    instruments: [{ method: 'upi', flows: ['qr'] }],
+                  },
+                },
+                sequence: ['block.upi_qr'],
+                preferences: { show_default_blocks: true },
+              },
+            },
+          }),
     };
 
     const razorpay = new window.Razorpay(razorpayOptions);
