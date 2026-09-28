@@ -458,9 +458,34 @@ export async function addFoodCartItem(userId, body = {}) {
       normalizeVariantId(line.variantId) === variant.variantId
   );
 
-  let saved;
+  // Both writes are atomic and conditional. The old code read the cart, then
+  // $pushed when the item was missing: two adds arriving together (double tap)
+  // both saw "missing" and pushed two lines of the same dish, and two top-ups
+  // both wrote the same read-then-incremented quantity.
+  const lineMatch = { itemId: itemDoc._id, variantId: variant.variantId };
+  const topUp = (snapshot) =>
+    FoodCart.findOneAndUpdate(
+      { _id: cart._id, items: { $elemMatch: lineMatch } },
+      {
+        $inc: { 'items.$.quantity': addQty },
+        $set: {
+          'items.$.basePrice': snapshot.basePrice,
+          'items.$.otherPrice': 0,
+          'items.$.sellingPrice': snapshot.sellingPrice,
+          'items.$.markupAmount': snapshot.markupAmount,
+          'items.$.appliedPricingType': snapshot.appliedPricingType,
+          'items.$.appliedPricingValue': snapshot.appliedPricingValue,
+          'items.$.pricingScope': snapshot.pricingScope,
+          'items.$.pricingRule': snapshot.pricingRule,
+          'items.$.pricingCapturedAt': snapshot.pricingCapturedAt,
+          restaurantId: itemDoc.restaurantId,
+        },
+      },
+      { new: true }
+    );
+
+  let saved = null;
   if (existingIdx >= 0) {
-    const nextQty = Math.min(MAX_QTY, Number(cart.items[existingIdx].quantity || 0) + addQty);
     // Keep existing pricing snapshot when topping up quantity of the same line.
     const existingLine = cart.items[existingIdx];
     const keepSnapshot = lineHasPricingSnapshot(existingLine)
@@ -480,39 +505,13 @@ export async function addFoodCartItem(userId, body = {}) {
           pricingCapturedAt: existingLine.pricingCapturedAt,
         }
       : pricingSnapshot;
-
-    saved = await FoodCart.findOneAndUpdate(
-      {
-        _id: cart._id,
-        items: {
-          $elemMatch: {
-            itemId: itemDoc._id,
-            variantId: variant.variantId,
-          },
-        },
-      },
-      {
-        $set: {
-          'items.$.quantity': nextQty,
-          'items.$.basePrice': keepSnapshot.basePrice,
-          'items.$.otherPrice': 0,
-          'items.$.sellingPrice': keepSnapshot.sellingPrice,
-          'items.$.markupAmount': keepSnapshot.markupAmount,
-          'items.$.appliedPricingType': keepSnapshot.appliedPricingType,
-          'items.$.appliedPricingValue': keepSnapshot.appliedPricingValue,
-          'items.$.pricingScope': keepSnapshot.pricingScope,
-          'items.$.pricingRule': keepSnapshot.pricingRule,
-          'items.$.pricingCapturedAt': keepSnapshot.pricingCapturedAt,
-          restaurantId: itemDoc.restaurantId,
-        },
-      },
-      { new: true }
-    );
+    saved = await topUp(keepSnapshot);
   }
 
   if (!saved) {
+    // Push only while no line for this dish exists yet.
     saved = await FoodCart.findOneAndUpdate(
-      { _id: cart._id },
+      { _id: cart._id, items: { $not: { $elemMatch: lineMatch } } },
       {
         $set: { restaurantId: itemDoc.restaurantId },
         $push: {
@@ -524,6 +523,21 @@ export async function addFoodCartItem(userId, body = {}) {
           },
         },
       },
+      { new: true }
+    );
+  }
+
+  // A concurrent request created the line between our read and our push.
+  if (!saved) saved = await topUp(pricingSnapshot);
+
+  // Clamp after the atomic increment.
+  const savedLine = saved?.items?.find(
+    (line) => String(line.itemId) === String(itemDoc._id) && normalizeVariantId(line.variantId) === variant.variantId
+  );
+  if (savedLine && Number(savedLine.quantity) > MAX_QTY) {
+    saved = await FoodCart.findOneAndUpdate(
+      { _id: cart._id, items: { $elemMatch: lineMatch } },
+      { $set: { 'items.$.quantity': MAX_QTY } },
       { new: true }
     );
   }

@@ -448,6 +448,29 @@ export const PocketV2 = () => {
                 </div>
              </button>
 
+             {/* Cash in hand used to be visible only inside the cash-limit screen,
+                 so a rider saw "Available cash limit ₹0" without knowing why. */}
+             <button
+                onClick={() => navigate('/food/delivery/pocket/cash-limit')}
+                className="w-full p-5 border-b border-gray-50 flex items-center justify-between active:bg-gray-50"
+             >
+                <div className="flex items-center gap-4">
+                   <div className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center text-black border border-gray-100">
+                      <IndianRupee className="w-6 h-6" />
+                   </div>
+                   <div className="text-left">
+                      <span className="text-sm font-bold text-gray-800 block">Cash in hand</span>
+                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">COD cash to deposit</p>
+                   </div>
+                </div>
+                <div className="flex items-center gap-2">
+                   <span className="text-base font-black text-black min-w-[4.5rem] inline-flex justify-end">
+                      {loading ? <Skeleton className="h-5 w-16" /> : `₹${walletState.cashInHand.toFixed(2)}`}
+                   </span>
+                   <ChevronRight className="w-4 h-4 text-gray-300" />
+                </div>
+             </button>
+
              <button 
                 onClick={() => navigate('/food/delivery/pocket/cash-limit')}
                 className="w-full p-5 border-b border-gray-50 flex items-center justify-between active:bg-gray-50"
@@ -456,9 +479,17 @@ export const PocketV2 = () => {
                    <div className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center text-black border border-gray-100">
                       <ShieldCheck className="w-6 h-6" />
                    </div>
-                   <div>
+                   <div className="text-left">
                       <span className="text-sm font-bold text-gray-800 block">Available cash limit</span>
-                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">Spend Control</p>
+                      {!loading && walletState.totalCashLimit > 0 ? (
+                        <p className={`text-[11px] font-semibold leading-snug mt-0.5 ${walletState.availableCashLimit <= 0 ? "text-red-600" : "text-gray-500"}`}>
+                          {walletState.availableCashLimit <= 0
+                            ? `Limit used up: you already hold ₹${walletState.cashInHand.toFixed(0)} cash. Deposit it to get COD orders again.`
+                            : `Limit ₹${walletState.totalCashLimit.toFixed(0)} − cash in hand ₹${walletState.cashInHand.toFixed(0)}`}
+                        </p>
+                      ) : (
+                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">Spend Control</p>
+                      )}
                    </div>
                 </div>
                 <div className="flex items-center gap-2">

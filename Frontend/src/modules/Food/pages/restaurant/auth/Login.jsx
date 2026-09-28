@@ -122,19 +122,20 @@ export default function RestaurantLogin() {
     const blockKey = getBlockKey(currentPhone)
     const resendKey = getResendKey(currentPhone)
 
-    // Resume block timer
+    // Block timer: the server's remaining time (just received) always wins over a
+    // saved countdown, so re-entering the number never restarts or stretches it.
     const savedBlockExpiry = sessionStorage.getItem(blockKey)
-    if (savedBlockExpiry) {
+    if (location.state?.initialBlockMins) {
+      const seconds = Math.ceil(location.state.initialBlockMins * 60)
+      setBlockTimer(seconds)
+      sessionStorage.setItem(blockKey, (Date.now() + (seconds * 1000)).toString())
+    } else if (savedBlockExpiry) {
       const remaining = Math.max(0, Math.floor((parseInt(savedBlockExpiry) - Date.now()) / 1000))
       if (remaining > 0) {
         setBlockTimer(remaining)
       } else {
         sessionStorage.removeItem(blockKey)
       }
-    } else if (location.state?.initialBlockMins) {
-      const seconds = Math.ceil(location.state.initialBlockMins * 60)
-      setBlockTimer(seconds)
-      sessionStorage.setItem(blockKey, (Date.now() + (seconds * 1000)).toString())
     }
 
     // Resume resend timer

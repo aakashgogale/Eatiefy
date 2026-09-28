@@ -1,5 +1,30 @@
-import { useCallback } from "react"
+import { useCallback, useEffect } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
+
+/*
+ * Where a page was opened from, remembered per page for the session. Router
+ * state (`from`) is lost as soon as the page changes its own URL (e.g. Payout
+ * switching ?tab=), reloads, or the WebView is restored - and the fallback was
+ * the Orders screen, so returning from a page opened in Explore landed on
+ * Orders instead of Explore.
+ */
+const BACK_FROM_KEY = (pathname) => `restaurant_back_from:${pathname}`
+
+const rememberBackFrom = (pathname, from) => {
+  try {
+    sessionStorage.setItem(BACK_FROM_KEY(pathname), from)
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+const readBackFrom = (pathname) => {
+  try {
+    return sessionStorage.getItem(BACK_FROM_KEY(pathname))
+  } catch {
+    return null
+  }
+}
 
 const toRestaurantPath = (value) => {
   if (typeof value !== "string") return null
@@ -23,7 +48,11 @@ const getNormalizedRestaurantPath = (pathname) => {
 
 const resolveRestaurantBackPath = ({ pathname, state }) => {
   const normalizedPath = getNormalizedRestaurantPath(pathname)
-  const explicitBackPath = toRestaurantPath(state?.backTo) || toRestaurantPath(state?.from)
+  const rememberedFrom = toRestaurantPath(readBackFrom(pathname))
+  const explicitBackPath =
+    toRestaurantPath(state?.backTo) ||
+    toRestaurantPath(state?.from) ||
+    (rememberedFrom && rememberedFrom !== pathname ? rememberedFrom : null)
 
   if (normalizedPath === "/orders/all") {
     return explicitBackPath || "/food/restaurant"
@@ -74,15 +103,24 @@ const resolveRestaurantBackPath = ({ pathname, state }) => {
     return explicitBackPath || "/food/restaurant/explore"
   }
 
+  // Pages listed in Explore return to Explore.
+  if (
+    normalizedPath === "/delivery-settings" ||
+    normalizedPath === "/menu-categories" ||
+    normalizedPath === "/hub-finance" ||
+    normalizedPath === "/feedback" ||
+    normalizedPath.toLowerCase() === "/share-feedback"
+  ) {
+    return explicitBackPath || "/food/restaurant/explore"
+  }
+
   if (
     normalizedPath === "/settings" ||
-    normalizedPath === "/delivery-settings" ||
     normalizedPath === "/rush-hour" ||
     normalizedPath === "/status" ||
     normalizedPath === "/business-plan" ||
     normalizedPath === "/config" ||
     normalizedPath === "/categories" ||
-    normalizedPath === "/menu-categories" ||
     normalizedPath === "/privacy" ||
     normalizedPath === "/terms"
   ) {
@@ -100,8 +138,7 @@ const resolveRestaurantBackPath = ({ pathname, state }) => {
 
   if (
     normalizedPath === "/help-centre/support" ||
-    normalizedPath === "/help-content" ||
-    normalizedPath === "/share-feedback"
+    normalizedPath === "/help-content"
   ) {
     return explicitBackPath || "/food/restaurant/feedback"
   }
@@ -131,6 +168,11 @@ const resolveRestaurantBackPath = ({ pathname, state }) => {
 export default function useRestaurantBackNavigation() {
   const navigate = useNavigate()
   const location = useLocation()
+  const from = toRestaurantPath(location.state?.backTo) || toRestaurantPath(location.state?.from)
+
+  useEffect(() => {
+    if (from && from !== location.pathname) rememberBackFrom(location.pathname, from)
+  }, [from, location.pathname])
 
   return useCallback(() => {
     navigate(resolveRestaurantBackPath(location))

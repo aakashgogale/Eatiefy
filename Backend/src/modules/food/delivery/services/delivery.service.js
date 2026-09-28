@@ -145,17 +145,27 @@ export const resolveZoneIdForPartner = async ({ zoneId, city, address, state, la
         }
     }
 
-    // Word boundary / token match (e.g. "Indore, MP" -> "Indore")
-    for (const text of candidates) {
-        const words = text.toLowerCase().split(/[\s,.-]+/).filter((w) => w.length >= 3);
-        for (const w of words) {
-            for (const z of activeZones) {
-                const names = [z.name, z.zoneName, z.serviceLocation]
+    // Token match (e.g. "Indore, MP" -> "Indore"). Localities can carry another
+    // city's name - Indore has "Ratlam Kothi" - and the first zone word found used
+    // to win, so "Ratlam Kothi, Indore" landed in the Ratlam zone. Addresses run
+    // locality -> city -> state, so the zone named LAST in a text is its city;
+    // and the city field is trusted before the address.
+    const lastZoneNamedIn = (text) => {
+        const words = text.toLowerCase().split(/[\s,.()/-]+/).filter((w) => w.length >= 3);
+        for (let i = words.length - 1; i >= 0; i -= 1) {
+            const zone = activeZones.find((z) =>
+                [z.name, z.zoneName, z.serviceLocation]
                     .filter(Boolean)
-                    .map((s) => s.trim().toLowerCase());
-                if (names.includes(w)) return z._id;
-            }
+                    .map((n) => n.trim().toLowerCase())
+                    .includes(words[i])
+            );
+            if (zone) return zone._id;
         }
+        return null;
+    };
+    for (const text of candidates) {
+        const zoneIdFromText = lastZoneNamedIn(text);
+        if (zoneIdFromText) return zoneIdFromText;
     }
 
     return null;

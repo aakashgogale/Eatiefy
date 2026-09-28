@@ -2085,7 +2085,7 @@ export const getApprovedRestaurantByIdOrSlug = async (idOrSlug, userId = null, c
     return result;
 };
 
-export const listPublicOffers = async () => {
+export const listPublicOffers = async (query = {}) => {
     const now = new Date();
     const filter = {
         status: 'active',
@@ -2094,6 +2094,17 @@ export const listPublicOffers = async () => {
             { $or: [{ endDate: { $exists: false } }, { endDate: null }, { endDate: { $gt: now } }] }
         ]
     };
+    // Zone-wise offers: with a zone, only offers for every zone or for that zone.
+    const zoneId = String(query.zoneId || '').trim();
+    if (zoneId && mongoose.Types.ObjectId.isValid(zoneId)) {
+        filter.$and.push({
+            $or: [
+                { zoneIds: { $exists: false } },
+                { zoneIds: { $size: 0 } },
+                { zoneIds: new mongoose.Types.ObjectId(zoneId) }
+            ]
+        });
+    }
 
     const list = await FoodOffer.find(filter)
         .sort({ createdAt: -1 })
@@ -2132,7 +2143,8 @@ export const listPublicOffers = async () => {
             endDate: o.endDate || null,
             showInCart: o.showInCart !== false,
             minOrderValue: Number(o.minOrderValue) > 0 ? Number(o.minOrderValue) : null,
-            couponType: o.couponType || 'all'
+            couponType: o.couponType || 'all',
+            zoneIds: (o.zoneIds || []).map((z) => String(z))
         };
     });
 

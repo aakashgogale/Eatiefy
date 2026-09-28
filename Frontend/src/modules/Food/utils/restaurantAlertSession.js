@@ -48,6 +48,48 @@ export const isRealOrderId = (value) => {
   return id.length > 0 && !PLACEHOLDER_ORDER_IDS.has(id.toLowerCase());
 };
 
+/*
+ * Orders the restaurant has already accepted or rejected (or that are gone).
+ * A push is often delivered after the socket event - sometimes after the
+ * order was already accepted - and its status field is the one at send time,
+ * so on its own it rang the full ringtone again for a handled order.
+ */
+const HANDLED_KEY = 'restaurant_handled_order_ids';
+const HANDLED_TTL_MS = 2 * 60 * 60 * 1000;
+
+const readHandled = () => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(HANDLED_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+export const markRestaurantOrdersHandled = (ids = []) => {
+  const list = (Array.isArray(ids) ? ids : [ids]).map(toId).filter(isRealOrderId);
+  if (!list.length) return;
+  try {
+    const now = Date.now();
+    const handled = readHandled();
+    Object.keys(handled).forEach((id) => {
+      if (now - Number(handled[id]) > HANDLED_TTL_MS) delete handled[id];
+    });
+    list.forEach((id) => {
+      handled[id] = now;
+    });
+    localStorage.setItem(HANDLED_KEY, JSON.stringify(handled));
+  } catch {
+    /* storage unavailable */
+  }
+};
+
+const isRestaurantOrderHandled = (...ids) => {
+  const handled = readHandled();
+  const now = Date.now();
+  return ids.map(toId).some((id) => id && handled[id] && now - Number(handled[id]) <= HANDLED_TTL_MS);
+};
+
 /**
  * Why a restaurant new-order push must not ring, or '' when it may - the same
  * rules as the socket path: a real order id, addressed to the signed-in
@@ -62,6 +104,7 @@ export const getRestaurantPushRingRefusal = (data = {}) => {
   if (!isForActiveRestaurant(data.restaurantId)) return 'order is not for the signed-in restaurant';
   const status = String(data.orderStatus || '').toLowerCase().trim();
   if (!RESTAURANT_DECIDABLE_STATUSES.has(status)) return `order status "${status || 'missing'}" is not new`;
+  if (isRestaurantOrderHandled(data.orderMongoId, data.orderId)) return 'order already accepted or rejected';
   return '';
 };
 

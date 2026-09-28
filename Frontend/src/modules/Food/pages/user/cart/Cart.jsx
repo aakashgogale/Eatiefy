@@ -1799,7 +1799,8 @@ export default function Cart() {
 
         const pricingData = response?.data?.data?.pricing
         if (!pricingData || !pricingData.appliedCoupon) {
-          throw new Error("Coupon not applicable")
+          // The server says why (expired, minimum order, first order only, ...).
+          throw new Error(pricingData?.couponError || "Coupon not applicable")
         }
 
         setPricing(pricingData)
@@ -1901,7 +1902,7 @@ export default function Cart() {
       }
 
       if (!pricingData.appliedCoupon) {
-        throw new Error("Invalid or unavailable coupon code")
+        throw new Error(pricingData.couponError || "Invalid or unavailable coupon code")
       }
 
       setPricing(pricingData)

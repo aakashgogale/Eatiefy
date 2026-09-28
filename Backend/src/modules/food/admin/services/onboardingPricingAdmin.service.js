@@ -185,17 +185,19 @@ export const setOnboardingPricingRuleStatus = async (id, isActiveRaw, adminId = 
     if (!rule) throw new NotFoundError('Pricing rule not found');
 
     if (isActive) {
-        const clash = await FoodOnboardingPricingRule.findOne({
-            _id: { $ne: rule._id },
-            zoneId: rule.zoneId ?? null,
-            restaurantType: rule.restaurantType,
-            isActive: true
-        }).lean();
-        if (clash) {
-            throw new ValidationError(
-                'Another active rule already covers this zone and restaurant type. Disable it first.'
-            );
-        }
+        // Only one rule per zone + type can be active. Enabling a rule used to be
+        // refused while another was active, so the rule the admin enabled stayed
+        // disabled and they had to find and switch off the other one. Enabling now
+        // swaps: the rule that covered this zone and type is switched off.
+        await FoodOnboardingPricingRule.updateMany(
+            {
+                _id: { $ne: rule._id },
+                zoneId: rule.zoneId ?? null,
+                restaurantType: rule.restaurantType,
+                isActive: true
+            },
+            { $set: { isActive: false, updatedBy: adminId || null } }
+        );
     }
 
     let updated;

@@ -2036,6 +2036,30 @@ export async function updateCustomerCodStatus(id, isCodBlocked) {
     return updatedDoc.toObject();
 }
 
+/**
+ * Push "your account was deleted" to the account's devices. Admin deletions used
+ * to send only an email (and nothing when no email was on file), so restaurants,
+ * customers and riders just found themselves signed out. Must run BEFORE the
+ * device tokens are removed with the account.
+ */
+async function notifyAccountDeletedByAdmin(ownerType, ownerId, accountLabel) {
+    try {
+        const { notifyOwnersSafely } = await import('../../../../core/notifications/firebase.service.js');
+        await notifyOwnersSafely([{ ownerType, ownerId: String(ownerId) }], {
+            title: 'Account deleted',
+            body: `Your Eatiefy ${accountLabel} account has been deleted by the admin. Please contact support if you think this is a mistake.`,
+            idempotencyKey: `account_deleted_${ownerType}_${ownerId}`,
+            data: {
+                type: 'account_deleted',
+                ownerType,
+                ownerId: String(ownerId)
+            }
+        });
+    } catch (err) {
+        logger.warn(`[ADMIN-DELETE] Push to ${ownerType} ${ownerId} failed: ${err?.message || err}`);
+    }
+}
+
 export async function deleteCustomer(id) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     const user = await FoodUser.findById(id).lean();
@@ -2043,6 +2067,8 @@ export async function deleteCustomer(id) {
 
     const recipientEmail = user.email;
     const recipientName = user.name || 'User';
+
+    await notifyAccountDeletedByAdmin('USER', user._id, 'customer');
 
     if (recipientEmail) {
         try {
@@ -5125,6 +5151,8 @@ export async function deleteRestaurant(id) {
     const recipientEmail = restaurant.ownerEmail || restaurant.email;
     const recipientName = restaurant.restaurantName || restaurant.ownerName || 'Restaurant';
 
+    await notifyAccountDeletedByAdmin('RESTAURANT', restaurantId, 'restaurant partner');
+
     if (recipientEmail) {
         try {
             const { sendAccountDeletionEmail } = await import('../../../../utils/email.js');
@@ -5257,7 +5285,8 @@ export async function getAllOffers(query = {}) {
             isFirstOrderOnly: o.isFirstOrderOnly === true,
             restaurantScope: o.restaurantScope,
             restaurantId: o.restaurantScope === 'selected' ? String(o.restaurantId?._id || o.restaurantId || '') : null,
-            couponType: o.couponType || 'all'
+            couponType: o.couponType || 'all',
+            zoneIds: (o.zoneIds || []).map((z) => String(z))
         };
     });
 
@@ -5286,7 +5315,8 @@ export async function createAdminOffer(body) {
         endDate: body.endDate,
         status: body.endDate && new Date(body.endDate).getTime() <= Date.now() ? 'inactive' : 'active',
         showInCart: true,
-        couponType: body.couponType || 'all'
+        couponType: body.couponType || 'all',
+        zoneIds: Array.isArray(body.zoneIds) ? body.zoneIds : []
     });
 
     if (doc.restaurantScope === 'selected' && doc.restaurantId) {
@@ -5344,6 +5374,7 @@ export async function updateAdminOffer(id, body) {
                 startDate: body.startDate || undefined,
                 endDate: body.endDate || undefined,
                 isFirstOrderOnly: body.isFirstOrderOnly === true,
+                zoneIds: Array.isArray(body.zoneIds) ? body.zoneIds : [],
                 status: body.endDate && new Date(body.endDate).getTime() <= Date.now() ? 'inactive' : 'active',
             }
         },
@@ -5905,7 +5936,7 @@ export async function getDeliveryEarnings(query = {}) {
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
-            .select('orderId orderStatus createdAt pricing riderEarning deliveryPartnerSettlement dispatch.deliveryPartnerId restaurantId')
+            .select('orderId orderStatus createdAt pricing riderEarning riderBaseEarning eatiefyIncentive deliveryPartnerSettlement dispatch.deliveryPartnerId restaurantId')
             .populate({ path: 'dispatch.deliveryPartnerId', select: 'name phone' })
             .populate({ path: 'restaurantId', select: 'restaurantName name' })
             .lean(),
@@ -5918,6 +5949,10 @@ export async function getDeliveryEarnings(query = {}) {
                     totalEarnings: {
                         $sum: { $ifNull: ['$riderEarning', 0] }
                     },
+                    // Eatiefy's incentive on top of the zone payout (admin-funded).
+                    totalEatiefyIncentive: {
+                        $sum: { $ifNull: ['$eatiefyIncentive.amount', 0] }
+                    },
                     totalOrders: { $sum: 1 }
                 }
             }
@@ -5929,6 +5964,10 @@ export async function getDeliveryEarnings(query = {}) {
         const partner = order?.dispatch?.deliveryPartnerId;
         // Real rider earning only — never fall back to delivery fee (that is not rider payout)
         const amount = Number(order?.riderEarning || 0) || 0;
+        const eatiefyIncentive = Math.max(0, Number(order?.eatiefyIncentive?.amount || 0) || 0);
+        const basePayout = order?.riderBaseEarning != null
+            ? Math.max(0, Number(order.riderBaseEarning) || 0)
+            : Math.max(0, Math.round((amount - eatiefyIncentive) * 100) / 100);
 
         return {
             transactionId: String(order._id),
@@ -5938,6 +5977,10 @@ export async function getDeliveryEarnings(query = {}) {
             deliveryPartnerPhone: partner?.phone || 'N/A',
             restaurantName: order?.restaurantId?.restaurantName || order?.restaurantId?.name || 'N/A',
             amount,
+            // amount = basePayout (zone Delivery Boy Payout) + eatiefyIncentive
+            basePayout,
+            eatiefyIncentive,
+            eatiefyIncentivePercent: Number(order?.eatiefyIncentive?.percent || 0) || 0,
             orderTotal: Number(order?.pricing?.total || 0) || 0,
             deliveryFee: Number(order?.pricing?.deliveryFee || 0) || 0,
             orderStatus: order?.orderStatus || 'N/A',
@@ -5953,6 +5996,8 @@ export async function getDeliveryEarnings(query = {}) {
         summary: {
             totalDeliveryPartners,
             totalEarnings: Math.round(Number(agg.totalEarnings || 0) * 100) / 100,
+            totalEatiefyIncentive: Math.round(Number(agg.totalEatiefyIncentive || 0) * 100) / 100,
+            totalBasePayout: Math.round((Number(agg.totalEarnings || 0) - Number(agg.totalEatiefyIncentive || 0)) * 100) / 100,
             totalOrders: Number(agg.totalOrders || 0)
         },
         pagination: {
@@ -6793,9 +6838,16 @@ export async function updateWithdrawalStatus(id, { status, adminNote, rejectionR
     if (!id || !mongoose.Types.ObjectId.isValid(id)) throw new ValidationError('Invalid withdrawal ID');
     
     const reasonText = String(rejectionReason || reason || adminNote || '').trim();
+    const nextStatus = String(status || '').toLowerCase();
+    if (!['pending', 'approved', 'rejected'].includes(nextStatus)) {
+        throw new ValidationError('Invalid withdrawal status');
+    }
+    if (nextStatus === 'rejected' && !reasonText) {
+        throw new ValidationError('A rejection reason is required');
+    }
 
     const update = {
-        status: String(status).toLowerCase(),
+        status: nextStatus,
         adminNote: adminNote || reasonText,
         rejectionReason: reasonText,
         reason: reasonText,
@@ -6810,6 +6862,31 @@ export async function updateWithdrawalStatus(id, { status, adminNote, rejectionR
     ).populate('restaurantId', 'restaurantName').lean();
 
     if (!updated) throw new ValidationError('Withdrawal request not found');
+
+    // Tell the restaurant: the decision (and the reason for a rejection) was only
+    // visible if the owner happened to open the withdrawal history.
+    if (nextStatus === 'approved' || nextStatus === 'rejected') {
+        try {
+            const restaurantId = updated.restaurantId?._id || updated.restaurantId;
+            const amountLabel = `₹${Number(updated.amount || 0).toLocaleString('en-IN')}`;
+            const { notifyOwnersSafely } = await import('../../../../core/notifications/firebase.service.js');
+            await notifyOwnersSafely([{ ownerType: 'RESTAURANT', ownerId: String(restaurantId) }], {
+                title: nextStatus === 'approved' ? 'Withdrawal approved' : 'Withdrawal rejected',
+                body: nextStatus === 'approved'
+                    ? `Your withdrawal request of ${amountLabel} has been approved.`
+                    : `Your withdrawal request of ${amountLabel} was rejected. Reason: ${reasonText}`,
+                idempotencyKey: `restaurant_withdrawal_${nextStatus}_${updated._id}`,
+                data: {
+                    type: `withdrawal_${nextStatus}`,
+                    withdrawalId: String(updated._id),
+                    reason: nextStatus === 'rejected' ? reasonText : '',
+                    link: '/food/restaurant/withdrawal-history'
+                }
+            });
+        } catch (err) {
+            logger.warn(`[WITHDRAWAL] Notify restaurant failed for ${id}: ${err?.message || err}`);
+        }
+    }
     return updated;
 }
 
@@ -7185,6 +7262,8 @@ export async function deleteDeliveryPartner(id, { writeOffCashInHand, adminId } 
 
     const recipientEmail = partner.email;
     const recipientName = partner.name || 'Delivery Partner';
+
+    await notifyAccountDeletedByAdmin('DELIVERY_PARTNER', partnerId, 'delivery partner');
 
     if (recipientEmail) {
         try {

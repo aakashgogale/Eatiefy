@@ -364,6 +364,9 @@ export function CartProvider({ children }) {
   const loadSeqRef = useRef(0)
   const mutationSeqRef = useRef(0)
   const inflightQtyRef = useRef(new Map())
+  // Lines whose first "ADD" is still on its way to the server. A second ADD tap
+  // on a dish that is not in the cart yet means "add it", not "add another".
+  const inflightNewLinesRef = useRef(new Set())
   const loadedOnceRef = useRef(false)
 
   const applyServerCart = useCallback((payload) => {
@@ -628,7 +631,24 @@ export function CartProvider({ children }) {
         return performAdd(item, sourcePosition)
       }
 
-      const result = await performAdd(item, sourcePosition)
+      const newLineKey = buildCartLineId(
+        item.itemId || item.productId || item.foodId || item.id,
+        item.variantId || "",
+      )
+      const alreadyInCart = normalizedCart.some(
+        (i) => i.id === newLineKey || (item.id && i.id === item.id) || (item.lineItemId && i.lineItemId === item.lineItemId),
+      )
+      if (!alreadyInCart && inflightNewLinesRef.current.has(newLineKey)) {
+        return { ok: true, deduped: true }
+      }
+      if (!alreadyInCart) inflightNewLinesRef.current.add(newLineKey)
+
+      let result
+      try {
+        result = await performAdd(item, sourcePosition)
+      } finally {
+        inflightNewLinesRef.current.delete(newLineKey)
+      }
 
       // Local cart can be stale (another tab/device): honour the server verdict too.
       if (result?.code === "RESTAURANT_MISMATCH") {

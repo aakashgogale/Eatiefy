@@ -358,6 +358,9 @@ export default function OnboardingPricing() {
       // An open edit form for this rule must not save the pre-toggle status back.
       setRuleForm((form) => (form.id === rule.id ? { ...form, isActive } : form))
       toast.success(isActive ? "Rule enabled" : "Rule disabled")
+      // Enabling switches off the rule that covered the same zone and type; refresh
+      // so that row shows as inactive too.
+      if (isActive) await load({ silent: true })
     } else if (result.gone) {
       toast.error("This pricing rule no longer exists")
     } else {

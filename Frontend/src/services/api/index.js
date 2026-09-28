@@ -20,6 +20,16 @@ const stub = () =>
     config: {},
   });
 
+/** Zone-wise offers: the zone detected for the customer's current location. */
+const userZoneParams = () => {
+  try {
+    const zoneId = typeof localStorage !== "undefined" ? localStorage.getItem("userZoneId") : ""
+    return zoneId ? { zoneId } : {}
+  } catch {
+    return {}
+  }
+}
+
 /** Search API - unified search for user app */
 export const searchAPI = {
   unifiedSearch: (params = {}) =>
@@ -1321,11 +1331,11 @@ export const restaurantAPI = {
       timeout: 90000,
     });
   },
-  /** Public Offers for users (global/selected restaurant) */
-  getPublicOffers: () => apiClient.get("/food/restaurant/offers"),
+  /** Public Offers for users (global/selected restaurant), limited to the user's zone */
+  getPublicOffers: () => apiClient.get("/food/restaurant/offers", { params: userZoneParams() }),
   /** Backward-compat helper used by Cart: returns coupons array for an item by adapting public offers */
   getCouponsByItemIdPublic: (restaurantId, _itemId, options = {}) =>
-    apiClient.get("/food/restaurant/offers").then((res) => {
+    apiClient.get("/food/restaurant/offers", { params: userZoneParams() }).then((res) => {
       const list = res?.data?.data?.allOffers || res?.data?.allOffers || [];
       const filtered = filterPublicOffers(list, {
         restaurantId,

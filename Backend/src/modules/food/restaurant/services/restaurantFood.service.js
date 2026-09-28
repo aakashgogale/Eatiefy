@@ -364,6 +364,30 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
         update.categoryName = categoryName || '';
     }
 
+    // The app's item screen saves the whole item (name, price, image...) even
+    // when only "In stock" was switched. Every field sent used to count as an
+    // edit, so marking a dish out of stock sent it back to admin approval. Only
+    // values that really differ from the stored item are content changes.
+    const comparable = (key, value) => {
+        if (key === 'variants') {
+            return JSON.stringify(
+                (Array.isArray(value) ? value : []).map((v) => ({
+                    name: String(v?.name || '').trim(),
+                    price: Number(v?.price) || 0,
+                }))
+            );
+        }
+        if (key === 'price') return Number(value) || 0;
+        if (value === null || value === undefined) return '';
+        return String(value).trim();
+    };
+    for (const key of Object.keys(update)) {
+        if (key === 'isAvailable' || key === 'isRecommended') continue;
+        if (comparable(key, update[key]) === comparable(key, existing[key])) {
+            delete update[key];
+        }
+    }
+
     // Content-only fields that require admin re-approval
     const contentUpdate = { ...update };
     delete contentUpdate.isAvailable;
@@ -394,6 +418,9 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
         update.newData = { ...safeExisting, ...contentUpdate };
     }
 
+
+    // Saved with nothing changed: nothing to write.
+    if (Object.keys(update).length === 0) return existing;
 
     const updated = await FoodItem.findOneAndUpdate(
         { _id: foodId, restaurantId },

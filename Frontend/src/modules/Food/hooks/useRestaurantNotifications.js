@@ -18,6 +18,7 @@ import {
   isForActiveRestaurant,
   isRealOrderId,
   logRefusedRing,
+  markRestaurantOrdersHandled,
 } from '@food/utils/restaurantAlertSession';
 
 const alertSound = '/assets/media/restaurant_alert.mp3';
@@ -500,6 +501,8 @@ const forgetAlertStart = (orderOrId) => {
   try {
     ids.forEach((id) => localStorage.removeItem(`${ALERT_START_PREFIX}${id}`));
   } catch (_) {}
+  // A late push for this order must not start the ringtone again.
+  markRestaurantOrdersHandled(ids);
 };
 
 // Drop start markers left behind by orders from earlier sessions.

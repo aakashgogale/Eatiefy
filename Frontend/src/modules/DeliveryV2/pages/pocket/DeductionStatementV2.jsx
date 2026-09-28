@@ -39,6 +39,9 @@ export const DeductionStatementV2 = () => {
               const type = String(t.type || '').trim().toLowerCase();
               const isManualDeduction = type === 'withdrawal' || type === 'deposit';
               if (!isManualDeduction) return false;
+              // Only money that actually left: a cash settlement or withdrawal
+              // still waiting for admin approval (or rejected) is not a deduction.
+              if (String(t.status || '').trim().toLowerCase() !== 'completed') return false;
 
               const baseDate = t.date || t.createdAt;
               const d = new Date(baseDate);

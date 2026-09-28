@@ -1,7 +1,14 @@
 const mongoose = require('mongoose');
 
 async function migrate() {
-  await mongoose.connect('mongodb+srv://eatiefy1_db_user:6V4JiItQ5dbmQP6A@cluster0.ogyu96a.mongodb.net/Eatiefy');
+  // Never hardcode the connection string: it lands in git history.
+  require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+  const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
+  if (!uri) {
+    console.error('Set MONGODB_URI (or MONGO_URI) in Backend/.env');
+    process.exit(1);
+  }
+  await mongoose.connect(uri);
   const db = mongoose.connection.db;
 
   const zones = await db.collection('food_zones').find({}).toArray();
@@ -27,7 +34,12 @@ async function migrate() {
   let skipped = 0;
 
   for (const p of partners) {
-    const text = [p.city, p.address, p.state].filter(Boolean).join(' ').toLowerCase();
+    // City field first: an Indore address can contain "Ratlam Kothi" (a locality),
+    // which used to send Indore riders to the Ratlam zone.
+    const cityText = String(p.city || '').toLowerCase();
+    const text = cityText && /ratlam|ujjain|indore/.test(cityText)
+      ? cityText
+      : [p.address, p.state].filter(Boolean).join(' ').toLowerCase().replace(/ratlam\s*kothi/g, '');
 
     let targetZoneId = null;
     let zoneName = '';

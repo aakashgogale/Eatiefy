@@ -156,70 +156,78 @@ export async function calculateOrderPricing(userId, dto) {
 
   let discount = 0;
   let appliedCoupon = null;
+  // Why the entered code was not applied - shown to the customer instead of a
+  // bare "Coupon not applicable".
+  let couponError = null;
   const codeRaw = couponCode;
 
   if (codeRaw) {
     const now = new Date();
     const offer = await FoodOffer.findOne({ couponCode: codeRaw }).lean();
-    if (offer) {
-      const statusOk = offer.status === "active";
-      const startOk = !offer.startDate || now >= new Date(offer.startDate);
-      const endOk = !offer.endDate || now < new Date(offer.endDate);
-      const scopeOk =
-        offer.restaurantScope !== "selected" ||
-        String(offer.restaurantId || "") === String(restaurantId || "");
+    if (!offer) {
+      couponError = "Invalid coupon code";
+    } else {
       const minOrderValue = Number(offer.minOrderValue);
-      const minOk = !Number.isFinite(minOrderValue) || minOrderValue <= 0 || subtotal >= minOrderValue;
-      let usageOk = true;
-      if (
+      const orderType = String(dto.orderType || "delivery").toLowerCase();
+      // Only a real order uses up "first order": cancelled ones and online
+      // checkouts that were never paid used to disqualify the customer forever.
+      const countPlacedOrders = () =>
+        FoodOrder.countDocuments({
+          userId: new mongoose.Types.ObjectId(userId),
+          orderStatus: { $nin: ["cancelled_by_user", "cancelled_by_restaurant", "cancelled_by_admin"] },
+          $nor: [{ "payment.method": "razorpay", "payment.status": { $nin: ["paid", "refunded"] } }],
+        });
+
+      if (offer.status !== "active") {
+        couponError = "This coupon is no longer active";
+      } else if (offer.startDate && now < new Date(offer.startDate)) {
+        couponError = "This coupon is not active yet";
+      } else if (offer.endDate && now >= new Date(offer.endDate)) {
+        couponError = "This coupon has expired";
+      } else if (
+        offer.restaurantScope === "selected" &&
+        String(offer.restaurantId || "") !== String(restaurantId || "")
+      ) {
+        couponError = "This coupon is not valid for this restaurant";
+      } else if (
+        Array.isArray(offer.zoneIds) &&
+        offer.zoneIds.length > 0 &&
+        !offer.zoneIds.some((z) => String(z) === String(restaurant.zoneId || pricingZoneId || ""))
+      ) {
+        couponError = "This coupon is not valid in your area";
+      } else if (
+        offer.couponType &&
+        offer.couponType !== "all" &&
+        String(offer.couponType).toLowerCase() !== orderType
+      ) {
+        couponError = `This coupon is only valid for ${offer.couponType} orders`;
+      } else if (Number.isFinite(minOrderValue) && minOrderValue > 0 && subtotal < minOrderValue) {
+        couponError = `Add items worth ₹${Math.ceil(minOrderValue - subtotal)} more to use this coupon (minimum order ₹${minOrderValue})`;
+      } else if (
         Number(offer.usageLimit) > 0 &&
         Number(offer.usedCount || 0) >= Number(offer.usageLimit)
       ) {
-        usageOk = false;
-      }
-
-      let perUserOk = true;
-      if (userId && Number(offer.perUserLimit) > 0) {
+        couponError = "This coupon has reached its usage limit";
+      } else if (userId && Number(offer.perUserLimit) > 0) {
         const usage = await FoodOfferUsage.findOne({
           offerId: offer._id,
           userId,
         }).lean();
         if (usage && Number(usage.count) >= Number(offer.perUserLimit)) {
-          perUserOk = false;
+          couponError = "You have already used this coupon the maximum number of times";
         }
       }
 
-      let firstOrderOk = true;
-      if (userId && offer.customerScope === "first-time") {
-        const c = await FoodOrder.countDocuments({
-          userId: new mongoose.Types.ObjectId(userId),
-        });
-        firstOrderOk = c === 0;
-      }
-      if (userId && offer.isFirstOrderOnly === true) {
-        const c2 = await FoodOrder.countDocuments({
-          userId: new mongoose.Types.ObjectId(userId),
-        });
-        if (c2 > 0) firstOrderOk = false;
+      if (
+        !couponError &&
+        userId &&
+        (offer.customerScope === "first-time" || offer.isFirstOrderOnly === true) &&
+        (await countPlacedOrders()) > 0
+      ) {
+        couponError = "This coupon is valid on your first order only";
       }
 
-      const couponTypeOk =
-        !offer.couponType ||
-        offer.couponType === "all" ||
-        String(offer.couponType).toLowerCase() === String(dto.orderType || "delivery").toLowerCase();
-
-      const allowed =
-        statusOk &&
-        startOk &&
-        endOk &&
-        scopeOk &&
-        minOk &&
-        usageOk &&
-        perUserOk &&
-        firstOrderOk &&
-        couponTypeOk;
-
-      if (allowed) {
+      if (!couponError) {
         if (offer.discountType === "percentage") {
           const raw = subtotal * (Number(offer.discountValue) / 100);
           const capped = Number(offer.maxDiscount)
@@ -258,6 +266,7 @@ export async function calculateOrderPricing(userId, dto) {
       currency: "INR",
       couponCode: appliedCoupon?.code || codeRaw || null,
       appliedCoupon,
+      couponError,
     },
     items,
     restaurantId: String(restaurantId),

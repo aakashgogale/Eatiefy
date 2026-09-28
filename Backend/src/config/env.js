@@ -45,7 +45,7 @@ export const config = {
     otpMaxAttempts: Number(process.env.OTP_MAX_ATTEMPTS || 4),
     otpExpiryMinutes: Number(process.env.OTP_EXPIRY_MINUTES || 10),
     otpExpirySeconds: Number(process.env.OTP_EXPIRY_SECONDS || 300),
-    otpRateLimit: Number(process.env.OTP_RATE_LIMIT || (process.env.NODE_ENV === 'production' ? 3 : 100)),
+    otpRateLimit: Number(process.env.OTP_RATE_LIMIT || (process.env.NODE_ENV === 'production' ? 5 : 100)),
     otpRateWindow: Number(process.env.OTP_RATE_WINDOW || (process.env.NODE_ENV === 'production' ? 600 : 60)),
     useDefaultOtp: readEnvFlag('USE_DEFAULT_OTP') ?? (process.env.NODE_ENV === 'development'),
     // Phone-scoped default OTP (independent of USE_DEFAULT_OTP for all numbers)

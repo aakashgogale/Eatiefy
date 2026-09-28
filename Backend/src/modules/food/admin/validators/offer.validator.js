@@ -16,8 +16,25 @@ const createOfferSchema = z.object({
     usageLimit: z.number().min(0).optional(),
     perUserLimit: z.number().min(0).optional(),
     isFirstOrderOnly: z.boolean().optional(),
-    couponType: z.enum(['delivery', 'takeaway', 'all']).default('all')
+    couponType: z.enum(['delivery', 'takeaway', 'all']).default('all'),
+    zoneIds: z.array(z.string()).optional()
 });
+
+/*
+ * The admin form sends calendar dates ("2026-09-30"). They were stored as UTC
+ * midnight, i.e. 5:30 AM IST: a coupon "valid till 30 Sep" died early that
+ * morning, and one ending today was rejected as "not a future date". Dates are
+ * whole days in India time: start at 00:00 IST, end at 23:59:59.999 IST.
+ */
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const toIstDayBoundary = (value, endOfDay) => {
+    const raw = String(value || '').trim();
+    if (!raw) return undefined;
+    if (DATE_ONLY.test(raw)) {
+        return new Date(`${raw}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}+05:30`);
+    }
+    return new Date(raw);
+};
 
 export const validateCreateOfferDto = (body) => {
     const normalized = {
@@ -41,7 +58,10 @@ export const validateCreateOfferDto = (body) => {
         usageLimit: body?.usageLimit !== undefined ? Number(body.usageLimit) : undefined,
         perUserLimit: body?.perUserLimit !== undefined ? Number(body.perUserLimit) : undefined,
         isFirstOrderOnly: body?.isFirstOrderOnly !== undefined ? Boolean(body.isFirstOrderOnly) : undefined,
-        couponType: body?.couponType || 'all'
+        couponType: body?.couponType || 'all',
+        zoneIds: Array.isArray(body?.zoneIds)
+            ? body.zoneIds.map((z) => String(z || '').trim()).filter(Boolean)
+            : undefined
     };
 
     const result = createOfferSchema.safeParse(normalized);
@@ -55,11 +75,15 @@ export const validateCreateOfferDto = (body) => {
         }
     }
 
-    const endDate = result.data.endDate ? new Date(`${result.data.endDate}T00:00:00.000Z`) : undefined;
+    const endDate = toIstDayBoundary(result.data.endDate, true);
+    const zoneIds = [...new Set(result.data.zoneIds || [])];
+    if (zoneIds.some((id) => !mongoose.Types.ObjectId.isValid(id))) {
+        throw new ValidationError('Invalid zone selected');
+    }
     if (endDate && Number.isNaN(endDate.getTime())) {
         throw new ValidationError('Invalid endDate');
     }
-    const startDate = result.data.startDate ? new Date(`${result.data.startDate}T00:00:00.000Z`) : undefined;
+    const startDate = toIstDayBoundary(result.data.startDate, false);
     if (startDate && Number.isNaN(startDate.getTime())) {
         throw new ValidationError('Invalid startDate');
     }
@@ -94,7 +118,9 @@ export const validateCreateOfferDto = (body) => {
         usageLimit: result.data.usageLimit,
         perUserLimit: result.data.perUserLimit,
         isFirstOrderOnly: result.data.isFirstOrderOnly === true,
-        couponType: result.data.couponType
+        couponType: result.data.couponType,
+        // Empty = every zone.
+        zoneIds
     };
 };
 

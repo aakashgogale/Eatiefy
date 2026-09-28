@@ -152,6 +152,8 @@ export default function DeliveryEarnings() {
       orderId: earning.orderId || 'N/A',
       restaurantName: earning.restaurantName || 'N/A',
       amount: formatCurrency(earning.amount),
+      basePayout: formatCurrency(earning.basePayout ?? earning.amount),
+      eatiefyIncentive: formatCurrency(earning.eatiefyIncentive || 0),
       orderTotal: formatCurrency(earning.orderTotal),
       deliveryFee: formatCurrency(earning.deliveryFee),
       orderStatus: earning.orderStatus || 'N/A',
@@ -238,6 +240,12 @@ export default function DeliveryEarnings() {
               <div>
                 <p className="text-sm text-slate-600 mb-1">Total Earnings</p>
                 <p className="text-2xl font-bold text-green-600">{formatCurrency(summary.totalEarnings || 0)}</p>
+                {Number(summary.totalEatiefyIncentive) > 0 && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    Zone payout {formatCurrency(summary.totalBasePayout || 0)} + Eatiefy incentive{" "}
+                    <span className="font-semibold text-emerald-700">{formatCurrency(summary.totalEatiefyIncentive)}</span>
+                  </p>
+                )}
               </div>
               <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
                 <DollarSign className="w-6 h-6 text-green-600" />
@@ -402,6 +410,12 @@ export default function DeliveryEarnings() {
                       </td>
                       <td className="px-4 py-3 text-sm font-semibold text-green-600">
                         {formatCurrency(earning.amount)}
+                        {Number(earning.eatiefyIncentive) > 0 && (
+                          <span className="block text-[11px] font-normal text-slate-500 whitespace-nowrap">
+                            {formatCurrency(earning.basePayout)} + {formatCurrency(earning.eatiefyIncentive)} Eatiefy
+                            {Number(earning.eatiefyIncentivePercent) > 0 ? ` (${earning.eatiefyIncentivePercent}%)` : ""}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-sm text-slate-700">
                         {formatCurrency(earning.orderTotal)}

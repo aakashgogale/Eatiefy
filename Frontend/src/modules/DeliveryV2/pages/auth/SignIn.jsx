@@ -11,6 +11,9 @@ import { getUserFacingApiError, showUserFacingApiError } from "@/shared/utils/ap
 
 const DEFAULT_COUNTRY_CODE = "+91"
 
+
+const STATIC_OTP_KEY = "delivery_static_otp"
+
 export default function DeliverySignIn() {
   const companyName = useCompanyName();
   const navigate = useNavigate()
@@ -53,6 +56,19 @@ export default function DeliverySignIn() {
   const [success, setSuccess] = useState(false)
   const [resendTimer, setResendTimer] = useState(0)
   const [blockTimer, setBlockTimer] = useState(0)
+  // Only set when the server runs in test-OTP mode and returns the code; with
+  // real SMS there is no default OTP, so no hint is shown.
+  const [staticOtp, setStaticOtp] = useState(() => {
+    try { return sessionStorage.getItem(STATIC_OTP_KEY) || "" } catch { return "" }
+  })
+  const rememberStaticOtp = (response) => {
+    const code = String(response?.data?.data?.otp || "")
+    try {
+      if (code) sessionStorage.setItem(STATIC_OTP_KEY, code)
+      else sessionStorage.removeItem(STATIC_OTP_KEY)
+    } catch { /* storage unavailable */ }
+    setStaticOtp(code)
+  }
   const [authData, setAuthData] = useState(null)
   const [showNameInput, setShowNameInput] = useState(false)
   const [name, setName] = useState("")
@@ -135,17 +151,18 @@ export default function DeliverySignIn() {
 
     // Resume block timer
     const savedBlockExpiry = sessionStorage.getItem(blockKey)
-    if (savedBlockExpiry) {
+    // The server's just-received remaining time wins over a saved countdown.
+    if (location.state?.initialBlockMins) {
+      const seconds = Math.ceil(location.state.initialBlockMins * 60)
+      setBlockTimer(seconds)
+      sessionStorage.setItem(blockKey, (Date.now() + (seconds * 1000)).toString())
+    } else if (savedBlockExpiry) {
       const remaining = Math.max(0, Math.floor((parseInt(savedBlockExpiry) - Date.now()) / 1000))
       if (remaining > 0) {
         setBlockTimer(remaining)
       } else {
         sessionStorage.removeItem(blockKey)
       }
-    } else if (location.state?.initialBlockMins) {
-      const seconds = Math.ceil(location.state.initialBlockMins * 60)
-      setBlockTimer(seconds)
-      sessionStorage.setItem(blockKey, (Date.now() + (seconds * 1000)).toString())
     }
 
     // Resume resend timer
@@ -236,7 +253,8 @@ export default function DeliverySignIn() {
 
     try {
       clearModuleAuth("delivery")
-      await deliveryAPI.sendOTP(fullPhone, "login")
+      const sendRes = await deliveryAPI.sendOTP(fullPhone, "login")
+      rememberStaticOtp(sendRes)
 
       const authData = {
         method: "phone",
@@ -536,7 +554,8 @@ export default function DeliverySignIn() {
         return
       }
 
-      await deliveryAPI.sendOTP(phoneVal, purpose)
+      const resendRes = await deliveryAPI.sendOTP(phoneVal, purpose)
+      rememberStaticOtp(resendRes)
       setResendTimer(59)
       sessionStorage.setItem(getResendKey(phoneVal), (Date.now() + (59 * 1000)).toString())
       setOtp(["", "", "", ""])
@@ -928,10 +947,12 @@ export default function DeliverySignIn() {
                               </button>
                             )}
                           </div>
-                          <div className="w-fit rounded-lg bg-emerald-50 dark:bg-emerald-950/30 px-3 py-1 text-xs text-emerald-800 dark:text-emerald-300 font-medium border border-emerald-200 dark:border-emerald-800/40 flex items-center gap-1.5">
-                            <span>Default OTP:</span>
-                            <span className="font-bold tracking-widest text-[#14472F] dark:text-emerald-200">1234</span>
-                          </div>
+                          {staticOtp && (
+                            <div className="w-fit rounded-lg bg-emerald-50 dark:bg-emerald-950/30 px-3 py-1 text-xs text-emerald-800 dark:text-emerald-300 font-medium border border-emerald-200 dark:border-emerald-800/40 flex items-center gap-1.5">
+                              <span>Default OTP:</span>
+                              <span className="font-bold tracking-widest text-[#14472F] dark:text-emerald-200">{staticOtp}</span>
+                            </div>
+                          )}
                         </div>
 
                         <button

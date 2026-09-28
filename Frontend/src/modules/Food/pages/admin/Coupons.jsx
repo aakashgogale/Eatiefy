@@ -49,7 +49,9 @@ export default function Coupons() {
     usageLimit: "",
     perUserLimit: "",
     isFirstOrderOnly: false,
+    zoneIds: [],
   })
+  const [zones, setZones] = useState([])
 
   const isFormDirty = useMemo(() => {
     if (!editingOfferId || !originalFormData) return true
@@ -105,6 +107,35 @@ export default function Coupons() {
   useEffect(() => {
     fetchOffers()
   }, [fetchOffers])
+
+  // Zones for zone-wise coupons.
+  useEffect(() => {
+    let cancelled = false
+    adminAPI
+      .getZones({ limit: 1000 })
+      .then((res) => {
+        const zoneData = res?.data?.data
+        const list = Array.isArray(zoneData?.zones) ? zoneData.zones : Array.isArray(zoneData) ? zoneData : []
+        if (!cancelled) setZones(list)
+      })
+      .catch((err) => debugError("Error loading zones:", err))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const zoneNameById = useMemo(() => {
+    const map = new Map()
+    zones.forEach((z) => map.set(String(z._id || z.id), z.name || z.zoneName || "Zone"))
+    return map
+  }, [zones])
+
+  const toggleZone = (zoneId) => {
+    const id = String(zoneId)
+    const current = Array.isArray(formData.zoneIds) ? formData.zoneIds : []
+    const next = current.includes(id) ? current.filter((z) => z !== id) : [...current, id]
+    handleFormChange("zoneIds", next)
+  }
 
   useEffect(() => {
     const fetchRestaurants = async () => {
@@ -219,6 +250,7 @@ export default function Coupons() {
       usageLimit: "",
       perUserLimit: "",
       isFirstOrderOnly: false,
+      zoneIds: [],
     })
     setEditingOfferId(null)
     setOriginalFormData(null)
@@ -265,6 +297,8 @@ export default function Coupons() {
         usageLimit: formData.usageLimit !== "" ? Number(formData.usageLimit) : undefined,
         perUserLimit: formData.perUserLimit !== "" ? Number(formData.perUserLimit) : undefined,
         isFirstOrderOnly: Boolean(formData.isFirstOrderOnly),
+        // Empty = valid in every zone.
+        zoneIds: Array.isArray(formData.zoneIds) ? formData.zoneIds : [],
       }
       if (editingOfferId) {
         await adminAPI.updateAdminOffer(editingOfferId, payload)
@@ -353,6 +387,7 @@ export default function Coupons() {
       usageLimit: offer.usageLimit !== undefined && offer.usageLimit !== null ? String(offer.usageLimit) : "",
       perUserLimit: offer.perUserLimit !== undefined && offer.perUserLimit !== null ? String(offer.perUserLimit) : "",
       isFirstOrderOnly: offer.isFirstOrderOnly === true,
+      zoneIds: Array.isArray(offer.zoneIds) ? offer.zoneIds.map(String) : [],
     }
     setFormData(mappedData)
     setOriginalFormData(mappedData)
@@ -482,6 +517,32 @@ export default function Coupons() {
                     <option value="all">All Restaurants</option>
                     <option value="selected">Selected Restaurant</option>
                   </select>
+                </div>
+
+                <div className="md:col-span-2 lg:col-span-3">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Zones <span className="font-normal text-slate-400">(leave empty for all zones)</span>
+                  </label>
+                  <div className="flex flex-wrap gap-2 rounded-lg border border-slate-300 bg-white p-2 max-h-32 overflow-y-auto">
+                    {zones.length === 0 ? (
+                      <span className="text-xs text-slate-400">No zones found</span>
+                    ) : (
+                      zones.map((zone) => {
+                        const id = String(zone._id || zone.id)
+                        const selected = (formData.zoneIds || []).includes(id)
+                        return (
+                          <button
+                            type="button"
+                            key={id}
+                            onClick={() => toggleZone(id)}
+                            className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${selected ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-700 border-slate-300 hover:border-blue-400"}`}
+                          >
+                            {zone.name || zone.zoneName || "Unnamed Zone"}
+                          </button>
+                        )
+                      })
+                    )}
+                  </div>
                 </div>
 
                 <div>
@@ -711,6 +772,11 @@ export default function Coupons() {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm font-medium text-slate-900">
                           {offer.restaurantScope === "all" || offer.restaurantName === "All Restaurants" ? "All Restaurants" : offer.restaurantName}
+                        </span>
+                        <span className="block text-xs text-slate-500 mt-0.5">
+                          {Array.isArray(offer.zoneIds) && offer.zoneIds.length > 0
+                            ? offer.zoneIds.map((id) => zoneNameById.get(String(id)) || "Zone").join(", ")
+                            : "All zones"}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">

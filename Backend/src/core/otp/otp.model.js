@@ -30,6 +30,10 @@ const otpSchema = new mongoose.Schema(
             type: Date,
             default: Date.now
         },
+        // Start of the current OTP-request rate-limit window.
+        windowStartedAt: {
+            type: Date
+        },
         totalFailures: {
             type: Number,
             default: 0

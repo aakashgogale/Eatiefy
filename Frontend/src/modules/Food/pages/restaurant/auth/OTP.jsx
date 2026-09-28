@@ -74,17 +74,18 @@ export default function RestaurantOTP() {
 
     // Resume block timer
     const savedBlockExpiry = sessionStorage.getItem(blockKey)
-    if (savedBlockExpiry) {
+    // The server's just-received remaining time wins over a saved countdown.
+    if (location.state?.initialBlockMins) {
+      const seconds = Math.ceil(location.state.initialBlockMins * 60)
+      setBlockTimer(seconds)
+      sessionStorage.setItem(blockKey, (Date.now() + (seconds * 1000)).toString())
+    } else if (savedBlockExpiry) {
       const remaining = Math.max(0, Math.floor((parseInt(savedBlockExpiry) - Date.now()) / 1000))
       if (remaining > 0) {
         setBlockTimer(remaining)
       } else {
         sessionStorage.removeItem(blockKey)
       }
-    } else if (location.state?.initialBlockMins) {
-      const seconds = Math.ceil(location.state.initialBlockMins * 60)
-      setBlockTimer(seconds)
-      sessionStorage.setItem(blockKey, (Date.now() + (seconds * 1000)).toString())
     }
 
     // Resume resend timer

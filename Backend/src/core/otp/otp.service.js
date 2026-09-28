@@ -215,22 +215,31 @@ export const createOrUpdateOtp = async (phone) => {
     const useStaticOtp = shouldUseStaticOtp(normalizedPhone);
 
     // 1. Rate Limiting Logic (OTP Requests)
+    // The window runs from the FIRST request in it. It used to be measured from
+    // the latest request and the error always said "10 minutes", so every retry
+    // (e.g. re-entering the number) restarted the app's countdown from scratch.
     if (existing) {
         const windowMs = (config.otpRateWindow || 600) * 1000;
-        const isInWindow = now - existing.lastRequestAt < windowMs;
+        const windowStart = existing.windowStartedAt || existing.lastRequestAt || now;
+        const isInWindow = now - windowStart < windowMs;
 
         if (isInWindow) {
             // Relax rate limit in local development to avoid blocking testing flows
             const isDev = config.nodeEnv === 'development';
-            const limit = isDev ? 5 : (config.otpRateLimit || 3);
-            // if (!config.useDefaultOtp && existing.requestCount >= limit) {
+            const limit = isDev ? 5 : (config.otpRateLimit || 5);
             if (!useStaticOtp && existing.requestCount >= limit) {
-                logger.warn(`Rate limit exceeded for phone ${normalizedPhone}`);
-                throw new ValidationError(`Too many OTP requests. Please try again after ${Math.ceil(windowMs / 60000)} minutes.`);
+                const remainingSec = Math.max(1, Math.ceil((windowStart.getTime() + windowMs - now.getTime()) / 1000));
+                const mm = Math.floor(remainingSec / 60);
+                const ss = String(remainingSec % 60).padStart(2, '0');
+                logger.warn(`Rate limit exceeded for phone ${normalizedPhone}; ${remainingSec}s left`);
+                // "M:SS" is parsed by the partner apps to show the exact countdown.
+                throw new ValidationError(`Too many OTP requests. Please try again after ${mm}:${ss} minutes.`);
             }
             existing.requestCount += 1;
+            if (!existing.windowStartedAt) existing.windowStartedAt = windowStart;
         } else {
             existing.requestCount = 1;
+            existing.windowStartedAt = now;
         }
     }
 
@@ -291,7 +300,8 @@ export const createOrUpdateOtp = async (phone) => {
             otpExpiresAt,
             expiresAt,
             requestCount: 1,
-            lastRequestAt: now
+            lastRequestAt: now,
+            windowStartedAt: now
         });
     }
 
