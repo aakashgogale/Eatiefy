@@ -32,6 +32,7 @@ import {
   ShoppingBag,
   Trash2,
   AlertTriangle,
+  BadgePercent,
 } from "lucide-react"
 import { Card, CardContent } from "@food/components/ui/card"
 import { DateRangeCalendar } from "@food/components/ui/date-range-calendar"
@@ -760,6 +761,7 @@ export default function ExploreMore() {
     { id: 2, label: "Outlet timings", icon: Clock, route: "/food/restaurant/outlet-timings" },
     // Dining Reservations — gated via the admin Dining toggle
     { id: 4, label: "Menu categories", icon: Settings, route: "/food/restaurant/menu-categories" },
+    { id: 7, label: "Offers", icon: BadgePercent, route: "/food/restaurant/offers" },
     { id: 6, label: "Takeaway", icon: ShoppingBag },
   ]
 

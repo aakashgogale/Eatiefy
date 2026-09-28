@@ -30,6 +30,7 @@ import { toFoodUserPath } from "@food/utils/mainTabRoutes"
 import { reportError } from "@/shared/utils/errorReporter"
 import dishFallbackImage from "@food/assets/dish_fallback.webp"
 import SafeImage from "@food/components/SafeImage"
+import { CartRestaurantOfferSavings, CartRestaurantOfferProgress } from "@food/components/user/RestaurantItemOffers"
 const zoopSound = "/assets/media/zomato_sms.mp3"
 const debugLog = (...args) => { }
 const debugWarn = (...args) => { }
@@ -2905,6 +2906,8 @@ export default function Cart() {
                   </div>
                 </div>
 
+                <CartRestaurantOfferProgress pricing={pricing} currencySymbol={RUPEE_SYMBOL} />
+
                 {/* Cart coupon preview */}
                 {!appliedCoupon && !couponCode && (
                   <div className="px-4 pb-4 md:px-6 md:pb-5 pt-1 animate-in fade-in duration-300">
@@ -3382,6 +3385,7 @@ export default function Cart() {
                         )}
                       </span>
                     </div>
+                    <CartRestaurantOfferSavings pricing={pricing} loading={loadingPricing} currencySymbol={RUPEE_SYMBOL} />
 
                     {orderType !== "takeaway" && (
                       <>

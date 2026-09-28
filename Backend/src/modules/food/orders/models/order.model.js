@@ -21,7 +21,22 @@ const orderItemSchema = new mongoose.Schema(
         quantity: { type: Number, required: true, min: 1 },
         isVeg: { type: Boolean, default: true },
         image: { type: String, default: '' },
-        notes: { type: String, default: '' }
+        notes: { type: String, default: '' },
+        /** Restaurant offer on this line: unit price before it and the per-unit amount taken off. */
+        priceBeforeOffer: { type: Number, default: null, min: 0 },
+        offerDiscount: { type: Number, default: 0, min: 0 },
+        offerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodRestaurantOffer', default: null },
+        offerTitle: { type: String, trim: true, default: '' }
+    },
+    { _id: false }
+);
+
+const appliedRestaurantOfferSchema = new mongoose.Schema(
+    {
+        offerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodRestaurantOffer' },
+        title: { type: String, trim: true, default: '' },
+        label: { type: String, trim: true, default: '' },
+        discount: { type: Number, default: 0, min: 0 }
     },
     { _id: false }
 );
@@ -60,7 +75,13 @@ const pricingSchema = new mongoose.Schema(
         discount: { type: Number, default: 0, min: 0 },
         total: { type: Number, required: true, min: 0 },
         currency: { type: String, default: 'INR' },
-        couponCode: { type: String, default: null, trim: true, uppercase: true }
+        couponCode: { type: String, default: null, trim: true, uppercase: true },
+        /**
+         * Restaurant-run offers. Already reflected in the item prices, subtotal and
+         * baseSubtotal (the restaurant funds them); stored for receipts and reporting.
+         */
+        restaurantOfferDiscount: { type: Number, default: 0, min: 0 },
+        restaurantOffers: { type: [appliedRestaurantOfferSchema], default: [] }
     },
     { _id: false }
 );

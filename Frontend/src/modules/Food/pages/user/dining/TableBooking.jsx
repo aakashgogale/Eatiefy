@@ -354,25 +354,22 @@ export default function TableBooking() {
           <div className="grid grid-cols-5 gap-2">
             {Array.from({ length: maxCapacity }, (_, index) => {
               const count = index + 1
-              const isBooked = count <= occupiedSeats
-              const isTooLarge = count > remainingSeats && !isBooked
+              const isTooLarge = remainingSeats === 0 || count > remainingSeats
 
               return (
                 <button
                   key={count}
-                  disabled={isBooked || isTooLarge}
+                  disabled={isTooLarge}
                   onClick={() => setSelectedGuests(count)}
                   className={`flex h-11 items-center justify-center rounded-xl border text-sm font-bold transition-all ${
                     selectedGuests === count
-                      ? "border-[#ef8f98] bg-[#fffaf9] dark:bg-[#2a1519] text-[#d64f63] shadow-sm"
-                      : isBooked
-                        ? "border-red-900/20 bg-red-900/10 text-red-700/30 dark:text-red-800 cursor-not-allowed"
-                        : isTooLarge
-                          ? "border-white/5 bg-white/5 text-gray-700/20 dark:text-gray-600 cursor-not-allowed"
-                          : "border-[#ececf2] dark:border-white/10 bg-white dark:bg-[#242424] text-[#444b5f] dark:text-gray-300 hover:border-[#ef8f98]/30"
+                      ? "border-[#1F6B45] bg-[#fdfafc] dark:bg-[#1a2e22] text-[#1F6B45] shadow-sm"
+                      : isTooLarge
+                        ? "border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-white/5 text-gray-300 dark:text-gray-600 cursor-not-allowed"
+                        : "border-[#ececf2] dark:border-white/10 bg-white dark:bg-[#242424] text-[#444b5f] dark:text-gray-300 hover:border-[#1F6B45]/30"
                   }`}
                 >
-                  {isBooked ? "X" : count}
+                  {count}
                 </button>
               )
             })}

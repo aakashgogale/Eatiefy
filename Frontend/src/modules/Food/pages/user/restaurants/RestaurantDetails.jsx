@@ -68,6 +68,7 @@ import { isVegMenuItem } from "@food/utils/vegMode"
 import dishFallbackImage from "@food/assets/dish_fallback.webp"
 import OptimizedImage from "@food/components/OptimizedImage"
 import SafeImage from "@food/components/SafeImage"
+import { useRestaurantItemOffers, ItemOfferBadge, RestaurantOffersStrip } from "@food/components/user/RestaurantItemOffers"
 
 const fssaiLogo = "/assets/images/fssai.png?v=3"
 
@@ -438,6 +439,14 @@ function RestaurantDetailsContent() {
       }
     })
   }, [allOffers, restaurant, orderType, slug])
+
+  // Restaurant-run offers live right now (display only; checkout applies them server-side).
+  const { offers: restaurantItemOffers, offersForItem } = useRestaurantItemOffers([
+    restaurant?.mongoId,
+    restaurant?._id,
+    restaurant?.id,
+    restaurant?.restaurantId,
+  ])
 
   // Fetch active public offers from API (runs on mount/slug change)
   useEffect(() => {
@@ -2764,6 +2773,11 @@ function RestaurantDetailsContent() {
             )
           })()}
 
+          {restaurantItemOffers.length > 0 && (
+            <div className="mb-3">
+              <RestaurantOffersStrip offers={restaurantItemOffers} />
+            </div>
+          )}
 
           {/* Filter/Category Buttons */}
           {restaurant?.menuSections && Array.isArray(restaurant.menuSections) && restaurant.menuSections.length > 0 && (
@@ -3083,6 +3097,7 @@ function RestaurantDetailsContent() {
                                     <p className="font-semibold text-gray-900 dark:text-white">
                                       ₹{Math.round(getFoodDisplayPrice(item))}
                                     </p>
+                                    <ItemOfferBadge offers={offersForItem(item.id)} />
                                     {/* Preparation Time - Show if available */}
                                     {item.preparationTime && String(item.preparationTime).trim() && (
                                       <div className="flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">
@@ -3319,6 +3334,7 @@ function RestaurantDetailsContent() {
                                               <p className="font-semibold text-gray-900 dark:text-white">
                                                 ₹{Math.round(getFoodDisplayPrice(item))}
                                               </p>
+                                              <ItemOfferBadge offers={offersForItem(item.id)} />
                                               {/* Preparation Time - Show if available */}
                                               {item.preparationTime && String(item.preparationTime).trim() && (
                                                 <div className="flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">

@@ -270,6 +270,8 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
     if (p.includes("safety-emergency-reports")) return badges.safetyReports ?? 0
     if (p.includes("delivery-partners/join-request")) return badges.deliveryPartners ?? 0
     if (p.includes("contact-messages")) return badges.contactMessages ?? 0
+    // Restaurant offers waiting for approval are reviewed on the coupons page.
+    if (p.includes("/admin/food/coupons")) return badges.restaurantOffers ?? 0
 
     // Label-based (expandable parents without paths)
     if (l.includes("food approval")) return badges.foodApprovals ?? 0

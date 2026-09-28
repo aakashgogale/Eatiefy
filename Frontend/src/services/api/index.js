@@ -783,6 +783,29 @@ export const adminAPI = {
       contextModule: "admin",
     }),
 
+  /** Restaurant Item Offers Approvals (admin) */
+  getRestaurantOffers: (params = {}) =>
+    apiClient.get("/food/admin/restaurant-offers", {
+      params,
+      contextModule: "admin",
+    }),
+  approveRestaurantOffer: (offerId) =>
+    apiClient.patch(
+      `/food/admin/restaurant-offers/${String(offerId)}/approve`,
+      {},
+      { contextModule: "admin" },
+    ),
+  rejectRestaurantOffer: (offerId, reason) =>
+    apiClient.patch(
+      `/food/admin/restaurant-offers/${String(offerId)}/reject`,
+      { reason: String(reason || "").trim() },
+      { contextModule: "admin" },
+    ),
+  deleteRestaurantOffer: (offerId) =>
+    apiClient.delete(`/food/admin/restaurant-offers/${String(offerId)}`, {
+      contextModule: "admin",
+    }),
+
   /** Delivery Partner Bonus (admin) */
   getDeliveryPartnerBonusTransactions: (params = {}) =>
     apiClient.get("/food/admin/delivery/bonus-transactions", {

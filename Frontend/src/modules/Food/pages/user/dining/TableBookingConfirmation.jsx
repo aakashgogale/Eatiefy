@@ -245,8 +245,8 @@ export default function TableBookingConfirmation() {
                     </p>
                      <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm border border-slate-100 dark:border-slate-800 flex items-center justify-between transition-colors">
                         <div className="text-left">
-                            <p className="font-bold text-gray-900 dark:text-slate-100">{user?.name || "Shailu"}</p>
-                            <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">{user?.phone || user?.email || "8090512291"}</p>
+                            <p className="font-bold text-gray-900 dark:text-slate-100">{user?.name || "Guest"}</p>
+                            <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">{user?.phone || user?.email || "Phone not provided"}</p>
                         </div>
                         <button 
                             type="button"

@@ -22,6 +22,9 @@ import {
 import { Button } from "@food/components/ui/button"
 import { toast } from "sonner"
 import { getOperatingStatus } from "@food/utils/operatingHours"
+import { getMenuFromResponse } from "@food/utils/menuItems"
+
+const debugError = (...args) => {}
 
 const formatAddress = (restaurant) =>
   restaurant?.location?.addressLine1 ||
@@ -98,7 +101,8 @@ const scrollToSection = (id) => {
 }
 
 export default function DiningRestaurantDetails() {
-  const { category, slug } = useParams()
+  const { category, diningType, slug: paramSlug } = useParams()
+  const slug = paramSlug || category || diningType
   const location = useLocation()
   const navigate = useNavigate()
   const goBack = useAppBackNavigation()
@@ -680,32 +684,22 @@ export default function DiningRestaurantDetails() {
             <div className="grid grid-cols-4 gap-3">
               {Array.from({ length: maxCapacity }, (_, index) => {
                 const count = index + 1
-                const isBooked = count <= occupiedSeats
-                const isTooLarge = count > remainingSeats && !isBooked
+                const isTooLarge = remainingSeats === 0 || count > remainingSeats
 
                 return (
                     <button
                       key={`sheet-${count}`}
-                      disabled={isBooked || isTooLarge}
+                      disabled={isTooLarge}
                       onClick={() => setSelectedGuests(count)}
                       className={`relative rounded-2xl border px-3 py-4 text-sm font-bold transition-all ${
                           selectedGuests === count
-                            ? "border-[#1F6B45] bg-[#fdfafc] dark:bg-purple-950/30 text-[#1F6B45] scale-[1.02] shadow-sm"
-                            : isBooked
-                              ? "border-red-100 dark:border-red-900/30 bg-red-50 dark:bg-red-950/20 text-red-400 cursor-not-allowed opacity-70"
-                              : isTooLarge
-                                ? "border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-950 text-gray-300 dark:text-slate-600 cursor-not-allowed"
-                                : "border-[#ece7de] dark:border-slate-800 bg-white dark:bg-slate-800 text-[#23180f] dark:text-slate-100 hover:border-[#1F6B45]/30"
+                            ? "border-[#1F6B45] bg-[#fdfafc] dark:bg-emerald-950/30 text-[#1F6B45] scale-[1.02] shadow-sm"
+                            : isTooLarge
+                              ? "border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-950 text-gray-300 dark:text-slate-600 cursor-not-allowed"
+                              : "border-[#ece7de] dark:border-slate-800 bg-white dark:bg-slate-800 text-[#23180f] dark:text-slate-100 hover:border-[#1F6B45]/30"
                       }`}
                     >
-                      {isBooked ? (
-                          <div className="flex flex-col items-center gap-0.5">
-                              <span className="text-[10px] uppercase font-black tracking-tighter opacity-60">Booked</span>
-                              <span>{count}</span>
-                          </div>
-                      ) : (
-                          count
-                      )}
+                      {count}
                     </button>
                 )
               })}

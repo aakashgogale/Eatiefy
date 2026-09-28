@@ -9,7 +9,7 @@ import { FoodZone } from '../models/zone.model.js';
 import { assertZoneCoversLocation, isPointInZone } from '../../shared/zoneLocation.js';
 import { getIO, rooms } from '../../../../config/socket.js';
 import { FoodOnboardingPayment } from '../../restaurant/models/onboardingPayment.model.js';
-import { getRestaurantTypeLabel } from '../../shared/restaurantTypes.js';
+import { getRestaurantTypeLabel, normalizeRestaurantType } from '../../shared/restaurantTypes.js';
 import {
     assertTicketStatusTransition,
     getAllowedTicketTransitions
@@ -19,6 +19,7 @@ import { FoodItem } from '../models/food.model.js';
 import { FoodPricingRule } from '../models/foodPricingRule.model.js';
 import { FoodOffer } from '../models/offer.model.js';
 import { FoodOfferUsage } from '../models/offerUsage.model.js';
+import { FoodRestaurantOffer } from '../../restaurant/models/restaurantOffer.model.js';
 import { DeliveryBonusTransaction } from '../models/deliveryBonusTransaction.model.js';
 import { FoodEarningAddon } from '../models/earningAddon.model.js';
 import { FoodEarningAddonHistory } from '../models/earningAddonHistory.model.js';
@@ -4685,6 +4686,15 @@ export async function createRestaurantByAdmin(body) {
         }
     }
 
+    // Business type (family restaurant, cafe, ...), same list as restaurant self-onboarding.
+    // Optional here so older admin clients keep working; the admin form requires it.
+    const rawRestaurantType = toStr(body.restaurantType);
+    if (rawRestaurantType) {
+        const restaurantType = normalizeRestaurantType(rawRestaurantType);
+        if (!restaurantType) throw new ValidationError('Restaurant type is invalid');
+        doc.restaurantType = restaurantType;
+    }
+
     if (latitude !== null && longitude !== null) {
         doc.location = {
             type: 'Point',
@@ -7571,6 +7581,7 @@ export async function getSidebarBadges() {
             pendingEmergencyHelp,
             pendingRestaurantComplaints,
             pendingCashConfirmations,
+            pendingRestaurantOffers,
         ] = await Promise.all([
             FoodRestaurant.countDocuments({ status: 'pending' }),
             FoodDeliveryPartner.countDocuments({ status: 'pending' }),
@@ -7593,6 +7604,8 @@ export async function getSidebarBadges() {
             FoodDeliveryEmergencyHelp.countDocuments({ status: 'pending' }),
             FoodSupportTicket.countDocuments({ type: 'order', status: 'pending' }),
             countPendingCashConfirmations(),
+            // Offers saved before approval existed have no status yet: they await review too.
+            FoodRestaurantOffer.countDocuments({ approvalStatus: { $in: ['pending', null] } }),
         ]);
 
         return {
@@ -7610,7 +7623,8 @@ export async function getSidebarBadges() {
             earningAddons: pendingEarningAddons,
             safetyReports: pendingSafetyReports,
             emergencyHelp: pendingEmergencyHelp,
-            restaurantComplaints: pendingRestaurantComplaints
+            restaurantComplaints: pendingRestaurantComplaints,
+            restaurantOffers: pendingRestaurantOffers
         };
     } catch (error) {
         console.error('Error fetching sidebar badges:', error);

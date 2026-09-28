@@ -25,6 +25,7 @@ import { restaurantAPI, uploadAPI } from "@food/api"
 import { toast } from "sonner"
 import { openGallery } from "@food/utils/imageUploadUtils"
 import dishFallbackImage from "@food/assets/dish_fallback.webp"
+import { useOwnRestaurantOffers, RestaurantFoodOfferTags } from "@food/components/restaurant/RestaurantFoodOfferTags"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -754,6 +755,8 @@ function SimpleCalendar({ selectedDate, onDateSelect, isOpen, onClose }) {
 
 export default function Inventory() {
   const navigate = useNavigate()
+  // Offers this restaurant runs, shown as tags on the dishes they cover.
+  const offersForFood = useOwnRestaurantOffers()
   const [activeTab, setActiveTab] = useState(() => {
     try {
       if (typeof window === "undefined") return "all-items"
@@ -2536,6 +2539,8 @@ export default function Inventory() {
                                       </span>
                                     </div>
                                   )}
+
+                                  <RestaurantFoodOfferTags offers={offersForFood(item)} />
 
                                   {item.approvalStatus === "rejected" && item.rejectionReason && (
                                     <p className="mt-2 text-[9px] sm:text-[10px] font-bold text-[#2E7D52] bg-red-50/50 border border-red-100/50 px-2.5 py-1 rounded-lg italic">

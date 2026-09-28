@@ -224,11 +224,13 @@ export default function UserRouter() {
           {diningEnabled ? (
             <>
               <Route path="dining" element={<MainTabRoutePlaceholder />} />
-              <Route path="dining/:category" element={<DiningCategory />} />
               <Route path="dining/explore/upto50" element={<DiningExplore50 />} />
               <Route path="dining/explore/near-rated" element={<DiningExploreNear />} />
               <Route path="dining/coffee" element={<Coffee />} />
+              <Route path="dining/restaurant/:slug" element={<DiningRestaurantDetails />} />
+              <Route path="dining/restaurants/:slug" element={<DiningRestaurantDetails />} />
               <Route path="dining/:diningType/:slug" element={<DiningRestaurantDetails />} />
+              <Route path="dining/:category" element={<DiningCategory />} />
             </>
           ) : (
             <Route path="dining/*" element={<Navigate to="/food/user" replace />} />

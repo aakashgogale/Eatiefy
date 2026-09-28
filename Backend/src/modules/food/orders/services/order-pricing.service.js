@@ -12,16 +12,22 @@ import {
   enforceMinimumFoodItemPrices,
   resolveCheckoutItems,
 } from './order-item-pricing.service.js';
+import { applyRestaurantItemOffers } from './restaurantOfferPricing.service.js';
 
 export async function calculateOrderPricing(userId, dto) {
   const resolved = await resolveCheckoutItems(userId, dto);
-  const items = await enforceMinimumFoodItemPrices(
+  const pricedItems = await enforceMinimumFoodItemPrices(
     resolved.items,
     resolved.restaurantId || dto.restaurantId,
   );
 
   const restaurantId = resolved.restaurantId || dto.restaurantId;
   if (!restaurantId) throw new ValidationError('Restaurant id required');
+
+  // Restaurant-run offers lower the covered items' prices; everything below
+  // (subtotal, tax, coupon, fees, restaurant earning) follows from the items.
+  const restaurantOffers = await applyRestaurantItemOffers({ restaurantId, items: pricedItems, dto });
+  const items = restaurantOffers.items;
 
   const restaurant = await FoodRestaurant.findById(restaurantId)
     .select("status location zoneId restaurantName takeawaySettings")
@@ -281,6 +287,11 @@ export async function calculateOrderPricing(userId, dto) {
       couponCode: appliedCoupon?.code || codeRaw || null,
       appliedCoupon,
       couponError,
+      itemTotalBeforeOffers: restaurantOffers.itemTotalBeforeOffers,
+      restaurantOfferDiscount: restaurantOffers.discount,
+      restaurantOffers: restaurantOffers.appliedOffers,
+      // "Add ₹X more to get ..." nudges for the cart; display only, never charged.
+      restaurantOfferHints: restaurantOffers.lockedOffers || [],
     },
     items,
     restaurantId: String(restaurantId),

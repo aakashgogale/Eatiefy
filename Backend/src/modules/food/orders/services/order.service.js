@@ -351,6 +351,9 @@ export async function createOrder(userId, dto, { gatewayVerified = false } = {})
     total: Number(priced.pricing?.total ?? 0),
     currency: String(priced.pricing?.currency || "INR"),
     couponCode: priced.pricing?.couponCode || null,
+    // Record only: restaurant offers are already inside the item prices above.
+    restaurantOfferDiscount: Number(priced.pricing?.restaurantOfferDiscount ?? 0),
+    restaurantOffers: Array.isArray(priced.pricing?.restaurantOffers) ? priced.pricing.restaurantOffers : [],
   };
   dto.items = verifiedItems;
   dto.restaurantId = String(restaurantId);

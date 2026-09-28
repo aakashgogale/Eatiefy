@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react"
-import { Search } from "lucide-react"
+import { Search, CheckCircle2, XCircle, Clock, AlertCircle, Trash2, Tag, Store, Percent, Calendar, RefreshCw, X } from "lucide-react"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
 import AdminListPagination from "@food/components/admin/AdminListPagination"
@@ -11,6 +11,9 @@ const RequiredMark = () => <span className="text-red-500">*</span>
 
 
 export default function Coupons() {
+  const [activeTab, setActiveTab] = useState("platform") // "platform" | "restaurant_approval"
+
+  // Platform coupon states
   const [searchQuery, setSearchQuery] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
@@ -33,6 +36,20 @@ export default function Coupons() {
   const [editingOfferId, setEditingOfferId] = useState(null)
   const [originalFormData, setOriginalFormData] = useState(null)
   const [errors, setErrors] = useState({})
+
+  // Restaurant Offer Approval states
+  const [restOffers, setRestOffers] = useState([])
+  const [restLoading, setRestLoading] = useState(false)
+  const [restError, setRestError] = useState(null)
+  const [restSearchQuery, setRestSearchQuery] = useState("")
+  const [debouncedRestSearch, setDebouncedRestSearch] = useState("")
+  const [restStatusFilter, setRestStatusFilter] = useState("all") // "all" | "pending" | "approved" | "rejected"
+  const [restPage, setRestPage] = useState(1)
+  const [restPageSize, setRestPageSize] = useState(20)
+  const [restTotal, setRestTotal] = useState(0)
+  const [restCounts, setRestCounts] = useState({ all: 0, pending: 0, approved: 0, rejected: 0 })
+  const [restActionLoading, setRestActionLoading] = useState({})
+  const [rejectModal, setRejectModal] = useState({ open: false, offer: null, reason: "" })
 
   const [formData, setFormData] = useState({
     couponType: "all",
@@ -135,6 +152,107 @@ export default function Coupons() {
     const current = Array.isArray(formData.zoneIds) ? formData.zoneIds : []
     const next = current.includes(id) ? current.filter((z) => z !== id) : [...current, id]
     handleFormChange("zoneIds", next)
+  const fetchRestaurantOffers = useCallback(async () => {
+    try {
+      setRestLoading(true)
+      setRestError(null)
+      const res = await adminAPI.getRestaurantOffers({
+        status: restStatusFilter !== "all" ? restStatusFilter : undefined,
+        search: debouncedRestSearch || undefined,
+        page: restPage,
+        limit: restPageSize,
+      })
+      if (res?.data?.success) {
+        const data = res.data.data
+        const list = Array.isArray(data?.offers) ? data.offers : []
+        setRestOffers(list)
+        setRestTotal(data?.total || list.length || 0)
+        if (data?.counts) {
+          setRestCounts(data.counts)
+        }
+      } else {
+        setRestError("Failed to fetch restaurant offers")
+        setRestOffers([])
+        setRestTotal(0)
+      }
+    } catch (err) {
+      debugError("Error fetching restaurant offers:", err)
+      setRestError(err?.response?.data?.message || "Failed to fetch restaurant offers")
+      setRestOffers([])
+      setRestTotal(0)
+    } finally {
+      setRestLoading(false)
+    }
+  }, [debouncedRestSearch, restStatusFilter, restPage, restPageSize])
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedRestSearch(restSearchQuery.trim()), 300)
+    return () => clearTimeout(t)
+  }, [restSearchQuery])
+
+  useEffect(() => {
+    setRestPage(1)
+  }, [debouncedRestSearch, restStatusFilter])
+
+  useEffect(() => {
+    fetchRestaurantOffers()
+  }, [fetchRestaurantOffers])
+
+  const handleApproveRestOffer = async (offerId) => {
+    try {
+      setRestActionLoading((prev) => ({ ...prev, [offerId]: "approve" }))
+      const res = await adminAPI.approveRestaurantOffer(offerId)
+      if (res?.data?.success) {
+        toast.success(res.data.message || "Offer approved successfully! It is now live for customers.")
+        await fetchRestaurantOffers()
+      }
+    } catch (err) {
+      debugError("Error approving restaurant offer:", err)
+      toast.error(err?.response?.data?.message || "Failed to approve offer")
+    } finally {
+      setRestActionLoading((prev) => ({ ...prev, [offerId]: null }))
+    }
+  }
+
+  const handleOpenRejectModal = (offer) => {
+    setRejectModal({ open: true, offer, reason: "" })
+  }
+
+  const handleConfirmReject = async (e) => {
+    if (e) e.preventDefault()
+    if (!rejectModal.offer) return
+    const offerId = rejectModal.offer.id || rejectModal.offer._id || rejectModal.offer.offerId
+    try {
+      setRestActionLoading((prev) => ({ ...prev, [offerId]: "reject" }))
+      const res = await adminAPI.rejectRestaurantOffer(offerId, rejectModal.reason)
+      if (res?.data?.success) {
+        toast.success(res.data.message || "Offer rejected successfully.")
+        setRejectModal({ open: false, offer: null, reason: "" })
+        await fetchRestaurantOffers()
+      }
+    } catch (err) {
+      debugError("Error rejecting restaurant offer:", err)
+      toast.error(err?.response?.data?.message || "Failed to reject offer")
+    } finally {
+      setRestActionLoading((prev) => ({ ...prev, [offerId]: null }))
+    }
+  }
+
+  const handleDeleteRestOffer = async (offerId) => {
+    if (!window.confirm("Are you sure you want to delete this restaurant offer?")) return
+    try {
+      setRestActionLoading((prev) => ({ ...prev, [offerId]: "delete" }))
+      const res = await adminAPI.deleteRestaurantOffer(offerId)
+      if (res?.data?.success) {
+        toast.success("Restaurant offer deleted successfully")
+        await fetchRestaurantOffers()
+      }
+    } catch (err) {
+      debugError("Error deleting restaurant offer:", err)
+      toast.error(err?.response?.data?.message || "Failed to delete offer")
+    } finally {
+      setRestActionLoading((prev) => ({ ...prev, [offerId]: null }))
+    }
   }
 
   useEffect(() => {
@@ -408,49 +526,52 @@ export default function Coupons() {
   return (
     <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-slate-900">Restaurant Offers & Coupons</h1>
-            </div>
+        {/* Top Header & Tab Switcher */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Coupons & Offer Approvals</h1>
+            <p className="text-sm text-slate-500 mt-0.5">Manage platform coupon codes and review restaurant food discount offers</p>
+          </div>
+          <div className="flex items-center bg-slate-200/90 p-1 rounded-xl border border-slate-300 shadow-inner">
             <button
               type="button"
-              onClick={() => {
-                if (isAddOpen) {
-                  resetForm()
-                  setIsAddOpen(false)
-                } else {
-                  setIsAddOpen(true)
-                }
-              }}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
+              onClick={() => setActiveTab("platform")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === "platform"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
             >
-              {isAddOpen ? "Close" : "Add Coupon"}
+              <Tag className="w-4 h-4 text-blue-600" />
+              <span>Platform Coupons</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("restaurant_approval")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all relative ${
+                activeTab === "restaurant_approval"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Store className="w-4 h-4 text-emerald-600" />
+              <span>Restaurant Offers</span>
+              {restCounts.pending > 0 && (
+                <span className="ml-1.5 px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500 text-white animate-pulse">
+                  {restCounts.pending} Pending
+                </span>
+              )}
             </button>
           </div>
+        </div>
 
-          {isAddOpen && (
-            <form
-              onSubmit={handleCreateCoupon}
-              className="border border-slate-200 rounded-xl p-4 mb-5 bg-slate-50"
-            >
-              <h3 className="text-base font-semibold text-slate-900 mb-3">
-                {editingOfferId ? "Edit Coupon" : "Create Coupon"}
-              </h3>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Coupon Type</label>
-                  <select
-                    value={formData.couponType}
-                    onChange={(e) => handleFormChange("couponType", e.target.value)}
-                    className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="all">Both</option>
-                    <option value="delivery">Delivery</option>
-                    <option value="takeaway">Takeaway</option>
-                  </select>
+        {activeTab === "platform" ? (
+          <>
+            {/* Header */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-xl font-bold text-slate-900">Platform Coupons</h2>
                 </div>
 
                 <div>
@@ -673,57 +794,43 @@ export default function Coupons() {
 
               <div className="mt-4 flex items-center gap-3">
                 <button
-                  type="submit"
-                  disabled={isSubmitting || Object.keys(errors).length > 0 || !isFormDirty}
-                  className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-                >
-                  {editingOfferId
-                    ? (isSubmitting ? "Saving..." : "Save Coupon")
-                    : (isSubmitting ? "Creating..." : "Create Coupon")}
-                </button>
-                {editingOfferId && (
-                  <button
-                    type="button"
-                    onClick={() => {
+                  type="button"
+                  onClick={() => {
+                    if (isAddOpen) {
                       resetForm()
                       setIsAddOpen(false)
-                    }}
-                    className="px-4 py-2 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-200 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                )}
+                    } else {
+                      setIsAddOpen(true)
+                    }
+                  }}
+                  className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
+                >
+                  {isAddOpen ? "Close" : "Add Coupon"}
+                </button>
               </div>
-            </form>
-          )}
 
-          {/* Search Bar */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search by restaurant name, dish name, or coupon code..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-        </div>
+              {isAddOpen && (
+                <form
+                  onSubmit={handleCreateCoupon}
+                  className="border border-slate-200 rounded-xl p-4 mb-5 bg-slate-50"
+                >
+                  <h3 className="text-base font-semibold text-slate-900 mb-3">
+                    {editingOfferId ? "Edit Coupon" : "Create Coupon"}
+                  </h3>
 
-        {/* Offers List */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-slate-900">
-              Offers List
-            </h2>
-            <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700 flex items-center justify-center min-w-[2.5rem] h-7">
-              {loading ? (
-                <span className="w-5 h-3 rounded bg-slate-300/80 animate-pulse" />
-              ) : (
-                `${totalItems} ${totalItems === 1 ? 'offer' : 'offers'}`
-              )}
-            </span>
-          </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Coupon Type</label>
+                      <select
+                        value={formData.couponType}
+                        onChange={(e) => handleFormChange("couponType", e.target.value)}
+                        className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="all">Both</option>
+                        <option value="delivery">Delivery</option>
+                        <option value="takeaway">Takeaway</option>
+                      </select>
+                    </div>
 
           {loading ? (
             <div className="text-center py-20">
@@ -866,67 +973,668 @@ export default function Coupons() {
                             offer.showInCart !== false ? "bg-green-600" : "bg-slate-300"
                           } disabled:opacity-60`}
                         >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                              offer.showInCart !== false ? "translate-x-7" : "translate-x-1"
-                            }`}
-                          />
-                        </button>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-slate-700 whitespace-nowrap">
-                          {offer.endDate
-                            ? (() => {
-                                const d = new Date(offer.endDate)
-                                const dd = String(d.getDate()).padStart(2, '0')
-                                const month = d.toLocaleString('en-US', { month: 'short' })
-                                const yyyy = d.getFullYear()
-                                return `${dd} ${month} ${yyyy}`
-                              })()
-                            : 'No expiry'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleEditClick(offer)}
-                            className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteOffer(offer.offerId)}
-                            disabled={!!deletingOffer[offer.offerId]}
-                            className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-60"
-                          >
-                            {deletingOffer[offer.offerId] ? "Deleting..." : "Delete"}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                          <option value="">Choose a restaurant</option>
+                          {restaurants.map((restaurant) => (
+                            <option key={restaurant._id} value={restaurant._id}>
+                              {restaurant.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
 
-          <AdminListPagination
-            currentPage={currentPage}
-            pageSize={pageSize}
-            totalItems={totalItems}
-            onPageChange={setCurrentPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size)
-              try {
-                localStorage.setItem("admin_coupons_pageSize", String(size))
-              } catch {}
-              setCurrentPage(1)
-            }}
-            itemLabel="offers"
-          />
-        </div>
+                  <div className="mt-4 flex items-center gap-3">
+                    <button
+                      type="submit"
+                      disabled={isSubmitting || Object.keys(errors).length > 0 || !isFormDirty}
+                      className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {editingOfferId
+                        ? (isSubmitting ? "Saving..." : "Save Coupon")
+                        : (isSubmitting ? "Creating..." : "Create Coupon")}
+                    </button>
+                    {editingOfferId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          resetForm()
+                          setIsAddOpen(false)
+                        }}
+                        className="px-4 py-2 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-200 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                </form>
+              )}
+
+              {/* Search Bar */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search by restaurant name, dish name, or coupon code..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Offers List */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-slate-900">Offers List</h2>
+                <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700 flex items-center justify-center min-w-[2.5rem] h-7">
+                  {loading ? (
+                    <span className="w-5 h-3 rounded bg-slate-300/80 animate-pulse" />
+                  ) : (
+                    `${totalItems} ${totalItems === 1 ? 'offer' : 'offers'}`
+                  )}
+                </span>
+              </div>
+
+              {loading ? (
+                <div className="text-center py-20">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  <p className="text-sm text-slate-500 mt-4">Loading offers...</p>
+                </div>
+              ) : error ? (
+                <div className="text-center py-20">
+                  <p className="text-lg font-semibold text-red-600 mb-1">Error</p>
+                  <p className="text-sm text-slate-500">{error}</p>
+                </div>
+              ) : filteredOffers.length === 0 ? (
+                <div className="text-center py-20">
+                  <p className="text-lg font-semibold text-slate-700 mb-1">No Offers Found</p>
+                  <p className="text-sm text-slate-500">
+                    {searchQuery ? "No offers match your search criteria" : "No offers have been created yet"}
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">SI</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Restaurant</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Dish</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Coupon Code</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Coupon Type</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Customer Scope</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Discount</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Price</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Min Order</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Usage</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Status</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Show In Cart</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Valid Until</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-slate-100">
+                      {filteredOffers.map((offer) => (
+                        <tr key={`${offer.offerId}-${offer.dishId}`} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="text-sm font-medium text-slate-700">{offer.sl}</span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="text-sm font-medium text-slate-900">
+                              {offer.restaurantScope === "all" || offer.restaurantName === "All Restaurants" ? "All Restaurants" : offer.restaurantName}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
+                              {offer.dishName}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="text-sm font-mono font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded whitespace-nowrap">
+                              {offer.couponCode}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              offer.couponType === "delivery"
+                                ? "bg-emerald-100 text-emerald-700"
+                                : offer.couponType === "takeaway"
+                                ? "bg-orange-100 text-orange-700"
+                                : "bg-slate-100 text-slate-700"
+                            }`}>
+                              {offer.couponType === "delivery" ? "Delivery" : offer.couponType === "takeaway" ? "Takeaway" : "Both"}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              offer.customerGroup === "new"
+                                ? "bg-purple-100 text-purple-700"
+                                : "bg-slate-100 text-slate-700"
+                            }`}>
+                              {offer.customerGroup === "new" ? "First-time Users" : "All Users"}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="text-sm text-slate-700 whitespace-nowrap">
+                              {offer.discountType === 'flat-price'
+                                ? `\u20B9${offer.originalPrice - offer.discountedPrice} OFF`
+                                : `${offer.discountPercentage}% OFF${Number(offer.maxDiscount) ? ` (up to \u20B9${Number(offer.maxDiscount)})` : ""}`}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="text-sm text-slate-700">
+                              {offer.dishId === "all"
+                                ? (Number(offer.minOrderValue) ? `Min \u20B9${Number(offer.minOrderValue)}` : "All Items")
+                                : (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-400 line-through">{"\u20B9"}{offer.originalPrice}</span>
+                                    <span className="text-sm font-semibold text-green-600">{"\u20B9"}{offer.discountedPrice}</span>
+                                  </div>
+                                )}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="text-sm text-slate-700">
+                              {Number(offer.minOrderValue) ? `\u20B9${Number(offer.minOrderValue)}` : "—"}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="text-sm text-slate-700">
+                              {`${Number(offer.usedCount || 0)} / ${Number(offer.usageLimit || 0) > 0 ? Number(offer.usageLimit) : "∞"}`}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {(() => {
+                              const expired = offer.endDate ? (new Date(offer.endDate).getTime() < new Date(new Date().toDateString()).getTime()) : false
+                              const status = expired ? 'expired' : (offer.status || 'inactive')
+                              const cls =
+                                status === 'active'
+                                  ? 'bg-green-100 text-green-700'
+                                  : status === 'paused'
+                                  ? 'bg-orange-100 text-orange-700'
+                                  : status === 'expired'
+                                  ? 'bg-red-100 text-red-700'
+                                  : 'bg-gray-100 text-gray-700'
+                              return (
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${cls}`}>
+                                  {status}
+                                </span>
+                              )
+                            })()}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleShowInCart(offer.offerId, offer.dishId, offer.showInCart !== false)}
+                              disabled={!!updatingCartVisibility[`${offer.offerId}-${offer.dishId}`]}
+                              className={`relative inline-flex h-6 w-12 items-center rounded-full transition-colors ${
+                                offer.showInCart !== false ? "bg-green-600" : "bg-slate-300"
+                              } disabled:opacity-60`}
+                            >
+                              <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                  offer.showInCart !== false ? "translate-x-7" : "translate-x-1"
+                                }`}
+                              />
+                            </button>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="text-sm text-slate-700 whitespace-nowrap">
+                              {offer.endDate
+                                ? (() => {
+                                    const d = new Date(offer.endDate)
+                                    const dd = String(d.getDate()).padStart(2, '0')
+                                    const month = d.toLocaleString('en-US', { month: 'short' })
+                                    const yyyy = d.getFullYear()
+                                    return `${dd} ${month} ${yyyy}`
+                                  })()
+                                : 'No expiry'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleEditClick(offer)}
+                                className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteOffer(offer.offerId)}
+                                disabled={!!deletingOffer[offer.offerId]}
+                                className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-60"
+                              >
+                                {deletingOffer[offer.offerId] ? "Deleting..." : "Delete"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <AdminListPagination
+                currentPage={currentPage}
+                pageSize={pageSize}
+                totalItems={totalItems}
+                onPageChange={setCurrentPage}
+                onPageSizeChange={(size) => {
+                  setPageSize(size)
+                  try {
+                    localStorage.setItem("admin_coupons_pageSize", String(size))
+                  } catch {}
+                  setCurrentPage(1)
+                }}
+                itemLabel="offers"
+              />
+            </div>
+          </>
+        ) : (
+          /* =========================================================================
+             RESTAURANT OFFER APPROVALS TAB
+             ========================================================================= */
+          <div className="space-y-6">
+            {/* Filter Pills & Search Card */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                {/* Status Filter Tabs */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {[
+                    { id: "all", label: "All Offers", count: restCounts.all },
+                    { id: "pending", label: "Pending Approval", count: restCounts.pending, color: "text-amber-700 bg-amber-50 border-amber-300" },
+                    { id: "approved", label: "Approved", count: restCounts.approved, color: "text-emerald-700 bg-emerald-50 border-emerald-300" },
+                    { id: "rejected", label: "Rejected", count: restCounts.rejected, color: "text-rose-700 bg-rose-50 border-rose-300" },
+                  ].map((filter) => {
+                    const isSelected = restStatusFilter === filter.id
+                    return (
+                      <button
+                        key={filter.id}
+                        type="button"
+                        onClick={() => setRestStatusFilter(filter.id)}
+                        className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-2 ${
+                          isSelected
+                            ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                            : filter.color || "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                        }`}
+                      >
+                        <span>{filter.label}</span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded-full text-[11px] font-bold ${
+                            isSelected
+                              ? "bg-slate-800 text-slate-200"
+                              : "bg-white/80 border border-current opacity-90"
+                          }`}
+                        >
+                          {filter.count || 0}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Refresh Button */}
+                <button
+                  type="button"
+                  onClick={() => fetchRestaurantOffers()}
+                  disabled={restLoading}
+                  className="self-end md:self-auto inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${restLoading ? "animate-spin" : ""}`} />
+                  <span>Refresh</span>
+                </button>
+              </div>
+
+              {/* Search input */}
+              <div className="mt-4 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search by restaurant name or offer title..."
+                  value={restSearchQuery}
+                  onChange={(e) => setRestSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                />
+              </div>
+            </div>
+
+            {/* Restaurant Offers Table */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">Restaurant Menu Offers</h2>
+                  <p className="text-xs text-slate-500">Offers configured by restaurant owners for their menu items</p>
+                </div>
+                <span className="px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
+                  {restTotal} {restTotal === 1 ? "Offer" : "Offers"}
+                </span>
+              </div>
+
+              {restLoading ? (
+                <div className="text-center py-20">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+                  <p className="text-sm text-slate-500 mt-4">Loading restaurant offers...</p>
+                </div>
+              ) : restError ? (
+                <div className="text-center py-20">
+                  <AlertCircle className="w-10 h-10 text-rose-500 mx-auto mb-2" />
+                  <p className="text-lg font-semibold text-red-600 mb-1">Failed to load</p>
+                  <p className="text-sm text-slate-500">{restError}</p>
+                </div>
+              ) : restOffers.length === 0 ? (
+                <div className="text-center py-20">
+                  <Store className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  <p className="text-base font-semibold text-slate-700">No Restaurant Offers Found</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {restSearchQuery
+                      ? "No offers match your search term"
+                      : restStatusFilter !== "all"
+                      ? `No ${restStatusFilter} offers at this moment`
+                      : "No restaurants have created any food discount offers yet"}
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-3.5 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Restaurant</th>
+                        <th className="px-4 py-3.5 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Offer Title</th>
+                        <th className="px-4 py-3.5 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Discount</th>
+                        <th className="px-4 py-3.5 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Applied To</th>
+                        <th className="px-4 py-3.5 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Validity Period</th>
+                        <th className="px-4 py-3.5 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Status</th>
+                        <th className="px-4 py-3.5 text-right text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {restOffers.map((item) => {
+                        const offerId = item.id || item._id
+                        const isActionLoading = !!restActionLoading[offerId]
+                        const approvalStatus = item.approvalStatus || (item.status === "pending_approval" ? "pending" : "approved")
+
+                        return (
+                          <tr key={offerId} className="hover:bg-slate-50/80 transition-colors">
+                            {/* Restaurant Info */}
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-700 font-bold text-xs shrink-0">
+                                  <Store className="w-4 h-4" />
+                                </div>
+                                <div>
+                                  <p className="text-sm font-semibold text-slate-900">{item.restaurantName || "Restaurant"}</p>
+                                  <p className="text-[11px] text-slate-400 font-mono">ID: {String(item.restaurantId).slice(-6)}</p>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Offer Title & Description */}
+                            <td className="px-4 py-4 max-w-xs">
+                              <div className="font-semibold text-sm text-slate-900">{item.name}</div>
+                              {item.description && (
+                                <p className="text-xs text-slate-500 truncate max-w-xs mt-0.5">{item.description}</p>
+                              )}
+                              <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px] text-slate-500">
+                                {Number(item.minOrderValue) > 0 && (
+                                  <span className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-medium">
+                                    Min Order: ₹{item.minOrderValue}
+                                  </span>
+                                )}
+                                {Number(item.maxDiscountAmount) > 0 && (
+                                  <span className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-medium">
+                                    Max Disc: ₹{item.maxDiscountAmount}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Discount */}
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold text-xs">
+                                <Percent className="w-3.5 h-3.5" />
+                                <span>
+                                  {item.discountType === "flat"
+                                    ? `₹${item.discountValue} FLAT OFF`
+                                    : `${item.discountValue}% OFF`}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Scope / Dishes */}
+                            <td className="px-4 py-4 max-w-sm">
+                              {item.appliesTo === "entire_menu" && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                                  Entire Menu
+                                </span>
+                              )}
+                              {item.appliesTo === "specific_categories" && (
+                                <div>
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200 mb-1">
+                                    Categories ({Array.isArray(item.categories) ? item.categories.length : 0})
+                                  </span>
+                                  {Array.isArray(item.categories) && item.categories.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {item.categories.slice(0, 3).map((cat) => (
+                                        <span key={cat._id || cat.id} className="text-[11px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded">
+                                          {cat.name}
+                                        </span>
+                                      ))}
+                                      {item.categories.length > 3 && (
+                                        <span className="text-[10px] text-slate-500 self-center">+{item.categories.length - 3} more</span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              {item.appliesTo === "specific_dishes" && (
+                                <div>
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200 mb-1">
+                                    Dishes ({Array.isArray(item.dishes) ? item.dishes.length : 0})
+                                  </span>
+                                  {Array.isArray(item.dishes) && item.dishes.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {item.dishes.slice(0, 3).map((d) => (
+                                        <span key={d._id || d.id} className="text-[11px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded">
+                                          {d.name} {d.price ? `(₹${d.price})` : ""}
+                                        </span>
+                                      ))}
+                                      {item.dishes.length > 3 && (
+                                        <span className="text-[10px] text-slate-500 self-center">+{item.dishes.length - 3} more</span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Validity */}
+                            <td className="px-4 py-4 whitespace-nowrap text-xs text-slate-600">
+                              <div className="flex items-center gap-1 font-medium">
+                                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                                <span>{item.validFrom ? new Date(item.validFrom).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "Now"}</span>
+                                <span>→</span>
+                                <span>{item.validTill ? new Date(item.validTill).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "Ongoing"}</span>
+                              </div>
+                            </td>
+
+                            {/* Approval Status Badge */}
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              {approvalStatus === "pending" && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300">
+                                  <Clock className="w-3.5 h-3.5 animate-pulse" />
+                                  <span>Pending Approval</span>
+                                </span>
+                              )}
+                              {approvalStatus === "approved" && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>Approved & Live</span>
+                                </span>
+                              )}
+                              {approvalStatus === "rejected" && (
+                                <div>
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-300">
+                                    <XCircle className="w-3.5 h-3.5" />
+                                    <span>Rejected</span>
+                                  </span>
+                                  {item.rejectionReason && (
+                                    <p className="text-[11px] text-rose-600 font-medium mt-1 max-w-[180px] truncate" title={item.rejectionReason}>
+                                      Reason: {item.rejectionReason}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Action Buttons */}
+                            <td className="px-4 py-4 whitespace-nowrap text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                {approvalStatus === "pending" && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleApproveRestOffer(offerId)}
+                                      disabled={isActionLoading}
+                                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors shadow-sm"
+                                    >
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                      <span>{restActionLoading[offerId] === "approve" ? "Approving..." : "Approve"}</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenRejectModal(item)}
+                                      disabled={isActionLoading}
+                                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 text-xs font-semibold hover:bg-rose-100 disabled:opacity-50 transition-colors"
+                                    >
+                                      <XCircle className="w-3.5 h-3.5" />
+                                      <span>Reject</span>
+                                    </button>
+                                  </>
+                                )}
+
+                                {approvalStatus === "approved" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenRejectModal(item)}
+                                    disabled={isActionLoading}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-rose-200 bg-rose-50/50 text-rose-700 text-xs font-semibold hover:bg-rose-100 disabled:opacity-50 transition-colors"
+                                  >
+                                    <XCircle className="w-3.5 h-3.5" />
+                                    <span>Revoke</span>
+                                  </button>
+                                )}
+
+                                {approvalStatus === "rejected" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleApproveRestOffer(offerId)}
+                                    disabled={isActionLoading}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 disabled:opacity-50 transition-colors"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>{restActionLoading[offerId] === "approve" ? "Approving..." : "Re-Approve"}</span>
+                                  </button>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteRestOffer(offerId)}
+                                  disabled={isActionLoading}
+                                  title="Delete Offer"
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-50"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <AdminListPagination
+                currentPage={restPage}
+                pageSize={restPageSize}
+                totalItems={restTotal}
+                onPageChange={setRestPage}
+                onPageSizeChange={(size) => {
+                  setRestPageSize(size)
+                  setRestPage(1)
+                }}
+                itemLabel="restaurant offers"
+              />
+            </div>
+
+            {/* Rejection Reason Modal */}
+            {rejectModal.open && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-150">
+                <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full overflow-hidden">
+                  <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-rose-600">
+                      <XCircle className="w-5 h-5" />
+                      <h3 className="font-bold text-slate-900 text-base">Reject Restaurant Offer</h3>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setRejectModal({ open: false, offer: null, reason: "" })}
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleConfirmReject} className="p-6">
+                    <div className="mb-4 bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 space-y-1">
+                      <p>
+                        <span className="font-semibold text-slate-800">Restaurant:</span> {rejectModal.offer?.restaurantName || "Restaurant"}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-slate-800">Offer Title:</span> {rejectModal.offer?.name}
+                      </p>
+                    </div>
+
+                    <div className="mb-4">
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Reason for Rejection (Visible to Restaurant Owner)
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={rejectModal.reason}
+                        onChange={(e) => setRejectModal((prev) => ({ ...prev, reason: e.target.value }))}
+                        placeholder="e.g., Discount percentage is higher than maximum allowed, please adjust to 20% or less..."
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 resize-none"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-end gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setRejectModal({ open: false, offer: null, reason: "" })}
+                        className="px-4 py-2 text-xs font-semibold rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={restActionLoading[rejectModal.offer?.id || rejectModal.offer?._id] === "reject"}
+                        className="px-4 py-2 text-xs font-semibold rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50 transition-colors"
+                      >
+                        {restActionLoading[rejectModal.offer?.id || rejectModal.offer?._id] === "reject" ? "Rejecting..." : "Confirm Rejection"}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

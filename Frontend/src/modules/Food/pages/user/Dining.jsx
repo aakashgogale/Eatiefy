@@ -925,7 +925,7 @@ export default function Dining({ isTabActive = true }) {
             {filteredCategories.map((category, index) => (
               <Link
                 key={category._id || category.id}
-                to={`/user/dining/${category.slug}`}
+                to={`/food/user/dining/${category.slug}`}
               >
                 <div
                   className="relative h-[114px] sm:h-[148px] md:h-[160px] overflow-hidden rounded-[22px] border border-[#ece5dc] bg-[#fdfaf8] cursor-pointer group"
@@ -1065,7 +1065,8 @@ export default function Dining({ isTabActive = true }) {
             {/* First 2 Restaurants */}
             {filteredRestaurants.slice(0, 2).map((restaurant, index) => {
               const restaurantSlug = restaurant.slug || encodeURIComponent(restaurant.name)
-              const diningDetailPath = `/food/user/dining/${restaurant.diningType}/${restaurantSlug}`
+              const safeDiningType = restaurant.diningType || "restaurant"
+              const diningDetailPath = `/food/user/dining/${safeDiningType}/${restaurantSlug}`
               const favorite = isFavorite(restaurantSlug)
 
               const handleToggleFavorite = (e) => {
@@ -1306,7 +1307,8 @@ export default function Dining({ isTabActive = true }) {
             {/* Remaining Restaurants */}
             {filteredRestaurants.slice(2).map((restaurant, index) => {
               const restaurantSlug = restaurant.slug || encodeURIComponent(restaurant.name)
-              const diningDetailPath = `/food/user/dining/${restaurant.diningType}/${restaurantSlug}`
+              const safeDiningType = restaurant.diningType || "restaurant"
+              const diningDetailPath = `/food/user/dining/${safeDiningType}/${restaurantSlug}`
               const favorite = isFavorite(restaurantSlug)
 
               const handleToggleFavorite = (e) => {

@@ -229,6 +229,10 @@ export default function AddRestaurant() {
   const [formErrors, setFormErrors] = useState({})
   const [zones, setZones] = useState([])
   const [zonesLoading, setZonesLoading] = useState(false)
+  // Restaurant types come from the backend (same list the restaurant onboarding uses).
+  const [restaurantTypes, setRestaurantTypes] = useState([])
+  const [restaurantTypesStatus, setRestaurantTypesStatus] = useState("loading")
+  const [restaurantTypesReload, setRestaurantTypesReload] = useState(0)
   const [isHydrated, setIsHydrated] = useState(false)
 
   const locationSearchInputRef = useRef(null)
@@ -245,6 +249,7 @@ export default function AddRestaurant() {
     restaurantName: "",
     pureVegRestaurant: null,
     pureVeganRestaurant: false,
+    restaurantType: "",
     ownerName: "",
     ownerEmail: "",
     ownerPhone: "",
@@ -508,10 +513,19 @@ export default function AddRestaurant() {
   }
 
   // Validation functions
+  const getRestaurantTypeError = () => {
+    if (restaurantTypesStatus === "loading") return "Restaurant types are still loading. Please wait"
+    if (restaurantTypesStatus !== "ready") return "Restaurant types could not be loaded. Please retry"
+    if (!restaurantTypes.some((type) => type.value === step1.restaurantType)) return "Please select restaurant type"
+    return null
+  }
+
   const validateStep1 = () => {
     const errors = []
     if (!step1.restaurantName?.trim()) errors.push("Restaurant name is required")
     if (typeof step1.pureVegRestaurant !== "boolean") errors.push("Please select whether restaurant is pure veg")
+    const restaurantTypeError = getRestaurantTypeError()
+    if (restaurantTypeError) errors.push(restaurantTypeError)
     if (!step1.ownerName?.trim()) errors.push("Owner name is required")
     if (step1.ownerName?.trim() && (!NAME_REGEX.test(step1.ownerName.trim()) || !hasLetters(step1.ownerName))) {
       errors.push("Owner name must contain valid characters")
@@ -593,6 +607,16 @@ export default function AddRestaurant() {
   const handleNext = async () => {
     setFormErrors({})
     let validationErrors = []
+
+    // A draft saved before restaurant type was asked can resume on a later step without one.
+    if (step > 1) {
+      const restaurantTypeError = getRestaurantTypeError()
+      if (restaurantTypeError) {
+        toast.error(restaurantTypeError)
+        setStep(1)
+        return
+      }
+    }
 
     if (step === 1) {
       validationErrors = validateStep1()
@@ -699,6 +723,7 @@ export default function AddRestaurant() {
         restaurantName: step1.restaurantName,
         pureVegRestaurant: step1.pureVegRestaurant === true || step1.pureVeganRestaurant === true,
         pureVeganRestaurant: step1.pureVeganRestaurant === true,
+        restaurantType: step1.restaurantType,
         ownerName: step1.ownerName,
         ownerEmail: step1.ownerEmail,
         ownerPhone: step1.ownerPhone,
@@ -848,6 +873,26 @@ export default function AddRestaurant() {
       cancelled = true
     }
   }, [step])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setRestaurantTypesStatus("loading")
+    adminAPI
+      .getOnboardingPricingBootstrap({ signal: controller.signal })
+      .then((res) => {
+        const list = (res?.data?.data?.restaurantTypes || [])
+          .map((type) => ({ value: String(type?.value || "").trim(), label: String(type?.label || type?.value || "").trim() }))
+          .filter((type) => type.value)
+        setRestaurantTypes(list)
+        setRestaurantTypesStatus(list.length ? "ready" : "error")
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return
+        setRestaurantTypes([])
+        setRestaurantTypesStatus("error")
+      })
+    return () => controller.abort()
+  }, [restaurantTypesReload])
 
   // Initialize Google Places Autocomplete for Step 1 location search.
   useEffect(() => {
@@ -1175,6 +1220,47 @@ export default function AddRestaurant() {
             <p className="text-[11px] text-gray-500 mt-1">
               Pure Veg allows dairy/ghee. Pure Vegan allows only vegan items.
             </p>
+          </div>
+          <div>
+            <Label className="text-xs text-gray-700">Restaurant type*</Label>
+            {restaurantTypesStatus === "loading" && (
+              <p className="mt-2 flex items-center gap-2 text-xs text-gray-500">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading restaurant types...
+              </p>
+            )}
+            {restaurantTypesStatus === "error" && (
+              <p className="mt-2 text-xs text-red-600">
+                Could not load restaurant types.{" "}
+                <button
+                  type="button"
+                  onClick={() => setRestaurantTypesReload((n) => n + 1)}
+                  className="font-semibold underline"
+                >
+                  Retry
+                </button>
+              </p>
+            )}
+            {restaurantTypesStatus === "ready" && (
+              <div className="mt-2 flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Restaurant type">
+                {restaurantTypes.map((type) => {
+                  const selected = step1.restaurantType === type.value
+                  return (
+                    <button
+                      key={type.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => setStep1({ ...step1, restaurantType: type.value })}
+                      className={`px-3 py-1.5 text-xs rounded-full border ${
+                        selected ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-700 border-gray-200"
+                      }`}
+                    >
+                      {type.label}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
       </section>
