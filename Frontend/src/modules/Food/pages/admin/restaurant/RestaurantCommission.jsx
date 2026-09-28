@@ -107,73 +107,7 @@ export default function RestaurantCommission() {
       setCommissions([])
       setApprovedRestaurants([])
     } finally {
-      setLoading(false)
-    }
-  }
-
-  const fetchCommissions = async () => {
-    try {
-      setLoading(true)
-      const response = await adminAPI.getRestaurantCommissions({})
-      
-      let commissionsData = null
-      if (response?.data?.success && response?.data?.data?.commissions) {
-        commissionsData = response.data.data.commissions
-      } else if (response?.data?.data?.commissions) {
-        commissionsData = response.data.data.commissions
-      } else if (response?.data?.commissions) {
-        commissionsData = response.data.commissions
-      }
-      
-      if (commissionsData && Array.isArray(commissionsData)) {
-        setCommissions(commissionsData)
-      } else {
-        setCommissions([])
-      }
-    } catch (error) {
-      debugError('Error fetching commissions:', error)
-      
-      // Handle network errors
-      if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
-        toast.error(`Cannot connect to backend server. Please ensure the backend is running on ${API_BASE_URL.replace('/api', '')}`)
-        debugError('?? Backend connection issue. Check:')
-        debugError('   1. Is backend server running? (npm start in backend folder)')
-        debugError(`   2. Is backend running on ${API_BASE_URL.replace('/api', '')}?`)
-        debugError('   3. Check browser console for CORS errors')
-      } else {
-        toast.error(error.response?.data?.message || 'Failed to fetch commissions')
-      }
-      setCommissions([])
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const fetchApprovedRestaurants = async () => {
-    try {
-      const response = await adminAPI.getApprovedRestaurants({ limit: 1000 })
-      
-      let restaurantsData = null
-      if (response?.data?.success && response?.data?.data?.restaurants) {
-        restaurantsData = response.data.data.restaurants
-      } else if (response?.data?.data?.restaurants) {
-        restaurantsData = response.data.data.restaurants
-      } else if (response?.data?.restaurants) {
-        restaurantsData = response.data.restaurants
-      }
-      
-      if (restaurantsData && Array.isArray(restaurantsData)) {
-        setApprovedRestaurants(restaurantsData)
-      } else {
-        setApprovedRestaurants([])
-      }
-    } catch (error) {
-      debugError('Error fetching approved restaurants:', error)
-      
-      // Handle network errors silently (already handled in fetchCommissions)
-      if (error.code !== 'ERR_NETWORK' && error.message !== 'Network Error') {
-        toast.error(error.response?.data?.message || 'Failed to fetch approved restaurants')
-      }
+      if (isLatest()) setLoading(false)
     }
   }
 
@@ -391,6 +325,12 @@ export default function RestaurantCommission() {
               />
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             </div>
+            <AdminZoneSelect
+              value={zoneId}
+              onChange={setZoneId}
+              zones={zones}
+              loading={zonesLoading}
+            />
           </div>
 
           {loading ? (

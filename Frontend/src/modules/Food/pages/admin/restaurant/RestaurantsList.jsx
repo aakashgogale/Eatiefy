@@ -470,50 +470,10 @@ export default function RestaurantsList() {
   const [filters, setFilters] = useState({
     all: "All",
     businessModel: "",
-    zone: "",
   })
 
-  const matchRestaurantZone = (r, selectedZone) => {
-    if (!selectedZone || selectedZone === "All" || selectedZone === "all" || selectedZone === "") return true
-    const target = String(selectedZone).toLowerCase().trim()
-    const candidates = [
-      r.zone,
-      r.zoneId,
-      r.originalData?.zoneId,
-      r.originalData?.zone,
-      r.originalData?.zone?.name,
-      r.originalData?.zone?.zoneName,
-      r.originalData?.zone?.serviceLocation,
-      r.originalData?.serviceLocation,
-      r.originalData?.location?.zoneId,
-      r.originalData?.location?.zoneName,
-    ]
-    return candidates.some((c) => {
-      if (!c) return false
-      if (typeof c === "object") {
-        return (
-          String(c.name || "").toLowerCase().trim() === target ||
-          String(c.zoneName || "").toLowerCase().trim() === target ||
-          String(c.serviceLocation || "").toLowerCase().trim() === target ||
-          String(c._id || "").trim() === target
-        )
-      }
-      return String(c).toLowerCase().trim() === target
-    })
-  }
-
-  const zoneFilteredActive = useMemo(() => {
-    return restaurants.filter((r) => matchRestaurantZone(r, filters.zone))
-  }, [restaurants, filters.zone])
-
-  const zoneFilteredBanned = useMemo(() => {
-    return bannedRestaurants.filter((r) => matchRestaurantZone(r, filters.zone))
-  }, [bannedRestaurants, filters.zone])
-
-  const zoneFilteredRejected = useMemo(() => {
-    return rejectedRestaurants.filter((r) => matchRestaurantZone(r, filters.zone))
-  }, [rejectedRestaurants, filters.zone])
-
+  // The zone filter is applied by the API (see fetchRestaurants), so these lists
+  // already belong to the selected zone.
   const filteredRestaurants = useMemo(() => {
     let result = []
     if (viewMode === "active") {
@@ -1167,66 +1127,6 @@ export default function RestaurantsList() {
     setBanConfirmDialog(null)
   }
 
-  // Handle delete restaurant
-  const handleDeleteRestaurant = (restaurant) => {
-    setDeleteConfirmDialog({ restaurant })
-  }
-
-  const confirmDeleteRestaurant = async () => {
-    if (!deleteConfirmDialog) return
-
-    const { restaurant } = deleteConfirmDialog
-
-    try {
-      setDeleting(true)
-      const restaurantId = restaurant._id || restaurant.id
-
-      // Delete restaurant via API
-      try {
-        await adminAPI.deleteRestaurant(restaurantId)
-
-        // Optimistically remove from local state on success across all lists
-        setRestaurants(prevRestaurants =>
-          prevRestaurants.filter(r =>
-            r.id !== restaurantId && r._id !== restaurantId
-          )
-        )
-        setBannedRestaurants(prev =>
-          prev.filter(r =>
-            r.id !== restaurantId && r._id !== restaurantId
-          )
-        )
-        setRejectedRestaurants(prev =>
-          prev.filter(r =>
-            r.id !== restaurantId && r._id !== restaurantId
-          )
-        )
-
-        // Close dialog
-        setDeleteConfirmDialog(null)
-
-        // Re-fetch live DB data and counts immediately
-        await fetchRestaurants()
-
-        // Show success message
-        alert(`Restaurant "${restaurant.name}" deleted successfully!`)
-      } catch (apiErr) {
-        debugError("API Error:", apiErr)
-        alert(apiErr.response?.data?.message || "Failed to delete restaurant. Please try again.")
-      }
-
-    } catch (err) {
-      debugError("Error deleting restaurant:", err)
-      alert("Failed to delete restaurant. Please try again.")
-    } finally {
-      setDeleting(false)
-    }
-  }
-
-  const cancelDeleteRestaurant = () => {
-    setDeleteConfirmDialog(null)
-  }
-
   // Handle export functionality
   const handleExport = () => {
     const dataToExport = filteredRestaurants.length > 0 ? filteredRestaurants : restaurants
@@ -1252,25 +1152,12 @@ export default function RestaurantsList() {
 
             {/* Zone Filter Dropdown */}
             <div className="flex items-center gap-2">
-              <div className="relative min-w-[200px] w-full sm:w-auto">
-                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-600 pointer-events-none" />
-                <select
-                  value={filters.zone}
-                  onChange={(e) => setFilters((prev) => ({ ...prev, zone: e.target.value }))}
-                  className="w-full sm:w-[220px] pl-9 pr-8 py-2 text-sm font-semibold rounded-lg border border-slate-200 bg-slate-50 hover:bg-white text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer appearance-none shadow-2xs transition-all"
-                >
-                  <option value="">All Zones</option>
-                  {zones.map((zone) => {
-                    const zName = zone.zoneName || zone.name || zone.serviceLocation || "Unnamed Zone"
-                    return (
-                      <option key={zone._id || zone.id || zName} value={zName}>
-                        {zName}
-                      </option>
-                    )
-                  })}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-              </div>
+              <AdminZoneSelect
+                value={selectedZoneId}
+                onChange={setSelectedZoneId}
+                zones={filterZones}
+                loading={filterZonesLoading}
+              />
             </div>
           </div>
         </div>
@@ -1673,15 +1560,6 @@ export default function RestaurantsList() {
                                 title={!restaurant.isActive ? "Unban Restaurant" : "Ban Restaurant"}
                               >
                                 <ShieldX className="w-4 h-4" />
-                              </button>
-                            )}
-                            {viewMode !== "rejected" && (
-                              <button
-                                onClick={() => handleDeleteRestaurant(restaurant)}
-                                className="p-1.5 rounded text-red-600 hover:bg-red-50 transition-colors"
-                                title="Delete Restaurant"
-                              >
-                                <Trash2 className="w-4 h-4" />
                               </button>
                             )}
                           </div>
@@ -2844,55 +2722,6 @@ export default function RestaurantsList() {
                     </span>
                   ) : (
                     banConfirmDialog.action === 'ban' ? 'Ban Restaurant' : 'Unbanned Restaurant'
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Dialog */}
-      {deleteConfirmDialog && (
-        <div className="fixed inset-0 bg-slate-900/10 backdrop-blur-md z-50 flex items-center justify-center p-4" onClick={cancelDeleteRestaurant}>
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6">
-              <div className="flex items-center gap-4 mb-4">
-                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
-                  <Trash2 className="w-6 h-6 text-red-600" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-slate-900">Delete Restaurant</h3>
-                  <p className="text-sm text-slate-600">
-                    {deleteConfirmDialog.restaurant.name}
-                  </p>
-                </div>
-              </div>
-
-              <p className="text-sm text-slate-700 mb-6">
-                Are you sure you want to delete this restaurant? This action cannot be undone and will permanently remove all restaurant data, including orders, menu items, and settings.
-              </p>
-
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={cancelDeleteRestaurant}
-                  disabled={deleting}
-                  className="flex-1 px-4 py-2.5 text-sm font-medium rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={confirmDeleteRestaurant}
-                  disabled={deleting}
-                  className="flex-1 px-4 py-2.5 text-sm font-medium rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {deleting ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Deleting...
-                    </span>
-                  ) : (
-                    "Delete Restaurant"
                   )}
                 </button>
               </div>

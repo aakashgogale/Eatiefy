@@ -71,44 +71,6 @@ const sanitizeMinutesInput = (value) => {
   return withoutLeadingZeros;
 };
 
-export default function RestaurantSettings() {
-  const [loading, setLoading] = useState(true);
-  const [savingDelivery, setSavingDelivery] = useState(false);
-  const [savingTakeaway, setSavingTakeaway] = useState(false);
-  const [savedDeliveryMinutes, setSavedDeliveryMinutes] = useState("");
-  const [savedTakeawayMinutes, setSavedTakeawayMinutes] = useState("");
-  const [deliveryAcceptOrderTimeMinutes, setDeliveryAcceptOrderTimeMinutes] = useState("");
-  const [takeawayAcceptOrderTimeMinutes, setTakeawayAcceptOrderTimeMinutes] = useState("");
-
-  const applyLoadedSettings = (data) => {
-    const delivery = clampMinutesString(data.deliveryAcceptOrderTimeMinutes);
-    const takeaway = clampMinutesString(data.takeawayAcceptOrderTimeMinutes);
-    setSavedDeliveryMinutes(delivery);
-    setSavedTakeawayMinutes(takeaway);
-    setDeliveryAcceptOrderTimeMinutes(delivery);
-    setTakeawayAcceptOrderTimeMinutes(takeaway);
-  };
-
-  const fetchSettings = async () => {
-    try {
-      setLoading(true);
-      const res = await adminAPI.getRestaurantSettings();
-      applyLoadedSettings(res?.data?.data || {});
-    } catch (_error) {
-      toast.error("Failed to load restaurant settings");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchSettings();
-  }, []);
-
-  const handleMinutesChange = (setter) => (e) => {
-    setter(sanitizeMinutesInput(e.target.value));
-  };
-
 const isValidMinutesValue = (value) => {
   if (value === "" || value == null) return false;
   const parsed = Number(value);
