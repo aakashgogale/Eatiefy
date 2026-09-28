@@ -152,6 +152,8 @@ export default function Coupons() {
     const current = Array.isArray(formData.zoneIds) ? formData.zoneIds : []
     const next = current.includes(id) ? current.filter((z) => z !== id) : [...current, id]
     handleFormChange("zoneIds", next)
+  }
+
   const fetchRestaurantOffers = useCallback(async () => {
     try {
       setRestLoading(true)
@@ -573,226 +575,6 @@ export default function Coupons() {
                 <div className="flex items-center gap-3">
                   <h2 className="text-xl font-bold text-slate-900">Platform Coupons</h2>
                 </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">
-                    Coupon Code <RequiredMark />
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.couponCode}
-                    onChange={(e) => handleFormChange("couponCode", e.target.value)}
-                    placeholder="e.g. NEWUSER50"
-                    className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.couponCode ? "border-red-500" : "border-slate-300"} bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
-                  />
-                  {errors.couponCode && <p className="mt-1 text-xs text-red-600">{errors.couponCode}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Discount Type</label>
-                  <select
-                    value={formData.discountType}
-                    onChange={(e) => handleFormChange("discountType", e.target.value)}
-                    className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="percentage">Percentage</option>
-                    <option value="flat-price">Flat Amount</option>
-                  </select>
-                </div>
-
-                <div title={formData.discountType === "flat-price" ? "Max discount is not applicable for flat coupons" : ""}>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">
-                    {formData.discountType === "percentage" ? "Discount (%)" : "Discount Amount"} <RequiredMark />
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="0.01"
-                    value={formData.discountValue}
-                    onChange={(e) => handleFormChange("discountValue", e.target.value)}
-                    placeholder={formData.discountType === "percentage" ? "e.g. 20" : "e.g. 100"}
-                    className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.discountValue ? "border-red-500" : "border-slate-300"} bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
-                  />
-                  {errors.discountValue && <p className="mt-1 text-xs text-red-600">{errors.discountValue}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Customer Scope</label>
-                  <select
-                    value={formData.customerScope}
-                    onChange={(e) => handleFormChange("customerScope", e.target.value)}
-                    className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="all">All Users</option>
-                    <option value="first-time">First-time Users</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Restaurant Scope</label>
-                  <select
-                    value={formData.restaurantScope}
-                    onChange={(e) => handleFormChange("restaurantScope", e.target.value)}
-                    className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="all">All Restaurants</option>
-                    <option value="selected">Selected Restaurant</option>
-                  </select>
-                </div>
-
-                <div className="md:col-span-2 lg:col-span-3">
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">
-                    Zones <span className="font-normal text-slate-400">(leave empty for all zones)</span>
-                  </label>
-                  <div className="flex flex-wrap gap-2 rounded-lg border border-slate-300 bg-white p-2 max-h-32 overflow-y-auto">
-                    {zones.length === 0 ? (
-                      <span className="text-xs text-slate-400">No zones found</span>
-                    ) : (
-                      zones.map((zone) => {
-                        const id = String(zone._id || zone.id)
-                        const selected = (formData.zoneIds || []).includes(id)
-                        return (
-                          <button
-                            type="button"
-                            key={id}
-                            onClick={() => toggleZone(id)}
-                            className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${selected ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-700 border-slate-300 hover:border-blue-400"}`}
-                          >
-                            {zone.name || zone.zoneName || "Unnamed Zone"}
-                          </button>
-                        )
-                      })
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Start Date (Optional)</label>
-                  <input
-                    type="date"
-                    value={formData.startDate}
-                    onChange={(e) => handleFormChange("startDate", e.target.value)}
-                    min={editingOfferId ? undefined : todayYMD()}
-                    className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.startDate ? "border-red-500" : "border-slate-300"} bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
-                  />
-                  {errors.startDate && <p className="mt-1 text-xs text-red-600">{errors.startDate}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Expiry Date (Optional)</label>
-                  <input
-                    type="date"
-                    value={formData.endDate}
-                    onChange={(e) => handleFormChange("endDate", e.target.value)}
-                    min={formData.startDate || (editingOfferId ? undefined : todayYMD())}
-                    className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.endDate ? "border-red-500" : "border-slate-300"} bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
-                  />
-                  {errors.endDate && <p className="mt-1 text-xs text-red-600">{errors.endDate}</p>}
-                </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Min Order Value (₹)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={formData.minOrderValue}
-                  onChange={(e) => handleFormChange("minOrderValue", e.target.value)}
-                  placeholder="e.g. 199"
-                  className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.minOrderValue ? "border-red-500" : "border-slate-300"} bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
-                />
-                {errors.minOrderValue && <p className="mt-1 text-xs text-red-600">{errors.minOrderValue}</p>}
-              </div>
-
-                <div title={formData.discountType === "flat-price" ? "Max discount is not applicable for flat coupons" : ""}>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">
-                  Max Discount (₹)
-                  {formData.discountType === "percentage" && (
-                    <>
-                      {" "}
-                      <RequiredMark />
-                    </>
-                  )}
-                  {formData.discountType === "flat-price" && (
-                    <span className="font-normal text-slate-400"> (optional)</span>
-                  )}
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                    value={formData.maxDiscount}
-                    onChange={(e) => handleFormChange("maxDiscount", e.target.value)}
-                  placeholder="e.g. 100"
-                    disabled={formData.discountType === "flat-price"}
-                    className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.maxDiscount ? "border-red-500" : "border-slate-300"} bg-white disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
-                />
-                  {formData.discountType === "percentage" && errors.maxDiscount && <p className="mt-1 text-xs text-red-600">{errors.maxDiscount}</p>}
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Usage Limit (global)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={formData.usageLimit}
-                  onChange={(e) => handleFormChange("usageLimit", e.target.value)}
-                  placeholder="e.g. 1000"
-                  className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.usageLimit ? "border-red-500" : "border-slate-300"} bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
-                />
-                {errors.usageLimit && <p className="mt-1 text-xs text-red-600">{errors.usageLimit}</p>}
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Per User Limit</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={formData.perUserLimit}
-                  onChange={(e) => handleFormChange("perUserLimit", e.target.value)}
-                  placeholder="e.g. 1"
-                  className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.perUserLimit ? "border-red-500" : "border-slate-300"} bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
-                />
-                {errors.perUserLimit && <p className="mt-1 text-xs text-red-600">{errors.perUserLimit}</p>}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  id="isFirstOrderOnly"
-                  type="checkbox"
-                  checked={formData.isFirstOrderOnly}
-                  onChange={(e) => handleFormChange("isFirstOrderOnly", e.target.checked)}
-                  className="h-4 w-4"
-                />
-                <label htmlFor="isFirstOrderOnly" className="text-sm text-slate-700">First order only</label>
-              </div>
-
-                {formData.restaurantScope === "selected" && (
-                  <div className="md:col-span-2 lg:col-span-3">
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">
-                      Select Restaurant <RequiredMark />
-                    </label>
-                    <select
-                      value={formData.restaurantId}
-                      onChange={(e) => handleFormChange("restaurantId", e.target.value)}
-                      className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">Choose a restaurant</option>
-                      {restaurants.map((restaurant) => (
-                        <option key={restaurant._id} value={restaurant._id}>
-                          {restaurant.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-
-
-
-              <div className="mt-4 flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => {
@@ -832,146 +614,210 @@ export default function Coupons() {
                       </select>
                     </div>
 
-          {loading ? (
-            <div className="text-center py-20">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-              <p className="text-sm text-slate-500 mt-4">Loading offers...</p>
-            </div>
-          ) : error ? (
-            <div className="text-center py-20">
-              <p className="text-lg font-semibold text-red-600 mb-1">Error</p>
-              <p className="text-sm text-slate-500">{error}</p>
-            </div>
-          ) : filteredOffers.length === 0 ? (
-            <div className="text-center py-20">
-              <p className="text-lg font-semibold text-slate-700 mb-1">No Offers Found</p>
-              <p className="text-sm text-slate-500">
-                {searchQuery ? "No offers match your search criteria" : "No offers have been created yet"}
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-slate-50 border-b border-slate-200">
-                  <tr>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">SI</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Restaurant</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Dish</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Coupon Code</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Coupon Type</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Customer Scope</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Discount</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Price</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Min Order</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Usage</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Status</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Show In Cart</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Valid Until</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider whitespace-nowrap">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-slate-100">
-                  {filteredOffers.map((offer) => (
-                    <tr key={`${offer.offerId}-${offer.dishId}`} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm font-medium text-slate-700">{offer.sl}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm font-medium text-slate-900">
-                          {offer.restaurantScope === "all" || offer.restaurantName === "All Restaurants" ? "All Restaurants" : offer.restaurantName}
-                        </span>
-                        <span className="block text-xs text-slate-500 mt-0.5">
-                          {Array.isArray(offer.zoneIds) && offer.zoneIds.length > 0
-                            ? offer.zoneIds.map((id) => zoneNameById.get(String(id)) || "Zone").join(", ")
-                            : "All zones"}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
-                          {offer.dishName}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm font-mono font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded whitespace-nowrap">
-                          {offer.couponCode}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          offer.couponType === "delivery"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : offer.couponType === "takeaway"
-                            ? "bg-orange-100 text-orange-700"
-                            : "bg-slate-100 text-slate-700"
-                        }`}>
-                          {offer.couponType === "delivery" ? "Delivery" : offer.couponType === "takeaway" ? "Takeaway" : "Both"}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          offer.customerGroup === "new"
-                            ? "bg-purple-100 text-purple-700"
-                            : "bg-slate-100 text-slate-700"
-                        }`}>
-                          {offer.customerGroup === "new" ? "First-time Users" : "All Users"}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-slate-700 whitespace-nowrap">
-                          {offer.discountType === 'flat-price'
-                            ? `\u20B9${offer.originalPrice - offer.discountedPrice} OFF`
-                            : `${offer.discountPercentage}% OFF${Number(offer.maxDiscount) ? ` (up to \u20B9${Number(offer.maxDiscount)})` : ""}`}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-slate-700">
-                          {offer.dishId === "all"
-                            ? (Number(offer.minOrderValue) ? `Min \u20B9${Number(offer.minOrderValue)}` : "All Items")
-                            : (
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-slate-400 line-through">{"\u20B9"}{offer.originalPrice}</span>
-                                <span className="text-sm font-semibold text-green-600">{"\u20B9"}{offer.discountedPrice}</span>
-                              </div>
-                            )}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-slate-700">
-                          {Number(offer.minOrderValue) ? `\u20B9${Number(offer.minOrderValue)}` : "—"}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-slate-700">
-                          {`${Number(offer.usedCount || 0)} / ${Number(offer.usageLimit || 0) > 0 ? Number(offer.usageLimit) : "∞"}`}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {(() => {
-                          const expired = offer.endDate ? (new Date(offer.endDate).getTime() < new Date(new Date().toDateString()).getTime()) : false
-                          const status = expired ? 'expired' : (offer.status || 'inactive')
-                          const cls =
-                            status === 'active'
-                              ? 'bg-green-100 text-green-700'
-                              : status === 'paused'
-                              ? 'bg-orange-100 text-orange-700'
-                              : status === 'expired'
-                              ? 'bg-red-100 text-red-700'
-                              : 'bg-gray-100 text-gray-700'
-                          return (
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${cls}`}>
-                              {status}
-                            </span>
-                          )
-                        })()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleShowInCart(offer.offerId, offer.dishId, offer.showInCart !== false)}
-                          disabled={!!updatingCartVisibility[`${offer.offerId}-${offer.dishId}`]}
-                          className={`relative inline-flex h-6 w-12 items-center rounded-full transition-colors ${
-                            offer.showInCart !== false ? "bg-green-600" : "bg-slate-300"
-                          } disabled:opacity-60`}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">
+                        Coupon Code <RequiredMark />
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.couponCode}
+                        onChange={(e) => handleFormChange("couponCode", e.target.value)}
+                        placeholder="e.g. NEWUSER50"
+                        className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.couponCode ? "border-red-500" : "border-slate-300"} bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
+                      />
+                      {errors.couponCode && <p className="mt-1 text-xs text-red-600">{errors.couponCode}</p>}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Discount Type</label>
+                      <select
+                        value={formData.discountType}
+                        onChange={(e) => handleFormChange("discountType", e.target.value)}
+                        className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="percentage">Percentage</option>
+                        <option value="flat-price">Flat Amount</option>
+                      </select>
+                    </div>
+
+                    <div title={formData.discountType === "flat-price" ? "Max discount is not applicable for flat coupons" : ""}>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">
+                        {formData.discountType === "percentage" ? "Discount (%)" : "Discount Amount"} <RequiredMark />
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="0.01"
+                        value={formData.discountValue}
+                        onChange={(e) => handleFormChange("discountValue", e.target.value)}
+                        placeholder={formData.discountType === "percentage" ? "e.g. 20" : "e.g. 100"}
+                        className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.discountValue ? "border-red-500" : "border-slate-300"} bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
+                      />
+                      {errors.discountValue && <p className="mt-1 text-xs text-red-600">{errors.discountValue}</p>}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Customer Scope</label>
+                      <select
+                        value={formData.customerScope}
+                        onChange={(e) => handleFormChange("customerScope", e.target.value)}
+                        className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="all">All Users</option>
+                        <option value="first-time">First-time Users</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Restaurant Scope</label>
+                      <select
+                        value={formData.restaurantScope}
+                        onChange={(e) => handleFormChange("restaurantScope", e.target.value)}
+                        className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="all">All Restaurants</option>
+                        <option value="selected">Selected Restaurant</option>
+                      </select>
+                    </div>
+
+                    <div className="md:col-span-2 lg:col-span-3">
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">
+                        Zones <span className="font-normal text-slate-400">(leave empty for all zones)</span>
+                      </label>
+                      <div className="flex flex-wrap gap-2 rounded-lg border border-slate-300 bg-white p-2 max-h-32 overflow-y-auto">
+                        {zones.length === 0 ? (
+                          <span className="text-xs text-slate-400">No zones found</span>
+                        ) : (
+                          zones.map((zone) => {
+                            const id = String(zone._id || zone.id)
+                            const selected = (formData.zoneIds || []).includes(id)
+                            return (
+                              <button
+                                type="button"
+                                key={id}
+                                onClick={() => toggleZone(id)}
+                                className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${selected ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-700 border-slate-300 hover:border-blue-400"}`}
+                              >
+                                {zone.name || zone.zoneName || "Unnamed Zone"}
+                              </button>
+                            )
+                          })
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Start Date (Optional)</label>
+                      <input
+                        type="date"
+                        value={formData.startDate}
+                        onChange={(e) => handleFormChange("startDate", e.target.value)}
+                        min={editingOfferId ? undefined : todayYMD()}
+                        className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.startDate ? "border-red-500" : "border-slate-300"} bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
+                      />
+                      {errors.startDate && <p className="mt-1 text-xs text-red-600">{errors.startDate}</p>}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Expiry Date (Optional)</label>
+                      <input
+                        type="date"
+                        value={formData.endDate}
+                        onChange={(e) => handleFormChange("endDate", e.target.value)}
+                        min={formData.startDate || (editingOfferId ? undefined : todayYMD())}
+                        className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.endDate ? "border-red-500" : "border-slate-300"} bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
+                      />
+                      {errors.endDate && <p className="mt-1 text-xs text-red-600">{errors.endDate}</p>}
+                    </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Min Order Value (₹)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={formData.minOrderValue}
+                      onChange={(e) => handleFormChange("minOrderValue", e.target.value)}
+                      placeholder="e.g. 199"
+                      className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.minOrderValue ? "border-red-500" : "border-slate-300"} bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
+                    />
+                    {errors.minOrderValue && <p className="mt-1 text-xs text-red-600">{errors.minOrderValue}</p>}
+                  </div>
+
+                    <div title={formData.discountType === "flat-price" ? "Max discount is not applicable for flat coupons" : ""}>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      Max Discount (₹)
+                      {formData.discountType === "percentage" && (
+                        <>
+                          {" "}
+                          <RequiredMark />
+                        </>
+                      )}
+                      {formData.discountType === "flat-price" && (
+                        <span className="font-normal text-slate-400"> (optional)</span>
+                      )}
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                        value={formData.maxDiscount}
+                        onChange={(e) => handleFormChange("maxDiscount", e.target.value)}
+                      placeholder="e.g. 100"
+                        disabled={formData.discountType === "flat-price"}
+                        className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.maxDiscount ? "border-red-500" : "border-slate-300"} bg-white disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
+                    />
+                      {formData.discountType === "percentage" && errors.maxDiscount && <p className="mt-1 text-xs text-red-600">{errors.maxDiscount}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Usage Limit (global)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={formData.usageLimit}
+                      onChange={(e) => handleFormChange("usageLimit", e.target.value)}
+                      placeholder="e.g. 1000"
+                      className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.usageLimit ? "border-red-500" : "border-slate-300"} bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
+                    />
+                    {errors.usageLimit && <p className="mt-1 text-xs text-red-600">{errors.usageLimit}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Per User Limit</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={formData.perUserLimit}
+                      onChange={(e) => handleFormChange("perUserLimit", e.target.value)}
+                      placeholder="e.g. 1"
+                      className={`w-full px-3 py-2.5 text-sm rounded-lg border ${errors.perUserLimit ? "border-red-500" : "border-slate-300"} bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
+                    />
+                    {errors.perUserLimit && <p className="mt-1 text-xs text-red-600">{errors.perUserLimit}</p>}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="isFirstOrderOnly"
+                      type="checkbox"
+                      checked={formData.isFirstOrderOnly}
+                      onChange={(e) => handleFormChange("isFirstOrderOnly", e.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    <label htmlFor="isFirstOrderOnly" className="text-sm text-slate-700">First order only</label>
+                  </div>
+
+                    {formData.restaurantScope === "selected" && (
+                      <div className="md:col-span-2 lg:col-span-3">
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          Select Restaurant <RequiredMark />
+                        </label>
+                        <select
+                          value={formData.restaurantId}
+                          onChange={(e) => handleFormChange("restaurantId", e.target.value)}
+                          className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         >
                           <option value="">Choose a restaurant</option>
                           {restaurants.map((restaurant) => (
@@ -983,6 +829,8 @@ export default function Coupons() {
                       </div>
                     )}
                   </div>
+
+
 
                   <div className="mt-4 flex items-center gap-3">
                     <button
@@ -1026,7 +874,9 @@ export default function Coupons() {
             {/* Offers List */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold text-slate-900">Offers List</h2>
+                <h2 className="text-xl font-bold text-slate-900">
+                  Offers List
+                </h2>
                 <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700 flex items-center justify-center min-w-[2.5rem] h-7">
                   {loading ? (
                     <span className="w-5 h-3 rounded bg-slate-300/80 animate-pulse" />
@@ -1083,6 +933,11 @@ export default function Coupons() {
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className="text-sm font-medium text-slate-900">
                               {offer.restaurantScope === "all" || offer.restaurantName === "All Restaurants" ? "All Restaurants" : offer.restaurantName}
+                            </span>
+                            <span className="block text-xs text-slate-500 mt-0.5">
+                              {Array.isArray(offer.zoneIds) && offer.zoneIds.length > 0
+                                ? offer.zoneIds.map((id) => zoneNameById.get(String(id)) || "Zone").join(", ")
+                                : "All zones"}
                             </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
