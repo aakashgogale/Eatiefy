@@ -918,7 +918,7 @@ export async function checkEarningAddonCompletions(req, res, next) {
 // ----- Restaurant Commission (admin) -----
 export async function getRestaurantCommissions(req, res, next) {
     try {
-        const data = await adminService.getRestaurantCommissions();
+        const data = await adminService.getRestaurantCommissions(req.query || {});
         res.status(200).json({ success: true, message: 'Restaurant commissions fetched successfully', data });
     } catch (error) {
         next(error);
@@ -927,7 +927,7 @@ export async function getRestaurantCommissions(req, res, next) {
 
 export async function getRestaurantCommissionBootstrap(req, res, next) {
     try {
-        const data = await adminService.getRestaurantCommissionBootstrap();
+        const data = await adminService.getRestaurantCommissionBootstrap(req.query || {});
         res.status(200).json({ success: true, message: 'Restaurant commission bootstrap fetched successfully', data });
     } catch (error) {
         next(error);

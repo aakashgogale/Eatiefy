@@ -385,8 +385,9 @@ export const adminAPI = {
     apiClient.patch("/food/admin/customization-settings", data, { contextModule: "admin" }),
   getTakeawayCodStatus: () =>
     apiClient.get("/food/admin/customization-settings/takeaway-cod", { contextModule: "admin" }),
-  getRestaurantSettings: () =>
-    apiClient.get("/food/admin/restaurant-settings", { contextModule: "admin" }),
+  /** Query: zoneId (omit for the platform default). */
+  getRestaurantSettings: (params = {}) =>
+    apiClient.get("/food/admin/restaurant-settings", { params, contextModule: "admin" }),
   updateRestaurantSettings: (data) =>
     apiClient.patch("/food/admin/restaurant-settings", data, { contextModule: "admin" }),
   /** GET /food/admin/delivery/support-tickets/stats - counts by status. */
@@ -910,8 +911,10 @@ export const adminAPI = {
     }),
 
   /** Restaurant Commission (admin) */
-  getRestaurantCommissionBootstrap: () =>
+  /** Query: zoneId (omit for all zones). */
+  getRestaurantCommissionBootstrap: (params = {}) =>
     apiClient.get("/food/admin/restaurant-commissions/bootstrap", {
+      params,
       contextModule: "admin",
     }),
   getRestaurantCommissions: (params = {}) =>
@@ -2124,7 +2127,7 @@ const getRestaurantCurrentOnce = () => {
   return restaurantCurrentInFlight;
 };
 
-/** Single in-flight + short cache for public restaurant-settings */
+/** Single in-flight + short cache for the restaurant's accept-order settings */
 let restaurantSettingsInFlight = null;
 let restaurantSettingsCached = null;
 let restaurantSettingsCacheTime = 0;
@@ -2140,7 +2143,12 @@ const getRestaurantSettingsOnce = () => {
   }
   if (!restaurantSettingsInFlight) {
     restaurantSettingsInFlight = apiClient
-      .get("/food/public/restaurant-settings", { contextModule: "restaurant" })
+      // Resolved for the signed-in restaurant's zone (zone override, else platform default).
+      .get("/food/restaurant/accept-order-settings", { contextModule: "restaurant" })
+      // Platform default when the zone lookup is unavailable (e.g. maintenance mode).
+      .catch(() =>
+        apiClient.get("/food/public/restaurant-settings", { contextModule: "restaurant" }),
+      )
       .then((res) => {
         restaurantSettingsCached = res;
         restaurantSettingsCacheTime = Date.now();

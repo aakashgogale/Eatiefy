@@ -6,6 +6,7 @@ import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model
 import { resolveZoneIdForPartner } from '../../delivery/services/delivery.service.js';
 import { DeliverySupportTicket } from '../../delivery/models/supportTicket.model.js';
 import { FoodZone } from '../models/zone.model.js';
+import { FoodZoneRestaurantSettings } from '../models/zoneRestaurantSettings.model.js';
 import { assertZoneCoversLocation, isPointInZone } from '../../shared/zoneLocation.js';
 import { getIO, rooms } from '../../../../config/socket.js';
 import { FoodOnboardingPayment } from '../../restaurant/models/onboardingPayment.model.js';
@@ -110,6 +111,26 @@ const toDeliveryPartnerDisplayId = (partnerId) => {
     return `DP-${raw.slice(-8).toUpperCase()}`;
 };
 
+/**
+ * Optional `zoneId` filter of an admin list. Empty or "all" means every zone;
+ * anything else must be a valid id, so a bad value is a 400 instead of a crash
+ * or a silently unfiltered list.
+ */
+const parseZoneFilter = (value) => {
+    const raw = value == null ? '' : String(value).trim();
+    if (!raw || raw.toLowerCase() === 'all') return null;
+    if (!mongoose.Types.ObjectId.isValid(raw)) {
+        throw new ValidationError('Invalid zoneId');
+    }
+    return new mongoose.Types.ObjectId(raw);
+};
+
+/** Every restaurant assigned to a zone (any status), to filter records that hang off restaurants. */
+const getRestaurantIdsInZone = async (zoneOid) => {
+    const docs = await FoodRestaurant.find({ zoneId: zoneOid }).select('_id').lean();
+    return docs.map((doc) => doc._id);
+};
+
 const normalizeRestaurantTime = (value) => {
     const raw = String(value || '').trim();
     if (!raw) return '';
@@ -173,6 +194,11 @@ export async function getRestaurantComplaints(query = {}) {
     if (query.complaintType && query.complaintType !== 'all') filter.issueType = query.complaintType;
     if (query.restaurantId && mongoose.Types.ObjectId.isValid(query.restaurantId)) {
         filter.restaurantId = new mongoose.Types.ObjectId(query.restaurantId);
+    }
+    const zoneOid = parseZoneFilter(query.zoneId);
+    if (zoneOid) {
+        // $and keeps this independent of the restaurantId / search conditions.
+        filter.$and = [{ restaurantId: { $in: await getRestaurantIdsInZone(zoneOid) } }];
     }
     if (query.search) {
         const searchRegex = { $regex: query.search, $options: 'i' };
@@ -406,9 +432,8 @@ export async function getRestaurants(query) {
     const skip = (page - 1) * limit;
     const status = query.status;
     const filter = {};
-    if (query.zoneId && String(query.zoneId).trim()) {
-        filter.zoneId = new mongoose.Types.ObjectId(String(query.zoneId).trim());
-    }
+    const zoneOid = parseZoneFilter(query.zoneId);
+    if (zoneOid) filter.zoneId = zoneOid;
     if (status && ['pending', 'approved', 'rejected', 'banned'].includes(status)) {
         filter.status = status;
     } else {
@@ -2334,19 +2359,30 @@ export async function updateSupportTicket(id, body = {}) {
 }
 
 // ----- Restaurant Commission (admin) -----
-export async function getRestaurantCommissions() {
-    const list = await FoodRestaurantCommission.find({})
+export async function getRestaurantCommissions(query = {}) {
+    const filter = {};
+    const zoneOid = parseZoneFilter(query.zoneId);
+    if (zoneOid) filter.restaurantId = { $in: await getRestaurantIdsInZone(zoneOid) };
+
+    const list = await FoodRestaurantCommission.find(filter)
         .sort({ createdAt: -1 })
-        .populate({ path: 'restaurantId', select: 'restaurantName' })
+        .populate({
+            path: 'restaurantId',
+            select: 'restaurantName zoneId',
+            populate: { path: 'zoneId', select: 'name zoneName' }
+        })
         .lean();
 
     const commissions = list.map((c, index) => {
         const mongoRestaurantId = c.restaurantId?._id ? String(c.restaurantId._id) : String(c.restaurantId || '');
+        const zone = c.restaurantId?.zoneId;
         return {
         _id: c._id,
         sl: index + 1,
         restaurantId: toRestaurantDisplayId(mongoRestaurantId),
         restaurantName: c.restaurantId?.restaurantName || '',
+        zoneId: zone?._id ? String(zone._id) : null,
+        zoneName: zone?.name || zone?.zoneName || '',
         restaurant: mongoRestaurantId
             ? {
                 _id: mongoRestaurantId,
@@ -2363,10 +2399,11 @@ export async function getRestaurantCommissions() {
     return { commissions };
 }
 
-export async function getRestaurantCommissionBootstrap() {
+export async function getRestaurantCommissionBootstrap(query = {}) {
+    const zoneId = query.zoneId;
     const [commissionsData, restaurantsData] = await Promise.all([
-        getRestaurantCommissions(),
-        getRestaurants({ status: 'approved', limit: 1000, page: 1 })
+        getRestaurantCommissions({ zoneId }),
+        getRestaurants({ status: 'approved', limit: 1000, page: 1, zoneId })
     ]);
 
     const commissionByRestaurantId = new Set(
@@ -2380,6 +2417,7 @@ export async function getRestaurantCommissionBootstrap() {
         name: r.restaurantName || r.name || '',
         restaurantId: toRestaurantDisplayId(r._id),
         ownerName: r.ownerName || '',
+        zoneName: r.zoneId?.name || r.zoneId?.zoneName || '',
         hasCommissionSetup: commissionByRestaurantId.has(String(r._id))
     }));
 
@@ -3086,6 +3124,12 @@ export async function getRestaurantReviews(query = {}) {
         'ratings.restaurant.rating': { $exists: true, $ne: null }
     };
 
+    const zoneOid = parseZoneFilter(query.zoneId);
+    if (zoneOid) {
+        // $and keeps this independent of the search $or, which also matches on restaurantId.
+        filter.$and = [{ restaurantId: { $in: await getRestaurantIdsInZone(zoneOid) } }];
+    }
+
     if (query.search && String(query.search).trim()) {
         const term = String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const searchRegex = new RegExp(term, 'i');
@@ -3340,7 +3384,14 @@ export async function getPendingRestaurants(query = {}) {
     const page = Math.max(parseInt(query.page, 10) || 1, 1);
     const skip = (page - 1) * limit;
 
-    const filter = { status: { $in: ['pending', 'rejected'] } };
+    // Join requests ask for `status=pending` so pagination and totals count only
+    // what the page lists; without it both pending and rejected are returned.
+    const status = String(query.status || '').trim().toLowerCase();
+    const filter = {
+        status: ['pending', 'rejected'].includes(status) ? status : { $in: ['pending', 'rejected'] }
+    };
+    const zoneOid = parseZoneFilter(query.zoneId);
+    if (zoneOid) filter.zoneId = zoneOid;
     if (query.search && String(query.search).trim()) {
         const term = String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const searchRegex = new RegExp(term, 'i');
@@ -6784,6 +6835,8 @@ export async function deleteZone(id) {
     }
 
     await FoodZone.findByIdAndDelete(zoneOid);
+    // Its Restaurant Settings override has nothing left to apply to.
+    await FoodZoneRestaurantSettings.deleteOne({ zoneId: zoneOid });
     return { id: String(zoneOid), name: zone.name };
 }
 

@@ -294,7 +294,7 @@ router.patch('/customization-settings', systemConfigController.updateCustomizati
 router.get('/customization-settings/takeaway-cod', systemConfigController.getTakeawayCodStatus);
 
 // ----- Restaurant Settings -----
-router.get('/restaurant-settings', systemConfigController.getRestaurantSettings);
+router.get('/restaurant-settings', systemConfigController.getAdminRestaurantSettings);
 router.patch('/restaurant-settings', systemConfigController.updateRestaurantSettings);
 
 export default router;

@@ -1,7 +1,8 @@
 import { FoodOrder } from '../models/order.model.js';
 import { canExposeOrderToRestaurant } from './order.helpers.js';
 import { updateOrderStatusRestaurant } from './order.service.js';
-import { resolveRestaurantSettings } from '../../admin/controllers/systemConfig.controller.js';
+import { loadRestaurantSettingsByZone } from '../../admin/controllers/systemConfig.controller.js';
+import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { logger } from '../../../../utils/logger.js';
 
 /**
@@ -29,13 +30,31 @@ export const getRestaurantAcceptWindowStart = (order) => {
     return Number.isFinite(ms) ? ms : null;
 };
 
+const toWindows = ({ deliveryAcceptOrderTimeMinutes, takeawayAcceptOrderTimeMinutes }) => ({
+    takeaway: takeawayAcceptOrderTimeMinutes * 60 * 1000,
+    other: deliveryAcceptOrderTimeMinutes * 60 * 1000,
+});
+
+/**
+ * Zone of each candidate's restaurant. The restaurant app reads its countdown for
+ * this same zone, so the server never rejects on a shorter window than it shows.
+ */
+async function loadRestaurantZoneIds(orders) {
+    const restaurantIds = [...new Set(orders.map((order) => String(order.restaurantId)))];
+    const restaurants = await FoodRestaurant.find({ _id: { $in: restaurantIds } })
+        .select('zoneId')
+        .lean();
+    return new Map(restaurants.map((r) => [String(r._id), r.zoneId ? String(r.zoneId) : null]));
+}
+
 export async function expireUnacceptedRestaurantOrders({ now = Date.now() } = {}) {
-    const { deliveryAcceptOrderTimeMinutes, takeawayAcceptOrderTimeMinutes } = await resolveRestaurantSettings();
-    const windows = {
-        takeaway: takeawayAcceptOrderTimeMinutes * 60 * 1000,
-        other: deliveryAcceptOrderTimeMinutes * 60 * 1000,
-    };
-    const oldestCutoff = new Date(now - Math.min(windows.takeaway, windows.other) - GRACE_MS);
+    const settings = await loadRestaurantSettingsByZone();
+    // The shortest window of any zone bounds the query; each order is then checked
+    // against the window of its own restaurant's zone.
+    const shortestWindowMs = Math.min(
+        ...settings.all.flatMap((zoneSettings) => Object.values(toWindows(zoneSettings)))
+    );
+    const oldestCutoff = new Date(now - shortestWindowMs - GRACE_MS);
 
     const candidates = await FoodOrder.find({
         orderStatus: 'created',
@@ -46,16 +65,25 @@ export async function expireUnacceptedRestaurantOrders({ now = Date.now() } = {}
         // A scheduled order is not due for a decision until its time comes.
         $and: [{ $or: [{ scheduledAt: null }, { scheduledAt: { $lte: new Date(now) } }] }],
     })
-        .select('_id order_id restaurantId orderType createdAt restaurantNotifiedAt payment scheduledAt')
+        .select('_id order_id restaurantId zoneId orderType createdAt restaurantNotifiedAt payment scheduledAt')
         .sort({ createdAt: 1 })
         .limit(BATCH_LIMIT)
         .lean();
+
+    // Without any zone override every order uses the default, so skip the lookup.
+    const restaurantZoneIds = settings.hasZoneOverrides && candidates.length
+        ? await loadRestaurantZoneIds(candidates)
+        : new Map();
 
     let rejected = 0;
     for (const order of candidates) {
         // Never auto-reject an order the restaurant could not see (unpaid online order).
         if (!canExposeOrderToRestaurant(order)) continue;
 
+        const zoneId = restaurantZoneIds.has(String(order.restaurantId))
+            ? restaurantZoneIds.get(String(order.restaurantId))
+            : order.zoneId;
+        const windows = toWindows(settings.forZone(zoneId));
         const windowMs = order.orderType === 'takeaway' ? windows.takeaway : windows.other;
         const startedAt = getRestaurantAcceptWindowStart(order);
         if (startedAt == null || now - startedAt < windowMs + GRACE_MS) continue;

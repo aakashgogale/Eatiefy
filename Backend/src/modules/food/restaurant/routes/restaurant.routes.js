@@ -38,6 +38,7 @@ import {
 import { getMenuController, updateMenuController, getPublicRestaurantMenuController } from '../controllers/restaurantMenu.controller.js';
 import { getPublicRestaurantAddonsController } from '../controllers/publicAddons.controller.js';
 import * as feedbackExperienceController from '../../admin/controllers/feedbackExperience.controller.js';
+import { getCurrentRestaurantSettings } from '../../admin/controllers/systemConfig.controller.js';
 import {
     getOutletTimingsByRestaurantIdController,
     getCurrentRestaurantOutletTimingsController,
@@ -147,6 +148,8 @@ router.get('/categories/public', cacheResponse(600, 'categories'), listCategorie
 
 // Restaurant dashboard/profile (Bearer token + RESTAURANT role)
 router.get('/current', authMiddleware, requireRestaurant, getCurrentRestaurantController);
+// Accept-order windows for this restaurant's zone (falls back to the platform default).
+router.get('/accept-order-settings', authMiddleware, requireRestaurant, getCurrentRestaurantSettings);
 router.patch('/profile', authMiddleware, requireRestaurant, async (req, res, next) => {
     // Invalidate caches when profile is updated
     await invalidateCache('restaurants:*');
