@@ -1773,16 +1773,6 @@ export const restaurantAPI = {
     apiClient.post("/food/restaurant/onboarding/payment/cancel", body ?? {}, {
       headers: { "X-Onboarding-Token": onboardingToken },
     }),
-  /** Scan-to-pay UPI QR for the onboarding fee (same attempt as the checkout). */
-  createOnboardingPaymentQr: (onboardingToken) =>
-    apiClient.post("/food/restaurant/onboarding/payment/qr", {}, {
-      headers: { "X-Onboarding-Token": onboardingToken },
-    }),
-  getOnboardingPaymentQrStatus: (onboardingToken, qrCodeId) =>
-    apiClient.get("/food/restaurant/onboarding/payment/qr/status", {
-      params: { qrCodeId },
-      headers: { "X-Onboarding-Token": onboardingToken },
-    }),
   /** Public: list approved restaurants for user app */
   getRestaurants: (params = {}, config = {}) =>
     getPublicRestaurantsOnce(params, config),

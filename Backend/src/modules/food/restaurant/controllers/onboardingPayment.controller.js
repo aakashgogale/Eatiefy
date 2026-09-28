@@ -2,9 +2,7 @@ import {
     getOnboardingPaymentQuote,
     createOnboardingPaymentOrder,
     verifyOnboardingPayment,
-    cancelOnboardingPayment,
-    createOnboardingPaymentQr,
-    getOnboardingQrPaymentStatus
+    cancelOnboardingPayment
 } from '../services/onboardingPayment.service.js';
 import { sendResponse } from '../../../../utils/response.js';
 
@@ -43,26 +41,6 @@ export const cancelOnboardingPaymentController = async (req, res, next) => {
     try {
         const data = await cancelOnboardingPayment(req.onboarding.restaurantId, req.body || {});
         return sendResponse(res, 200, 'Payment attempt closed', data);
-    } catch (error) {
-        next(error);
-    }
-};
-
-/** POST /food/restaurant/onboarding/payment/qr - scan-to-pay UPI QR for the same attempt */
-export const createOnboardingPaymentQrController = async (req, res, next) => {
-    try {
-        const data = await createOnboardingPaymentQr(req.onboarding.restaurantId);
-        return sendResponse(res, 201, 'UPI QR ready', data);
-    } catch (error) {
-        next(error);
-    }
-};
-
-/** GET /food/restaurant/onboarding/payment/qr/status?qrCodeId= - polled while the QR is shown */
-export const getOnboardingQrPaymentStatusController = async (req, res, next) => {
-    try {
-        const data = await getOnboardingQrPaymentStatus(req.onboarding.restaurantId, req.query?.qrCodeId);
-        return sendResponse(res, 200, data.paid ? 'Payment received' : 'Waiting for payment', data);
     } catch (error) {
         next(error);
     }

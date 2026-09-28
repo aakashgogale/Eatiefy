@@ -19,22 +19,11 @@ import {
     verifyPaymentSignature,
     fetchRazorpayPayment,
     assertRazorpayPaymentMatches,
-    findSuccessfulPaymentForOrder,
-    createRazorpayQrCode,
-    fetchRazorpayQrCodePayments,
-    closeRazorpayQrCode,
-    initiateRazorpayRefund
+    findSuccessfulPaymentForOrder
 } from '../../orders/helpers/razorpay.helper.js';
 
 /** How long a checkout may hold an offer slot before a later request may reclaim it. */
 const RESERVATION_TTL_MS = 20 * 60 * 1000;
-
-/** How long a scan-to-pay UPI QR stays payable (Razorpay: 2 minutes to 2 hours for single use). */
-const QR_TTL_MS = 15 * 60 * 1000;
-/** An existing QR is shown again only while it still has at least this long to live. */
-const QR_REUSE_MIN_REMAINING_MS = 2 * 60 * 1000;
-/** Status polls within this window reuse the last gateway answer instead of calling Razorpay again. */
-const QR_CHECK_THROTTLE_MS = 2500;
 
 const toPaise = (rupees) => Math.round(Number(rupees) * 100);
 
@@ -228,164 +217,6 @@ const reclaimOfferSlotForRecovery = async (payment) => {
     }
 };
 
-/*
- * Scan-to-pay UPI QR.
- *
- * Razorpay Checkout shows its QR on desktop but only UPI app buttons on phones, so
- * partners paying from the app could never scan. The payment page can also show a
- * single-use, fixed-amount QR for the same attempt (same amount, same offer slot).
- * It is settled from three sides - the page polling its status, the
- * `qr_code.credited` webhook, and the cancel recovery - all through
- * settleOnboardingQrPayment, which confirms the payment with Razorpay itself.
- */
-
-/** Best-effort: stop every QR of an attempt from accepting another payment. */
-const closeAttemptQrCodes = async (payment) => {
-    const ids = [...new Set(payment?.gateway?.qrCodeIds || [])].filter(Boolean);
-    if (!ids.length || !isRazorpayConfigured()) return;
-    await Promise.all(
-        ids.map((id) =>
-            // A single-use QR closes itself once paid or expired; closing it again throws.
-            closeRazorpayQrCode(id).catch(() => null)
-        )
-    );
-};
-
-/**
- * The fee is one-time. A second successful charge for it (paid by QR and at checkout
- * at the same moment, or two attempts both completing) is refunded rather than kept.
- */
-const refundDuplicateOnboardingCharge = async (paidRecord, razorpayPaymentId, confirmedVia, amountPaise) => {
-    const incoming = String(razorpayPaymentId || '').trim();
-    const recorded = String(paidRecord?.gateway?.razorpayPaymentId || '').trim();
-    if (!incoming || !recorded || incoming === recorded) return;
-    if (paidRecord?.status !== 'paid' || !isRazorpayConfigured()) return;
-
-    const amountRupees = Number(amountPaise ?? paidRecord.amountPaise) / 100;
-    logger.error(
-        `[ONBOARD-PAY-DUPLICATE] Restaurant ${paidRecord.restaurantId} was charged the onboarding fee twice ` +
-        `(${recorded} recorded, ${incoming} via ${confirmedVia}); refunding ${incoming}`
-    );
-    try {
-        await initiateRazorpayRefund(incoming, amountRupees);
-    } catch (error) {
-        logger.error(
-            `[ONBOARD-PAY-DUPLICATE] Automatic refund of ${incoming} failed - refund it from the Razorpay ` +
-            `dashboard: ${error?.message || error}`
-        );
-    }
-};
-
-const toQrView = (payment) => ({
-    qrCodeId: payment?.gateway?.qrCodeId || '',
-    imageUrl: payment?.gateway?.qrImageUrl || '',
-    closeBy: payment?.gateway?.qrCloseBy || null,
-    amount: payment?.pricing?.finalAmount ?? null,
-    currency: payment?.pricing?.currency || 'INR'
-});
-
-/** Attempt that issued this QR (any QR it ever issued), for webhooks and status checks. */
-export const findOnboardingPaymentByQrCodeId = async (qrCodeId) => {
-    const id = String(qrCodeId || '').trim();
-    if (!id) return null;
-    return FoodOnboardingPayment.findOne({ 'gateway.qrCodeIds': id }).lean();
-};
-
-/**
- * Record a payment Razorpay received on one of the attempt's QR codes. The payment
- * must be successful, for the attempt's exact amount and currency. Works on an attempt
- * that was already cancelled (checkout closed, reservation swept) - the money was
- * taken, so it is credited and the offer slot is taken again.
- */
-export const settleOnboardingQrPayment = async (payment, gatewayPayment, confirmedVia) => {
-    if (!payment || !gatewayPayment?.id) return { paid: false };
-
-    const status = String(gatewayPayment.status || '').toLowerCase();
-    if (!['captured', 'authorized'].includes(status)) return { paid: false };
-    if (Number(gatewayPayment.amount) !== Number(payment.amountPaise)) {
-        logger.error(
-            `[ONBOARD-PAY-QR] Amount mismatch on QR payment ${gatewayPayment.id} for attempt ${payment._id} ` +
-            `(gateway=${gatewayPayment.amount} expected=${payment.amountPaise})`
-        );
-        return { paid: false };
-    }
-    const currency = String(gatewayPayment.currency || 'INR').toUpperCase();
-    if (currency !== String(payment.pricing?.currency || 'INR').toUpperCase()) {
-        logger.error(`[ONBOARD-PAY-QR] Currency mismatch on QR payment ${gatewayPayment.id} for attempt ${payment._id}`);
-        return { paid: false };
-    }
-
-    if (payment.status === 'cancelled' || payment.status === 'failed') {
-        await reclaimOfferSlotForRecovery(payment);
-    }
-
-    const { payment: finalized, alreadyProcessed } = await finalizeOnboardingPayment({
-        payment,
-        razorpayPaymentId: gatewayPayment.id,
-        signatureVerified: true,
-        confirmedVia
-    });
-    return { paid: finalized?.status === 'paid', alreadyProcessed, payment: finalized };
-};
-
-const lastQrCheckAt = new Map();
-
-/**
- * Ask Razorpay whether a QR of this attempt was paid, and credit it if so. Page polls
- * are throttled per QR; a cancel (the last look before an attempt is discarded) is not.
- */
-const checkAttemptQrPayments = async (payment, qrCodeId, confirmedVia, { throttle = true } = {}) => {
-    if (!isRazorpayConfigured() || !qrCodeId) return { paid: false };
-
-    if (throttle) {
-        const now = Date.now();
-        if (now - (lastQrCheckAt.get(qrCodeId) || 0) < QR_CHECK_THROTTLE_MS) return { paid: false };
-        lastQrCheckAt.set(qrCodeId, now);
-        if (lastQrCheckAt.size > 500) lastQrCheckAt.clear();
-    }
-
-    const response = await fetchRazorpayQrCodePayments(qrCodeId);
-    const items = Array.isArray(response?.items) ? response.items : [];
-    const received = items.find(
-        (item) =>
-            ['captured', 'authorized'].includes(String(item?.status || '').toLowerCase()) &&
-            Number(item?.amount) === Number(payment.amountPaise)
-    );
-    if (!received) return { paid: false };
-    return settleOnboardingQrPayment(payment, received, confirmedVia);
-};
-
-/**
- * Credit a QR payment nobody has recorded yet - e.g. the partner paid, closed the app
- * before the page noticed, and the webhook is not set up or has not arrived. Runs
- * before the page shows a quote or starts a new attempt, so a partner who already
- * paid sees success instead of being asked to pay again.
- *
- * @returns {Promise<object|null>} the paid record, or null when nothing was found
- */
-const recoverUncreditedQrPayment = async (restaurantId) => {
-    if (!isRazorpayConfigured()) return null;
-    const recent = await FoodOnboardingPayment.findOne({
-        restaurantId,
-        status: { $in: ['created', 'cancelled', 'failed'] },
-        'gateway.qrCodeIds.0': { $exists: true },
-        createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
-    })
-        .sort({ createdAt: -1 })
-        .lean();
-    if (!recent) return null;
-
-    for (const qrCodeId of [...new Set(recent.gateway.qrCodeIds)]) {
-        try {
-            const result = await checkAttemptQrPayments(recent, qrCodeId, 'upi_qr_recovery');
-            if (result.paid) return result.payment;
-        } catch (error) {
-            logger.warn(`[ONBOARD-PAY-QR] Recovery check failed for QR ${qrCodeId}: ${error?.message || error}`);
-        }
-    }
-    return null;
-};
-
 /** Public shape of a payment record (safe for the partner app and admin UI). */
 export const toOnboardingPaymentView = (payment) => {
     if (!payment) return null;
@@ -432,11 +263,6 @@ export const getOnboardingPaymentQuote = async (restaurantId) => {
             payment: toOnboardingPaymentView(paid),
             quote: null
         };
-    }
-
-    const recovered = await recoverUncreditedQrPayment(restaurant._id);
-    if (recovered) {
-        return { alreadyPaid: true, submitted: true, payment: toOnboardingPaymentView(recovered), quote: null };
     }
 
     if (await releaseIfNoOnboardingFeeDue(restaurant._id)) return noFeeDueResponse();
@@ -491,12 +317,6 @@ export const createOnboardingPaymentOrder = async (restaurantId) => {
     }).lean();
     if (alreadyPaid) {
         return { alreadyPaid: true, payment: toOnboardingPaymentView(alreadyPaid) };
-    }
-
-    // Never start (and charge) a new attempt while an earlier QR payment is uncredited.
-    const recovered = await recoverUncreditedQrPayment(restaurant._id);
-    if (recovered) {
-        return { alreadyPaid: true, payment: toOnboardingPaymentView(recovered) };
     }
 
     if (await releaseIfNoOnboardingFeeDue(restaurant._id)) return noFeeDueResponse();
@@ -628,125 +448,6 @@ export const createOnboardingPaymentOrder = async (restaurantId) => {
 };
 
 /**
- * Scan-to-pay UPI QR for the onboarding fee, shown on the payment page next to the
- * regular checkout. It belongs to the same attempt as the checkout (created or reused
- * here exactly like "Pay"), so the amount and any offer slot are the same, and it
- * is reused while it has time left so reopening the page does not mint a new one.
- */
-export const createOnboardingPaymentQr = async (restaurantId) => {
-    const started = await createOnboardingPaymentOrder(restaurantId);
-    if (started.alreadyPaid || started.submitted) return started;
-
-    if (!isRazorpayConfigured()) {
-        throw new ValidationError('UPI QR is not available right now. Please use the Pay button instead.');
-    }
-
-    const attempt = await FoodOnboardingPayment.findById(started.payment?.id).lean();
-    if (!attempt || attempt.status !== 'created') {
-        throw new ValidationError('Could not start the payment. Please try again.');
-    }
-
-    const now = Date.now();
-    const qrCloseAt = attempt.gateway?.qrCloseBy ? new Date(attempt.gateway.qrCloseBy).getTime() : 0;
-    if (attempt.gateway?.qrCodeId && qrCloseAt - now > QR_REUSE_MIN_REMAINING_MS) {
-        return { ...started, qr: toQrView(attempt) };
-    }
-
-    const closeBy = new Date(now + QR_TTL_MS);
-    let qr;
-    try {
-        qr = await createRazorpayQrCode({
-            amountPaise: attempt.amountPaise,
-            name: 'Onboarding fee',
-            description: `One-time onboarding fee - ${attempt.pricing?.restaurantTypeLabel || 'restaurant'}`.slice(0, 100),
-            closeBy: Math.floor(closeBy.getTime() / 1000),
-            notes: {
-                purpose: 'restaurant_onboarding',
-                onboardingPaymentId: String(attempt._id),
-                restaurantId: String(attempt.restaurantId)
-            }
-        });
-    } catch (error) {
-        logger.error(`[ONBOARD-PAY-QR] QR creation failed for attempt ${attempt._id}: ${error?.message || error}`);
-        throw new ValidationError('Could not create the UPI QR. Please try again or use the Pay button.');
-    }
-
-    // The attempt (and its offer slot) must outlive the QR, or a sweep could cancel it
-    // while the QR is still payable.
-    const reservationUntil = new Date(
-        Math.max(
-            attempt.reservationExpiresAt ? new Date(attempt.reservationExpiresAt).getTime() : 0,
-            closeBy.getTime() + 60 * 1000
-        )
-    );
-    const updated = await FoodOnboardingPayment.findOneAndUpdate(
-        { _id: attempt._id, status: 'created' },
-        {
-            $set: {
-                'gateway.qrCodeId': String(qr.id),
-                'gateway.qrImageUrl': String(qr.image_url || ''),
-                'gateway.qrCloseBy': closeBy,
-                reservationExpiresAt: reservationUntil
-            },
-            $addToSet: { 'gateway.qrCodeIds': String(qr.id) }
-        },
-        { new: true }
-    ).lean();
-
-    if (!updated) {
-        // Paid or cancelled in the meantime: this QR must never take money.
-        await closeRazorpayQrCode(qr.id).catch(() => null);
-        const paid = await FoodOnboardingPayment.findOne({ restaurantId: attempt.restaurantId, status: 'paid' }).lean();
-        if (paid) return { alreadyPaid: true, payment: toOnboardingPaymentView(paid) };
-        throw new ValidationError('Your payment attempt changed. Please try again.');
-    }
-
-    // The QR it replaces had less than two minutes left; stop it from taking money.
-    const previousQrId = attempt.gateway?.qrCodeId;
-    if (previousQrId && previousQrId !== String(qr.id)) {
-        void closeRazorpayQrCode(previousQrId).catch(() => null);
-    }
-
-    return { ...started, payment: toOnboardingPaymentView(updated), qr: toQrView(updated) };
-};
-
-/**
- * Polled by the payment page while its QR is on screen. Settles the fee as soon as
- * Razorpay reports the QR paid, so the partner sees success without the webhook.
- */
-export const getOnboardingQrPaymentStatus = async (restaurantId, qrCodeIdRaw) => {
-    const restaurant = await loadOnboardingRestaurant(restaurantId);
-
-    const paid = await FoodOnboardingPayment.findOne({ restaurantId: restaurant._id, status: 'paid' }).lean();
-    if (paid) return { paid: true, payment: toOnboardingPaymentView(paid) };
-
-    const qrCodeId = String(qrCodeIdRaw || '').trim();
-    if (!qrCodeId) throw new ValidationError('qrCodeId is required');
-
-    const attempt = await FoodOnboardingPayment.findOne({
-        restaurantId: restaurant._id,
-        'gateway.qrCodeIds': qrCodeId
-    }).lean();
-    if (!attempt) throw new NotFoundError('This QR code does not belong to your onboarding payment');
-
-    let result = { paid: false };
-    try {
-        result = await checkAttemptQrPayments(attempt, qrCodeId, 'upi_qr_poll');
-    } catch (error) {
-        // A gateway hiccup is not a verdict; the page simply asks again.
-        logger.warn(`[ONBOARD-PAY-QR] Status check failed for QR ${qrCodeId}: ${error?.message || error}`);
-    }
-    if (result.paid) return { paid: true, payment: toOnboardingPaymentView(result.payment) };
-
-    const closeBy = attempt.gateway?.qrCodeId === qrCodeId ? attempt.gateway?.qrCloseBy : null;
-    return {
-        paid: false,
-        expired: !closeBy || new Date(closeBy).getTime() <= Date.now(),
-        closeBy
-    };
-};
-
-/**
  * The one place a payment becomes "paid" and the restaurant enters the admin queue.
  *
  * Idempotent by construction: the `created -> paid` transition is a conditional
@@ -764,50 +465,31 @@ export const finalizeOnboardingPayment = async ({
 
     if (payment.status === 'paid') {
         const current = await FoodOnboardingPayment.findById(payment._id).lean();
-        await refundDuplicateOnboardingCharge(current, razorpayPaymentId, confirmedVia);
         return { payment: current, alreadyProcessed: true };
     }
 
     const paidAt = new Date();
-    let claimed;
-    try {
-        claimed = await FoodOnboardingPayment.findOneAndUpdate(
-            { _id: payment._id, status: { $ne: 'paid' } },
-            {
-                $set: {
-                    status: 'paid',
-                    paidAt,
-                    failureReason: '',
-                    'gateway.razorpayPaymentId': String(razorpayPaymentId || ''),
-                    'gateway.signatureVerified': Boolean(signatureVerified),
-                    'gateway.confirmedVia': confirmedVia,
-                    offerSlotHeld: false,
-                    reservationExpiresAt: null
-                }
-            },
-            { new: true }
-        ).lean();
-    } catch (error) {
-        // uniq_paid_per_restaurant: another attempt of this restaurant is already paid,
-        // so this is a second charge for the same one-time fee.
-        if (error?.code !== 11000) throw error;
-        const paidRecord = await FoodOnboardingPayment.findOne({
-            restaurantId: payment.restaurantId,
-            status: 'paid'
-        }).lean();
-        if (!paidRecord) throw error;
-        await refundDuplicateOnboardingCharge(paidRecord, razorpayPaymentId, confirmedVia, payment.amountPaise);
-        return { payment: paidRecord, alreadyProcessed: true };
-    }
+    const claimed = await FoodOnboardingPayment.findOneAndUpdate(
+        { _id: payment._id, status: { $ne: 'paid' } },
+        {
+            $set: {
+                status: 'paid',
+                paidAt,
+                failureReason: '',
+                'gateway.razorpayPaymentId': String(razorpayPaymentId || ''),
+                'gateway.signatureVerified': Boolean(signatureVerified),
+                'gateway.confirmedVia': confirmedVia,
+                offerSlotHeld: false,
+                reservationExpiresAt: null
+            }
+        },
+        { new: true }
+    ).lean();
 
     if (!claimed) {
         const current = await FoodOnboardingPayment.findById(payment._id).lean();
-        await refundDuplicateOnboardingCharge(current, razorpayPaymentId, confirmedVia);
         return { payment: current, alreadyProcessed: true };
     }
-
-    // Paid: no scan-to-pay QR of this attempt may take the fee a second time.
-    void closeAttemptQrCodes(claimed);
 
     // Promote the reservation to a confirmed redemption exactly once.
     if (claimed.pricing?.offerId && !claimed.offerSlotRedeemed) {
@@ -1063,22 +745,6 @@ export const cancelOnboardingPayment = async (restaurantId, payload = {}) => {
                     );
                 }
             }
-
-            // The fee may have been paid by scanning this attempt's QR instead.
-            for (const qrCodeId of [...new Set(pendingRecord.gateway?.qrCodeIds || [])]) {
-                let qrResult = { paid: false };
-                try {
-                    qrResult = await checkAttemptQrPayments(pendingRecord, qrCodeId, 'upi_qr_cancel_recovery', {
-                        throttle: false
-                    });
-                } catch (err) {
-                    logger.warn(`[ONBOARD-PAY-QR] QR check failed during cancel for ${qrCodeId}: ${err?.message || err}`);
-                    return { released: false, deferred: true, payment: toOnboardingPaymentView(pendingRecord) };
-                }
-                if (qrResult.paid) {
-                    return { released: false, paid: true, payment: toOnboardingPaymentView(qrResult.payment) };
-                }
-            }
         }
     }
 
@@ -1107,9 +773,6 @@ export const cancelOnboardingPayment = async (restaurantId, payload = {}) => {
         await releaseOfferSlot(cancelled.pricing.offerId);
         logger.info(`[ONBOARD-PAY] Released offer slot after ${status} payment ${cancelled._id}`);
     }
-
-    // A discarded attempt's QR must not stay payable.
-    void closeAttemptQrCodes(cancelled);
 
     logger.info(`[ONBOARD-PAY] Payment ${cancelled._id} successfully marked as ${status} (Reason: ${reason || 'N/A'})`);
 
