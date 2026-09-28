@@ -403,10 +403,6 @@ export async function listDiningRestaurantsPublic(query = {}) {
     const cityValue = String(query.city || '').trim();
     const zoneIdValue = String(query.zoneId || '').trim();
 
-    if (!zoneIdValue || !mongoose.Types.ObjectId.isValid(zoneIdValue)) {
-        return [];
-    }
-
     if (categoryValue) {
         const category = await FoodDiningCategory.findOne({
             $or: [

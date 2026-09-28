@@ -683,6 +683,50 @@ export async function deleteAdminOffer(req, res, next) {
     }
 }
 
+// ----- Restaurant Item Offers Approvals (Admin) -----
+export async function getRestaurantOffersForAdmin(req, res, next) {
+    try {
+        const { listRestaurantOffersForAdmin } = await import('../../restaurant/services/restaurantOffer.service.js');
+        const data = await listRestaurantOffersForAdmin(req.query || {});
+        res.status(200).json({ success: true, message: 'Restaurant offers fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function approveRestaurantOffer(req, res, next) {
+    try {
+        const { id } = req.params;
+        const { approveRestaurantOfferByAdmin } = await import('../../restaurant/services/restaurantOffer.service.js');
+        const offer = await approveRestaurantOfferByAdmin(id, req.user?.userId);
+        res.status(200).json({ success: true, message: 'Restaurant offer approved successfully', data: { offer } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function rejectRestaurantOffer(req, res, next) {
+    try {
+        const { id } = req.params;
+        const { rejectRestaurantOfferByAdmin } = await import('../../restaurant/services/restaurantOffer.service.js');
+        const offer = await rejectRestaurantOfferByAdmin(id, req.body?.reason, req.user?.userId);
+        res.status(200).json({ success: true, message: 'Restaurant offer rejected successfully', data: { offer } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function deleteRestaurantOfferByAdminController(req, res, next) {
+    try {
+        const { id } = req.params;
+        const { deleteRestaurantOfferByAdmin } = await import('../../restaurant/services/restaurantOffer.service.js');
+        const result = await deleteRestaurantOfferByAdmin(id);
+        res.status(200).json({ success: true, message: 'Restaurant offer deleted successfully', data: result });
+    } catch (error) {
+        next(error);
+    }
+}
+
 export async function getSupportTicketsController(req, res, next) {
     try {
         const data = await adminService.getSupportTickets(req.query || {});

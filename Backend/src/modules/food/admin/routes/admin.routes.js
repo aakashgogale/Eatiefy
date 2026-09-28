@@ -150,6 +150,12 @@ router.put('/offers/:id', adminController.updateAdminOffer);
 router.patch('/offers/:id/cart-visibility', adminController.updateAdminOfferCartVisibility);
 router.delete('/offers/:id', adminController.deleteAdminOffer);
 
+// ----- Restaurant Item Offers (Approvals & Management) -----
+router.get('/restaurant-offers', adminController.getRestaurantOffersForAdmin);
+router.patch('/restaurant-offers/:id/approve', adminController.approveRestaurantOffer);
+router.patch('/restaurant-offers/:id/reject', adminController.rejectRestaurantOffer);
+router.delete('/restaurant-offers/:id', adminController.deleteRestaurantOfferByAdminController);
+
 // ----- Feedback Experience (Admin) -----
 router.get('/feedback-experiences', feedbackExperienceController.getFeedbackExperiences);
 router.delete('/feedback-experiences/:id', feedbackExperienceController.deleteFeedbackExperience);
