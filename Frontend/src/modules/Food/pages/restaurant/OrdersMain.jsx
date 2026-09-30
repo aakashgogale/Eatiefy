@@ -2152,6 +2152,9 @@ function OrdersMainInner() {
                 total: orderToPopup.pricing?.total || 0,
                 customerAddress: orderToPopup.address,
                 status: orderToPopup.status,
+                // Raw backend status: `status` above is rewritten for the tabs
+                // ("created" -> "confirmed"), and the ring gate reads this one.
+                orderStatus: orderToPopup.orderStatus,
                 createdAt: orderToPopup.createdAt,
                 restaurantNotifiedAt: orderToPopup.restaurantNotifiedAt || null,
                 estimatedDeliveryTime: orderToPopup.estimatedDeliveryTime || 30,

@@ -8,6 +8,7 @@ import {
   dedupeOrdersByIdentity,
   collectOrderKeys,
   isOfferStillValid,
+  ordersShareIdentity,
 } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { useOrderManager } from '@/modules/DeliveryV2/hooks/useOrderManager';
 import { mapOrderLocations } from '@/modules/DeliveryV2/utils/orderMapping';
@@ -135,23 +136,27 @@ export default function OrdersV2() {
     // Stop alert instantly on tap — don't wait for API
     stopSound?.();
 
-    try {
-      await acceptOrder(order);
-      clearNewOrder(order);
-      setExpandedOrderId(null);
+    // useOrderManager already tells the rider why an accept failed. The error
+    // is passed on so the slider resets for a retry: swallowing it left the
+    // card on "Order Accepted" for an order that was not accepted.
+    await acceptOrder(order);
+    const accepted = (useDeliveryStore.getState().acceptedOrders || []).some((item) =>
+      ordersShareIdentity(item, order),
+    );
+    if (!accepted) throw new Error('Order was not accepted');
 
-      if (isFirstAcceptedOrder) {
-        setFocusedOrder(orderId);
-        toast.success('Order accepted');
-        navigate('/food/delivery/feed');
-        return;
-      }
+    clearNewOrder(order);
+    setExpandedOrderId(null);
 
-      toast.success('Order accepted — added to your queue');
-      setActiveTab('accepted');
-    } catch {
-      // useOrderManager already toasts
+    if (isFirstAcceptedOrder) {
+      setFocusedOrder(orderId);
+      toast.success('Order accepted');
+      navigate('/food/delivery/feed');
+      return;
     }
+
+    toast.success('Order accepted — added to your queue');
+    setActiveTab('accepted');
   };
 
   const handleReject = async (order) => {

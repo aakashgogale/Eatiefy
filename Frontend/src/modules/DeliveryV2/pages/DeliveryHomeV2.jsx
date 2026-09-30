@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useDeliveryStore, resolveOrderKey, mapDeliveryPhaseToTripStatus } from '@/modules/DeliveryV2/store/useDeliveryStore';
+import { useDeliveryStore, resolveOrderKey, mapDeliveryPhaseToTripStatus, ordersShareIdentity } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { useProximityCheck, formatTripDistanceKm } from '@/modules/DeliveryV2/hooks/useProximityCheck';
 import { useOrderManager } from '@/modules/DeliveryV2/hooks/useOrderManager';
 import { NewOrderModal } from '@/modules/DeliveryV2/components/modals/NewOrderModal';
@@ -140,8 +140,58 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   const companyName = useCompanyName();
   const { items: broadcastItems, unreadCount: notificationUnreadCount, markAsRead: markBroadcastAsRead, dismissAll: dismissAllBroadcast } = useNotificationInbox("delivery", { limit: 20 });
 
-  /** True while an accept request is in flight, so the card cannot be double-tapped. */
-  const [isAcceptingOffer, setIsAcceptingOffer] = useState(false);
+  /*
+   * Accept / pass for the incoming-offer card. Refs rather than state, so a
+   * second slide or tap in the same tick already sees the first one.
+   */
+  const acceptingOfferRef = useRef(false);
+  const passingOfferRef = useRef(false);
+
+  const handleAcceptOffer = async () => {
+    const offered = currentOffer;
+    if (!offered || acceptingOfferRef.current) return;
+    acceptingOfferRef.current = true;
+    // Stop the ringtone immediately, but do NOT blocklist the order yet:
+    // clearNewOrder marks it processed, and a failed accept would then
+    // make it impossible to receive this order again.
+    dismissNewOrder();
+    try {
+      await acceptOrder(offered);
+      const accepted = (useDeliveryStore.getState().acceptedOrders || []).some((order) =>
+        ordersShareIdentity(order, offered),
+      );
+      // acceptOrder has already told the rider why. Failing here resets the
+      // slider so they can try again - it used to stay on "Order Accepted"
+      // with the order not accepted and no way to retry.
+      if (!accepted) throw new Error('Order was not accepted');
+      // Accepted for real — now it may be retired from the offer feed.
+      clearNewOrder(offered);
+    } finally {
+      acceptingOfferRef.current = false;
+    }
+  };
+
+  const handlePassOffer = async () => {
+    const offered = currentOffer;
+    const orderId = resolveOrderKey(offered);
+    if (!orderId || passingOfferRef.current) return;
+    passingOfferRef.current = true;
+    // Silence at once; the decline below is a network call.
+    dismissNewOrder();
+    try {
+      // Decline on the server as well (the Orders tab already does). Clearing
+      // it only on this device left the offer open in the backend, so the next
+      // sync put the same card straight back and "Pass" seemed to do nothing.
+      await deliveryAPI.rejectOrder(orderId);
+    } catch (error) {
+      // Already taken or expired on the server: it is gone either way.
+      console.warn('[DeliveryHome] pass failed:', error?.message || error);
+    } finally {
+      clearNewOrder(offered);
+      passingOfferRef.current = false;
+    }
+  };
+
   const [cashLimitNotice, setCashLimitNotice] = useState(null);
   const [currentTab, setCurrentTab] = useState(tab);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -1086,25 +1136,8 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
           /* Minimise only hides the card — the offer must stay claimable. */
           onMinimize={() => dismissNewOrder()}
           /* Reject is a real decline, so this one blocklists the order. */
-          onReject={() => clearNewOrder(currentOffer)}
-          onAccept={async () => {
-            const offered = currentOffer;
-            if (isAcceptingOffer) return; // guard against a double tap
-            setIsAcceptingOffer(true);
-            // Stop the ringtone immediately, but do NOT blocklist the order yet:
-            // clearNewOrder marks it processed, and a failed accept would then
-            // make it impossible to receive this order again.
-            dismissNewOrder();
-            try {
-              await acceptOrder(offered);
-              // Accepted for real — now it may be retired from the offer feed.
-              clearNewOrder(offered);
-            } catch (error) {
-              toast.error(error?.message || 'Could not accept this order. Please try again.');
-            } finally {
-              setIsAcceptingOffer(false);
-            }
-          }}
+          onReject={handlePassOffer}
+          onAccept={handleAcceptOffer}
         />
       )}
 
