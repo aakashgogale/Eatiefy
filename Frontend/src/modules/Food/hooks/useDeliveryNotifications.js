@@ -25,6 +25,11 @@ import {
   getNotificationIcon,
   stopActivePushPlayback,
 } from '@food/utils/firebaseMessaging';
+import {
+  DELIVERY_HANDLED_OFFER_TTL_MS,
+  markDeliveryOffersHandled,
+  clearDeliveryHandledOffers,
+} from '@food/utils/deliveryAlertSession';
 import { toast } from 'sonner';
 
 const shouldLogDeliverySocket = () => {
@@ -149,7 +154,12 @@ const buildDeliveryOrderNotification = (orderData = {}) => {
   };
 }
 
-const triggerWebViewNativeNotification = async (orderData = {}) => {
+/**
+ * `isCurrent` is checked before each handler is tried: when the first name is
+ * missing in the app shell, a stop (accept, pass, mute) can land while the next
+ * one is still pending, and that fallback must not start the ringtone again.
+ */
+const triggerWebViewNativeNotification = async (orderData = {}, isCurrent = () => true) => {
   if (typeof window === 'undefined') return false;
 
   const bridgePayload = {
@@ -172,6 +182,7 @@ const triggerWebViewNativeNotification = async (orderData = {}) => {
       ];
 
       for (const handlerName of handlerNames) {
+        if (!isCurrent()) return false;
         try {
           await window.flutter_inappwebview.callHandler(handlerName, bridgePayload);
           return true;
@@ -191,18 +202,26 @@ const triggerWebViewNativeNotification = async (orderData = {}) => {
  * Stops the ringtone the app shell started through the bridge above. Without
  * it, muting, accepting or passing silenced only the web copy while the native
  * one kept ringing - and un-muting then started another on top of it.
- * Sound only (the restaurant app's stop handlers): the offer's notification
- * stays in the tray, since the ring also stops on its 10s limit while the
- * offer is still open.
+ *
+ * By default this is sound only (the restaurant app's stop handlers): the
+ * offer's notification stays in the tray, since a mute or minimise silences an
+ * offer that is still open. `dismiss` is for an offer that
+ * is over (accepted, passed, taken, expired) and also clears its notification:
+ * a notification's own sound plays until that notification is cancelled, so
+ * stopping the ringtone alone could leave the tray alert ringing after an
+ * accept. Same handler the restaurant app already calls on every stop.
  */
-const stopWebViewNativeRingtone = async () => {
+const stopWebViewNativeRingtone = async ({ dismiss = false } = {}) => {
   if (typeof window === 'undefined') return;
   try {
     if (
       window.flutter_inappwebview &&
       typeof window.flutter_inappwebview.callHandler === 'function'
     ) {
-      for (const handlerName of ['stopNotificationSound', 'stopOrderRingtone']) {
+      const handlerNames = dismiss
+        ? ['stopNotificationSound', 'stopOrderRingtone', 'dismissNotification']
+        : ['stopNotificationSound', 'stopOrderRingtone'];
+      for (const handlerName of handlerNames) {
         try {
           await window.flutter_inappwebview.callHandler(handlerName, {});
         } catch {
@@ -244,7 +263,8 @@ export const useDeliveryNotifications = () => {
    * legitimately re-dispatched order through instead of silently dropping it.
    */
   const processedOrderIdsRef = useRef(new Map());
-  const PROCESSED_ORDER_TTL_MS = 15 * 60 * 1000;
+  // Same window the push path uses to refuse ringing for a handled offer.
+  const PROCESSED_ORDER_TTL_MS = DELIVERY_HANDLED_OFFER_TTL_MS;
   const mutedOrderIdsRef = useRef((() => {
     const ids = new Set();
     if (typeof window !== 'undefined') {
@@ -276,7 +296,9 @@ export const useDeliveryNotifications = () => {
   const [adminNotification, setAdminNotification] = useState(null);
   const joinedDeliveryRoomRef = useRef(null);
   const ALERT_LOOP_INTERVAL_MS = 1000;
-  const ALERT_LOOP_MAX_MS = 10000; // 10 seconds max ring time per request as requested
+  // Longest a heads-up that is not an offer (order ready) may ring. An offer
+  // rings until it is handled or its window closes - see startAlertLoop.
+  const ALERT_LOOP_MAX_MS = 10000;
   const ALERT_DEDUPE_MS = 15000;
   const BROWSER_NOTIFICATION_DEDUPE_MS = 20000;
   const NOTIFICATION_PERMISSION_ASKED_KEY = 'delivery_notification_permission_asked';
@@ -418,6 +440,8 @@ export const useDeliveryNotifications = () => {
     ].filter(Boolean);
     const now = Date.now();
     ids.forEach((id) => processedOrderIdsRef.current.set(String(id).trim(), now));
+    // A push for this offer that lands after this point must not ring.
+    markDeliveryOffersHandled(ids);
   }, []);
 
   const shouldProcessOrderAlert = (orderData = {}) => {
@@ -447,7 +471,21 @@ export const useDeliveryNotifications = () => {
     }
   }, []);
 
-  const stopAlertLoop = useCallback(() => {
+  /**
+   * Stops the offer ringtone.
+   *
+   * With no options, the push's own copy and the app shell's native ringtone
+   * are stopped only when this app was the one ringing - this also runs when
+   * an offer's window closes and on idle expiry sweeps.
+   *
+   * `everywhere` is for a rider's own action on an offer (accept, pass, mute,
+   * minimise): it stops those other copies whether or not the in-app alert is
+   * still flagged. The flag clears whenever the in-app ring ends, and a push or
+   * native ring still playing after that - or one for an offer shown without
+   * ringing - used to carry on through the accept. `dismiss` marks the offer as
+   * over and also clears its native notification.
+   */
+  const stopAlertLoop = useCallback(({ everywhere = false, dismiss = false } = {}) => {
     clearAlertLoopTimer();
     alertLoopStartedAtRef.current = 0;
     alertGenerationRef.current += 1;
@@ -460,20 +498,42 @@ export const useDeliveryNotifications = () => {
       } catch (_) {}
     }
 
-    // Every other copy of this offer's ringtone goes quiet with it: the push's
-    // own copy and the app shell's native ringtone. Only when this app was
-    // actually ringing - this also runs on an idle expiry sweep every 2s.
-    if (alertActiveRef.current) {
-      alertActiveRef.current = false;
-      if (typeof window !== 'undefined') window.__deliveryOrderAlertActive = false;
-      try {
-        stopActivePushPlayback();
-      } catch (_) {}
-      void stopWebViewNativeRingtone();
-    }
+    const wasRinging = alertActiveRef.current;
+    alertActiveRef.current = false;
+    if (typeof window !== 'undefined') window.__deliveryOrderAlertActive = false;
+    if (!wasRinging && !everywhere && !dismiss) return;
+
+    try {
+      stopActivePushPlayback();
+    } catch (_) {}
+    void stopWebViewNativeRingtone({ dismiss });
   }, [clearAlertLoopTimer]);
 
-  const startAlertLoop = useCallback((playSoundFn, orderData) => {
+  /** A rider's own action on an offer: silence every copy of the ringtone. */
+  const silenceOrderAlert = useCallback(() => {
+    stopAlertLoop({ everywhere: true });
+  }, [stopAlertLoop]);
+
+  /** The offer is over (accepted, passed, taken, expired): silence it and clear its notification. */
+  const endOrderAlert = useCallback(() => {
+    stopAlertLoop({ everywhere: true, dismiss: true });
+  }, [stopAlertLoop]);
+
+  /**
+   * Keeps a ring going and decides when it ends.
+   *
+   * An offer rings for as long as the rider can still take it, like the
+   * restaurant's order alert: until they accept, pass, mute or minimise it
+   * (those stop it directly), another rider takes it, or the window the backend
+   * gave it closes. It used to stop after a fixed 10 seconds, so a rider who did
+   * not look at the phone at once missed a request that was still open.
+   * `whileOfferPending: false` is for a ring that is not about an offer (order
+   * ready); that one ends after ALERT_LOOP_MAX_MS.
+   *
+   * Each tick also restarts the track if something paused it while the ring is
+   * still wanted: a call or focus loss, or the first-tap audio unlock.
+   */
+  const startAlertLoop = useCallback((playSoundFn, orderData, { whileOfferPending = true } = {}) => {
     clearAlertLoopTimer();
     const targetOrder = orderData || activeOrderRef.current;
     if (!targetOrder || isOrderAlertMuted(targetOrder)) return;
@@ -481,12 +541,23 @@ export const useDeliveryNotifications = () => {
     alertLoopStartedAtRef.current = Date.now();
 
     alertLoopTimerRef.current = setInterval(() => {
-      const elapsed = Date.now() - alertLoopStartedAtRef.current;
-      if (elapsed >= 10000 || !activeOrderRef.current) {
+      const offer = activeOrderRef.current;
+      const finished = whileOfferPending
+        ? !offer || !isOfferStillValid(offer) || isOrderAlertMuted(offer)
+        : Date.now() - alertLoopStartedAtRef.current >= ALERT_LOOP_MAX_MS;
+      if (finished) {
         stopAlertLoop();
         return;
       }
-    }, 1000);
+
+      const audio = audioRef.current;
+      if (alertActiveRef.current && audio && audio.paused) {
+        audio.loop = true;
+        const resumed = audio.play();
+        // Still blocked (no tap yet): try again next tick, without a fallback beep.
+        if (resumed && typeof resumed.catch === 'function') resumed.catch(() => {});
+      }
+    }, ALERT_LOOP_INTERVAL_MS);
   }, [clearAlertLoopTimer, isOrderAlertMuted, stopAlertLoop]);
 
 
@@ -554,7 +625,10 @@ export const useDeliveryNotifications = () => {
     } catch (_) {}
 
     // Native bridge must not block the first web ring
-    void triggerWebViewNativeNotification(orderData).catch(() => {});
+    void triggerWebViewNativeNotification(
+      orderData,
+      () => generation === alertGenerationRef.current,
+    ).catch(() => {});
 
     try {
       if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
@@ -610,7 +684,7 @@ export const useDeliveryNotifications = () => {
     }
   }, [isOrderAlertMuted, playSynthDeliveryBeep]);
 
-  const triggerOrderAlertFor10Sec = useCallback((orderData) => {
+  const triggerOrderAlert = useCallback((orderData) => {
     const target = orderData || activeOrderRef.current || newOrder;
     if (!target) return;
     if (isOrderAlertMuted(target)) return;
@@ -644,17 +718,17 @@ export const useDeliveryNotifications = () => {
       setMuteUiTick((tick) => tick + 1);
 
       if (muted) {
-        stopAlertLoop();
+        silenceOrderAlert();
         return;
       }
 
       const targetOrder = orderData || activeOrderRef.current || newOrder;
       if (targetOrder) {
         activeOrderRef.current = targetOrder;
-        triggerOrderAlertFor10Sec(targetOrder);
+        triggerOrderAlert(targetOrder);
       }
     },
-    [saveMutedOrderIds, stopAlertLoop, triggerOrderAlertFor10Sec, newOrder],
+    [saveMutedOrderIds, silenceOrderAlert, triggerOrderAlert, newOrder],
   );
 
   const toggleOrderAlertMuted = useCallback(
@@ -1053,6 +1127,9 @@ export const useDeliveryNotifications = () => {
       }
 
       playNotificationSound(activeOrderRef.current);
+      // Through the same loop as the first ring, so it ends with the offer: this
+      // used to loop with nothing watching it until the rider came back.
+      startAlertLoop(playNotificationSound, activeOrderRef.current);
       showBackgroundOrderNotification(activeOrderRef.current);
     };
 
@@ -1060,7 +1137,7 @@ export const useDeliveryNotifications = () => {
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [playNotificationSound, showBackgroundOrderNotification, stopAlertLoop]);
+  }, [playNotificationSound, showBackgroundOrderNotification, startAlertLoop, stopAlertLoop]);
 
   // Track user interaction for autoplay policy (one-time audio unlock)
   useEffect(() => {
@@ -1478,7 +1555,7 @@ export const useDeliveryNotifications = () => {
         markOrderIdsProcessed(mapped);
         clearOrderMuteState(mapped);
         useDeliveryStore.getState().acceptOrderToQueue(mapped);
-        stopAlertLoop();
+        endOrderAlert();
         activeOrderRef.current = null;
         setNewOrder(null);
       }
@@ -1505,7 +1582,16 @@ export const useDeliveryNotifications = () => {
         orderId: orderData?.orderId || orderData?.orderMongoId || orderData?._id,
       });
       setOrderReady(orderData);
+      /*
+       * A heads-up for an order the rider already holds. It used to call
+       * playNotificationSound alone, which loops the ringtone and sets no
+       * limit - with no offer card on screen, nothing ever stopped it. Now it
+       * ends after ALERT_LOOP_MAX_MS, and never cuts into an offer's ring that
+       * is already playing.
+       */
+      if (alertActiveRef.current) return;
       playNotificationSound(orderData);
+      startAlertLoop(playNotificationSound, orderData, { whileOfferPending: false });
     });
 
     socketRef.current.on('order_status_update', (statusData) => {
@@ -1584,12 +1670,12 @@ export const useDeliveryNotifications = () => {
           playNotificationSound(nextOffer);
           startAlertLoop(playNotificationSound);
         } else {
-          stopAlertLoop();
+          endOrderAlert();
         }
         return;
       }
 
-      stopAlertLoop();
+      endOrderAlert();
       activeOrderRef.current = null;
       setNewOrder(null);
     };
@@ -1695,7 +1781,7 @@ export const useDeliveryNotifications = () => {
         socketRef.current = null;
       }
     };
-  }, [deliveryPartnerId, handleIncomingOrderAlert, isEventForCurrentAccount, isOrderAlertMuted, isOrderInAcceptedQueue, isProcessedOrder, joinDeliveryRoomIfPossible, markOrderIdsProcessed, clearOrderMuteState, playNotificationSound, recoverDeliveryState, showBackgroundOrderNotification, startAlertLoop, stopAlertLoop]);
+  }, [deliveryPartnerId, handleIncomingOrderAlert, isEventForCurrentAccount, isOrderAlertMuted, isOrderInAcceptedQueue, isProcessedOrder, joinDeliveryRoomIfPossible, markOrderIdsProcessed, clearOrderMuteState, playNotificationSound, recoverDeliveryState, showBackgroundOrderNotification, startAlertLoop, stopAlertLoop, endOrderAlert]);
 
   /**
    * Expire offers locally, on a ticker, between server events.
@@ -1762,7 +1848,7 @@ export const useDeliveryNotifications = () => {
   useEffect(() => {
     const handleSessionReset = () => {
       debugLog('Delivery session reset - clearing local rider state');
-      stopAlertLoop();
+      endOrderAlert();
       activeOrderRef.current = null;
       setNewOrder(null);
       setOrderReady(null);
@@ -1770,6 +1856,7 @@ export const useDeliveryNotifications = () => {
       setClaimedOrderId(null);
       setAdminNotification(null);
       processedOrderIdsRef.current.clear();
+      clearDeliveryHandledOffers();
       mutedOrderIdsRef.current.clear();
       lastAlertAtByOrderRef.current.clear();
       lastBrowserNotificationAtByOrderRef.current.clear();
@@ -1797,7 +1884,7 @@ export const useDeliveryNotifications = () => {
 
     window.addEventListener(DELIVERY_SESSION_RESET_EVENT, handleSessionReset);
     return () => window.removeEventListener(DELIVERY_SESSION_RESET_EVENT, handleSessionReset);
-  }, [stopAlertLoop]);
+  }, [endOrderAlert]);
 
   /**
    * A change of authenticated rider is itself a reset.
@@ -1816,10 +1903,11 @@ export const useDeliveryNotifications = () => {
       previous,
       next: deliveryPartnerId,
     });
-    stopAlertLoop();
+    endOrderAlert();
     activeOrderRef.current = null;
     setNewOrder(null);
     processedOrderIdsRef.current.clear();
+    clearDeliveryHandledOffers();
     mutedOrderIdsRef.current.clear();
     lastAlertAtByOrderRef.current.clear();
     lastBrowserNotificationAtByOrderRef.current.clear();
@@ -1827,7 +1915,7 @@ export const useDeliveryNotifications = () => {
     try {
       useDeliveryStore.getState().resetAccountState();
     } catch (_) {}
-  }, [deliveryPartnerId, stopAlertLoop]);
+  }, [deliveryPartnerId, endOrderAlert]);
 
   useEffect(() => {
     if (!deliveryPartnerId) {
@@ -1855,11 +1943,12 @@ export const useDeliveryNotifications = () => {
         markOrderIdsProcessed(target);
         clearOrderMuteState(target);
       } else {
-        processedOrderIdsRef.current.set(String(target).trim(), Date.now());
+        markOrderIdsProcessed({ orderId: target });
         clearOrderMuteState(target);
       }
     }
-    stopAlertLoop();
+    // Accepted, passed or taken: every copy of its ringtone ends here.
+    endOrderAlert();
     activeOrderRef.current = null;
     setNewOrder(null);
     const removeId =
@@ -1870,7 +1959,7 @@ export const useDeliveryNotifications = () => {
       useDeliveryStore.getState().removeNewOrder(removeId);
     }
     stopAlertsWhenQueueEmpty();
-  }, [clearOrderMuteState, markOrderIdsProcessed, newOrder, stopAlertLoop, stopAlertsWhenQueueEmpty]);
+  }, [clearOrderMuteState, endOrderAlert, markOrderIdsProcessed, newOrder, stopAlertsWhenQueueEmpty]);
 
   /**
    * Hide the offer card WITHOUT marking the order processed.
@@ -1882,22 +1971,38 @@ export const useDeliveryNotifications = () => {
    * not actually declined the order.
    */
   const dismissNewOrder = useCallback(() => {
-    stopAlertLoop();
+    // The offer is still open (minimised, or an accept/pass in flight), so its
+    // notification stays - but the rider has acted, so nothing keeps ringing.
+    silenceOrderAlert();
     activeOrderRef.current = null;
     setNewOrder(null);
     stopAlertsWhenQueueEmpty();
-  }, [stopAlertLoop, stopAlertsWhenQueueEmpty]);
+  }, [silenceOrderAlert, stopAlertsWhenQueueEmpty]);
+
+  /*
+   * Going offline silences a ringing offer, the way minimising does. The offer
+   * stays on screen until it is taken or expires, but now that an offer rings
+   * for its whole window, a rider who has just switched off must not be rung at
+   * for the rest of it.
+   */
+  useEffect(
+    () =>
+      useDeliveryStore.subscribe((state, previous) => {
+        if (previous?.isOnline && !state.isOnline) dismissNewOrder();
+      }),
+    [dismissNewOrder],
+  );
 
   /** Drop every pending offer (used when the rider goes offline or clears the feed). */
   const clearAllOffers = useCallback(() => {
-    stopAlertLoop();
+    endOrderAlert();
     activeOrderRef.current = null;
     setNewOrder(null);
     try {
       useDeliveryStore.getState().setNewOrders([]);
     } catch (_) {}
     stopAlertsWhenQueueEmpty();
-  }, [stopAlertLoop, stopAlertsWhenQueueEmpty]);
+  }, [endOrderAlert, stopAlertsWhenQueueEmpty]);
 
   const clearClaimedOrderId = () => setClaimedOrderId(null);
 
@@ -1945,8 +2050,9 @@ export const useDeliveryNotifications = () => {
     clearClaimedOrderId,
     isConnected,
     playNotificationSound,
-    stopSound: stopAlertLoop,
-    triggerOrderAlertFor10Sec,
+    // Called by the Orders tab on accept / pass: a rider action, so it silences every copy.
+    stopSound: silenceOrderAlert,
+    triggerOrderAlert,
     isOrderAlertMuted,
     setOrderAlertMuted,
     toggleOrderAlertMuted,

@@ -30,7 +30,7 @@ export default function OrdersV2() {
   const setFocusedOrder = useDeliveryStore((state) => state.setFocusedOrder);
 
   const { acceptOrder } = useOrderManager();
-  const { isOrderAlertMuted, toggleOrderAlertMuted, clearNewOrder, stopSound, muteUiTick, triggerOrderAlertFor10Sec } = useDeliveryNotificationsContext();
+  const { isOrderAlertMuted, toggleOrderAlertMuted, clearNewOrder, stopSound, muteUiTick, triggerOrderAlert } = useDeliveryNotificationsContext();
   const [activeTab, setActiveTab] = useState('new');
   const [expandedOrderId, setExpandedOrderId] = useState(null);
   const prevNewCountRef = useRef(visibleNewOrders.length);
@@ -98,12 +98,12 @@ export default function OrdersV2() {
     void hydrateOrders();
   }, [hydrateOrders]);
 
-  // When opening Orders tab, if unaccepted new orders exist and are unmuted, ring for 10s
+  // When opening Orders tab, if unaccepted new orders exist and are unmuted, ring until one is handled
   useEffect(() => {
     if (visibleNewOrders.length > 0) {
       const firstOrder = visibleNewOrders[0];
       if (!isOrderAlertMuted(firstOrder)) {
-        triggerOrderAlertFor10Sec?.(firstOrder);
+        triggerOrderAlert?.(firstOrder);
       }
     }
   }, []);
@@ -114,11 +114,11 @@ export default function OrdersV2() {
       setActiveTab('new');
       const latestOrder = visibleNewOrders[visibleNewOrders.length - 1];
       if (latestOrder && !isOrderAlertMuted(latestOrder)) {
-        triggerOrderAlertFor10Sec?.(latestOrder);
+        triggerOrderAlert?.(latestOrder);
       }
     }
     prevNewCountRef.current = visibleNewOrders.length;
-  }, [visibleNewOrders, isOrderAlertMuted, triggerOrderAlertFor10Sec]);
+  }, [visibleNewOrders, isOrderAlertMuted, triggerOrderAlert]);
 
   // Drop expanded card if the order was claimed/removed
   useEffect(() => {

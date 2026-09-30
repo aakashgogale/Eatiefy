@@ -1,6 +1,7 @@
 import { toast } from "sonner";
 import { getCachedSettings, getModuleFaviconUrl } from "@food/utils/businessSettings";
 import { getRestaurantPushRingRefusal, logRefusedRing } from "@food/utils/restaurantAlertSession";
+import { getDeliveryPushRingRefusal } from "@food/utils/deliveryAlertSession";
 import { showNotificationToast } from "@/shared/utils/customToasts";
 import { userAPI, restaurantAPI, deliveryAPI, adminAPI } from "@food/api";
 import { initializeApp, getApp, getApps } from "firebase/app";
@@ -116,6 +117,16 @@ function shouldPlayAlertSoundForPush(payload = {}) {
       logRefusedRing("push", refusal, {
         orderId: data.orderMongoId || data.orderId || null,
         restaurantId: data.restaurantId || null,
+      });
+      return false;
+    }
+  }
+
+  if (moduleName === "delivery") {
+    const refusal = getDeliveryPushRingRefusal(data);
+    if (refusal) {
+      pushDebugLog(PUSH_DEBUG_PREFIX, `Skipping delivery push sound (${refusal})`, {
+        orderId: data.orderMongoId || data.orderId || null,
       });
       return false;
     }
