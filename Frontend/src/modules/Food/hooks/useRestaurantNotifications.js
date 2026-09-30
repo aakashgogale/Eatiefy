@@ -205,7 +205,6 @@ const announcedOrderIds = new Set();
  */
 let alertAudioUnlocked = false;
 let alertAudioUnlockAttached = false;
-let alertAudioUnlockInFlight = false;
 
 // Socket and Polling references
 let globalSocket = null;
@@ -516,10 +515,25 @@ if (typeof window !== 'undefined') {
   } catch (_) {}
 }
 
+/*
+ * iOS 17+ (Safari and WKWebView) mutes page audio with the ringer switch. While
+ * an order is ringing the page claims a "playback" session, like a media app,
+ * so a phone left on silent still rings; it goes back to "auto" on stop.
+ * Browsers without the Audio Session API are unaffected.
+ */
+const setAlertAudioSession = (type) => {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.audioSession) {
+      navigator.audioSession.type = type;
+    }
+  } catch (_) {}
+};
+
 const stopGlobalAlertLoop = () => {
   // Invalidate any playback still in flight before touching the elements.
   alertPlaybackGeneration += 1;
   if (typeof window !== 'undefined') window.__restaurantOrderAlertActive = false;
+  setAlertAudioSession('auto');
 
   if (globalAlertLoopTimer) {
     clearInterval(globalAlertLoopTimer);
@@ -600,6 +614,7 @@ const playGlobalNotificationSound = async (orderData = {}, { loop = false } = {}
       return;
     }
     globalAudio.loop = Boolean(loop);
+    setAlertAudioSession('playback');
 
     const started = globalAudio.play();
     if (started && typeof started.then === 'function') {
@@ -930,6 +945,30 @@ const showBackgroundOrderNotification = async (orderData) => {
   }
 };
 
+/*
+ * Events that count as a user gesture for media on every mobile browser. iOS
+ * does not accept pointerdown/touchstart, and it only honours a play() made
+ * synchronously inside the handler - never one made after an `await`.
+ */
+const ALERT_UNLOCK_EVENTS = ['click', 'touchend', 'pointerup', 'keydown'];
+/* After unlocking, wait for the rest of the tap (a mute/accept/reject click) to land. */
+const RING_RESUME_AFTER_UNLOCK_MS = 300;
+
+const markAlertAudioUnlocked = () => {
+  if (alertAudioUnlocked) return;
+  alertAudioUnlocked = true;
+  detachAlertAudioUnlock();
+
+  // An announced order that could not sound before the first tap rings now,
+  // through the same gate as every other ring - unless that same tap muted,
+  // accepted or rejected it.
+  setTimeout(() => {
+    if (globalActiveOrder && !globalIsMuted && !isOrderMuted(globalActiveOrder)) {
+      startGlobalAlertLoop(globalActiveOrder);
+    }
+  }, RING_RESUME_AFTER_UNLOCK_MS);
+};
+
 /**
  * Unlocks audio on the first user gesture - silently.
  *
@@ -937,71 +976,65 @@ const showBackgroundOrderNotification = async (orderData) => {
  * the browser needs to allow later playback; the ringtone is never heard here.
  * A ring already sounding is left alone, and a ring that starts meanwhile
  * un-mutes the element (playGlobalNotificationSound), which this respects.
+ *
+ * play() is called synchronously in the gesture. This used to await
+ * AudioContext.resume() first and ignore every other event while that was
+ * pending: on iPhone the pointerdown attempt waited for a gesture that never
+ * counted, the real tap was ignored, and the ringtone never played at all.
  */
-const unlockAlertAudio = async () => {
-  if (typeof window === 'undefined' || alertAudioUnlocked || alertAudioUnlockInFlight) return;
-  alertAudioUnlockInFlight = true;
+const unlockAlertAudio = () => {
+  if (typeof window === 'undefined' || alertAudioUnlocked) return;
   window.__userHasInteracted = true;
+
+  const audio = ensureGlobalAlertAudio();
+  if (!audio) return;
+  // Already sounding, so already allowed to play.
+  if (!audio.paused) {
+    markAlertAudioUnlocked();
+    return;
+  }
+
+  let started;
   try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (AudioCtx) {
-      try {
-        const ctx = new AudioCtx();
-        if (ctx.state === 'suspended') await ctx.resume();
-        const buffer = ctx.createBuffer(1, 1, 22050);
-        const source = ctx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(ctx.destination);
-        source.start(0);
-      } catch (_) {}
-    }
-
-    const audio = ensureGlobalAlertAudio();
-    if (audio && audio.paused) {
-      audio.muted = true;
-      try {
-        await audio.play();
-      } finally {
-        // Still muted = nothing claimed it for a real ring: put it back silently.
-        if (audio.muted) {
-          try {
-            audio.pause();
-            audio.currentTime = 0;
-          } catch (_) {}
-          audio.muted = false;
-        }
-      }
-    }
-    alertAudioUnlocked = true;
-    detachAlertAudioUnlock();
+    audio.muted = true;
+    started = audio.play();
   } catch (_) {
-    // Not unlocked (the browser wanted another gesture): the next one retries.
-  } finally {
-    alertAudioUnlockInFlight = false;
+    audio.muted = false;
+    return;
   }
 
-  // An announced order that could not sound before the first tap rings now,
-  // through the same gate as every other ring.
-  if (alertAudioUnlocked && globalActiveOrder && !globalIsMuted && !isOrderMuted(globalActiveOrder)) {
-    startGlobalAlertLoop(globalActiveOrder);
-  }
+  Promise.resolve(started)
+    .then(() => {
+      // Still muted = nothing claimed it for a real ring: put it back silently.
+      if (audio.muted) {
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+        } catch (_) {}
+        audio.muted = false;
+      }
+      markAlertAudioUnlocked();
+    })
+    .catch(() => {
+      // Not allowed yet, or interrupted by a stop: the next gesture retries.
+      if (audio.muted) audio.muted = false;
+    });
 };
 
 const attachAlertAudioUnlock = () => {
   if (typeof window === 'undefined' || alertAudioUnlocked || alertAudioUnlockAttached) return;
   alertAudioUnlockAttached = true;
-  window.addEventListener('pointerdown', unlockAlertAudio, { passive: true });
-  document.addEventListener('touchstart', unlockAlertAudio, { passive: true });
-  document.addEventListener('click', unlockAlertAudio);
-  document.addEventListener('keydown', unlockAlertAudio);
+  // Capture phase on window: a handler that stops propagation cannot hide the gesture.
+  ALERT_UNLOCK_EVENTS.forEach((type) =>
+    window.addEventListener(type, unlockAlertAudio, { capture: true, passive: true }),
+  );
 };
 
 function detachAlertAudioUnlock() {
   if (typeof window === 'undefined') return;
-  window.removeEventListener('pointerdown', unlockAlertAudio);
-  document.removeEventListener('touchstart', unlockAlertAudio);
-  document.removeEventListener('click', unlockAlertAudio);
-  document.removeEventListener('keydown', unlockAlertAudio);
+  ALERT_UNLOCK_EVENTS.forEach((type) =>
+    window.removeEventListener(type, unlockAlertAudio, { capture: true }),
+  );
   alertAudioUnlockAttached = false;
 }
 
@@ -1059,14 +1092,17 @@ export const useRestaurantNotifications = () => {
   }, []);
 
   /*
-   * The ONLY place a ring starts: a genuine `new_order` socket event carrying a
-   * real order of the signed-in restaurant that is still awaiting its decision
-   * and arrived during this session. Anything else is refused - and logged -
-   * before it can touch the popup or the ringtone.
+   * The ONLY place a ring starts: a real order of the signed-in restaurant that
+   * is still awaiting its decision and arrived during this session. It comes
+   * from the `new_order` socket event, or from the poll when that event was
+   * missed (socket reconnecting, mobile network drop) - otherwise the popup
+   * still appeared from the poll but never rang. Both pass the same gates
+   * below, so an order that predates this session stays silent. Anything else
+   * is refused - and logged - before it can touch the popup or the ringtone.
    */
   const handleIncomingOrderAlert = useCallback((orderData, source = 'unknown') => {
-    if (source !== 'socket') {
-      logRefusedRing(source, 'rings start only from a new_order socket event', describeOrderForLog(orderData));
+    if (source !== 'socket' && source !== 'poll') {
+      logRefusedRing(source, 'rings start only from a new-order arrival (socket event or poll)', describeOrderForLog(orderData));
       return;
     }
 
@@ -1520,6 +1556,21 @@ export const useRestaurantNotifications = () => {
             updateGlobalState({ activeOrder: null });
           }
         }
+
+        // New orders whose socket event never arrived: announce them the way the
+        // socket would have (same id shape, same gates, fresh orders only).
+        pending
+          .filter((o) => !wasOrderAnnounced(o) && isFreshRestaurantOrder(o))
+          .forEach((missed) => {
+            handleIncomingOrderAlert(
+              normalizeRestaurantOrderView({
+                ...missed,
+                orderMongoId: missed.orderMongoId || missed._id,
+                orderId: missed.orderId || missed.order_id || missed._id,
+              }),
+              'poll',
+            );
+          });
       } catch (error) {
         // ignore
       }
@@ -1541,7 +1592,7 @@ export const useRestaurantNotifications = () => {
     return () => {
       // Polling remains alive globally
     };
-  }, [restaurantId]);
+  }, [restaurantId, handleIncomingOrderAlert]);
 
   // Request browser notification permission once on user interaction
   useEffect(() => {

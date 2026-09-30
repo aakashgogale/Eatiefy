@@ -11,6 +11,8 @@ import { useGenericTableManagement } from "@food/components/admin/orders/useGene
 import AdminListPagination from "@food/components/admin/AdminListPagination"
 import { TableSkeleton } from "@food/components/ui/loading-skeletons"
 import { Skeleton } from "@food/components/ui/skeleton"
+import AdminZoneSelect from "@food/components/admin/zones/AdminZoneSelect"
+import { useAdminZoneFilter } from "@food/hooks/useAdminZoneFilter"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -301,21 +303,33 @@ export default function OrderDetectDelivery() {
   })
   const [countsReady, setCountsReady] = useState(false)
   const needDetectCountsRef = useRef(true)
+  // Zone + search the cards were last counted for; any change needs fresh counts.
+  const countsScopeRef = useRef(null)
+  const { zones, zonesLoading, zoneId, setZoneId } = useAdminZoneFilter()
+  // Only the newest fetch may write state, so a quick zone/page switch cannot be
+  // overwritten by a slower earlier response.
+  const fetchSeqRef = useRef(0)
 
   const fetchOrders = async () => {
+    const seq = ++fetchSeqRef.current
+    const isLatest = () => seq === fetchSeqRef.current
     try {
       setIsLoading(true)
       setError(null)
-      const withCounts = needDetectCountsRef.current
+      const countsScope = JSON.stringify([zoneId, debouncedSearch])
+      // Checked here rather than relying on the reset effect, which runs after this fetch starts.
+      const withCounts = needDetectCountsRef.current || countsScopeRef.current !== countsScope
       const params = {
         page: currentPage,
         limit: pageSize,
+        zoneId: zoneId || undefined,
         search: debouncedSearch || undefined,
-        // Global dashboard counts — only when search changes / first load (keeps page flips fast)
+        // Dashboard counts — only when search/zone changes or first load (keeps page flips fast)
         ...(withCounts ? { includeDetectDeliveryCounts: 1 } : {}),
       }
 
       const response = await adminAPI.getOrders(params)
+      if (!isLatest()) return
 
       const payload = response?.data?.data || response?.data || {}
       const rawOrders =
@@ -348,6 +362,7 @@ export default function OrderDetectDelivery() {
           })
           setCountsReady(true)
           needDetectCountsRef.current = false
+          countsScopeRef.current = countsScope
         } else {
           setStatusStats((prev) => ({ ...prev, total: nextTotal }))
         }
@@ -360,19 +375,20 @@ export default function OrderDetectDelivery() {
       }
     } catch (error) {
       debugError("Error fetching orders:", error)
+      if (!isLatest()) return
       setError(error.response?.data?.message || "Failed to fetch orders")
       toast.error(error.response?.data?.message || "Failed to fetch orders")
       setOrders([])
       setTotalOrders(0)
     } finally {
-      setIsLoading(false)
+      if (isLatest()) setIsLoading(false)
     }
   }
 
   useEffect(() => {
     fetchOrders()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, pageSize, debouncedSearch])
+  }, [currentPage, pageSize, debouncedSearch, zoneId])
 
   const {
     searchQuery,
@@ -423,7 +439,7 @@ export default function OrderDetectDelivery() {
     needDetectCountsRef.current = true
     setCountsReady(false)
     setCurrentPage(1)
-  }, [debouncedSearch])
+  }, [debouncedSearch, zoneId])
 
   // Statistics — from ALL matching orders (API), not current page
   const stats = useMemo(
@@ -508,6 +524,14 @@ export default function OrderDetectDelivery() {
         onExport={handleExport}
         onSettingsClick={() => setIsSettingsOpen(true)}
         isLoading={isLoading}
+        extraControls={
+          <AdminZoneSelect
+            value={zoneId}
+            onChange={setZoneId}
+            zones={zones}
+            loading={zonesLoading}
+          />
+        }
       />
 
       {/* Statistics Cards */}

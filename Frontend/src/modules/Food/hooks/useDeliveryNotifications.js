@@ -23,6 +23,7 @@ import {
   isNativeAppWebView,
   shouldSkipDuplicateOsNotification,
   getNotificationIcon,
+  stopActivePushPlayback,
 } from '@food/utils/firebaseMessaging';
 import { toast } from 'sonner';
 
@@ -186,6 +187,34 @@ const triggerWebViewNativeNotification = async (orderData = {}) => {
   return false;
 }
 
+/**
+ * Stops the ringtone the app shell started through the bridge above. Without
+ * it, muting, accepting or passing silenced only the web copy while the native
+ * one kept ringing - and un-muting then started another on top of it.
+ * Sound only (the restaurant app's stop handlers): the offer's notification
+ * stays in the tray, since the ring also stops on its 10s limit while the
+ * offer is still open.
+ */
+const stopWebViewNativeRingtone = async () => {
+  if (typeof window === 'undefined') return;
+  try {
+    if (
+      window.flutter_inappwebview &&
+      typeof window.flutter_inappwebview.callHandler === 'function'
+    ) {
+      for (const handlerName of ['stopNotificationSound', 'stopOrderRingtone']) {
+        try {
+          await window.flutter_inappwebview.callHandler(handlerName, {});
+        } catch {
+          // Try next handler.
+        }
+      }
+    }
+  } catch {
+    // Ignore bridge failures.
+  }
+};
+
 
 export const useDeliveryNotifications = () => {
   // CRITICAL: All hooks must be called unconditionally and in the same order every render
@@ -198,6 +227,10 @@ export const useDeliveryNotifications = () => {
   const activeOrderRef = useRef(null);
   const alertLoopTimerRef = useRef(null);
   const alertLoopStartedAtRef = useRef(0);
+  // True from the moment this app starts ringing for an offer until it stops.
+  const alertActiveRef = useRef(false);
+  // Bumped by every stop, so sound scheduled before a stop cannot start after it.
+  const alertGenerationRef = useRef(0);
   const userInteractedRef = useRef(false);
   const lastAlertAtByOrderRef = useRef(new Map());
   const lastBrowserNotificationAtByOrderRef = useRef(new Map());
@@ -417,6 +450,7 @@ export const useDeliveryNotifications = () => {
   const stopAlertLoop = useCallback(() => {
     clearAlertLoopTimer();
     alertLoopStartedAtRef.current = 0;
+    alertGenerationRef.current += 1;
 
     if (audioRef.current) {
       try {
@@ -424,6 +458,18 @@ export const useDeliveryNotifications = () => {
         audioRef.current.currentTime = 0;
         audioRef.current.loop = false;
       } catch (_) {}
+    }
+
+    // Every other copy of this offer's ringtone goes quiet with it: the push's
+    // own copy and the app shell's native ringtone. Only when this app was
+    // actually ringing - this also runs on an idle expiry sweep every 2s.
+    if (alertActiveRef.current) {
+      alertActiveRef.current = false;
+      if (typeof window !== 'undefined') window.__deliveryOrderAlertActive = false;
+      try {
+        stopActivePushPlayback();
+      } catch (_) {}
+      void stopWebViewNativeRingtone();
     }
   }, [clearAlertLoopTimer]);
 
@@ -445,7 +491,7 @@ export const useDeliveryNotifications = () => {
 
 
   
-  const playSynthDeliveryBeep = useCallback(async () => {
+  const playSynthDeliveryBeep = useCallback(async (generation = alertGenerationRef.current) => {
     if (typeof window === 'undefined') return;
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -456,8 +502,20 @@ export const useDeliveryNotifications = () => {
         window.__deliverySynthCtx = ctx;
       }
       if (ctx.state === 'suspended') {
-        await ctx.resume();
+        /*
+         * Before the rider's first tap, resume() stays pending. Every beep
+         * waiting on it then fired at once on that tap - usually the mute
+         * button - which is the "double ring when muting". Give up instead of
+         * queueing: the beep is only a fallback.
+         */
+        await Promise.race([
+          ctx.resume().catch(() => {}),
+          new Promise((resolve) => setTimeout(resolve, 300)),
+        ]);
       }
+      if (ctx.state !== 'running') return;
+      // Stopped (muted, accepted, passed) while this was starting.
+      if (generation !== alertGenerationRef.current) return;
       const now = ctx.currentTime;
       const pulses = [
         { start: 0, duration: 0.25, freq: 880 },
@@ -485,6 +543,15 @@ export const useDeliveryNotifications = () => {
     if (isOrderAlertMuted(orderData)) {
       return;
     }
+
+    const generation = alertGenerationRef.current;
+    alertActiveRef.current = true;
+    // Claims the ringtone: a push for this offer must not play its own copy.
+    if (typeof window !== 'undefined') window.__deliveryOrderAlertActive = true;
+    // ...and one that arrived first and is already playing is stopped.
+    try {
+      stopActivePushPlayback();
+    } catch (_) {}
 
     // Native bridge must not block the first web ring
     void triggerWebViewNativeNotification(orderData).catch(() => {});
@@ -527,15 +594,19 @@ export const useDeliveryNotifications = () => {
         const p = audioRef.current.play();
         if (p && typeof p.catch === 'function') {
           p.catch(async (error) => {
+            // Muted, accepted or passed while starting: pause() rejects play()
+            // with AbortError, which used to fire the beep fallback right after
+            // the rider silenced the alert.
+            if (generation !== alertGenerationRef.current || error?.name === 'AbortError') return;
             debugWarn('HTML5 Audio play failed, running WebAudio synth fallback:', error);
-            await playSynthDeliveryBeep();
+            await playSynthDeliveryBeep(generation);
           });
         }
       } else {
-        void playSynthDeliveryBeep();
+        void playSynthDeliveryBeep(generation);
       }
     } catch (error) {
-      void playSynthDeliveryBeep();
+      void playSynthDeliveryBeep(generation);
     }
   }, [isOrderAlertMuted, playSynthDeliveryBeep]);
 
@@ -1100,6 +1171,9 @@ export const useDeliveryNotifications = () => {
         audioRef.current.pause();
         audioRef.current = null;
       }
+      // Leaving the claim set would silence every later push for good.
+      alertActiveRef.current = false;
+      if (typeof window !== 'undefined') window.__deliveryOrderAlertActive = false;
     };
   }, []); // Note: This runs once on mount. To update dynamically, we'd need to listen to storage events
 

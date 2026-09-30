@@ -19,6 +19,8 @@ export default function OrdersTopbar({
   onExport,
   onSettingsClick,
   isLoading,
+  // Optional controls shown before the search box (e.g. a zone filter).
+  extraControls = null,
 }) {
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
@@ -42,7 +44,8 @@ export default function OrdersTopbar({
             </span>
           </h1>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {extraControls}
           <div className="relative flex-1 sm:flex-initial">
             <input
               type="text"

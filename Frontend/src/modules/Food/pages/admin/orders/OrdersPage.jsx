@@ -15,6 +15,8 @@ import { useOrdersManagement } from "@food/components/admin/orders/useOrdersMana
 import { Loader2 } from "lucide-react"
 import { OrdersDashboardSkeleton, TableSkeleton } from "@food/components/ui/loading-skeletons"
 import { refreshSidebarBadges } from "@food/components/admin/AdminSidebar"
+import AdminZoneSelect from "@food/components/admin/zones/AdminZoneSelect"
+import { useAdminZoneFilter } from "@food/hooks/useAdminZoneFilter"
 const alertSound = "/assets/media/alert.mp3"
 const originalSound = "/assets/media/original.mp3"
 const debugLog = (...args) => {}
@@ -71,6 +73,10 @@ export default function OrdersPage({ statusKey = "all" }) {
   const alertLoopTimerRef = useRef(null)
   const alertLoopStartedAtRef = useRef(0)
   const lastSidebarBadgeRefreshAtRef = useRef(0)
+  const { zones, zonesLoading, zoneId, setZoneId } = useAdminZoneFilter()
+  // Query of the newest fetch; a response for any other query (e.g. the zone the
+  // admin just switched away from) is dropped instead of overwriting the list.
+  const latestQueryKeyRef = useRef("")
   const ALERT_LOOP_INTERVAL_MS = 4500
   const ALERT_LOOP_MAX_MS = 120000
 
@@ -593,28 +599,33 @@ export default function OrdersPage({ statusKey = "all" }) {
 
   const fetchOrders = useCallback(async (options = {}) => {
     const { silent = false, withRingCheck = false } = options
+    const params = {
+      page: currentPage,
+      limit: pageSize,
+      status:
+        statusKey === "all"
+          ? undefined
+          : statusKey === "restaurant-cancelled"
+            ? "cancelled"
+            : statusKey,
+      cancelledBy: statusKey === "restaurant-cancelled" ? "restaurant" : undefined,
+      zoneId: zoneId || undefined,
+      search: debouncedSearch || undefined,
+      restaurantId: filters.restaurant || undefined,
+      startDate: filters.fromDate || undefined,
+      endDate: filters.toDate || undefined,
+      minAmount: filters.minAmount || undefined,
+      maxAmount: filters.maxAmount || undefined,
+    }
+    const queryKey = JSON.stringify(params)
+    latestQueryKeyRef.current = queryKey
+    const isCurrentQuery = () => latestQueryKeyRef.current === queryKey
 
     try {
       if (!silent) setIsLoading(true)
-      const params = {
-        page: currentPage,
-        limit: pageSize,
-        status:
-          statusKey === "all"
-            ? undefined
-            : statusKey === "restaurant-cancelled"
-              ? "cancelled"
-              : statusKey,
-        cancelledBy: statusKey === "restaurant-cancelled" ? "restaurant" : undefined,
-        search: debouncedSearch || undefined,
-        restaurantId: filters.restaurant || undefined,
-        startDate: filters.fromDate || undefined,
-        endDate: filters.toDate || undefined,
-        minAmount: filters.minAmount || undefined,
-        maxAmount: filters.maxAmount || undefined,
-      }
 
       const response = await adminAPI.getOrders(params)
+      if (!isCurrentQuery()) return
 
       const payload = response?.data?.data || response?.data || {}
       const rawOrders =
@@ -633,7 +644,9 @@ export default function OrdersPage({ statusKey = "all" }) {
             .filter(Boolean),
         )
 
-        if (statusKey === "all") {
+        // A zone-filtered list does not show other zones' orders, so it cannot tell
+        // whether the alert (which rings for every zone) is still needed.
+        if (statusKey === "all" && !zoneId) {
           // If no order is still pending (created), there is nothing to alert about —
           // stop any ongoing alert (e.g. after restaurant/admin accepted the order).
           const hasPendingOrder = nextOrders.some((order) => {
@@ -685,6 +698,7 @@ export default function OrdersPage({ statusKey = "all" }) {
       }
     } catch (error) {
       debugError("Error fetching orders:", error)
+      if (!isCurrentQuery()) return
       const status = Number(error?.response?.status || 0)
       if (!silent && status !== 429) {
         toast.error(error.response?.data?.message || "Failed to fetch orders")
@@ -694,9 +708,9 @@ export default function OrdersPage({ statusKey = "all" }) {
         setTotalOrders(0)
       }
     } finally {
-      if (!silent) setIsLoading(false)
+      if (!silent && isCurrentQuery()) setIsLoading(false)
     }
-  }, [statusKey, currentPage, pageSize, debouncedSearch, filters, playDefaultRing, showBrowserNotification, startAlertLoop, stopOrderAlert])
+  }, [statusKey, currentPage, pageSize, zoneId, debouncedSearch, filters, playDefaultRing, showBrowserNotification, startAlertLoop, stopOrderAlert])
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -719,6 +733,14 @@ export default function OrdersPage({ statusKey = "all" }) {
     isFirstLoadRef.current = true
     seenOrderIdsRef.current = new Set()
   }, [statusKey])
+
+  // A new zone is a different list: start from page 1, and forget the order ids
+  // seen in the previous zone so they are not mistaken for new orders.
+  useEffect(() => {
+    setCurrentPage(1)
+    isFirstLoadRef.current = true
+    seenOrderIdsRef.current = new Set()
+  }, [zoneId])
 
   useEffect(() => {
     fetchOrders({ silent: false, withRingCheck: false })
@@ -1105,6 +1127,14 @@ export default function OrdersPage({ statusKey = "all" }) {
         onExport={handleExport}
         onSettingsClick={() => setIsSettingsOpen(true)}
         isLoading={isLoading}
+        extraControls={
+          <AdminZoneSelect
+            value={zoneId}
+            onChange={setZoneId}
+            zones={zones}
+            loading={zonesLoading}
+          />
+        }
       />
       {isLoading ? (
         <TableSkeleton rows={8} columns={7} />

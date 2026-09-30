@@ -73,6 +73,32 @@ const ORDER_ALERT_PUSH_TYPES = new Set([
   "new_order_available",
 ]);
 
+/** Where each app keeps the orders its rider/restaurant muted from the order popup. */
+const MUTED_ORDER_IDS_STORAGE_KEYS = {
+  restaurant: "restaurant_muted_order_ids",
+  delivery: "delivery_muted_order_ids",
+};
+
+/**
+ * True when the order this push is about was muted in the app. A push often
+ * lands after the socket event; for a muted order it used to play its own copy
+ * of the ringtone anyway, so muting seemed to start a second ring.
+ */
+function isPushOrderMuted(moduleName, data = {}) {
+  const storageKey = MUTED_ORDER_IDS_STORAGE_KEYS[moduleName];
+  if (!storageKey || typeof localStorage === "undefined") return false;
+  try {
+    const muted = JSON.parse(localStorage.getItem(storageKey) || "[]");
+    if (!Array.isArray(muted) || muted.length === 0) return false;
+    const mutedIds = new Set(muted.map((id) => String(id || "").trim()).filter(Boolean));
+    return [data.orderMongoId, data.orderId, data.order_id, data._id]
+      .map((id) => String(id || "").trim())
+      .some((id) => id && mutedIds.has(id));
+  } catch {
+    return false;
+  }
+}
+
 function shouldPlayAlertSoundForPush(payload = {}) {
   const moduleName = normalizeModuleFromPath();
   if (moduleName !== "restaurant" && moduleName !== "delivery") {
@@ -82,6 +108,7 @@ function shouldPlayAlertSoundForPush(payload = {}) {
   const data = payload?.data || {};
   const type = String(data.type || data.notificationType || "").toLowerCase();
   if (!ORDER_ALERT_PUSH_TYPES.has(type)) return false;
+  if (isPushOrderMuted(moduleName, data)) return false;
 
   if (moduleName === "restaurant") {
     const refusal = getRestaurantPushRingRefusal(data);
@@ -880,14 +907,18 @@ async function playPushSound(payload = {}) {
       return;
     }
 
-    // The restaurant's own alert loop (useRestaurantNotifications) owns the
-    // ringtone for an order awaiting a decision: one fresh track per order,
-    // stopped the moment it is accepted or rejected. When the same order also
-    // arrives as a push, playing a second copy here put two ringtones on top of
-    // each other, and that copy outlived the accept because the loop cannot
-    // stop it. The loop has already triggered the native bridge and vibration.
-    if (typeof window !== "undefined" && window.__restaurantOrderAlertActive) {
-      pushDebugLog(PUSH_DEBUG_PREFIX, "Skipping push sound (restaurant alert loop is ringing)", {
+    // The app's own alert (useRestaurantNotifications / useDeliveryNotifications)
+    // owns the ringtone for an order awaiting a decision: one track per order,
+    // stopped the moment it is accepted, rejected or muted. When the same order
+    // also arrives as a push, playing a second copy here put two ringtones on
+    // top of each other, and that copy outlived the accept because the app's
+    // alert cannot stop it. The alert has already triggered the native bridge
+    // and vibration.
+    if (
+      typeof window !== "undefined" &&
+      (window.__restaurantOrderAlertActive || window.__deliveryOrderAlertActive)
+    ) {
+      pushDebugLog(PUSH_DEBUG_PREFIX, "Skipping push sound (in-app order alert is ringing)", {
         notificationKey: getNotificationKey(payload),
       });
       stopActivePushPlayback();

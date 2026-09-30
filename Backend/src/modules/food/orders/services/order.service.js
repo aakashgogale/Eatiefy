@@ -2198,15 +2198,28 @@ export async function listOrdersAdmin(query) {
     filter.userId = new mongoose.Types.ObjectId(userIdRaw);
   }
 
+  // Zone = the zone of the order's restaurant. Empty / "all" means every zone; a
+  // malformed id is a 400 rather than a silently unfiltered list.
   const zoneIdRaw =
     typeof query.zoneId === "string" ? query.zoneId.trim() : "";
-  if (zoneIdRaw && mongoose.Types.ObjectId.isValid(zoneIdRaw) && !filter.restaurantId) {
-    const zoneRestaurants = await FoodRestaurant.find({
-      zoneId: new mongoose.Types.ObjectId(zoneIdRaw),
-    })
-      .select("_id")
-      .lean();
-    filter.restaurantId = { $in: zoneRestaurants.map((r) => r._id) };
+  if (zoneIdRaw && zoneIdRaw.toLowerCase() !== "all") {
+    if (!mongoose.Types.ObjectId.isValid(zoneIdRaw)) {
+      throw new ValidationError("Invalid zoneId");
+    }
+    const zoneRestaurantIds = (
+      await FoodRestaurant.find({ zoneId: new mongoose.Types.ObjectId(zoneIdRaw) })
+        .select("_id")
+        .lean()
+    ).map((r) => r._id);
+    if (filter.restaurantId) {
+      // Restaurant and zone together: a restaurant outside the zone has no orders in it.
+      const selected = filter.restaurantId;
+      if (!zoneRestaurantIds.some((id) => id.equals(selected))) {
+        filter.restaurantId = { $in: [] };
+      }
+    } else {
+      filter.restaurantId = { $in: zoneRestaurantIds };
+    }
   }
 
   if (startDateRaw || endDateRaw) {
