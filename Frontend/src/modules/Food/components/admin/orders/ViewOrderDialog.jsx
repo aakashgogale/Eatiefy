@@ -131,12 +131,14 @@ export default function ViewOrderDialog({ isOpen, onOpenChange, order, onOrderUp
   const [loadedCustomerId, setLoadedCustomerId] = useState(null)
   const [draftOrderStatus, setDraftOrderStatus] = useState("Pending")
   const [draftPaymentStatus, setDraftPaymentStatus] = useState("Pending")
+  const [draftCancelReason, setDraftCancelReason] = useState("")
   const [updatingStatuses, setUpdatingStatuses] = useState(false)
 
   useEffect(() => {
     if (!isOpen || !order) return
     setDraftOrderStatus(resolveDisplayOrderStatus(order))
     setDraftPaymentStatus(resolveDisplayPaymentStatus(order))
+    setDraftCancelReason("")
   }, [isOpen, order?.id, order?.orderId, order?.orderStatus, order?.paymentStatus, order?.payment?.status])
 
   useEffect(() => {
@@ -149,6 +151,9 @@ export default function ViewOrderDialog({ isOpen, onOpenChange, order, onOrderUp
   const baselinePaymentStatus = resolveDisplayPaymentStatus(order)
   const hasAdminStatusChanges =
     draftOrderStatus !== baselineOrderStatus || draftPaymentStatus !== baselinePaymentStatus
+  // Cancelling here is a cancel the customer sees: it needs the reason they will read.
+  const isCancellingOrder =
+    draftOrderStatus !== baselineOrderStatus && /cancel/i.test(draftOrderStatus)
 
   useEffect(() => {
     if (!isOpen || !order) return
@@ -225,6 +230,14 @@ export default function ViewOrderDialog({ isOpen, onOpenChange, order, onOrderUp
     if (draftOrderStatus !== baselineOrderStatus) payload.orderStatus = draftOrderStatus
     if (draftPaymentStatus !== baselinePaymentStatus) payload.paymentStatus = draftPaymentStatus
     if (!payload.orderStatus && !payload.paymentStatus) return
+    if (isCancellingOrder) {
+      const reason = draftCancelReason.trim()
+      if (!reason) {
+        toast.error("Enter the cancellation reason the customer will see")
+        return
+      }
+      payload.cancellationReason = reason
+    }
 
     setUpdatingStatuses(true)
     try {
@@ -585,6 +598,26 @@ export default function ViewOrderDialog({ isOpen, onOpenChange, order, onOrderUp
                     </Select>
                   </div>
                 </div>
+                {isCancellingOrder && (
+                  <div className="mt-4 space-y-1.5">
+                    <label
+                      htmlFor="admin-cancel-reason"
+                      className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider"
+                    >
+                      Cancellation reason (shown to the customer)
+                    </label>
+                    <textarea
+                      id="admin-cancel-reason"
+                      value={draftCancelReason}
+                      onChange={(e) => setDraftCancelReason(e.target.value)}
+                      disabled={updatingStatuses}
+                      rows={2}
+                      maxLength={300}
+                      placeholder="e.g. Restaurant is closed for the day"
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-none outline-none focus:border-[#FF6B4A] focus:ring-2 focus:ring-[#FF6B4A]/30"
+                    />
+                  </div>
+                )}
                 <div className="mt-4 flex justify-end">
                   <button
                     type="button"

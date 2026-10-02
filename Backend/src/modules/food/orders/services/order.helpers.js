@@ -173,6 +173,50 @@ const MARKUP_ITEM_FIELDS = [
   'pricingRule',
 ];
 
+/** Who cancelled, read from the cancel status itself. */
+export const CANCELLED_BY_FOR_STATUS = {
+  cancelled_by_restaurant: 'restaurant',
+  cancelled_by_user: 'customer',
+  cancelled_by_admin: 'admin',
+};
+
+const CANCELLED_BY_FOR_ROLE = { RESTAURANT: 'restaurant', USER: 'customer', ADMIN: 'admin' };
+
+/** Status-history notes that record how a change was made, not why: never shown as a reason. */
+const INTERNAL_STATUS_NOTE = /^admin override\b/i;
+
+/**
+ * Why, when and by whom a cancelled order was cancelled, as every client shows it.
+ *
+ * The order's own fields win - the restaurant, customer and admin cancel flows
+ * set them. The status history is only a fallback, and its note counts as the
+ * reason only when a person wrote it: an admin status override records
+ * "Admin override — order status" there, which reached customers as the
+ * reason. Who cancelled follows the cancel status before the role that wrote
+ * the history, so "cancelled by restaurant" set by support on the restaurant's
+ * behalf no longer read "Cancelled by support".
+ */
+export function deriveCancellationInfo(order = {}) {
+  const status = String(order?.orderStatus || order?.status || '');
+  if (!status.includes('cancel')) {
+    return { cancellationReason: null, cancelledAt: null, cancelledBy: null };
+  }
+  const history = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+  const cancelHistory = [...history].reverse().find((h) => h?.to?.includes('cancel'));
+  const historyNote = String(cancelHistory?.note || '').trim();
+  return {
+    cancellationReason:
+      order?.cancellationReason ||
+      (historyNote && !INTERNAL_STATUS_NOTE.test(historyNote) ? historyNote : ''),
+    cancelledAt: order?.cancelledAt || cancelHistory?.at || null,
+    cancelledBy:
+      order?.cancelledBy ||
+      CANCELLED_BY_FOR_STATUS[status] ||
+      CANCELLED_BY_FOR_ROLE[cancelHistory?.byRole] ||
+      'unknown',
+  };
+}
+
 export function toRestaurantFacingOrder(orderDoc) {
   const order = sanitizeOrderForExternal(orderDoc);
   const pricing = order.pricing || {};
@@ -238,12 +282,7 @@ export function toRestaurantFacingOrder(orderDoc) {
   );
 
   const customerNote = order?.restaurantNote || order?.note || "";
-  const statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
-  const cancelHistory = statusHistory.findLast?.(h => h?.to?.includes('cancel')) || [...statusHistory].reverse().find(h => h?.to?.includes('cancel'));
-  const isCancelled = order?.orderStatus?.includes('cancel') || order?.status?.includes('cancel');
-  const cancellationReason = isCancelled ? (order?.cancellationReason || cancelHistory?.note || "") : null;
-  const cancelledAt = isCancelled ? (order?.cancelledAt || cancelHistory?.at || null) : null;
-  const cancelledBy = isCancelled ? (order?.cancelledBy || (cancelHistory?.byRole === 'RESTAURANT' ? 'restaurant' : cancelHistory?.byRole === 'USER' ? 'customer' : cancelHistory?.byRole === 'ADMIN' ? 'admin' : 'unknown')) : null;
+  const { cancellationReason, cancelledAt, cancelledBy } = deriveCancellationInfo(order);
 
   // `markupTotal` is still computed above because the restaurant's own base
   // subtotal is derived from it; it is not part of the response.
@@ -385,12 +424,7 @@ export function normalizeOrderForClient(orderDoc) {
   const displayId = order.order_id || mongoId;
   const statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
   const lastHistory = statusHistory.length > 0 ? statusHistory[statusHistory.length - 1] : null;
-
-  const cancelHistory = statusHistory.findLast?.(h => h?.to?.includes('cancel')) || [...statusHistory].reverse().find(h => h?.to?.includes('cancel'));
-  const isCancelled = order?.orderStatus?.includes('cancel') || order?.status?.includes('cancel');
-  const cancellationReason = isCancelled ? (order?.cancellationReason || cancelHistory?.note || "") : null;
-  const cancelledAt = isCancelled ? (order?.cancelledAt || cancelHistory?.at || null) : null;
-  const cancelledBy = isCancelled ? (order?.cancelledBy || (cancelHistory?.byRole === 'RESTAURANT' ? 'restaurant' : cancelHistory?.byRole === 'USER' ? 'customer' : cancelHistory?.byRole === 'ADMIN' ? 'admin' : 'unknown')) : null;
+  const { cancellationReason, cancelledAt, cancelledBy } = deriveCancellationInfo(order);
 
   return {
     ...order,

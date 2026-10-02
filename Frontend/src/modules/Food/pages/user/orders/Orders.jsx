@@ -14,6 +14,32 @@ const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
+/*
+ * Badge for an order still in progress, from the backend status. The badge
+ * used to say "Confirmed" for anything it did not recognise - including a
+ * just-placed order the restaurant had not accepted yet - so an order it then
+ * rejected went from "Confirmed" to "Cancelled".
+ */
+const ACTIVE_ORDER_STATUS_LABELS = {
+  created: "Order Placed",
+  pending: "Order Placed",
+  placed: "Order Placed",
+  confirmed: "Confirmed",
+  accepted: "Confirmed",
+  preparing: "Preparing",
+  ready: "Food Ready",
+  ready_for_pickup: "Food Ready",
+  reached_pickup: "Rider at Restaurant",
+  picked_up: "Out for Delivery",
+  out_for_delivery: "Out for Delivery",
+  outForDelivery: "Out for Delivery",
+  reached_drop: "Arriving",
+}
+
+const getActiveOrderStatusLabel = (order) =>
+  ACTIVE_ORDER_STATUS_LABELS[order?.originalStatus] ||
+  ACTIVE_ORDER_STATUS_LABELS[order?.status] ||
+  "In Progress"
 
 export default function Orders() {
   const navigate = useNavigate()
@@ -198,7 +224,8 @@ export default function Orders() {
               backendStatus === 'cancelled_by_user' ||
               backendStatus === 'cancelled_by_restaurant' ||
               backendStatus === 'cancelled_by_admin'
-            const cancellationReason = order.cancellationReason || order.note || ''
+            // Never the order note: that is the customer's own cooking instruction.
+            const cancellationReason = order.cancellationReason || ''
             // Check cancelledBy field, backend status, or reason pattern
             const isRestaurantCancelled = isCancelled && (
               order.cancelledBy === 'restaurant' ||
@@ -905,7 +932,7 @@ Order again from this restaurant in the ${companyName} app.`
                     <div className="flex items-center">
                       {isRestaurantCancelled ? (
                         <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-900/50">
-                          Cancelled
+                          Cancelled by Restaurant
                         </span>
                       ) : paymentFailed ? (
                         <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-900/50">
@@ -929,7 +956,7 @@ Order again from this restaurant in the ${companyName} app.`
                         </span>
                       ) : (
                         <span className="px-3 py-1 rounded-full text-[10px] font-black bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900/50 uppercase tracking-wider animate-pulse">
-                          {order.status === 'preparing' ? 'Preparing' : order.status === 'outForDelivery' ? 'Out for Delivery' : order.status === 'placed' ? 'Order Placed' : 'Confirmed'}
+                          {getActiveOrderStatusLabel(order)}
                         </span>
                       )}
                     </div>
