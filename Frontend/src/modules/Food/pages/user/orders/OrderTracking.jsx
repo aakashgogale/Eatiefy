@@ -2317,7 +2317,9 @@ export default function OrderTracking() {
     },
     cancelled: {
       title: "Order cancelled",
-      subtitle: "This order has been cancelled",
+      // Who cancelled, from the backend status / cancelledBy - the same wording
+      // the cancel card uses, so the header never disagrees with it.
+      subtitle: describeCancelledBy(order?.status || order?.orderStatus, order?.cancelledBy),
       color: "bg-red-600",
       iconType: 'cancelled'
     }
@@ -2845,7 +2847,7 @@ export default function OrderTracking() {
                 transition={{ delay: 0.9 }}
                 className="text-2xl font-bold text-gray-900 dark:text-white mt-6"
               >
-                Order Confirmed!
+                Order Placed!
               </motion.h1>
               <motion.p
                 initial={{ opacity: 0, y: 20 }}
@@ -2951,20 +2953,20 @@ export default function OrderTracking() {
         </motion.div>
       )}
 
-      {/* Map Section */}
-      {!isDeliveredOrder && orderStatus !== 'cancelled' && (
-        <div className="absolute inset-0 z-0">
-          <DeliveryMap
-            orderId={orderId}
-            order={order}
-            isVisible={order !== null}
-            fallbackCustomerCoords={fallbackCustomerCoords}
-            userLiveCoords={userLiveCoords}
-            userLocationAccuracy={userLiveLocation?.accuracy ?? null}
-            onEtaUpdate={handleEtaUpdate}
-          />
-        </div>
-      )}
+      {/* Map Section - also for a delivered or cancelled order: the map goes
+          static there (pins only, no live tracking), and hiding it left an
+          empty screen behind the sheet. */}
+      <div className="absolute inset-0 z-0">
+        <DeliveryMap
+          orderId={orderId}
+          order={order}
+          isVisible={order !== null}
+          fallbackCustomerCoords={fallbackCustomerCoords}
+          userLiveCoords={userLiveCoords}
+          userLocationAccuracy={userLiveLocation?.accuracy ?? null}
+          onEtaUpdate={handleEtaUpdate}
+        />
+      </div>
 
       {/* Floating Map Utility Bar on Top-Right */}
       {!isDeliveredOrder && orderStatus !== 'cancelled' && (
@@ -3009,15 +3011,11 @@ export default function OrderTracking() {
                   {currentStatus.title}
                 </span>
                 <h2 className="text-xl font-black text-gray-900 dark:text-white leading-tight">
-                  {(isCancelledOrder && order?.status === 'cancelled_by_restaurant')
-                    ? "Cancelled by Restaurant"
-                    : isCancelledOrder
-                      ? "Order Cancelled"
-                      : currentStatus.subtitle}
+                  {currentStatus.subtitle}
                 </h2>
-                {isCancelledOrder && (order?.cancellationReason || order?.note) && (
+                {isCancelledOrder && order?.cancellationReason && (
                   <p className="mt-2 text-xs text-red-600 dark:text-red-400 font-medium">
-                    Reason: {order.cancellationReason || order.note}
+                    Reason: {order.cancellationReason}
                   </p>
                 )}
               </div>
@@ -3036,7 +3034,7 @@ export default function OrderTracking() {
             isCancelled={isCancelledOrder}
             riderMode={isRiderJourney}
             isTakeaway={order?.orderType === 'takeaway'}
-            cancellationReason={order?.cancellationReason || order?.note || ''}
+            cancellationReason={order?.cancellationReason || ''}
             cancelledBy={order?.cancelledBy}
             orderStatusRaw={order?.status}
           />
@@ -3426,15 +3424,11 @@ export default function OrderTracking() {
                   {currentStatus.title}
                 </span>
                 <h2 className="text-xl font-black text-gray-900 dark:text-white leading-tight">
-                  {(isCancelledOrder && order?.status === 'cancelled_by_restaurant')
-                    ? "Cancelled by Restaurant"
-                    : isCancelledOrder
-                      ? "Order Cancelled"
-                      : currentStatus.subtitle}
+                  {currentStatus.subtitle}
                 </h2>
-                {isCancelledOrder && (order?.cancellationReason || order?.note) && (
+                {isCancelledOrder && order?.cancellationReason && (
                   <p className="mt-2 text-xs text-red-600 dark:text-red-400 font-medium">
-                    Reason: {order.cancellationReason || order.note}
+                    Reason: {order.cancellationReason}
                   </p>
                 )}
               </div>
@@ -3453,7 +3447,7 @@ export default function OrderTracking() {
             isCancelled={isCancelledOrder}
             riderMode={isRiderJourney}
             isTakeaway={order?.orderType === 'takeaway'}
-            cancellationReason={order?.cancellationReason || order?.note || ''}
+            cancellationReason={order?.cancellationReason || ''}
             cancelledBy={order?.cancelledBy}
             orderStatusRaw={order?.status}
           />

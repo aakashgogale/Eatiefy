@@ -500,10 +500,11 @@ export async function updateOrderStatusesAdminController(req, res, next) {
     try {
         const adminId = req.user?.userId;
         const orderId = req.params.orderId;
-        const { orderStatus, paymentStatus } = req.body || {};
+        const { orderStatus, paymentStatus, cancellationReason } = req.body || {};
         const order = await orderService.updateOrderStatusesAdmin(orderId, adminId, {
             orderStatus,
             paymentStatus,
+            cancellationReason,
         });
         return sendResponse(res, 200, 'Order status updated', { order });
     } catch (err) {

@@ -360,6 +360,19 @@ const DeliveryTrackingMap = ({
 
   const effectiveCustomerCoords = userLiveCoords || customerCoords;
 
+  /*
+   * A cancelled order keeps its restaurant and delivery-address pins - no
+   * route, rider or live tracking - so its screen shows where the order was
+   * from and to instead of an empty map. Its pin is the order's address, not
+   * the customer's live position.
+   */
+  const isCancelledTerminal = isTerminal && String(liveOrderStatus).includes('cancel');
+  const customerPinCoords = isCancelledTerminal
+    ? customerCoords || effectiveCustomerCoords
+    : !isTerminal
+      ? effectiveCustomerCoords
+      : null;
+
   const initialCenterRef = useRef(null);
   if (!initialCenterRef.current) {
     if (isPickedUp) {
@@ -1124,12 +1137,24 @@ const DeliveryTrackingMap = ({
   // Terminal camera
   useEffect(() => {
     if (!isTerminal || !map) return;
-    const target = effectiveCustomerCoords || restaurantCoords;
+    // Cancelled: frame both pins, the way the map does before pickup.
+    if (isCancelledTerminal && restaurantCoords && customerPinCoords && window.google?.maps) {
+      try {
+        const bounds = new window.google.maps.LatLngBounds();
+        bounds.extend(restaurantCoords);
+        bounds.extend(customerPinCoords);
+        map.fitBounds(bounds, getViewportPadding());
+        return;
+      } catch (err) {
+        console.warn('[DeliveryTrackingMap] cancelled bounds error:', err);
+      }
+    }
+    const target = customerPinCoords || effectiveCustomerCoords || restaurantCoords;
     if (target) {
       map.panTo(target);
       map.setZoom(16);
     }
-  }, [isTerminal, map, effectiveCustomerCoords, restaurantCoords]);
+  }, [isTerminal, isCancelledTerminal, map, customerPinCoords, effectiveCustomerCoords, restaurantCoords, getViewportPadding]);
 
   /* ─────────────────── Render Paths & Options ─────────────────── */
 
@@ -1293,8 +1318,8 @@ const DeliveryTrackingMap = ({
           </>
         )}
 
-        {/* 1. RESTAURANT MARKER: Shown in Pre-Pickup stage (and subtly in Post-Pickup) */}
-        {restaurantCoords && !isTerminal && (
+        {/* 1. RESTAURANT MARKER: Shown in Pre-Pickup stage (and subtly in Post-Pickup), and on a cancelled order */}
+        {restaurantCoords && (!isTerminal || isCancelledTerminal) && (
           <OverlayView position={restaurantCoords} mapPaneName={OverlayView.MARKER_LAYER}>
             <div
               className={`relative flex flex-col items-center pointer-events-none -translate-x-1/2 -translate-y-1/2 transition-opacity duration-300 ${
@@ -1319,7 +1344,11 @@ const DeliveryTrackingMap = ({
                   }}
                 />
                 <span className="text-[11px] font-bold pr-1 truncate max-w-[120px]">
-                  {order?.restaurantName || order?.restaurantId?.name || 'Restaurant'}
+                  {order?.restaurantName ||
+                    (typeof order?.restaurant === 'string' ? order.restaurant : '') ||
+                    order?.restaurantId?.restaurantName ||
+                    order?.restaurantId?.name ||
+                    'Restaurant'}
                 </span>
                 <div
                   className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rotate-45"
@@ -1334,16 +1363,16 @@ const DeliveryTrackingMap = ({
           </OverlayView>
         )}
 
-        {/* 2. CUSTOMER / USER DELIVERY LOCATION: Shown in both Pre-Pickup and Post-Pickup stages */}
-        {effectiveCustomerCoords && !isTerminal && (
-          <OverlayView position={effectiveCustomerCoords} mapPaneName={OverlayView.MARKER_LAYER}>
+        {/* 2. CUSTOMER / USER DELIVERY LOCATION: Shown in both Pre-Pickup and Post-Pickup stages, and on a cancelled order */}
+        {customerPinCoords && (
+          <OverlayView position={customerPinCoords} mapPaneName={OverlayView.MARKER_LAYER}>
             <div className="relative flex flex-col items-center pointer-events-none -translate-x-1/2 -translate-y-1/2 z-30">
               <div
                 className="absolute -top-12 z-50 rounded-full flex items-center px-2.5 py-1 shadow-lg gap-1.5"
                 style={badgeStyle}
               >
                 <span className="text-[11px] font-bold">
-                  {userLiveCoords ? 'You (Live)' : order?.address?.label || 'Home'}
+                  {userLiveCoords && !isCancelledTerminal ? 'You (Live)' : order?.address?.label || 'Home'}
                 </span>
                 <div
                   className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rotate-45"

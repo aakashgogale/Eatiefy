@@ -65,6 +65,7 @@ import {
   isStatusAdvance,
   isOtpMatch,
   STATUS_PRIORITY,
+  CANCELLED_BY_FOR_STATUS,
 } from './order.helpers.js';
 
 // ----- Settings -----
@@ -711,12 +712,14 @@ export async function createOrder(userId, dto, { gatewayVerified = false } = {})
       String(payment?.status || "").toLowerCase() !== "paid";
     const eventType = isAwaitingOnlinePayment ? 'order_created_pending_payment' : 'order_created';
     await notifyOwnersSafely([{ ownerType: "USER", ownerId: userId }], {
+      // "Placed", not "Confirmed": the restaurant has not accepted it yet, and
+      // may still reject it - "Confirmed" followed by "Cancelled" read as a contradiction.
       title: isAwaitingOnlinePayment
         ? "Complete Payment to Confirm Order"
-        : "Order Confirmed!",
+        : "Order Placed!",
       body: isAwaitingOnlinePayment
         ? `Order #${order.order_id || order._id} is created. Please complete payment to send it to ${restaurant.restaurantName || "the restaurant"}.`
-        : `Your order #${order.order_id || order._id} from ${restaurant.restaurantName || "the restaurant"} has been placed successfully.`,
+        : `Your order #${order.order_id || order._id} from ${restaurant.restaurantName || "the restaurant"} has been placed and is waiting for the restaurant to accept it.`,
       idempotencyKey: `${eventType}_${order._id}`,
       eventId: `${eventType}_${order._id}`,
       tag: `${eventType}_${order._id}`,
@@ -1747,6 +1750,9 @@ export async function updateOrderStatusRestaurant(
         displayOrderId: order.order_id || order._id.toString(),
         orderStatus: order.orderStatus,
         cancellationReason: order.cancellationReason || "",
+        ...(String(order.orderStatus || "").includes("cancel")
+          ? { cancelledBy: order.cancelledBy || "restaurant", cancelledAt: order.cancelledAt || null }
+          : {}),
         // Assignment context, so a restaurant status change (e.g. ready) never
         // makes the customer's screen forget a rider is already on the job.
         dispatchStatus: order.dispatch?.status,
@@ -2911,7 +2917,11 @@ export async function rejectOrderAdmin(orderId, reason, adminId) {
  * Admin override: update order and/or payment status independently.
  * Status correction only — does not run rider payout / refund automations.
  */
-export async function updateOrderStatusesAdmin(orderId, adminId, { orderStatus, paymentStatus } = {}) {
+export async function updateOrderStatusesAdmin(
+  orderId,
+  adminId,
+  { orderStatus, paymentStatus, cancellationReason } = {},
+) {
   const identity = buildOrderIdentityFilter(orderId);
   if (!identity) throw new ValidationError("Order id required");
 
@@ -3030,6 +3040,24 @@ export async function updateOrderStatusesAdmin(orderId, adminId, { orderStatus, 
       note: "Admin override — order status",
     });
 
+    /*
+     * A cancel set here is a cancel the customer sees, so it carries what the
+     * restaurant and customer cancel flows record: who cancelled (from the
+     * status admin picked) and the reason admin gave. It recorded neither, so
+     * the customer was shown "Cancelled by support" and the internal
+     * "Admin override" note as the reason. Restoring a cancelled order clears
+     * them, so a later cancel never shows a stale reason.
+     */
+    if (nextOrderStatus.includes("cancel")) {
+      order.cancelledBy = CANCELLED_BY_FOR_STATUS[nextOrderStatus] || "admin";
+      order.cancelledAt = new Date();
+      order.cancellationReason = String(cancellationReason || "").trim();
+    } else if (String(fromOrder || "").includes("cancel")) {
+      order.cancelledBy = "";
+      order.cancelledAt = null;
+      order.cancellationReason = "";
+    }
+
     if (!order.deliveryState) order.deliveryState = {};
 
     if (nextOrderStatus === "delivered") {
@@ -3096,6 +3124,15 @@ export async function updateOrderStatusesAdmin(orderId, adminId, { orderStatus, 
         orderStatus: order.orderStatus,
         status: order.orderStatus,
         paymentStatus: order.payment?.status,
+        // Same cancel details the restaurant's cancel event carries, so the
+        // customer's screen shows who cancelled and why straight away.
+        ...(String(order.orderStatus || "").includes("cancel")
+          ? {
+              cancellationReason: order.cancellationReason || "",
+              cancelledBy: order.cancelledBy || "",
+              cancelledAt: order.cancelledAt || null,
+            }
+          : {}),
         title: "Order updated by admin",
         message: "Admin updated order status",
       };
