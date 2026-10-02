@@ -188,11 +188,10 @@ let globalAlertLoopKey = '';
 let globalAlertDeadline = 0;
 
 /*
- * Every id of each order that arrived through a genuine `new_order` socket event
- * in this app session and passed the ring gate. Only these may ever ring - the
- * popup/queue re-arming the alert, an unmute, or resuming after the first tap
- * can re-ring an announced order but can never start ringing for anything else
- * (orders loaded by the API poll, stale state, placeholders).
+ * Every id of each order already announced (handed to the popup and rung for)
+ * in this app session, whether it came from the `new_order` socket event or
+ * the poll. Only stops the poll announcing the same order twice; whether an
+ * order may ring is decided by getOrderRingRefusal alone.
  */
 const announcedOrderIds = new Set();
 
@@ -249,22 +248,11 @@ const attachRestaurantSocketWatchdog = () => {
   // Mobile WebViews freeze sockets in the background and the OS drops them on a
   // network change; reconnect on the way back instead of waiting for a failed
   // heartbeat to notice.
-  /*
-   * Coming back to the foreground marks a new session for alert purposes, so
-   * the replay that follows a reconnect cannot ring for orders that arrived
-   * while the app was away. Stamped here as well as in the polling effect
-   * because this watchdog is what handles the `focus` route.
-   */
-  const resumeRestaurantSession = () => {
-    markRestaurantSessionResumed();
-    reconnectRestaurantSocket();
-  };
-
-  window.addEventListener('online', resumeRestaurantSession);
-  window.addEventListener('focus', resumeRestaurantSession);
+  window.addEventListener('online', reconnectRestaurantSocket);
+  window.addEventListener('focus', reconnectRestaurantSocket);
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') resumeRestaurantSession();
+      if (document.visibilityState === 'visible') reconnectRestaurantSocket();
     });
   }
 
@@ -427,23 +415,20 @@ export const getOrderAcceptDeadline = (orderData = {}) => {
 };
 
 /*
- * When this tab last became the active session.
+ * A pending order rings for as long as the restaurant can still accept it, no
+ * matter when it arrived.
  *
- * The accept window is ten minutes, so an order placed while the app was closed
- * stays "ringable" long after it arrived: reopening the app inside that window
- * used to start the ringtone for it, which is the stale-alert complaint. Orders
- * that predate this instant are shown in the list but never announced - only a
- * genuinely new arrival rings. Polling is what replays them, so this is stamped
- * on resume, before the poll that follows it reads it.
+ * Orders that reached the restaurant while the app was in the background or
+ * the phone was locked - the normal case, since the push is what wakes the
+ * restaurant up - used to count as "replays" from before the session resumed
+ * and stayed silent: the popup came up with no sound. What keeps a stale order
+ * quiet is the order itself: it must still be awaiting this restaurant's
+ * decision on the server, not handled on this device, not muted, and inside
+ * its accept window (isRingableOrder / getOrderRingRefusal).
  */
-let sessionStartedAt = Date.now();
 
-export const markRestaurantSessionResumed = () => {
-  sessionStartedAt = Date.now();
-};
-
+/** A different restaurant signed in (or signed out): nothing from before may ring. */
 export const markRestaurantSessionStarted = () => {
-  sessionStartedAt = Date.now();
   stopGlobalAlertLoop();
   globalActiveOrder = null;
   globalNewOrder = null;
@@ -458,25 +443,6 @@ export const markRestaurantSessionStarted = () => {
     } catch (_) {}
   }
   updateGlobalState({ newOrder: null, newReservation: null, activeOrder: null });
-};
-
-/**
- * True only for an order that reached this restaurant after the session resumed.
- * An order with no usable creation stamp or created prior to this session cannot be proven new,
- * so it is treated as a replay/existing order and stays silent - the safe direction for a ringtone.
- */
-const isFreshRestaurantOrder = (orderData = {}) => {
-  if (!orderData || typeof orderData !== 'object') return false;
-  const raw = orderData?.restaurantNotifiedAt || orderData?.createdAt;
-  if (!raw) return false;
-  const at = new Date(raw).getTime();
-  if (!Number.isFinite(at)) return false;
-  // Guard: Order creation time must not predate this session's resume/mount timestamp.
-  if (at < sessionStartedAt - 3000) return false;
-  // Must also be within normal accept window (not an old order)
-  const now = Date.now();
-  if (now - at > DEFAULT_ACCEPT_WINDOW_MS) return false;
-  return true;
 };
 
 const ALERT_START_PREFIX = 'alert_start_';
@@ -664,13 +630,13 @@ const isAlertSoundPlaying = () =>
   Boolean((globalAudio && !globalAudio.paused) || (globalFallbackAudio && !globalFallbackAudio.paused));
 
 const startGlobalAlertLoop = (orderData) => {
-  // Last line of defence: every caller (socket arrival, the Orders page re-arming
-  // a queued order, unmute, resume after the first tap) goes through here. It may
-  // only ring a real order of this restaurant, still awaiting its decision, that
-  // arrived through a genuine new_order event in this session.
-  const refusal =
-    getOrderRingRefusal(orderData) ||
-    (wasOrderAnnounced(orderData) ? '' : 'not announced by a new_order event in this session');
+  // Last line of defence: every caller (socket arrival, the poll, the Orders
+  // page re-arming the order in its popup, unmute, resume after the first tap)
+  // goes through here. It may only ring a real order of this restaurant that is
+  // still awaiting its decision. It used to also require a `new_order` socket
+  // event in this session, so an order the popup loaded from the API - every
+  // order that arrived while the app was in the background - showed with no sound.
+  const refusal = getOrderRingRefusal(orderData);
   if (refusal) {
     if (orderData) logRefusedRing('alert', refusal, describeOrderForLog(orderData));
     return;
@@ -1077,11 +1043,18 @@ export const useRestaurantNotifications = () => {
             return;
           }
           const id = restaurant._id?.toString() || restaurant.restaurantId;
+          /*
+           * Every screen that uses this hook runs this fetch when it mounts.
+           * Resetting on each of them stopped a ring that was still owed:
+           * opening another screen - or the app's own screens mounting after a
+           * notification tap - silenced an order nobody had answered. Only a
+           * different signed-in restaurant starts clean.
+           */
+          const isSameRestaurant = isForActiveRestaurant(restaurant);
           // The server-verified signed-in restaurant: only its orders can ring.
           setActiveRestaurant(restaurant);
           refreshAcceptWindowSettings();
-          // Fresh login/mount: clear any stale/cached notification state
-          markRestaurantSessionStarted();
+          if (!isSameRestaurant) markRestaurantSessionStarted();
           setRestaurantId(id);
         }
       } catch (error) {
@@ -1092,13 +1065,13 @@ export const useRestaurantNotifications = () => {
   }, []);
 
   /*
-   * The ONLY place a ring starts: a real order of the signed-in restaurant that
-   * is still awaiting its decision and arrived during this session. It comes
-   * from the `new_order` socket event, or from the poll when that event was
-   * missed (socket reconnecting, mobile network drop) - otherwise the popup
-   * still appeared from the poll but never rang. Both pass the same gates
-   * below, so an order that predates this session stays silent. Anything else
-   * is refused - and logged - before it can touch the popup or the ringtone.
+   * Announces an order to the restaurant: the popup and the ringtone. It comes
+   * from the `new_order` socket event, or from the poll for any order still
+   * waiting that the socket did not deliver (app in the background, phone
+   * locked, socket reconnecting, mobile network drop). Both pass the same gate:
+   * a real order of the signed-in restaurant that is still awaiting its
+   * decision. Anything else is refused - and logged - before it can touch the
+   * popup or the ringtone.
    */
   const handleIncomingOrderAlert = useCallback((orderData, source = 'unknown') => {
     if (source !== 'socket' && source !== 'poll') {
@@ -1111,12 +1084,6 @@ export const useRestaurantNotifications = () => {
     const refusal = getOrderRingRefusal(normalizedOrder);
     if (refusal) {
       logRefusedRing(source, refusal, describeOrderForLog(normalizedOrder));
-      return;
-    }
-
-    // Timestamp must be after this session started (a replay after reconnect is not new).
-    if (!isFreshRestaurantOrder(normalizedOrder)) {
-      logRefusedRing(source, 'order arrived before this session (replay)', describeOrderForLog(normalizedOrder));
       return;
     }
 
@@ -1457,7 +1424,6 @@ export const useRestaurantNotifications = () => {
     if (globalPollingIntervalId) return;
 
     const ALERT_POLL_MS = 8000;
-    let isInitialPoll = true;
 
     const pollOrders = async () => {
       try {
@@ -1481,12 +1447,6 @@ export const useRestaurantNotifications = () => {
         const response = await restaurantAPI.getOrders({ page: 1, limit: 30 });
         const rows = response?.data?.data?.orders || response?.data?.data?.data?.orders || [];
         const now = Date.now();
-
-        if (isInitialPoll) {
-          isInitialPoll = false;
-          // When mounting/logging in, mark session resumed so initial existing orders do not trigger alarms
-          markRestaurantSessionResumed();
-        }
 
         // Orders still waiting for this restaurant's decision, oldest first.
         const pending = (rows || [])
@@ -1557,10 +1517,11 @@ export const useRestaurantNotifications = () => {
           }
         }
 
-        // New orders whose socket event never arrived: announce them the way the
-        // socket would have (same id shape, same gates, fresh orders only).
+        // Orders still waiting whose socket event never reached this device
+        // (it arrived while the app was in the background, or the socket was
+        // down): announce them the way the socket would have, through the same gate.
         pending
-          .filter((o) => !wasOrderAnnounced(o) && isFreshRestaurantOrder(o))
+          .filter((o) => !wasOrderAnnounced(o))
           .forEach((missed) => {
             handleIncomingOrderAlert(
               normalizeRestaurantOrderView({

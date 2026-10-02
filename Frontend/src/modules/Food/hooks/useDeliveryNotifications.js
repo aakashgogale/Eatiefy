@@ -242,7 +242,6 @@ export const useDeliveryNotifications = () => {
   // Step 1: All refs first (unconditional)
   const socketRef = useRef(null);
   const audioRef = useRef(null);
-  const audioUnlockAttemptedRef = useRef(false);
   const activeOrderRef = useRef(null);
   const alertLoopTimerRef = useRef(null);
   const alertLoopStartedAtRef = useRef(0);
@@ -1139,83 +1138,95 @@ export const useDeliveryNotifications = () => {
     };
   }, [playNotificationSound, showBackgroundOrderNotification, startAlertLoop, stopAlertLoop]);
 
-  // Track user interaction for autoplay policy (one-time audio unlock)
+  /*
+   * Audio unlock on the rider's first real tap - the same approach as the
+   * restaurant app.
+   *
+   * Browsers only let a page play sound after a user gesture. iPhone counts
+   * click / touchend / pointerup / keydown - never touchstart or pointerdown -
+   * and only for a play() made synchronously inside that handler. This used to
+   * listen once on pointerdown/touchstart and call play() after awaiting
+   * AudioContext.resume(), so on iPhone audio was never unlocked and an offer
+   * never rang in the app. Now the ringtone element is played muted inside the
+   * tap and put back, which is all the browser needs; a ring still owed starts
+   * on the alert loop's next tick. Listeners stay until an unlock succeeds.
+   */
   useEffect(() => {
-    const handleUserInteraction = async () => {
+    if (typeof window === 'undefined') return undefined;
+    const UNLOCK_EVENTS = ['click', 'touchend', 'pointerup', 'keydown'];
+    let unlocked = false;
+
+    function detach() {
+      UNLOCK_EVENTS.forEach((type) => window.removeEventListener(type, unlock, { capture: true }));
+    }
+
+    function unlock() {
+      if (unlocked) return;
       userInteractedRef.current = true;
-      if (typeof window !== 'undefined') {
-        window.__userHasInteracted = true;
-      }
+      window.__userHasInteracted = true;
 
-      const selectedSound = localStorage.getItem('delivery_alert_sound') || 'zomato_tone';
-      const soundFile = selectedSound === 'original'
-        ? resolveAudioSource(originalSound, 'delivery-original')
-        : resolveAudioSource(alertSound, 'delivery-alert');
-
+      // The fallback beep's context: resume() only has to be called inside the gesture.
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (AudioCtx) {
         try {
-          if (!window.__deliverySynthCtx) {
-            window.__deliverySynthCtx = new AudioCtx();
-          }
+          if (!window.__deliverySynthCtx) window.__deliverySynthCtx = new AudioCtx();
           if (window.__deliverySynthCtx.state === 'suspended') {
-            await window.__deliverySynthCtx.resume();
+            window.__deliverySynthCtx.resume().catch(() => {});
           }
-          const buf = window.__deliverySynthCtx.createBuffer(1, 1, 22050);
-          const srcNode = window.__deliverySynthCtx.createBufferSource();
-          srcNode.buffer = buf;
-          srcNode.connect(window.__deliverySynthCtx.destination);
-          srcNode.start(0);
         } catch (_) {}
       }
 
       if (!audioRef.current) {
-        audioRef.current = new Audio(soundFile);
+        const selectedSound = localStorage.getItem('delivery_alert_sound') || 'zomato_tone';
+        audioRef.current = new Audio(
+          selectedSound === 'original'
+            ? resolveAudioSource(originalSound, 'delivery-original')
+            : resolveAudioSource(alertSound, 'delivery-alert'),
+        );
         audioRef.current.preload = 'auto';
         audioRef.current.volume = 1.0;
       }
-
-      if (!audioUnlockAttemptedRef.current && audioRef.current) {
-        audioUnlockAttemptedRef.current = true;
-        try {
-          audioRef.current.muted = true;
-          if (!audioRef.current.src || audioRef.current.src === window.location.href) {
-            audioRef.current.src = soundFile;
-          }
-          audioRef.current.load();
-          await audioRef.current.play();
-          audioRef.current.pause();
-          audioRef.current.currentTime = 0;
-          debugLog('?? Audio unlocked successfully');
-        } catch (error) {
-          audioUnlockAttemptedRef.current = false;
-          if (!error.message?.includes('user didn\'t interact') && !error.name?.includes('NotAllowedError')) {
-            debugWarn('Error unlocking notification audio:', error, 'Audio src:', audioRef.current?.src);
-          }
-        } finally {
-          if (audioRef.current) {
-            audioRef.current.muted = false;
-          }
-        }
+      const audio = audioRef.current;
+      // Already sounding, so already allowed to play.
+      if (!audio.paused) {
+        unlocked = true;
+        detach();
+        return;
       }
 
-      document.removeEventListener('click', handleUserInteraction);
-      document.removeEventListener('touchstart', handleUserInteraction);
-      document.removeEventListener('keydown', handleUserInteraction);
-      window.removeEventListener('pointerdown', handleUserInteraction);
-    };
-    
-    document.addEventListener('click', handleUserInteraction, { once: true });
-    document.addEventListener('touchstart', handleUserInteraction, { once: true });
-    document.addEventListener('keydown', handleUserInteraction, { once: true });
-    window.addEventListener('pointerdown', handleUserInteraction, { once: true, passive: true });
-    
-    return () => {
-      document.removeEventListener('click', handleUserInteraction);
-      document.removeEventListener('touchstart', handleUserInteraction);
-      document.removeEventListener('keydown', handleUserInteraction);
-      window.removeEventListener('pointerdown', handleUserInteraction);
-    };
+      let started;
+      try {
+        audio.muted = true;
+        started = audio.play();
+      } catch (_) {
+        audio.muted = false;
+        return;
+      }
+      Promise.resolve(started)
+        .then(() => {
+          // Still muted = no ring claimed the element meanwhile: put it back silently.
+          if (audio.muted) {
+            try {
+              audio.pause();
+              audio.currentTime = 0;
+            } catch (_) {}
+            audio.muted = false;
+          }
+          unlocked = true;
+          detach();
+          debugLog('Audio unlocked');
+        })
+        .catch(() => {
+          // Not allowed yet, or interrupted by a stop: the next gesture retries.
+          if (audio.muted) audio.muted = false;
+        });
+    }
+
+    // Capture phase on window: a handler that stops propagation cannot hide the gesture.
+    UNLOCK_EVENTS.forEach((type) =>
+      window.addEventListener(type, unlock, { capture: true, passive: true }),
+    );
+    return detach;
   }, []);
   
   // Initialize audio on mount - use selected preference from localStorage

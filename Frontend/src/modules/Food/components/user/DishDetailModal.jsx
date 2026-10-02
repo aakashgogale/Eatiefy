@@ -110,9 +110,11 @@ export default function DishDetailModal({
       originalPrice: originalPrice || currentPrice,
       foodType: dish.foodType,
       isVeg,
+      // The cart reads how many to add from the item itself.
+      quantity,
     }
 
-    const res = await addToCart(cartItem, null, { quantity })
+    const res = await addToCart(cartItem, null)
     if (res?.ok !== false) {
       toast.success(`Added ${dish.name} to cart!`)
       onClose()

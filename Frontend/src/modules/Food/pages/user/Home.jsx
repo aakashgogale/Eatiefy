@@ -2103,7 +2103,7 @@ export default function Home() {
     return item ? item.quantity : 0;
   };
 
-  const handleIncreaseQuantity = async (dish, event = null) => {
+  const handleIncreaseQuantity = async (dish, event = null, quantity = 1) => {
     // Check authentication
     if (!isModuleAuthenticated('user')) {
       toast.error("Please login to add items to cart");
@@ -2136,6 +2136,8 @@ export default function Home() {
       originalPrice: dish.originalPrice || dish.price,
       foodType: dish.foodType,
       isVeg: dish.isVeg,
+      // The cart reads how many to add from the item itself.
+      quantity: Math.max(1, Math.floor(Number(quantity) || 1)),
     };
 
     let sourcePosition = null;
@@ -2153,7 +2155,7 @@ export default function Home() {
       }
     }
 
-    const result = await addToCart(cartItem, sourcePosition, { quantity: 1 });
+    const result = await addToCart(cartItem, sourcePosition);
     // Cancelled replace prompts are a user choice, not an error worth a toast.
     if (result?.ok === false && !result.cancelled) {
       toast.error(result.error || 'Cannot add item from different restaurant. Please clear cart first.');
@@ -3868,7 +3870,13 @@ export default function Home() {
                                 ) : (
                                   <button
                                     type="button"
-                                    onClick={(e) => handleIncreaseQuantity(dish, e)}
+                                    onClick={(e) => {
+                                      // The card opens the dish popup; without this the tap
+                                      // added one AND opened the popup, whose "Add to Cart"
+                                      // then made it two.
+                                      e.stopPropagation();
+                                      handleIncreaseQuantity(dish, e);
+                                    }}
                                     className="absolute bottom-2 right-2 w-8 h-8 rounded-full bg-white dark:bg-[#2e2e2e] shadow-md flex items-center justify-center border transition-all active:scale-90 border-gray-200/90 dark:border-gray-700/80 hover:bg-gray-50 z-10"
                                   >
                                     <Plus className="h-4 w-4 text-[#24963F]" strokeWidth={3} />
@@ -5544,9 +5552,10 @@ export default function Home() {
           const itemToAdd = variant
             ? { ...dishItem, price: variant.price, variants: [variant] }
             : dishItem;
-          for (let i = 0; i < (qty || 1); i++) {
-            handleIncreaseQuantity(itemToAdd, event);
-          }
+          // One add carrying the chosen quantity. Firing one add per unit in
+          // parallel let the cart drop the repeats for a new item, so picking
+          // 3 added only 1.
+          handleIncreaseQuantity(itemToAdd, event, qty || 1);
         }}
       />
 
