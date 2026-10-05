@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { FoodDiningBooking } from '../models/diningBooking.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
+import { ValidationError, NotFoundError, ForbiddenError } from '../../../../core/auth/errors.js';
 
 // Format database booking document into the exact JSON shape required by the frontend
 function formatBooking(bookingDoc) {
@@ -177,6 +178,31 @@ export async function updateBookingStatus(bookingId, status, restaurantId) {
     }
 
     booking.status = String(status || '').trim().toLowerCase();
+    await booking.save();
+
+    const populated = await FoodDiningBooking.findById(booking._id)
+        .populate('restaurantId')
+        .populate('userId');
+
+    return formatBooking(populated);
+}
+
+export async function cancelBookingByUser(bookingId, userId) {
+    const booking = await FoodDiningBooking.findById(bookingId);
+    if (!booking) {
+        throw new NotFoundError('Booking not found');
+    }
+
+    if (booking.userId.toString() !== userId.toString()) {
+        throw new ForbiddenError('Unauthorized cancellation for this booking');
+    }
+
+    const currentStatus = String(booking.status || '').toLowerCase();
+    if (['completed', 'cancelled', 'rejected', 'checked-in'].includes(currentStatus)) {
+        throw new ValidationError(`Booking cannot be cancelled once it is ${currentStatus}`);
+    }
+
+    booking.status = 'cancelled';
     await booking.save();
 
     const populated = await FoodDiningBooking.findById(booking._id)

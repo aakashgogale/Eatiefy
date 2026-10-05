@@ -18,7 +18,8 @@ import {
     getRestaurantComplaintsController,
     listRestaurantsUnder250Controller,
     createDiningRequestController,
-    getPendingDiningRequestController
+    getPendingDiningRequestController,
+    createRestaurantDiningCategoryController
 } from '../controllers/restaurant.controller.js';
 import {
     createRestaurantSupportTicketController,
@@ -184,6 +185,7 @@ router.patch('/takeaway-settings', authMiddleware, requireApprovedRestaurant, as
 }, updateCurrentRestaurantTakeawaySettingsController);
 router.post('/dining-settings/request', authMiddleware, requireApprovedRestaurant, requireDiningEnabled, createDiningRequestController);
 router.get('/dining-settings/pending', authMiddleware, requireApprovedRestaurant, requireDiningEnabled, getPendingDiningRequestController);
+router.post('/dining-categories', authMiddleware, requireApprovedRestaurant, requireDiningEnabled, createRestaurantDiningCategoryController);
 router.get('/outlet-timings', authMiddleware, requireApprovedRestaurant, getCurrentRestaurantOutletTimingsController);
 router.put('/outlet-timings', authMiddleware, requireApprovedRestaurant, async (req, res, next) => {
     await invalidateCache('restaurants:*');

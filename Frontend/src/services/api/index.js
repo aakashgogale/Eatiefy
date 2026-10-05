@@ -1300,6 +1300,10 @@ export const restaurantAPI = {
     apiClient.post("/food/restaurant/dining-settings/request", body ?? {}, {
       contextModule: "restaurant",
     }),
+  createDiningCategory: (data) =>
+    apiClient.post("/food/restaurant/dining-categories", data ?? {}, {
+      contextModule: "restaurant",
+    }),
   getPendingDiningRequest: () => getPendingDiningOnce(),
   /** PATCH /food/restaurant/availability. Body: { isAcceptingOrders: boolean } */
   updateAcceptingOrders: (isAcceptingOrders) =>
@@ -3291,6 +3295,10 @@ export const diningAPI = {
   updateBookingStatusRestaurant: (bookingId, status) =>
     apiClient.patch(`/food/dining/bookings/${bookingId}/status`, { status }, {
       contextModule: 'restaurant'
+    }),
+  cancelBooking: (bookingId) =>
+    apiClient.patch(`/food/dining/bookings/${bookingId}/cancel`, {}, {
+      contextModule: 'user'
     }),
   createReview: (payload = {}) => {
     const bookingId = payload?.bookingId;

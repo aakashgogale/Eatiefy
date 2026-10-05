@@ -73,6 +73,25 @@ export async function updateBookingStatusController(req, res, next) {
     }
 }
 
+export async function cancelBookingController(req, res, next) {
+    try {
+        const { bookingId } = req.params;
+        const userId = req.user?.userId;
+
+        if (!bookingId) {
+            return sendError(res, 400, 'Booking ID is required');
+        }
+        if (!userId) {
+            return sendError(res, 401, 'Unauthorized');
+        }
+
+        const booking = await bookingService.cancelBookingByUser(bookingId, userId);
+        return sendResponse(res, 200, 'Booking cancelled successfully', booking);
+    } catch (error) {
+        next(error);
+    }
+}
+
 export async function createBookingReviewController(req, res, next) {
     try {
         const { bookingId } = req.params;

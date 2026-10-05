@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
-import { Calendar, Clock, Users, Search, MessageSquare, CheckCircle2, Clock4, UploadCloud, ImagePlus, ChevronDown, ChevronUp, Sparkles, MapPin, Phone, Info, X, ArrowLeft } from "lucide-react"
+import { Calendar, Clock, Users, Search, MessageSquare, CheckCircle2, Clock4, UploadCloud, ImagePlus, ChevronDown, ChevronUp, Sparkles, MapPin, Phone, Info, X, ArrowLeft, UtensilsCrossed, Plus, Check } from "lucide-react"
 import { diningAPI, restaurantAPI } from "@food/api"
 import Loader from "@food/components/Loader"
 import { Badge } from "@food/components/ui/badge"
@@ -127,12 +127,12 @@ export default function DiningReservations() {
                     if (restaurantId) {
                         syncRestaurantMediaState(resData)
 
-                        if (!isPoll) {
-                            const bookingsResponse = await diningAPI.getRestaurantBookings(resData)
-                            if (bookingsResponse.data.success) {
-                                setBookings(Array.isArray(bookingsResponse.data.data) ? bookingsResponse.data.data : [])
-                            }
+                        const bookingsResponse = await diningAPI.getRestaurantBookings(resData)
+                        if (bookingsResponse.data.success) {
+                            setBookings(Array.isArray(bookingsResponse.data.data) ? bookingsResponse.data.data : [])
+                        }
 
+                        if (!isPoll) {
                             const catRes = await diningAPI.getCategories()
                             if (catRes.data.success) {
                                 setAvailableCategories(catRes.data.data || [])
@@ -180,11 +180,8 @@ export default function DiningReservations() {
         }
 
         fetchAll()
-        let interval
-        if (pendingRequest) {
-            interval = setInterval(() => fetchAll(true), 15000)
-        }
-        return () => interval && clearInterval(interval)
+        const interval = setInterval(() => fetchAll(true), 15000)
+        return () => clearInterval(interval)
     }, [pendingRequest?._id])
 
     const handleRestaurantPhotoUpload = async (event) => {
@@ -306,12 +303,6 @@ export default function DiningReservations() {
     const handleSaveDiningSettings = async () => {
         if (!restaurant || savingDiningSettings || pendingRequest) return
 
-        if (!diningType || diningType.length === 0) {
-            setDiningSettingsError("Please select at least one dining category")
-            toast.error("Dining category is required")
-            return
-        }
-
         const nextMaxGuests = parseInt(maxGuestsLimit, 10) || 0
 
         if (diningEnabled && nextMaxGuests <= 0) {
@@ -320,10 +311,14 @@ export default function DiningReservations() {
             return
         }
 
+        const finalDiningType = (Array.isArray(diningType) && diningType.length > 0)
+            ? [...new Set(diningType)]
+            : ['family-dining']
+
         const nextDiningSettings = {
             isEnabled: Boolean(diningEnabled),
             maxGuests: nextMaxGuests,
-            diningType: Array.isArray(diningType) ? [...new Set(diningType)] : [diningType],
+            diningType: finalDiningType,
         }
 
         setDiningSettingsError("")
@@ -429,32 +424,34 @@ export default function DiningReservations() {
     if (loading) return <Loader />
 
     return (
-        <div className="min-h-screen bg-slate-50 pb-20">
+        <div className="min-h-screen bg-slate-50/80 pb-24">
             {/* Header */}
-            <div className="bg-white/80 backdrop-blur-xl sticky top-0 z-30 border-b border-slate-100">
-                <div className="max-w-7xl mx-auto px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <motion.div
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        className="flex items-center gap-4"
-                    >
+            <div className="bg-white/95 backdrop-blur-md sticky top-0 z-30 border-b border-slate-100 shadow-[0_1px_3px_rgba(0,0,0,0.03)]">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
                         <button
                             onClick={goBack}
-                            className="bg-slate-100 p-2 rounded-xl text-slate-500 hover:bg-slate-200 hover:text-slate-900 transition-all border border-slate-200"
+                            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 active:scale-95 transition-all shrink-0"
                             aria-label="Back to explore"
                         >
                             <ArrowLeft className="w-5 h-5" />
                         </button>
-                        <h1 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-                            Table Reservations
-                            <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                        </h1>
-                        <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">Live Queue Management</p>
-                    </motion.div>
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                                <h1 className="text-base sm:text-lg font-bold text-slate-900 truncate">
+                                    Table Reservations
+                                </h1>
+                                <span className="flex h-2 w-2 rounded-full bg-emerald-500 shrink-0 animate-pulse" />
+                            </div>
+                            <p className="text-[11px] font-medium text-slate-400 truncate">
+                                Live Queue & Dining Controls
+                            </p>
+                        </div>
+                    </div>
 
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                        <div className="relative group">
-                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+                    <div className="flex items-center gap-2.5">
+                        <div className="relative flex-1 sm:w-56">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                             <input
                                 type="text"
                                 id="reservation-search"
@@ -462,19 +459,27 @@ export default function DiningReservations() {
                                 placeholder="Search guests..."
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full sm:w-64 pl-11 pr-4 py-2.5 bg-slate-100/50 border-2 border-transparent rounded-2xl text-sm font-bold focus:bg-white focus:border-blue-500/20 focus:ring-4 focus:ring-blue-500/5 transition-all outline-none"
+                                className="w-full pl-9 pr-3 py-2 bg-slate-100/80 border border-transparent rounded-xl text-xs font-semibold focus:bg-white focus:border-emerald-500/30 focus:ring-2 focus:ring-emerald-500/10 transition-all outline-none"
                             />
                         </div>
-                        <div className="flex items-center gap-1 bg-slate-100/50 p-1 rounded-2xl border border-slate-200/50">
+                        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl shrink-0">
                             <button
                                 onClick={() => setActiveSection("reservations")}
-                                className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${activeSection === "reservations" ? "bg-white text-slate-900 shadow-md shadow-slate-200/50 scale-[1.02]" : "text-slate-400 hover:text-slate-600"}`}
+                                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                                    activeSection === "reservations"
+                                        ? "bg-white text-slate-900 shadow-sm"
+                                        : "text-slate-500 hover:text-slate-700"
+                                }`}
                             >
                                 Queue
                             </button>
                             <button
                                 onClick={() => setActiveSection("media")}
-                                className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${activeSection === "media" ? "bg-white text-slate-900 shadow-md shadow-slate-200/50 scale-[1.02]" : "text-slate-400 hover:text-slate-600"}`}
+                                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                                    activeSection === "media"
+                                        ? "bg-white text-slate-900 shadow-sm"
+                                        : "text-slate-500 hover:text-slate-700"
+                                }`}
                             >
                                 Media
                             </button>
@@ -483,94 +488,68 @@ export default function DiningReservations() {
                 </div>
             </div>
 
-            <div className="max-w-7xl mx-auto p-6">
-                {/* Stats */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5">
+                {/* Compact Stats Bar */}
+                <div className="grid grid-cols-3 gap-2.5 sm:gap-4 mb-6">
                     <motion.div
-                        initial={{ opacity: 0, y: 20 }}
+                        initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.3 }}
-                        className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden group hover:shadow-md transition-shadow"
+                        transition={{ duration: 0.2 }}
+                        className="bg-white p-3.5 sm:p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between"
                     >
-                        <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50/50 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110" />
-                        <div className="flex items-center gap-4 relative">
-                            <div className="bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] p-3 rounded-xl text-white shadow-lg shadow-blue-200">
-                                <Users className="w-6 h-6" />
-                            </div>
-                            <div>
-                                <p className="text-slate-500 text-sm font-semibold uppercase tracking-wider">Total Bookings</p>
-                                <p className="text-[#2E7D52]xl font-black text-slate-900 leading-none mt-1">{bookings.length}</p>
+                        <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider truncate">Total</span>
+                            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                                <Users className="w-4 h-4" />
                             </div>
                         </div>
+                        <p className="text-xl sm:text-2xl font-black text-slate-900 leading-none">{bookings.length}</p>
                     </motion.div>
 
                     <motion.div
-                        initial={{ opacity: 0, y: 20 }}
+                        initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.3, delay: 0.1 }}
-                        className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden group hover:shadow-md transition-shadow"
+                        transition={{ duration: 0.2, delay: 0.05 }}
+                        className="bg-white p-3.5 sm:p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between"
                     >
-                        <div className="absolute top-0 right-0 w-24 h-24 bg-green-50/50 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110" />
-                        <div className="flex items-center gap-4 relative">
-                            <div className="bg-emerald-600 p-3 rounded-xl text-white shadow-lg shadow-emerald-200">
-                                <CheckCircle2 className="w-6 h-6" />
-                            </div>
-                            <div>
-                                <p className="text-slate-500 text-sm font-semibold uppercase tracking-wider">Active</p>
-                                <p className="text-[#2E7D52]xl font-black text-slate-900 leading-none mt-1">
-                                    {bookings.filter(b => ['pending', 'confirmed', 'accepted', 'checked-in'].includes(String(b.status || '').toLowerCase())).length}
-                                </p>
+                        <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider truncate">Active</span>
+                            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                                <CheckCircle2 className="w-4 h-4" />
                             </div>
                         </div>
+                        <p className="text-xl sm:text-2xl font-black text-slate-900 leading-none">
+                            {bookings.filter(b => ['pending', 'confirmed', 'accepted', 'checked-in'].includes(String(b.status || '').toLowerCase())).length}
+                        </p>
                     </motion.div>
 
                     <motion.div
-                        initial={{ opacity: 0, y: 20 }}
+                        initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.3, delay: 0.2 }}
-                        className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden group hover:shadow-md transition-shadow"
+                        transition={{ duration: 0.2, delay: 0.1 }}
+                        className="bg-white p-3.5 sm:p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between"
                     >
-                        <div className="absolute top-0 right-0 w-24 h-24 bg-orange-50/50 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110" />
-                        <div className="flex items-center gap-4 relative">
-                            <div className="bg-orange-600 p-3 rounded-xl text-white shadow-lg shadow-orange-200">
-                                <Clock4 className="w-6 h-6" />
-                            </div>
-                            <div>
-                                <p className="text-slate-500 text-sm font-semibold uppercase tracking-wider">Today's Bookings</p>
-                                <p className="text-[#2E7D52]xl font-black text-slate-900 leading-none mt-1">
-                                    {bookings.filter(b => new Date(b.date).toDateString() === new Date().toDateString()).length}
-                                </p>
+                        <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider truncate">Today</span>
+                            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                                <Clock4 className="w-4 h-4" />
                             </div>
                         </div>
+                        <p className="text-xl sm:text-2xl font-black text-slate-900 leading-none">
+                            {bookings.filter(b => new Date(b.date).toDateString() === new Date().toDateString()).length}
+                        </p>
                     </motion.div>
-                </div>
-
-                <div className="mb-6 md:hidden">
-                    <div className="flex items-center gap-2 rounded-xl bg-white border border-slate-200 p-1">
-                        <button
-                            onClick={() => setActiveSection("reservations")}
-                            className={`flex-1 px-3 py-2 text-xs font-semibold rounded-lg transition-colors ${activeSection === "reservations" ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white" : "text-slate-600"}`}
-                        >
-                            Reservations
-                        </button>
-                        <button
-                            onClick={() => setActiveSection("media")}
-                            className={`flex-1 px-3 py-2 text-xs font-semibold rounded-lg transition-colors ${activeSection === "media" ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white" : "text-slate-600"}`}
-                        >
-                            Photos & Menu
-                        </button>
-                    </div>
                 </div>
 
                 {activeSection === "media" && (
                 <div className="mb-8">
                     <button
                         onClick={() => setShowMediaPanel((prev) => !prev)}
-                        className="w-full bg-white rounded-2xl border border-slate-200 px-5 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
+                        className="w-full bg-white rounded-2xl border border-slate-200 px-5 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors shadow-sm"
                     >
                         <div>
                             <h2 className="text-left text-base font-bold text-slate-900">Photos & Menu Manager</h2>
-                            <p className="text-left text-sm text-slate-500">Upload restaurant and menu images only when needed.</p>
+                            <p className="text-left text-sm text-slate-500">Upload restaurant and menu images for dining preview.</p>
                         </div>
                         {showMediaPanel ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
                     </button>
@@ -582,10 +561,10 @@ export default function DiningReservations() {
                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                         <div className="flex items-start justify-between gap-4">
                             <div>
-                                <h2 className="text-lg font-bold text-slate-900">Restaurant Photos</h2>
-                                <p className="text-sm text-slate-500 mt-1">Add multiple restaurant photos. The first one will be used as the main preview.</p>
+                                <h2 className="text-base font-bold text-slate-900">Restaurant Photos</h2>
+                                <p className="text-xs text-slate-500 mt-0.5">Add multiple ambiance photos. The first one is used as the main preview.</p>
                             </div>
-                            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white text-sm font-semibold cursor-pointer hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] transition-colors">
+                            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white text-xs font-bold cursor-pointer hover:opacity-95 transition-opacity shadow-sm">
                                 <UploadCloud className="w-4 h-4" />
                                 {uploadingRestaurantPhoto ? "Uploading..." : "Add Photos"}
                                 <input
@@ -599,7 +578,7 @@ export default function DiningReservations() {
                             </label>
                         </div>
 
-                        <div className="mt-4 rounded-xl overflow-hidden border border-slate-200 bg-slate-50 h-56">
+                        <div className="mt-4 rounded-xl overflow-hidden border border-slate-200 bg-slate-50 h-52">
                             {restaurantPhoto ? (
                                 <img
                                     src={restaurantPhoto}
@@ -609,7 +588,7 @@ export default function DiningReservations() {
                             ) : (
                                 <div className="w-full h-full flex flex-col items-center justify-center text-slate-400">
                                     <ImagePlus className="w-8 h-8 mb-2" />
-                                    <p className="text-sm font-medium">No restaurant photo added yet</p>
+                                    <p className="text-xs font-medium">No restaurant photo added yet</p>
                                 </div>
                             )}
                         </div>
@@ -628,7 +607,7 @@ export default function DiningReservations() {
                                             alt={`Restaurant photo ${index + 1}`}
                                             className="w-full h-full object-cover"
                                         />
-                                        <span className="absolute inset-x-0 bottom-0 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]/45 px-1 py-0.5 text-[10px] font-semibold text-white">
+                                        <span className="absolute inset-x-0 bottom-0 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F]/80 px-1 py-0.5 text-[10px] font-semibold text-white">
                                             {restaurantPhoto === photo.url ? "Main" : `Photo ${index + 1}`}
                                         </span>
                                         <span
@@ -645,7 +624,7 @@ export default function DiningReservations() {
                                                     handleRemoveRestaurantPhoto(photo.url)
                                                 }
                                             }}
-                                            className="absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/95 text-rose-600 shadow-sm"
+                                            className="absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/95 text-rose-600 shadow-sm hover:bg-rose-50"
                                         >
                                             <X className="h-3.5 w-3.5" />
                                         </span>
@@ -658,10 +637,10 @@ export default function DiningReservations() {
                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                         <div className="flex items-start justify-between gap-4">
                             <div>
-                                <h2 className="text-lg font-bold text-slate-900">Menu Photos</h2>
-                                <p className="text-sm text-slate-500 mt-1">Add menu photos and view previously uploaded photos.</p>
+                                <h2 className="text-base font-bold text-slate-900">Menu Photos</h2>
+                                <p className="text-xs text-slate-500 mt-0.5">Upload photos of your physical dine-in menu cards.</p>
                             </div>
-                            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white text-sm font-semibold cursor-pointer hover:bg-blue-700 transition-colors">
+                            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white text-xs font-bold cursor-pointer hover:opacity-95 transition-opacity shadow-sm">
                                 <UploadCloud className="w-4 h-4" />
                                 {uploadingMenuPhotos ? "Uploading..." : "Add Photos"}
                                 <input
@@ -683,7 +662,7 @@ export default function DiningReservations() {
                                         <button
                                             type="button"
                                             onClick={() => handleRemoveMenuPhoto(photo.url)}
-                                            className="absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/95 text-rose-600 shadow-sm"
+                                            className="absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/95 text-rose-600 shadow-sm hover:bg-rose-50"
                                             disabled={removingMenuPhoto}
                                         >
                                             <X className="h-3.5 w-3.5" />
@@ -694,7 +673,7 @@ export default function DiningReservations() {
                         ) : (
                             <div className="mt-4 h-28 rounded-xl border border-dashed border-slate-300 bg-slate-50 flex flex-col items-center justify-center text-slate-400">
                                 <ImagePlus className="w-7 h-7 mb-2" />
-                                <p className="text-sm font-medium">No menu photos added yet</p>
+                                <p className="text-xs font-medium">No menu photos added yet</p>
                             </div>
                         )}
                     </div>
@@ -702,25 +681,26 @@ export default function DiningReservations() {
                 )}
 
                 {activeSection === "reservations" && (
-                    <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                        <div className="max-w-xl mb-6">
-                            <p className="text-xs font-bold uppercase tracking-[0.22em] text-slate-400">Dining Controls</p>
-                            <h2 className="mt-1 text-lg font-black text-slate-900">Manage dining availability and booking limit</h2>
-                            <p className="mt-1 text-sm text-slate-500">
-                                These settings update the same dining profile the guest booking flow reads, so restaurant changes are reflected on the user side too.
-                            </p>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-4 mb-8">
-                            <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
-                                <span className={`h-2.5 w-2.5 rounded-full ${diningEnabled ? "bg-emerald-500" : "bg-rose-500"}`} />
-                                <span className="text-sm font-semibold text-slate-700">
-                                    {diningEnabled ? "Dining enabled" : "Dining paused"}
-                                </span>
+                    <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <p className="text-[11px] font-bold uppercase tracking-widest text-[#2E7D52]">Dining Status & Controls</p>
+                                </div>
+                                <h2 className="mt-0.5 text-base sm:text-lg font-bold text-slate-900">Table booking availability</h2>
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                    Toggle online table bookings for guests & set guest limits per table.
+                                </p>
                             </div>
 
-                            <div className="inline-flex items-center gap-3 rounded-full border border-slate-200 bg-white px-4 py-2">
-                                <span className="text-sm font-medium text-slate-700">Turn dining on/off</span>
+                            <div className="flex items-center gap-3">
+                                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${
+                                    diningEnabled ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-slate-100 text-slate-500 border border-slate-200"
+                                }`}>
+                                    <span className={`w-2 h-2 rounded-full ${diningEnabled ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`} />
+                                    {diningEnabled ? "Accepting Bookings" : "Dining Paused"}
+                                </span>
+
                                 <button
                                     type="button"
                                     onClick={() => {
@@ -730,23 +710,69 @@ export default function DiningReservations() {
                                         if (!newState) {
                                             setMaxGuestsLimit(0)
                                         } else if (maxGuestsLimit === 0) {
-                                            // Optional: Set to default 1 if turning on from 0
                                             setMaxGuestsLimit(6)
                                         }
                                     }}
                                     disabled={!!pendingRequest}
-                                    className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${diningEnabled ? "bg-emerald-600" : "bg-slate-300"}`}
+                                    className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors cursor-pointer ${
+                                        diningEnabled ? "bg-[#2E7D52]" : "bg-slate-300"
+                                    }`}
                                     aria-pressed={diningEnabled}
                                 >
-                                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform duration-200 ${diningEnabled ? "translate-x-6" : "translate-x-1"}`} />
+                                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${
+                                        diningEnabled ? "translate-x-6" : "translate-x-1"
+                                    }`} />
                                 </button>
                             </div>
                         </div>
 
+                        <div className="pt-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div className="flex items-center gap-4">
+                                <div className="space-y-0.5">
+                                    <label className="block text-xs sm:text-sm font-bold text-slate-900">Max Guest Limit</label>
+                                    <p className="text-[11px] text-slate-400 font-medium">Guests per reservation</p>
+                                </div>
+                                <div className="flex items-center gap-2.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                                    <button 
+                                        type="button"
+                                        onClick={() => {
+                                            if (pendingRequest) return
+                                            setMaxGuestsLimit(Math.max(0, maxGuestsLimit - 1))
+                                        }}
+                                        disabled={!!pendingRequest}
+                                        className="w-8 h-8 flex items-center justify-center rounded-lg bg-white shadow-xs text-slate-700 hover:text-slate-900 active:scale-90 transition-all font-bold text-base disabled:opacity-50"
+                                    >
+                                        −
+                                    </button>
+                                    <span className="w-6 text-center text-sm font-black text-slate-900">{maxGuestsLimit}</span>
+                                    <button 
+                                        type="button"
+                                        onClick={() => {
+                                            if (pendingRequest) return
+                                            setMaxGuestsLimit(parseInt(maxGuestsLimit) + 1)
+                                        }}
+                                        disabled={!!pendingRequest}
+                                        className="w-8 h-8 flex items-center justify-center rounded-lg bg-white shadow-xs text-slate-700 hover:text-slate-900 active:scale-90 transition-all font-bold text-base disabled:opacity-50"
+                                    >
+                                        +
+                                    </button>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={handleSaveDiningSettings}
+                                disabled={savingDiningSettings || !!pendingRequest}
+                                className="rounded-xl bg-gradient-to-r from-[#2E7D52] to-[#1B5E3F] px-7 py-3 text-xs font-bold text-white transition-all hover:opacity-95 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 shadow-sm tracking-wide uppercase"
+                            >
+                                {savingDiningSettings ? "Saving..." : pendingRequest ? "Approval Pending" : "Save Dining Settings"}
+                            </button>
+                        </div>
+
                         {/* Dining Categories Selection */}
                         <div className="mt-8 border-t border-slate-100 pt-6">
-                            <label className="block text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
-                                <Sparkles className="w-4 h-4 text-primary" />
+                            <label className="flex items-center gap-2 text-sm font-bold text-slate-900 mb-4">
+                                <Sparkles className="w-4 h-4 text-[#2E7D52]" />
                                 Choose Dining Categories (Pick Multiple)
                             </label>
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
@@ -766,12 +792,12 @@ export default function DiningReservations() {
                                             }}
                                             disabled={!!pendingRequest}
                                             className={`group relative flex flex-col items-center p-4 rounded-2xl border-2 transition-all ${
-                                                isSelected 
-                                                    ? "border-primary bg-primary/5 shadow-md scale-[1.02]" 
+                                                isSelected
+                                                    ? "border-[#2E7D52] bg-[#2E7D52]/5 shadow-md scale-[1.02]"
                                                     : "border-slate-100 bg-white hover:border-slate-200 active:scale-95"
                                             } ${!!pendingRequest ? "cursor-not-allowed opacity-80" : ""}`}
                                         >
-                                            <div className={`w-16 h-16 rounded-2xl mb-3 overflow-hidden shadow-sm border transition-transform ${isSelected ? "border-primary/20 scale-105" : "bg-white border-slate-100 group-hover:scale-105"}`}>
+                                            <div className={`w-16 h-16 rounded-2xl mb-3 overflow-hidden shadow-sm border transition-transform ${isSelected ? "border-[#2E7D52]/20 scale-105" : "bg-white border-slate-100 group-hover:scale-105"}`}>
                                                 {cat.imageUrl ? (
                                                     <img src={cat.imageUrl} alt={cat.name} className="w-full h-full object-cover" />
                                                 ) : (
@@ -780,13 +806,13 @@ export default function DiningReservations() {
                                                     </div>
                                                 )}
                                             </div>
-                                            <span className={`text-[13px] font-bold text-center leading-tight transition-colors ${isSelected ? "text-primary" : "text-slate-600"}`}>
+                                            <span className={`text-[13px] font-bold text-center leading-tight transition-colors ${isSelected ? "text-[#2E7D52]" : "text-slate-600"}`}>
                                                 {cat.name}
                                             </span>
                                             {isSelected && (
-                                                <div className="absolute top-2 right-2 animate-in zoom-in duration-200">
-                                                    <div className="bg-primary rounded-full p-1 shadow-sm">
-                                                        <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                                                <div className="absolute top-2 right-2">
+                                                    <div className="bg-[#2E7D52] rounded-full p-1 shadow-sm">
+                                                        <Check className="w-3.5 h-3.5 text-white" />
                                                     </div>
                                                 </div>
                                             )}
@@ -799,49 +825,6 @@ export default function DiningReservations() {
                                     </div>
                                 )}
                             </div>
-                        </div>
-
-                        <div className="mt-8 flex flex-col sm:flex-row sm:items-center justify-between gap-6 border-t border-slate-100 pt-6">
-                            <div className="flex items-center gap-6">
-                                <div className="space-y-1">
-                                    <label className="block text-sm font-bold text-slate-900">Maximum Guest Limit</label>
-                                    <p className="text-xs text-slate-500 font-medium">Guests allowed per reservation</p>
-                                </div>
-                                <div className="flex items-center gap-4 bg-slate-100/80 p-1.5 rounded-2xl border border-slate-200 shadow-inner">
-                                    <button 
-                                        type="button"
-                                        onClick={() => {
-                                            if (pendingRequest) return
-                                            setMaxGuestsLimit(Math.max(0, maxGuestsLimit - 1))
-                                        }}
-                                        disabled={!!pendingRequest}
-                                        className="w-10 h-10 flex items-center justify-center rounded-xl bg-white shadow-sm text-slate-600 hover:text-slate-900 active:scale-90 transition-all font-black text-xl disabled:opacity-50"
-                                    >
-                                        −
-                                    </button>
-                                    <span className="w-8 text-center text-lg font-black text-slate-800">{maxGuestsLimit}</span>
-                                    <button 
-                                        type="button"
-                                        onClick={() => {
-                                            if (pendingRequest) return
-                                            setMaxGuestsLimit(parseInt(maxGuestsLimit) + 1)
-                                        }}
-                                        disabled={!!pendingRequest}
-                                        className="w-10 h-10 flex items-center justify-center rounded-xl bg-white shadow-sm text-slate-600 hover:text-slate-900 active:scale-90 transition-all font-black text-xl disabled:opacity-50"
-                                    >
-                                        +
-                                    </button>
-                                </div>
-                            </div>
-
-                            <button
-                                type="button"
-                                onClick={handleSaveDiningSettings}
-                                disabled={savingDiningSettings || !!pendingRequest}
-                                className="rounded-full bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] px-10 py-4 text-sm font-black text-white transition-all hover:bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 shadow-xl shadow-slate-200 uppercase tracking-widest"
-                            >
-                                {savingDiningSettings ? "Saving..." : pendingRequest ? "Approval Pending" : "Save settings"}
-                            </button>
                         </div>
 
                         {pendingRequest && (
@@ -1003,7 +986,7 @@ export default function DiningReservations() {
                                                                     Decline
                                                                 </button>
                                                             )}
-                                                            {booking.status === 'accepted' && (
+                                                            {['accepted', 'confirmed'].includes(String(booking.status || '').toLowerCase()) && (
                                                                 <button
                                                                     onClick={() => handleStatusUpdate(booking._id, 'checked-in')}
                                                                     className="px-3 py-1.5 bg-orange-600 text-white text-xs font-bold rounded-lg hover:bg-orange-700 transition-colors shadow-sm"
@@ -1011,7 +994,15 @@ export default function DiningReservations() {
                                                                     Check-in
                                                                 </button>
                                                             )}
-                                                            {booking.status === 'checked-in' && (
+                                                            {['accepted', 'confirmed'].includes(String(booking.status || '').toLowerCase()) && (
+                                                                <button
+                                                                    onClick={() => handleStatusUpdate(booking._id, 'cancelled')}
+                                                                    className="px-3 py-1.5 bg-white border border-rose-200 text-rose-600 text-xs font-bold rounded-lg hover:bg-rose-50 transition-colors"
+                                                                >
+                                                                    Cancel
+                                                                </button>
+                                                            )}
+                                                            {String(booking.status || '').toLowerCase() === 'checked-in' && (
                                                                 <button
                                                                     onClick={() => handleStatusUpdate(booking._id, 'completed')}
                                                                     className="px-3 py-1.5 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
@@ -1116,7 +1107,7 @@ export default function DiningReservations() {
                                                         Decline
                                                     </button>
                                                 )}
-                                                {booking.status === 'accepted' && (
+                                                {['accepted', 'confirmed'].includes(String(booking.status || '').toLowerCase()) && (
                                                     <button
                                                         onClick={() => handleStatusUpdate(booking._id, 'checked-in')}
                                                         className="flex-1 py-2.5 bg-orange-600 text-white text-xs font-black rounded-xl hover:bg-orange-700 transition-colors uppercase tracking-widest"
@@ -1124,7 +1115,15 @@ export default function DiningReservations() {
                                                         Check-in
                                                     </button>
                                                 )}
-                                                {booking.status === 'checked-in' && (
+                                                {['accepted', 'confirmed'].includes(String(booking.status || '').toLowerCase()) && (
+                                                    <button
+                                                        onClick={() => handleStatusUpdate(booking._id, 'cancelled')}
+                                                        className="flex-1 py-2.5 bg-white border border-rose-200 text-slate-600 text-xs font-black rounded-xl hover:bg-slate-50 transition-colors uppercase tracking-widest"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                )}
+                                                {String(booking.status || '').toLowerCase() === 'checked-in' && (
                                                     <button
                                                         onClick={() => handleStatusUpdate(booking._id, 'completed')}
                                                         className="flex-1 py-2.5 bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white text-xs font-black rounded-xl hover:bg-blue-700 transition-colors uppercase tracking-widest"

@@ -4,6 +4,8 @@ import { Search, Download, ChevronDown, Eye, Settings, ArrowUpDown, Loader2, Sta
 import { adminAPI } from "@food/api"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { exportRestaurantsToPDF } from "@food/components/admin/restaurants/restaurantsExportUtils"
+import AdminZoneSelect from "@food/components/admin/zones/AdminZoneSelect"
+import { useAdminZoneFilter } from "@food/hooks/useAdminZoneFilter"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -43,11 +45,17 @@ export default function DiningList() {
     const [error, setError] = useState(null)
     const [isEditModalOpen, setIsEditModalOpen] = useState(false)
     const [editingRestaurant, setEditingRestaurant] = useState(null)
+    const {
+        zones: filterZones,
+        zonesLoading: filterZonesLoading,
+        zoneId: selectedZoneId,
+        setZoneId: setSelectedZoneId,
+    } = useAdminZoneFilter()
 
     // Fetch restaurants from backend API
     useEffect(() => {
         let isInitialLoad = true;
-        
+
         const fetchRestaurants = async () => {
             try {
                 if (isInitialLoad) {
@@ -55,7 +63,8 @@ export default function DiningList() {
                 }
                 setError(null)
 
-                const response = await adminAPI.getDiningRestaurants()
+                const zoneParams = selectedZoneId ? { zoneId: selectedZoneId } : {}
+                const response = await adminAPI.getDiningRestaurants(zoneParams)
 
                 if (response.data && response.data.success && response.data.data) {
                     const restaurantsData = response.data.data.restaurants || []
@@ -96,14 +105,14 @@ export default function DiningList() {
         }
 
         fetchRestaurants()
-        
+
         // Setup polling for real-time reflection
         const intervalId = setInterval(() => {
             fetchRestaurants()
         }, 3000)
-        
+
         return () => clearInterval(intervalId)
-    }, [])
+    }, [selectedZoneId])
 
     // Fetch categories
     useEffect(() => {
@@ -233,6 +242,16 @@ export default function DiningList() {
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
                         <div className="flex items-center gap-3">
                             <h1 className="text-2xl font-bold text-slate-900">Dining List</h1>
+                        </div>
+
+                        {/* Zone Filter Dropdown */}
+                        <div className="flex items-center gap-2">
+                            <AdminZoneSelect
+                                value={selectedZoneId}
+                                onChange={setSelectedZoneId}
+                                zones={filterZones}
+                                loading={filterZonesLoading}
+                            />
                         </div>
                     </div>
                     <p className="text-slate-500">Manage restaurants available for dining.</p>

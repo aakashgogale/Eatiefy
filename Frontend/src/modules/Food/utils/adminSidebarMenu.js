@@ -96,6 +96,12 @@ export const adminSidebarMenu = [
         path: "/admin/food/order-detect-delivery",
         icon: "Truck",
       },
+      {
+        type: "link",
+        label: "New Refund Requests",
+        path: "/admin/food/order-refunds/new",
+        icon: "Receipt",
+      },
     ],
   },
   {
@@ -162,6 +168,7 @@ export const adminSidebarMenu = [
           { label: "Earning Addon", path: "/admin/food/delivery-partners/earning-addon" },
           { label: "Earning Addon History", path: "/admin/food/delivery-partners/earning-addon-history" },
           { label: "Delivery Earning", path: "/admin/food/delivery-partners/earnings" },
+          { label: "Zone", path: "/admin/food/zone-setup/delivery-boy-view" },
         ],
       },
     ],

@@ -919,7 +919,7 @@ export default function Dining({ isTabActive = true }) {
           transition={{ duration: 0.28, ease: "easeOut" }}
         >
         {/* Categories Section */}
-        {!isDiningSearching && (
+        {!isDiningSearching && filteredCategories.length > 0 && (
         <div className="mb-0">
           <div className="grid grid-cols-3 gap-2.5 sm:gap-3 md:gap-4">
             {filteredCategories.map((category, index) => (

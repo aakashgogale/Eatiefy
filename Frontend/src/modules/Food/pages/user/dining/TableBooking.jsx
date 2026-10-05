@@ -145,9 +145,27 @@ export default function TableBooking() {
   const fetchRestaurant = async () => {
     try {
       setLoading(true)
-      const response = await diningAPI.getRestaurantBySlug(slug)
-      if (response?.data?.success) {
-        const apiRestaurant = response?.data?.data?.restaurant || response?.data?.data
+      const decodedSlug = slug ? decodeURIComponent(slug).trim() : ''
+      let response = null
+      let apiRestaurant = null
+
+      try {
+        response = await diningAPI.getRestaurantBySlug(decodedSlug || slug)
+        if (response?.data?.success) {
+          apiRestaurant = response?.data?.data?.restaurant || response?.data?.data
+        }
+      } catch {}
+
+      if (!apiRestaurant && decodedSlug) {
+        try {
+          const res2 = await restaurantAPI.getRestaurantById(decodedSlug)
+          if (res2?.data?.success) {
+            apiRestaurant = res2?.data?.data?.restaurant || res2?.data?.data
+          }
+        } catch {}
+      }
+
+      if (apiRestaurant) {
         setRestaurant(apiRestaurant || null)
 
         const restaurantId = apiRestaurant?._id || apiRestaurant?.id || slug
@@ -155,14 +173,14 @@ export default function TableBooking() {
         // Fetch Bookings for Availability check
         try {
             const bookingsRes = await diningAPI.getRestaurantBookings(apiRestaurant)
-            if (bookingsRes.data.success) {
+            if (bookingsRes?.data?.success) {
                 setCurrentBookings(Array.isArray(bookingsRes.data.data) ? bookingsRes.data.data : [])
             }
         } catch (err) {
             console.error("Error fetching bookings:", err)
         }
 
-        const timingsResponse = await restaurantAPI.getOutletTimingsByRestaurantId(restaurantId)
+        const timingsResponse = await restaurantAPI.getOutletTimingsByRestaurantId(restaurantId).catch(() => null)
         setOutletTimings(timingsResponse?.data?.data?.outletTimings || {})
       }
     } catch {

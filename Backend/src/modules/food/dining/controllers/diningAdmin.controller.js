@@ -53,7 +53,7 @@ export async function deleteDiningCategory(req, res, next) {
 
 export async function getDiningRestaurants(req, res, next) {
     try {
-        const data = await diningService.listDiningRestaurantsAdmin();
+        const data = await diningService.listDiningRestaurantsAdmin(req.query || {});
         res.status(200).json({ success: true, message: 'Dining restaurants fetched successfully', data });
     } catch (error) {
         next(error);

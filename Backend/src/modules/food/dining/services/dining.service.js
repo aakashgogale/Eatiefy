@@ -102,6 +102,10 @@ function mapCategory(doc) {
 }
 
 function getRestaurantZone(restaurant) {
+    const zone = restaurant?.zoneId;
+    if (zone && typeof zone === 'object') {
+        return zone.name || zone.zoneName || 'N/A';
+    }
     return (
         restaurant?.location?.area ||
         restaurant?.location?.city ||
@@ -157,6 +161,7 @@ function mapDiningRestaurant(restaurant, diningDoc, categoriesById) {
         pureVegRestaurant: diningDoc?.pureVegRestaurant === true || restaurant?.pureVegRestaurant === true,
         pureVeganRestaurant: diningDoc?.pureVeganRestaurant === true || restaurant?.pureVeganRestaurant === true,
         zone: getRestaurantZone(restaurant),
+        zoneId: restaurant?.zoneId?._id ? String(restaurant.zoneId._id) : (restaurant?.zoneId ? String(restaurant.zoneId) : null),
         city: restaurant?.location?.city || restaurant?.city || '',
         status: restaurant.status,
         isActive: restaurant.status === 'approved',
@@ -173,6 +178,31 @@ function mapDiningRestaurant(restaurant, diningDoc, categoriesById) {
             diningType: primaryCategory?.slug || restaurant?.diningSettings?.diningType || ''
         }
     };
+}
+
+export async function ensureCategoriesForSlugs(slugs = []) {
+    const list = Array.isArray(slugs) ? slugs : [slugs];
+    const categoryIds = [];
+    for (const rawSlug of list) {
+        const slug = slugify(rawSlug);
+        if (!slug) continue;
+        let category = await FoodDiningCategory.findOne({ slug });
+        if (!category) {
+            const name = rawSlug
+                .split(/[-_]/)
+                .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+                .join(' ');
+            category = await FoodDiningCategory.create({
+                name: name || rawSlug,
+                slug,
+                imageUrl: '',
+                isActive: true,
+                sortOrder: 10
+            });
+        }
+        categoryIds.push(category._id);
+    }
+    return categoryIds;
 }
 
 export async function listDiningCategoriesAdmin() {
@@ -195,7 +225,7 @@ export async function createDiningCategory(body = {}) {
 
     const existing = await FoodDiningCategory.findOne({ slug }).lean();
     if (existing) {
-        throw new ValidationError('Dining category already exists');
+        return mapCategory(existing);
     }
 
     const created = await FoodDiningCategory.create({
@@ -274,11 +304,21 @@ export async function deleteDiningCategory(id) {
     return { id };
 }
 
-export async function listDiningRestaurantsAdmin() {
+export async function listDiningRestaurantsAdmin(query = {}) {
+    const rawZoneId = String(query.zoneId || '').trim();
+    if (rawZoneId && rawZoneId.toLowerCase() !== 'all' && !mongoose.Types.ObjectId.isValid(rawZoneId)) {
+        throw new ValidationError('Invalid zoneId');
+    }
+    const restaurantFilter = {};
+    if (rawZoneId && rawZoneId.toLowerCase() !== 'all') {
+        restaurantFilter.zoneId = new mongoose.Types.ObjectId(rawZoneId);
+    }
+
     const [restaurants, diningDocs, categories] = await Promise.all([
-        FoodRestaurant.find({})
+        FoodRestaurant.find(restaurantFilter)
             .sort({ createdAt: -1 })
-            .select('restaurantName ownerName ownerPhone profileImage coverImages menuImages location area city status rating pureVegRestaurant pureVeganRestaurant diningSettings')
+            .select('restaurantName ownerName ownerPhone profileImage coverImages menuImages location area city zoneId status rating pureVegRestaurant pureVeganRestaurant diningSettings')
+            .populate('zoneId', 'name zoneName')
             .lean(),
         FoodDiningRestaurant.find({})
             .select('restaurantId categoryIds primaryCategoryId isEnabled maxGuests pureVegRestaurant pureVeganRestaurant')
@@ -432,6 +472,8 @@ export async function listDiningRestaurantsPublic(query = {}) {
         restaurantAndConditions.push(await buildRestaurantZoneCondition(zoneIdValue));
     }
 
+    restaurantAndConditions.push({ status: { $ne: 'deleted' } });
+
     if (restaurantAndConditions.length > 0) {
         restaurantMatch.$and = restaurantAndConditions;
     }
@@ -469,8 +511,10 @@ export async function listDiningRestaurantsPublic(query = {}) {
     const nonVeganRestaurantIdSet = new Set(nonVeganRestaurantIds.map((id) => String(id)));
 
     return enabledDocs.map((doc) => {
-        const restaurant = doc.restaurantId;
-        const rid = String(restaurant._id);
+        const restaurant = doc.restaurantId || {};
+        const rid = String(restaurant._id || doc.restaurantId);
+        const name = restaurant.restaurantName || restaurant.name || '';
+        const restaurantSlug = slugify(name);
         const hasNonVegMenu = nonVegRestaurantIdSet.has(rid);
         const pureVegRestaurant =
             doc.pureVegRestaurant === true || restaurant?.pureVegRestaurant === true;
@@ -478,8 +522,24 @@ export async function listDiningRestaurantsPublic(query = {}) {
             (doc.pureVeganRestaurant === true || restaurant?.pureVeganRestaurant === true)
             && !nonVeganRestaurantIdSet.has(rid);
 
+        const coverImage = restaurant.coverImages?.[0] || restaurant.profileImage || (restaurant.menuImages?.length > 0 ? restaurant.menuImages[0] : null) || null;
+        const coverImages = Array.isArray(restaurant.coverImages) && restaurant.coverImages.length > 0
+            ? restaurant.coverImages
+            : (restaurant.profileImage ? [restaurant.profileImage] : []);
+
         return {
             ...restaurant,
+            _id: restaurant._id,
+            id: restaurant._id,
+            restaurantId: restaurant._id,
+            name,
+            restaurantName: name,
+            slug: restaurantSlug,
+            restaurantSlug,
+            image: coverImage,
+            images: coverImages,
+            coverImage,
+            coverImages,
             restaurant,
             categories: doc.categoryIds || [],
             pureVegRestaurant,
@@ -494,7 +554,7 @@ export async function listDiningRestaurantsPublic(query = {}) {
                 pureVegRestaurant,
                 pureVeganRestaurant:
                     doc.pureVeganRestaurant === true || restaurant?.pureVeganRestaurant === true,
-                diningType: doc.categoryIds?.[0]?.slug || restaurant?.diningSettings?.diningType || ''
+                diningType: doc.categoryIds?.[0]?.slug || restaurant?.diningSettings?.diningType || 'family-dining'
             }
         };
     });
@@ -587,11 +647,8 @@ export async function approveDiningRequest(requestId) {
     }
     finalDiningType = [...new Set(finalDiningType)];
 
-    // Find the Category IDs based on slugs
-    const selectedCategories = await FoodDiningCategory.find({
-        slug: { $in: finalDiningType }
-    }).select('_id').lean();
-    const categoryIds = selectedCategories.map(c => c._id);
+    // Find or create Category IDs based on slugs
+    const categoryIds = await ensureCategoriesForSlugs(finalDiningType);
 
     // Apply changes to FoodDiningRestaurant
     await FoodDiningRestaurant.findOneAndUpdate(

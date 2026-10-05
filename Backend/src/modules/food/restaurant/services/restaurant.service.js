@@ -20,6 +20,7 @@ import {
 import { FoodTopRestaurant } from '../../admin/models/topRestaurant.model.js';
 import { FoodOffer } from '../../admin/models/offer.model.js';
 import { FoodDiningRestaurant } from '../../dining/models/diningRestaurant.model.js';
+import { ensureCategoriesForSlugs } from '../../dining/services/dining.service.js';
 import { FoodItem } from '../../admin/models/food.model.js';
 import { getFoodDisplayPrice } from '../../admin/services/foodVariant.service.js';
 import { isRestaurantOnboardingPaymentEnabled } from '../../admin/services/moduleAccess.service.js';
@@ -933,19 +934,28 @@ export const updateCurrentRestaurantDiningSettings = async (restaurantId, body =
         1,
         parseInt(body.maxGuests ?? currentDiningSettings.maxGuests ?? 6, 10) || 6
     );
-    const diningType =
-        String(body.diningType ?? currentDiningSettings.diningType ?? 'family-dining').trim() ||
-        'family-dining';
+    let diningType = body.diningType ?? currentDiningSettings.diningType ?? ['family-dining'];
+    if (Array.isArray(diningType)) {
+        diningType = [...new Set(diningType.map(t => String(t).trim()))].filter(Boolean);
+    } else if (typeof diningType === 'string') {
+        diningType = diningType.split(',').map(t => t.trim()).filter(Boolean);
+    }
+    if (!diningType || diningType.length === 0) {
+        diningType = ['family-dining'];
+    }
 
     const isEnabled = parseBoolean(body.isEnabled, currentDiningSettings.isEnabled);
     
-    // First, update the FoodDiningRestaurant collection to keep it synced
+    // First, ensure Category IDs exist for these slugs and sync FoodDiningRestaurant
+    const categoryIds = await ensureCategoriesForSlugs(diningType);
     await FoodDiningRestaurant.findOneAndUpdate(
         { restaurantId },
         {
             $set: {
                 isEnabled,
                 maxGuests,
+                categoryIds,
+                primaryCategoryId: categoryIds[0] || null
             }
         },
         { upsert: true }
@@ -2075,17 +2085,26 @@ export const listApprovedRestaurants = async (query = {}) => {
 };
 
 export const getApprovedRestaurantByIdOrSlug = async (idOrSlug, userId = null, coords = {}) => {
-    const value = String(idOrSlug || '').trim();
-    if (!value) return null;
+    const raw = String(idOrSlug || '').trim();
+    if (!raw) return null;
+
+    let value = raw;
+    try {
+        value = decodeURIComponent(raw).trim();
+    } catch {}
 
     let doc = null;
     // ObjectId path
     if (/^[0-9a-fA-F]{24}$/.test(value)) {
         doc = await FoodRestaurant.findOne({ _id: value, status: 'approved' }).lean();
+        if (!doc) {
+            doc = await FoodRestaurant.findOne({ _id: value, status: { $ne: 'deleted' } }).lean();
+        }
     } else {
         // Slug / name path — URL may be "navis-cafe" while DB has "navi's cafe"
         const variantWithSpaces = normalizeName(value);
         const compact = toCompactName(value);
+        const slugHyphen = value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
         // Allow any non-alphanumeric between letters (apostrophe, space, hyphen)
         const flexibleCompact =
             compact.length >= 3
@@ -2100,11 +2119,19 @@ export const getApprovedRestaurantByIdOrSlug = async (idOrSlug, userId = null, c
                   )
                 : null;
 
+        const nameRegex = new RegExp(`^${escapeRegex(value)}$`, 'i');
+        const variantRegex = new RegExp(`^${escapeRegex(variantWithSpaces)}$`, 'i');
+
         const orClauses = [
             { slug: value },
+            { slug: slugHyphen },
             { restaurantSlug: value },
+            { restaurantSlug: slugHyphen },
+            { restaurantName: nameRegex },
+            { restaurantName: variantRegex },
             { restaurantNameNormalized: variantWithSpaces },
             { restaurantNameNormalized: value.trim().toLowerCase() },
+            { restaurantNameNormalized: slugHyphen },
         ];
         if (flexibleCompact) {
             orClauses.push(
@@ -2117,6 +2144,13 @@ export const getApprovedRestaurantByIdOrSlug = async (idOrSlug, userId = null, c
             status: 'approved',
             $or: orClauses,
         }).lean();
+
+        if (!doc) {
+            doc = await FoodRestaurant.findOne({
+                status: { $ne: 'deleted' },
+                $or: orClauses,
+            }).lean();
+        }
     }
 
     if (!doc) return null;

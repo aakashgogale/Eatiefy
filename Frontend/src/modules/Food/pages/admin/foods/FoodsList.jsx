@@ -1157,27 +1157,6 @@ export default function FoodsList() {
                 ) : null}
               </div>
               <div>
-                <label htmlFor="admin-food-admin-price" className="block text-sm font-medium text-slate-700 mb-1">
-                  Admin Price <span className="font-normal text-slate-500">(optional)</span>
-                </label>
-                <input
-                  id="admin-food-admin-price"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={(foodForm.variants || []).length > 0 ? "" : foodForm.adminPrice}
-                  onChange={(e) => setFoodForm((prev) => ({ ...prev, adminPrice: e.target.value }))}
-                  disabled={(foodForm.variants || []).length > 0}
-                  placeholder="Leave empty to use the base price"
-                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white disabled:bg-slate-100 disabled:text-slate-400"
-                />
-                <p className="mt-1 text-xs text-slate-500">
-                  {(foodForm.variants || []).length > 0
-                    ? "Not available for items with variants. Edit the variant prices instead."
-                    : "Replaces the base price for customers, orders and the restaurant app. The restaurant only sees the resulting price, never this field."}
-                </p>
-              </div>
-              <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Food Type</label>
                 <select
                   value={

@@ -125,76 +125,88 @@ export default function DiningRestaurantDetails() {
       setError(null)
 
       const routeRestaurant = location.state?.restaurant || null
+      const decodedSlug = slug ? decodeURIComponent(slug).trim() : ''
       const preferredRestaurantLookup =
         routeRestaurant?._id ||
         routeRestaurant?.restaurantId ||
         routeRestaurant?.id ||
+        decodedSlug ||
         slug
 
-      let restaurantResponse = null;
-      let resolvedRestaurant = null;
-      
-      try {
-        // Since we are in Dining, try diningAPI FIRST!
-        const diningRes = await diningAPI.getRestaurantBySlug(slug);
-        if (diningRes?.data?.success && diningRes?.data?.data) {
-           resolvedRestaurant = diningRes.data.data?.restaurant || diningRes.data.data;
-           restaurantResponse = diningRes;
+      let restaurantResponse = null
+      let resolvedRestaurant = routeRestaurant || null
+
+      // 1. Try diningAPI first with slug / decodedSlug / id
+      if (decodedSlug || slug) {
+        try {
+          const diningRes = await diningAPI.getRestaurantBySlug(decodedSlug || slug)
+          if (diningRes?.data?.success && diningRes?.data?.data) {
+            resolvedRestaurant = diningRes.data.data?.restaurant || diningRes.data.data
+            restaurantResponse = diningRes
+          }
+        } catch (e) {
+          // ignored
         }
-      } catch (e) {
-        // ignored
       }
 
-      // If diningAPI failed, try restaurantAPI with ID
-      if (!resolvedRestaurant) {
+      // 2. If diningAPI failed or not found, try restaurantAPI with ID
+      if (!resolvedRestaurant && preferredRestaurantLookup) {
         try {
           restaurantResponse = await restaurantAPI.getRestaurantById(preferredRestaurantLookup)
-          if (restaurantResponse?.data?.success) {
-             resolvedRestaurant = restaurantResponse.data.data?.restaurant || restaurantResponse.data.data;
+          if (restaurantResponse?.data?.success && restaurantResponse?.data?.data) {
+            resolvedRestaurant = restaurantResponse.data.data?.restaurant || restaurantResponse.data.data
           }
         } catch (err) {
           // Ignored
         }
       }
 
-      // If ID lookup failed, try restaurantAPI with slug
-      if (!resolvedRestaurant && preferredRestaurantLookup !== slug) {
+      // 3. If ID lookup failed, try restaurantAPI with decoded slug
+      if (!resolvedRestaurant && decodedSlug && preferredRestaurantLookup !== decodedSlug) {
         try {
-          restaurantResponse = await restaurantAPI.getRestaurantById(slug)
-          if (restaurantResponse?.data?.success) {
-             resolvedRestaurant = restaurantResponse.data.data?.restaurant || restaurantResponse.data.data;
+          restaurantResponse = await restaurantAPI.getRestaurantById(decodedSlug)
+          if (restaurantResponse?.data?.success && restaurantResponse?.data?.data) {
+            resolvedRestaurant = restaurantResponse.data.data?.restaurant || restaurantResponse.data.data
           }
         } catch (err) {
           // Ignored
         }
       }
 
-      // Last resort fallback using search
+      // 4. Fallback search via diningAPI
       if (!resolvedRestaurant) {
         try {
-          // Change: Use diningAPI instead of restaurantAPI for search
           const searchResponse = await diningAPI.getRestaurants({ limit: 100 })
           const restaurants = searchResponse?.data?.data?.restaurants || searchResponse?.data?.data || []
-          const restaurantNameStr = slug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+          const slugLower = (decodedSlug || slug || '').toLowerCase()
+          const slugHyphen = slugLower.replace(/\s+/g, '-')
+          const slugSpace = slugLower.replace(/-/g, ' ')
+
           const matchingRestaurant = restaurants.find(r => {
-            const nameToUse = r.restaurantName || r.name;
-            if (!nameToUse) return false;
-            
-            return r.slug === slug ||
-              nameToUse.toLowerCase().replace(/\s+/g, '-') === slug.toLowerCase().replace(/\s+/g, '-') ||
-              nameToUse.toLowerCase() === restaurantNameStr.toLowerCase() ||
-              nameToUse.toLowerCase() === slug.toLowerCase()
+            const nameToUse = (r.restaurantName || r.name || '').toLowerCase()
+            const rSlug = (r.slug || r.restaurantSlug || '').toLowerCase()
+            const rId = String(r._id || r.id || '')
+
+            if (!nameToUse && !rSlug && !rId) return false
+
+            return (
+              rId === preferredRestaurantLookup ||
+              rSlug === slugHyphen ||
+              rSlug === slugLower ||
+              nameToUse === slugSpace ||
+              nameToUse === slugLower ||
+              nameToUse.replace(/\s+/g, '-') === slugHyphen
+            )
           })
-          
+
           if (matchingRestaurant) {
-             const fullResponse = await restaurantAPI.getRestaurantById(matchingRestaurant._id || matchingRestaurant.restaurantId || matchingRestaurant.slug)
-             if (fullResponse?.data?.success) {
-                restaurantResponse = fullResponse
-                resolvedRestaurant = fullResponse.data.data?.restaurant || fullResponse.data.data;
-             } else {
-                // If getRestaurantById fails for this matching restaurant, just use the matching one directly!
-                resolvedRestaurant = matchingRestaurant;
-             }
+            resolvedRestaurant = matchingRestaurant
+            try {
+              const fullResponse = await restaurantAPI.getRestaurantById(matchingRestaurant._id || matchingRestaurant.restaurantId || matchingRestaurant.slug)
+              if (fullResponse?.data?.success && fullResponse?.data?.data) {
+                resolvedRestaurant = fullResponse.data.data?.restaurant || fullResponse.data.data
+              }
+            } catch {}
           }
         } catch (err) {}
       }
@@ -206,35 +218,36 @@ export default function DiningRestaurantDetails() {
       }
 
       setRestaurant(resolvedRestaurant)
-      
-      const restaurantId = resolvedRestaurant?._id || resolvedRestaurant?.id || slug
-      
+
+      const restaurantId = resolvedRestaurant?._id || resolvedRestaurant?.id || preferredRestaurantLookup
+
       // Fetch Bookings for Availability Check
       if (isModuleAuthenticated('user')) {
         setIsFetchingBookings(true)
         try {
-            const bookingsRes = await diningAPI.getRestaurantBookings(resolvedRestaurant)
-            if (bookingsRes.data.success) {
-                setCurrentBookings(Array.isArray(bookingsRes.data.data) ? bookingsRes.data.data : [])
-            }
+          const bookingsRes = await diningAPI.getRestaurantBookings(resolvedRestaurant)
+          if (bookingsRes?.data?.success) {
+            setCurrentBookings(Array.isArray(bookingsRes.data.data) ? bookingsRes.data.data : [])
+          }
         } catch (err) {
-            debugError("Error fetching bookings:", err)
+          debugError("Error fetching bookings:", err)
         } finally {
-            setIsFetchingBookings(false)
+          setIsFetchingBookings(false)
         }
       } else {
-        // Guest users cannot fetch bookings
         setCurrentBookings([])
         setIsFetchingBookings(false)
       }
 
-      restaurantAPI.getOutletTimingsByRestaurantId(restaurantId)
-        .then(r => setOutletTimings(r?.data?.data?.outletTimings || {}))
-        .catch(() => {})
+      if (restaurantId) {
+        restaurantAPI.getOutletTimingsByRestaurantId(restaurantId)
+          .then(r => setOutletTimings(r?.data?.data?.outletTimings || {}))
+          .catch(() => {})
 
-      const menuResponse = await restaurantAPI.getMenuByRestaurantId(restaurantId).catch(() => null)
-      const resolvedMenu = menuResponse ? getMenuFromResponse(menuResponse) : null
-      setMenuSections(Array.isArray(resolvedMenu?.sections) ? resolvedMenu.sections : [])
+        const menuResponse = await restaurantAPI.getMenuByRestaurantId(restaurantId).catch(() => null)
+        const resolvedMenu = menuResponse ? getMenuFromResponse(menuResponse) : null
+        setMenuSections(Array.isArray(resolvedMenu?.sections) ? resolvedMenu.sections : [])
+      }
     } catch {
       setError("Failed to load restaurant")
       setRestaurant(null)

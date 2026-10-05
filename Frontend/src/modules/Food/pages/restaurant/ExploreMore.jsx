@@ -33,6 +33,7 @@ import {
   Trash2,
   AlertTriangle,
   BadgePercent,
+  UtensilsCrossed,
 } from "lucide-react"
 import { Card, CardContent } from "@food/components/ui/card"
 import { DateRangeCalendar } from "@food/components/ui/date-range-calendar"
@@ -44,6 +45,7 @@ import { showAccountDeletedToast } from "@/shared/utils/customToasts"
 import { firebaseAuth, ensureFirebaseInitialized } from "@food/firebase"
 import BottomNavOrders from "@food/components/restaurant/BottomNavOrders"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
+import { useModuleAccess } from "@food/hooks/useModuleAccess"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -765,14 +767,26 @@ export default function ExploreMore() {
   }, [])
 
   // Section data
-  const manageOutletItems = [
-    { id: 1, label: "Outlet info", icon: Info, route: "/food/restaurant/outlet-info" },
-    { id: 2, label: "Outlet timings", icon: Clock, route: "/food/restaurant/outlet-timings" },
-    // Dining Reservations — gated via the admin Dining toggle
-    { id: 4, label: "Menu categories", icon: Settings, route: "/food/restaurant/menu-categories" },
-    { id: 7, label: "Offers", icon: BadgePercent, route: "/food/restaurant/offers" },
-    { id: 6, label: "Takeaway", icon: ShoppingBag },
-  ]
+  const { diningEnabled } = useModuleAccess()
+
+  const manageOutletItems = useMemo(() => {
+    const items = [
+      { id: 1, label: "Outlet info", icon: Info, route: "/food/restaurant/outlet-info" },
+      { id: 2, label: "Outlet timings", icon: Clock, route: "/food/restaurant/outlet-timings" },
+      { id: 4, label: "Menu categories", icon: Settings, route: "/food/restaurant/menu-categories" },
+      { id: 7, label: "Offers", icon: BadgePercent, route: "/food/restaurant/offers" },
+      { id: 6, label: "Takeaway", icon: ShoppingBag },
+    ]
+    if (diningEnabled) {
+      items.push({
+        id: 8,
+        label: "Dining",
+        icon: UtensilsCrossed,
+        route: "/food/restaurant/dining-reservations",
+      })
+    }
+    return items
+  }, [diningEnabled])
 
   const settingsItems = [
     { id: 3, label: "Delivery settings", icon: Truck, route: "/food/restaurant/delivery-settings" },
@@ -797,13 +811,13 @@ export default function ExploreMore() {
   ]
 
   // All sections with their items
-  const allSections = [
+  const allSections = useMemo(() => [
     { title: "Manage outlet", items: manageOutletItems, key: "manage-outlet" },
     { title: "Settings", items: settingsItems, key: "settings" },
     { title: "Orders", items: ordersItems, key: "orders" },
     { title: "Help", items: helpItems, key: "help" },
     { title: "Finance", items: accountingItems, key: "accounting" },
-  ]
+  ], [manageOutletItems])
 
   // Filter logic
   const getFilteredSections = () => {

@@ -17,7 +17,8 @@ import {
 } from '../services/restaurant.service.js';
 import {
     createDiningRequest,
-    getPendingDiningRequest
+    getPendingDiningRequest,
+    createDiningCategory
 } from '../../dining/services/dining.service.js';
 import { validateRestaurantRegisterDto } from '../validators/restaurant.validator.js';
 import { sendResponse } from '../../../../utils/response.js';
@@ -218,6 +219,15 @@ export const getPendingDiningRequestController = async (req, res, next) => {
         const restaurantId = req.user?.userId;
         const request = await getPendingDiningRequest(restaurantId);
         return sendResponse(res, 200, 'Pending request fetched successfully', request);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const createRestaurantDiningCategoryController = async (req, res, next) => {
+    try {
+        const category = await createDiningCategory(req.body || {});
+        return sendResponse(res, 201, 'Dining category created successfully', category);
     } catch (error) {
         next(error);
     }

@@ -4,6 +4,7 @@ import {
     getMyBookingsController,
     getRestaurantBookingsController,
     updateBookingStatusController,
+    cancelBookingController,
     createBookingReviewController
 } from '../controllers/diningBooking.controller.js';
 import { authMiddleware } from '../../../../core/auth/auth.middleware.js';
@@ -15,6 +16,7 @@ const router = express.Router();
 router.post('/', authMiddleware, requireRoles('USER'), createBookingController);
 router.get('/', authMiddleware, requireRoles('USER'), getMyBookingsController);
 router.post('/:bookingId/review', authMiddleware, requireRoles('USER'), createBookingReviewController);
+router.patch('/:bookingId/cancel', authMiddleware, requireRoles('USER'), cancelBookingController);
 
 // Shared booking view (User checking seating OR Restaurant viewing queue)
 router.get('/by-restaurant/:restaurantIdentifier', authMiddleware, requireRoles('USER', 'RESTAURANT'), getRestaurantBookingsController);

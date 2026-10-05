@@ -85,6 +85,7 @@ export default function MyBookings() {
     const [bookings, setBookings] = useState([])
     const [loading, setLoading] = useState(true)
     const [selectedBooking, setSelectedBooking] = useState(null)
+    const [cancellingId, setCancellingId] = useState(null)
 
     const getStatusLabel = (status) => {
         const key = String(status || "").toLowerCase()
@@ -151,6 +152,30 @@ export default function MyBookings() {
             window.removeEventListener('diningBookingStatusUpdate', onSocketUpdate)
         }
     }, [])
+
+    const canCancel = (status) =>
+        !['completed', 'cancelled', 'rejected', 'checked-in'].includes(String(status || '').toLowerCase())
+
+    const handleCancelBooking = async (booking) => {
+        if (cancellingId) return
+        if (!window.confirm('Cancel this table booking?')) return
+
+        setCancellingId(booking._id)
+        try {
+            const response = await diningAPI.cancelBooking(booking._id)
+            if (response.data.success) {
+                toast.success('Booking cancelled')
+                setBookings(prev =>
+                    prev.map(b => String(b._id) === String(booking._id) ? { ...b, status: 'cancelled' } : b)
+                )
+            }
+        } catch (error) {
+            debugError("Error cancelling booking:", error)
+            toast.error(error.response?.data?.message || "Failed to cancel booking")
+        } finally {
+            setCancellingId(null)
+        }
+    }
 
     const handleReviewSubmit = async (reviewData) => {
         try {
@@ -229,6 +254,15 @@ export default function MyBookings() {
                                         className="mt-3 w-full py-2 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 text-[11px] font-bold rounded-lg border border-red-100 dark:border-red-900/30 hover:bg-red-100 transition-colors"
                                     >
                                         RATE & REVIEW
+                                    </button>
+                                )}
+                                {canCancel(booking.status) && (
+                                    <button
+                                        onClick={() => handleCancelBooking(booking)}
+                                        disabled={cancellingId === booking._id}
+                                        className="mt-3 w-full py-2 bg-slate-50 dark:bg-gray-800 text-slate-600 dark:text-gray-300 text-[11px] font-bold rounded-lg border border-slate-200 dark:border-gray-700 hover:bg-slate-100 transition-colors disabled:opacity-60"
+                                    >
+                                        {cancellingId === booking._id ? 'CANCELLING...' : 'CANCEL BOOKING'}
                                     </button>
                                 )}
                             </div>
