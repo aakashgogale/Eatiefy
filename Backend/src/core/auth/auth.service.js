@@ -546,9 +546,16 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
 
   if (restaurantStatus !== "approved") {
     const isRejected = restaurantStatus === "rejected";
+    // Re-apply resubmits through /register; this token (the phone was just
+    // OTP-verified) is what lets it update the rejected registration instead of
+    // colliding with it as "already exists".
+    const registrationToken = isRejected
+      ? (await import("./onboardingToken.js")).signRegistrationToken(phone)
+      : undefined;
     return {
       pendingApproval: true,
       isRejected,
+      ...(registrationToken ? { registrationToken } : {}),
       rejectionReason: isRejected ? restaurant.rejectionReason : null,
       message:
         isRejected

@@ -655,7 +655,8 @@ export const getDeliveryPartnerWallet = async (deliveryPartnerId) => {
         throw new ValidationError('Delivery partner not found');
     }
 
-    const cashLimitSettings = await getDeliveryCashLimitSettings();
+    // The rider's own zone limits (zone override, else the default).
+    const cashLimitSettings = await getDeliveryCashLimitSettings({ zoneId: partner.zoneId });
     const totalCashLimit = Number(cashLimitSettings.deliveryCashLimit) || 0;
     const deliveryWithdrawalLimit = Number(cashLimitSettings.deliveryWithdrawalLimit) || 100;
 
@@ -1169,10 +1170,17 @@ export const getActiveEarningAddonsForPartner = async (deliveryPartnerId) => {
     const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
     const now = new Date();
 
+    // Offers for every zone, plus the ones for this rider's own zone.
+    const partner = await FoodDeliveryPartner.findById(partnerId).select('zoneId').lean();
+    const zoneScope = partner?.zoneId
+        ? { $or: [{ zoneId: null }, { zoneId: partner.zoneId }] }
+        : { zoneId: null };
+
     const addons = await FoodEarningAddon.find({
         status: 'active',
         startDate: { $lte: now },
-        endDate: { $gte: now }
+        endDate: { $gte: now },
+        ...zoneScope
     })
         .sort({ endDate: 1, createdAt: 1 })
         .lean();

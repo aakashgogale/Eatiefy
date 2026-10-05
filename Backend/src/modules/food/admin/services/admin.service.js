@@ -35,6 +35,14 @@ import { FoodRefreshToken } from '../../../../core/refreshTokens/refreshToken.mo
 import { FoodDeliveryCashLimit } from '../models/deliveryCashLimit.model.js';
 import { FoodTopRestaurant } from '../models/topRestaurant.model.js';
 import { FoodDeliveryEmergencyHelp } from '../models/deliveryEmergencyHelp.model.js';
+import {
+    resolveDeliveryCashLimitSettings,
+    resolveDeliveryEmergencyHelp,
+    updateDeliveryCashLimitSettings,
+    updateDeliveryEmergencyHelp,
+    loadDeliveryCashLimitByZone,
+    loadPartnerZoneIds,
+} from './zoneDeliverySettings.service.js';
 import { FoodReferralSettings } from '../models/referralSettings.model.js';
 import { FoodReferralLog } from '../models/referralLog.model.js';
 import { FoodSafetyEmergencyReport } from '../models/safetyEmergencyReport.model.js';
@@ -70,6 +78,7 @@ import {
 } from '../../shared/veganFoodGuard.js';
 import {
     extractRawFoodVariants,
+    getFoodAdminPrice,
     getFoodDisplayPrice,
     hasFoodVariants,
     normalizeFoodVariantsInput,
@@ -129,6 +138,26 @@ const parseZoneFilter = (value) => {
 const getRestaurantIdsInZone = async (zoneOid) => {
     const docs = await FoodRestaurant.find({ zoneId: zoneOid }).select('_id').lean();
     return docs.map((doc) => doc._id);
+};
+
+/** Every delivery partner assigned to a zone (any status), to filter records that hang off riders. */
+const getDeliveryPartnerIdsInZone = async (zoneOid) => {
+    const docs = await FoodDeliveryPartner.find({ zoneId: zoneOid }).select('_id').lean();
+    return docs.map((doc) => doc._id);
+};
+
+/**
+ * Narrows an admin Deliveryman Management list to records of riders in
+ * `zoneId` - the rider's own zone, as on the Deliveryman List. Added under
+ * $and so it combines with a name/phone search on the same field instead of
+ * replacing it. Empty / "all" leaves the filter as it is; a bad id is a 400.
+ */
+const scopeFilterToRiderZone = async (filter, zoneId, field = 'deliveryPartnerId') => {
+    const zoneOid = parseZoneFilter(zoneId);
+    if (!zoneOid) return filter;
+    const partnerIds = await getDeliveryPartnerIdsInZone(zoneOid);
+    filter.$and = [...(Array.isArray(filter.$and) ? filter.$and : []), { [field]: { $in: partnerIds } }];
+    return filter;
 };
 
 const normalizeRestaurantTime = (value) => {
@@ -2890,49 +2919,18 @@ export async function getContactMessages(query = {}) {
 }
 
 // ----- Delivery Cash Limit (admin) -----
-export async function getDeliveryCashLimitSettings() {
-    const doc = await FoodDeliveryCashLimit.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
-    const settings = doc || { deliveryCashLimit: 0, deliveryWithdrawalLimit: 100, maxConcurrentOrders: 1, isActive: true };
-    return {
-        deliveryCashLimit: Number(settings.deliveryCashLimit) || 0,
-        deliveryWithdrawalLimit: Number(settings.deliveryWithdrawalLimit) || 100,
-        maxConcurrentOrders: Math.min(5, Math.max(1, Number(settings.maxConcurrentOrders ?? 1))),
-    };
+/**
+ * Cash limit, minimum withdrawal and multi-order capacity. Pass the rider's
+ * zone: a zone's own values win, the rest follow the platform default (see
+ * zoneDeliverySettings.service). Without a zone this is the default.
+ */
+export async function getDeliveryCashLimitSettings({ zoneId } = {}) {
+    return resolveDeliveryCashLimitSettings({ zoneId });
 }
 
-export async function upsertDeliveryCashLimitSettings(body = {}) {
-    const existing = await FoodDeliveryCashLimit.findOne({ isActive: true }).sort({ createdAt: -1 });
-    const nextCashLimit = body.deliveryCashLimit;
-    const nextWithdrawalLimit = body.deliveryWithdrawalLimit;
-    const nextMaxConcurrent = body.maxConcurrentOrders;
-
-    const clampMaxConcurrent = (value) =>
-        Math.min(5, Math.max(1, Number(value) || 1));
-
-    if (existing) {
-        if (nextCashLimit !== undefined) existing.deliveryCashLimit = Math.max(0, Number(nextCashLimit) || 0);
-        if (nextWithdrawalLimit !== undefined) existing.deliveryWithdrawalLimit = Math.max(0, Number(nextWithdrawalLimit) || 0);
-        if (nextMaxConcurrent !== undefined) existing.maxConcurrentOrders = clampMaxConcurrent(nextMaxConcurrent);
-        await existing.save();
-        return {
-            deliveryCashLimit: existing.deliveryCashLimit,
-            deliveryWithdrawalLimit: existing.deliveryWithdrawalLimit,
-            maxConcurrentOrders: existing.maxConcurrentOrders,
-        };
-    }
-
-    const created = await FoodDeliveryCashLimit.create({
-        deliveryCashLimit: nextCashLimit !== undefined ? Math.max(0, Number(nextCashLimit) || 0) : 0,
-        deliveryWithdrawalLimit: nextWithdrawalLimit !== undefined ? Math.max(0, Number(nextWithdrawalLimit) || 0) : 100,
-        maxConcurrentOrders: nextMaxConcurrent !== undefined ? clampMaxConcurrent(nextMaxConcurrent) : 1,
-        isActive: true
-    });
-
-    return {
-        deliveryCashLimit: created.deliveryCashLimit,
-        deliveryWithdrawalLimit: created.deliveryWithdrawalLimit,
-        maxConcurrentOrders: created.maxConcurrentOrders,
-    };
+/** Platform default, or one zone's overrides when `body.zoneId` is set. */
+export async function upsertDeliveryCashLimitSettings(body = {}, adminUser = null) {
+    return updateDeliveryCashLimitSettings(body, adminUser);
 }
 
 // ----- Top Restaurants (admin curated, per zone + type) -----
@@ -3068,51 +3066,14 @@ export async function getTopRestaurantIds(zoneId, type) {
 }
 
 // ----- Delivery Emergency Help (admin) -----
-export async function getDeliveryEmergencyHelp() {
-    const doc = await FoodDeliveryEmergencyHelp.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
-    const data = doc || {
-        medicalEmergency: '',
-        accidentHelpline: '',
-        contactPolice: '',
-        insurance: '',
-        isActive: true
-    };
-    return {
-        medicalEmergency: data.medicalEmergency || '',
-        accidentHelpline: data.accidentHelpline || '',
-        contactPolice: data.contactPolice || '',
-        insurance: data.insurance || ''
-    };
+/** Emergency numbers for a zone (the rider's), or the platform default without one. */
+export async function getDeliveryEmergencyHelp({ zoneId } = {}) {
+    return resolveDeliveryEmergencyHelp({ zoneId });
 }
 
-export async function upsertDeliveryEmergencyHelp(body = {}) {
-    const existing = await FoodDeliveryEmergencyHelp.findOne({ isActive: true }).sort({ createdAt: -1 });
-    if (existing) {
-        if (body.medicalEmergency !== undefined) existing.medicalEmergency = String(body.medicalEmergency || '').trim();
-        if (body.accidentHelpline !== undefined) existing.accidentHelpline = String(body.accidentHelpline || '').trim();
-        if (body.contactPolice !== undefined) existing.contactPolice = String(body.contactPolice || '').trim();
-        if (body.insurance !== undefined) existing.insurance = String(body.insurance || '').trim();
-        await existing.save();
-        return {
-            medicalEmergency: existing.medicalEmergency || '',
-            accidentHelpline: existing.accidentHelpline || '',
-            contactPolice: existing.contactPolice || '',
-            insurance: existing.insurance || ''
-        };
-    }
-    const created = await FoodDeliveryEmergencyHelp.create({
-        medicalEmergency: String(body.medicalEmergency || '').trim(),
-        accidentHelpline: String(body.accidentHelpline || '').trim(),
-        contactPolice: String(body.contactPolice || '').trim(),
-        insurance: String(body.insurance || '').trim(),
-        isActive: true
-    });
-    return {
-        medicalEmergency: created.medicalEmergency || '',
-        accidentHelpline: created.accidentHelpline || '',
-        contactPolice: created.contactPolice || '',
-        insurance: created.insurance || ''
-    };
+/** Platform default (validated as before), or one zone's overrides when `body.zoneId` is set. */
+export async function upsertDeliveryEmergencyHelp(body = {}, adminUser = null) {
+    return updateDeliveryEmergencyHelp(body, adminUser);
 }
 
 export async function getRestaurantReviews(query = {}) {
@@ -4268,7 +4229,7 @@ export async function getFoods(query) {
 
     const [list, total] = await Promise.all([
         FoodItem.find(filter)
-            .select('-oldData -newData')
+            .select('-oldData -newData +adminPrice')
             .sort({ _id: -1 })
             .skip(skip)
             .limit(limit)
@@ -4307,7 +4268,9 @@ export async function getFoods(query) {
             categoryName: f.categoryName || '',
             name: f.name,
             description: f.description || '',
-            price: getFoodDisplayPrice(f),
+            // The restaurant's own price; adminPrice (when set) is what is charged.
+            price: getFoodDisplayPrice({ price: f.price, variants: f.variants }),
+            adminPrice: getFoodAdminPrice(f),
             variants: serializeFoodVariants(f.variants),
             variations: serializeFoodVariants(f.variants),
             image: f.image || '',
@@ -4373,6 +4336,27 @@ const resolveAdminFoodCategory = async ({ categoryId, categoryName, foodType, re
         categoryId: resolvedCategoryId,
         categoryName: resolvedCategoryName
     };
+};
+
+/**
+ * Admin price override from the request: undefined = not sent (keep), null =
+ * cleared, otherwise a price > 0 that replaces the restaurant's price for
+ * customers, carts, orders and the restaurant's own view.
+ */
+const parseAdminPriceInput = (value) => {
+    if (value === undefined) return undefined;
+    if (value === null || String(value).trim() === '') return null;
+    const adminPrice = Number(value);
+    if (!Number.isFinite(adminPrice) || adminPrice <= 0) {
+        throw new ValidationError('Admin price must be greater than 0');
+    }
+    return Math.round(adminPrice * 100) / 100;
+};
+
+const assertAdminPriceAllowed = (adminPrice, variants) => {
+    if (adminPrice != null && hasFoodVariants({ variants })) {
+        throw new ValidationError('Admin price applies only to items without variants. Set variant prices instead.');
+    }
 };
 
 const getAdminFoodCreatePricing = (body = {}) => {
@@ -4458,6 +4442,8 @@ export async function createFood(body) {
         throw new ValidationError('Non-veg restaurants can only add non-veg foods');
     }
     const { price, variants } = getAdminFoodCreatePricing(body);
+    const adminPrice = parseAdminPriceInput(body.adminPrice) ?? null;
+    assertAdminPriceAllowed(adminPrice, variants);
     const image = normalizeImageForStorage(typeof body.image === 'string' ? body.image : '');
 
     let categoryName = typeof body.categoryName === 'string' ? body.categoryName.trim() : '';
@@ -4477,6 +4463,7 @@ export async function createFood(body) {
         name,
         description: typeof body.description === 'string' ? body.description.trim() : '',
         price,
+        adminPrice,
         priceOnOtherPlatforms: body.priceOnOtherPlatforms ? Number(body.priceOnOtherPlatforms) : null,
         otherPlatformGst: body.otherPlatformGst !== undefined && body.otherPlatformGst !== null
             ? Number(body.otherPlatformGst)
@@ -4495,7 +4482,7 @@ export async function createFood(body) {
 
 export async function updateFood(id, body) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
-    const doc = await FoodItem.findById(id);
+    const doc = await FoodItem.findById(id).select('+adminPrice');
     if (!doc) return null;
     const restaurant = await FoodRestaurant.findById(doc.restaurantId)
         .select('foodType pureVegRestaurant')
@@ -4531,6 +4518,15 @@ export async function updateFood(id, body) {
     const pricingUpdate = getAdminFoodUpdatedPricing(doc.toObject(), body);
     if (pricingUpdate.price !== undefined) doc.price = pricingUpdate.price;
     if (pricingUpdate.variants !== undefined) doc.variants = pricingUpdate.variants;
+    const requestedAdminPrice = parseAdminPriceInput(body.adminPrice);
+    if (requestedAdminPrice !== undefined) {
+        assertAdminPriceAllowed(requestedAdminPrice, doc.variants);
+        doc.adminPrice = requestedAdminPrice;
+    } else if (doc.adminPrice != null && hasFoodVariants({ variants: doc.variants })) {
+        // The item now has variants, which are priced individually: an
+        // item-level override no longer applies and must not linger hidden.
+        doc.adminPrice = null;
+    }
     if (body.priceOnOtherPlatforms !== undefined) doc.priceOnOtherPlatforms = body.priceOnOtherPlatforms ? Number(body.priceOnOtherPlatforms) : null;
     if (body.otherPlatformGst !== undefined) {
         doc.otherPlatformGst = body.otherPlatformGst !== null && body.otherPlatformGst !== ''
@@ -5556,12 +5552,14 @@ export function getDeliveryWalletsStub() {
 }
 
 // ----- Support tickets -----
-export async function getSupportTicketStats() {
+export async function getSupportTicketStats(query = {}) {
+    // Same zone scope as the ticket list, so the counts match what the table shows.
+    const scope = await scopeFilterToRiderZone({}, query.zoneId);
     const [open, inProgress, resolved, closed] = await Promise.all([
-        DeliverySupportTicket.countDocuments({ status: 'open' }),
-        DeliverySupportTicket.countDocuments({ status: 'in_progress' }),
-        DeliverySupportTicket.countDocuments({ status: 'resolved' }),
-        DeliverySupportTicket.countDocuments({ status: 'closed' })
+        DeliverySupportTicket.countDocuments({ ...scope, status: 'open' }),
+        DeliverySupportTicket.countDocuments({ ...scope, status: 'in_progress' }),
+        DeliverySupportTicket.countDocuments({ ...scope, status: 'resolved' }),
+        DeliverySupportTicket.countDocuments({ ...scope, status: 'closed' })
     ]);
     return {
         total: open + inProgress + resolved + closed,
@@ -5588,6 +5586,9 @@ export async function getDeliverySupportTickets(query = {}) {
 
     const skip = Math.max(0, (Number(page) || 1) - 1) * Math.max(1, Math.min(500, Number(limit) || 100));
     const limitNum = Math.max(1, Math.min(500, Number(limit) || 100));
+
+    // Zone picked on the page: only riders of that zone.
+    await scopeFilterToRiderZone(filter, query.zoneId);
 
     const [list, total] = await Promise.all([
         DeliverySupportTicket.find(filter)
@@ -5817,6 +5818,9 @@ export async function getDeliveryPartnerBonusTransactions(query = {}) {
     const skip = Math.max(0, (Number(page) || 1) - 1) * Math.max(1, Math.min(1000, Number(limit) || 100));
     const limitNum = Math.max(1, Math.min(1000, Number(limit) || 100));
 
+    // Zone picked on the page: only riders of that zone.
+    await scopeFilterToRiderZone(filter, query.zoneId);
+
     const [list, total] = await Promise.all([
         DeliveryBonusTransaction.find(filter)
             .sort({ createdAt: -1 })
@@ -5992,6 +5996,9 @@ export async function getDeliveryEarnings(query = {}) {
         ];
     }
 
+    // Zone picked on the page: only riders of that zone.
+    await scopeFilterToRiderZone(filter, query.zoneId, 'dispatch.deliveryPartnerId');
+
     const [orders, total, earningsAgg, distinctPartners] = await Promise.all([
         FoodOrder.find(filter)
             .sort({ createdAt: -1 })
@@ -6083,6 +6090,13 @@ export async function getEarningAddons(query = {}) {
         ];
     }
 
+    // A zone's view: offers for that zone plus the ones for every zone - all
+    // that its riders can earn. (null also matches offers created before zones.)
+    const zoneOid = parseZoneFilter(query.zoneId);
+    if (zoneOid) {
+        filter.$and = [{ $or: [{ zoneId: zoneOid }, { zoneId: null }] }];
+    }
+
     const skip = Math.max(0, (Number(page) || 1) - 1) * Math.max(1, Math.min(1000, Number(limit) || 20));
     const limitNum = Math.max(1, Math.min(1000, Number(limit) || 20));
 
@@ -6091,12 +6105,19 @@ export async function getEarningAddons(query = {}) {
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limitNum)
+            .populate({ path: 'zoneId', select: 'name zoneName serviceLocation' })
             .lean(),
         FoodEarningAddon.countDocuments(filter)
     ]);
 
     const now = Date.now();
-    const earningAddons = list.map((a) => {
+    const earningAddons = list.map((raw) => {
+        const zone = raw.zoneId && typeof raw.zoneId === 'object' ? raw.zoneId : null;
+        const a = {
+            ...raw,
+            zoneId: zone?._id ? String(zone._id) : null,
+            zoneName: zone ? zone.name || zone.zoneName || zone.serviceLocation || '' : ''
+        };
         const start = a.startDate ? new Date(a.startDate).getTime() : 0;
         const end = a.endDate ? new Date(a.endDate).getTime() : 0;
         const isValid = Boolean(a.status === 'active' && start && end && now >= start && now <= end);
@@ -6120,8 +6141,19 @@ export async function getEarningAddons(query = {}) {
     };
 }
 
+/** The offer's target zone after checking it exists; null = every zone. */
+const resolveAddonZoneId = async (zoneId) => {
+    if (!zoneId) return null;
+    if (!(await FoodZone.exists({ _id: zoneId }))) {
+        throw new ValidationError('Selected zone does not exist');
+    }
+    return new mongoose.Types.ObjectId(String(zoneId));
+};
+
 export async function createEarningAddon(body) {
+    const zoneId = await resolveAddonZoneId(body.zoneId);
     const created = await FoodEarningAddon.create({
+        zoneId,
         title: body.title,
         requiredOrders: body.requiredOrders,
         earningAmount: body.earningAmount,
@@ -6143,6 +6175,7 @@ export async function updateEarningAddon(id, body) {
     doc.startDate = body.startDate;
     doc.endDate = body.endDate;
     doc.maxRedemptions = body.maxRedemptions ?? null;
+    if (body.zoneId !== undefined) doc.zoneId = await resolveAddonZoneId(body.zoneId);
     await doc.save();
     return doc.toObject();
 }
@@ -6185,6 +6218,9 @@ export async function getEarningAddonHistory(query = {}) {
 
     const skip = Math.max(0, (Number(page) || 1) - 1) * Math.max(1, Math.min(1000, Number(limit) || 100));
     const limitNum = Math.max(1, Math.min(1000, Number(limit) || 100));
+
+    // Zone picked on the page: only riders of that zone.
+    await scopeFilterToRiderZone(filter, query.zoneId);
 
     const [list, total] = await Promise.all([
         FoodEarningAddonHistory.find(filter)
@@ -6342,10 +6378,17 @@ export async function checkEarningAddonCompletions(deliveryPartnerId, _force = f
 
     if (partnerIds.length === 0) return { completionsFound: 0 };
 
+    // An offer for one zone is only for that zone's riders.
+    const zoneByPartner = activeOffers.some((offer) => offer.zoneId)
+        ? await loadPartnerZoneIds(partnerIds)
+        : new Map();
+
     let globalCompletions = 0;
 
     for (const pId of partnerIds) {
         for (const offer of activeOffers) {
+            if (offer.zoneId && zoneByPartner.get(String(pId)) !== String(offer.zoneId)) continue;
+
             // Find existing history so we don't grant it twice for the same offer.
             const existing = await FoodEarningAddonHistory.findOne({
                 deliveryPartnerId: pId,
@@ -6491,6 +6534,9 @@ export async function getDeliverymanReviews(query = {}) {
             { userId: { $in: customers.map(c => c._id) } }
         ];
     }
+
+    // Zone picked on the page: only riders of that zone.
+    await scopeFilterToRiderZone(filter, query.zoneId, 'dispatch.deliveryPartnerId');
 
     const [docs, total] = await Promise.all([
         FoodOrder.find(filter)
@@ -6981,6 +7027,9 @@ export async function getDeliveryWithdrawals(query = {}) {
         }
     }
 
+    // Zone picked on the page: only riders of that zone.
+    await scopeFilterToRiderZone(filter, query.zoneId);
+
     const [withdrawals, total] = await Promise.all([
         FoodDeliveryWithdrawal.find(filter)
             .sort({ createdAt: -1 })
@@ -7055,8 +7104,9 @@ export async function updateDeliveryWithdrawalStatus(id, { status, adminNote, re
  * amount an admin sees is the amount the guard checks.
  */
 async function computeDeliveryWalletRows(partners) {
-    const cashLimitSettings = await FoodDeliveryCashLimit.findOne({ isActive: true }).lean();
-    const globalLimit = Number(cashLimitSettings?.deliveryCashLimit || 0);
+    // Each rider's own limit: their zone's value, else the platform default.
+    const cashLimits = await loadDeliveryCashLimitByZone();
+    const cashLimitFor = (partner) => Number(cashLimits.forZone(partner?.zoneId).deliveryCashLimit) || 0;
 
     const partnerIds = partners.map(p => new mongoose.Types.ObjectId(p._id)).filter(Boolean);
 
@@ -7145,8 +7195,8 @@ async function computeDeliveryWalletRows(partners) {
                 phone: p.phone || '',
                 deliveryIdString: partnerIdstr,
                 pocketBalance: 0,
-                totalCashLimit: globalLimit,
-                remainingCashLimit: globalLimit,
+                totalCashLimit: cashLimitFor(p),
+                remainingCashLimit: cashLimitFor(p),
                 cashCollected: 0,
                 cashDeposited: 0,
                 totalEarning: 0,
@@ -7174,8 +7224,8 @@ async function computeDeliveryWalletRows(partners) {
             phone: p.phone || '',
             deliveryIdString: partnerIdstr,
             pocketBalance,
-            totalCashLimit: globalLimit,
-            remainingCashLimit: Math.max(0, globalLimit - cashInHand),
+            totalCashLimit: cashLimitFor(p),
+            remainingCashLimit: Math.max(0, cashLimitFor(p) - cashInHand),
             cashCollected: grossCashCollected,
             cashDeposited: totalDepositedCash,
             totalEarning: totalEarned,
@@ -7432,6 +7482,9 @@ export async function getCashLimitSettlements(query = {}) {
         }
     }
 
+    // Zone picked on the page: only riders of that zone.
+    await scopeFilterToRiderZone(filter, query.zoneId);
+
     const [deposits, total] = await Promise.all([
         FoodDeliveryCashDeposit.find(filter)
             .sort({ createdAt: -1 })
@@ -7592,6 +7645,9 @@ export async function getCashConfirmations(query = {}) {
             .lean();
         filter.deliveryPartnerId = { $in: partnerIds.map((p) => p._id) };
     }
+
+    // Zone picked on the page: only riders of that zone.
+    await scopeFilterToRiderZone(filter, query.zoneId);
 
     const [deposits, total] = await Promise.all([
         FoodDeliveryCashDeposit.find(filter)

@@ -119,7 +119,9 @@ const stopWebViewNativeNotification = async () => {
       window.flutter_inappwebview &&
       typeof window.flutter_inappwebview.callHandler === 'function'
     ) {
-      const handlerNames = ['stopNotificationSound', 'stopOrderRingtone', 'dismissNotification'];
+      // stopOrderAlarm: cancels the looping alarm notification the app shows for
+      // a new-order push received while it was closed.
+      const handlerNames = ['stopNotificationSound', 'stopOrderRingtone', 'dismissNotification', 'stopOrderAlarm'];
       for (const handlerName of handlerNames) {
         try {
           await window.flutter_inappwebview.callHandler(handlerName, {});
@@ -186,6 +188,20 @@ let globalAlertLoopTimer = null;
 let globalAlertLoopStartedAt = 0;
 let globalAlertLoopKey = '';
 let globalAlertDeadline = 0;
+/* When this device last started ringing for an order (not restored from storage). */
+let globalAlertArmedAt = 0;
+/*
+ * The native app can ring on its own - the alarm for a push that arrived while
+ * it was closed or in the background - without this page knowing. Until a poll
+ * confirms there is nothing to ring for, assume it might be ringing.
+ */
+let nativeAlarmMayBeRinging = true;
+/*
+ * Orders snapshots can be up to a few seconds old (client cache and in-flight
+ * request sharing). A snapshot is never used to silence a ring that started
+ * within this margin of it: the order may simply not be in it yet.
+ */
+const ORDERS_SNAPSHOT_MAX_AGE_MS = 5000;
 
 /*
  * Every id of each order already announced (handed to the popup and rung for)
@@ -256,12 +272,16 @@ const attachRestaurantSocketWatchdog = () => {
     });
   }
 
-  // Signing out must stop everything this module owns.
+};
+
+// Signing out must stop everything this module owns - including a ring the
+// native app started before this page ever opened a socket.
+if (typeof window !== 'undefined') {
   window.addEventListener('moduleAuthCleared', (event) => {
     if (event?.detail?.module !== 'restaurant') return;
     teardownRestaurantNotifications();
   });
-};
+}
 
 /**
  * Stops every source of a ring and releases the connection. Called on logout;
@@ -529,6 +549,7 @@ const stopGlobalAlertLoop = () => {
     stopActivePushPlayback();
   } catch (_) {}
   stopWebViewNativeNotification();
+  nativeAlarmMayBeRinging = false;
 };
 
 const ensureGlobalAlertAudio = () => {
@@ -673,6 +694,9 @@ const startGlobalAlertLoop = (orderData) => {
   if (typeof window !== 'undefined') window.__restaurantOrderAlertActive = true;
 
   globalAlertLoopStartedAt = alertStartTime;
+  globalAlertArmedAt = Date.now();
+  // The ring also goes through the native app (playGlobalNotificationSound).
+  nativeAlarmMayBeRinging = true;
   globalAlertLoopKey = orderId;
   globalAlertDeadline = getOrderAcceptDeadline(orderData) || alertStartTime + DEFAULT_ACCEPT_WINDOW_MS;
   globalActiveOrder = orderData;
@@ -1428,12 +1452,17 @@ export const useRestaurantNotifications = () => {
     const pollOrders = async () => {
       try {
         const token = localStorage.getItem('restaurant_accessToken') || localStorage.getItem('accessToken');
-        const isAuthPage = window.location.pathname.includes('/login') || window.location.pathname.includes('/otp') || window.location.pathname.includes('/signup');
-        
+        // Inside the app the router lives in the hash (HashRouter), so check both.
+        const routePath = `${window.location.pathname}${window.location.hash || ''}`;
+        const isAuthPage = routePath.includes('/login') || routePath.includes('/otp') || routePath.includes('/signup');
+
         if (!token || isAuthPage) {
           if (globalActiveOrder) {
             globalActiveOrder = null;
             updateGlobalState({ activeOrder: null });
+          }
+          // Signed out: nothing may ring, whoever started it.
+          if (nativeAlarmMayBeRinging || globalAlertLoopTimer || isAlertSoundPlaying()) {
             stopGlobalAlertLoop();
           }
           return;
@@ -1506,8 +1535,17 @@ export const useRestaurantNotifications = () => {
           }
         }
 
+        // A snapshot that may predate the current ring cannot prove its order is
+        // gone - unless that order is in it, which shows the snapshot is newer.
+        const activeOrderIds = globalActiveOrder ? new Set(getOrderIdVariants(globalActiveOrder)) : null;
+        const snapshotHasActiveOrder = Boolean(
+          activeOrderIds && (rows || []).some((o) => getOrderIdVariants(o).some((id) => activeOrderIds.has(id))),
+        );
+        const snapshotPredatesRing =
+          !snapshotHasActiveOrder && globalAlertArmedAt > requestedAt - ORDERS_SNAPSHOT_MAX_AGE_MS;
+
         // If an order was actively ringing, ensure it is still pending in DB; if not, stop ringing
-        if (globalActiveOrder) {
+        if (globalActiveOrder && !snapshotPredatesRing) {
           const activeKeys = new Set(getOrderIdVariants(globalActiveOrder));
           const activeStillPending = pending.find((o) => getOrderIdVariants(o).some((id) => activeKeys.has(id)));
           if (!activeStillPending) {
@@ -1515,6 +1553,21 @@ export const useRestaurantNotifications = () => {
             globalActiveOrder = null;
             updateGlobalState({ activeOrder: null });
           }
+        }
+
+        /*
+         * Nothing awaits this restaurant (or everything waiting is muted): no
+         * sound may play, whoever started it - a leftover web track, a push's own
+         * copy of the ringtone, or the native app's alarm for a push that arrived
+         * while it was closed. Checked on every poll and on return to the app.
+         */
+        const ringablePending = globalIsMuted ? [] : pending.filter((o) => !isOrderMuted(o));
+        if (
+          ringablePending.length === 0 &&
+          !snapshotPredatesRing &&
+          (nativeAlarmMayBeRinging || globalAlertLoopTimer || isAlertSoundPlaying())
+        ) {
+          stopGlobalAlertLoop();
         }
 
         // Orders still waiting whose socket event never reached this device
@@ -1542,6 +1595,8 @@ export const useRestaurantNotifications = () => {
 
     const handleVisibility = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        // While in the background a push may have started the native alarm.
+        nativeAlarmMayBeRinging = true;
         pollOrders();
       }
     };

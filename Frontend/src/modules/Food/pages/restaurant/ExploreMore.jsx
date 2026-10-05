@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { useNavigate } from "react-router-dom"
+import { useLocation, useNavigate } from "react-router-dom"
 import Lenis from "lenis"
 import {
   ArrowLeft,
@@ -43,6 +43,7 @@ import { toast } from "sonner"
 import { showAccountDeletedToast } from "@/shared/utils/customToasts"
 import { firebaseAuth, ensureFirebaseInitialized } from "@food/firebase"
 import BottomNavOrders from "@food/components/restaurant/BottomNavOrders"
+import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -342,6 +343,14 @@ function TimePickerWheel({
 
 export default function ExploreMore() {
   const navigate = useNavigate()
+  /*
+   * The router's location, not window.location: inside the app the router
+   * runs on the URL hash (HashRouter), where window.location.pathname is just
+   * "/". Pages opened from here were told they came from "/", lost their way
+   * back, and the back button fell through to the Orders screen.
+   */
+  const location = useLocation()
+  const goBack = useRestaurantBackNavigation()
   const lenisRef = useRef(null)
   const [profileOpen, setProfileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -932,7 +941,7 @@ export default function ExploreMore() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 flex-1">
             <button
-              onClick={() => navigate("/food/restaurant")}
+              onClick={goBack}
               className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
               aria-label="Go back"
             >

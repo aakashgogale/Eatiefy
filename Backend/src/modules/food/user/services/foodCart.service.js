@@ -40,7 +40,7 @@ async function loadItemDoc(itemId) {
   const oid = toObjectId(itemId);
   if (!oid) throw new ValidationError('Invalid item id');
   const item = await FoodItem.findById(oid)
-    .select('restaurantId name price otherPrice priceOnOtherPlatforms image images foodType isAvailable approvalStatus variants categoryId categoryName')
+    .select('restaurantId name price adminPrice otherPrice priceOnOtherPlatforms image images foodType isAvailable approvalStatus variants categoryId categoryName')
     .lean();
   if (!item) throw new NotFoundError('Item not found');
   item.categoryInactive = await isFoodCategoryInactive(item);
@@ -212,7 +212,7 @@ export async function hydrateFoodCart(cartDoc) {
 
   const docs = itemIds.length
     ? await FoodItem.find({ _id: { $in: itemIds } })
-      .select('restaurantId name price otherPrice priceOnOtherPlatforms image images foodType isAvailable approvalStatus variants categoryId categoryName')
+      .select('restaurantId name price adminPrice otherPrice priceOnOtherPlatforms image images foodType isAvailable approvalStatus variants categoryId categoryName')
       .lean()
     : [];
   const docMap = new Map(docs.map((d) => [String(d._id), d]));

@@ -16,6 +16,7 @@ import { ActionSlider } from '@/modules/DeliveryV2/components/ui/ActionSlider';
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { computePickupMetrics, formatPickupRouteSummary } from '@/modules/DeliveryV2/utils/pickupMetrics';
 import { getEatiefyIncentiveBreakdown, formatEatiefyIncentiveLine } from '@/modules/DeliveryV2/utils/earningBreakdown';
+import { formatOrderAddress } from '@food/utils/orderAddress';
 import { toast } from 'sonner';
 
 /** Time / distance cell — live values or locating state (shared with NewOrderModal). */
@@ -98,19 +99,10 @@ export default function NewOrderCard({
         }
       : null;
   const customerLocation = order.customerLocation || order.deliveryLocation || geoCoords || null;
-  const addressPartsFromSchema = [
-    deliveryAddress.street,
-    deliveryAddress.additionalDetails,
-    deliveryAddress.city,
-    deliveryAddress.state,
-    deliveryAddress.zipCode,
-  ]
-    .map((value) => String(value || '').trim())
-    .filter(Boolean);
   const customerAddress =
     order.customerAddress ||
     order.customer_address ||
-    (addressPartsFromSchema.length ? addressPartsFromSchema.join(', ') : '') ||
+    formatOrderAddress(deliveryAddress) ||
     (customerLocation?.lat != null && customerLocation?.lng != null
       ? `Lat ${Number(customerLocation.lat).toFixed(5)}, Lng ${Number(customerLocation.lng).toFixed(5)}`
       : 'Location not available');

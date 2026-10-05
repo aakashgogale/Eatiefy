@@ -21,6 +21,7 @@ import { logger } from '../../../../utils/logger.js';
 
 export const AUTO_REJECT_REASON = 'No response from restaurant (Auto-rejected)';
 const GRACE_MS = 20 * 1000;
+export const ACCEPT_WINDOW_GRACE_MS = GRACE_MS;
 const BATCH_LIMIT = 50;
 
 /** When the restaurant was first shown the order; the window counts from here. */
@@ -47,6 +48,25 @@ async function loadRestaurantZoneIds(orders) {
     return new Map(restaurants.map((r) => [String(r._id), r.zoneId ? String(r.zoneId) : null]));
 }
 
+/**
+ * Returns `(order) => accept window in ms` for these orders, each read for the
+ * zone of its restaurant. Shared with the restaurant alarm, so a phone never
+ * rings for longer than the window enforced here.
+ */
+export async function buildAcceptWindowResolver(settings, orders = []) {
+    // Without any zone override every order uses the default, so skip the lookup.
+    const restaurantZoneIds = settings.hasZoneOverrides && orders.length
+        ? await loadRestaurantZoneIds(orders)
+        : new Map();
+    return (order) => {
+        const zoneId = restaurantZoneIds.has(String(order.restaurantId))
+            ? restaurantZoneIds.get(String(order.restaurantId))
+            : order.zoneId;
+        const windows = toWindows(settings.forZone(zoneId));
+        return order.orderType === 'takeaway' ? windows.takeaway : windows.other;
+    };
+}
+
 export async function expireUnacceptedRestaurantOrders({ now = Date.now() } = {}) {
     const settings = await loadRestaurantSettingsByZone();
     // The shortest window of any zone bounds the query; each order is then checked
@@ -70,21 +90,14 @@ export async function expireUnacceptedRestaurantOrders({ now = Date.now() } = {}
         .limit(BATCH_LIMIT)
         .lean();
 
-    // Without any zone override every order uses the default, so skip the lookup.
-    const restaurantZoneIds = settings.hasZoneOverrides && candidates.length
-        ? await loadRestaurantZoneIds(candidates)
-        : new Map();
+    const windowFor = await buildAcceptWindowResolver(settings, candidates);
 
     let rejected = 0;
     for (const order of candidates) {
         // Never auto-reject an order the restaurant could not see (unpaid online order).
         if (!canExposeOrderToRestaurant(order)) continue;
 
-        const zoneId = restaurantZoneIds.has(String(order.restaurantId))
-            ? restaurantZoneIds.get(String(order.restaurantId))
-            : order.zoneId;
-        const windows = toWindows(settings.forZone(zoneId));
-        const windowMs = order.orderType === 'takeaway' ? windows.takeaway : windows.other;
+        const windowMs = windowFor(order);
         const startedAt = getRestaurantAcceptWindowStart(order);
         if (startedAt == null || now - startedAt < windowMs + GRACE_MS) continue;
 

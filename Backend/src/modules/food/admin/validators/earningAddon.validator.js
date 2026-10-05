@@ -11,6 +11,21 @@ const addonUpsertSchema = z.object({
     maxRedemptions: z.number().int().min(1).nullable().optional()
 });
 
+/**
+ * Target zone of an offer: null for every zone. Not sent (undefined) keeps an
+ * existing offer's zone, so a client that does not know about zones cannot
+ * reset it on edit.
+ */
+const parseAddonZoneId = (value) => {
+    if (value === undefined) return undefined;
+    const raw = value == null ? '' : String(value).trim();
+    if (!raw || raw.toLowerCase() === 'all') return null;
+    if (!mongoose.Types.ObjectId.isValid(raw)) {
+        throw new ValidationError('Invalid zone');
+    }
+    return raw;
+};
+
 export const validateEarningAddonUpsertDto = (body) => {
     const normalized = {
         title: typeof body?.title === 'string' ? body.title.trim() : '',
@@ -44,7 +59,8 @@ export const validateEarningAddonUpsertDto = (body) => {
         earningAmount: result.data.earningAmount,
         startDate,
         endDate,
-        maxRedemptions: result.data.maxRedemptions ?? null
+        maxRedemptions: result.data.maxRedemptions ?? null,
+        zoneId: parseAddonZoneId(body?.zoneId)
     };
 };
 

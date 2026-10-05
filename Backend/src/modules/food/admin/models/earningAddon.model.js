@@ -10,7 +10,9 @@ const earningAddonSchema = new mongoose.Schema(
         endDate: { type: Date, required: true, index: true },
         maxRedemptions: { type: Number, min: 1, default: null },
         currentRedemptions: { type: Number, default: 0 },
-        status: { type: String, enum: ['active', 'inactive'], default: 'active', index: true }
+        status: { type: String, enum: ['active', 'inactive'], default: 'active', index: true },
+        // Riders of this zone only; null = every zone.
+        zoneId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodZone', default: null, index: true }
     },
     { collection: 'food_earning_addons', timestamps: true }
 );

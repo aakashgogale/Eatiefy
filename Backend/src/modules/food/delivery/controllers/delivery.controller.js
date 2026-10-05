@@ -1,7 +1,10 @@
 import mongoose from 'mongoose';
 import { registerDeliveryPartner, updateDeliveryPartnerProfile, updateDeliveryPartnerBankDetails, listSupportTicketsByPartner, createSupportTicket, getSupportTicketByIdAndPartner, updateDeliveryPartnerDetails, updateDeliveryPartnerProfilePhotoBase64, updateDeliveryAvailability, getDeliveryPartnerWallet, getDeliveryPartnerEarnings, getDeliveryPartnerTripHistory, getDeliveryPocketDetails, getActiveEarningAddonsForPartner, getDeliveryPartnerReviews } from '../services/delivery.service.js';
 import { createDeliveryCashDepositOrder, getDeliveryPartnerWalletEnhanced, requestDeliveryWithdrawal, verifyDeliveryCashDepositPayment, submitCashDepositByHand } from '../services/deliveryFinance.service.js';
-import { getDeliveryCashLimitSettings, getDeliveryEmergencyHelp } from '../../admin/services/admin.service.js';
+import {
+    resolveDeliveryCashLimitForPartner,
+    resolveDeliveryEmergencyHelpForPartner,
+} from '../../admin/services/zoneDeliverySettings.service.js';
 import { DeliveryBonusTransaction } from '../../admin/models/deliveryBonusTransaction.model.js';
 import { FoodDeliveryWithdrawal } from '../models/foodDeliveryWithdrawal.model.js';
 import { FoodDeliveryCashDeposit } from '../models/foodDeliveryCashDeposit.model.js';
@@ -390,7 +393,8 @@ export const getMyReviewsController = async (req, res, next) => {
 
 export const getEmergencyHelpController = async (req, res, next) => {
     try {
-        const data = await getDeliveryEmergencyHelp();
+        // The numbers of the rider's own zone (zone override, else the default).
+        const data = await resolveDeliveryEmergencyHelpForPartner(req.user?.userId);
         return sendResponse(res, 200, 'Emergency help fetched successfully', data);
     } catch (error) {
         next(error);
@@ -399,7 +403,8 @@ export const getEmergencyHelpController = async (req, res, next) => {
 
 export const getCashLimitController = async (req, res, next) => {
     try {
-        const data = await getDeliveryCashLimitSettings();
+        // The rider's own zone limits (zone override, else the default).
+        const data = await resolveDeliveryCashLimitForPartner(req.user?.userId);
         return sendResponse(res, 200, 'Cash limit fetched successfully', data);
     } catch (error) {
         next(error);

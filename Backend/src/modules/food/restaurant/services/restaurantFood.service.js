@@ -5,9 +5,11 @@ import { FoodCategory } from '../../admin/models/category.model.js';
 import { FoodRestaurant } from '../models/restaurant.model.js';
 import {
     extractRawFoodVariants,
+    getFoodAdminPrice,
     getFoodDisplayPrice,
     hasFoodVariants,
-    normalizeFoodVariantsInput
+    normalizeFoodVariantsInput,
+    toRestaurantFacingFood
 } from '../../admin/services/foodVariant.service.js';
 import {
     GLOBAL_CATEGORY_FILTER,
@@ -204,10 +206,10 @@ export async function getRestaurantFoodById(restaurantId, foodId) {
         _id: foodId,
         restaurantId,
     })
-        .select('-oldData -newData')
+        .select('-oldData -newData +adminPrice')
         .lean();
 
-    return food || null;
+    return food ? toRestaurantFacingFood(food) : null;
 }
 
 export async function createRestaurantFood(restaurantId, body = {}) {
@@ -280,7 +282,7 @@ export async function createRestaurantFood(restaurantId, body = {}) {
         console.error('Failed to notify admins of new food approval request:', e);
     }
 
-    return doc.toObject();
+    return toRestaurantFacingFood(doc.toObject());
 }
 
 export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
@@ -304,15 +306,17 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
             { _id: foodId, restaurantId },
             { $set: fastUpdate },
             { new: true }
-        ).lean();
+        )
+            .select('+adminPrice')
+            .lean();
 
-        return updated;
+        return toRestaurantFacingFood(updated);
     }
 
     // Full path for content changes
     const context = await getRestaurantContext(restaurantId);
 
-    const existing = await FoodItem.findOne({ _id: foodId, restaurantId }).lean();
+    const existing = await FoodItem.findOne({ _id: foodId, restaurantId }).select('+adminPrice').lean();
     if (!existing) return null;
 
 
@@ -337,6 +341,12 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
         }
     }
     Object.assign(update, getUpdatedFoodPricing(existing, body));
+    // The app is shown the admin override as the price and sends it back on
+    // every save: that is not the restaurant changing its own price.
+    const adminPrice = getFoodAdminPrice(existing);
+    if (update.price !== undefined && adminPrice != null && Number(update.price) === adminPrice) {
+        delete update.price;
+    }
     if (body.isAvailable !== undefined) update.isAvailable = body.isAvailable !== false;
     if (body.isRecommended !== undefined) update.isRecommended = body.isRecommended === true;
     if (body.preparationTime !== undefined) update.preparationTime = toStr(body.preparationTime);
@@ -420,13 +430,15 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
 
 
     // Saved with nothing changed: nothing to write.
-    if (Object.keys(update).length === 0) return existing;
+    if (Object.keys(update).length === 0) return toRestaurantFacingFood(existing);
 
     const updated = await FoodItem.findOneAndUpdate(
         { _id: foodId, restaurantId },
         { $set: update },
         { new: true }
-    ).lean();
+    )
+        .select('+adminPrice')
+        .lean();
 
     if (updated && update.image !== undefined && existing.image !== update.image) {
         // Only once nothing else (a duplicated dish, an add-on) still shows it.
@@ -450,7 +462,7 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
         }
     }
 
-    return updated;
+    return toRestaurantFacingFood(updated);
 }
 
 export async function deleteRestaurantFood(restaurantId, foodId) {

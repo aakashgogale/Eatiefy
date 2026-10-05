@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useLocation, useNavigate } from "react-router-dom"
 import { BadgePercent } from "lucide-react"
 import { restaurantItemOffersAPI } from "@food/api/restaurantItemOffers"
 
@@ -49,6 +49,7 @@ export function useOwnRestaurantOffers() {
 /** Offer chips under a dish, e.g. "20% OFF · Live"; tapping opens the Offers page. */
 export function RestaurantFoodOfferTags({ offers = [] }) {
   const navigate = useNavigate()
+  const location = useLocation()
   if (!offers.length) return null
   return (
     <div className="mt-2.5 flex flex-wrap gap-1.5">
@@ -58,7 +59,7 @@ export function RestaurantFoodOfferTags({ offers = [] }) {
           <button
             key={offer.id}
             type="button"
-            onClick={() => navigate("/food/restaurant/offers")}
+            onClick={() => navigate("/food/restaurant/offers", { state: { from: location.pathname } })}
             title={offer.title}
             className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[9px] sm:text-[10px] font-black uppercase tracking-wider shadow-sm ${tag.className}`}
           >

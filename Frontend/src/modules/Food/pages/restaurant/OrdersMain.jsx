@@ -43,6 +43,7 @@ import {
   getRestaurantOrderTotal,
 } from "@food/utils/restaurantOrderPricing";
 import { resolveMediaUrl } from "@/shared/utils/mediaUrl";
+import { formatOrderAddress } from "@food/utils/orderAddress";
 const debugLog = (...args) => { };
 const debugWarn = (...args) => { };
 const debugError = (...args) => { };
@@ -1252,6 +1253,40 @@ const isAwaitingRestaurantDecision = (order) => {
 
 /** Fallback accept window when admin settings are missing or unreachable. */
 const DEFAULT_ACCEPT_ORDER_TIMEOUT_SECONDS = 10 * 60;
+const OTHER_REJECT_REASON = "Other reason";
+// Same limit the server enforces on a cancellation reason.
+const MAX_CUSTOM_REASON_LENGTH = 150;
+
+/** Required free-text reason, shown when "Other reason" is picked. */
+function CustomReasonInput({ id, value, onChange, disabled }) {
+  const isEmpty = !String(value || "").trim();
+  return (
+    <div className="mt-3">
+      <label htmlFor={id} className="block text-sm font-medium text-gray-900 mb-1.5">
+        Enter reason <span className="text-red-600">*</span>
+      </label>
+      <textarea
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value.slice(0, MAX_CUSTOM_REASON_LENGTH))}
+        maxLength={MAX_CUSTOM_REASON_LENGTH}
+        rows={3}
+        required
+        autoFocus
+        disabled={disabled}
+        aria-invalid={isEmpty}
+        placeholder="Type the reason"
+        className="w-full rounded-lg border-2 border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#2E7D52] resize-none disabled:opacity-60"
+      />
+      <div className="mt-1 flex justify-between text-xs">
+        <span className={isEmpty ? "text-red-600" : "text-transparent"}>Reason is required</span>
+        <span className="text-gray-500">
+          {String(value || "").length}/{MAX_CUSTOM_REASON_LENGTH}
+        </span>
+      </div>
+    </div>
+  );
+}
 
 const resolveAcceptOrderTimeoutSeconds = (
   order,
@@ -1369,9 +1404,11 @@ function OrdersMainInner() {
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
   const [showRejectPopup, setShowRejectPopup] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [rejectOtherText, setRejectOtherText] = useState("");
   const [isRejectingOrder, setIsRejectingOrder] = useState(false);
   const [showCancelPopup, setShowCancelPopup] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
+  const [cancelOtherText, setCancelOtherText] = useState("");
   const [isCancellingOrder, setIsCancellingOrder] = useState(false);
   const [orderToCancel, setOrderToCancel] = useState(null);
   const [acceptSwipeProgress, setAcceptSwipeProgress] = useState(0);
@@ -1713,8 +1750,13 @@ function OrdersMainInner() {
     "Outside delivery area",
     "Kitchen closing soon",
     "Technical issue",
-    "Other reason",
+    OTHER_REJECT_REASON,
   ];
+  // "Other reason" sends what the restaurant typed, never the label itself.
+  const resolveReasonText = (reason, otherText) =>
+    reason === OTHER_REJECT_REASON ? String(otherText || "").trim() : reason;
+  const effectiveRejectReason = resolveReasonText(rejectReason, rejectOtherText);
+  const effectiveCancelReason = resolveReasonText(cancelReason, cancelOtherText);
 
   // Fetch restaurant verification status
   useEffect(() => {
@@ -2537,7 +2579,7 @@ function OrdersMainInner() {
   };
 
   const handleRejectConfirm = async () => {
-    if (!rejectReason || isRejectingOrder) return;
+    if (!effectiveRejectReason || isRejectingOrder) return;
     setIsRejectingOrder(true);
 
     const orderToReject = popupOrder || newOrder;
@@ -2556,7 +2598,7 @@ function OrdersMainInner() {
     // Reject order via API if we have a real order
     if (orderToReject?.orderMongoId || orderToReject?.orderId) {
       try {
-        await restaurantAPI.rejectOrder(orderId, rejectReason);
+        await restaurantAPI.rejectOrder(orderId, effectiveRejectReason);
         debugLog("✅ Order rejected:", orderId);
         toast.info("Order rejected successfully");
       } catch (error) {
@@ -2581,6 +2623,7 @@ function OrdersMainInner() {
     setPopupOrder(null);
     clearNewOrder(orderId);
     setRejectReason("");
+    setRejectOtherText("");
     setCountdown(0);
     setPrepTime(11);
     setIsRejectingOrder(false);
@@ -2591,6 +2634,7 @@ function OrdersMainInner() {
     if (isRejectingOrder) return;
     setShowRejectPopup(false);
     setRejectReason("");
+    setRejectOtherText("");
   };
 
   // Handle cancel order (for preparing orders)
@@ -2600,7 +2644,7 @@ function OrdersMainInner() {
   };
 
   const handleCancelConfirm = async () => {
-    if (!cancelReason.trim() || !orderToCancel || isCancellingOrder) return;
+    if (!effectiveCancelReason || !orderToCancel || isCancellingOrder) return;
     setIsCancellingOrder(true);
 
     try {
@@ -2608,11 +2652,12 @@ function OrdersMainInner() {
       if (orderId) {
         restaurantAPI.optimisticallyUpdateOrderStatus(orderId, "cancelled_by_restaurant");
       }
-      await restaurantAPI.rejectOrder(orderId, cancelReason.trim());
+      await restaurantAPI.rejectOrder(orderId, effectiveCancelReason);
       toast.success("Order cancelled successfully");
       setShowCancelPopup(false);
       setOrderToCancel(null);
       setCancelReason("");
+      setCancelOtherText("");
       requestOrdersRefresh();
     } catch (error) {
       debugError("❌ Error cancelling order:", error);
@@ -2626,6 +2671,7 @@ function OrdersMainInner() {
     setShowCancelPopup(false);
     setOrderToCancel(null);
     setCancelReason("");
+    setCancelOtherText("");
   };
 
   // Handle takeaway verification modal opening
@@ -2696,7 +2742,9 @@ function OrdersMainInner() {
 
   // Handle PDF download
   const handlePrint = async () => {
-    if (!newOrder) {
+    // Was referenced below but never defined, so printing always failed.
+    const orderToPrint = popupOrder || newOrder;
+    if (!orderToPrint) {
       debugWarn("No order data available for PDF generation");
       return;
     }
@@ -2744,14 +2792,7 @@ function OrdersMainInner() {
         doc.setFont("Roboto", "bold");
         doc.text("Delivery Address:", 20, 62);
         doc.setFont("Roboto", "normal");
-        const addressText =
-          [
-            orderToPrint.customerAddress.street,
-            orderToPrint.customerAddress.city,
-            orderToPrint.customerAddress.state,
-          ]
-            .filter(Boolean)
-            .join(", ") || "Address not available";
+        const addressText = formatOrderAddress(orderToPrint.customerAddress) || "Address not available";
         const addressLines = doc.splitTextToSize(addressText, 170);
         doc.text(addressLines, 20, 69);
       }
@@ -3539,19 +3580,7 @@ function OrdersMainInner() {
 
                     // Home Delivery
                     const addrObj = activeOrder.customerAddress || activeOrder.deliveryAddress || activeOrder.address;
-                    let displayAddress = "";
-                    if (addrObj) {
-                      if (typeof addrObj === "string") {
-                        displayAddress = addrObj;
-                      } else {
-                        displayAddress = [
-                          addrObj.street || addrObj.addressLine1 || addrObj.label,
-                          addrObj.addressLine2,
-                          addrObj.city,
-                          addrObj.pincode || addrObj.zipCode
-                        ].filter(Boolean).join(", ");
-                      }
-                    }
+                    const displayAddress = formatOrderAddress(addrObj) || addrObj?.label || "";
 
                     return (
                       <div className="mb-4 bg-green-50 border border-green-200 rounded-xl p-3 flex items-start gap-3">
@@ -3998,6 +4027,14 @@ function OrdersMainInner() {
                       </button>
                     ))}
                   </div>
+                  {rejectReason === OTHER_REJECT_REASON && (
+                    <CustomReasonInput
+                      id="reject-other-reason"
+                      value={rejectOtherText}
+                      onChange={setRejectOtherText}
+                      disabled={isRejectingOrder}
+                    />
+                  )}
                 </div>
 
                 {/* Footer */}
@@ -4010,8 +4047,8 @@ function OrdersMainInner() {
                   </button>
                   <button
                     onClick={handleRejectConfirm}
-                    disabled={!rejectReason || isRejectingOrder}
-                    className={`flex-1 py-2.5 sm:py-3 rounded-lg font-semibold text-sm transition-colors flex items-center justify-center gap-2 ${rejectReason
+                    disabled={!effectiveRejectReason || isRejectingOrder}
+                    className={`flex-1 py-2.5 sm:py-3 rounded-lg font-semibold text-sm transition-colors flex items-center justify-center gap-2 ${effectiveRejectReason
                         ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white shadow-md shadow-red-900/20 active:scale-98 disabled:opacity-90 cursor-not-allowed"
                         : "bg-gray-200 text-gray-400 cursor-not-allowed"
                       }`}>
@@ -4102,6 +4139,14 @@ function OrdersMainInner() {
                       </button>
                     ))}
                   </div>
+                  {cancelReason === OTHER_REJECT_REASON && (
+                    <CustomReasonInput
+                      id="cancel-other-reason"
+                      value={cancelOtherText}
+                      onChange={setCancelOtherText}
+                      disabled={isCancellingOrder}
+                    />
+                  )}
                 </div>
 
                 {/* Footer */}
@@ -4114,8 +4159,8 @@ function OrdersMainInner() {
                   </button>
                   <button
                     onClick={handleCancelConfirm}
-                    disabled={!cancelReason || isCancellingOrder}
-                    className={`flex-1 py-2.5 sm:py-3 rounded-lg font-semibold text-sm transition-colors flex items-center justify-center gap-2 ${cancelReason
+                    disabled={!effectiveCancelReason || isCancellingOrder}
+                    className={`flex-1 py-2.5 sm:py-3 rounded-lg font-semibold text-sm transition-colors flex items-center justify-center gap-2 ${effectiveCancelReason
                         ? "bg-gradient-to-br from-[#2E7D52] to-[#1B5E3F] text-white shadow-md shadow-red-900/20 active:scale-98 disabled:opacity-90 cursor-not-allowed"
                         : "bg-gray-200 text-gray-400 cursor-not-allowed"
                       }`}>

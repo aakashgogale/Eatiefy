@@ -308,6 +308,7 @@ export default function ViewOrderDialog({ isOpen, onOpenChange, order, onOrderUp
       formattedAddress,
       rawAddress,
       address.label,
+      address.houseNumber,
       address.street,
       address.additionalDetails,
       address.landmark,

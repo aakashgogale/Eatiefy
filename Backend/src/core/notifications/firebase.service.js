@@ -25,6 +25,15 @@ const OWNER_TOKEN_FIELDS = {
     web: 'fcmTokens',
     mobile: 'fcmTokenMobile'
 };
+/**
+ * Mobile tokens whose app build handles order alarms itself: a data-only push
+ * wakes its background handler even when the app is killed, and it shows a
+ * looping full-screen alarm. Older builds are not in this list and keep getting
+ * the regular notification push, which the OS renders without the app running.
+ * Only owner models that declare this path take part.
+ */
+const ORDER_ALARM_TOKEN_FIELD = 'fcmTokenMobileAlarm';
+export const ORDER_ALARM_CAPABILITY = 'order_alarm';
 
 let cachedAccessToken = null;
 let cachedAccessTokenExpiryMs = 0;
@@ -307,6 +316,12 @@ const buildMessagePayload = (payload = {}, token, { platform } = {}) => {
     const message = { token };
     const isWeb = platform === 'web';
     const isDataOnly = payload.dataOnly === true;
+    // Order alarm for an app that renders it itself: Android gets a data-only
+    // message (its background handler runs even when the app is killed and
+    // shows the looping alarm), while iOS still gets the alert below — iOS
+    // never wakes a force-quit app for a data-only push, so only an alert with
+    // a bundled sound can ring there.
+    const isAndroidDataOnly = !isDataOnly && payload.androidDataOnly === true;
     const androidChannel = sanitizeString(payload.channelId) || 'high_importance_channel';
 
     // Web is deliberately data-only. When a web push carries a `notification`
@@ -315,7 +330,7 @@ const buildMessagePayload = (payload = {}, token, { platform } = {}) => {
     // event, two notifications on the device. Keeping web data-only leaves
     // rendering solely to firebase-messaging-sw.js, which reads the title/body
     // mirrored into `data` below.
-    const includeNotificationBlock = !isDataOnly && !isWeb;
+    const includeNotificationBlock = !isDataOnly && !isWeb && !isAndroidDataOnly;
 
     if (includeNotificationBlock) {
         message.notification = { ...notification };
@@ -343,7 +358,7 @@ const buildMessagePayload = (payload = {}, token, { platform } = {}) => {
         priority: 'high',
         ttl: `${ttlSeconds}s`,
         ...(collapseKey ? { collapse_key: collapseKey } : {}),
-        ...(isDataOnly
+        ...(isDataOnly || isAndroidDataOnly
             ? {}
             : {
                 notification: {
@@ -457,6 +472,22 @@ const readTokensFromDoc = (doc, platform) => {
     ]);
 };
 
+const supportsOrderAlarmTokens = (model) => Boolean(model?.schema?.path(ORDER_ALARM_TOKEN_FIELD));
+
+const hasOrderAlarmCapability = (capabilities) =>
+    Array.isArray(capabilities) &&
+    capabilities.some((entry) => sanitizeString(entry).toLowerCase() === ORDER_ALARM_CAPABILITY);
+
+/**
+ * How order alarms reach Android: `auto` (default) sends data-only only to
+ * tokens whose app declared the order_alarm capability, `data` forces it for
+ * every mobile token, `notification` never uses it (the OS renders the push).
+ */
+const getOrderAlarmAndroidMode = () => {
+    const mode = sanitizeString(process.env.PUSH_ORDER_ALARM_ANDROID_MODE).toLowerCase();
+    return mode === 'data' || mode === 'notification' ? mode : 'auto';
+};
+
 export const listOwnerTokens = async ({ ownerType, ownerId, platform }) => {
     if (!ownerType || !ownerId) return [];
     const model = getOwnerModel(ownerType);
@@ -465,7 +496,7 @@ export const listOwnerTokens = async ({ ownerType, ownerId, platform }) => {
     return readTokensFromDoc(doc, platform);
 };
 
-export const upsertFirebaseDeviceToken = async ({ ownerType, ownerId, token, platform = 'web' }) => {
+export const upsertFirebaseDeviceToken = async ({ ownerType, ownerId, token, platform = 'web', capabilities }) => {
     try {
         const normalizedToken = sanitizeString(token);
         if (!ownerType || !ownerId || !normalizedToken) {
@@ -506,6 +537,23 @@ export const upsertFirebaseDeviceToken = async ({ ownerType, ownerId, token, pla
             isModified = true;
         }
 
+        // 2b. Whether this install renders order alarms itself. Only a
+        // registration that states its capabilities changes it, so a login path
+        // that sends just the token cannot downgrade the device.
+        if (supportsOrderAlarmTokens(model)) {
+            const alarmTokens = Array.isArray(doc[ORDER_ALARM_TOKEN_FIELD]) ? doc[ORDER_ALARM_TOKEN_FIELD] : [];
+            const isAlarmToken = alarmTokens.includes(normalizedToken);
+            const shouldBeAlarmToken =
+                normalizedPlatform === 'mobile' &&
+                (Array.isArray(capabilities) ? hasOrderAlarmCapability(capabilities) : isAlarmToken);
+            if (shouldBeAlarmToken !== isAlarmToken) {
+                doc[ORDER_ALARM_TOKEN_FIELD] = shouldBeAlarmToken
+                    ? normalizeTokenList([...alarmTokens, normalizedToken])
+                    : alarmTokens.filter((t) => t !== normalizedToken);
+                isModified = true;
+            }
+        }
+
         if (isModified) {
             await doc.save();
         }
@@ -539,7 +587,13 @@ export const upsertFirebaseDeviceToken = async ({ ownerType, ownerId, token, pla
                                 { fcmTokenMobile: normalizedToken }
                             ]
                         },
-                        { $pull: { fcmTokens: normalizedToken, fcmTokenMobile: normalizedToken } }
+                        {
+                            $pull: {
+                                fcmTokens: normalizedToken,
+                                fcmTokenMobile: normalizedToken,
+                                ...(supportsOrderAlarmTokens(otherModel) ? { [ORDER_ALARM_TOKEN_FIELD]: normalizedToken } : {})
+                            }
+                        }
                     );
                 })
             );
@@ -575,6 +629,10 @@ export const removeFirebaseDeviceToken = async ({ ownerType, ownerId, token, pla
         doc.fcmTokenMobile = normalizeTokenList(
             (Array.isArray(doc.fcmTokenMobile) ? doc.fcmTokenMobile : []).filter((t) => t !== normalizedToken)
         );
+    }
+    if (supportsOrderAlarmTokens(model) && platform !== 'web') {
+        doc[ORDER_ALARM_TOKEN_FIELD] = (Array.isArray(doc[ORDER_ALARM_TOKEN_FIELD]) ? doc[ORDER_ALARM_TOKEN_FIELD] : [])
+            .filter((t) => t !== normalizedToken);
     }
 
     await doc.save();
@@ -653,13 +711,42 @@ export const sendPushNotification = async (tokens, payload = {}, { platform } = 
     return { successCount, failureCount, results };
 };
 
+/**
+ * Order alarms split the mobile group by what each install can render:
+ *  - `payload.orderAlarm`: alarm-capable tokens get the Android data-only
+ *    variant, every other device keeps the regular push.
+ *  - `payload.alarmTokensOnly` (e.g. "stop ringing"): alarm-capable tokens
+ *    only — web and older builds would render a data-only message as a stray
+ *    "New notification" banner.
+ */
+const splitOrderAlarmGroups = (groups, doc, payload) => {
+    const isAlarm = payload?.orderAlarm === true;
+    const isAlarmOnly = payload?.alarmTokensOnly === true;
+    if (!isAlarm && !isAlarmOnly) return groups;
+
+    const mode = getOrderAlarmAndroidMode();
+    const declared = new Set(normalizeTokenList(doc?.[ORDER_ALARM_TOKEN_FIELD] || []));
+    const isAlarmToken = (token) => mode === 'data' || (mode === 'auto' && declared.has(token));
+
+    return groups.flatMap((group) => {
+        if (group.platform !== 'mobile') return isAlarmOnly ? [] : [group];
+        const alarmTokens = group.tokens.filter(isAlarmToken);
+        if (isAlarmOnly) return [{ ...group, tokens: alarmTokens }];
+        return [
+            { ...group, payload: { ...group.payload, androidDataOnly: true }, tokens: alarmTokens },
+            { ...group, tokens: group.tokens.filter((token) => !isAlarmToken(token)) }
+        ];
+    });
+};
+
 export const sendNotificationToOwner = async ({ ownerType, ownerId, payload, platform } = {}) => {
     // Clone payload so broadcast loops don't mutate a shared object
     const enrichedPayload = { ...payload };
 
     try {
         const model = getOwnerModel(ownerType);
-        const doc = model ? await model.findById(ownerId).select('fcmTokens fcmTokenMobile').lean() : null;
+        const alarmField = supportsOrderAlarmTokens(model) ? ` ${ORDER_ALARM_TOKEN_FIELD}` : '';
+        const doc = model ? await model.findById(ownerId).select(`fcmTokens fcmTokenMobile${alarmField}`).lean() : null;
 
         // Group tokens by their real platform. `platform` must be concrete when the
         // message is built: web pushes are data-only (the service worker renders
@@ -672,16 +759,19 @@ export const sendNotificationToOwner = async ({ ownerType, ownerId, payload, pla
 
         // Deduplicate strictly across groups so no single device token is sent to twice.
         const seenTokens = new Set();
-        const platformGroups = groups
-            .map(({ platform: groupPlatform, tokens }) => ({
+        const platformGroups = splitOrderAlarmGroups(
+            groups.map(({ platform: groupPlatform, tokens }) => ({
                 platform: groupPlatform,
+                payload: enrichedPayload,
                 tokens: tokens.filter((token) => {
                     if (seenTokens.has(token)) return false;
                     seenTokens.add(token);
                     return true;
                 })
-            }))
-            .filter((group) => group.tokens.length > 0);
+            })),
+            doc,
+            enrichedPayload
+        ).filter((group) => group.tokens.length > 0);
 
         if (!platformGroups.length) {
             logger.warn(`[FCM] No device tokens for ${ownerType}:${ownerId} — push skipped`);
@@ -691,7 +781,7 @@ export const sendNotificationToOwner = async ({ ownerType, ownerId, payload, pla
         // One dispatch call per platform, each with deduplicated tokens.
         const groupResponses = await Promise.all(
             platformGroups.map((group) =>
-                sendPushNotification(group.tokens, enrichedPayload, { platform: group.platform })
+                sendPushNotification(group.tokens, group.payload, { platform: group.platform })
             )
         );
 
@@ -719,6 +809,11 @@ export const sendNotificationToOwner = async ({ ownerType, ownerId, payload, pla
                 ownerDoc.fcmTokenMobile = normalizeTokenList(
                     (Array.isArray(ownerDoc.fcmTokenMobile) ? ownerDoc.fcmTokenMobile : []).filter((t) => !invalidTokens.includes(t))
                 );
+                if (supportsOrderAlarmTokens(model)) {
+                    ownerDoc[ORDER_ALARM_TOKEN_FIELD] = (
+                        Array.isArray(ownerDoc[ORDER_ALARM_TOKEN_FIELD]) ? ownerDoc[ORDER_ALARM_TOKEN_FIELD] : []
+                    ).filter((t) => !invalidTokens.includes(t));
+                }
                 await ownerDoc.save();
             }
         }

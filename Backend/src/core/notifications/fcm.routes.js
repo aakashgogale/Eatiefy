@@ -18,6 +18,17 @@ const getOwnerContext = (req) => ({
     ownerId: req.user?.userId
 });
 
+/**
+ * What the registering app build can do, e.g. ["order_alarm"] from a mobile app
+ * that renders order alarms itself. Undefined when not stated, which leaves the
+ * stored capability of the token unchanged.
+ */
+const readCapabilities = (req) => {
+    const raw = req.body?.capabilities;
+    if (!Array.isArray(raw)) return undefined;
+    return raw.map((entry) => String(entry ?? '').trim().toLowerCase()).filter(Boolean).slice(0, 10);
+};
+
 // Public health check for fcm-tokens service
 router.get('/check', (req, res) => {
     res.status(200).json({ 
@@ -67,7 +78,8 @@ router.post('/pending-save', async (req, res, next) => {
                 ownerType: 'RESTAURANT',
                 ownerId: String(restaurant._id),
                 token,
-                platform
+                platform,
+                capabilities: readCapabilities(req)
             });
 
             return res.status(200).json({
@@ -124,7 +136,7 @@ router.post('/save', authMiddleware, async (req, res, next) => {
             return sendError(res, 400, 'FCM token is required');
         }
 
-        await upsertFirebaseDeviceToken({ ownerType, ownerId, token, platform });
+        await upsertFirebaseDeviceToken({ ownerType, ownerId, token, platform, capabilities: readCapabilities(req) });
         return res.status(200).json({
             success: true,
             message: 'FCM token saved',
@@ -148,7 +160,13 @@ router.post('/mobile/save', authMiddleware, async (req, res, next) => {
             return sendError(res, 400, 'FCM token is required');
         }
 
-        await upsertFirebaseDeviceToken({ ownerType, ownerId, token, platform: 'mobile' });
+        await upsertFirebaseDeviceToken({
+            ownerType,
+            ownerId,
+            token,
+            platform: 'mobile',
+            capabilities: readCapabilities(req)
+        });
         return res.status(200).json({
             success: true,
             message: 'Mobile FCM token saved successfully',

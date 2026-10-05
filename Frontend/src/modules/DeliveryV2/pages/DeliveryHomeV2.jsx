@@ -38,6 +38,7 @@ import {
 import { getHaversineDistance, calculateETA, calculateHeading } from '@/modules/DeliveryV2/utils/geo';
 import { setRiderGpsPaused } from '@/modules/DeliveryV2/hooks/useRiderLocationSync';
 import { computeDrivingRoute } from '@food/utils/drivingRoute';
+import { formatOrderAddress } from '@food/utils/orderAddress';
 
 /*
  * Test-ride simulation.
@@ -1003,18 +1004,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                                {(() => {
                                  const addr =
                                    activeOrder?.customerAddress ||
-                                   [
-                                     activeOrder?.deliveryAddress?.street,
-                                     activeOrder?.deliveryAddress?.additionalDetails,
-                                     activeOrder?.deliveryAddress?.landmark,
-                                     activeOrder?.deliveryAddress?.area,
-                                     activeOrder?.deliveryAddress?.city,
-                                     activeOrder?.deliveryAddress?.state,
-                                     activeOrder?.deliveryAddress?.zipCode || activeOrder?.deliveryAddress?.pincode,
-                                   ]
-                                     .map((v) => String(v || '').trim())
-                                     .filter(Boolean)
-                                     .join(', ');
+                                   formatOrderAddress(activeOrder?.deliveryAddress);
                                  return addr ? (
                                    <p className="text-gray-500 text-xs font-medium mt-1.5 leading-snug break-words">
                                      {addr}

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Bell, X, ShoppingBag, MapPin, Clock, IndianRupee, ChevronDown, ChevronUp } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { formatOrderAddress } from '@food/utils/orderAddress';
 
 /**
  * New Order Notification Component
@@ -199,8 +200,7 @@ export default function NewOrderNotification({ order, onClose, onViewOrder }) {
                     <div className="flex-1">
                       <p className="text-xs text-gray-500 mb-1">Delivery Address</p>
                       <p className="text-sm text-gray-800">
-                        {order.customerAddress.street || order.customerAddress.label || 'Address'}
-                        {order.customerAddress.city && `, ${order.customerAddress.city}`}
+                        {formatOrderAddress(order.customerAddress) || order.customerAddress.label || 'Address'}
                       </p>
                     </div>
                   </div>

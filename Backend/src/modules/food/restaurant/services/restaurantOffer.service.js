@@ -3,6 +3,7 @@ import { FoodRestaurantOffer } from '../models/restaurantOffer.model.js';
 import { FoodRestaurant } from '../models/restaurant.model.js';
 import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodCategory } from '../../admin/models/category.model.js';
+import { toRestaurantFacingFood } from '../../admin/services/foodVariant.service.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
 import { describeOffer, isOfferLiveAt } from '../utils/restaurantOfferEngine.js';
 import { invalidateCache } from '../../../../middleware/cache.js';
@@ -137,7 +138,7 @@ export async function listRestaurantOffers(restaurantId, { page = 1, limit = 50 
 export async function getRestaurantOfferOptions(restaurantId) {
     const rid = toObjectId(restaurantId);
     const items = await FoodItem.find({ restaurantId: rid, approvalStatus: 'approved' })
-        .select('name price categoryId categoryName isAvailable')
+        .select('name price adminPrice variants categoryId categoryName isAvailable')
         .sort({ name: 1 })
         .lean();
     const categoryIds = [...new Set(items.map((item) => item.categoryId && String(item.categoryId)).filter(Boolean))];
@@ -149,7 +150,8 @@ export async function getRestaurantOfferOptions(restaurantId) {
         items: items.map((item) => ({
             id: String(item._id),
             name: item.name,
-            price: item.price,
+            // The restaurant sees an admin price override as the price, never the override.
+            price: toRestaurantFacingFood(item).price,
             isAvailable: item.isAvailable !== false,
             categoryId: item.categoryId ? String(item.categoryId) : null,
             categoryName: categoryNames.get(String(item.categoryId)) || item.categoryName || ''

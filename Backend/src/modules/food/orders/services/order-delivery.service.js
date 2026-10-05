@@ -5,7 +5,7 @@ import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodTransaction } from '../models/foodTransaction.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
 import { FoodDeliveryCashDeposit } from '../../delivery/models/foodDeliveryCashDeposit.model.js';
-import { FoodDeliveryCashLimit } from '../../admin/models/deliveryCashLimit.model.js';
+import { resolveDeliveryCashLimitForPartner } from '../../admin/services/zoneDeliverySettings.service.js';
 import {
   ValidationError,
   ForbiddenError,
@@ -70,11 +70,10 @@ function isOtpMatch(expectedOtp, enteredOtp) {
 
 const ACTIVE_TRIP_ORDER_STATUSES = ['preparing', 'ready_for_pickup', 'picked_up'];
 
-export async function getMaxConcurrentOrders() {
-  const doc = await FoodDeliveryCashLimit.findOne({ isActive: true })
-    .sort({ createdAt: -1 })
-    .lean();
-  return Math.min(5, Math.max(1, Number(doc?.maxConcurrentOrders ?? 1)));
+/** How many orders a rider may carry at once: their zone's value, else the default. */
+export async function getMaxConcurrentOrders(deliveryPartnerId = null) {
+  const settings = await resolveDeliveryCashLimitForPartner(deliveryPartnerId);
+  return settings.maxConcurrentOrders;
 }
 
 export async function countActiveTripsForPartner(deliveryPartnerId) {
@@ -89,7 +88,7 @@ export async function countActiveTripsForPartner(deliveryPartnerId) {
 
 export async function getPartnerOrderCapacity(deliveryPartnerId) {
   const [max, active] = await Promise.all([
-    getMaxConcurrentOrders(),
+    getMaxConcurrentOrders(deliveryPartnerId),
     countActiveTripsForPartner(deliveryPartnerId),
   ]);
   const remaining = Math.max(0, max - active);
@@ -143,11 +142,10 @@ export async function getCurrentTripDelivery(deliveryPartnerId) {
 
 async function getPartnerCashCapacity(deliveryPartnerId) {
   const partnerObjectId = new mongoose.Types.ObjectId(deliveryPartnerId);
-  const limitDoc = await FoodDeliveryCashLimit.findOne({ isActive: true })
-    .sort({ createdAt: -1 })
-    .lean();
+  // The rider's own zone limit (zone override, else the default).
+  const limitSettings = await resolveDeliveryCashLimitForPartner(deliveryPartnerId);
 
-  const totalCashLimit = Number(limitDoc?.deliveryCashLimit || 0);
+  const totalCashLimit = Number(limitSettings?.deliveryCashLimit || 0);
   // If limit is not configured, don't block assignments globally.
   if (!Number.isFinite(totalCashLimit) || totalCashLimit <= 0) {
     return {

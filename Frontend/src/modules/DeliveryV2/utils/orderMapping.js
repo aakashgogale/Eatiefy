@@ -1,3 +1,5 @@
+import { formatOrderAddress } from '@food/utils/orderAddress';
+
 export const getOrderLocation = (ref, keysLat, keysLng) => {
   if (!ref) return null;
   if (ref.location) {
@@ -66,18 +68,7 @@ export const mapOrderLocations = (serverData) => {
   const deliveryAddress = serverData.deliveryAddress || {};
   const customerAddress =
     serverData.customerAddress ||
-    [
-      deliveryAddress.street,
-      deliveryAddress.additionalDetails,
-      deliveryAddress.landmark,
-      deliveryAddress.area,
-      deliveryAddress.city,
-      deliveryAddress.state,
-      deliveryAddress.zipCode || deliveryAddress.pincode,
-    ]
-      .map((v) => String(v || '').trim())
-      .filter(Boolean)
-      .join(', ') ||
+    formatOrderAddress(deliveryAddress) ||
     null;
 
   const customerName =

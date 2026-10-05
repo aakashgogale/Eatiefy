@@ -25,12 +25,14 @@ const isWithin99 = (value) => {
 /**
  * Mongo pre-filter narrowing candidates at the database. Pricing rules only ever
  * add a markup (never discount), so an item selling at ₹99 or less must have a
- * stored price — or a variant price — between 0 and ₹99. Exact eligibility is
- * then decided by `selectEatiefy99Foods`.
+ * stored price, an admin price override, or a variant price between 0 and ₹99.
+ * Exact eligibility is then decided by `selectEatiefy99Foods` (callers must
+ * select `+adminPrice` for the override to count).
  */
 export const buildEatiefy99CandidateFilter = () => ({
     $or: [
         { price: { $gt: 0, $lte: EATIEFY_99_PRICE } },
+        { adminPrice: { $gt: 0, $lte: EATIEFY_99_PRICE } },
         { 'variants.price': { $gt: 0, $lte: EATIEFY_99_PRICE } },
     ],
 });

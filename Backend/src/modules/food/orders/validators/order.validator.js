@@ -1,6 +1,31 @@
 import { z } from 'zod';
 import { ValidationError } from '../../../../core/auth/errors.js';
 
+/** Restaurant cancel/reject reason, incl. the custom "Other reason" text. */
+export const MAX_CANCELLATION_REASON_LENGTH = 150;
+
+/** Indian mobile number: exactly 10 digits, starting 6-9. */
+export const MOBILE_NUMBER_REGEX = /^[6-9]\d{9}$/;
+const MAX_HOUSE_NUMBER_LENGTH = 100;
+const MAX_LANDMARK_LENGTH = 150;
+
+/**
+ * Formatting is dropped (spaces, dashes, a +91 / 0 prefix on numbers saved that
+ * way) and what is left must be exactly the 10-digit number. Empty stays empty.
+ */
+const normalizeMobileNumber = (value) => {
+    const compact = String(value ?? '').replace(/[\s()-]/g, '');
+    const match = compact.match(/^(?:\+?91|0)(\d{10})$/);
+    return match ? match[1] : compact;
+};
+
+const mobileNumberSchema = z
+    .string()
+    .transform(normalizeMobileNumber)
+    .refine((value) => value === '' || MOBILE_NUMBER_REGEX.test(value), {
+        message: 'Enter a valid 10-digit mobile number'
+    });
+
 const orderItemSchema = z.object({
     itemId: z.string().min(1, 'Item id required'),
     name: z.string().optional(),
@@ -22,10 +47,12 @@ const addressSchema = z.object({
     fullName: z.string().optional(),
     street: z.string().min(1, 'Street required'),
     additionalDetails: z.string().optional(),
+    houseNumber: z.string().trim().max(MAX_HOUSE_NUMBER_LENGTH, 'House/Flat No. is too long').optional(),
+    landmark: z.string().trim().max(MAX_LANDMARK_LENGTH, 'Landmark is too long').optional(),
     city: z.string().min(1, 'City required'),
     state: z.string().min(1, 'State required'),
     zipCode: z.string().optional(),
-    phone: z.string().optional(),
+    phone: mobileNumberSchema.optional(),
     location: z
         .object({
             type: z.literal('Point').optional(),
@@ -93,7 +120,7 @@ export function validateCreateOrderDto(body) {
         restaurantId: z.string().optional(),
         restaurantName: z.string().optional(),
         customerName: z.string().optional(),
-        customerPhone: z.string().optional(),
+        customerPhone: mobileNumberSchema.optional(),
         pricing: pricingSchema,
         couponCode: z.string().nullable().optional(),
         deliveryFleet: z.string().optional(),
@@ -113,6 +140,14 @@ export function validateCreateOrderDto(body) {
         }
         if (data.useCart === false && !data.restaurantId) {
             ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Restaurant id required', path: ['restaurantId'] });
+        }
+        // The rider needs the exact door, not just the map pin.
+        if (data.orderType === 'delivery' && data.address && !data.address.houseNumber) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'House/Flat No. is required',
+                path: ['address', 'houseNumber']
+            });
         }
     });
     const result = schema.safeParse(body);
@@ -165,15 +200,22 @@ export function validateOrderStatusDto(body) {
         reason: z.string().optional(),
         cancellationReason: z.string().optional(),
         preparationTime: z.number().int().min(0).optional()
-    }).refine((data) => {
-        if (data.orderStatus === 'cancelled_by_restaurant') {
-            const reasonStr = (data.note || data.reason || data.cancellationReason || '').trim();
-            return reasonStr.length > 0;
+    }).superRefine((data, ctx) => {
+        if (data.orderStatus !== 'cancelled_by_restaurant') return;
+        const reasonStr = (data.note || data.reason || data.cancellationReason || '').trim();
+        if (!reasonStr) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'Cancellation reason is required when cancelling an order',
+                path: ['reason']
+            });
+        } else if (reasonStr.length > MAX_CANCELLATION_REASON_LENGTH) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `Cancellation reason must be at most ${MAX_CANCELLATION_REASON_LENGTH} characters`,
+                path: ['reason']
+            });
         }
-        return true;
-    }, {
-        message: 'Cancellation reason is required when cancelling an order',
-        path: ['reason']
     });
     const result = schema.safeParse(body);
     if (!result.success) {

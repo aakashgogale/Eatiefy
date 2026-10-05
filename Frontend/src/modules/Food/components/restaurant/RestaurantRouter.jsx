@@ -9,6 +9,7 @@ import { OnboardingSkeleton } from "@food/components/ui/loading-skeletons"
 import "./restaurantTheme.css"
 import { toast } from "sonner"
 import useModuleAccess from "@food/hooks/useModuleAccess"
+import { useTrackRestaurantHistory } from "@food/hooks/useRestaurantBackNavigation"
 
 // Lazy Loading Components
 const RestaurantNotifications = lazy(() => import("@food/pages/restaurant/Notifications"))
@@ -63,6 +64,8 @@ export default function RestaurantRouter() {
   const { diningEnabled } = useModuleAccess()
   const location = useLocation()
   const navigate = useNavigate()
+  // Lets back buttons pop the real history entry instead of stacking copies.
+  useTrackRestaurantHistory()
   const isOnboarding = location.pathname.includes("/onboarding")
 
   React.useEffect(() => {

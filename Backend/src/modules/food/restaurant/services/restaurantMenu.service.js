@@ -8,11 +8,16 @@ import {
   applyOtherPriceToFood,
   loadActivePricingRules,
 } from '../../admin/services/otherPrice.service.js';
-import { serializeFoodVariants } from '../../admin/services/foodVariant.service.js';
+import { serializeFoodVariants, toRestaurantFacingFood } from '../../admin/services/foodVariant.service.js';
 import { toPublicAssetUrl } from '../../../../services/storage.service.js';
 
-/** Restaurant-owned view: never overwrite price with admin markup. */
-const toRestaurantOwnedPricedFood = (food) => {
+/**
+ * Restaurant-owned view: never overwrite price with admin markup. An admin price
+ * override does count — it is the item's price now — but the override itself
+ * is not shown.
+ */
+const toRestaurantOwnedPricedFood = (rawFood) => {
+  const food = toRestaurantFacingFood(rawFood);
   const basePrice = Number(food?.price) || 0;
   const variants = serializeFoodVariants(food?.variants || food?.variations || []).map(
     (variant) => {
@@ -216,7 +221,7 @@ export async function getRestaurantMenu(restaurantId) {
     const foods = await FoodItem.find({ restaurantId })
         .sort({ createdAt: -1 })
         .limit(5000)
-        .select('-oldData -newData')
+        .select('-oldData -newData +adminPrice')
         .lean();
     // Restaurant dashboard/edit must see only their own base prices.
     return buildMenuFromFoods(foods, { applyAdminPricing: false });
@@ -281,7 +286,7 @@ export async function getPublicApprovedRestaurantMenu(restaurantIdOrSlug) {
     const foods = await FoodItem.find(await withActiveCategoryFilter({ restaurantId: restaurant._id, approvalStatus: 'approved' }))
         .sort({ createdAt: -1 })
         .limit(2000)
-        .select('-oldData -newData')
+        .select('-oldData -newData +adminPrice')
         .lean();
     // Public / customer menu includes admin markup in selling price.
     return buildMenuFromFoods(foods, { applyAdminPricing: true });

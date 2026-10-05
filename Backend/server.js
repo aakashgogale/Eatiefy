@@ -19,6 +19,9 @@ let expireOffersInterval = null;
 let fssaiExpiryInterval = null;
 let deliveryOfferSweepInterval = null;
 let restaurantAcceptSweepInterval = null;
+let restaurantAlarmSweepInterval = null;
+// Repeats are claimed per order at their own interval; this is only how often that is checked.
+const RESTAURANT_ALARM_SWEEP_MS = 5 * 1000;
 
 const gracefulShutdown = async (signal) => {
     logger.info(`${signal} received, starting graceful shutdown`);
@@ -35,6 +38,7 @@ const gracefulShutdown = async (signal) => {
             if (fssaiExpiryInterval) clearInterval(fssaiExpiryInterval);
             if (deliveryOfferSweepInterval) clearInterval(deliveryOfferSweepInterval);
             if (restaurantAcceptSweepInterval) clearInterval(restaurantAcceptSweepInterval);
+            if (restaurantAlarmSweepInterval) clearInterval(restaurantAlarmSweepInterval);
             logger.info('Graceful shutdown complete');
             process.exit(0);
         } catch (err) {
@@ -155,6 +159,26 @@ const startServer = async () => {
         };
         runRestaurantAcceptSweep();
         restaurantAcceptSweepInterval = setInterval(runRestaurantAcceptSweep, 30 * 1000);
+
+        // New orders keep ringing on the restaurant's phone (even with the app
+        // closed) until answered; answered ones get a push that stops the alarm.
+        let restaurantAlarmSweepRunning = false;
+        const runRestaurantAlarmSweep = async () => {
+            if (restaurantAlarmSweepRunning) return;
+            restaurantAlarmSweepRunning = true;
+            try {
+                const { syncRestaurantOrderAlarms } = await import(
+                    './src/modules/food/orders/services/restaurantOrderAlarm.service.js'
+                );
+                await syncRestaurantOrderAlarms();
+            } catch (err) {
+                logger.error(`Restaurant order alarm sweep error: ${err.message}`);
+            } finally {
+                restaurantAlarmSweepRunning = false;
+            }
+        };
+        runRestaurantAlarmSweep();
+        restaurantAlarmSweepInterval = setInterval(runRestaurantAlarmSweep, RESTAURANT_ALARM_SWEEP_MS);
 
         const runFssaiExpirySync = async () => {
             try {

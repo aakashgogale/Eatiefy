@@ -170,6 +170,8 @@ export async function listPublicFoods(query = {}) {
     let list = await FoodItem.find(foodFilter)
         .sort({ createdAt: -1 })
         .limit(isEatiefyPromo ? Math.max(limit, 2000) : limit)
+        // The admin price override is what customers pay; it is not sent out.
+        .select('+adminPrice')
         .lean();
 
     if (isEatiefyPromo) {

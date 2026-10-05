@@ -28,6 +28,7 @@ import {
 } from "@food/utils/restaurantOrderPricing"
 import dishFallbackImage from "@food/assets/dish_fallback.webp"
 import { resolveMediaUrl } from "@/shared/utils/mediaUrl"
+import { formatOrderAddress } from "@food/utils/orderAddress"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -172,26 +173,12 @@ export default function OrderDetails() {
           // Restaurant view: never show customer payment-due as their bill
           const paidAmount = total
 
-          const addressParts = [
-            order.address?.street,
-            order.address?.area,
-            order.address?.city,
-            order.address?.state,
-            order.address?.pincode
-          ].filter(Boolean)
-
+          // House / flat number and landmark come from the stored delivery address.
           const fullAddress =
+            formatOrderAddress(order.deliveryAddress) ||
             order.address?.formattedAddress ||
             order.address?.address ||
-            order.deliveryAddress?.formattedAddress ||
-            order.deliveryAddress?.address ||
-            [
-              order.deliveryAddress?.street,
-              order.deliveryAddress?.city,
-              order.deliveryAddress?.state,
-              order.deliveryAddress?.zipCode
-            ].filter(Boolean).join(", ") ||
-            (addressParts.length > 0 ? addressParts.join(", ") : "") ||
+            formatOrderAddress(order.address) ||
             "Address not available"
 
           const customerName = firstText(

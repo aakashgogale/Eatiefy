@@ -48,6 +48,9 @@ const deliveryAddressSchema = new mongoose.Schema(
         fullName: { type: String, default: '', trim: true },
         street: { type: String, required: true, trim: true },
         additionalDetails: { type: String, default: '', trim: true },
+        /** House / flat number the customer typed at checkout. */
+        houseNumber: { type: String, default: '', trim: true },
+        landmark: { type: String, default: '', trim: true },
         city: { type: String, required: true, trim: true },
         state: { type: String, required: true, trim: true },
         zipCode: { type: String, default: '', trim: true },
@@ -250,6 +253,17 @@ const eatiefyIncentiveSchema = new mongoose.Schema(
     { _id: false }
 );
 
+const restaurantAlarmSchema = new mongoose.Schema(
+    {
+        active: { type: Boolean, default: false },
+        startedAt: { type: Date, default: null },
+        lastRingAt: { type: Date, default: null },
+        ringCount: { type: Number, default: 0, min: 0 },
+        stoppedAt: { type: Date, default: null }
+    },
+    { _id: false }
+);
+
 const orderSchema = new mongoose.Schema(
     {
         order_id: {
@@ -360,6 +374,15 @@ const orderSchema = new mongoose.Schema(
         // First time the restaurant was sent this order; its accept window counts from here.
         restaurantNotifiedAt: { type: Date, default: null },
         /**
+         * New-order alarm on the restaurant's phone. While `active`, the push is
+         * repeated (restaurantOrderAlarm.service) so it keeps ringing with the app
+         * closed; once the order is answered a "stop" push silences the alarm.
+         */
+        restaurantAlarm: {
+            type: restaurantAlarmSchema,
+            default: undefined
+        },
+        /**
          * Restaurant → delivery-address distance in km, resolved at order time
          * alongside the rider earning. It was previously written by the
          * background geocode update but never declared here, so Mongoose's
@@ -422,6 +445,11 @@ orderSchema.index({ 'dispatch.deliveryPartnerId': 1, 'dispatch.status': 1, updat
 orderSchema.index({ 'dispatch.offeredTo.partnerId': 1, 'dispatch.status': 1, orderStatus: 1 });
 // Drives the offer-expiry sweeper, which scans for pending offers past their window.
 orderSchema.index({ 'dispatch.offeredTo.action': 1, 'dispatch.offeredTo.expiresAt': 1 });
+// Drives the restaurant alarm sweep; only orders currently ringing are indexed.
+orderSchema.index(
+    { 'restaurantAlarm.active': 1 },
+    { partialFilterExpression: { 'restaurantAlarm.active': true } }
+);
 orderSchema.index({ 'payment.status': 1, createdAt: -1 });
 orderSchema.index({ 'payment.method': 1, createdAt: -1 });
 // One Razorpay payment pays for one order (blocks replay and webhook/app double-create).

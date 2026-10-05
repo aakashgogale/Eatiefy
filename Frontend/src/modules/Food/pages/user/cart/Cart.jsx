@@ -88,6 +88,50 @@ const formatFullAddress = (address) => {
 const RUPEE_SYMBOL = "\u20B9"
 const CART_RECIPIENT_DETAILS_STORAGE_KEY = "food-cart-recipient-details-v1"
 const CART_ORDER_NOTE_STORAGE_KEY = "food-cart-order-note-v1"
+const CART_ADDRESS_EXTRAS_STORAGE_KEY = "food-cart-address-extras-v1"
+const MAX_SAVED_ADDRESS_EXTRAS = 20
+
+/** Indian mobile number: exactly 10 digits, starting 6-9 (the server checks the same). */
+const MOBILE_NUMBER_REGEX = /^[6-9]\d{9}$/
+const MOBILE_NUMBER_LENGTH = 10
+// Same limits the server applies to the delivery address.
+const MAX_HOUSE_NUMBER_LENGTH = 100
+const MAX_LANDMARK_LENGTH = 150
+
+/** Digits only, at most 10. A +91 / 0 prefix (pasted, or saved on the profile) is dropped first. */
+const toMobileDigits = (value) => {
+  const digits = String(value || "").replace(/\D/g, "")
+  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(2)
+  if (digits.length === 11 && digits.startsWith("0")) return digits.slice(1)
+  return digits.slice(0, MOBILE_NUMBER_LENGTH)
+}
+
+/*
+ * House / flat number and landmark typed at checkout, remembered per delivery
+ * address so a repeat order to the same place does not ask again.
+ */
+const readSavedAddressExtras = () => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CART_ADDRESS_EXTRAS_STORAGE_KEY) || "{}")
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+const saveAddressExtras = (addressKey, extras) => {
+  if (!addressKey) return
+  try {
+    const all = readSavedAddressExtras()
+    delete all[addressKey]
+    all[addressKey] = { houseNumber: extras.houseNumber || "", landmark: extras.landmark || "" }
+    const keys = Object.keys(all)
+    keys.slice(0, Math.max(0, keys.length - MAX_SAVED_ADDRESS_EXTRAS)).forEach((key) => delete all[key])
+    localStorage.setItem(CART_ADDRESS_EXTRAS_STORAGE_KEY, JSON.stringify(all))
+  } catch {
+    // Storage unavailable: the fields still work for this visit.
+  }
+}
 
 /*
  * Confetti for the order-success screen, generated once at module load.
@@ -241,6 +285,9 @@ export default function Cart() {
     name: "",
     phone: "",
   })
+  const [addressExtras, setAddressExtras] = useState({ houseNumber: "", landmark: "" })
+  const [showHouseNumberError, setShowHouseNumberError] = useState(false)
+  const houseNumberInputRef = useRef(null)
 
   const [sendCutlery, setSendCutlery] = useState(true)
   const [isPlacingOrder, setIsPlacingOrder] = useState(false)
@@ -758,7 +805,7 @@ export default function Cart() {
     if (normalized === "other") return "Other"
     return label || "Saved address"
   }
-  const sanitizeRecipientPhone = (value) => String(value || "").replace(/[^\d+]/g, "").slice(0, 14)
+  const sanitizeRecipientPhone = toMobileDigits
   const savedAddress = getDefaultAddress()
   const selectedAddress = addresses.find((addr) => getAddressId(addr) && getAddressId(addr) === selectedAddressId)
 
@@ -819,7 +866,40 @@ export default function Cart() {
 
   const hasSavedAddress = Boolean(defaultAddress && formatFullAddress(defaultAddress))
   const recipientName = String(recipientDetails.name || "").trim() || userProfile?.name || "Your Name"
-  const recipientPhone = sanitizeRecipientPhone(recipientDetails.phone || "") || userProfile?.phone || ""
+  const recipientPhone = sanitizeRecipientPhone(recipientDetails.phone || "") || sanitizeRecipientPhone(userProfile?.phone)
+  const isRecipientPhoneValid = MOBILE_NUMBER_REGEX.test(recipientPhone)
+
+  // Remembered house / flat number and landmark follow the chosen delivery address.
+  const deliveryAddressKey = useMemo(() => {
+    if (!defaultAddress) return ""
+    const id = getAddressId(defaultAddress)
+    if (id) return `id:${id}`
+    const coords = defaultAddress?.location?.coordinates
+    if (Array.isArray(coords) && coords.length === 2) {
+      return `geo:${Number(coords[1]).toFixed(5)},${Number(coords[0]).toFixed(5)}`
+    }
+    const text = formatFullAddress(defaultAddress)
+    return text ? `text:${text}` : ""
+  }, [defaultAddress])
+
+  useEffect(() => {
+    if (!deliveryAddressKey) return
+    const saved = readSavedAddressExtras()[deliveryAddressKey]
+    setAddressExtras({
+      houseNumber: String(saved?.houseNumber ?? defaultAddress?.houseNumber ?? "").slice(0, MAX_HOUSE_NUMBER_LENGTH),
+      landmark: String(saved?.landmark ?? defaultAddress?.landmark ?? "").slice(0, MAX_LANDMARK_LENGTH),
+    })
+    setShowHouseNumberError(false)
+    // Only a different address reloads the fields; edits in progress stay.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deliveryAddressKey])
+
+  const updateAddressExtras = (field, value) => {
+    const next = { ...addressExtras, [field]: value }
+    setAddressExtras(next)
+    saveAddressExtras(deliveryAddressKey, next)
+    if (field === "houseNumber" && value.trim()) setShowHouseNumberError(false)
+  }
   const selectedAddressCoordinates = defaultAddress?.location?.coordinates
   const zoneLocation = selectedAddressCoordinates?.length === 2
     ? {
@@ -878,7 +958,7 @@ export default function Cart() {
   useEffect(() => {
     setRecipientDetails((prev) => ({
       name: prev.name || userProfile?.name || "",
-      phone: prev.phone || userProfile?.phone || "",
+      phone: prev.phone || sanitizeRecipientPhone(userProfile?.phone),
     }))
   }, [userProfile?.name, userProfile?.phone])
 
@@ -2054,6 +2134,19 @@ export default function Cart() {
       return
     }
 
+    if (orderType !== "takeaway" && !addressExtras.houseNumber.trim()) {
+      setShowHouseNumberError(true)
+      toast.error("Please enter your House/Flat No.")
+      houseNumberInputRef.current?.focus()
+      return
+    }
+
+    if (!isRecipientPhoneValid) {
+      setIsEditingRecipient(true)
+      toast.error("Please enter a valid 10-digit mobile number")
+      return
+    }
+
     if (isScheduled) {
       if (!scheduledDate || !scheduledTime) {
         toast.error("Please select both date and time to schedule your order")
@@ -2297,12 +2390,14 @@ export default function Cart() {
           ? undefined
           : {
               ...defaultAddress,
-              phone: recipientPhone || defaultAddress?.phone || "",
+              houseNumber: addressExtras.houseNumber.trim(),
+              landmark: addressExtras.landmark.trim(),
+              phone: recipientPhone,
               name: recipientName,
               fullName: recipientName,
             },
         customerName: recipientName,
-        customerPhone: recipientPhone || defaultAddress?.phone || "",
+        customerPhone: recipientPhone,
         restaurantId: finalRestaurantId,
         restaurantName: finalRestaurantName || undefined,
         couponCode: appliedCoupon?.code || couponCode || undefined,
@@ -3161,6 +3256,7 @@ export default function Cart() {
                     </div>
                   </div>
                 ) : (
+                  <>
                   <div className="flex items-start justify-between w-full text-left">
                     <div className="flex items-start gap-4 flex-1">
                        <div className="bg-[#1F6B4505] dark:bg-[#1F6B4510] p-2 rounded-xl mt-0.5">
@@ -3279,6 +3375,50 @@ export default function Cart() {
                        <ChevronRight className="h-5 w-5" />
                      </button>
                   </div>
+
+                  {/* Exact spot for the rider: door number and a nearby landmark */}
+                  <div className="mt-4 pt-4 border-t border-dashed border-gray-200 dark:border-gray-800 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label htmlFor="cart-house-number" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                        House/Flat No. <span className="text-red-600">*</span>
+                      </label>
+                      <input
+                        id="cart-house-number"
+                        ref={houseNumberInputRef}
+                        type="text"
+                        value={addressExtras.houseNumber}
+                        onChange={(e) => updateAddressExtras("houseNumber", e.target.value)}
+                        maxLength={MAX_HOUSE_NUMBER_LENGTH}
+                        required
+                        autoComplete="address-line1"
+                        aria-invalid={showHouseNumberError}
+                        aria-describedby={showHouseNumberError ? "cart-house-number-error" : undefined}
+                        placeholder="e.g. Flat 204, Tower B"
+                        className={`w-full rounded-xl border bg-white dark:bg-[#1c1c1c] px-3 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#1F6B45] ${showHouseNumberError ? "border-red-500" : "border-gray-200 dark:border-gray-700"}`}
+                      />
+                      {showHouseNumberError && (
+                        <p id="cart-house-number-error" className="mt-1 text-[11px] text-red-600">
+                          House/Flat No. is required
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label htmlFor="cart-landmark" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                        Nearby landmark <span className="text-gray-400">(optional)</span>
+                      </label>
+                      <input
+                        id="cart-landmark"
+                        type="text"
+                        value={addressExtras.landmark}
+                        onChange={(e) => updateAddressExtras("landmark", e.target.value)}
+                        maxLength={MAX_LANDMARK_LENGTH}
+                        autoComplete="address-line2"
+                        placeholder="e.g. Near City Mall"
+                        className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1c1c1c] px-3 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#1F6B45]"
+                      />
+                    </div>
+                  </div>
+                  </>
                 )}
               </div>
 
@@ -3325,11 +3465,16 @@ export default function Cart() {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                      <label htmlFor="cart-recipient-phone" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
                         Phone Number
                       </label>
                       <input
+                        id="cart-recipient-phone"
                         type="tel"
+                        inputMode="numeric"
+                        autoComplete="tel-national"
+                        maxLength={MOBILE_NUMBER_LENGTH}
+                        pattern="[6-9][0-9]{9}"
                         value={recipientDetails.phone}
                         onChange={(e) =>
                           setRecipientDetails((prev) => ({
@@ -3337,9 +3482,25 @@ export default function Cart() {
                             phone: sanitizeRecipientPhone(e.target.value),
                           }))
                         }
-                        placeholder="Enter recipient phone"
-                         className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1c1c1c] px-3 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#1F6B45]"
+                        // maxLength would cut a pasted "+91 98765 43210" before it can be cleaned.
+                        onPaste={(e) => {
+                          e.preventDefault()
+                          const pasted = e.clipboardData?.getData("text") || ""
+                          setRecipientDetails((prev) => ({
+                            ...prev,
+                            phone: sanitizeRecipientPhone(pasted),
+                          }))
+                        }}
+                        aria-invalid={Boolean(recipientDetails.phone) && !isRecipientPhoneValid}
+                        aria-describedby={recipientDetails.phone && !isRecipientPhoneValid ? "cart-recipient-phone-hint" : undefined}
+                        placeholder="10-digit mobile number"
+                         className={`w-full rounded-xl border bg-white dark:bg-[#1c1c1c] px-3 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#1F6B45] ${recipientDetails.phone && !isRecipientPhoneValid ? "border-red-500" : "border-gray-200 dark:border-gray-700"}`}
                       />
+                      {recipientDetails.phone && !isRecipientPhoneValid && (
+                        <p id="cart-recipient-phone-hint" className="mt-1 text-[11px] text-red-600">
+                          Enter a valid 10-digit mobile number
+                        </p>
+                      )}
                     </div>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400">
                       If you are ordering for someone else, please enter their name and phone number here.

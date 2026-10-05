@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { showUserFacingApiError } from '@/shared/utils/apiError';
 import { formatTripDistanceKm } from '@/modules/DeliveryV2/hooks/useProximityCheck';
 import { openCamera, openGallery } from "@food/utils/imageUploadUtils";
+import { formatOrderAddress } from '@food/utils/orderAddress';
 import { extractUserNote } from '@/modules/DeliveryV2/components/modals/DeliveryVerificationModal';
 
 /**
@@ -130,18 +131,7 @@ export const PickupActionModal = ({
   const customerAddress =
     order.customerAddress ||
     order.customer_address ||
-    [
-      order.deliveryAddress?.street,
-      order.deliveryAddress?.additionalDetails,
-      order.deliveryAddress?.landmark,
-      order.deliveryAddress?.area,
-      order.deliveryAddress?.city,
-      order.deliveryAddress?.state,
-      order.deliveryAddress?.zipCode || order.deliveryAddress?.pincode,
-    ]
-      .map((v) => String(v || '').trim())
-      .filter(Boolean)
-      .join(', ') ||
+    formatOrderAddress(order.deliveryAddress) ||
     '';
 
   const customerLocation = order.customerLocation || order.deliveryLocation || null;

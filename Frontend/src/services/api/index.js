@@ -391,8 +391,10 @@ export const adminAPI = {
   updateRestaurantSettings: (data) =>
     apiClient.patch("/food/admin/restaurant-settings", data, { contextModule: "admin" }),
   /** GET /food/admin/delivery/support-tickets/stats - counts by status. */
-  getDeliverySupportTicketStats: () =>
+  /** Query: zoneId (omit for all zones). */
+  getDeliverySupportTicketStats: (params = {}) =>
     apiClient.get("/food/admin/delivery/support-tickets/stats", {
+      params,
       contextModule: "admin",
     }),
   /** PATCH /food/admin/delivery/support-tickets/:id - update adminResponse, status. */
@@ -1068,8 +1070,10 @@ export const adminAPI = {
     }),
 
   /** Delivery Cash Limit (admin) */
-  getDeliveryCashLimit: () =>
+  /** Query: zoneId (omit for the platform default). */
+  getDeliveryCashLimit: (params = {}) =>
     apiClient.get("/food/admin/delivery-cash-limit", {
+      params,
       contextModule: "admin",
     }),
   updateDeliveryCashLimit: (body) =>
@@ -1078,8 +1082,10 @@ export const adminAPI = {
     }),
 
   /** Delivery Emergency Help (admin) */
-  getEmergencyHelp: () =>
+  /** Query: zoneId (omit for the platform default). */
+  getEmergencyHelp: (params = {}) =>
     apiClient.get("/food/admin/delivery-emergency-help", {
+      params,
       contextModule: "admin",
     }),
   createOrUpdateEmergencyHelp: (body) =>
@@ -1445,13 +1451,18 @@ export const restaurantAPI = {
     apiClient.patch("/food/restaurant/menu", body ?? {}, {
       contextModule: "restaurant",
     }),
-  saveFcmToken: (token, platform = "web") => {
+  saveFcmToken: (token, platform = "web", { capabilities } = {}) => {
     if (!token) return Promise.reject(new Error("FCM token is required"));
     const path =
       platform === "mobile" ? "/fcm-tokens/mobile/save" : "/fcm-tokens/save";
     return apiClient.post(
       path,
-      { token: String(token), platform },
+      {
+        token: String(token),
+        platform,
+        // e.g. ["order_alarm"] from an app build that renders order alarms itself
+        ...(Array.isArray(capabilities) ? { capabilities } : {}),
+      },
       { contextModule: "restaurant" },
     );
   },
@@ -1714,11 +1725,17 @@ export const restaurantAPI = {
    * Register a restaurant (multipart FormData).
    * Backend: POST /v1/food/restaurant/register (path relative to baseURL /api/v1)
    */
-  register: (formData) => {
+  register: (formData, { registrationToken } = {}) => {
     if (!formData || !(formData instanceof FormData)) {
       return Promise.reject(new Error("FormData is required"));
     }
-    return apiClient.post("/food/restaurant/register", formData);
+    // The OTP registration token lets a rejected restaurant re-apply over its
+    // earlier registration; a brand-new one registers without it.
+    return apiClient.post(
+      "/food/restaurant/register",
+      formData,
+      registrationToken ? { headers: { "X-Registration-Token": registrationToken } } : undefined,
+    );
   },
   /**
    * Onboarding draft uploads (before the restaurant exists). Authorised by the

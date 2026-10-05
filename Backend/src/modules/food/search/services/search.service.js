@@ -3,6 +3,7 @@ import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodCategory } from '../../admin/models/category.model.js';
 import { withActiveCategoryFilter } from '../../shared/inactiveCategories.js';
 import { FoodZone } from '../../admin/models/zone.model.js';
+import { getFoodDisplayPrice } from '../../admin/services/foodVariant.service.js';
 import mongoose from 'mongoose';
 
 const zoneToPolygon = (zoneDoc) => {
@@ -149,7 +150,7 @@ export const searchUnified = async (query = {}, options = {}) => {
             approvalStatus: 'approved',
             isAvailable: { $ne: false },
         }))
-            .select('restaurantId name price image foodType')
+            .select('restaurantId name price adminPrice image foodType')
             .lean();
 
         for (const food of catFoodItems) {
@@ -163,7 +164,7 @@ export const searchUnified = async (query = {}, options = {}) => {
             list.push({
                 _id: food._id,
                 name: food.name,
-                price: food.price,
+                price: getFoodDisplayPrice(food),
                 image: food.image || '',
                 foodType: food.foodType || 'Non-Veg',
             });

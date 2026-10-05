@@ -11,7 +11,10 @@ import { validateAddDeliveryBonusDto } from '../validators/deliveryBonus.validat
 import { validateCheckCompletionsDto, validateEarningAddonHistoryActionDto, validateEarningAddonUpsertDto, validateToggleEarningAddonStatusDto } from '../validators/earningAddon.validator.js';
 import { validateDeliveryCommissionRuleDto, validateOptionalStatusDto, validateRestaurantCommissionUpsertDto } from '../validators/commission.validator.js';
 import { validateFeeSettingsUpsertDto } from '../validators/feeSettings.validator.js';
-import { validateDeliveryEmergencyHelpUpsertDto } from '../validators/deliveryEmergencyHelp.validator.js';
+import {
+    getAdminDeliveryCashLimitSettings,
+    getAdminDeliveryEmergencyHelp,
+} from '../services/zoneDeliverySettings.service.js';
 import { validateReferralSettingsUpsertDto } from '../validators/referralSettings.validator.js';
 
 // ----- Customers / Users -----
@@ -445,9 +448,22 @@ export async function getFoods(req, res, next) {
     }
 }
 
+// Menus, search and dish rails are response-cached; an admin edit (incl. a
+// price override) must show up right away, as it does after an approval.
+const FOOD_BROWSE_CACHES = [
+    'restaurant_menu',
+    'restaurant_detail',
+    'search',
+    'categories',
+    'under_250',
+    'restaurants',
+    'public_foods',
+];
+
 export async function createFood(req, res, next) {
     try {
         const created = await adminService.createFood(req.body || {});
+        await invalidateFoodBrowseCaches(FOOD_BROWSE_CACHES);
         res.status(201).json({ success: true, message: 'Food created successfully', data: { food: created } });
     } catch (error) {
         next(error);
@@ -464,6 +480,7 @@ export async function updateFood(req, res, next) {
         if (!updated) {
             return res.status(404).json({ success: false, message: 'Food not found' });
         }
+        await invalidateFoodBrowseCaches(FOOD_BROWSE_CACHES);
         res.status(200).json({ success: true, message: 'Food updated successfully', data: { food: updated } });
     } catch (error) {
         next(error);
@@ -1127,7 +1144,8 @@ export async function createOrUpdateReferralSettings(req, res, next) {
 // ----- Delivery Cash Limit (admin) -----
 export async function getDeliveryCashLimit(req, res, next) {
     try {
-        const data = await adminService.getDeliveryCashLimitSettings();
+        // One zone's values (with what it overrides) or, without ?zoneId=, the default.
+        const data = await getAdminDeliveryCashLimitSettings(req.query?.zoneId);
         res.status(200).json({ success: true, message: 'Delivery cash limit fetched successfully', data });
     } catch (error) {
         next(error);
@@ -1136,7 +1154,7 @@ export async function getDeliveryCashLimit(req, res, next) {
 
 export async function updateDeliveryCashLimit(req, res, next) {
     try {
-        const data = await adminService.upsertDeliveryCashLimitSettings(req.body || {});
+        const data = await adminService.upsertDeliveryCashLimitSettings(req.body || {}, req.user);
         res.status(200).json({ success: true, message: 'Delivery cash limit updated successfully', data });
     } catch (error) {
         next(error);
@@ -1185,7 +1203,7 @@ export async function saveTopRestaurants(req, res, next) {
 // ----- Delivery Emergency Help (admin) -----
 export async function getEmergencyHelp(req, res, next) {
     try {
-        const data = await adminService.getDeliveryEmergencyHelp();
+        const data = await getAdminDeliveryEmergencyHelp(req.query?.zoneId);
         res.status(200).json({ success: true, message: 'Emergency help fetched successfully', data });
     } catch (error) {
         next(error);
@@ -1194,8 +1212,8 @@ export async function getEmergencyHelp(req, res, next) {
 
 export async function createOrUpdateEmergencyHelp(req, res, next) {
     try {
-        const body = validateDeliveryEmergencyHelpUpsertDto(req.body || {});
-        const data = await adminService.upsertDeliveryEmergencyHelp(body);
+        // Validated in the service: the default as before, a zone's numbers with blank = use default.
+        const data = await adminService.upsertDeliveryEmergencyHelp(req.body || {}, req.user);
         res.status(200).json({ success: true, message: 'Emergency help saved successfully', data });
     } catch (error) {
         next(error);
@@ -1360,7 +1378,7 @@ export async function getDeliveryJoinRequests(req, res, next) {
 // ----- Support tickets -----
 export async function getSupportTicketStats(req, res, next) {
     try {
-        const data = await adminService.getSupportTicketStats();
+        const data = await adminService.getSupportTicketStats(req.query || {});
         res.status(200).json({
             success: true,
             message: 'Support ticket stats fetched successfully',

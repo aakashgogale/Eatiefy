@@ -472,20 +472,31 @@ export async function applyAggregateRating(model, entityId, newRating) {
   await doc.save();
 }
 
+/**
+ * One-line customer address for the restaurant and rider screens: the house /
+ * flat number first, the landmark right after the street.
+ */
+export function formatCustomerAddressLine(deliveryAddress = {}) {
+  const landmark = String(deliveryAddress?.landmark || '').trim().replace(/^near\s+/i, '');
+  return [
+    deliveryAddress?.houseNumber,
+    deliveryAddress?.street,
+    deliveryAddress?.additionalDetails,
+    landmark ? `Near ${landmark}` : '',
+    deliveryAddress?.city,
+    deliveryAddress?.state,
+    deliveryAddress?.zipCode,
+  ]
+    .map((v) => String(v || '').trim())
+    .filter(Boolean)
+    .join(', ');
+}
+
 export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
   const order = orderDoc?.toObject ? orderDoc.toObject() : orderDoc || {};
   const restaurant = restaurantDoc || order?.restaurantId || null;
   const restaurantLocation = restaurant?.location || {};
   const deliveryAddress = order?.deliveryAddress || {};
-  const customerAddressParts = [
-    deliveryAddress.street,
-    deliveryAddress.additionalDetails,
-    deliveryAddress.city,
-    deliveryAddress.state,
-    deliveryAddress.zipCode,
-  ]
-    .map((v) => String(v || '').trim())
-    .filter(Boolean);
 
   return {
     orderMongoId:
@@ -549,7 +560,7 @@ export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
       state: restaurantLocation?.state || restaurant?.state || "",
     },
     deliveryAddress: order?.deliveryAddress,
-    customerAddress: customerAddressParts.length ? customerAddressParts.join(', ') : "",
+    customerAddress: formatCustomerAddressLine(deliveryAddress),
     customerName: order?.customerName || order?.deliveryAddress?.fullName || order?.deliveryAddress?.name || order?.userId?.name || "",
     customerPhone: order?.customerPhone || order?.deliveryAddress?.phone || order?.userId?.phone || "",
     userName: order?.customerName || order?.deliveryAddress?.fullName || order?.deliveryAddress?.name || order?.userId?.name || "",
@@ -580,19 +591,124 @@ export function canExposeOrderToRestaurant(orderLike) {
   return ["paid", "authorized", "captured", "settled"].includes(status);
 }
 
+/** Orders scheduled further ahead than this do not ring yet (same lead as the restaurant app). */
+export const RESTAURANT_SCHEDULED_RING_LEAD_MS = 15 * 60 * 1000;
+
+export function isRestaurantOrderDueToRing(orderLike, now = Date.now()) {
+  const scheduledAt = orderLike?.scheduledAt ? new Date(orderLike.scheduledAt).getTime() : NaN;
+  return !Number.isFinite(scheduledAt) || scheduledAt <= now + RESTAURANT_SCHEDULED_RING_LEAD_MS;
+}
+
+const getRestaurantOrderIdentity = (orderDoc) => {
+  const orderMongoId = String(orderDoc._id?.toString?.() || orderDoc._id || '');
+  const displayOrderId = String(orderDoc.order_id || orderDoc.orderId || orderMongoId);
+  return {
+    orderMongoId,
+    displayOrderId,
+    restaurantId: String(orderDoc.restaurantId?._id || orderDoc.restaurantId || ""),
+    eventKey: `restaurant:new_order:${orderMongoId || displayOrderId}`,
+    notificationTag: `restaurant-order-${displayOrderId || orderMongoId}`,
+  };
+};
+
+/**
+ * Push for an order awaiting the restaurant's decision. Ring 1 is the first
+ * push; each repeat (restaurantOrderAlarm.service) gets its own idempotency key
+ * so it is actually delivered, but keeps the tag, so the phone replaces the
+ * notification instead of stacking one per ring.
+ */
+export function buildRestaurantNewOrderPush(orderDoc, { ringSeq = 1, now = Date.now() } = {}) {
+  const { orderMongoId, displayOrderId, restaurantId, eventKey, notificationTag } =
+    getRestaurantOrderIdentity(orderDoc);
+  const pushKey = ringSeq > 1 ? `${eventKey}:ring:${ringSeq}` : eventKey;
+  return {
+    title: "🔔 New order received",
+    body: `Order #${displayOrderId} is waiting for review.`,
+    sound: getNewOrderAlertSound(),
+    urgent: true,
+    // Android installs that render the alarm themselves get it data-only.
+    orderAlarm: true,
+    channelId: "restaurant_orders",
+    sendToAllDevices: true,
+    // The restaurant app lives under /food/restaurant; its dashboard shows the
+    // new-order popup with accept/reject. "/restaurant/orders/…" was not a route.
+    link: "/food/restaurant",
+    idempotencyKey: pushKey,
+    eventId: pushKey,
+    tag: notificationTag,
+    data: {
+      type: "new_order",
+      eventId: pushKey,
+      idempotencyKey: pushKey,
+      orderEventId: eventKey,
+      tag: notificationTag,
+      orderId: displayOrderId,
+      orderMongoId: orderMongoId,
+      // Addressee + state, so the app rings only for its own restaurant's
+      // new orders (a device token can still be tied to another account).
+      restaurantId,
+      orderStatus: String(orderDoc.orderStatus || ""),
+      // "1": ring until answered. "0": a scheduled order not due yet — notify only.
+      alarm: isRestaurantOrderDueToRing(orderDoc, now) ? "1" : "0",
+      ringSeq: String(ringSeq),
+      sentAt: String(now),
+      link: "/food/restaurant",
+      targetUrl: "/food/restaurant",
+    },
+  };
+}
+
+/** Tells alarm-capable phones the order no longer awaits the restaurant: stop ringing. */
+export function buildRestaurantOrderAlarmStopPush(orderDoc) {
+  const { orderMongoId, displayOrderId, restaurantId, eventKey, notificationTag } =
+    getRestaurantOrderIdentity(orderDoc);
+  const stopKey = `${eventKey}:resolved`;
+  return {
+    title: "Order update",
+    body: `Order #${displayOrderId} is no longer waiting.`,
+    dataOnly: true,
+    alarmTokensOnly: true,
+    idempotencyKey: stopKey,
+    eventId: stopKey,
+    tag: notificationTag,
+    data: {
+      type: "new_order_resolved",
+      eventId: stopKey,
+      orderEventId: eventKey,
+      tag: notificationTag,
+      orderId: displayOrderId,
+      orderMongoId,
+      restaurantId,
+      orderStatus: String(orderDoc.orderStatus || ""),
+    },
+  };
+}
+
 export async function notifyRestaurantNewOrder(orderDoc) {
   try {
     if (!orderDoc || !canExposeOrderToRestaurant(orderDoc)) return;
 
     // Start the accept window when the restaurant first actually receives the order
-    // (for online payments that is after payment, not at checkout).
+    // (for online payments that is after payment, not at checkout). The alarm
+    // starts with it: this first push is ring 1, repeated until it is answered.
     if (!orderDoc.restaurantNotifiedAt) {
       const notifiedAt = new Date();
       const FoodOrderModel = mongoose.models.FoodOrder;
       if (FoodOrderModel && orderDoc._id) {
         const res = await FoodOrderModel.updateOne(
           { _id: orderDoc._id, restaurantNotifiedAt: null },
-          { $set: { restaurantNotifiedAt: notifiedAt } },
+          {
+            $set: {
+              restaurantNotifiedAt: notifiedAt,
+              restaurantAlarm: {
+                active: true,
+                startedAt: notifiedAt,
+                lastRingAt: notifiedAt,
+                ringCount: 1,
+                stoppedAt: null,
+              },
+            },
+          },
         );
         if (res?.modifiedCount) {
           orderDoc.restaurantNotifiedAt = notifiedAt;
@@ -603,10 +719,7 @@ export async function notifyRestaurantNewOrder(orderDoc) {
       }
     }
 
-    const orderMongoId = String(orderDoc._id?.toString?.() || orderDoc._id || '');
-    const displayOrderId = String(orderDoc.order_id || orderDoc.orderId || orderMongoId);
-    const eventKey = `restaurant:new_order:${orderMongoId || displayOrderId}`;
-    const notificationTag = `restaurant-order-${displayOrderId || orderMongoId}`;
+    const { orderMongoId, displayOrderId, eventKey, notificationTag } = getRestaurantOrderIdentity(orderDoc);
 
     const io = getIO();
     if (io) {
@@ -627,34 +740,7 @@ export async function notifyRestaurantNewOrder(orderDoc) {
 
     await notifyOwnersSafely(
       [{ ownerType: "RESTAURANT", ownerId: orderDoc.restaurantId }],
-      {
-        title: "🔔 New order received",
-        body: `Order #${displayOrderId} is waiting for review.`,
-        sound: getNewOrderAlertSound(),
-        urgent: true,
-        channelId: "restaurant_orders",
-        sendToAllDevices: true,
-        // The restaurant app lives under /food/restaurant; its dashboard shows the
-        // new-order popup with accept/reject. "/restaurant/orders/…" was not a route.
-        link: "/food/restaurant",
-        idempotencyKey: eventKey,
-        eventId: eventKey,
-        tag: notificationTag,
-        data: {
-          type: "new_order",
-          eventId: eventKey,
-          idempotencyKey: eventKey,
-          tag: notificationTag,
-          orderId: displayOrderId,
-          orderMongoId: orderMongoId,
-          // Addressee + state, so the app rings only for its own restaurant's
-          // new orders (a device token can still be tied to another account).
-          restaurantId: String(orderDoc.restaurantId?._id || orderDoc.restaurantId || ""),
-          orderStatus: String(orderDoc.orderStatus || ""),
-          link: "/food/restaurant",
-          targetUrl: "/food/restaurant",
-        },
-      },
+      buildRestaurantNewOrderPush(orderDoc),
     );
 
     // Admins get a server push for every new order too (previously none existed).

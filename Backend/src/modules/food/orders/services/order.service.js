@@ -285,6 +285,8 @@ export async function createOrder(userId, dto, { gatewayVerified = false } = {})
     fullName: dto.address?.fullName || dto.address?.name || dto.customerName || "",
     street: dto.address?.street || "",
     additionalDetails: dto.address?.additionalDetails || "",
+    houseNumber: dto.address?.houseNumber || "",
+    landmark: dto.address?.landmark || "",
     city: dto.address?.city || "",
     state: dto.address?.state || "",
     zipCode: dto.address?.zipCode || "",

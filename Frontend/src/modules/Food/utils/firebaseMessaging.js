@@ -20,6 +20,8 @@ const DEFAULT_FIREBASE_CONFIG = {
 
 const tokenCachePrefix = "fcm_web_registered_token_";
 const fcmBackendSyncedPrefix = "fcm_backend_synced_";
+const fcmBackendSyncedCapabilitiesPrefix = "fcm_backend_synced_caps_";
+const nativeCapabilitiesPrefix = "fcm_native_capabilities_";
 const pushSoundEnabledStorageKey = "push_sound_enabled";
 let publicEnvPromise = null;
 let foregroundListenerAttached = false;
@@ -226,6 +228,36 @@ export function normalizeFcmBridgeToken(raw) {
   return "";
 }
 
+/**
+ * What the native app build says it can do, sent with its token. A build that
+ * renders order alarms itself returns `{ token, capabilities: ["order_alarm"] }`
+ * from getFcmToken; older builds return a bare token and send nothing here.
+ */
+function rememberNativeCapabilities(moduleName, raw) {
+  try {
+    const capabilities =
+      raw && typeof raw === "object" && Array.isArray(raw.capabilities)
+        ? raw.capabilities.map((entry) => String(entry || "").trim()).filter(Boolean)
+        : null;
+    if (capabilities) {
+      localStorage.setItem(`${nativeCapabilitiesPrefix}${moduleName}`, JSON.stringify(capabilities));
+    } else {
+      localStorage.removeItem(`${nativeCapabilitiesPrefix}${moduleName}`);
+    }
+  } catch {
+    // storage unavailable — the token still syncs without capabilities
+  }
+}
+
+function readNativeCapabilities(moduleName) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(`${nativeCapabilitiesPrefix}${moduleName}`) || "null");
+    return Array.isArray(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -383,6 +415,7 @@ export async function collectNativeFcmToken(moduleName, options = {}) {
           });
           const token = normalizeFcmBridgeToken(raw);
           if (token) {
+            rememberNativeCapabilities(moduleName, raw);
             setSavedToken(moduleName, token);
             return { fcmToken: token, platform };
           }
@@ -1351,11 +1384,37 @@ export function clearFcmBackendSyncRecord(moduleName) {
   }
 }
 
+function getBackendSyncedCapabilities(moduleName) {
+  if (typeof sessionStorage === "undefined") return "";
+  try {
+    return sessionStorage.getItem(`${fcmBackendSyncedCapabilitiesPrefix}${moduleName}`) || "";
+  } catch {
+    return "";
+  }
+}
+
+function markBackendSyncedCapabilities(moduleName, signature) {
+  if (typeof sessionStorage === "undefined") return;
+  try {
+    sessionStorage.setItem(`${fcmBackendSyncedCapabilitiesPrefix}${moduleName}`, signature);
+  } catch {
+    /* ignore */
+  }
+}
+
 async function saveTokenByModule(moduleName, token, platform = "web") {
   const normalizedToken = String(token || "").trim();
   if (!normalizedToken) return;
 
-  if (getBackendSyncedToken(moduleName) === normalizedToken) {
+  // Only the restaurant app has a native order alarm to declare.
+  const capabilities =
+    platform === "mobile" && moduleName === "restaurant" ? readNativeCapabilities(moduleName) : undefined;
+  const capabilitiesSignature = capabilities ? capabilities.join(",") : "";
+
+  if (
+    getBackendSyncedToken(moduleName) === normalizedToken &&
+    getBackendSyncedCapabilities(moduleName) === capabilitiesSignature
+  ) {
     pushDebugLog(PUSH_DEBUG_PREFIX, "FCM token unchanged — skip backend save", {
       moduleName,
       platform,
@@ -1370,7 +1429,7 @@ async function saveTokenByModule(moduleName, token, platform = "web") {
   });
 
   if (moduleName === "restaurant") {
-    await restaurantAPI.saveFcmToken(normalizedToken, platform);
+    await restaurantAPI.saveFcmToken(normalizedToken, platform, { capabilities });
   } else if (moduleName === "delivery") {
     await deliveryAPI.saveFcmToken(normalizedToken, platform);
   } else if (moduleName === "user") {
@@ -1380,6 +1439,7 @@ async function saveTokenByModule(moduleName, token, platform = "web") {
   }
 
   markBackendSyncedToken(moduleName, normalizedToken);
+  markBackendSyncedCapabilities(moduleName, capabilitiesSignature);
 }
 
 async function registerNativeWebViewFcmToken(moduleName) {
@@ -1700,7 +1760,9 @@ export async function registerWebPushForCurrentModule(pathname = window.location
   }
 
   if (isFlutterWebView()) {
-    await persistModuleFcmToken(moduleName, { maxAttempts: 6, delayMs: 350 });
+    // Ask the app itself (not the cache) so an updated build's token and
+    // capabilities reach the server at launch; the cache is still the fallback.
+    await persistModuleFcmToken(moduleName, { maxAttempts: 6, delayMs: 350, skipCache: true });
     return;
   }
 

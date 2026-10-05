@@ -3,7 +3,10 @@ import { FoodOrder, FoodSettings } from '../models/order.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
 import { FoodDeliveryCashDeposit } from '../../delivery/models/foodDeliveryCashDeposit.model.js';
-import { FoodDeliveryCashLimit } from '../../admin/models/deliveryCashLimit.model.js';
+import {
+  loadDeliveryCashLimitByZone,
+  loadPartnerZoneIds,
+} from '../../admin/services/zoneDeliverySettings.service.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
 import { logger } from '../../../../utils/logger.js';
 import { getIO, rooms } from '../../../../config/socket.js';
@@ -78,13 +81,20 @@ async function filterPartnersByCashLimit(partners = [], options = {}) {
   const requiredAmount = Math.max(0, Number(options.requiredAmount || 0));
   const allowOverLimitFallback = options.allowOverLimitFallback !== false;
 
-  const limitDoc = await FoodDeliveryCashLimit.findOne({ isActive: true })
-    .sort({ createdAt: -1 })
-    .lean();
-  const totalCashLimit = Number(limitDoc?.deliveryCashLimit || 0);
+  // Each rider's own limit: their zone's value, else the platform default.
+  const [cashLimits, zoneByPartner] = await Promise.all([
+    loadDeliveryCashLimitByZone(),
+    loadPartnerZoneIds(partners.map((p) => p?.partnerId || p?._id)),
+  ]);
+  const cashLimitFor = (p) => {
+    const limit = Number(
+      cashLimits.forZone(zoneByPartner.get(String(p?.partnerId || p?._id || ''))).deliveryCashLimit,
+    );
+    return Number.isFinite(limit) && limit > 0 ? limit : 0;
+  };
 
   // Treat missing/non-positive setting as "no cap" to avoid blocking all dispatch.
-  if (!Number.isFinite(totalCashLimit) || totalCashLimit <= 0) {
+  if (partners.every((p) => cashLimitFor(p) <= 0)) {
     return partners.map((p) => ({
       ...p,
       availableCashLimit: Number.MAX_SAFE_INTEGER,
@@ -145,7 +155,11 @@ async function filterPartnersByCashLimit(partners = [], options = {}) {
     const grossCash = grossCashByPartner.get(partnerId) || 0;
     const depositedCash = depositedByPartner.get(partnerId) || 0;
     const cashInHand = Math.max(0, grossCash - depositedCash);
-    const availableCashLimit = Math.max(0, totalCashLimit - cashInHand);
+    const totalCashLimit = cashLimitFor(p);
+    // A zone without a cap (0) never blocks its riders, as the default never did.
+    const availableCashLimit = totalCashLimit > 0
+      ? Math.max(0, totalCashLimit - cashInHand)
+      : Number.MAX_SAFE_INTEGER;
     return {
       ...p,
       availableCashLimit,
@@ -387,15 +401,12 @@ export async function tryAutoAssign(orderId, options = {}) {
       searchOptions,
     );
 
-    // Multi-order: skip riders already at concurrent capacity (one query).
-    const limitDoc = await FoodDeliveryCashLimit.findOne({ isActive: true })
-      .sort({ createdAt: -1 })
-      .select('maxConcurrentOrders')
-      .lean();
-    const maxConcurrent = Math.min(
-      5,
-      Math.max(1, Number(limitDoc?.maxConcurrentOrders ?? 1)),
-    );
+    // Multi-order: skip riders already at their zone's concurrent capacity.
+    const [cashLimits, zoneByPartner] = await Promise.all([
+      loadDeliveryCashLimitByZone(),
+      loadPartnerZoneIds((nearbyPartners || []).map((p) => p.partnerId || p._id)),
+    ]);
+    const maxConcurrentFor = (id) => cashLimits.forZone(zoneByPartner.get(id)).maxConcurrentOrders;
     const nearbyIds = (nearbyPartners || [])
       .map((p) => p.partnerId || p._id)
       .filter(Boolean)
@@ -421,7 +432,7 @@ export async function tryAutoAssign(orderId, options = {}) {
     const partners = (nearbyPartners || []).filter((p) => {
       const id = String(p.partnerId || p._id || '');
       const active = activeByPartner.get(id) || 0;
-      return active < maxConcurrent;
+      return active < maxConcurrentFor(id);
     });
     
     // TIERED ALERT LOGIC

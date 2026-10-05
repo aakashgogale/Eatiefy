@@ -333,6 +333,8 @@ export default function RestaurantLogin() {
         const statusVal = isRejected ? "rejected" : "pending"
         localStorage.setItem("restaurant_pendingStatus", statusVal)
         localStorage.setItem("restaurant_pendingMessage", data.message || "")
+        // Proof of this OTP login, so "Re-apply" can resubmit the rejected registration.
+        if (data.registrationToken) setRestaurantRegistrationToken(data.registrationToken)
         setShowRestorePopup(false)
         setLoading(false)
         navigate("/food/restaurant/pending-verification", {

@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Search, CheckCircle2, Loader2, Package, RefreshCw, XCircle } from "lucide-react"
 
 import { adminAPI } from "@food/api"
+import AdminZoneSelect from "@food/components/admin/zones/AdminZoneSelect"
+import { useAdminZoneFilter } from "@food/hooks/useAdminZoneFilter"
 
 import { toast } from "sonner"
 
@@ -78,6 +80,14 @@ export default function CashConfirmations() {
 
   const [activeTab, setActiveTab] = useState("all")
 
+  // Zone picked in the header: only cash submissions of riders in that zone.
+  const { zones, zonesLoading, zoneId, setZoneId } = useAdminZoneFilter()
+
+  const handleZoneChange = (nextZoneId) => {
+    setPage(1)
+    setZoneId(nextZoneId)
+  }
+
   const [searchQuery, setSearchQuery] = useState("")
 
   const [transactions, setTransactions] = useState([])
@@ -144,6 +154,8 @@ export default function CashConfirmations() {
 
         tab,
 
+        zoneId: zoneId || undefined,
+
         page: p,
 
         limit,
@@ -195,7 +207,7 @@ export default function CashConfirmations() {
 
     }
 
-  }, [activeTab, page, searchQuery])
+  }, [activeTab, page, searchQuery, zoneId])
 
 
 
@@ -401,6 +413,8 @@ export default function CashConfirmations() {
 
             </div>
 
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
+              <AdminZoneSelect value={zoneId} onChange={handleZoneChange} zones={zones} loading={zonesLoading} />
             <button
 
               onClick={() => fetchConfirmations()}
@@ -416,6 +430,7 @@ export default function CashConfirmations() {
               Refresh
 
             </button>
+            </div>
 
           </div>
 

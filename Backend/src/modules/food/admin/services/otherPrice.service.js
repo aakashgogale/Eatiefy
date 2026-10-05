@@ -287,6 +287,7 @@ export function resolvePricingRuleForItem(food, rules = []) {
  */
 export function applyOtherPriceToFood(food, rules = []) {
   const rule = resolvePricingRuleForItem(food, rules);
+  // Includes the admin price override (adminPrice) when the caller selected it.
   const basePrice = getFoodDisplayPrice(food);
 
   const variants = serializeFoodVariants(food?.variants || food?.variations || []).map((variant) => {
@@ -345,8 +346,11 @@ export function applyOtherPriceToFood(food, rules = []) {
     }
   }
 
+  // The override is already folded into basePrice; it never leaves the server.
+  const { adminPrice: _adminPrice, ...visibleFood } = food || {};
+
   return {
-    ...food,
+    ...visibleFood,
     basePrice,
     price: sellingPrice,
     // otherPrice is deprecated for selling; keep 0 so legacy compare-at paths stay off.

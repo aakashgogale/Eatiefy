@@ -24,6 +24,8 @@ const createFoodForm = () => ({
   categoryName: "",
   name: "",
   price: "",
+  // Admin-only override of the price (empty = none). Hidden from the restaurant.
+  adminPrice: "",
   variants: [],
   description: "",
   image: "",
@@ -133,6 +135,7 @@ export default function FoodsList() {
       foodForm.categoryName !== defaultForm.categoryName ||
       foodForm.name !== defaultForm.name ||
       foodForm.price !== defaultForm.price ||
+      foodForm.adminPrice !== defaultForm.adminPrice ||
       foodForm.description !== defaultForm.description ||
       foodForm.foodType !== defaultForm.foodType ||
       foodForm.isAvailable !== defaultForm.isAvailable ||
@@ -295,6 +298,7 @@ export default function FoodsList() {
               categoryId: String(f.categoryId || ""),
               categoryName: f.categoryName || "",
               price: getFoodDisplayPrice(f),
+              adminPrice: f.adminPrice ?? null,
               variants: getFoodVariants(f),
               foodType: f.foodType || "Non-Veg",
               approvalStatus: f.approvalStatus || "approved",
@@ -454,6 +458,7 @@ export default function FoodsList() {
       categoryName: String(food.categoryName || ""),
       name: String(food.name || ""),
       price: String(food.price || ""),
+      adminPrice: food.adminPrice != null ? String(food.adminPrice) : "",
       variants: getFoodVariants(food).map(createVariantDraft),
       description: String(food.description || ""),
       image: String(food.image || ""),
@@ -609,6 +614,14 @@ export default function FoodsList() {
       return
     }
 
+    // Empty clears the override; variants are priced individually, so none applies there.
+    const adminPriceInput = String(foodForm.adminPrice ?? "").trim()
+    const parsedAdminPrice = !hasVariants && adminPriceInput ? Number(adminPriceInput) : null
+    if (parsedAdminPrice != null && (!Number.isFinite(parsedAdminPrice) || parsedAdminPrice <= 0)) {
+      toast.error("Admin price must be greater than 0, or left empty")
+      return
+    }
+
     if (!selectedImageFile && !String(foodForm.image || "").trim()) {
       toast.error("Please upload a food image")
       return
@@ -654,6 +667,7 @@ export default function FoodsList() {
         categoryName: String(foodForm.categoryName || "").trim(),
         name: foodForm.name.trim(),
         price: hasVariants ? undefined : parsedPrice,
+        adminPrice: parsedAdminPrice,
         variants: normalizedVariants.map((variant) => ({
           ...(variant.id && !variant.id.startsWith("variant-") ? { _id: variant.id } : {}),
           name: variant.name,
@@ -950,6 +964,9 @@ export default function FoodsList() {
                 <p><span className="font-semibold text-slate-700">Restaurant:</span> <span className="text-slate-900">{selectedFood.restaurantName || "-"}</span></p>
                 <p><span className="font-semibold text-slate-700">Zone:</span> <span className="text-slate-900">{selectedFood.zoneName || "-"}</span></p>
                 <p><span className="font-semibold text-slate-700">Price:</span> <span className="text-slate-900">{selectedFood.variants?.length ? `Starting from \u20B9${selectedFood.price}` : `\u20B9${selectedFood.price}`}</span></p>
+                {!selectedFood.variants?.length && selectedFood.adminPrice != null && (
+                  <p><span className="font-semibold text-slate-700">Admin Price (charged):</span> <span className="text-slate-900">{`\u20B9${selectedFood.adminPrice}`}</span></p>
+                )}
                 <p><span className="font-semibold text-slate-700">Category:</span> <span className="text-slate-900">{selectedFood.categoryName || "-"}</span></p>
                 <p><span className="font-semibold text-slate-700">Food Type:</span> <span className="text-slate-900">{selectedFood.foodType || "-"}</span></p>
                 <p><span className="font-semibold text-slate-700">Approval:</span> <span className="text-slate-900 capitalize">{selectedFood.approvalStatus || "-"}</span></p>
@@ -1138,6 +1155,27 @@ export default function FoodsList() {
                 {(foodForm.variants || []).length > 0 ? (
                   <p className="mt-1 text-xs text-slate-500">Variants are active, so customers will see the lowest variant price as the starting price.</p>
                 ) : null}
+              </div>
+              <div>
+                <label htmlFor="admin-food-admin-price" className="block text-sm font-medium text-slate-700 mb-1">
+                  Admin Price <span className="font-normal text-slate-500">(optional)</span>
+                </label>
+                <input
+                  id="admin-food-admin-price"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={(foodForm.variants || []).length > 0 ? "" : foodForm.adminPrice}
+                  onChange={(e) => setFoodForm((prev) => ({ ...prev, adminPrice: e.target.value }))}
+                  disabled={(foodForm.variants || []).length > 0}
+                  placeholder="Leave empty to use the base price"
+                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white disabled:bg-slate-100 disabled:text-slate-400"
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  {(foodForm.variants || []).length > 0
+                    ? "Not available for items with variants. Edit the variant prices instead."
+                    : "Replaces the base price for customers, orders and the restaurant app. The restaurant only sees the resulting price, never this field."}
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Food Type</label>

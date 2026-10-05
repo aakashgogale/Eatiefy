@@ -2091,7 +2091,9 @@ export default function RestaurantOnboarding() {
           formData.append("platform", platform)
         }
 
-        const registerResponse = await restaurantAPI.register(formData)
+        const registerResponse = await restaurantAPI.register(formData, {
+          registrationToken: getRestaurantRegistrationToken(),
+        })
         const registered =
           registerResponse?.data?.data || registerResponse?.data || {}
         const onboarding = registered?.onboarding || {}

@@ -229,6 +229,14 @@ const restaurantSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    /**
+     * Subset of fcmTokenMobile whose app build renders order alarms itself
+     * (declared the `order_alarm` capability). Those get a data-only order push.
+     */
+    fcmTokenMobileAlarm: {
+      type: [String],
+      default: [],
+    },
     /** GeoJSON point used for distance queries. */
     location: {
       type: geoPointSchema,

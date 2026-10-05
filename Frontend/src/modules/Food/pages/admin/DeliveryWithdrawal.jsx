@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react"
 import { Search, Wallet, Eye, CheckCircle, XCircle, Loader2, Package, QrCode } from "lucide-react"
 import { adminAPI } from "@food/api"
+import AdminZoneSelect from "@food/components/admin/zones/AdminZoneSelect"
+import { useAdminZoneFilter } from "@food/hooks/useAdminZoneFilter"
 import { toast } from "sonner"
 import AdminListPagination from "@food/components/admin/AdminListPagination"
 import {
@@ -42,6 +44,8 @@ export default function DeliveryWithdrawal() {
   const [processingAction, setProcessingAction] = useState(null)
   const [rejectionReason, setRejectionReason] = useState("")
   const [showRejectModal, setShowRejectModal] = useState(false)
+  // Zone picked in the header: only withdrawals of riders in that zone.
+  const { zones, zonesLoading, zoneId, setZoneId } = useAdminZoneFilter()
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300)
@@ -50,11 +54,11 @@ export default function DeliveryWithdrawal() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [debouncedSearch, activeTab])
+  }, [debouncedSearch, activeTab, zoneId])
 
   useEffect(() => {
     fetchRequests()
-  }, [activeTab, debouncedSearch, currentPage, pageSize])
+  }, [activeTab, debouncedSearch, currentPage, pageSize, zoneId])
 
   const fetchRequests = async () => {
     try {
@@ -64,6 +68,7 @@ export default function DeliveryWithdrawal() {
         page: currentPage,
         limit: pageSize,
         search: debouncedSearch || undefined,
+        zoneId: zoneId || undefined,
       })
       if (response?.data?.success) {
         setRequests(response.data.data?.requests || [])
@@ -172,6 +177,8 @@ export default function DeliveryWithdrawal() {
     <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+            <div className="min-w-0">
           <div className="flex items-center gap-3">
             <Wallet className="w-5 h-5 text-emerald-600" />
             <h1 className="text-2xl font-bold text-slate-900">Delivery Withdrawal</h1>
@@ -179,6 +186,9 @@ export default function DeliveryWithdrawal() {
           <p className="text-sm text-slate-600 mt-1">
             View and manage delivery boy withdrawal requests. Pending requests can be approved or rejected.
           </p>
+            </div>
+            <AdminZoneSelect value={zoneId} onChange={setZoneId} zones={zones} loading={zonesLoading} />
+          </div>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">

@@ -30,7 +30,8 @@ export async function enforceMinimumFoodItemPrices(items = [], restaurantId = nu
   const foodDocs = validIds.length
     ? await FoodItem.find({ _id: { $in: validIds } })
         .select(
-          'restaurantId price otherPrice priceOnOtherPlatforms variants approvalStatus isAvailable name image foodType categoryId',
+          // adminPrice: the admin override is what gets charged when set.
+          'restaurantId price adminPrice otherPrice priceOnOtherPlatforms variants approvalStatus isAvailable name image foodType categoryId',
         )
         .lean()
     : [];

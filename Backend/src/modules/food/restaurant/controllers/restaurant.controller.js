@@ -21,6 +21,22 @@ import {
 } from '../../dining/services/dining.service.js';
 import { validateRestaurantRegisterDto } from '../validators/restaurant.validator.js';
 import { sendResponse } from '../../../../utils/response.js';
+import { verifyRegistrationToken } from '../../../../core/auth/onboardingToken.js';
+
+/**
+ * Phone proven by OTP login (the X-Registration-Token it issued), or null.
+ * Needed only to re-apply over an existing registration; a missing or expired
+ * token never blocks a new one.
+ */
+const readVerifiedRegistrationPhone = (req) => {
+    const token = String(req.headers['x-registration-token'] || '').trim();
+    if (!token) return null;
+    try {
+        return verifyRegistrationToken(token).phoneLast10 || null;
+    } catch {
+        return null;
+    }
+};
 
 export const registerRestaurantController = async (req, res, next) => {
     try {
@@ -34,7 +50,9 @@ export const registerRestaurantController = async (req, res, next) => {
             fssaiImageUrl: req.body?.fssaiImageUrl,
             menuImageUrls: req.body?.menuImageUrls
         };
-        const restaurant = await registerRestaurant(validated, req.files, draftImageRefs);
+        const restaurant = await registerRestaurant(validated, req.files, draftImageRefs, {
+            verifiedPhoneLast10: readVerifiedRegistrationPhone(req),
+        });
         const message = restaurant?.onboarding?.paymentRequired
             ? 'Restaurant details saved. Complete the onboarding payment to submit for approval.'
             : 'Restaurant registered successfully';

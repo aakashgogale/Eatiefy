@@ -7,6 +7,7 @@ import { computePickupMetrics } from '@/modules/DeliveryV2/utils/pickupMetrics';
 import { PickupMetricsValue } from '@/modules/DeliveryV2/components/orders/NewOrderCard';
 import { toast } from 'sonner';
 import { getEatiefyIncentiveBreakdown, formatEatiefyIncentiveLine } from '@/modules/DeliveryV2/utils/earningBreakdown';
+import { formatOrderAddress } from '@food/utils/orderAddress';
 
 /**
  * NewOrderModal - Ported to Original 1:1 Theme with Slider Accept.
@@ -60,20 +61,10 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize, isMuted =
     order.deliveryAddress?.phone ||
     '';
 
-  const addressPartsFromSchema = [
-    deliveryAddress.street,
-    deliveryAddress.additionalDetails,
-    deliveryAddress.city,
-    deliveryAddress.state,
-    deliveryAddress.zipCode,
-  ]
-    .map((v) => String(v || '').trim())
-    .filter(Boolean);
-
   const customerAddress =
     order.customerAddress ||
     order.customer_address ||
-    (addressPartsFromSchema.length ? addressPartsFromSchema.join(', ') : '') ||
+    formatOrderAddress(deliveryAddress) ||
     (customerLocation?.lat != null && customerLocation?.lng != null
       ? `Lat ${Number(customerLocation.lat).toFixed(5)}, Lng ${Number(customerLocation.lng).toFixed(5)}`
       : 'Location not available');

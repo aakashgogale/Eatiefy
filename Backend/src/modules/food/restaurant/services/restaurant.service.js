@@ -389,7 +389,44 @@ const notifyAdminsAboutRestaurantProfileReview = async (restaurantId, restaurant
 const isTruthyFlag = (value) =>
     value === true || String(value ?? '').trim().toLowerCase() === 'true';
 
-export const registerRestaurant = async (payload, files, draftImageRefs = {}) => {
+/*
+ * A registration whose name + phone already exist (the unique key) is either a
+ * re-application - one the admin rejected, or one saved but never paid for - or
+ * a restaurant that is already registered. A re-application updates that same
+ * record instead of colliding with it, but only for the owner of the phone: the
+ * request must carry the registration token OTP login issued for that number,
+ * because /register itself is open and would otherwise let anyone overwrite it.
+ */
+const REAPPLY_STATUSES = new Set(['rejected', 'payment_pending']);
+
+const EXISTING_REGISTRATION_MESSAGES = {
+    approved: 'A restaurant with this name is already registered with this phone number. Please log in with this number.',
+    pending: 'This restaurant is already registered and waiting for admin approval. Log in with this phone number to see its status.',
+    banned: 'This restaurant account has been disabled. Please contact support.',
+    rejected: "This restaurant's earlier registration was rejected. Log in with this phone number and tap Re-apply to submit it again.",
+    payment_pending: 'This restaurant is already saved and its onboarding payment is pending. Log in with this phone number to complete the payment.',
+    deleted: 'This phone number belongs to a deleted restaurant account. Log in with this number to restore it or start fresh.',
+};
+
+const describeExistingRegistration = (status) =>
+    EXISTING_REGISTRATION_MESSAGES[status] || EXISTING_REGISTRATION_MESSAGES.approved;
+
+/** A duplicate-key error, named after the unique index it actually hit. */
+const describeDuplicateRegistration = (err) => {
+    const fields = Object.keys(err?.keyPattern || err?.keyValue || {});
+    if (fields.includes('restaurantNameNormalized') || fields.includes('ownerPhoneLast10')) {
+        return EXISTING_REGISTRATION_MESSAGES.approved;
+    }
+    if (fields.some((field) => /email/i.test(field))) {
+        return 'This email is already used by another restaurant. Please use a different email.';
+    }
+    if (fields.some((field) => /phone|contact/i.test(field))) {
+        return 'This phone number is already used by another restaurant.';
+    }
+    return 'These restaurant details are already registered. Please check them or contact support.';
+};
+
+export const registerRestaurant = async (payload, files, draftImageRefs = {}, { verifiedPhoneLast10 = null } = {}) => {
     const {
         restaurantName,
         ownerName,
@@ -447,6 +484,21 @@ export const registerRestaurant = async (payload, files, draftImageRefs = {}) =>
         throw new ValidationError('Restaurant name is required to register a restaurant');
     }
 
+    // Checked before anything is uploaded: the record the unique (name, phone)
+    // index would collide with, if any.
+    const existingRegistration = await FoodRestaurant.findOne({ restaurantNameNormalized, ownerPhoneLast10 });
+    let reapplyTarget = null;
+    if (existingRegistration) {
+        const existingStatus = existingRegistration.status || 'pending';
+        const isPhoneOwner = Boolean(verifiedPhoneLast10) && verifiedPhoneLast10 === ownerPhoneLast10;
+        if (!REAPPLY_STATUSES.has(existingStatus) || !isPhoneOwner) {
+            throw new ValidationError(describeExistingRegistration(existingStatus));
+        }
+        reapplyTarget = existingRegistration;
+    }
+    // An onboarding fee paid in an earlier attempt is never charged again.
+    const onboardingFeeAlreadyPaid = reapplyTarget?.onboardingPayment?.status === 'paid';
+
     // The chosen service zone must actually cover the chosen restaurant location.
     await assertZoneCoversLocation(zoneId, latitude, longitude);
 
@@ -472,7 +524,7 @@ export const registerRestaurant = async (payload, files, draftImageRefs = {}) =>
     // approval queue — approval is still mandatory, nothing is auto-approved.
     const onboardingPaymentEnabled = await isRestaurantOnboardingPaymentEnabled();
     const onboardingFeeDue =
-        onboardingPaymentEnabled && Number(onboardingQuote?.finalAmount) > 0;
+        onboardingPaymentEnabled && Number(onboardingQuote?.finalAmount) > 0 && !onboardingFeeAlreadyPaid;
 
     // URLs the onboarding form already stored server-side; only ones recorded in
     // this phone's draft are accepted.
@@ -525,7 +577,7 @@ export const registerRestaurant = async (payload, files, draftImageRefs = {}) =>
     try {
         const latNum = toFiniteNumber(latitude);
         const lngNum = toFiniteNumber(longitude);
-        const restaurant = await FoodRestaurant.create({
+        const restaurantFields = {
             restaurantName,
             restaurantNameNormalized,
             ownerName,
@@ -546,9 +598,10 @@ export const registerRestaurant = async (payload, files, draftImageRefs = {}) =>
             restaurantType: normalizedRestaurantType || undefined,
             // Held out of the admin queue until the onboarding fee is verified.
             status: onboardingFeeDue ? 'payment_pending' : 'pending',
-            onboardingPayment: {
-                status: onboardingFeeDue ? 'pending' : 'not_required'
-            },
+            // A fee already paid keeps its payment record.
+            ...(onboardingFeeAlreadyPaid
+                ? {}
+                : { onboardingPayment: { status: onboardingFeeDue ? 'pending' : 'not_required' } }),
             submittedForApprovalAt: onboardingFeeDue ? undefined : new Date(),
             // Store unified location object (geo + address).
             location: latNum !== null && lngNum !== null ? {
@@ -588,13 +641,32 @@ export const registerRestaurant = async (payload, files, draftImageRefs = {}) =>
             takeawaySettings: {
                 isEnabled: isTakeawayEnabled === 'true' || isTakeawayEnabled === true
             },
-            ...(fcmToken
-                ? (platform === 'mobile'
-                    ? { fcmTokenMobile: [String(fcmToken).trim()] }
-                    : { fcmTokens: [String(fcmToken).trim()] })
-                : {}),
             ...images
-        });
+        };
+
+        let restaurant;
+        if (reapplyTarget) {
+            // Same record, resubmitted: back to the admin as a registration, with the
+            // previous decision cleared. Images not re-uploaded stay as they were,
+            // and device tokens are added by the upsert below, not replaced.
+            reapplyTarget.set({
+                ...restaurantFields,
+                pendingApprovalType: 'registration',
+                rejectionReason: undefined,
+                rejectedAt: undefined,
+                approvedAt: undefined,
+            });
+            restaurant = await reapplyTarget.save();
+        } else {
+            restaurant = await FoodRestaurant.create({
+                ...restaurantFields,
+                ...(fcmToken
+                    ? (platform === 'mobile'
+                        ? { fcmTokenMobile: [String(fcmToken).trim()] }
+                        : { fcmTokens: [String(fcmToken).trim()] })
+                    : {}),
+            });
+        }
 
         // The restaurant now owns the uploaded files; the draft is no longer needed.
         await clearOnboardingDraft(ownerPhoneLast10);
@@ -621,11 +693,16 @@ export const registerRestaurant = async (payload, files, draftImageRefs = {}) =>
         );
 
         try {
-            await seedOutletTimingsForRestaurant(restaurant._id, {
-                openingTime: normalizedOpeningTime,
-                closingTime: normalizedClosingTime,
-                openDays: openDays || []
-            });
+            await seedOutletTimingsForRestaurant(
+                restaurant._id,
+                {
+                    openingTime: normalizedOpeningTime,
+                    closingTime: normalizedClosingTime,
+                    openDays: openDays || []
+                },
+                // A re-application's hours replace the ones from the earlier attempt.
+                { overwrite: Boolean(reapplyTarget) }
+            );
         } catch (e) {
             logger.warn(
                 `[OutletTimings] Failed to seed timings for restaurant ${restaurant._id}: ${e?.message || e}`
@@ -638,8 +715,10 @@ export const registerRestaurant = async (payload, files, draftImageRefs = {}) =>
             try {
                 const { notifyAdminsSafely } = await import('../../../../core/notifications/firebase.service.js');
                 void notifyAdminsSafely({
-                    title: 'New Restaurant Registration 🏪',
-                    body: `A new restaurant "${restaurant.restaurantName}" has registered and is pending approval.`,
+                    title: reapplyTarget ? 'Restaurant Re-applied 🏪' : 'New Restaurant Registration 🏪',
+                    body: reapplyTarget
+                        ? `"${restaurant.restaurantName}" has re-submitted its registration and is pending approval.`
+                        : `A new restaurant "${restaurant.restaurantName}" has registered and is pending approval.`,
                     data: {
                         type: 'new_registration',
                         subType: 'restaurant',
@@ -695,9 +774,17 @@ export const registerRestaurant = async (payload, files, draftImageRefs = {}) =>
             }
         };
     } catch (err) {
-        // Handle uniqueness conflicts deterministically (race-safe).
-        if (err && (err.code === 11000 || err?.name === 'MongoServerError')) {
-            throw new ValidationError('Restaurant with this name and owner phone already exists');
+        // Only a real duplicate key means "already registered" (e.g. two submits
+        // racing). Any other database error used to be reported as that too, so a
+        // failed first registration looked like an existing restaurant that could
+        // then neither log in nor register.
+        if (err?.code === 11000) {
+            logger.warn(`[Register] Duplicate key on ${JSON.stringify(err.keyPattern || err.keyValue || {})}`);
+            throw new ValidationError(describeDuplicateRegistration(err));
+        }
+        // "Can't extract geo keys": the map point is not a valid location.
+        if (err?.code === 16755) {
+            throw new ValidationError('The restaurant location on the map is invalid. Please pick the location again.');
         }
         throw err;
     }
@@ -1904,7 +1991,7 @@ export const listApprovedRestaurants = async (query = {}) => {
     if (activeCategoryClause) recommendedFilter.$and = [activeCategoryClause];
 
     const allRecommended = await FoodItem.find(recommendedFilter)
-        .select('restaurantId name price image foodType variants variations').lean();
+        .select('restaurantId name price adminPrice image foodType variants variations').lean();
 
     // Count total approved menu items per restaurant (to detect empty-menu restaurants)
     const menuCounts = await FoodItem.aggregate([
@@ -2223,7 +2310,7 @@ export const listRestaurantsUnderPriceLimit = async (query = {}) => {
             approvalStatus: 'approved',
         }))
             .select(
-                'restaurantId name price image foodType description isVeg isRecommended categoryName categoryId category variants preparationTime',
+                'restaurantId name price adminPrice image foodType description isVeg isRecommended categoryName categoryId category variants preparationTime',
             )
             .lean();
         const eligibleItems = await selectEatiefy99Foods(candidates);

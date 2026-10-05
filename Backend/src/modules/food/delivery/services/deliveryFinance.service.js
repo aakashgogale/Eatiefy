@@ -28,7 +28,8 @@ export const getDeliveryPartnerWalletEnhanced = async (deliveryPartnerId) => {
     if (!partner) throw new ValidationError('Delivery partner not found');
 
     const [cashLimitSettings, earningsAgg, cashCollectedAgg, cashDepositsAgg, pendingCashAgg, bonusAgg, withdrawalAgg, withdrawalsList, depositList] = await Promise.all([
-        getDeliveryCashLimitSettings(),
+        // The rider's own zone limits (zone override, else the default).
+        getDeliveryCashLimitSettings({ zoneId: partner.zoneId }),
         // 1. Total Earnings from Delivered Orders
         FoodOrder.aggregate([
             { $match: { 'dispatch.deliveryPartnerId': partnerId, orderStatus: 'delivered' } },

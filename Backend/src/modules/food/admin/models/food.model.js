@@ -16,6 +16,13 @@ const foodSchema = new mongoose.Schema(
         name: { type: String, required: true, trim: true, index: true },
         description: { type: String, trim: true, default: '' },
         price: { type: Number, required: true, min: 0 },
+        /**
+         * Admin override of `price` for items without variants. Customers, carts,
+         * orders and the restaurant all see the effective price (adminPrice ?? price);
+         * the override itself is admin-only, so it is never selected by default
+         * (`+adminPrice` opts in). Null = no override.
+         */
+        adminPrice: { type: Number, default: null, min: 0, select: false },
         priceOnOtherPlatforms: { type: Number, default: null, min: 0 },
         otherPlatformGst: { type: Number, default: null, min: 0, max: 100 },
         variants: { type: [foodVariantSchema], default: [] },

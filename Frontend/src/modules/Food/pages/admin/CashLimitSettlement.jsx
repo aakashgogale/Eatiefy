@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react"
 import { Search, Receipt, Loader2, Package, RefreshCw } from "lucide-react"
 import { adminAPI } from "@food/api"
+import AdminZoneSelect from "@food/components/admin/zones/AdminZoneSelect"
+import { useAdminZoneFilter } from "@food/hooks/useAdminZoneFilter"
 import { toast } from "sonner"
 
 const formatCurrency = (amount) => {
@@ -38,6 +40,12 @@ export default function CashLimitSettlement() {
   const [page, setPage] = useState(1)
   const [pages, setPages] = useState(1)
   const [total, setTotal] = useState(0)
+  // Zone picked in the header: only deposits of riders in that zone.
+  const { zones, zonesLoading, zoneId, setZoneId } = useAdminZoneFilter()
+  const handleZoneChange = (nextZoneId) => {
+    setPage(1)
+    setZoneId(nextZoneId)
+  }
   const limit = 20
 
   const fetchSettlements = useCallback(async (overrides = {}) => {
@@ -50,6 +58,7 @@ export default function CashLimitSettlement() {
       const res = await adminAPI.getCashLimitSettlements({
         search: q.trim() || undefined,
         status: status === "All" ? undefined : status,
+        zoneId: zoneId || undefined,
         page: p,
         limit,
       })
@@ -68,7 +77,7 @@ export default function CashLimitSettlement() {
     } finally {
       setLoading(false)
     }
-  }, [activeTab, page, searchQuery])
+  }, [activeTab, page, searchQuery, zoneId])
 
   useEffect(() => {
     fetchSettlements()
@@ -105,6 +114,8 @@ export default function CashLimitSettlement() {
                 </p>
               </div>
             </div>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
+              <AdminZoneSelect value={zoneId} onChange={handleZoneChange} zones={zones} loading={zonesLoading} />
             <button
               onClick={() => fetchSettlements()}
               disabled={loading}
@@ -113,6 +124,7 @@ export default function CashLimitSettlement() {
               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
               Refresh
             </button>
+            </div>
           </div>
         </div>
 

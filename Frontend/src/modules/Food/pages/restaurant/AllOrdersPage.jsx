@@ -18,6 +18,7 @@ import { restaurantAPI } from "@food/api"
 import { useKeyboardAwareSheet } from "@food/hooks/useIsKeyboardOpen"
 import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications"
 import { resolveMediaUrl } from "@/shared/utils/mediaUrl"
+import { formatOrderAddress } from "@food/utils/orderAddress"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -179,7 +180,7 @@ export default function AllOrdersPage() {
       ? "Self-Pickup Order"
       : (addr?.formattedAddress ||
          addr?.address ||
-         (addr?.street ? `${addr.street}, ${addr.city || ""}`.trim() : "") ||
+         formatOrderAddress(addr) ||
          "Address not available")
     
     // Get restaurant name
