@@ -1,86 +1,29 @@
-import { API_BASE_URL } from "@food/api/config";
-
-const defaultBackendOrigin = (API_BASE_URL || "").replace(/\/api\/v1\/?$/i, "").replace(/\/api\/?$/i, "");
-const ASSET_BASE_URL = String(
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_ASSET_BASE_URL) ||
-    "https://omettofood.com"
-).replace(/\/$/, "");
-
-const UPLOAD_BASE_URL = String(
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_UPLOAD_BASE_URL) ||
-    `${ASSET_BASE_URL}/uploads`
-).replace(/\/$/, "");
-
-const rewriteUploadsUrl = (absoluteUrl) => {
-  try {
-    const parsed = new URL(absoluteUrl);
-    const match = parsed.pathname.match(/\/uploads\/(.+)$/i);
-    if (!match) return absoluteUrl;
-    const filename = match[1];
-    if (!filename || filename.includes("..")) return absoluteUrl;
-    return `${UPLOAD_BASE_URL}/${filename}${parsed.search || ""}`;
-  } catch {
-    return absoluteUrl;
-  }
-};
+import {
+  resolveMediaUrl,
+  normalizeImageUrl as sharedNormalizeImageUrl,
+  extractImages as sharedExtractImages,
+  resolveImageSrc,
+} from "@/shared/utils/mediaUrl.js";
 
 /**
  * Common utility functions for the Food module
  */
 
 /**
- * Normalizes an image URL to handle relative paths and always load /uploads from the live server.
+ * Normalizes an image URL to handle relative paths, Cloudinary, and live server uploads.
  */
 export const normalizeImageUrl = (imageUrl, backendOrigin = "") => {
-  if (typeof imageUrl !== "string") return "";
-  const trimmed = imageUrl.trim();
-  if (!trimmed || /^data:/i.test(trimmed) || /^blob:/i.test(trimmed)) return trimmed;
-
-  const appProtocol = typeof window !== "undefined" ? window.location?.protocol : "";
-  const originToUse = backendOrigin || defaultBackendOrigin || ASSET_BASE_URL;
-
-  let normalized = trimmed
-    .replace(/\\/g, "/")
-    .replace(/^(https?):\/(?!\/)/i, "$1://")
-    .replace(/^(https?:\/\/)(https?:\/\/)/i, "$1");
-
-  if (/^\/\//.test(normalized)) normalized = `${appProtocol || "https:"}${normalized}`;
-
-  if (/^(https?:)?\/\//i.test(normalized)) {
-    return rewriteUploadsUrl(normalized);
-  }
-
-  if (/uploads\//i.test(normalized) || normalized.startsWith("/uploads")) {
-    const filename = normalized.replace(/^.*\/uploads\//i, "").replace(/^\/+/, "");
-    if (filename && !filename.includes("..")) {
-      return `${UPLOAD_BASE_URL}/${filename}`;
-    }
-  }
-
-  const absolutePath = normalized.startsWith("/")
-    ? `${originToUse}${normalized}`
-    : `${originToUse}/${normalized.replace(/^\.?\/*/, "")}`;
-  return rewriteUploadsUrl(absolutePath);
+  return sharedNormalizeImageUrl(imageUrl, backendOrigin || undefined);
 };
 
 /**
  * Extracts a list of image URLs from a source (string, array of strings, or object with image properties)
  */
 export const extractImages = (source, backendOrigin = "") => {
-  if (!source) return [];
-  const normalize = (val) => {
-    if (!val) return "";
-    if (typeof val === "string") return normalizeImageUrl(val, backendOrigin);
-    if (typeof val === "object") {
-      const src = val.url || val.secure_url || val.imageUrl || val.image || val.src || "";
-      return typeof src === "string" ? normalizeImageUrl(src, backendOrigin) : "";
-    }
-    return "";
-  };
-
-  const candidates = Array.isArray(source) ? source.map(normalize) : [normalize(source)];
-  return candidates.filter(Boolean);
+  return sharedExtractImages(source, backendOrigin || undefined);
 };
+
+export { resolveMediaUrl, resolveImageSrc };
 
 /**
  * Calculates distance between two coordinates in kilometers using Haversine formula

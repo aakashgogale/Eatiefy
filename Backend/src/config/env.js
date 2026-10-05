@@ -49,8 +49,12 @@ export const config = {
     otpRateWindow: Number(process.env.OTP_RATE_WINDOW || (process.env.NODE_ENV === 'production' ? 600 : 60)),
     useDefaultOtp: readEnvFlag('USE_DEFAULT_OTP') ?? (process.env.NODE_ENV === 'development'),
     // Phone-scoped default OTP (independent of USE_DEFAULT_OTP for all numbers)
-    useDefaultTestPhone: readEnvFlag('USE_DEFAULT_TEST_PHONE') === true,
+    useDefaultTestPhone: readEnvFlag('USE_DEFAULT_TEST_PHONE') ?? Boolean(process.env.DEFAULT_TEST_PHONE || process.env.DEFAULT_TEST_PHONES),
     defaultTestPhone: String(process.env.DEFAULT_TEST_PHONE || '').replace(/\D/g, '').slice(-10),
+    defaultTestPhones: String(process.env.DEFAULT_TEST_PHONE || process.env.DEFAULT_TEST_PHONES || '')
+        .split(',')
+        .map((p) => String(p).replace(/\D/g, '').slice(-10))
+        .filter((p) => p.length === 10),
 
     // MSG91
     msg91AuthKey: process.env.MSG91_AUTH_KEY,

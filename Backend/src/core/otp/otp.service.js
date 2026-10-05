@@ -173,7 +173,11 @@ console.info(
             ? 'SMS via MSG91'
             : config.smsHubEnabled
                 ? `SMS via SMS India Hub (sender ${String(config.smsSenderId || '').trim() || 'MISSING'})`
-                : 'NONE - no SMS provider enabled; every OTP request will fail'}`
+                : 'NONE - no SMS provider enabled; every OTP request will fail'}${
+        config.useDefaultTestPhone && (config.defaultTestPhones?.length || config.defaultTestPhone)
+            ? ` | Fixed Test Phone(s) [OTP: 1234]: ${config.defaultTestPhones?.length ? config.defaultTestPhones.join(', ') : config.defaultTestPhone}`
+            : ''
+    }`
 );
 
 // Static OTP in production means anyone can sign in to any account with 1234.
@@ -187,23 +191,23 @@ const normalizePhoneForOtp = (phone) => {
     return digits.slice(-10); // Always normalize to 10 digits to prevent duplicate checks
 };
 
-/** True only for the env-configured test phone when USE_DEFAULT_TEST_PHONE=true */
-const isDefaultTestPhone = (normalizedPhone) =>
-    Boolean(
-        config.useDefaultTestPhone &&
-        config.defaultTestPhone &&
-        normalizedPhone === config.defaultTestPhone
-    );
+/** True only for the env-configured test phone(s) when USE_DEFAULT_TEST_PHONE=true */
+const isDefaultTestPhone = (normalizedPhone) => {
+    if (!config.useDefaultTestPhone || !normalizedPhone) return false;
+    const testPhones = config.defaultTestPhones || [];
+    if (testPhones.includes(normalizedPhone)) return true;
+    if (config.defaultTestPhone && normalizedPhone === config.defaultTestPhone) return true;
+    return false;
+};
 
 /**
  * Static OTP 1234 when:
  * - USE_DEFAULT_OTP=true (all phones), OR
- * - USE_DEFAULT_TEST_PHONE=true and phone === DEFAULT_TEST_PHONE
+ * - USE_DEFAULT_TEST_PHONE=true and phone is in DEFAULT_TEST_PHONE(s)
  */
 export const shouldUseStaticOtp = (phone) => {
     const normalizedPhone = normalizePhoneForOtp(phone);
-    // return config.useDefaultOtp;
-    return config.useDefaultOtp || isDefaultTestPhone(normalizedPhone);
+    return Boolean(config.useDefaultOtp || isDefaultTestPhone(normalizedPhone));
 };
 
 export const createOrUpdateOtp = async (phone) => {

@@ -11,6 +11,8 @@ import { useLocation } from "@food/hooks/useLocation"
 import { useZone } from "@food/hooks/useZone"
 import { restaurantAPI, adminAPI } from "@food/api"
 import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
+import { resolveMediaUrl } from "@/shared/utils/mediaUrl"
+import dishFallbackImage from "@food/assets/dish_fallback.webp"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -380,23 +382,21 @@ export default function SearchResults() {
                 ? restaurant.cuisines.join(", ")
                 : null
 
-              // Get images from backend only
-              const coverImages = restaurant.coverImages && restaurant.coverImages.length > 0
-                ? restaurant.coverImages.map(img => img.url || img).filter(Boolean)
-                : []
+              // Get images from backend and resolve properly
+              const candidateList = [
+                restaurant.image,
+                restaurant.coverImage,
+                restaurant.coverImageUrl,
+                ...(Array.isArray(restaurant.coverImages) ? restaurant.coverImages : []),
+                ...(Array.isArray(restaurant.images) ? restaurant.images : []),
+                restaurant.profileImage,
+                ...(Array.isArray(restaurant.menuImages) ? restaurant.menuImages : []),
+              ];
+              const resolvedImages = candidateList
+                .map((img) => resolveMediaUrl(typeof img === "object" ? img?.url || img?.secure_url : img))
+                .filter(Boolean);
 
-              const fallbackImages = restaurant.menuImages && restaurant.menuImages.length > 0
-                ? restaurant.menuImages.map(img => img.url || img).filter(Boolean)
-                : []
-
-              // Use backend images only - no fallback placeholder
-              const allImages = coverImages.length > 0
-                ? coverImages
-                : (fallbackImages.length > 0
-                  ? fallbackImages
-                  : (restaurant.profileImage?.url ? [restaurant.profileImage.url] : []))
-
-              const image = allImages[0] || null // Will be handled in UI
+              const image = resolvedImages[0] || dishFallbackImage;
               const restaurantId = restaurant.restaurantId || restaurant._id
 
               let featuredDish = restaurant.featuredDish || null
@@ -1082,20 +1082,16 @@ export default function SearchResults() {
                     }`}>
                     {/* Image Section */}
                     <div className="relative h-44 sm:h-52 md:h-60 lg:h-64 xl:h-72 w-full overflow-hidden rounded-t-md flex-shrink-0 bg-gray-200 dark:bg-gray-800">
-                      {restaurant.image ? (
-                        <img
-                          src={restaurant.image}
-                          alt={restaurant.name}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          onError={(e) => {
-                            e.target.style.display = 'none'
-                          }}
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-gray-200 dark:bg-gray-800">
-                          <span className="text-4xl">???</span>
-                        </div>
-                      )}
+                      <img
+                        src={restaurant.image || dishFallbackImage}
+                        alt={restaurant.name}
+                        loading="lazy"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = dishFallbackImage;
+                        }}
+                      />
 
                       {/* Featured Dish Badge - Top Left - Only show if data exists */}
                       {(() => {

@@ -14,19 +14,36 @@ import { useLocation } from "@food/hooks/useLocation"
 import { restaurantAPI } from "@food/api"
 import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
 import { filterRestaurantsForVegMode } from "@food/utils/vegMode"
-import { normalizeImageUrl } from "@food/utils/common"
+import { resolveMediaUrl } from "@/shared/utils/mediaUrl"
+import dishFallbackImage from "@food/assets/dish_fallback.webp"
 
 const pickRestaurantImage = (restaurant) => {
+  if (!restaurant) return dishFallbackImage
   const candidates = [
+    restaurant?.image,
     restaurant?.coverImage?.url,
     restaurant?.coverImage,
-    ...(Array.isArray(restaurant?.coverImages) ? restaurant.coverImages.map((img) => img?.url || img) : []),
-    ...(Array.isArray(restaurant?.menuImages) ? restaurant.menuImages.map((img) => img?.url || img) : []),
+    restaurant?.coverImageUrl,
+    ...(Array.isArray(restaurant?.coverImages)
+      ? restaurant.coverImages.map((img) => (typeof img === "object" ? img?.url || img?.secure_url : img))
+      : []),
+    ...(Array.isArray(restaurant?.images)
+      ? restaurant.images.map((img) => (typeof img === "object" ? img?.url || img?.secure_url : img))
+      : []),
     restaurant?.profileImage?.url,
     restaurant?.profileImage,
+    restaurant?.profileImageUrl,
+    restaurant?.logo,
+    restaurant?.logoUrl,
+    ...(Array.isArray(restaurant?.menuImages)
+      ? restaurant.menuImages.map((img) => (typeof img === "object" ? img?.url || img?.secure_url : img))
+      : []),
   ]
-  const firstValid = candidates.find((value) => typeof value === "string" && value.trim())
-  return normalizeImageUrl(firstValid || "")
+  const firstValid = candidates.find(
+    (value) => value && (typeof value === "string" ? value.trim() : typeof value === "object" && (value?.url || value?.secure_url))
+  )
+  const resolved = resolveMediaUrl(firstValid || "")
+  return resolved || dishFallbackImage
 }
 
 export default function Restaurants() {
@@ -209,10 +226,15 @@ export default function Restaurants() {
                           </div>
                         </CardContent>
 
-                        <div className="w-36 sm:w-44 md:w-56 lg:w-64 xl:w-72 flex-shrink-0 relative overflow-hidden group/image">
+                        <div className="w-36 sm:w-44 md:w-56 lg:w-64 xl:w-72 flex-shrink-0 relative overflow-hidden group/image bg-gray-100 dark:bg-gray-800">
                           <img
-                            src={restaurant.image || "https://via.placeholder.com/400x300?text=Restaurant"}
+                            src={restaurant.image || dishFallbackImage}
                             alt={restaurant.name}
+                            loading="lazy"
+                            onError={(e) => {
+                              e.currentTarget.onerror = null
+                              e.currentTarget.src = dishFallbackImage
+                            }}
                             className="w-full h-full object-cover"
                           />
                           <div className="absolute inset-0 bg-gradient-to-l from-black/20 dark:from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />

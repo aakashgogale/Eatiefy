@@ -12,6 +12,8 @@ import { FaLocationDot } from "react-icons/fa6"
 import { diningAPI } from "@food/api"
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability"
 import { filterRestaurantsForVegMode } from "@food/utils/vegMode"
+import { resolveMediaUrl } from "@/shared/utils/mediaUrl"
+import dishFallbackImage from "@food/assets/dish_fallback.webp"
 
 const slugifyRestaurant = (value) =>
   String(value || "")
@@ -79,11 +81,16 @@ export default function DiningCategory() {
               slug: restaurant.restaurantNameNormalized || slugifyRestaurant(restaurant.restaurantName || restaurant.name),
               name: restaurant.restaurantName || restaurant.name || "Restaurant",
               image:
-                restaurant.coverImage ||
-                restaurant.menuImages?.[0] ||
-                restaurant.profileImage?.url ||
-                restaurant.profileImage ||
-                "",
+                resolveMediaUrl(
+                  restaurant.image ||
+                  restaurant.coverImage ||
+                  restaurant.coverImageUrl ||
+                  (Array.isArray(restaurant.coverImages) ? restaurant.coverImages[0] : null) ||
+                  restaurant.menuImages?.[0] ||
+                  restaurant.profileImage?.url ||
+                  restaurant.profileImage ||
+                  ""
+                ) || dishFallbackImage,
               address: formatAddress(restaurant),
               cuisine:
                 Array.isArray(restaurant.cuisines) && restaurant.cuisines.length > 0
@@ -215,11 +222,13 @@ export default function DiningCategory() {
                   <Card className="group overflow-hidden rounded-[30px] border border-[#f0dfca] bg-white py-0 shadow-[0_18px_60px_rgba(17,24,39,0.08)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_80px_rgba(17,24,39,0.14)] dark:border-gray-800 dark:bg-[#141414] dark:shadow-[0_18px_60px_rgba(0,0,0,0.35)] dark:hover:shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
                     <div className="relative h-64 overflow-hidden">
                       <img
-                        src={restaurant.image}
+                        src={restaurant.image || dishFallbackImage}
                         alt={restaurant.name}
+                        loading="lazy"
                         className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                         onError={(event) => {
-                          event.currentTarget.style.display = "none"
+                          event.currentTarget.onerror = null;
+                          event.currentTarget.src = dishFallbackImage;
                         }}
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
