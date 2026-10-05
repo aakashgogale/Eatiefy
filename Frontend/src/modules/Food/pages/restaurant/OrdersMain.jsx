@@ -1259,16 +1259,55 @@ const MAX_CUSTOM_REASON_LENGTH = 150;
 
 /** Required free-text reason, shown when "Other reason" is picked. */
 function CustomReasonInput({ id, value, onChange, disabled }) {
+  const containerRef = useRef(null);
+  const textareaRef = useRef(null);
   const isEmpty = !String(value || "").trim();
+
+  const scrollToCenter = useCallback(() => {
+    if (!containerRef.current) return;
+    try {
+      containerRef.current.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+        inline: "nearest",
+      });
+    } catch (_) {
+      try {
+        containerRef.current.scrollIntoView(false);
+      } catch (_) {}
+    }
+  }, []);
+
+  useEffect(() => {
+    // Scroll immediately on render and again after on-screen keyboard finishes popping up
+    const t1 = setTimeout(scrollToCenter, 60);
+    const t2 = setTimeout(scrollToCenter, 250);
+    const t3 = setTimeout(scrollToCenter, 500);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [scrollToCenter]);
+
   return (
-    <div className="mt-3">
+    <div ref={containerRef} className="mt-3 scroll-mt-6 pb-2">
       <label htmlFor={id} className="block text-sm font-medium text-gray-900 mb-1.5">
         Enter reason <span className="text-red-600">*</span>
       </label>
       <textarea
+        ref={textareaRef}
         id={id}
         value={value}
         onChange={(e) => onChange(e.target.value.slice(0, MAX_CUSTOM_REASON_LENGTH))}
+        onFocus={() => {
+          setTimeout(scrollToCenter, 100);
+          setTimeout(scrollToCenter, 300);
+        }}
+        onClick={() => {
+          setTimeout(scrollToCenter, 100);
+        }}
         maxLength={MAX_CUSTOM_REASON_LENGTH}
         rows={3}
         required
@@ -1276,10 +1315,10 @@ function CustomReasonInput({ id, value, onChange, disabled }) {
         disabled={disabled}
         aria-invalid={isEmpty}
         placeholder="Type the reason"
-        className="w-full rounded-lg border-2 border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#2E7D52] resize-none disabled:opacity-60"
+        className="w-full rounded-lg border-2 border-gray-200 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#2E7D52] resize-none disabled:opacity-60 bg-white shadow-sm"
       />
       <div className="mt-1 flex justify-between text-xs">
-        <span className={isEmpty ? "text-red-600" : "text-transparent"}>Reason is required</span>
+        <span className={isEmpty ? "text-red-600 font-medium" : "text-transparent"}>Reason is required</span>
         <span className="text-gray-500">
           {String(value || "").length}/{MAX_CUSTOM_REASON_LENGTH}
         </span>
