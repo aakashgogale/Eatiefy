@@ -263,13 +263,6 @@ export default function OrdersPage({ statusKey = "all" }) {
           fallbackAudioRef.current.volume = 1
         }
 
-        // Prime media element playback permission
-        fallbackAudioRef.current.muted = true
-        await fallbackAudioRef.current.play()
-        fallbackAudioRef.current.pause()
-        fallbackAudioRef.current.currentTime = 0
-        fallbackAudioRef.current.muted = false
-
         if (!notificationAudioRef.current) {
           const selectedSound = localStorage.getItem("delivery_alert_sound") || "zomato_tone"
           const soundFile = selectedSound === "original"
@@ -279,11 +272,15 @@ export default function OrdersPage({ statusKey = "all" }) {
           notificationAudioRef.current.preload = "auto"
           notificationAudioRef.current.volume = 1
         }
-        notificationAudioRef.current.muted = true
-        await notificationAudioRef.current.play()
-        notificationAudioRef.current.pause()
-        notificationAudioRef.current.currentTime = 0
-        notificationAudioRef.current.muted = false
+
+        // Play 100% silent 1-sample dummy audio to unlock HTMLAudioElement media pipeline
+        try {
+          const silentAudio = new Audio(
+            "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"
+          )
+          await silentAudio.play()
+          silentAudio.pause()
+        } catch (_) {}
 
         // Prime WebAudio permission
         const AudioCtx = window.AudioContext || window.webkitAudioContext

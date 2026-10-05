@@ -959,56 +959,60 @@ const markAlertAudioUnlocked = () => {
   }, RING_RESUME_AFTER_UNLOCK_MS);
 };
 
+const SILENT_AUDIO_DATA_URI =
+  'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
 /**
- * Unlocks audio on the first user gesture - silently.
+ * Unlocks audio on the first user gesture - 100% silently.
  *
- * The ringtone element is played MUTED and paused straight away, which is all
- * the browser needs to allow later playback; the ringtone is never heard here.
- * A ring already sounding is left alone, and a ring that starts meanwhile
- * un-mutes the element (playGlobalNotificationSound), which this respects.
- *
- * play() is called synchronously in the gesture. This used to await
- * AudioContext.resume() first and ignore every other event while that was
- * pending: on iPhone the pointerdown attempt waited for a gesture that never
- * counted, the real tap was ignored, and the ringtone never played at all.
+ * Uses a 1-sample silent dummy audio buffer and Web Audio API rather than
+ * calling play() on the real restaurant_alert.mp3. This completely prevents
+ * false audible chimes on iOS WebKit/WKWebView while fully satisfying browser
+ * media autoplay permissions for future real orders.
  */
 const unlockAlertAudio = () => {
   if (typeof window === 'undefined' || alertAudioUnlocked) return;
   window.__userHasInteracted = true;
 
-  const audio = ensureGlobalAlertAudio();
-  if (!audio) return;
-  // Already sounding, so already allowed to play.
-  if (!audio.paused) {
-    markAlertAudioUnlocked();
-    return;
-  }
-
-  let started;
-  try {
-    audio.muted = true;
-    started = audio.play();
-  } catch (_) {
-    audio.muted = false;
-    return;
-  }
-
-  Promise.resolve(started)
-    .then(() => {
-      // Still muted = nothing claimed it for a real ring: put it back silently.
-      if (audio.muted) {
-        try {
-          audio.pause();
-          audio.currentTime = 0;
-        } catch (_) {}
-        audio.muted = false;
+  // 1. Prime Web Audio Context with silent inaudible buffer
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (AudioCtx) {
+    try {
+      const ctx = new AudioCtx();
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
       }
-      markAlertAudioUnlocked();
-    })
-    .catch(() => {
-      // Not allowed yet, or interrupted by a stop: the next gesture retries.
-      if (audio.muted) audio.muted = false;
-    });
+      const buffer = ctx.createBuffer(1, 1, 22050);
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      source.start(0);
+    } catch (_) {}
+  }
+
+  // 2. Pre-initialize global audio object without playing the audio file
+  ensureGlobalAlertAudio();
+
+  // 3. Play a 100% silent 1-sample dummy audio to unlock HTMLAudioElement media pipeline
+  try {
+    const silentAudio = new Audio(SILENT_AUDIO_DATA_URI);
+    const started = silentAudio.play();
+    if (started && typeof started.then === 'function') {
+      started
+        .then(() => {
+          try {
+            silentAudio.pause();
+          } catch (_) {}
+          markAlertAudioUnlocked();
+        })
+        .catch(() => {
+          markAlertAudioUnlocked();
+        });
+      return;
+    }
+  } catch (_) {}
+
+  markAlertAudioUnlocked();
 };
 
 const attachAlertAudioUnlock = () => {

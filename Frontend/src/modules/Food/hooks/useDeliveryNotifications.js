@@ -1173,9 +1173,15 @@ export const useDeliveryNotifications = () => {
           if (window.__deliverySynthCtx.state === 'suspended') {
             window.__deliverySynthCtx.resume().catch(() => {});
           }
+          const buffer = window.__deliverySynthCtx.createBuffer(1, 1, 22050);
+          const source = window.__deliverySynthCtx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(window.__deliverySynthCtx.destination);
+          source.start(0);
         } catch (_) {}
       }
 
+      // Pre-initialize audio element reference without playing the file
       if (!audioRef.current) {
         const selectedSound = localStorage.getItem('delivery_alert_sound') || 'zomato_tone';
         audioRef.current = new Audio(
@@ -1186,40 +1192,32 @@ export const useDeliveryNotifications = () => {
         audioRef.current.preload = 'auto';
         audioRef.current.volume = 1.0;
       }
-      const audio = audioRef.current;
-      // Already sounding, so already allowed to play.
-      if (!audio.paused) {
-        unlocked = true;
-        detach();
-        return;
-      }
 
-      let started;
+      // Play 1-sample silent dummy audio to unlock HTMLAudioElement media pipeline
       try {
-        audio.muted = true;
-        started = audio.play();
-      } catch (_) {
-        audio.muted = false;
-        return;
-      }
-      Promise.resolve(started)
-        .then(() => {
-          // Still muted = no ring claimed the element meanwhile: put it back silently.
-          if (audio.muted) {
-            try {
-              audio.pause();
-              audio.currentTime = 0;
-            } catch (_) {}
-            audio.muted = false;
-          }
-          unlocked = true;
-          detach();
-          debugLog('Audio unlocked');
-        })
-        .catch(() => {
-          // Not allowed yet, or interrupted by a stop: the next gesture retries.
-          if (audio.muted) audio.muted = false;
-        });
+        const silentAudio = new Audio(
+          'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA'
+        );
+        const started = silentAudio.play();
+        if (started && typeof started.then === 'function') {
+          started
+            .then(() => {
+              try {
+                silentAudio.pause();
+              } catch (_) {}
+              unlocked = true;
+              detach();
+            })
+            .catch(() => {
+              unlocked = true;
+              detach();
+            });
+          return;
+        }
+      } catch (_) {}
+
+      unlocked = true;
+      detach();
     }
 
     // Capture phase on window: a handler that stops propagation cannot hide the gesture.

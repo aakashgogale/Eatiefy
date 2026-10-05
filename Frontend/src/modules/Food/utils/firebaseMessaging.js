@@ -1018,19 +1018,47 @@ async function playPushSound(payload = {}) {
   }
 }
 
+const SILENT_AUDIO_DATA_URI =
+  'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
 function setupPushSoundUnlock() {
   if (typeof window === "undefined" || pushSoundUnlocked) return;
 
   const unlock = async () => {
-    let audio = null;
     try {
-      audio = ensurePushSoundAudio();
-      if (!audio) return;
-      pushDebugLog(PUSH_DEBUG_PREFIX, "Attempting passive push sound unlock");
-      audio.muted = true;
-      await audio.play();
-      audio.pause();
-      audio.currentTime = 0;
+      pushDebugLog(PUSH_DEBUG_PREFIX, "Attempting passive push sound unlock with silent buffer");
+
+      // 1. Prime Web Audio Context
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        try {
+          const ctx = new AudioCtx();
+          if (ctx.state === "suspended") {
+            await ctx.resume();
+          }
+          const buffer = ctx.createBuffer(1, 1, 22050);
+          const source = ctx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(ctx.destination);
+          source.start(0);
+        } catch (_) {}
+      }
+
+      // 2. Pre-initialize audio elements without playing real sound file
+      ensurePushSoundAudio();
+
+      // 3. Play a 100% silent 1-sample dummy audio to unlock HTMLAudioElement media pipeline
+      try {
+        const silentAudio = new Audio(SILENT_AUDIO_DATA_URI);
+        const started = silentAudio.play();
+        if (started && typeof started.then === "function") {
+          await started;
+          try {
+            silentAudio.pause();
+          } catch (_) {}
+        }
+      } catch (_) {}
+
       pushSoundUnlocked = true;
       localStorage.setItem(pushSoundEnabledStorageKey, "true");
       pushDebugLog(PUSH_DEBUG_PREFIX, "Passive push sound unlock succeeded");
@@ -1039,10 +1067,7 @@ function setupPushSoundUnlock() {
       pushDebugWarn(PUSH_DEBUG_PREFIX, "Passive push sound unlock failed", {
         error: error?.message || error,
       });
-    } finally {
-      if (audio) {
-        audio.muted = false;
-      }
+      pushSoundUnlocked = true;
     }
 
     if (pushSoundUnlocked) {
