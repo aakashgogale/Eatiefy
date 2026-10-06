@@ -490,6 +490,8 @@ export async function persistModuleFcmToken(moduleName, options = {}) {
   try {
     await saveTokenByModule(moduleName, fcmToken, platform);
     pushDebugLog(PUSH_DEBUG_PREFIX, "FCM token synced to backend", { moduleName, platform });
+    // iPhone app: also register for order calls (no-op elsewhere).
+    if (platform === "mobile") await syncNativeVoipDevice(moduleName, fcmToken);
     return true;
   } catch (error) {
     pushDebugWarn(PUSH_DEBUG_PREFIX, "Failed to sync FCM token to backend", {
@@ -1404,8 +1406,76 @@ export function clearFcmBackendSyncRecord(moduleName) {
   if (typeof sessionStorage === "undefined" || !moduleName) return;
   try {
     sessionStorage.removeItem(`${fcmBackendSyncedPrefix}${moduleName}`);
+    sessionStorage.removeItem(`${voipBackendSyncedPrefix}${moduleName}`);
   } catch {
     /* ignore */
+  }
+}
+
+/*
+ * iOS VoIP (CallKit) calls for new orders. The iOS app registers with PushKit
+ * and returns its VoIP token from one of these handlers; Android and older
+ * builds have none, which simply leaves them on the regular push.
+ */
+const VOIP_BRIDGE_HANDLER_NAMES = ["getVoipToken", "getVOIPToken", "getPushKitToken"];
+const VOIP_MODULES = new Set(["restaurant", "delivery"]);
+const voipBackendSyncedPrefix = "voip_backend_synced_";
+
+function normalizeVoipBridgeToken(raw) {
+  const value =
+    raw && typeof raw === "object"
+      ? raw.voipToken || raw.token || raw.pushKitToken || raw.value || ""
+      : raw;
+  const token = String(value || "").trim();
+  // PushKit tokens are hex (64 chars today); anything else is not a VoIP token.
+  return /^[0-9a-f]{64,200}$/i.test(token) ? token : "";
+}
+
+async function readNativeVoipToken(moduleName) {
+  if (!isFlutterWebView()) return "";
+  for (const handlerName of VOIP_BRIDGE_HANDLER_NAMES) {
+    try {
+      const raw = await window.flutter_inappwebview.callHandler(handlerName, { module: moduleName });
+      const token = normalizeVoipBridgeToken(raw);
+      if (token) return token;
+    } catch {
+      // Handler not implemented in this build — try the next name.
+    }
+  }
+  return "";
+}
+
+/**
+ * Registers this iPhone's VoIP token, linked to its FCM token, so new orders
+ * (restaurant) and delivery offers (rider) ring as a call. Skips the request
+ * when the same pair is already saved in this session.
+ */
+async function syncNativeVoipDevice(moduleName, fcmToken) {
+  if (!VOIP_MODULES.has(moduleName) || !isFlutterWebView()) return;
+  const voipToken = await readNativeVoipToken(moduleName);
+  if (!voipToken) return;
+
+  const signature = `${voipToken}|${fcmToken || ""}`;
+  try {
+    if (sessionStorage.getItem(`${voipBackendSyncedPrefix}${moduleName}`) === signature) return;
+  } catch {
+    /* storage unavailable — just sync */
+  }
+
+  const api = moduleName === "restaurant" ? restaurantAPI : deliveryAPI;
+  try {
+    await api.saveVoipDevice({ voipToken, fcmToken: fcmToken || undefined });
+    try {
+      sessionStorage.setItem(`${voipBackendSyncedPrefix}${moduleName}`, signature);
+    } catch {
+      /* ignore */
+    }
+    pushDebugLog(PUSH_DEBUG_PREFIX, "VoIP token synced to backend", { moduleName });
+  } catch (error) {
+    pushDebugWarn(PUSH_DEBUG_PREFIX, "Failed to sync VoIP token to backend", {
+      moduleName,
+      error: error?.message || error,
+    });
   }
 }
 

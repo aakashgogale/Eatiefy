@@ -865,6 +865,10 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
 
   const responseOrder = toDeliveryFacingOrder(order);
 
+  // Hang up the offer call on every rider it rang for, the winner included
+  // (they may have accepted in the app while the call was still ringing).
+  void dispatchService.endOfferCallsForOrder(order, 'claimed');
+
   // Notify other riders IMMEDIATELY — do not wait for Firebase/polyline work
   try {
     const io = getIO();

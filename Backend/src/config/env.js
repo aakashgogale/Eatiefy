@@ -166,6 +166,22 @@ export const config = {
     firebaseWebMeasurementId: process.env.VITE_FIREBASE_MEASUREMENT_ID || process.env.FIREBASE_MEASUREMENT_ID,
     firebaseWebVapidKey: process.env.VITE_FIREBASE_VAPID_KEY || process.env.FIREBASE_VAPID_KEY,
 
+    // Apple VoIP (PushKit) calls for new orders on iOS — token (.p8) auth.
+    apnsTeamId: process.env.APNS_TEAM_ID,
+    apnsKeyId: process.env.APNS_KEY_ID,
+    apnsAuthKeyPath: process.env.APNS_VOIP_P8_PATH || process.env.APNS_AUTH_KEY_PATH,
+    // Bundle id of each app; ".voip" is appended when missing. APNS_VOIP_TOPIC is the fallback.
+    apnsVoipTopic: process.env.APNS_VOIP_TOPIC,
+    apnsVoipTopicRestaurant: process.env.APNS_VOIP_TOPIC_RESTAURANT,
+    apnsVoipTopicDelivery: process.env.APNS_VOIP_TOPIC_DELIVERY,
+    // false → api.sandbox.push.apple.com (Xcode builds); TestFlight / App Store need true.
+    apnsProduction: String(process.env.APNS_PRODUCTION ?? 'true').trim().toLowerCase() === 'true',
+    // How long a restaurant's incoming order call rings before it re-rings.
+    voipRestaurantRingSeconds: (() => {
+        const raw = Number(process.env.VOIP_RESTAURANT_RING_SECONDS);
+        return Number.isFinite(raw) && raw >= 15 ? Math.floor(raw) : 45;
+    })(),
+
     // Socket.io
     socketCorsOrigin: process.env.SOCKET_CORS_ORIGIN || '*',
 

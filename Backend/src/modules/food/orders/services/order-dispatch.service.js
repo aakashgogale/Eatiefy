@@ -18,7 +18,11 @@ import {
   notifyOwnerSafely,
   notifyOwnersSafely,
 } from './order.helpers.js';
-import { notifyAdminsSafely, getNewOrderAlertSound } from '../../../../core/notifications/firebase.service.js';
+import {
+  endVoipCallsSafely,
+  getNewOrderAlertSound,
+  notifyAdminsSafely,
+} from '../../../../core/notifications/firebase.service.js';
 import {
   getActiveZoneById,
   isPartnerInsideZone,
@@ -600,6 +604,13 @@ export async function tryAutoAssign(orderId, options = {}) {
               body: `You have ${offerSeconds} seconds to accept Order #${order.order_id || order._id}.`,
               sound: getNewOrderAlertSound(),
               urgent: true,
+              // iPhones registered for VoIP ring as a call for as long as the offer lives.
+              voipCall: {
+                orderKey: order._id.toString(),
+                ring: true,
+                ringSeconds: offerSeconds,
+                callType: 'delivery_offer',
+              },
               // An offer that arrives after it expired can't be accepted; don't ring for it.
               ttlSeconds: Math.max(offerSeconds, 30),
               // Tapping opens the rider feed, where the offer card (with accept) is shown.
@@ -649,8 +660,29 @@ export async function tryAutoAssign(orderId, options = {}) {
 }
 
 
+/** Ends the offer call on every rider this order was offered to (accepted / cancelled). */
+export function endOfferCallsForOrder(order, reason = 'resolved') {
+  const partnerIds = [
+    ...new Set(
+      (order?.dispatch?.offeredTo || [])
+        .map((entry) => String(entry?.partnerId || ''))
+        .filter(Boolean),
+    ),
+  ];
+  if (!order?._id || !partnerIds.length) return Promise.resolve();
+  return endVoipCallsSafely(
+    partnerIds.map((partnerId) => ({ ownerType: 'DELIVERY_PARTNER', ownerId: partnerId })),
+    { orderKey: order._id.toString(), reason, data: { orderMongoId: order._id.toString() } },
+  );
+}
+
 export function notifyOffersExpired(order, partnerIds) {
   if (!partnerIds.length) return;
+  // Hang up the offer call on those riders' iPhones (fire-and-forget like the socket below).
+  void endVoipCallsSafely(
+    partnerIds.map((partnerId) => ({ ownerType: 'DELIVERY_PARTNER', ownerId: String(partnerId) })),
+    { orderKey: order._id.toString(), reason: 'expired', data: { orderMongoId: order._id.toString() } },
+  );
   try {
     const io = getIO();
     if (!io) return;

@@ -1480,6 +1480,20 @@ export const restaurantAPI = {
       },
     );
   },
+  /** iOS app: PushKit token so new orders ring as a call (CallKit). */
+  saveVoipDevice: ({ voipToken, fcmToken, deviceId } = {}) =>
+    apiClient.post(
+      "/fcm-tokens/voip/save",
+      { voipToken, fcmToken, deviceId },
+      { contextModule: "restaurant" },
+    ),
+  removeVoipDevice: ({ voipToken, fcmToken, deviceId } = {}) =>
+    apiClient.delete("/fcm-tokens/voip/remove", {
+      data: { voipToken, fcmToken, deviceId },
+      contextModule: "restaurant",
+    }),
+  testVoipCall: () =>
+    apiClient.post("/fcm-tokens/voip/test", {}, { contextModule: "restaurant" }),
   /** Outlet timings (restaurant dashboard) */
   getOutletTimings: () =>
     apiClient.get("/food/restaurant/outlet-timings", {
@@ -2415,6 +2429,20 @@ export const deliveryAPI = {
       },
     );
   },
+  /** iOS app: PushKit token so new delivery offers ring as a call (CallKit). */
+  saveVoipDevice: ({ voipToken, fcmToken, deviceId } = {}) =>
+    apiClient.post(
+      "/fcm-tokens/voip/save",
+      { voipToken, fcmToken, deviceId },
+      { contextModule: "delivery" },
+    ),
+  removeVoipDevice: ({ voipToken, fcmToken, deviceId } = {}) =>
+    apiClient.delete("/fcm-tokens/voip/remove", {
+      data: { voipToken, fcmToken, deviceId },
+      contextModule: "delivery",
+    }),
+  testVoipCall: () =>
+    apiClient.post("/fcm-tokens/voip/test", {}, { contextModule: "delivery" }),
   /** GET /food/delivery/support-tickets - list tickets for logged-in delivery partner. */
   getSupportTickets: () =>
     apiClient.get("/food/delivery/support-tickets", {

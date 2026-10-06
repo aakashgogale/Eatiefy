@@ -259,6 +259,9 @@ const restaurantAlarmSchema = new mongoose.Schema(
         startedAt: { type: Date, default: null },
         lastRingAt: { type: Date, default: null },
         ringCount: { type: Number, default: 0, min: 0 },
+        // Last ring that started a VoIP call on the restaurant's iPhones; the call
+        // rings on its own until then, so only a ring after it ends starts another.
+        lastVoipCallAt: { type: Date, default: null },
         stoppedAt: { type: Date, default: null }
     },
     { _id: false }

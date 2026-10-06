@@ -3,8 +3,11 @@ import { authMiddleware } from '../auth/auth.middleware.js';
 import { sendError } from '../../utils/response.js';
 import {
     removeFirebaseDeviceToken,
+    removeVoipDevice,
     sendTestNotification,
-    upsertFirebaseDeviceToken
+    sendTestVoipCall,
+    upsertFirebaseDeviceToken,
+    upsertVoipDevice
 } from './firebase.service.js';
 import { findDeliveryPartnerByPhone } from '../../modules/food/delivery/services/delivery.service.js';
 import { findRestaurantByPhone } from '../../modules/food/restaurant/services/restaurant.service.js';
@@ -214,6 +217,86 @@ router.post('/test', authMiddleware, async (req, res, next) => {
             success: true,
             message: 'Test notification sent',
             data: result
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/*
+ * iOS VoIP (CallKit) registration for the restaurant and delivery apps.
+ * The native app hands its PushKit token to the web layer, which posts it here
+ * together with the FCM token of the same install.
+ */
+const VOIP_OWNER_TYPES = new Set(['RESTAURANT', 'DELIVERY_PARTNER']);
+const isVoipToken = (value) => /^[0-9a-f]{64,200}$/i.test(value);
+
+router.post('/voip/save', authMiddleware, async (req, res, next) => {
+    try {
+        const { ownerType, ownerId } = getOwnerContext(req);
+        if (!ownerType || !ownerId) {
+            return sendError(res, 401, 'Authentication required');
+        }
+        if (!VOIP_OWNER_TYPES.has(String(ownerType).toUpperCase())) {
+            return sendError(res, 403, 'VoIP calls are only available for restaurant and delivery accounts');
+        }
+        const voipToken = String(req.body?.voipToken || '').trim();
+        if (!isVoipToken(voipToken)) {
+            return sendError(res, 400, 'A valid voipToken is required');
+        }
+
+        const result = await upsertVoipDevice({
+            ownerType,
+            ownerId,
+            voipToken,
+            fcmToken: String(req.body?.fcmToken || '').trim(),
+            deviceId: String(req.body?.deviceId || '').trim()
+        });
+        return res.status(200).json({
+            success: true,
+            message: 'VoIP device saved',
+            data: { ownerType, ownerId, voipConfigured: result.voipConfigured }
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.delete('/voip/remove', authMiddleware, async (req, res, next) => {
+    try {
+        const { ownerType, ownerId } = getOwnerContext(req);
+        if (!ownerType || !ownerId) {
+            return sendError(res, 401, 'Authentication required');
+        }
+        const voipToken = String(req.body?.voipToken || req.query?.voipToken || '').trim();
+        const fcmToken = String(req.body?.fcmToken || req.query?.fcmToken || '').trim();
+        const deviceId = String(req.body?.deviceId || req.query?.deviceId || '').trim();
+        if (!voipToken && !fcmToken && !deviceId) {
+            return sendError(res, 400, 'voipToken, fcmToken or deviceId is required');
+        }
+
+        await removeVoipDevice({ ownerType, ownerId, voipToken, fcmToken, deviceId });
+        return res.status(200).json({ success: true, message: 'VoIP device removed' });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.post('/voip/test', authMiddleware, async (req, res, next) => {
+    try {
+        const { ownerType, ownerId } = getOwnerContext(req);
+        if (!ownerType || !ownerId) {
+            return sendError(res, 401, 'Authentication required');
+        }
+        if (!VOIP_OWNER_TYPES.has(String(ownerType).toUpperCase())) {
+            return sendError(res, 403, 'VoIP calls are only available for restaurant and delivery accounts');
+        }
+
+        const result = await sendTestVoipCall({ ownerType: String(ownerType).toUpperCase(), ownerId });
+        return res.status(200).json({
+            success: true,
+            message: result?.skipped ? result.reason : 'Test VoIP call sent',
+            data: { voip: result }
         });
     } catch (error) {
         next(error);

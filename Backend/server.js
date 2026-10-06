@@ -11,6 +11,7 @@ import { sweepExpiredDeliveryOffers } from './src/modules/food/orders/services/o
 import { syncExpiredFssaiNotifications } from './src/modules/food/restaurant/services/fssaiExpiry.service.js';
 
 import { logger } from './src/utils/logger.js';
+import { logVoipConfigurationStatus } from './src/core/notifications/voip.service.js';
 import { initializeFirebaseRealtime } from './src/config/firebase.js';
 
 const SHUTDOWN_TIMEOUT_MS = 10000;
@@ -107,6 +108,9 @@ const startServer = async () => {
         server = httpServer.listen(config.port, config.host, () => {
             logger.info(`Server running in ${config.nodeEnv} mode on ${config.host}:${config.port}`);
             console.log(`🌐 [URL] http://localhost:${config.port}`);
+
+            // Whether iOS order calls (VoIP) are on, so a missing APNs key shows up before the first order.
+            logVoipConfigurationStatus();
 
             // Email health at boot (SMTP sign-in, no mail sent) so a broken
             // production mail setup is visible in the logs right away.

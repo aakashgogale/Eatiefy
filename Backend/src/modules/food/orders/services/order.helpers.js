@@ -9,6 +9,7 @@ import {
   getNewOrderAlertSound,
 } from "../../../../core/notifications/firebase.service.js";
 import { getIO, rooms } from '../../../../config/socket.js';
+import { config } from '../../../../config/env.js';
 import { addOrderJob } from '../../../../queues/producers/order.producer.js';
 
 export function enqueueOrderEvent(action, payload = {}) {
@@ -617,11 +618,40 @@ const getRestaurantOrderIdentity = (orderDoc) => {
  * so it is actually delivered, but keeps the tag, so the phone replaces the
  * notification instead of stacking one per ring.
  */
-export function buildRestaurantNewOrderPush(orderDoc, { ringSeq = 1, now = Date.now() } = {}) {
+/** How long one VoIP call rings on the restaurant's iPhone before the alarm re-rings it. */
+export const getRestaurantVoipRingMs = () => config.voipRestaurantRingSeconds * 1000;
+
+/**
+ * True when this ring should start a new VoIP call: none placed yet, or the
+ * last one has finished ringing. In between, the call is still on screen.
+ */
+export function isRestaurantVoipCallDue(orderLike, now = Date.now()) {
+  const last = orderLike?.restaurantAlarm?.lastVoipCallAt;
+  const lastMs = last ? new Date(last).getTime() : NaN;
+  return !Number.isFinite(lastMs) || now - lastMs >= getRestaurantVoipRingMs();
+}
+
+/**
+ * `voipRing`: whether this push starts a VoIP call on the restaurant's iPhones
+ * (true) or a call placed earlier is still ringing (false). Orders not due to
+ * ring yet (scheduled) never call.
+ */
+export function buildRestaurantNewOrderPush(orderDoc, { ringSeq = 1, now = Date.now(), voipRing = true } = {}) {
   const { orderMongoId, displayOrderId, restaurantId, eventKey, notificationTag } =
     getRestaurantOrderIdentity(orderDoc);
   const pushKey = ringSeq > 1 ? `${eventKey}:ring:${ringSeq}` : eventKey;
+  const isDueToRing = isRestaurantOrderDueToRing(orderDoc, now);
   return {
+    ...(isDueToRing
+      ? {
+          voipCall: {
+            orderKey: orderMongoId || displayOrderId,
+            ring: voipRing,
+            ringSeconds: config.voipRestaurantRingSeconds,
+            callType: "restaurant_new_order",
+          },
+        }
+      : {}),
     title: "🔔 New order received",
     body: `Order #${displayOrderId} is waiting for review.`,
     sound: getNewOrderAlertSound(),
@@ -649,7 +679,7 @@ export function buildRestaurantNewOrderPush(orderDoc, { ringSeq = 1, now = Date.
       restaurantId,
       orderStatus: String(orderDoc.orderStatus || ""),
       // "1": ring until answered. "0": a scheduled order not due yet — notify only.
-      alarm: isRestaurantOrderDueToRing(orderDoc, now) ? "1" : "0",
+      alarm: isDueToRing ? "1" : "0",
       ringSeq: String(ringSeq),
       sentAt: String(now),
       link: "/food/restaurant",
@@ -705,6 +735,8 @@ export async function notifyRestaurantNewOrder(orderDoc) {
                 startedAt: notifiedAt,
                 lastRingAt: notifiedAt,
                 ringCount: 1,
+                // The push below starts the VoIP call when the order is due to ring.
+                lastVoipCallAt: isRestaurantOrderDueToRing(orderDoc, notifiedAt.getTime()) ? notifiedAt : null,
                 stoppedAt: null,
               },
             },

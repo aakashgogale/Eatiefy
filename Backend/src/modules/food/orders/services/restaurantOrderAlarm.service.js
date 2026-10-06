@@ -5,8 +5,10 @@ import {
     buildRestaurantOrderAlarmStopPush,
     canExposeOrderToRestaurant,
     isRestaurantOrderDueToRing,
+    isRestaurantVoipCallDue,
     notifyOwnersSafely,
 } from './order.helpers.js';
+import { endVoipCallsSafely } from '../../../../core/notifications/firebase.service.js';
 import {
     ACCEPT_WINDOW_GRACE_MS,
     buildAcceptWindowResolver,
@@ -71,10 +73,18 @@ async function stopAlarm(order, now) {
     );
     if (!claimed?.modifiedCount) return false;
     await notifyOwnersSafely(restaurantTarget(order), buildRestaurantOrderAlarmStopPush(order));
+    // Hang up the order call still ringing on the restaurant's iPhones.
+    await endVoipCallsSafely(restaurantTarget(order), {
+        orderKey: String(order._id),
+        reason: order.orderStatus === 'created' ? 'expired' : 'resolved',
+        data: { orderMongoId: String(order._id), orderStatus: String(order.orderStatus || '') },
+    });
     return true;
 }
 
 async function ringAgain(order, now, intervalMs) {
+    // A VoIP call rings on its own; start the next one only once it has ended.
+    const voipRing = isRestaurantVoipCallDue(order, now);
     const claimed = await FoodOrder.updateOne(
         {
             _id: order._id,
@@ -82,13 +92,19 @@ async function ringAgain(order, now, intervalMs) {
             'restaurantAlarm.active': true,
             'restaurantAlarm.lastRingAt': order.restaurantAlarm?.lastRingAt ?? null,
         },
-        { $set: { 'restaurantAlarm.lastRingAt': new Date(now) }, $inc: { 'restaurantAlarm.ringCount': 1 } },
+        {
+            $set: {
+                'restaurantAlarm.lastRingAt': new Date(now),
+                ...(voipRing ? { 'restaurantAlarm.lastVoipCallAt': new Date(now) } : {}),
+            },
+            $inc: { 'restaurantAlarm.ringCount': 1 },
+        },
     );
     if (!claimed?.modifiedCount) return false;
 
     const ringSeq = (Number(order.restaurantAlarm?.ringCount) || 1) + 1;
     await notifyOwnersSafely(restaurantTarget(order), {
-        ...buildRestaurantNewOrderPush(order, { ringSeq, now }),
+        ...buildRestaurantNewOrderPush(order, { ringSeq, now, voipRing }),
         // A phone that was offline must not get a burst of stale rings later.
         ttlSeconds: Math.ceil((intervalMs * 2) / 1000),
     });

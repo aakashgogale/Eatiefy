@@ -725,14 +725,21 @@ export const logout = async (refreshToken, fcmToken, platform) => {
     const models = [FoodUser, FoodRestaurant, FoodDeliveryPartner, FoodAdmin];
     
     try {
-      await Promise.all(
-        models.map((model) =>
+      await Promise.all([
+        ...models.map((model) =>
           model.updateMany(
             { [field]: fcmToken },
             { $pull: { [field]: fcmToken } },
           ),
         ),
-      );
+        // The same iPhone's VoIP registration goes too, or it would keep ringing with order calls.
+        ...[FoodRestaurant, FoodDeliveryPartner].map((model) =>
+          model.updateMany(
+            { "voipDevices.fcmToken": fcmToken },
+            { $pull: { voipDevices: { fcmToken } } },
+          ),
+        ),
+      ]);
       console.log("[FCM-Logout] Token removed from all collections successfully");
     } catch (err) {
       logger.warn({ err }, "Failed to remove FCM token from all collections during logout");

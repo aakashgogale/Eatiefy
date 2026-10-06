@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { RESTAURANT_TYPE_VALUES } from "../../shared/restaurantTypes.js";
+import { voipDeviceSchema } from "../../../../core/notifications/models/voipDevice.schema.js";
 
 const normalizeRatingValue = (value) => {
   const numeric = Number(value);
@@ -235,6 +236,11 @@ const restaurantSchema = new mongoose.Schema(
      */
     fcmTokenMobileAlarm: {
       type: [String],
+      default: [],
+    },
+    /** iPhones that ring new orders as a VoIP (CallKit) call. */
+    voipDevices: {
+      type: [voipDeviceSchema],
       default: [],
     },
     /** GeoJSON point used for distance queries. */

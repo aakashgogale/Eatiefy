@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { voipDeviceSchema } from '../../../../core/notifications/models/voipDevice.schema.js';
 
 const normalizeRatingValue = (value) => {
     const numeric = Number(value);
@@ -68,6 +69,11 @@ const deliveryPartnerSchema = new mongoose.Schema(
         },
         fcmTokenMobile: {
             type: [String],
+            default: []
+        },
+        /** iPhones that ring new delivery offers as a VoIP (CallKit) call. */
+        voipDevices: {
+            type: [voipDeviceSchema],
             default: []
         },
         aadharPhoto: {

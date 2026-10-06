@@ -10,6 +10,7 @@ import { FoodDeliveryPartner } from '../../modules/food/delivery/models/delivery
 import { FoodAdmin } from '../admin/admin.model.js';
 import { config } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
+import { buildVoipCallId, isVoipConfigured, sendVoipCall } from './voip.service.js';
 
 const FIREBASE_MESSAGING_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
 const OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -34,6 +35,9 @@ const OWNER_TOKEN_FIELDS = {
  */
 const ORDER_ALARM_TOKEN_FIELD = 'fcmTokenMobileAlarm';
 export const ORDER_ALARM_CAPABILITY = 'order_alarm';
+/** iPhones that ring order alerts as a VoIP call (see voipDevice.schema.js). */
+const VOIP_DEVICES_FIELD = 'voipDevices';
+const MAX_VOIP_DEVICES = 10;
 
 let cachedAccessToken = null;
 let cachedAccessTokenExpiryMs = 0;
@@ -255,7 +259,9 @@ const normalizeDataMap = (data = {}) => {
 
 const stripOwnerTitlePrefix = (title = '') =>
     sanitizeString(title)
-        .replace(/^[👤🏪🛵🛡️]\s*/, '')
+        // `u`: these emoji are surrogate pairs; without it the class matches half of
+        // any emoji sharing a lead surrogate (e.g. 🔔) and leaves a broken character.
+        .replace(/^(?:👤|🏪|🛵|🛡️?)\s*/u, '')
         .replace(/^\[(User|Shop|Rider|Admin)\]\s*/i, '')
         .trim();
 
@@ -488,6 +494,245 @@ const getOrderAlarmAndroidMode = () => {
     return mode === 'data' || mode === 'notification' ? mode : 'auto';
 };
 
+const supportsVoipDevices = (model) => Boolean(model?.schema?.path(VOIP_DEVICES_FIELD));
+
+const readVoipDevices = (doc) =>
+    (Array.isArray(doc?.[VOIP_DEVICES_FIELD]) ? doc[VOIP_DEVICES_FIELD] : []).filter((device) => sanitizeString(device?.voipToken));
+
+/**
+ * Registers (or refreshes) one iPhone's VoIP token for an owner. The device is
+ * matched by its VoIP token, its install id or its FCM token, so a rotated
+ * token replaces the old entry instead of adding a second phone.
+ */
+export const upsertVoipDevice = async ({ ownerType, ownerId, voipToken, fcmToken, deviceId } = {}) => {
+    const normalizedVoipToken = sanitizeString(voipToken);
+    const normalizedFcmToken = sanitizeString(fcmToken);
+    const normalizedDeviceId = sanitizeString(deviceId).slice(0, 200);
+    if (!ownerType || !ownerId || !normalizedVoipToken) {
+        throw new Error('ownerType, ownerId and voipToken are required.');
+    }
+    const model = getOwnerModel(ownerType);
+    if (!supportsVoipDevices(model)) {
+        throw new Error(`VoIP calls are not available for ${ownerType}.`);
+    }
+    if (!mongoose.Types.ObjectId.isValid(ownerId)) {
+        throw new Error(`Invalid owner ID: ${ownerId}`);
+    }
+
+    const doc = await model.findById(ownerId);
+    if (!doc) throw new Error('Owner profile not found.');
+
+    const isSameDevice = (device) =>
+        sanitizeString(device?.voipToken) === normalizedVoipToken ||
+        (normalizedDeviceId && sanitizeString(device?.deviceId) === normalizedDeviceId) ||
+        (normalizedFcmToken && sanitizeString(device?.fcmToken) === normalizedFcmToken);
+
+    const others = readVoipDevices(doc).filter((device) => !isSameDevice(device));
+    doc[VOIP_DEVICES_FIELD] = [
+        ...others,
+        {
+            voipToken: normalizedVoipToken,
+            fcmToken: normalizedFcmToken,
+            deviceId: normalizedDeviceId,
+            lastSeenAt: new Date()
+        }
+    ].slice(-MAX_VOIP_DEVICES);
+    await doc.save();
+
+    // A VoIP token identifies one install, so it can ring for one account only
+    // (same reasoning as the FCM detach in upsertFirebaseDeviceToken).
+    try {
+        await Promise.all(
+            Object.entries(OWNER_MODELS)
+                .filter(([, otherModel]) => supportsVoipDevices(otherModel))
+                .map(([type, otherModel]) => {
+                    const isSameOwner = String(type).toUpperCase() === String(ownerType).toUpperCase();
+                    return otherModel.updateMany(
+                        { ...(isSameOwner ? { _id: { $ne: doc._id } } : {}), [`${VOIP_DEVICES_FIELD}.voipToken`]: normalizedVoipToken },
+                        { $pull: { [VOIP_DEVICES_FIELD]: { voipToken: normalizedVoipToken } } }
+                    );
+                })
+        );
+    } catch (err) {
+        logger.warn(`Failed to detach VoIP token from previous owners: ${err.message}`);
+    }
+
+    return { success: true, voipConfigured: isVoipConfigured(ownerType) };
+};
+
+/** Removes an iPhone's VoIP registration by VoIP token, FCM token or install id. */
+export const removeVoipDevice = async ({ ownerType, ownerId, voipToken, fcmToken, deviceId } = {}) => {
+    const model = getOwnerModel(ownerType);
+    if (!supportsVoipDevices(model) || !ownerId || !mongoose.Types.ObjectId.isValid(ownerId)) return { success: false };
+    const matchers = [
+        sanitizeString(voipToken) && { voipToken: sanitizeString(voipToken) },
+        sanitizeString(fcmToken) && { fcmToken: sanitizeString(fcmToken) },
+        sanitizeString(deviceId) && { deviceId: sanitizeString(deviceId) }
+    ].filter(Boolean);
+    if (!matchers.length) return { success: false };
+    await model.updateOne({ _id: ownerId }, { $pull: { [VOIP_DEVICES_FIELD]: { $or: matchers } } });
+    return { success: true };
+};
+
+/**
+ * Places the VoIP call a payload asks for and returns the FCM tokens of the
+ * iPhones the call now covers, so the caller holds back their regular push.
+ *
+ * `payload.voipCall` = { orderKey, ring, ringSeconds }:
+ *  - ring true  → ring every registered iPhone of this owner.
+ *  - ring false → a call placed earlier is still ringing; only hold back the
+ *                 regular push on those phones.
+ * An iPhone whose call could not be placed keeps its regular push, and with
+ * VoIP not configured nothing changes at all.
+ */
+const placeVoipCall = async ({ ownerType, ownerId, model, doc, payload }) => {
+    const covered = new Set();
+    const voipCall = payload?.voipCall;
+    if (!voipCall || !supportsVoipDevices(model)) return covered;
+
+    const devices = readVoipDevices(doc);
+    if (!devices.length || !isVoipConfigured(ownerType)) return covered;
+
+    const holdBack = (device) => {
+        const token = sanitizeString(device?.fcmToken);
+        if (token) covered.add(token);
+    };
+
+    if (!voipCall.ring) {
+        devices.forEach(holdBack);
+        return covered;
+    }
+
+    const orderKey = sanitizeString(voipCall.orderKey || payload?.data?.orderMongoId || payload?.data?.orderId);
+    const callId = buildVoipCallId(ownerType, ownerId, orderKey);
+    const eventKey = `voip:${deriveEventKey(payload) || callId}`;
+
+    const toRing = [];
+    for (const device of devices) {
+        // Already rung for this event (retry, second instance): the call is live.
+        if (await claimPushDispatch(device.voipToken, eventKey)) toRing.push(device);
+        else holdBack(device);
+    }
+    if (!toRing.length) return covered;
+
+    const title = stripOwnerTitlePrefix(payload.title) || 'New order';
+    const link = resolveClickLink(payload, payload.data || {});
+    let response;
+    try {
+        response = await sendVoipCall(
+            toRing.map((device) => device.voipToken),
+            {
+                callId,
+                title,
+                body: sanitizeString(payload.body),
+                link,
+                ringSeconds: voipCall.ringSeconds,
+                data: { ...(payload.data || {}), orderKey, callType: voipCall.callType || 'order' }
+            },
+            { ownerType }
+        );
+    } catch (error) {
+        logger.warn(`[VoIP] Call to ${ownerType}:${ownerId} failed: ${error?.message || error}`);
+        await Promise.all(toRing.map((device) => releasePushDispatch(device.voipToken, eventKey)));
+        return covered;
+    }
+
+    const byToken = new Map(toRing.map((device) => [sanitizeString(device.voipToken), device]));
+    const deadTokens = [];
+    for (const result of response.results || []) {
+        const device = byToken.get(result.token);
+        if (!device) continue;
+        if (result.ok) {
+            holdBack(device);
+        } else {
+            if (result.remove) deadTokens.push(result.token);
+            else await releasePushDispatch(result.token, eventKey);
+        }
+    }
+    if (deadTokens.length) {
+        await model
+            .updateOne({ _id: ownerId }, { $pull: { [VOIP_DEVICES_FIELD]: { voipToken: { $in: deadTokens } } } })
+            .catch((err) => logger.warn(`[VoIP] Could not drop dead tokens for ${ownerType}:${ownerId}: ${err.message}`));
+    }
+    return covered;
+};
+
+/**
+ * Ends the order call on these owners' iPhones (accepted, rejected, taken by
+ * another rider, expired, cancelled). A VoIP push cannot be used for this —
+ * iOS terminates an app that receives one without showing a call — so it goes
+ * as a data-only push to the FCM token linked to each VoIP device.
+ */
+export const endVoipCallsSafely = async (targets = [], { orderKey, reason = 'resolved', data = {} } = {}) => {
+    try {
+        const normalizedOrderKey = sanitizeString(orderKey);
+        if (!normalizedOrderKey) return;
+        await Promise.all(
+            (Array.isArray(targets) ? targets : []).map(async ({ ownerType, ownerId } = {}) => {
+                const model = getOwnerModel(ownerType);
+                if (!supportsVoipDevices(model) || !ownerId || !isVoipConfigured(ownerType)) return;
+                const doc = await model.findById(ownerId).select(VOIP_DEVICES_FIELD).lean();
+                const tokens = readVoipDevices(doc).map((device) => sanitizeString(device.fcmToken)).filter(Boolean);
+                if (!tokens.length) return;
+                const callId = buildVoipCallId(ownerType, String(ownerId), normalizedOrderKey);
+                // Callers already send this once per resolution (claimed state changes),
+                // and a re-offered order rings again under the same call id, so no dedup here.
+                const endKey = `voip_end:${callId}:${reason}:${Date.now()}`;
+                await sendPushNotification(
+                    tokens,
+                    {
+                        title: 'Call ended',
+                        body: '',
+                        dataOnly: true,
+                        ttlSeconds: 120,
+                        idempotencyKey: endKey,
+                        data: {
+                            ...data,
+                            type: 'voip_call_end',
+                            callId,
+                            orderKey: normalizedOrderKey,
+                            reason,
+                            eventId: endKey
+                        }
+                    },
+                    { platform: 'mobile' }
+                );
+            })
+        );
+    } catch (error) {
+        logger.warn(`[VoIP] End-call push failed: ${error?.message || error}`);
+    }
+};
+
+/** Rings this owner's registered iPhones with a test call (settings screen). */
+export const sendTestVoipCall = async ({ ownerType, ownerId }) => {
+    const model = getOwnerModel(ownerType);
+    if (!supportsVoipDevices(model)) {
+        return { skipped: true, reason: `VoIP calls are not available for ${ownerType}.` };
+    }
+    if (!isVoipConfigured(ownerType)) {
+        return { skipped: true, reason: 'VoIP is not configured on the server (APNs key, team, key id or topic missing).' };
+    }
+    const doc = await model.findById(ownerId).select(VOIP_DEVICES_FIELD).lean();
+    const tokens = readVoipDevices(doc).map((device) => device.voipToken);
+    if (!tokens.length) {
+        return { skipped: true, reason: 'No iPhone has registered for VoIP calls on this account.' };
+    }
+    const testKey = `test-${Date.now()}`;
+    return sendVoipCall(
+        tokens,
+        {
+            callId: buildVoipCallId(ownerType, String(ownerId), testKey),
+            title: 'Test order call',
+            body: 'This is a test call from Eatiefy',
+            link: ownerType === 'DELIVERY_PARTNER' ? '/food/delivery' : '/food/restaurant',
+            ringSeconds: 30,
+            data: { type: 'voip_test', orderKey: testKey, callType: 'test' }
+        },
+        { ownerType }
+    );
+};
+
 export const listOwnerTokens = async ({ ownerType, ownerId, platform }) => {
     if (!ownerType || !ownerId) return [];
     const model = getOwnerModel(ownerType);
@@ -634,6 +879,12 @@ export const removeFirebaseDeviceToken = async ({ ownerType, ownerId, token, pla
         doc[ORDER_ALARM_TOKEN_FIELD] = (Array.isArray(doc[ORDER_ALARM_TOKEN_FIELD]) ? doc[ORDER_ALARM_TOKEN_FIELD] : [])
             .filter((t) => t !== normalizedToken);
     }
+    // Logout removes the FCM token; the same phone must stop ringing for calls too.
+    if (supportsVoipDevices(model) && platform !== 'web') {
+        doc[VOIP_DEVICES_FIELD] = readVoipDevices(doc).filter(
+            (device) => sanitizeString(device.fcmToken) !== normalizedToken && sanitizeString(device.voipToken) !== normalizedToken
+        );
+    }
 
     await doc.save();
     return { success: true };
@@ -746,7 +997,13 @@ export const sendNotificationToOwner = async ({ ownerType, ownerId, payload, pla
     try {
         const model = getOwnerModel(ownerType);
         const alarmField = supportsOrderAlarmTokens(model) ? ` ${ORDER_ALARM_TOKEN_FIELD}` : '';
-        const doc = model ? await model.findById(ownerId).select(`fcmTokens fcmTokenMobile${alarmField}`).lean() : null;
+        const voipField = enrichedPayload.voipCall && supportsVoipDevices(model) ? ` ${VOIP_DEVICES_FIELD}` : '';
+        const doc = model
+            ? await model.findById(ownerId).select(`fcmTokens fcmTokenMobile${alarmField}${voipField}`).lean()
+            : null;
+
+        // iPhones that are ringing with a VoIP call skip the regular push for this alert.
+        const voipCoveredTokens = await placeVoipCall({ ownerType, ownerId, model, doc, payload: enrichedPayload });
 
         // Group tokens by their real platform. `platform` must be concrete when the
         // message is built: web pushes are data-only (the service worker renders
@@ -764,7 +1021,7 @@ export const sendNotificationToOwner = async ({ ownerType, ownerId, payload, pla
                 platform: groupPlatform,
                 payload: enrichedPayload,
                 tokens: tokens.filter((token) => {
-                    if (seenTokens.has(token)) return false;
+                    if (seenTokens.has(token) || voipCoveredTokens.has(token)) return false;
                     seenTokens.add(token);
                     return true;
                 })
@@ -772,6 +1029,11 @@ export const sendNotificationToOwner = async ({ ownerType, ownerId, payload, pla
             doc,
             enrichedPayload
         ).filter((group) => group.tokens.length > 0);
+
+        if (!platformGroups.length && voipCoveredTokens.size > 0) {
+            logger.info(`[FCM] ${ownerType}:${ownerId} alerted by VoIP call only (${voipCoveredTokens.size} iPhone(s))`);
+            return { successCount: voipCoveredTokens.size, failureCount: 0, results: [] };
+        }
 
         if (!platformGroups.length) {
             logger.warn(`[FCM] No device tokens for ${ownerType}:${ownerId} — push skipped`);
