@@ -1,7 +1,10 @@
 import express from 'express';
 import { authMiddleware } from '../auth/auth.middleware.js';
+import { verifyAccessToken } from '../auth/token.util.js';
 import { sendError } from '../../utils/response.js';
+import { logger } from '../../utils/logger.js';
 import {
+    getVoipDiagnostics,
     removeFirebaseDeviceToken,
     removeVoipDevice,
     sendTestNotification,
@@ -9,6 +12,7 @@ import {
     upsertFirebaseDeviceToken,
     upsertVoipDevice
 } from './firebase.service.js';
+import { isVoipConfigured } from './voip.service.js';
 import { findDeliveryPartnerByPhone } from '../../modules/food/delivery/services/delivery.service.js';
 import { findRestaurantByPhone } from '../../modules/food/restaurant/services/restaurant.service.js';
 
@@ -20,6 +24,21 @@ const getOwnerContext = (req) => ({
     ownerType: req.user?.role,
     ownerId: req.user?.userId
 });
+
+/** Same as getOwnerContext, but tolerates a missing/invalid token instead of requiring authMiddleware. */
+const getOwnerContextOptional = (req) => {
+    try {
+        const authHeader = req.headers.authorization || '';
+        const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+        if (token) {
+            const decoded = verifyAccessToken(token);
+            return { ownerType: decoded.role, ownerId: decoded.userId };
+        }
+    } catch {
+        // Falls through to the unauthenticated response below.
+    }
+    return { ownerType: null, ownerId: null };
+};
 
 /**
  * What the registering app build can do, e.g. ["order_alarm"] from a mobile app
@@ -38,7 +57,7 @@ router.get('/check', (req, res) => {
         success: true, 
         message: 'FCM tokens service is operational',
         timestamp: new Date().toISOString(),
-        endpoints: ['/save', '/mobile/save', '/remove', '/test', '/pending-save']
+        endpoints: ['/save', '/mobile/save', '/remove', '/test', '/pending-save', '/voip/status', '/voip/test']
     });
 });
 
@@ -150,10 +169,23 @@ router.post('/save', authMiddleware, async (req, res, next) => {
     }
 });
 
+// iOS VoIP (CallKit) order calls: owner types that can register, and the shape
+// of a PushKit token. Used both by /mobile/save below and by the standalone
+// /voip/save route further down.
+const VOIP_OWNER_TYPES = new Set(['RESTAURANT', 'DELIVERY_PARTNER']);
+const isVoipToken = (value) => /^[0-9a-f]{64,200}$/i.test(value);
+
+/*
+ * Mobile FCM token, and — on iOS — the PushKit VoIP token of the same install
+ * in the same call, so the app does not need a second round trip for order
+ * calls. `voipToken` is optional; omitting it (Android, or an iOS build that
+ * has not added VoIP) behaves exactly as before.
+ */
 router.post('/mobile/save', authMiddleware, async (req, res, next) => {
     try {
         const { ownerType, ownerId } = getOwnerContext(req);
         const token = String(req.body?.token || '').trim();
+        const voipTokenRaw = String(req.body?.voipToken || '').trim();
 
         if (!ownerType || !ownerId) {
             return sendError(res, 401, 'Authentication required');
@@ -170,10 +202,30 @@ router.post('/mobile/save', authMiddleware, async (req, res, next) => {
             platform: 'mobile',
             capabilities: readCapabilities(req)
         });
+
+        // VoIP calls only exist for the restaurant and delivery apps; a malformed
+        // or out-of-scope voipToken is silently skipped rather than failing the
+        // whole save, since the FCM token above is the half that matters most.
+        let voipSaved = false;
+        if (voipTokenRaw && VOIP_OWNER_TYPES.has(String(ownerType).toUpperCase()) && isVoipToken(voipTokenRaw)) {
+            try {
+                await upsertVoipDevice({
+                    ownerType,
+                    ownerId,
+                    voipToken: voipTokenRaw,
+                    fcmToken: token,
+                    deviceId: String(req.body?.deviceId || '').trim()
+                });
+                voipSaved = true;
+            } catch (voipError) {
+                logger.warn(`[fcm-tokens] voipToken save skipped for ${ownerType}:${ownerId}: ${voipError.message}`);
+            }
+        }
+
         return res.status(200).json({
             success: true,
-            message: 'Mobile FCM token saved successfully',
-            data: { ownerType, ownerId, platform: 'mobile' }
+            message: 'Mobile push tokens saved successfully',
+            data: { ownerType, ownerId, platform: 'mobile', fcmSaved: true, voipSaved }
         });
     } catch (error) {
         next(error);
@@ -223,14 +275,7 @@ router.post('/test', authMiddleware, async (req, res, next) => {
     }
 });
 
-/*
- * iOS VoIP (CallKit) registration for the restaurant and delivery apps.
- * The native app hands its PushKit token to the web layer, which posts it here
- * together with the FCM token of the same install.
- */
-const VOIP_OWNER_TYPES = new Set(['RESTAURANT', 'DELIVERY_PARTNER']);
-const isVoipToken = (value) => /^[0-9a-f]{64,200}$/i.test(value);
-
+/** @deprecated Register voipToken via POST /mobile/save instead (one call, one round trip). */
 router.post('/voip/save', authMiddleware, async (req, res, next) => {
     try {
         const { ownerType, ownerId } = getOwnerContext(req);
@@ -277,6 +322,34 @@ router.delete('/voip/remove', authMiddleware, async (req, res, next) => {
 
         await removeVoipDevice({ ownerType, ownerId, voipToken, fcmToken, deviceId });
         return res.status(200).json({ success: true, message: 'VoIP device removed' });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/*
+ * Server-side check: "is VoIP actually working for my account right now".
+ * Shows whether this owner type is supported, whether the server has valid
+ * APNs settings (team id, key id, .p8 file, topic), how many iPhones are
+ * registered, and the environment (sandbox/production) a call would use.
+ * Unauthenticated callers get the server-wide picture only, no account data.
+ */
+router.get('/voip/status', async (req, res, next) => {
+    try {
+        const { ownerType, ownerId } = getOwnerContextOptional(req);
+        if (!ownerType || !ownerId) {
+            return res.status(200).json({
+                success: true,
+                data: {
+                    authenticated: false,
+                    restaurant: { serverConfigured: isVoipConfigured('RESTAURANT') },
+                    deliveryPartner: { serverConfigured: isVoipConfigured('DELIVERY_PARTNER') }
+                }
+            });
+        }
+
+        const diagnostics = await getVoipDiagnostics({ ownerType, ownerId });
+        return res.status(200).json({ success: true, data: { authenticated: true, ...diagnostics } });
     } catch (error) {
         next(error);
     }

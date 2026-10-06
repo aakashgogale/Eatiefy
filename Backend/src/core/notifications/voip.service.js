@@ -244,15 +244,27 @@ export const sendVoipCall = async (tokens, call, { ownerType } = {}) => {
     const ringSeconds = Math.max(15, Math.round(Number(call.ringSeconds) || config.voipRestaurantRingSeconds));
     const body = buildCallPayload({ ...call, ringSeconds });
     const expiresAtSec = Math.floor(Date.now() / 1000) + ringSeconds;
+    const environment = config.apnsProduction ? 'production' : 'sandbox';
+
+    logger.info(
+        `[VoIP] -> APNs ${ownerType} call=${call.callId} topic=${topic} env=${environment} ` +
+        `host=${getApnsHost()} tokens=${uniqueTokens.length} ringSeconds=${ringSeconds}`
+    );
 
     const results = await Promise.all(uniqueTokens.map((token) => sendOne(token, topic, body, expiresAtSec)));
     const successCount = results.filter((result) => result.ok).length;
     const failureCount = results.length - successCount;
 
+    for (const result of results) {
+        if (result.ok) {
+            logger.info(`[VoIP]    ...${result.token.slice(-8)} accepted by APNs`);
+        } else {
+            logger.warn(`[VoIP]    ...${result.token.slice(-8)} rejected: ${result.error}${result.remove ? ' (token will be removed)' : ''}`);
+        }
+    }
+
     logger.info(
-        `[VoIP] ${ownerType} call ${call.callId} via ${topic} (${config.apnsProduction ? 'production' : 'sandbox'}): ` +
-        `success=${successCount} failure=${failureCount}` +
-        (failureCount ? ` firstError="${results.find((result) => !result.ok)?.error}"` : '')
+        `[VoIP] <- APNs ${ownerType} call=${call.callId} env=${environment}: success=${successCount} failure=${failureCount}`
     );
     return { successCount, failureCount, results };
 };

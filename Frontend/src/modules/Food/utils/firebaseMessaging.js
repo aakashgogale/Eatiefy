@@ -490,8 +490,6 @@ export async function persistModuleFcmToken(moduleName, options = {}) {
   try {
     await saveTokenByModule(moduleName, fcmToken, platform);
     pushDebugLog(PUSH_DEBUG_PREFIX, "FCM token synced to backend", { moduleName, platform });
-    // iPhone app: also register for order calls (no-op elsewhere).
-    if (platform === "mobile") await syncNativeVoipDevice(moduleName, fcmToken);
     return true;
   } catch (error) {
     pushDebugWarn(PUSH_DEBUG_PREFIX, "Failed to sync FCM token to backend", {
@@ -1445,37 +1443,21 @@ async function readNativeVoipToken(moduleName) {
   return "";
 }
 
-/**
- * Registers this iPhone's VoIP token, linked to its FCM token, so new orders
- * (restaurant) and delivery offers (rider) ring as a call. Skips the request
- * when the same pair is already saved in this session.
- */
-async function syncNativeVoipDevice(moduleName, fcmToken) {
-  if (!VOIP_MODULES.has(moduleName) || !isFlutterWebView()) return;
-  const voipToken = await readNativeVoipToken(moduleName);
-  if (!voipToken) return;
-
-  const signature = `${voipToken}|${fcmToken || ""}`;
+function getVoipBackendSyncedSignature(moduleName) {
+  if (typeof sessionStorage === "undefined") return "";
   try {
-    if (sessionStorage.getItem(`${voipBackendSyncedPrefix}${moduleName}`) === signature) return;
+    return sessionStorage.getItem(`${voipBackendSyncedPrefix}${moduleName}`) || "";
   } catch {
-    /* storage unavailable — just sync */
+    return "";
   }
+}
 
-  const api = moduleName === "restaurant" ? restaurantAPI : deliveryAPI;
+function markVoipBackendSynced(moduleName, signature) {
+  if (typeof sessionStorage === "undefined") return;
   try {
-    await api.saveVoipDevice({ voipToken, fcmToken: fcmToken || undefined });
-    try {
-      sessionStorage.setItem(`${voipBackendSyncedPrefix}${moduleName}`, signature);
-    } catch {
-      /* ignore */
-    }
-    pushDebugLog(PUSH_DEBUG_PREFIX, "VoIP token synced to backend", { moduleName });
-  } catch (error) {
-    pushDebugWarn(PUSH_DEBUG_PREFIX, "Failed to sync VoIP token to backend", {
-      moduleName,
-      error: error?.message || error,
-    });
+    sessionStorage.setItem(`${voipBackendSyncedPrefix}${moduleName}`, signature);
+  } catch {
+    /* ignore */
   }
 }
 
@@ -1506,10 +1488,22 @@ async function saveTokenByModule(moduleName, token, platform = "web") {
     platform === "mobile" && moduleName === "restaurant" ? readNativeCapabilities(moduleName) : undefined;
   const capabilitiesSignature = capabilities ? capabilities.join(",") : "";
 
-  if (
+  // iPhone app: PushKit token for this install, sent in the same save so new
+  // orders (restaurant) / offers (rider) can ring as a call. Empty everywhere
+  // else (Android, web, older app builds with no VoIP handler).
+  const voipToken =
+    platform === "mobile" && VOIP_MODULES.has(moduleName) ? await readNativeVoipToken(moduleName) : "";
+  const voipSignature = voipToken ? `${voipToken}|${normalizedToken}` : "";
+
+  const tokenUnchanged =
     getBackendSyncedToken(moduleName) === normalizedToken &&
-    getBackendSyncedCapabilities(moduleName) === capabilitiesSignature
-  ) {
+    getBackendSyncedCapabilities(moduleName) === capabilitiesSignature;
+  // A voipToken only shows up once PushKit finishes registering, which can be
+  // after the FCM token was already synced — so re-send whenever that pair
+  // hasn't been saved yet, even if the FCM token itself hasn't changed.
+  const voipUnchanged = !voipToken || getVoipBackendSyncedSignature(moduleName) === voipSignature;
+
+  if (tokenUnchanged && voipUnchanged) {
     pushDebugLog(PUSH_DEBUG_PREFIX, "FCM token unchanged — skip backend save", {
       moduleName,
       platform,
@@ -1521,12 +1515,13 @@ async function saveTokenByModule(moduleName, token, platform = "web") {
     moduleName,
     platform,
     tokenPreview: `${normalizedToken.slice(0, 10)}...`,
+    hasVoipToken: Boolean(voipToken),
   });
 
   if (moduleName === "restaurant") {
-    await restaurantAPI.saveFcmToken(normalizedToken, platform, { capabilities });
+    await restaurantAPI.saveFcmToken(normalizedToken, platform, { capabilities, voipToken });
   } else if (moduleName === "delivery") {
-    await deliveryAPI.saveFcmToken(normalizedToken, platform);
+    await deliveryAPI.saveFcmToken(normalizedToken, platform, { voipToken });
   } else if (moduleName === "user") {
     await userAPI.saveFcmToken(normalizedToken, { platform });
   } else {
@@ -1535,6 +1530,7 @@ async function saveTokenByModule(moduleName, token, platform = "web") {
 
   markBackendSyncedToken(moduleName, normalizedToken);
   markBackendSyncedCapabilities(moduleName, capabilitiesSignature);
+  if (voipToken) markVoipBackendSynced(moduleName, voipSignature);
 }
 
 async function registerNativeWebViewFcmToken(moduleName) {

@@ -10,7 +10,7 @@ import { FoodDeliveryPartner } from '../../modules/food/delivery/models/delivery
 import { FoodAdmin } from '../admin/admin.model.js';
 import { config } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
-import { buildVoipCallId, isVoipConfigured, sendVoipCall } from './voip.service.js';
+import { buildVoipCallId, getVoipTopic, isVoipConfigured, sendVoipCall } from './voip.service.js';
 
 const FIREBASE_MESSAGING_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
 const OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -541,8 +541,9 @@ export const upsertVoipDevice = async ({ ownerType, ownerId, voipToken, fcmToken
 
     // A VoIP token identifies one install, so it can ring for one account only
     // (same reasoning as the FCM detach in upsertFirebaseDeviceToken).
+    let detachedFromOthers = 0;
     try {
-        await Promise.all(
+        const results = await Promise.all(
             Object.entries(OWNER_MODELS)
                 .filter(([, otherModel]) => supportsVoipDevices(otherModel))
                 .map(([type, otherModel]) => {
@@ -553,11 +554,20 @@ export const upsertVoipDevice = async ({ ownerType, ownerId, voipToken, fcmToken
                     );
                 })
         );
+        detachedFromOthers = results.reduce((sum, r) => sum + (r?.modifiedCount || 0), 0);
     } catch (err) {
-        logger.warn(`Failed to detach VoIP token from previous owners: ${err.message}`);
+        logger.warn(`[VoIP] Failed to detach token from previous owners: ${err.message}`);
     }
 
-    return { success: true, voipConfigured: isVoipConfigured(ownerType) };
+    const voipConfigured = isVoipConfigured(ownerType);
+    logger.info(
+        `[VoIP] registered ${ownerType}:${ownerId} voipToken=...${normalizedVoipToken.slice(-8)} ` +
+        `fcmToken=${normalizedFcmToken ? `...${normalizedFcmToken.slice(-8)}` : 'none'} deviceId=${normalizedDeviceId || 'none'} ` +
+        `devicesNow=${doc[VOIP_DEVICES_FIELD].length} detachedFromOtherAccounts=${detachedFromOthers} ` +
+        `voipConfigured=${voipConfigured}${voipConfigured ? '' : ' (calls will NOT ring until APNS_* env is set — see /fcm-tokens/voip/status)'}`
+    );
+
+    return { success: true, voipConfigured };
 };
 
 /** Removes an iPhone's VoIP registration by VoIP token, FCM token or install id. */
@@ -570,7 +580,8 @@ export const removeVoipDevice = async ({ ownerType, ownerId, voipToken, fcmToken
         sanitizeString(deviceId) && { deviceId: sanitizeString(deviceId) }
     ].filter(Boolean);
     if (!matchers.length) return { success: false };
-    await model.updateOne({ _id: ownerId }, { $pull: { [VOIP_DEVICES_FIELD]: { $or: matchers } } });
+    const result = await model.updateOne({ _id: ownerId }, { $pull: { [VOIP_DEVICES_FIELD]: { $or: matchers } } });
+    logger.info(`[VoIP] unregistered ${ownerType}:${ownerId} matched=${JSON.stringify(matchers)} removed=${Boolean(result?.modifiedCount)}`);
     return { success: true };
 };
 
@@ -590,8 +601,16 @@ const placeVoipCall = async ({ ownerType, ownerId, model, doc, payload }) => {
     const voipCall = payload?.voipCall;
     if (!voipCall || !supportsVoipDevices(model)) return covered;
 
+    const callType = voipCall.callType || 'order';
     const devices = readVoipDevices(doc);
-    if (!devices.length || !isVoipConfigured(ownerType)) return covered;
+    if (!devices.length) {
+        logger.info(`[VoIP] skip ${ownerType}:${ownerId} callType=${callType}: no iPhone registered for VoIP on this account`);
+        return covered;
+    }
+    if (!isVoipConfigured(ownerType)) {
+        logger.info(`[VoIP] skip ${ownerType}:${ownerId} callType=${callType}: VoIP not configured on server (${devices.length} iPhone(s) would otherwise ring) — falling back to regular push`);
+        return covered;
+    }
 
     const holdBack = (device) => {
         const token = sanitizeString(device?.fcmToken);
@@ -600,6 +619,7 @@ const placeVoipCall = async ({ ownerType, ownerId, model, doc, payload }) => {
 
     if (!voipCall.ring) {
         devices.forEach(holdBack);
+        logger.info(`[VoIP] ${ownerType}:${ownerId} callType=${callType}: call already ringing, holding back regular push on ${devices.length} iPhone(s)`);
         return covered;
     }
 
@@ -613,10 +633,17 @@ const placeVoipCall = async ({ ownerType, ownerId, model, doc, payload }) => {
         if (await claimPushDispatch(device.voipToken, eventKey)) toRing.push(device);
         else holdBack(device);
     }
-    if (!toRing.length) return covered;
+    if (!toRing.length) {
+        logger.info(`[VoIP] ${ownerType}:${ownerId} callType=${callType} callId=${callId}: already ringing on all ${devices.length} iPhone(s), nothing new to send`);
+        return covered;
+    }
 
     const title = stripOwnerTitlePrefix(payload.title) || 'New order';
     const link = resolveClickLink(payload, payload.data || {});
+    logger.info(
+        `[VoIP] ringing ${ownerType}:${ownerId} callType=${callType} callId=${callId} orderKey=${orderKey || 'none'} ` +
+        `iPhones=${toRing.length} ringSeconds=${voipCall.ringSeconds || '(default)'} title="${title}"`
+    );
     let response;
     try {
         response = await sendVoipCall(
@@ -627,31 +654,39 @@ const placeVoipCall = async ({ ownerType, ownerId, model, doc, payload }) => {
                 body: sanitizeString(payload.body),
                 link,
                 ringSeconds: voipCall.ringSeconds,
-                data: { ...(payload.data || {}), orderKey, callType: voipCall.callType || 'order' }
+                data: { ...(payload.data || {}), orderKey, callType }
             },
             { ownerType }
         );
     } catch (error) {
-        logger.warn(`[VoIP] Call to ${ownerType}:${ownerId} failed: ${error?.message || error}`);
+        logger.warn(`[VoIP] call FAILED ${ownerType}:${ownerId} callId=${callId}: ${error?.message || error} — falling back to regular push`);
         await Promise.all(toRing.map((device) => releasePushDispatch(device.voipToken, eventKey)));
         return covered;
     }
 
     const byToken = new Map(toRing.map((device) => [sanitizeString(device.voipToken), device]));
     const deadTokens = [];
+    const fellBack = [];
     for (const result of response.results || []) {
         const device = byToken.get(result.token);
         if (!device) continue;
         if (result.ok) {
             holdBack(device);
         } else {
+            fellBack.push(`...${result.token.slice(-8)}: ${result.error || 'unknown error'}`);
             if (result.remove) deadTokens.push(result.token);
             else await releasePushDispatch(result.token, eventKey);
         }
     }
+    logger.info(
+        `[VoIP] call result ${ownerType}:${ownerId} callId=${callId}: ${response.successCount} ringing, ` +
+        `${response.failureCount} fell back to regular push` +
+        (fellBack.length ? ` (${fellBack.join('; ')})` : '')
+    );
     if (deadTokens.length) {
         await model
             .updateOne({ _id: ownerId }, { $pull: { [VOIP_DEVICES_FIELD]: { voipToken: { $in: deadTokens } } } })
+            .then(() => logger.info(`[VoIP] removed ${deadTokens.length} dead VoIP token(s) for ${ownerType}:${ownerId}`))
             .catch((err) => logger.warn(`[VoIP] Could not drop dead tokens for ${ownerType}:${ownerId}: ${err.message}`));
     }
     return covered;
@@ -670,7 +705,8 @@ export const endVoipCallsSafely = async (targets = [], { orderKey, reason = 'res
         await Promise.all(
             (Array.isArray(targets) ? targets : []).map(async ({ ownerType, ownerId } = {}) => {
                 const model = getOwnerModel(ownerType);
-                if (!supportsVoipDevices(model) || !ownerId || !isVoipConfigured(ownerType)) return;
+                if (!supportsVoipDevices(model) || !ownerId) return;
+                if (!isVoipConfigured(ownerType)) return;
                 const doc = await model.findById(ownerId).select(VOIP_DEVICES_FIELD).lean();
                 const tokens = readVoipDevices(doc).map((device) => sanitizeString(device.fcmToken)).filter(Boolean);
                 if (!tokens.length) return;
@@ -678,6 +714,7 @@ export const endVoipCallsSafely = async (targets = [], { orderKey, reason = 'res
                 // Callers already send this once per resolution (claimed state changes),
                 // and a re-offered order rings again under the same call id, so no dedup here.
                 const endKey = `voip_end:${callId}:${reason}:${Date.now()}`;
+                logger.info(`[VoIP] ending call ${ownerType}:${ownerId} callId=${callId} reason=${reason} orderKey=${normalizedOrderKey} iPhones=${tokens.length}`);
                 await sendPushNotification(
                     tokens,
                     {
@@ -708,21 +745,26 @@ export const endVoipCallsSafely = async (targets = [], { orderKey, reason = 'res
 export const sendTestVoipCall = async ({ ownerType, ownerId }) => {
     const model = getOwnerModel(ownerType);
     if (!supportsVoipDevices(model)) {
+        logger.info(`[VoIP] test call skipped ${ownerType}:${ownerId}: VoIP not available for this owner type`);
         return { skipped: true, reason: `VoIP calls are not available for ${ownerType}.` };
     }
     if (!isVoipConfigured(ownerType)) {
+        logger.info(`[VoIP] test call skipped ${ownerType}:${ownerId}: not configured on server`);
         return { skipped: true, reason: 'VoIP is not configured on the server (APNs key, team, key id or topic missing).' };
     }
     const doc = await model.findById(ownerId).select(VOIP_DEVICES_FIELD).lean();
     const tokens = readVoipDevices(doc).map((device) => device.voipToken);
     if (!tokens.length) {
+        logger.info(`[VoIP] test call skipped ${ownerType}:${ownerId}: no iPhone registered`);
         return { skipped: true, reason: 'No iPhone has registered for VoIP calls on this account.' };
     }
     const testKey = `test-${Date.now()}`;
-    return sendVoipCall(
+    const callId = buildVoipCallId(ownerType, String(ownerId), testKey);
+    logger.info(`[VoIP] sending test call ${ownerType}:${ownerId} callId=${callId} iPhones=${tokens.length}`);
+    const result = await sendVoipCall(
         tokens,
         {
-            callId: buildVoipCallId(ownerType, String(ownerId), testKey),
+            callId,
             title: 'Test order call',
             body: 'This is a test call from Eatiefy',
             link: ownerType === 'DELIVERY_PARTNER' ? '/food/delivery' : '/food/restaurant',
@@ -731,6 +773,38 @@ export const sendTestVoipCall = async ({ ownerType, ownerId }) => {
         },
         { ownerType }
     );
+    logger.info(`[VoIP] test call result ${ownerType}:${ownerId} callId=${callId}: success=${result.successCount} failure=${result.failureCount}`);
+    return result;
+};
+
+/**
+ * Everything the /fcm-tokens/voip/status endpoint and server logs need to
+ * answer "is VoIP actually working" without guessing from scattered lines:
+ * whether this account can place calls at all, and each registered iPhone
+ * with when it last registered.
+ */
+export const getVoipDiagnostics = async ({ ownerType, ownerId }) => {
+    const model = getOwnerModel(ownerType);
+    const supported = supportsVoipDevices(model);
+    const configured = isVoipConfigured(ownerType);
+    const doc = supported && ownerId ? await model.findById(ownerId).select(VOIP_DEVICES_FIELD).lean() : null;
+    const devices = readVoipDevices(doc).map((device) => ({
+        voipToken: `...${sanitizeString(device.voipToken).slice(-8)}`,
+        fcmToken: device.fcmToken ? `...${sanitizeString(device.fcmToken).slice(-8)}` : null,
+        deviceId: device.deviceId || null,
+        lastSeenAt: device.lastSeenAt || null
+    }));
+    return {
+        ownerType,
+        ownerId: ownerId ? String(ownerId) : null,
+        supported,
+        serverConfigured: configured,
+        registeredDeviceCount: devices.length,
+        devices,
+        readyToRing: supported && configured && devices.length > 0,
+        topic: supported ? getVoipTopic(ownerType) || null : null,
+        environment: config.apnsProduction ? 'production' : 'sandbox'
+    };
 };
 
 export const listOwnerTokens = async ({ ownerType, ownerId, platform }) => {

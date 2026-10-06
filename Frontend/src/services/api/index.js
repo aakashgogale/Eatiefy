@@ -1455,7 +1455,7 @@ export const restaurantAPI = {
     apiClient.patch("/food/restaurant/menu", body ?? {}, {
       contextModule: "restaurant",
     }),
-  saveFcmToken: (token, platform = "web", { capabilities } = {}) => {
+  saveFcmToken: (token, platform = "web", { capabilities, voipToken, deviceId } = {}) => {
     if (!token) return Promise.reject(new Error("FCM token is required"));
     const path =
       platform === "mobile" ? "/fcm-tokens/mobile/save" : "/fcm-tokens/save";
@@ -1466,6 +1466,9 @@ export const restaurantAPI = {
         platform,
         // e.g. ["order_alarm"] from an app build that renders order alarms itself
         ...(Array.isArray(capabilities) ? { capabilities } : {}),
+        // iOS only: PushKit token for this install, registered in the same call
+        // so new orders can ring as a CallKit call (see voip.service.js).
+        ...(voipToken ? { voipToken, ...(deviceId ? { deviceId } : {}) } : {}),
       },
       { contextModule: "restaurant" },
     );
@@ -2409,13 +2412,19 @@ export const deliveryAPI = {
       contextModule: "delivery",
       _retry: true,
     }),
-  saveFcmToken: (token, platform = "web") => {
+  saveFcmToken: (token, platform = "web", { voipToken, deviceId } = {}) => {
     if (!token) return Promise.reject(new Error("FCM token is required"));
     const path =
       platform === "mobile" ? "/fcm-tokens/mobile/save" : "/fcm-tokens/save";
     return apiClient.post(
       path,
-      { token: String(token), platform },
+      {
+        token: String(token),
+        platform,
+        // iOS only: PushKit token for this install, registered in the same call
+        // so new delivery offers can ring as a CallKit call (see voip.service.js).
+        ...(voipToken ? { voipToken, ...(deviceId ? { deviceId } : {}) } : {}),
+      },
       { contextModule: "delivery" },
     );
   },
