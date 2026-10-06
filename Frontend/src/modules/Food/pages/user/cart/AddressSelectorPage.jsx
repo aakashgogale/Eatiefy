@@ -631,7 +631,7 @@ export default function AddressSelectorPage() {
     return null
   }, [location, mapPosition, currentAddress])
 
-  const handleAddAddressClick = () => {
+  const handleAddAddressClick = (presetLabel) => {
     if (!isAuthenticated) {
       toast.info("Please login to add an address")
       navigate("/user/auth/login")
@@ -641,6 +641,16 @@ export default function AddressSelectorPage() {
     setEditingAddressId(null)
     setAddressAutocompleteValue("")
     setKeywordAddressSuggestions([])
+    // Start every new address clean (an earlier edit may have filled the form), keeping the requested label.
+    setAddressFormData({
+      street: "",
+      city: "",
+      state: "",
+      zipCode: "",
+      additionalDetails: "",
+      label: typeof presetLabel === "string" ? normalizeLabelForForm(presetLabel) : "Home",
+      phone: "",
+    })
 
     const loc = resolveExistingLocation()
     if (loc?.latitude && loc?.longitude) {
@@ -651,6 +661,22 @@ export default function AddressSelectorPage() {
 
     setShowAddressForm(true)
   }
+
+  // Opened from Cart's Home / Work / Other chip with no saved address for that label:
+  // go straight to the add form with the label preselected (once, after auth is known).
+  const autoOpenAddFormHandledRef = useRef(false)
+  useEffect(() => {
+    const state = routerLocation.state
+    if (!state?.openAddForm || autoOpenAddFormHandledRef.current || profileLoading) return
+    autoOpenAddFormHandledRef.current = true
+    handleAddAddressClick(state.addressLabel)
+    // Drop the flag so a reload / back navigation doesn't reopen the form.
+    navigate(`${routerLocation.pathname}${routerLocation.search}`, {
+      replace: true,
+      state: { ...state, openAddForm: false },
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routerLocation.state, profileLoading])
 
   const handleEditAddressClick = (event, addr) => {
     event.stopPropagation()

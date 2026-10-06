@@ -1136,6 +1136,8 @@ export default function OrderTracking() {
   const [orderStatus, setOrderStatus] = useState('placed')
   const [estimatedTime, setEstimatedTime] = useState(29)
 
+  const isTakeawayOrder = order?.orderType === 'takeaway'
+
   // Show the rider journey once a delivery partner has accepted (delivery orders only).
   const isRiderJourney =
     Boolean(order?.deliveryPartnerId || order?.dispatch?.deliveryPartnerId) &&
@@ -1542,6 +1544,30 @@ export default function OrderTracking() {
     const seconds = totalSeconds % 60
     return `${minutes}:${String(seconds).padStart(2, '0')}`
   }, [editWindowRemainingMs])
+
+  // Takeaway: open the restaurant in the device's maps app so the customer can navigate for pickup.
+  const handleGetDirections = (e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+
+    const coords = order?.restaurantLocation?.coordinates;
+    const lng = Array.isArray(coords) ? Number(coords[0]) : NaN;
+    const lat = Array.isArray(coords) ? Number(coords[1]) : NaN;
+    const hasCoords = Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0);
+    const destination = hasCoords
+      ? `${lat},${lng}`
+      : [restaurantDisplayName, order?.restaurantAddress].filter(Boolean).join(', ');
+
+    if (!destination) {
+      toast.error('Restaurant location not available');
+      return;
+    }
+
+    window.open(
+      `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`,
+      '_blank',
+      'noopener,noreferrer'
+    );
+  };
 
   const handleCallRestaurant = (e) => {
     // Prevent event bubbling if necessary
@@ -3021,7 +3047,7 @@ export default function OrderTracking() {
               </div>
               {currentEta && !isCancelledOrder && !isDeliveredOrder && (
                 <div className="flex flex-col items-end shrink-0 bg-white/90 dark:bg-zinc-800/90 px-3 py-1.5 rounded-2xl border border-gray-100 dark:border-zinc-700 shadow-2xs">
-                  <span className="text-[10px] uppercase font-bold text-gray-400">Estimated Arrival</span>
+                  <span className="text-[10px] uppercase font-bold text-gray-400">{isTakeawayOrder ? 'Ready In' : 'Estimated Arrival'}</span>
                   <span className="text-sm font-black text-[#EB590E]">~{currentEta}</span>
                 </div>
               )}
@@ -3127,18 +3153,34 @@ export default function OrderTracking() {
             </div>
           )}
 
-          {/* Delivery Address Card */}
+          {/* Delivery Address Card (delivery) / Pickup Card (takeaway) */}
           <div className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-xs border border-gray-100 dark:border-zinc-800">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-3.5 min-w-0">
                 <div className="p-2.5 bg-blue-50 dark:bg-blue-950/40 rounded-2xl text-blue-500 shrink-0 mt-0.5">
-                  <MapPin className="w-5 h-5" />
+                  {isTakeawayOrder ? <ShoppingBag className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
                 </div>
                 <div className="min-w-0">
-                  <h3 className="font-bold text-gray-900 dark:text-white text-sm mb-1">Delivering to Home</h3>
+                  <h3 className="font-bold text-gray-900 dark:text-white text-sm mb-1">
+                    {isTakeawayOrder
+                      ? (isDeliveredOrder ? 'Picked up from restaurant' : 'Pick up from restaurant')
+                      : 'Delivering to Home'}
+                  </h3>
                   <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed break-words">
-                    {order?.address?.formattedAddress || 'Address not available'}
+                    {isTakeawayOrder
+                      ? (order?.restaurantAddress || 'Restaurant address not available')
+                      : (order?.address?.formattedAddress || 'Address not available')}
                   </p>
+                  {isTakeawayOrder && !isDeliveredOrder && !isCancelledOrder && (
+                    <button
+                      type="button"
+                      onClick={handleGetDirections}
+                      className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      Get Directions
+                    </button>
+                  )}
                 </div>
               </div>
               {!isDeliveredOrder && !isCancelledOrder && (
@@ -3219,7 +3261,7 @@ export default function OrderTracking() {
                     <span>Delivery Fee</span>
                     <span>₹{order?.pricing?.deliveryFee || order?.deliveryFee}</span>
                   </div>
-                ) : (
+                ) : !isTakeawayOrder && (
                   <div className="flex justify-between text-emerald-600 font-semibold">
                     <span>Delivery Fee</span>
                     <span>FREE</span>
@@ -3434,7 +3476,7 @@ export default function OrderTracking() {
               </div>
               {currentEta && !isCancelledOrder && !isDeliveredOrder && (
                 <div className="flex flex-col items-end shrink-0 bg-white/90 dark:bg-zinc-800/90 px-3 py-1.5 rounded-2xl border border-gray-100 dark:border-zinc-700 shadow-2xs">
-                  <span className="text-[10px] uppercase font-bold text-gray-400">Arrival</span>
+                  <span className="text-[10px] uppercase font-bold text-gray-400">{isTakeawayOrder ? 'Ready In' : 'Arrival'}</span>
                   <span className="text-sm font-black text-[#EB590E]">~{currentEta}</span>
                 </div>
               )}
@@ -3540,18 +3582,34 @@ export default function OrderTracking() {
             </div>
           )}
 
-          {/* Delivery Address Card */}
+          {/* Delivery Address Card (delivery) / Pickup Card (takeaway) */}
           <div className="bg-white dark:bg-zinc-900 rounded-3xl p-5 shadow-xs border border-gray-100 dark:border-zinc-800">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-3.5 min-w-0">
                 <div className="p-2.5 bg-blue-50 dark:bg-blue-950/40 rounded-2xl text-blue-500 shrink-0 mt-0.5">
-                  <MapPin className="w-5 h-5" />
+                  {isTakeawayOrder ? <ShoppingBag className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
                 </div>
                 <div className="min-w-0">
-                  <h3 className="font-bold text-gray-900 dark:text-white text-sm mb-1">Delivering to Home</h3>
+                  <h3 className="font-bold text-gray-900 dark:text-white text-sm mb-1">
+                    {isTakeawayOrder
+                      ? (isDeliveredOrder ? 'Picked up from restaurant' : 'Pick up from restaurant')
+                      : 'Delivering to Home'}
+                  </h3>
                   <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed break-words">
-                    {order?.address?.formattedAddress || 'Address not available'}
+                    {isTakeawayOrder
+                      ? (order?.restaurantAddress || 'Restaurant address not available')
+                      : (order?.address?.formattedAddress || 'Address not available')}
                   </p>
+                  {isTakeawayOrder && !isDeliveredOrder && !isCancelledOrder && (
+                    <button
+                      type="button"
+                      onClick={handleGetDirections}
+                      className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      Get Directions
+                    </button>
+                  )}
                 </div>
               </div>
               {!isDeliveredOrder && !isCancelledOrder && (
@@ -3632,7 +3690,7 @@ export default function OrderTracking() {
                     <span>Delivery Fee</span>
                     <span>₹{order?.pricing?.deliveryFee || order?.deliveryFee}</span>
                   </div>
-                ) : (
+                ) : !isTakeawayOrder && (
                   <div className="flex justify-between text-emerald-600 font-semibold">
                     <span>Delivery Fee</span>
                     <span>FREE</span>
@@ -3819,14 +3877,16 @@ export default function OrderTracking() {
               className="text-xl font-bold bg-clip-text text-transparent"
               style={{ backgroundImage: `linear-gradient(to right, ${themeColor}, rgba(${themeRgb}, 0.72))` }}
             >
-              Delivery Instructions
+              {isTakeawayOrder ? 'Order Note' : 'Delivery Instructions'}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             {isInstructionsEditable ? (
               <>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Add instructions for the delivery partner to help them find your address or know where to leave your order.
+                  {isTakeawayOrder
+                    ? 'Add a note for the restaurant about your pickup order.'
+                    : 'Add instructions for the delivery partner to help them find your address or know where to leave your order.'}
                 </p>
                 <Textarea
                   value={deliveryInstructions}

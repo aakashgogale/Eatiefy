@@ -1813,7 +1813,13 @@ export default function Cart() {
       const address = addresses.find(addr => normalizeAddressLabel(addr.label) === targetLabel)
 
       if (!address) {
-        toast.error(`No ${label} address found. Please add an address first.`)
+        // No saved address for this label yet: open the add-address form with the label preselected.
+        openLocationSelector({
+          from: "/food/user/cart",
+          returnTo: "/food/user/cart",
+          openAddForm: true,
+          addressLabel: getDisplayAddressLabel(label),
+        })
         return
       }
 
@@ -3309,17 +3315,19 @@ export default function Cart() {
                               return (
                                 <button
                                   key={label}
+                                  type="button"
                                   onClick={(e) => {
                                     e.preventDefault()
                                     e.stopPropagation()
                                     handleSelectAddressByLabel(label)
                                   }}
-                                  disabled={!addressExists}
-                                  className={`text-xs px-4 py-1.5 rounded-full font-semibold transition-all ${addressExists
+                                  aria-label={addressExists ? `Deliver to ${label} address` : `Add ${label} address`}
+                                  className={`inline-flex items-center gap-1 text-xs px-4 py-1.5 rounded-full font-semibold transition-all active:scale-95 ${addressExists
                                     ? 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-gray-800 dark:text-gray-300'
-                                    : 'bg-gray-50 text-gray-400 border border-gray-100 cursor-not-allowed dark:bg-[#2e2e2e]'
+                                    : 'bg-white text-[#1F6B45] border border-dashed border-[#1F6B45]/40 hover:bg-[#1F6B4505] dark:bg-[#2e2e2e] dark:text-[#4ade80]'
                                     }`}
                                 >
+                                  {!addressExists && <Plus className="h-3 w-3" />}
                                   {label}
                                 </button>
                               )
