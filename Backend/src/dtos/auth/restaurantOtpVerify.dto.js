@@ -13,6 +13,10 @@ const schema = z.object({
     fcmToken: z.string().optional().nullable(),
     platform: z.enum(['web', 'mobile']).optional().default('web'),
     confirmAction: z.enum(["restore", "new"]).optional(),
+    // iOS only: PushKit token for this install, registered on login so order
+    // calls work immediately instead of waiting for a later /mobile/save.
+    voipToken: z.string().optional().nullable(),
+    deviceId: z.string().optional().nullable(),
 });
 
 export const validateRestaurantOtpVerifyDto = (body) => {

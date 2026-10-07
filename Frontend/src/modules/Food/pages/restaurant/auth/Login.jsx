@@ -10,7 +10,7 @@ import {
   setRestaurantRegistrationToken,
 } from "@food/utils/auth"
 import { clearOnboardingFromLocalStorage, clearAllFilesFromDB, checkOnboardingStatus, isRestaurantOnboardingComplete } from "@/modules/Food/utils/onboardingUtils"
-import { collectFcmTokenFast, persistModuleFcmToken } from "@food/utils/firebaseMessaging"
+import { collectFcmTokenFast, collectFcmTokenWithVoip, persistModuleFcmToken } from "@food/utils/firebaseMessaging"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 
 const DEFAULT_COUNTRY_CODE = "+91"
@@ -289,7 +289,7 @@ export default function RestaurantLogin() {
       const phoneVal = authData.phone
       const purpose = authData.isSignUp ? "register" : "login"
 
-      const { fcmToken, platform } = await collectFcmTokenFast("restaurant")
+      const { fcmToken, platform, voipToken } = await collectFcmTokenWithVoip("restaurant")
 
       const response = await restaurantAPI.verifyOTP(
         phoneVal,
@@ -300,6 +300,7 @@ export default function RestaurantLogin() {
         fcmToken,
         platform,
         confirmAction,
+        { voipToken },
       )
       const data = response?.data?.data || response?.data
 

@@ -6,7 +6,7 @@ import { Loader2, Pencil, X, ShieldCheck } from "lucide-react"
 import { toast } from "sonner"
 import { deliveryAPI } from "@food/api"
 import { setAuthData as storeAuthData, clearModuleAuth , setDeliveryRegistrationToken } from "@food/utils/auth"
-import { collectFcmTokenFast, persistModuleFcmToken, finalizeDeliveryPendingSubmission, prefetchModuleFcmToken } from "@food/utils/firebaseMessaging"
+import { collectFcmTokenFast, collectFcmTokenWithVoip, persistModuleFcmToken, finalizeDeliveryPendingSubmission, prefetchModuleFcmToken } from "@food/utils/firebaseMessaging"
 import { getUserFacingApiError, showUserFacingApiError } from "@/shared/utils/apiError"
 
 const DEFAULT_COUNTRY_CODE = "+91"
@@ -79,6 +79,7 @@ export default function DeliverySignIn() {
   const [rejectionReason, setRejectionReason] = useState("")
   const [deviceToken, setDeviceToken] = useState(null)
   const [activePlatform, setActivePlatform] = useState("web")
+  const [voipDeviceToken, setVoipDeviceToken] = useState(null)
   const [showRestorePopup, setShowRestorePopup] = useState(false)
   const [deletedAccountData, setDeletedAccountData] = useState(null)
   const inputRefs = useRef([])
@@ -325,12 +326,13 @@ export default function DeliverySignIn() {
         return
       }
 
-      const { fcmToken, platform } = await collectFcmTokenFast("delivery")
+      const { fcmToken, platform, voipToken } = await collectFcmTokenWithVoip("delivery")
 
       setDeviceToken(fcmToken)
       setActivePlatform(platform)
+      setVoipDeviceToken(voipToken || null)
 
-      const response = await deliveryAPI.verifyOTP(phoneVal, code, purpose, providedName, fcmToken, platform, confirmAction)
+      const response = await deliveryAPI.verifyOTP(phoneVal, code, purpose, providedName, fcmToken, platform, confirmAction, { voipToken })
       const data = response?.data?.data || response?.data || {}
 
       if (data?.deletedAccountFound) {
@@ -482,7 +484,7 @@ export default function DeliverySignIn() {
         return
       }
 
-      const response = await deliveryAPI.verifyOTP(phoneVal, verifiedOtp, purpose, trimmedName, deviceToken, activePlatform)
+      const response = await deliveryAPI.verifyOTP(phoneVal, verifiedOtp, purpose, trimmedName, deviceToken, activePlatform, null, { voipToken: voipDeviceToken })
       const data = response?.data?.data || response?.data || {}
 
       const accessToken = data.accessToken

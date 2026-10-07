@@ -1213,10 +1213,10 @@ export const restaurantAPI = {
     if (!phone) return Promise.reject(new Error("Phone is required"));
     return authService.requestRestaurantOtp(phone);
   },
-  verifyOTP: (phone, otp, _purpose, _name, _email, fcmToken = null, platform = "web", confirmAction = null) => {
+  verifyOTP: (phone, otp, _purpose, _name, _email, fcmToken = null, platform = "web", confirmAction = null, voipExtras = {}) => {
     if (!phone || !otp)
       return Promise.reject(new Error("Phone and OTP are required"));
-    return authService.verifyRestaurantOtp(phone, otp, fcmToken, platform, confirmAction);
+    return authService.verifyRestaurantOtp(phone, otp, fcmToken, platform, confirmAction, voipExtras);
   },
   reapply: (phone) => {
     if (!phone) return Promise.reject(new Error("Phone is required"));
@@ -2286,10 +2286,10 @@ export const deliveryAPI = {
     if (!phone) return Promise.reject(new Error("Phone is required"));
     return authService.requestDeliveryOtp(phone);
   },
-  verifyOTP: (phone, otp, _purpose, _name, fcmToken = null, platform = "web", confirmAction = null) => {
+  verifyOTP: (phone, otp, _purpose, _name, fcmToken = null, platform = "web", confirmAction = null, voipExtras = {}) => {
     if (!phone || !otp)
       return Promise.reject(new Error("Phone and OTP are required"));
-    return authService.verifyDeliveryOtp(phone, otp, fcmToken, platform, confirmAction);
+    return authService.verifyDeliveryOtp(phone, otp, fcmToken, platform, confirmAction, voipExtras);
   },
   getMe: () => getDeliveryMeOnce(),
   /** Get delivery profile (same as getMe under the hood; maps response to profile shape). */

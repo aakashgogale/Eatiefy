@@ -39,6 +39,76 @@ const ROLES = {
   ADMIN: "ADMIN",
 };
 
+/**
+ * Saves the FCM (and, for restaurant/rider, VoIP) token sent with an OTP
+ * login. Both halves used to be silent either way — no log when the client
+ * sent no fcmToken at all, and no log when the save itself failed — which is
+ * exactly what makes "no FCM token in the DB after login" unexplainable from
+ * the server logs alone. Every outcome is now logged.
+ *
+ * `fcmToken` missing is a normal, expected case (the client's collector can
+ * legitimately resolve nothing — permission not yet granted, native bridge
+ * not ready — and still proceeds with login rather than blocking it), so it
+ * logs at info, not warn.
+ */
+async function savePushTokensOnLogin({ ownerType, ownerId, phone, fcmToken, platform, voipToken, deviceId }) {
+  const normalizedPlatform = platform === "mobile" ? "mobile" : "web";
+  if (!fcmToken) {
+    logger.info(
+      `[Login-FCM] ${ownerType}:${ownerId} (phone ...${String(phone || "").slice(-4)}): ` +
+      `no fcmToken sent with login — nothing to save. The app's token collector returned nothing before OTP submit.`
+    );
+    return;
+  }
+
+  try {
+    const { upsertFirebaseDeviceToken } = await import("../notifications/firebase.service.js");
+    await upsertFirebaseDeviceToken({
+      ownerType,
+      ownerId: String(ownerId),
+      token: fcmToken,
+      platform: normalizedPlatform,
+    });
+    logger.info(
+      `[Login-FCM] ${ownerType}:${ownerId} platform=${normalizedPlatform}: fcmToken saved ` +
+      `(...${String(fcmToken).slice(-8)})`
+    );
+  } catch (error) {
+    // Login must not fail because the push token save did — but a save that
+    // silently fails here is indistinguishable from "never sent" without this.
+    logger.warn(`[Login-FCM] ${ownerType}:${ownerId}: fcmToken save FAILED: ${error?.message || error}`);
+  }
+
+  // VoIP: restaurant/rider only, mobile only, and only when the login actually
+  // carried a voipToken (older app builds, or web, send none — expected, not logged as an error).
+  const normalizedVoipToken = String(voipToken || "").trim();
+  if (normalizedPlatform !== "mobile" || !["RESTAURANT", "DELIVERY_PARTNER"].includes(ownerType)) return;
+  if (!normalizedVoipToken) {
+    logger.info(`[Login-FCM] ${ownerType}:${ownerId}: no voipToken sent with login (ok if the app build has no VoIP yet, or /mobile/save will register it shortly after)`);
+    return;
+  }
+  if (!/^[0-9a-f]{64,200}$/i.test(normalizedVoipToken)) {
+    logger.warn(
+      `[Login-FCM] ${ownerType}:${ownerId}: voipToken REJECTED at login: not a valid PushKit token ` +
+      `(got ${normalizedVoipToken.length} char(s), expected 64-200 hex characters)`
+    );
+    return;
+  }
+  try {
+    const { upsertVoipDevice } = await import("../notifications/firebase.service.js");
+    const result = await upsertVoipDevice({
+      ownerType,
+      ownerId: String(ownerId),
+      voipToken: normalizedVoipToken,
+      fcmToken,
+      deviceId: String(deviceId || "").trim(),
+    });
+    logger.info(`[Login-FCM] ${ownerType}:${ownerId}: voipToken saved at login, voipConfigured=${result.voipConfigured}`);
+  } catch (error) {
+    logger.warn(`[Login-FCM] ${ownerType}:${ownerId}: voipToken save FAILED at login: ${error?.message || error}`);
+  }
+}
+
 const toSafeImageUrl = (value) => {
   if (!value) return "";
   if (typeof value === "string") return value;
@@ -404,7 +474,7 @@ export const requestRestaurantOtp = async (phone) => {
   return shouldExposeOtp ? { otp } : {};
 };
 
-export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform, confirmAction) => {
+export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform, confirmAction, pushExtras = {}) => {
   // Restaurants may store ownerPhone with country code or formatting.
   const digits = String(phone || "").replace(/\D/g, "");
   const last10 = digits.slice(-10);
@@ -496,16 +566,16 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
     };
   }
 
-  // Update FCM token if provided
-  if (fcmToken) {
-    const { upsertFirebaseDeviceToken } = await import("../notifications/firebase.service.js");
-    await upsertFirebaseDeviceToken({
-      ownerType: "RESTAURANT",
-      ownerId: String(restaurant._id),
-      token: fcmToken,
-      platform: platform === "mobile" ? "mobile" : "web",
-    });
-  }
+  // Save the push tokens sent with login (logged either way — see savePushTokensOnLogin).
+  await savePushTokensOnLogin({
+    ownerType: "RESTAURANT",
+    ownerId: restaurant._id,
+    phone,
+    fcmToken,
+    platform,
+    voipToken: pushExtras?.voipToken,
+    deviceId: pushExtras?.deviceId,
+  });
 
   if (restaurant.status && (restaurant.status === "banned" || restaurant.status === "deleted")) {
     const message = "Your restaurant has been disabled. Reason: Disabled by admin";
@@ -607,7 +677,7 @@ export const requestDeliveryOtp = async (phone) => {
   return shouldExposeOtp ? { otp } : {};
 };
 
-export const verifyDeliveryOtpAndLogin = async (phone, otp, fcmToken, platform, confirmAction) => {
+export const verifyDeliveryOtpAndLogin = async (phone, otp, fcmToken, platform, confirmAction, pushExtras = {}) => {
   const existingPartner = await findDeliveryPartnerByPhone(phone);
 
   const isDeleted = existingPartner && existingPartner.status === "deleted";
@@ -656,17 +726,17 @@ export const verifyDeliveryOtpAndLogin = async (phone, otp, fcmToken, platform, 
     };
   }
 
-  // Update FCM token if provided - CRITICAL: do this BEFORE returning pendingApproval
-  // so we can notify them when approved.
-  if (fcmToken) {
-    const { upsertFirebaseDeviceToken } = await import('../notifications/firebase.service.js');
-    await upsertFirebaseDeviceToken({
-      ownerType: 'DELIVERY_PARTNER',
-      ownerId: String(deliveryPartner._id),
-      token: fcmToken,
-      platform: platform === 'mobile' ? 'mobile' : 'web',
-    });
-  }
+  // Save the push tokens sent with login (logged either way — see savePushTokensOnLogin).
+  // CRITICAL: do this BEFORE returning pendingApproval so we can notify them when approved.
+  await savePushTokensOnLogin({
+    ownerType: 'DELIVERY_PARTNER',
+    ownerId: deliveryPartner._id,
+    phone,
+    fcmToken,
+    platform,
+    voipToken: pushExtras?.voipToken,
+    deviceId: pushExtras?.deviceId,
+  });
 
   const partnerStatus = deliveryPartner.status || "pending";
   if (partnerStatus !== "approved") {

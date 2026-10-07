@@ -6,7 +6,7 @@ import { ArrowLeft, Loader2, Pencil, X, ShieldCheck } from "lucide-react"
 import { toast } from "sonner"
 import { deliveryAPI } from "@food/api"
 import { setAuthData as storeAuthData , setDeliveryRegistrationToken } from "@food/utils/auth"
-import { collectFcmTokenFast, persistModuleFcmToken, finalizeDeliveryPendingSubmission, prefetchModuleFcmToken } from "@food/utils/firebaseMessaging"
+import { collectFcmTokenFast, collectFcmTokenWithVoip, persistModuleFcmToken, finalizeDeliveryPendingSubmission, prefetchModuleFcmToken } from "@food/utils/firebaseMessaging"
 import { getUserFacingApiError, showUserFacingApiError } from "@/shared/utils/apiError"
 
 const debugLog = (...args) => {}
@@ -33,6 +33,7 @@ export default function DeliveryOTP() {
   const [rejectionReason, setRejectionReason] = useState("")
   const [deviceToken, setDeviceToken] = useState(null)
   const [activePlatform, setActivePlatform] = useState("web")
+  const [voipDeviceToken, setVoipDeviceToken] = useState(null)
   const [showRestorePopup, setShowRestorePopup] = useState(false)
   const [deletedAccountData, setDeletedAccountData] = useState(null)
   const inputRefs = useRef([])
@@ -206,12 +207,13 @@ export default function DeliveryOTP() {
       }
 
       // Try to get FCM token before verifying OTP
-      const { fcmToken, platform } = await collectFcmTokenFast("delivery")
+      const { fcmToken, platform, voipToken } = await collectFcmTokenWithVoip("delivery")
 
       setDeviceToken(fcmToken);
       setActivePlatform(platform);
+      setVoipDeviceToken(voipToken || null);
 
-      const response = await deliveryAPI.verifyOTP(phone, code, purpose, providedName, fcmToken, platform, confirmAction)
+      const response = await deliveryAPI.verifyOTP(phone, code, purpose, providedName, fcmToken, platform, confirmAction, { voipToken })
       debugLog("Delivery OTP Response:", response)
       const data = response?.data?.data || response?.data || {}
 
@@ -365,7 +367,7 @@ export default function DeliveryOTP() {
         return
       }
 
-      const response = await deliveryAPI.verifyOTP(phone, verifiedOtp, purpose, trimmedName, deviceToken, activePlatform)
+      const response = await deliveryAPI.verifyOTP(phone, verifiedOtp, purpose, trimmedName, deviceToken, activePlatform, null, { voipToken: voipDeviceToken })
       const data = response?.data?.data || response?.data || {}
 
       const accessToken = data.accessToken

@@ -286,7 +286,7 @@ export function requestRestaurantOtp(phone) {
   return apiClient.post(AUTH.RESTAURANT_REQUEST_OTP, { phone: normalized });
 }
 
-export function verifyRestaurantOtp(phone, otp, fcmToken = null, platform = "web", confirmAction = null) {
+export function verifyRestaurantOtp(phone, otp, fcmToken = null, platform = "web", confirmAction = null, { voipToken, deviceId } = {}) {
   const normalized = normalizePhone(phone);
   const otpStr = String(otp).replace(/\D/g, "").slice(0, 6);
   if (!normalized || otpStr.length < 4) {
@@ -297,6 +297,8 @@ export function verifyRestaurantOtp(phone, otp, fcmToken = null, platform = "web
     otp: otpStr,
     ...(fcmToken ? { fcmToken, platform } : {}),
     ...(confirmAction ? { confirmAction } : {}),
+    // iOS only: registers the call-ringing token in the same login round trip.
+    ...(voipToken ? { voipToken, ...(deviceId ? { deviceId } : {}) } : {}),
   });
 }
 
@@ -319,7 +321,7 @@ export function requestDeliveryOtp(phone) {
   return apiClient.post(AUTH.DELIVERY_REQUEST_OTP, { phone: normalized });
 }
 
-export function verifyDeliveryOtp(phone, otp, fcmToken = null, platform = "web", confirmAction = null) {
+export function verifyDeliveryOtp(phone, otp, fcmToken = null, platform = "web", confirmAction = null, { voipToken, deviceId } = {}) {
   const normalized = normalizePhone(phone);
   const otpStr = String(otp).replace(/\D/g, "").slice(0, 6);
   if (!normalized || otpStr.length < 4) {
@@ -330,5 +332,7 @@ export function verifyDeliveryOtp(phone, otp, fcmToken = null, platform = "web",
     otp: otpStr,
     ...(fcmToken ? { fcmToken, platform } : {}),
     ...(confirmAction ? { confirmAction } : {}),
+    // iOS only: registers the call-ringing token in the same login round trip.
+    ...(voipToken ? { voipToken, ...(deviceId ? { deviceId } : {}) } : {}),
   });
 }

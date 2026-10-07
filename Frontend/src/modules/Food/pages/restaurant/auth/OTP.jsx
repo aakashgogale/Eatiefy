@@ -10,7 +10,7 @@ import {
   setRestaurantRegistrationToken,
 } from "@food/utils/auth"
 import { checkOnboardingStatus, isRestaurantOnboardingComplete } from "@food/utils/onboardingUtils"
-import { collectFcmTokenFast, persistModuleFcmToken, syncPendingPartnerFcmQuick } from "@food/utils/firebaseMessaging"
+import { collectFcmTokenFast, collectFcmTokenWithVoip, persistModuleFcmToken, syncPendingPartnerFcmQuick } from "@food/utils/firebaseMessaging"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 
 export default function RestaurantOTP() {
@@ -180,7 +180,7 @@ export default function RestaurantOTP() {
       const phone = authData.phone
       const purpose = authData.isSignUp ? "register" : "login"
 
-      const { fcmToken, platform } = await collectFcmTokenFast("restaurant")
+      const { fcmToken, platform, voipToken } = await collectFcmTokenWithVoip("restaurant")
 
       const response = await restaurantAPI.verifyOTP(
         phone,
@@ -191,6 +191,7 @@ export default function RestaurantOTP() {
         fcmToken,
         platform,
         confirmAction,
+        { voipToken },
       )
       const data = response?.data?.data || response?.data
 

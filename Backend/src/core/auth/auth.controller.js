@@ -101,8 +101,8 @@ export const requestRestaurantOtpController = async (req, res, next) => {
 
 export const verifyRestaurantOtpController = async (req, res, next) => {
   try {
-    const { phone, otp, fcmToken, platform, confirmAction } = validateRestaurantOtpVerifyDto(req.body);
-    const result = await verifyRestaurantOtpAndLogin(phone, otp, fcmToken, platform, confirmAction);
+    const { phone, otp, fcmToken, platform, confirmAction, voipToken, deviceId } = validateRestaurantOtpVerifyDto(req.body);
+    const result = await verifyRestaurantOtpAndLogin(phone, otp, fcmToken, platform, confirmAction, { voipToken, deviceId });
     return sendResponse(res, 200, "Login successful", result);
   } catch (error) {
     next(error);
@@ -134,8 +134,8 @@ export const requestDeliveryOtpController = async (req, res, next) => {
 
 export const verifyDeliveryOtpController = async (req, res, next) => {
   try {
-    const { phone, otp, fcmToken, platform, confirmAction } = validateDeliveryOtpVerifyDto(req.body);
-    const result = await verifyDeliveryOtpAndLogin(phone, otp, fcmToken, platform, confirmAction);
+    const { phone, otp, fcmToken, platform, confirmAction, voipToken, deviceId } = validateDeliveryOtpVerifyDto(req.body);
+    const result = await verifyDeliveryOtpAndLogin(phone, otp, fcmToken, platform, confirmAction, { voipToken, deviceId });
     return sendResponse(res, 200, "Login successful", result);
   } catch (error) {
     next(error);

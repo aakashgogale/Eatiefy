@@ -323,6 +323,22 @@ export async function collectFcmTokenFast(moduleName, options = {}) {
 }
 
 /**
+ * Same as collectFcmTokenFast, but also reads the iPhone's VoIP token (if any)
+ * so a login call can register for order calls in the same round trip,
+ * instead of waiting for the next regular token sync to pick it up. Only
+ * meaningful for "restaurant" and "delivery" on a mobile (Flutter) platform —
+ * everywhere else `voipToken` comes back empty, same as before this existed.
+ */
+export async function collectFcmTokenWithVoip(moduleName, options = {}) {
+  const fcmResult = await collectFcmTokenFast(moduleName, options);
+  if (fcmResult.platform !== "mobile" || !VOIP_MODULES.has(moduleName)) {
+    return { ...fcmResult, voipToken: "", voipSkipReason: null };
+  }
+  const { token: voipToken, reason: voipSkipReason } = await readNativeVoipToken(moduleName);
+  return { ...fcmResult, voipToken, voipSkipReason };
+}
+
+/**
  * Signup finish / complete — same flow that worked for delivery (commit 5f54105).
  * 1) collectFcmTokenFast on button click (+ retry)
  * 2) token sent in register API
