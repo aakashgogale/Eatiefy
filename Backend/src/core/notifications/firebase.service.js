@@ -1225,6 +1225,10 @@ export const notifyAdminsSafely = async (payload = {}) => {
 };
 
 export const sendTestNotification = async ({ ownerType, ownerId, platform }) => {
+    // Each test send is a deliberate, one-off manual action, not a retried
+    // business event, so it must bypass the (token, eventKey) dedup guard —
+    // otherwise every click after the first within 24h is silently dropped
+    // because the payload is otherwise identical every time.
     return sendNotificationToOwner({
         ownerType,
         ownerId,
@@ -1232,6 +1236,7 @@ export const sendTestNotification = async ({ ownerType, ownerId, platform }) => 
         payload: {
             title: 'Test Notification',
             body: 'This is a test notification from Firebase push',
+            eventId: `test:${Date.now()}:${crypto.randomUUID()}`,
             data: {
                 type: 'test',
                 link: '/'
