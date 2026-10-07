@@ -34,6 +34,7 @@ import {
   AlertTriangle,
   BadgePercent,
   UtensilsCrossed,
+  Loader2,
 } from "lucide-react"
 import { Card, CardContent } from "@food/components/ui/card"
 import { DateRangeCalendar } from "@food/components/ui/date-range-calendar"
@@ -408,6 +409,7 @@ export default function ExploreMore() {
   
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
+  const [testingFcm, setTestingFcm] = useState(false)
 
   const STORAGE_KEY = "restaurant_schedule_off"
 
@@ -788,9 +790,28 @@ export default function ExploreMore() {
     return items
   }, [diningEnabled])
 
+  const handleTestFcmNotification = async () => {
+    if (testingFcm) return
+    setTestingFcm(true)
+    try {
+      const response = await restaurantAPI.testFcmNotification({ platform: "web" })
+      const successCount = response?.data?.data?.successCount ?? 0
+      if (response?.data?.success && successCount > 0) {
+        toast.success(`Test notification sent (${successCount} device${successCount === 1 ? "" : "s"})`)
+      } else {
+        toast.error("No registered devices received the test notification")
+      }
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to send test notification")
+    } finally {
+      setTestingFcm(false)
+    }
+  }
+
   const settingsItems = [
     { id: 3, label: "Delivery settings", icon: Truck, route: "/food/restaurant/delivery-settings" },
     { id: 4, label: "Zone Setup", icon: MapPin, route: "/food/restaurant/zone-setup" },
+    { id: 9, label: "Test notification", icon: Bell, isTestFcm: true },
   ]
 
   const ordersItems = [
@@ -883,6 +904,8 @@ export default function ExploreMore() {
                     // Takeaway toggle
                     setTempTakeawayEnabled(restaurantData?.isTakeawayEnabled || false)
                     setTakeawayModalOpen(true)
+                  } else if (item.isTestFcm) {
+                    handleTestFcmNotification()
                   } else if (item.route) {
                     navigate(item.route, { state: { from: location.pathname } })
                   }
@@ -894,6 +917,8 @@ export default function ExploreMore() {
                     <div className="w-12 h-12 flex items-center justify-center">
                       <span className="text-lg font-bold text-gray-900">hp</span>
                     </div>
+                  ) : item.isTestFcm && testingFcm ? (
+                    <Loader2 className="w-8 h-8 text-gray-900 animate-spin" strokeWidth={1.5} />
                   ) : (
                     <IconComponent className="w-8 h-8 text-gray-900" strokeWidth={1.5} />
                   )}

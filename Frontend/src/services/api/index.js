@@ -1502,6 +1502,10 @@ export const restaurantAPI = {
     }),
   testVoipCall: () =>
     apiClient.post("/fcm-tokens/voip/test", {}, { contextModule: "restaurant" }),
+  testFcmNotification: (options = {}) => {
+    const platform = options?.platform === "mobile" ? "mobile" : "web";
+    return apiClient.post("/fcm-tokens/test", { platform }, { contextModule: "restaurant" });
+  },
   /** Outlet timings (restaurant dashboard) */
   getOutletTimings: () =>
     apiClient.get("/food/restaurant/outlet-timings", {
