@@ -233,7 +233,15 @@ router.post('/mobile/save', authMiddleware, async (req, res, next) => {
                 }
             }
         } else {
-            logger.info(`[VoIP] /mobile/save for ${ownerType}:${ownerId}: no voipToken in request body`);
+            // The client sends WHY it has no voipToken to send (not_flutter_webview = a
+            // web login, not the native app; no_bridge_handler = app build predates
+            // VoIP; bridge_returned_invalid_value = handler exists but misbehaves).
+            // Older app builds that don't know this field yet just omit it.
+            const voipSkipReason = String(req.body?.voipSkipReason || '').trim();
+            logger.info(
+                `[VoIP] /mobile/save for ${ownerType}:${ownerId}: no voipToken in request body` +
+                (voipSkipReason ? ` (client reason: ${voipSkipReason})` : ' (client sent no reason — app build predates this diagnostic)')
+            );
         }
 
         return res.status(200).json({

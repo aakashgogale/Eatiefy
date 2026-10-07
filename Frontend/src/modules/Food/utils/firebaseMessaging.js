@@ -1429,18 +1429,35 @@ function normalizeVoipBridgeToken(raw) {
   return /^[0-9a-f]{64,200}$/i.test(token) ? token : "";
 }
 
+/**
+ * Reads the native VoIP token, and WHY there isn't one when there isn't —
+ * the server can only log what actually reached it over HTTP, so without this
+ * "no VoIP token on a mobile save" is a dead end: not running inside the
+ * Flutter app, the app has no VoIP bridge handler at all (old build), or a
+ * handler exists but returned something that isn't a real PushKit token.
+ * `reason` rides along to the server as `voipSkipReason` in saveTokenByModule.
+ */
 async function readNativeVoipToken(moduleName) {
-  if (!isFlutterWebView()) return "";
+  if (!isFlutterWebView()) return { token: "", reason: "not_flutter_webview" };
+
+  let handlerFound = false;
+  let lastBadRaw = null;
   for (const handlerName of VOIP_BRIDGE_HANDLER_NAMES) {
     try {
       const raw = await window.flutter_inappwebview.callHandler(handlerName, { module: moduleName });
+      handlerFound = true;
       const token = normalizeVoipBridgeToken(raw);
-      if (token) return token;
+      if (token) return { token, reason: null };
+      lastBadRaw = raw;
     } catch {
       // Handler not implemented in this build — try the next name.
     }
   }
-  return "";
+  if (!handlerFound) return { token: "", reason: "no_bridge_handler" };
+  const preview = String(
+    (lastBadRaw && typeof lastBadRaw === "object" ? JSON.stringify(lastBadRaw) : lastBadRaw) ?? ""
+  ).slice(0, 40);
+  return { token: "", reason: preview ? `bridge_returned_invalid_value:${preview}` : "bridge_returned_empty" };
 }
 
 function getVoipBackendSyncedSignature(moduleName) {
@@ -1490,9 +1507,13 @@ async function saveTokenByModule(moduleName, token, platform = "web") {
 
   // iPhone app: PushKit token for this install, sent in the same save so new
   // orders (restaurant) / offers (rider) can ring as a call. Empty everywhere
-  // else (Android, web, older app builds with no VoIP handler).
-  const voipToken =
-    platform === "mobile" && VOIP_MODULES.has(moduleName) ? await readNativeVoipToken(moduleName) : "";
+  // else (Android, web, older app builds with no VoIP handler) — voipSkipReason
+  // tells the server WHY, since pushDebugLog below only reaches this device's
+  // own browser console, never the server's logs.
+  const shouldTryVoip = platform === "mobile" && VOIP_MODULES.has(moduleName);
+  const { token: voipToken, reason: voipSkipReason } = shouldTryVoip
+    ? await readNativeVoipToken(moduleName)
+    : { token: "", reason: shouldTryVoip === false && platform === "mobile" ? "module_not_voip_eligible" : null };
   const voipSignature = voipToken ? `${voipToken}|${normalizedToken}` : "";
 
   const tokenUnchanged =
@@ -1516,12 +1537,13 @@ async function saveTokenByModule(moduleName, token, platform = "web") {
     platform,
     tokenPreview: `${normalizedToken.slice(0, 10)}...`,
     hasVoipToken: Boolean(voipToken),
+    voipSkipReason,
   });
 
   if (moduleName === "restaurant") {
-    await restaurantAPI.saveFcmToken(normalizedToken, platform, { capabilities, voipToken });
+    await restaurantAPI.saveFcmToken(normalizedToken, platform, { capabilities, voipToken, voipSkipReason });
   } else if (moduleName === "delivery") {
-    await deliveryAPI.saveFcmToken(normalizedToken, platform, { voipToken });
+    await deliveryAPI.saveFcmToken(normalizedToken, platform, { voipToken, voipSkipReason });
   } else if (moduleName === "user") {
     await userAPI.saveFcmToken(normalizedToken, { platform });
   } else {
