@@ -1469,8 +1469,11 @@ export default function Cart() {
           setOrderType("delivery")
           toast.info(error.response.data.message || "Takeaway isn't available right now, so your order is set to home delivery.")
         }
-        // Network errors or 404 errors - silently handle, fallback to frontend calculation
-        if (error.code !== 'ERR_NETWORK' && error.response?.status !== 404) {
+        // Network errors, 404s, or a cart that emptied between the guard check and
+        // the server response (e.g. order just placed in another tab) - expected,
+        // not worth logging as a failure.
+        const isEmptyCartError = error.response?.status === 400 && /cart is empty/i.test(error.response?.data?.message || "")
+        if (error.code !== 'ERR_NETWORK' && error.response?.status !== 404 && !isEmptyCartError) {
           debugError("Error calculating pricing:", error)
         }
         // Fallback to frontend calculation if backend fails
@@ -2690,7 +2693,7 @@ export default function Cart() {
   }
 
   return (
-    <div className="relative min-h-screen bg-slate-50 dark:bg-[#141414]">
+    <div className="relative h-screen flex flex-col bg-slate-50 dark:bg-[#141414]">
       {/* Header - Sticky at top */}
       <div className="bg-white dark:bg-[#242424] border-b border-gray-100/80 dark:border-gray-800/80 sticky top-0 z-20 flex-shrink-0">
         <div className="max-w-7xl mx-auto">
@@ -2724,7 +2727,7 @@ export default function Cart() {
       </div>
 
       {/* Scrollable Content Area */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden pb-44 md:pb-52">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden pb-4">
         {/* Zone mismatch warning */}
         {isCartZoneMismatch && (
           <div className="px-4 md:px-6 pt-4 pb-1 flex-shrink-0">
@@ -3228,7 +3231,7 @@ export default function Cart() {
               )}
 
               {/* Delivery Address or Pickup Info */}
-              <div className="bg-white dark:bg-[#242424] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
+              <div className="bg-white dark:bg-[#242424] px-3.5 py-4 md:px-6 md:py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
                 {orderType === "takeaway" ? (
                   <div className="flex items-start gap-4">
                     <div className="bg-[#1F6B4505] dark:bg-[#1F6B4510] p-3.5 rounded-2xl border border-[#1F6B4515] dark:border-[#1F6B4530]">
@@ -3263,12 +3266,12 @@ export default function Cart() {
                   </div>
                 ) : (
                   <>
-                  <div className="flex items-start justify-between w-full text-left">
-                    <div className="flex items-start gap-4 flex-1">
-                       <div className="bg-[#1F6B4505] dark:bg-[#1F6B4510] p-2 rounded-xl mt-0.5">
-                         <MapPin className="h-5 w-5 text-[#1F6B45]" />
+                  <div className="flex items-start justify-between w-full text-left gap-2">
+                    <div className="flex items-start gap-3 md:gap-4 flex-1 min-w-0">
+                       <div className="bg-[#1F6B4505] dark:bg-[#1F6B4510] p-1.5 md:p-2 rounded-xl mt-0.5 shrink-0">
+                         <MapPin className="h-4 w-4 md:h-5 md:w-5 text-[#1F6B45]" />
                        </div>
-                      <div className="flex-1">
+                      <div className="flex-1 min-w-0">
                           <div className="flex flex-col">
                             <p className="text-sm md:text-base text-gray-800 dark:text-gray-200">
                               Delivery at{" "}
@@ -3308,7 +3311,7 @@ export default function Cart() {
                              </p>
                           )}
                           {/* Address Selection Buttons */}
-                          <div className="flex flex-wrap gap-2 mt-3">
+                          <div className="flex flex-wrap gap-1.5 md:gap-2 mt-2.5 md:mt-3">
                             {["Home", "Work", "Other"].map((label) => {
                               const normalizedLabel = normalizeAddressLabel(label)
                               const addressExists = addresses.some(addr => normalizeAddressLabel(addr.label) === normalizedLabel)
@@ -3322,7 +3325,7 @@ export default function Cart() {
                                     handleSelectAddressByLabel(label)
                                   }}
                                   aria-label={addressExists ? `Deliver to ${label} address` : `Add ${label} address`}
-                                  className={`inline-flex items-center gap-1 text-xs px-4 py-1.5 rounded-full font-semibold transition-all active:scale-95 ${addressExists
+                                  className={`inline-flex items-center gap-1 text-xs px-3 md:px-4 py-1 md:py-1.5 rounded-full font-semibold transition-all active:scale-95 ${addressExists
                                     ? 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-gray-800 dark:text-gray-300'
                                     : 'bg-white text-[#1F6B45] border border-dashed border-[#1F6B45]/40 hover:bg-[#1F6B4505] dark:bg-[#2e2e2e] dark:text-[#4ade80]'
                                     }`}
@@ -3334,7 +3337,7 @@ export default function Cart() {
                             })}
                           </div>
                           {addresses.length > 0 && (
-                            <div className="mt-4 space-y-3">
+                            <div className="mt-3 md:mt-4 space-y-2 md:space-y-3">
                               {addresses.map((address) => {
                                 const addressId = getAddressId(address)
                                 const isSelected = addressId && addressId === selectedAddressId
@@ -3347,7 +3350,7 @@ export default function Cart() {
                                       e.stopPropagation()
                                       handleSelectSavedAddress(address)
                                     }}
-                                     className={`w-full text-left rounded-xl border-2 p-3 transition-colors ${isSelected
+                                     className={`w-full text-left rounded-xl border-2 p-2.5 md:p-3 transition-colors ${isSelected
                                        ? "border-[#1F6B45] bg-[#1F6B4505] dark:bg-[#1F6B45]/5"
                                        : "border-slate-100 dark:border-gray-800 hover:border-slate-200"
                                        }`}
@@ -3377,7 +3380,7 @@ export default function Cart() {
                     <button
                       type="button"
                       onClick={() => openLocationSelector({ from: "/food/user/cart", returnTo: "/food/user/cart" })}
-                      className="p-2 text-[#1F6B45] bg-[#1F6B4505] rounded-full hover:bg-[#1F6B4510] transition-colors dark:bg-[#1F6B4515] dark:hover:bg-[#1F6B4520]"
+                      className="p-2 text-[#1F6B45] bg-[#1F6B4505] rounded-full hover:bg-[#1F6B4510] transition-colors dark:bg-[#1F6B4515] dark:hover:bg-[#1F6B4520] shrink-0"
                        aria-label="Open location selector"
                      >
                        <ChevronRight className="h-5 w-5" />
@@ -3636,7 +3639,7 @@ export default function Cart() {
 
       {/* Bottom Sticky - Place Order */}
       <div
-        className="bg-white dark:bg-[#242424] border-t dark:border-gray-800 shadow-lg z-30 flex-shrink-0 fixed bottom-0 left-0 right-0"
+        className="bg-white dark:bg-[#242424] border-t dark:border-gray-800 shadow-lg z-30 flex-shrink-0"
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
       >
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 md:py-4">
