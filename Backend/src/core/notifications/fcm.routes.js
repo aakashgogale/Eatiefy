@@ -204,22 +204,36 @@ router.post('/mobile/save', authMiddleware, async (req, res, next) => {
         });
 
         // VoIP calls only exist for the restaurant and delivery apps; a malformed
-        // or out-of-scope voipToken is silently skipped rather than failing the
-        // whole save, since the FCM token above is the half that matters most.
+        // or out-of-scope voipToken never fails the whole save (the FCM token
+        // above is the half that matters most) — but every reason it was NOT
+        // saved is logged, since a silent skip here is exactly what makes
+        // "iPhone never rings" look like a mystery later.
         let voipSaved = false;
-        if (voipTokenRaw && VOIP_OWNER_TYPES.has(String(ownerType).toUpperCase()) && isVoipToken(voipTokenRaw)) {
-            try {
-                await upsertVoipDevice({
-                    ownerType,
-                    ownerId,
-                    voipToken: voipTokenRaw,
-                    fcmToken: token,
-                    deviceId: String(req.body?.deviceId || '').trim()
-                });
-                voipSaved = true;
-            } catch (voipError) {
-                logger.warn(`[fcm-tokens] voipToken save skipped for ${ownerType}:${ownerId}: ${voipError.message}`);
+        if (voipTokenRaw) {
+            const normalizedOwnerType = String(ownerType).toUpperCase();
+            if (!VOIP_OWNER_TYPES.has(normalizedOwnerType)) {
+                logger.info(`[VoIP] voipToken ignored for ${ownerType}:${ownerId}: VoIP is only available for restaurant and delivery accounts`);
+            } else if (!isVoipToken(voipTokenRaw)) {
+                logger.warn(
+                    `[VoIP] voipToken REJECTED for ${ownerType}:${ownerId}: not a valid PushKit token ` +
+                    `(got ${voipTokenRaw.length} char(s), expected 64-200 hex characters; preview="${voipTokenRaw.slice(0, 12)}...")`
+                );
+            } else {
+                try {
+                    await upsertVoipDevice({
+                        ownerType,
+                        ownerId,
+                        voipToken: voipTokenRaw,
+                        fcmToken: token,
+                        deviceId: String(req.body?.deviceId || '').trim()
+                    });
+                    voipSaved = true;
+                } catch (voipError) {
+                    logger.warn(`[VoIP] voipToken save FAILED for ${ownerType}:${ownerId}: ${voipError.message}`);
+                }
             }
+        } else {
+            logger.info(`[VoIP] /mobile/save for ${ownerType}:${ownerId}: no voipToken in request body`);
         }
 
         return res.status(200).json({
