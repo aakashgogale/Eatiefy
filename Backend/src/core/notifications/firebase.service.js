@@ -591,12 +591,16 @@ export const removeVoipDevice = async ({ ownerType, ownerId, voipToken, fcmToken
  *
  * `payload.voipCall` = { orderKey, ring, ringSeconds }:
  *  - ring true  → ring every registered iPhone of this owner.
- *  - ring false → a call placed earlier is still ringing; only hold back the
- *                 regular push on those phones.
+ *  - ring false → a call placed earlier is still ringing; nothing new to do.
+ * The regular push always goes out alongside the VoIP call (CallKit rings
+ * the phone, the push puts the alert in the notification tray/lock screen) —
+ * this function never suppresses it, on any outcome.
  * An iPhone whose call could not be placed keeps its regular push, and with
  * VoIP not configured nothing changes at all.
  */
 const placeVoipCall = async ({ ownerType, ownerId, model, doc, payload }) => {
+    // Always empty: kept as a Set (not removed outright) so callers that
+    // still read it as "tokens to exclude" keep working with zero exclusions.
     const covered = new Set();
     const voipCall = payload?.voipCall;
     if (!voipCall || !supportsVoipDevices(model)) return covered;
@@ -612,14 +616,8 @@ const placeVoipCall = async ({ ownerType, ownerId, model, doc, payload }) => {
         return covered;
     }
 
-    const holdBack = (device) => {
-        const token = sanitizeString(device?.fcmToken);
-        if (token) covered.add(token);
-    };
-
     if (!voipCall.ring) {
-        devices.forEach(holdBack);
-        logger.info(`[VoIP] ${ownerType}:${ownerId} callType=${callType}: call already ringing, holding back regular push on ${devices.length} iPhone(s)`);
+        logger.info(`[VoIP] ${ownerType}:${ownerId} callType=${callType}: call already ringing, regular push still sent as usual on ${devices.length} iPhone(s)`);
         return covered;
     }
 
@@ -670,17 +668,15 @@ const placeVoipCall = async ({ ownerType, ownerId, model, doc, payload }) => {
     for (const result of response.results || []) {
         const device = byToken.get(result.token);
         if (!device) continue;
-        if (result.ok) {
-            holdBack(device);
-        } else {
+        if (!result.ok) {
             fellBack.push(`...${result.token.slice(-8)}: ${result.error || 'unknown error'}`);
             if (result.remove) deadTokens.push(result.token);
             else await releasePushDispatch(result.token, eventKey);
         }
     }
     logger.info(
-        `[VoIP] call result ${ownerType}:${ownerId} callId=${callId}: ${response.successCount} ringing, ` +
-        `${response.failureCount} fell back to regular push` +
+        `[VoIP] call result ${ownerType}:${ownerId} callId=${callId}: ${response.successCount} ringing ` +
+        `(regular push sent alongside as usual), ${response.failureCount} fell back to regular push only` +
         (fellBack.length ? ` (${fellBack.join('; ')})` : '')
     );
     if (deadTokens.length) {
@@ -1087,7 +1083,8 @@ export const sendNotificationToOwner = async ({ ownerType, ownerId, payload, pla
             ? await model.findById(ownerId).select(`fcmTokens fcmTokenMobile${alarmField}${voipField}`).lean()
             : null;
 
-        // iPhones that are ringing with a VoIP call skip the regular push for this alert.
+        // Places the VoIP call (if applicable); the regular push below always
+        // still goes out to the same iPhone alongside it (see placeVoipCall).
         const voipCoveredTokens = await placeVoipCall({ ownerType, ownerId, model, doc, payload: enrichedPayload });
 
         // Group tokens by their real platform. `platform` must be concrete when the
