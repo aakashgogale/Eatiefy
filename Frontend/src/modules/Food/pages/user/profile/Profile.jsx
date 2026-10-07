@@ -30,7 +30,8 @@ import {
   Loader2,
   Camera,
   Upload,
-  LifeBuoy
+  LifeBuoy,
+  BellRing
 } from "lucide-react";
 
 import {
@@ -102,6 +103,7 @@ export default function Profile() {
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [testingFcm, setTestingFcm] = useState(false);
   const [referralReward, setReferralReward] = useState(0);
   const [walletBalance, setWalletBalance] = useState(null);
   const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
@@ -358,6 +360,30 @@ export default function Profile() {
       }
     } catch (error) {
       debugError("Failed to share referral:", error);
+    }
+  };
+
+  // Handle FCM test notification
+  const handleTestFcmNotification = async () => {
+    if (testingFcm) return;
+    setTestingFcm(true);
+    try {
+      const platform =
+        typeof window !== "undefined" && window.flutter_inappwebview
+          ? "mobile"
+          : "web";
+      const response = await userAPI.testFcmNotification({ platform });
+      const successCount = response?.data?.data?.successCount ?? 0;
+      if (response?.data?.success && successCount > 0) {
+        toast.success(`Test notification sent (${successCount} device${successCount === 1 ? "" : "s"})`);
+      } else {
+        toast.error("No registered devices received the test notification");
+      }
+    } catch (error) {
+      debugError("Failed to send test FCM notification:", error);
+      toast.error("Failed to send test notification");
+    } finally {
+      setTestingFcm(false);
     }
   };
 
@@ -1000,6 +1026,37 @@ export default function Profile() {
                 </Card>
               </motion.div>
             </Link>
+
+            <motion.div
+              whileHover={{ x: 4, scale: 1.01 }}
+              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+              <Card
+                className="bg-white dark:bg-[#242424] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer"
+                onClick={handleTestFcmNotification}>
+                <CardContent className="p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <motion.div
+                      className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
+                      whileHover={{ rotate: 15, scale: 1.1 }}
+                      transition={{ duration: 0.3 }}>
+                      {testingFcm ? (
+                        <Loader2 className="h-5 w-5 text-gray-700 dark:text-gray-300 animate-spin" />
+                      ) : (
+                        <BellRing className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                      )}
+                    </motion.div>
+                    <span className="text-base font-medium text-gray-900 dark:text-white">
+                      {testingFcm ? "Sending test notification..." : "Test Notification"}
+                    </span>
+                  </div>
+                  <motion.div
+                    whileHover={{ x: 4 }}
+                    transition={{ duration: 0.2 }}>
+                    <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
+                  </motion.div>
+                </CardContent>
+              </Card>
+            </motion.div>
 
             <motion.div
               whileHover={{ x: 4, scale: 1.01 }}
