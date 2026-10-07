@@ -1003,6 +1003,11 @@ export const sendPushNotification = async (tokens, payload = {}, { platform } = 
                 if (!response.ok) {
                     const errorJson = await parseFirebaseError(response);
                     const remove = shouldRemoveTokenFromError(errorJson, response);
+                    const errorMessage = errorJson?.error?.message || `FCM send failed (${response.status})`;
+                    logger.warn(
+                        `[FCM] Send FAILED token=...${token.slice(-8)} platform=${platform || 'unknown'} ` +
+                        `status=${response.status} remove=${remove} reason="${errorMessage}"`
+                    );
                     // Nothing was delivered — free the claim so a retry can still
                     // deliver this event once (unless the token itself is dead).
                     if (!remove) await releasePushDispatch(token, eventKey);
@@ -1010,16 +1015,22 @@ export const sendPushNotification = async (tokens, payload = {}, { platform } = 
                         token,
                         ok: false,
                         remove,
-                        error: errorJson?.error?.message || `FCM send failed (${response.status})`
+                        error: errorMessage
                     };
                 }
 
+                const fcmResponse = await response.json();
+                logger.info(
+                    `[FCM] Send OK token=...${token.slice(-8)} platform=${platform || 'unknown'} ` +
+                    `messageId=${fcmResponse?.name || 'unknown'}`
+                );
                 return {
                     token,
                     ok: true,
-                    response: await response.json()
+                    response: fcmResponse
                 };
             } catch (error) {
+                logger.warn(`[FCM] Send threw for token=...${token.slice(-8)}: ${error?.message || error}`);
                 await releasePushDispatch(token, eventKey);
                 return {
                     token,
@@ -1137,6 +1148,10 @@ export const sendNotificationToOwner = async ({ ownerType, ownerId, payload, pla
             .filter(Boolean);
 
         if (invalidTokens.length > 0) {
+            logger.warn(
+                `[FCM] Pruning ${invalidTokens.length} dead token(s) for ${ownerType}:${ownerId}: ` +
+                invalidTokens.map((t) => `...${t.slice(-8)}`).join(', ')
+            );
             const ownerDoc = model ? await model.findById(ownerId) : null;
             if (ownerDoc) {
                 ownerDoc.fcmTokens = normalizeTokenList(
