@@ -1882,10 +1882,24 @@ export async function registerWebPushForCurrentModule(pathname = window.location
 
   const cachedToken = getSavedToken(moduleName);
   if (cachedToken && getBackendSyncedToken(moduleName) === cachedToken) {
-    pushDebugLog(PUSH_DEBUG_PREFIX, "FCM already synced this session — skip registration", {
+    // The FCM half is already synced — but on an iPhone the VoIP token can
+    // arrive later than the FCM one (PushKit registers asynchronously, and an
+    // app update can add VoIP support to an install whose FCM token never
+    // changed). Returning here unconditionally meant such a device could never
+    // register for order calls. Let it through when VoIP is still pending.
+    const voipStillPending =
+      isFlutterWebView() &&
+      VOIP_MODULES.has(moduleName) &&
+      !getVoipBackendSyncedSignature(moduleName);
+    if (!voipStillPending) {
+      pushDebugLog(PUSH_DEBUG_PREFIX, "FCM already synced this session — skip registration", {
+        moduleName,
+      });
+      return;
+    }
+    pushDebugLog(PUSH_DEBUG_PREFIX, "FCM synced but VoIP token not registered yet — continuing", {
       moduleName,
     });
-    return;
   }
 
   if (isFlutterWebView()) {
