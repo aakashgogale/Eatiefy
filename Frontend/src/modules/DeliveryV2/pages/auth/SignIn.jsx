@@ -227,7 +227,10 @@ export default function DeliverySignIn() {
           el.focus()
           // In mobile WebView the soft keyboard often won't open on a
           // programmatic focus alone, so also trigger a click to force it.
-          el.click()
+          // Never on iOS: a synthetic click cannot open its keyboard (that
+          // needs a real gesture) and only adds focus/scroll churn while the
+          // keyboard is already resizing the viewport.
+          if (!isIOSDevice()) el.click()
         }
       }
       // If the keyboard was primed on the "Log in" tap (iOS), transfer focus
@@ -254,9 +257,20 @@ export default function DeliverySignIn() {
       toast.error("Please enter a valid 10-digit mobile number")
       return
     }
-    // Prime the keyboard inside the tap gesture so iOS keeps it open while we
-    // navigate to the OTP step (Android focuses fine on mount).
-    if (focusKeeperRef.current) {
+    /*
+     * Prime the keyboard inside the tap gesture so it stays open while we move
+     * to the OTP step.
+     *
+     * Skipped on iOS — this was the frozen login screen. The keeper is a
+     * readOnly, opacity-0, 1px, -z-10 input, and iOS suppresses the keyboard
+     * for readOnly fields, so priming could never work there in the first
+     * place. What it did do was make WebKit focus a zero-size offscreen
+     * element and try to scroll it into view exactly as the keyboard resized
+     * the min-h-[100dvh] overflow-hidden root, leaving the page
+     * focused-but-invisible and dead to taps. Android does get its keyboard
+     * from this, so it keeps the old behaviour.
+     */
+    if (focusKeeperRef.current && !isIOSDevice()) {
       focusKeeperRef.current.focus()
       keyboardPrimedRef.current = true
     }
@@ -704,10 +718,16 @@ export default function DeliverySignIn() {
   // When an input is focused the mobile soft-keyboard opens and shrinks the
   // viewport. Scroll the focused field into the centre of the remaining space
   // so the submit button / logo never get hidden behind the keyboard.
+  //
+  // Not on iOS: WebKit already scrolls a focused input into view by itself, so
+  // doing it again from here only fights the keyboard's own viewport resize
+  // inside this min-h-[100dvh] overflow-hidden screen — the scroll never
+  // settles and the page stops responding.
   const handleInputFocusScroll = (e) => {
+    if (isIOSDevice()) return
     const el = e.currentTarget
     setTimeout(() => {
-      el?.scrollIntoView({ behavior: isIOSDevice() ? "auto" : "smooth", block: "center" })
+      el?.scrollIntoView({ behavior: "smooth", block: "center" })
     }, 300)
   }
 
@@ -936,7 +956,10 @@ export default function DeliverySignIn() {
                               inputMode="numeric"
                               required
                               disabled={loading || blockTimer > 0}
-                              autoFocus={index === 0}
+                              // On iOS the focus effect above already focuses
+                              // this field, so the mount-time attribute is only
+                              // a second focus during the keyboard transition.
+                              autoFocus={index === 0 && !isIOSDevice()}
                               value={otp[index]}
                               onChange={(e) => handleChange(index, e.target.value)}
                               onKeyDown={(e) => handleKeyDown(index, e)}
