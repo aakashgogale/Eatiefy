@@ -2463,6 +2463,10 @@ export const deliveryAPI = {
     }),
   testVoipCall: () =>
     apiClient.post("/fcm-tokens/voip/test", {}, { contextModule: "delivery" }),
+  testFcmNotification: (options = {}) => {
+    const platform = options?.platform === "mobile" ? "mobile" : "web";
+    return apiClient.post("/fcm-tokens/test", { platform }, { contextModule: "delivery" });
+  },
   /** GET /food/delivery/support-tickets - list tickets for logged-in delivery partner. */
   getSupportTickets: () =>
     apiClient.get("/food/delivery/support-tickets", {

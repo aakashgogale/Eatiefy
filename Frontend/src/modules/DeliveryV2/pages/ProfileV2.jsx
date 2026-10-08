@@ -11,7 +11,9 @@ import {
   X,
   Briefcase,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  Bell,
+  Loader2
 } from "lucide-react"
 import { deliveryAPI, authAPI } from "@food/api"
 import { toast } from "sonner"
@@ -37,6 +39,7 @@ export const ProfileV2 = () => {
   const [showBalanceWarning, setShowBalanceWarning] = useState(false)
   const [balanceData, setBalanceData] = useState({ balance: 0, type: "Wallet" })
   const [isCheckingBalance, setIsCheckingBalance] = useState(false)
+  const [testingFcm, setTestingFcm] = useState(false)
 
   // Lock scroll when any popup is open
   useEffect(() => {
@@ -91,6 +94,26 @@ export const ProfileV2 = () => {
         window.open(fallbackUrl, "_blank", "noopener,noreferrer")
       }
     } catch (e) {}
+  }
+
+  const handleTestFcmNotification = async () => {
+    if (testingFcm) return
+    setTestingFcm(true)
+    try {
+      const platform =
+        typeof window !== "undefined" && window.flutter_inappwebview ? "mobile" : "web"
+      const response = await deliveryAPI.testFcmNotification({ platform })
+      const successCount = response?.data?.data?.successCount ?? 0
+      if (response?.data?.success && successCount > 0) {
+        toast.success(`Test notification sent (${successCount} device${successCount === 1 ? "" : "s"})`)
+      } else {
+        toast.error("No registered devices received the test notification")
+      }
+    } catch (error) {
+      showUserFacingApiError(error, "Failed to send test notification")
+    } finally {
+      setTestingFcm(false)
+    }
   }
 
   const handleLogout = async () => {
@@ -191,6 +214,27 @@ export const ProfileV2 = () => {
               <div className="flex items-center gap-3">
                 <Ticket className="w-5 h-5 text-gray-700" />
                 <span className="text-sm font-bold text-gray-900">Support tickets</span>
+              </div>
+              <ChevronRight className="w-5 h-5 text-gray-300" />
+            </div>
+          </div>
+
+          {/* Notifications Section */}
+          <div>
+            <h3 className="text-gray-400 text-[10px] font-black uppercase tracking-[0.2em] mb-3 px-1">Notifications</h3>
+            <div
+              onClick={handleTestFcmNotification}
+              className="bg-white rounded-xl p-4 flex items-center justify-between cursor-pointer active:bg-gray-50 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                {testingFcm ? (
+                  <Loader2 className="w-5 h-5 text-gray-700 animate-spin" />
+                ) : (
+                  <Bell className="w-5 h-5 text-gray-700" />
+                )}
+                <span className="text-sm font-bold text-gray-900">
+                  {testingFcm ? "Sending test notification..." : "Test notification"}
+                </span>
               </div>
               <ChevronRight className="w-5 h-5 text-gray-300" />
             </div>
