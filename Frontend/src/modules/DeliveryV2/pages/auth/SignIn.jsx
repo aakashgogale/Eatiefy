@@ -14,6 +14,20 @@ const DEFAULT_COUNTRY_CODE = "+91"
 
 const STATIC_OTP_KEY = "delivery_static_otp"
 
+/*
+ * iOS (WKWebView) cannot open the soft keyboard from a programmatic focus at
+ * all — it needs a real user gesture — so mount-time autofocus buys nothing
+ * there, while a smooth scrollIntoView fired from that focus races the
+ * keyboard's 100dvh viewport resize and never settles, freezing the screen.
+ * Android opens the keyboard on mount focus and handles the scroll fine.
+ */
+const isIOSDevice = () => {
+  if (typeof navigator === "undefined") return false
+  const ua = navigator.userAgent || ""
+  const platform = navigator.platform || ""
+  return /iPad|iPhone|iPod/i.test(ua) || (platform === "MacIntel" && navigator.maxTouchPoints > 1)
+}
+
 export default function DeliverySignIn() {
   const companyName = useCompanyName();
   const navigate = useNavigate()
@@ -693,7 +707,7 @@ export default function DeliverySignIn() {
   const handleInputFocusScroll = (e) => {
     const el = e.currentTarget
     setTimeout(() => {
-      el?.scrollIntoView({ behavior: "smooth", block: "center" })
+      el?.scrollIntoView({ behavior: isIOSDevice() ? "auto" : "smooth", block: "center" })
     }, 300)
   }
 
@@ -817,7 +831,7 @@ export default function DeliverySignIn() {
                     <input
                       type="tel"
                       required
-                      autoFocus
+                      autoFocus={!isIOSDevice()}
                       onFocus={handleInputFocusScroll}
                       value={phone}
                       onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
