@@ -358,6 +358,52 @@ export const initSocket = async (server) => {
 };
 
 /**
+ * Socket.IO for a background worker process (BullMQ), which has no HTTP server
+ * of its own and therefore never ran initSocket(). Without this every emit from
+ * a job — dispatch offers, order status updates, tracking — hit a null `io` and
+ * was dropped with a warning, so clients with the app open saw nothing until
+ * they refreshed or resynced.
+ *
+ * The instance is deliberately detached (no httpServer, never listens): it only
+ * publishes through the Redis adapter, and the API process's Socket.IO server
+ * receives those and delivers them to the actually-connected sockets.
+ *
+ * Gated on the SAME condition as the adapter in initSocket. If the API has no
+ * adapter attached it cannot receive what this publishes, so initializing
+ * anyway would convert a visible warning into a silent black hole.
+ *
+ * @returns {Promise<Server | null>}
+ */
+export const initSocketEmitter = async () => {
+    if (io) return io;
+
+    if (!config.redisEnabled || !config.redisUrl) {
+        logger.warn(
+            '[Socket] Worker emit disabled: REDIS_ENABLED/REDIS_URL not set. Background jobs ' +
+            'cannot reach connected clients in real time (push still works). Set REDIS_ENABLED=true ' +
+            'on the API and the workers to turn this on.'
+        );
+        return null;
+    }
+
+    try {
+        const { createAdapter } = await import('@socket.io/redis-adapter');
+        const { createClient } = await import('redis');
+        const pubClient = createClient({ url: config.redisUrl });
+        const subClient = pubClient.duplicate();
+        pubClient.on('error', (err) => logger.error(`Socket.IO Redis pub client: ${err.message}`));
+        subClient.on('error', (err) => logger.error(`Socket.IO Redis sub client: ${err.message}`));
+        await Promise.all([pubClient.connect(), subClient.connect()]);
+        io = new Server({ adapter: createAdapter(pubClient, subClient) });
+        logger.info('[Socket] Worker emitter ready (publishes to the API via Redis adapter)');
+        return io;
+    } catch (err) {
+        logger.warn(`[Socket] Worker emitter unavailable, job emits will be dropped: ${err.message}`);
+        return null;
+    }
+};
+
+/**
  * Returns the initialized Socket.IO instance.
  * @returns {Server | null}
  */

@@ -7,6 +7,7 @@ import { config } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 import { connectDB, disconnectDB } from '../../config/db.js';
 import { getBullMQConnection, pingBullMQRedis } from '../connection.js';
+import { initSocketEmitter } from '../../config/socket.js';
 
 const WAIT_MS = 3000;
 const MAX_WAIT_ATTEMPTS = 20; // ~60s then exit 0 for PM2 restart
@@ -31,7 +32,17 @@ export async function waitForBullMQRedis() {
             return null;
         }
         const ok = await pingBullMQRedis();
-        if (ok) return connection;
+        if (ok) {
+            /*
+             * Redis is confirmed reachable, which is also everything the
+             * realtime emitter needs. Jobs reach socket emits transitively
+             * (order.processor -> order.service -> getIO()), so this is set up
+             * for every worker rather than only the ones whose import chain has
+             * been traced — a missed path would silently drop client updates.
+             */
+            await initSocketEmitter();
+            return connection;
+        }
 
         logger.warn(
             `Worker: waiting for Redis… (${attempt}/${MAX_WAIT_ATTEMPTS})`,
