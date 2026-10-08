@@ -527,6 +527,30 @@ export const upsertVoipDevice = async ({ ownerType, ownerId, voipToken, fcmToken
         (normalizedDeviceId && sanitizeString(device?.deviceId) === normalizedDeviceId) ||
         (normalizedFcmToken && sanitizeString(device?.fcmToken) === normalizedFcmToken);
 
+    /*
+     * FCM tokens this same physical install used before this registration.
+     *
+     * A PushKit token (and an install id) survives an FCM token rotation, so
+     * when the device re-registers with a new fcmToken the one previously
+     * stored against the SAME voipToken/deviceId is provably dead. Nothing
+     * removed it before, so `fcmTokenMobile` kept every token the phone ever
+     * had and each order push went out once per stale entry — five copies on
+     * one handset. Matching on fcmToken is deliberately excluded here: that
+     * means the token did not change, so there is nothing to supersede.
+     */
+    const supersededFcmTokens = normalizedFcmToken
+        ? readVoipDevices(doc)
+            .filter((device) => {
+                const sameInstall =
+                    sanitizeString(device?.voipToken) === normalizedVoipToken ||
+                    (normalizedDeviceId && sanitizeString(device?.deviceId) === normalizedDeviceId);
+                if (!sameInstall) return false;
+                const previous = sanitizeString(device?.fcmToken);
+                return previous && previous !== normalizedFcmToken;
+            })
+            .map((device) => sanitizeString(device.fcmToken))
+        : [];
+
     const others = readVoipDevices(doc).filter((device) => !isSameDevice(device));
     doc[VOIP_DEVICES_FIELD] = [
         ...others,
@@ -537,6 +561,26 @@ export const upsertVoipDevice = async ({ ownerType, ownerId, voipToken, fcmToken
             lastSeenAt: new Date()
         }
     ].slice(-MAX_VOIP_DEVICES);
+
+    if (supersededFcmTokens.length) {
+        const isSuperseded = (token) => supersededFcmTokens.includes(sanitizeString(token));
+        doc.fcmTokens = normalizeTokenList(
+            (Array.isArray(doc.fcmTokens) ? doc.fcmTokens : []).filter((t) => !isSuperseded(t))
+        );
+        doc.fcmTokenMobile = normalizeTokenList(
+            (Array.isArray(doc.fcmTokenMobile) ? doc.fcmTokenMobile : []).filter((t) => !isSuperseded(t))
+        );
+        if (supportsOrderAlarmTokens(model)) {
+            doc[ORDER_ALARM_TOKEN_FIELD] = (
+                Array.isArray(doc[ORDER_ALARM_TOKEN_FIELD]) ? doc[ORDER_ALARM_TOKEN_FIELD] : []
+            ).filter((t) => !isSuperseded(t));
+        }
+        logger.info(
+            `[VoIP] ${ownerType}:${ownerId} dropped ${supersededFcmTokens.length} superseded FCM token(s) ` +
+            `from the same install: ${supersededFcmTokens.map((t) => `...${t.slice(-8)}`).join(', ')}`
+        );
+    }
+
     await doc.save();
 
     // A VoIP token identifies one install, so it can ring for one account only
