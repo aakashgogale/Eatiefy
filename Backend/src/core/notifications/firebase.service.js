@@ -671,9 +671,10 @@ const placeVoipCall = async ({ ownerType, ownerId, model, doc, payload }) => {
 
     const toRing = [];
     for (const device of devices) {
-        // Already rung for this event (retry, second instance): the call is live.
+        // A device that loses the claim was already rung for this event (retry,
+        // second instance), so its call is live and there is nothing to send it.
+        // Its regular push is NOT suppressed — that now always goes out too.
         if (await claimPushDispatch(device.voipToken, eventKey)) toRing.push(device);
-        else holdBack(device);
     }
     if (!toRing.length) {
         logger.info(`[VoIP] ${ownerType}:${ownerId} callType=${callType} callId=${callId}: already ringing on all ${devices.length} iPhone(s), nothing new to send`);

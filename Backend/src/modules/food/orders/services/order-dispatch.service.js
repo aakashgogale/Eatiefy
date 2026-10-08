@@ -594,6 +594,19 @@ export async function tryAutoAssign(orderId, options = {}) {
      * send suppress the rest.
      */
     const offerSeconds = Math.round((offerExpiry.getTime() - offeredAt.getTime()) / 1000);
+    /*
+     * An explicit resend (restaurant pressing "Resend") is a NEW offer round and
+     * must reach riders who were already offered this order. The dedup keys below
+     * are per (order, partner) and their claims live 24h, so without a per-round
+     * value the resend was discarded on BOTH channels — no push and no VoIP ring —
+     * while still reporting success. Empty for normal auto-dispatch, which keeps
+     * its existing keys byte-for-byte so retries stay deduplicated as before.
+     *
+     * Only the dedup keys vary. `tag` stays per-order so a new banner replaces the
+     * old one rather than stacking, and voipCall.orderKey stays the plain order id
+     * because endVoipCallsSafely recomputes the CallKit id from it to hang up.
+     */
+    const roundSuffix = options.dispatchRound ? `_${options.dispatchRound}` : '';
     await Promise.all(
       partnersToRecord.map(async (p) => {
         try {
@@ -616,8 +629,8 @@ export async function tryAutoAssign(orderId, options = {}) {
               // Tapping opens the rider feed, where the offer card (with accept) is shown.
               link: '/food/delivery',
               channelId: 'delivery_orders',
-              idempotencyKey: `dispatch_offer_${order._id}_${p.partnerId}`,
-              eventId: `dispatch_offer_${order._id}_${p.partnerId}`,
+              idempotencyKey: `dispatch_offer_${order._id}_${p.partnerId}${roundSuffix}`,
+              eventId: `dispatch_offer_${order._id}_${p.partnerId}${roundSuffix}`,
               tag: `dispatch_offer_${order._id}`,
               data: {
                 type: 'new_order',
@@ -633,7 +646,7 @@ export async function tryAutoAssign(orderId, options = {}) {
                 link: '/food/delivery',
                 targetUrl: '/food/delivery',
                 tag: `dispatch_offer_${order._id}`,
-                eventId: `dispatch_offer_${order._id}_${p.partnerId}`,
+                eventId: `dispatch_offer_${order._id}_${p.partnerId}${roundSuffix}`,
               },
             },
           );
@@ -834,7 +847,9 @@ export async function resendDeliveryNotificationRestaurant(orderId, restaurantId
   order.dispatch.offeredTo = [];
   await order.save();
 
-  await tryAutoAssign(order._id);
+  // A deliberate human action, so it must not be swallowed by the 24h dedup
+  // claim from the previous offer round (see roundSuffix in tryAutoAssign).
+  await tryAutoAssign(order._id, { dispatchRound: `r${Date.now()}` });
 
   const refreshed = await FoodOrder.findById(order._id)
     .select('dispatch.offeredTo dispatch.status dispatch.deliveryPartnerId')
