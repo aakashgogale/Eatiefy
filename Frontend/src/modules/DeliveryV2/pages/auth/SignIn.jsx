@@ -103,7 +103,32 @@ export default function DeliverySignIn() {
   // they mount (focus transfer keeps the keyboard up on iOS).
   const focusKeeperRef = useRef(null)
   const keyboardPrimedRef = useRef(false)
+  const scrollColumnRef = useRef(null)
   const [instantAuthTransition, setInstantAuthTransition] = useState(false)
+
+  /*
+   * Focusing an OTP box must never scroll. The four boxes sit on one row
+   * inside the `overflow-y-auto` main column, and a plain focus() makes the
+   * browser "scroll the focused element into view" against a column whose
+   * card is offset by `relative -top-10 my-auto`. Those offsets disagree, so
+   * the auto-advance on the first typed digit threw the whole screen down
+   * past the content. preventScroll keeps the caret moving without touching
+   * the scroll position — the row is already on screen, so nothing needs it.
+   */
+  const focusOtpBox = (index) => {
+    const el = inputRefs.current[index]
+    if (!el) return
+    el.focus({ preventScroll: true })
+  }
+
+  // The OTP card is laid out centred and always fits, so the main column has
+  // nothing to scroll to. Resetting it to 0 undoes any displacement a
+  // focus-driven scroll (e.g. the Android keyboard-opening click, which is a
+  // real gesture and ignores preventScroll) managed to apply.
+  const resetScrollColumn = () => {
+    const col = scrollColumnRef.current
+    if (col && col.scrollTop !== 0) col.scrollTop = 0
+  }
 
   const clearPersistedLoginPhone = () => {
     try {
@@ -224,13 +249,18 @@ export default function DeliverySignIn() {
       const focusFirst = () => {
         const el = inputRefs.current[0]
         if (el) {
-          el.focus()
+          el.focus({ preventScroll: true })
           // In mobile WebView the soft keyboard often won't open on a
           // programmatic focus alone, so also trigger a click to force it.
           // Never on iOS: a synthetic click cannot open its keyboard (that
           // needs a real gesture) and only adds focus/scroll churn while the
           // keyboard is already resizing the viewport.
-          if (!isIOSDevice()) el.click()
+          if (!isIOSDevice()) {
+            el.click()
+            // The click counts as a gesture, so the browser may scroll the
+            // column despite the preventScroll focus above. Put it back.
+            resetScrollColumn()
+          }
         }
       }
       // If the keyboard was primed on the "Log in" tap (iOS), transfer focus
@@ -458,7 +488,7 @@ export default function DeliverySignIn() {
 
       setOtp(["", "", "", ""])
       setTimeout(() => {
-        inputRefs.current[0]?.focus()
+        focusOtpBox(0)
       }, 50)
 
       const isBlocked = message.toLowerCase().includes("blocked") || 
@@ -593,7 +623,7 @@ export default function DeliverySignIn() {
       setName("")
       setNameError("")
       setVerifiedOtp("")
-      inputRefs.current[0]?.focus()
+      focusOtpBox(0)
       toast.success("OTP resent successfully.")
     } catch (err) {
       const message = getUserFacingApiError(err, "Failed to resend OTP. Please try again.")
@@ -637,7 +667,7 @@ export default function DeliverySignIn() {
           }
         })
         setOtp(newOtp)
-        inputRefs.current[Math.min(3, index + digits.length)]?.focus()
+        focusOtpBox(Math.min(3, index + digits.length))
       }
       return
     }
@@ -649,14 +679,14 @@ export default function DeliverySignIn() {
     setOtp(newOtp)
 
     if (value && index < 3) {
-      inputRefs.current[index + 1]?.focus()
+      focusOtpBox(index + 1)
     }
   }
 
   const handleKeyDown = (index, e) => {
     if (e.key === "Backspace") {
       if (!otp[index] && index > 0) {
-        inputRefs.current[index - 1]?.focus()
+        focusOtpBox(index - 1)
         const newOtp = [...otp]
         newOtp[index - 1] = ""
         setOtp(newOtp)
@@ -675,7 +705,7 @@ export default function DeliverySignIn() {
           if (i < 4) newOtp[i] = digit
         })
         setOtp(newOtp)
-        inputRefs.current[Math.min(digits.length, 3)]?.focus()
+        focusOtpBox(Math.min(digits.length, 3))
       })
     }
   }
@@ -689,7 +719,7 @@ export default function DeliverySignIn() {
       if (i < 4) newOtp[i] = digit
     })
     setOtp(newOtp)
-    inputRefs.current[Math.min(digits.length, 3)]?.focus()
+    focusOtpBox(Math.min(digits.length, 3))
   }
 
   const formatResendTimer = (seconds) => {
@@ -801,7 +831,7 @@ export default function DeliverySignIn() {
       />
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 pb-24 relative z-10 overflow-y-auto">
+      <div ref={scrollColumnRef} className="flex-1 flex flex-col items-center justify-center px-6 py-12 pb-24 relative z-10 overflow-y-auto">
         <div className="w-full max-w-sm flex flex-col relative -top-10 my-auto">
 
           {/* Logo & Header */}
@@ -956,10 +986,12 @@ export default function DeliverySignIn() {
                               inputMode="numeric"
                               required
                               disabled={loading || blockTimer > 0}
-                              // On iOS the focus effect above already focuses
-                              // this field, so the mount-time attribute is only
-                              // a second focus during the keyboard transition.
-                              autoFocus={index === 0 && !isIOSDevice()}
+                              // No autoFocus attribute: React's autoFocus is a
+                              // plain focus() with no preventScroll, so it
+                              // scroll-jumps this column on mount. The focus
+                              // effect above already focuses box 0 on every
+                              // path (mount, resend, wrong-OTP reset) and does
+                              // it without scrolling.
                               value={otp[index]}
                               onChange={(e) => handleChange(index, e.target.value)}
                               onKeyDown={(e) => handleKeyDown(index, e)}
