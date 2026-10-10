@@ -398,4 +398,64 @@ router.post('/voip/test', authMiddleware, async (req, res, next) => {
     }
 });
 
+router.post('/diagnose', authMiddleware, async (req, res, next) => {
+    try {
+        const { ownerType: callerRole } = getOwnerContext(req);
+        if (String(callerRole).toUpperCase() !== 'ADMIN') {
+            return sendError(res, 403, 'Admin access required');
+        }
+        const targetOwnerType = String(req.body?.ownerType || 'USER').toUpperCase();
+        const targetOwnerId = String(req.body?.ownerId || '').trim();
+        if (!targetOwnerId || !mongoose.Types.ObjectId.isValid(targetOwnerId)) {
+            return sendError(res, 400, 'Valid ownerId is required');
+        }
+
+        const { listOwnerTokens, sendPushNotification } = await import('./firebase.service.js');
+        const webTokens = await listOwnerTokens({ ownerType: targetOwnerType, ownerId: targetOwnerId, platform: 'web' });
+        const mobileTokens = await listOwnerTokens({ ownerType: targetOwnerType, ownerId: targetOwnerId, platform: 'mobile' });
+
+        const results = { webTokens: webTokens.length, mobileTokens: mobileTokens.length, web: [], mobile: [] };
+
+        if (req.body?.testSend) {
+            const testPayload = {
+                title: 'FCM Diagnostic Test',
+                body: `Sent at ${new Date().toISOString()}`,
+                eventId: `diag:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+                data: { type: 'diagnostic_test' }
+            };
+            if (webTokens.length) {
+                const webRes = await sendPushNotification(webTokens, testPayload, { platform: 'web' });
+                results.web = (webRes.results || []).map(r => ({
+                    tokenTail: r.token?.slice(-8),
+                    ok: r.ok,
+                    error: r.error || null,
+                    remove: r.remove || false,
+                    skippedDuplicate: r.skippedDuplicate || false
+                }));
+            }
+            if (mobileTokens.length) {
+                const mobileRes = await sendPushNotification(mobileTokens, testPayload, { platform: 'mobile' });
+                results.mobile = (mobileRes.results || []).map(r => ({
+                    tokenTail: r.token?.slice(-8),
+                    ok: r.ok,
+                    error: r.error || null,
+                    remove: r.remove || false,
+                    skippedDuplicate: r.skippedDuplicate || false
+                }));
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                ownerType: targetOwnerType,
+                ownerId: targetOwnerId,
+                ...results
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 export default router;

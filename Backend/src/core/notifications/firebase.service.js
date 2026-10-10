@@ -1337,6 +1337,8 @@ export const broadcastPushToTargetsSafely = async (targets = [], payload = {}) =
         const tokensByPlatform = { web: [], mobile: [] };
 
         // 1. Bulk fetch all tokens to avoid N+1 DB queries
+        let ownersWithoutMobileTokens = 0;
+        let ownersWithMobileTokens = 0;
         for (const [type, ids] of Object.entries(byType)) {
             if (!ids.length) continue;
             const model = getOwnerModel(type);
@@ -1348,11 +1350,20 @@ export const broadcastPushToTargetsSafely = async (targets = [], payload = {}) =
                 const chunkIds = ids.slice(i, i + DB_CHUNK);
                 const docs = await model.find({ _id: { $in: chunkIds } }).select('fcmTokens fcmTokenMobile').lean();
                 for (const doc of docs) {
-                    tokensByPlatform.web.push(...readTokensFromDoc(doc, 'web'));
-                    tokensByPlatform.mobile.push(...readTokensFromDoc(doc, 'mobile'));
+                    const webTokens = readTokensFromDoc(doc, 'web');
+                    const mobileTokens = readTokensFromDoc(doc, 'mobile');
+                    if (mobileTokens.length > 0) ownersWithMobileTokens++;
+                    else ownersWithoutMobileTokens++;
+                    tokensByPlatform.web.push(...webTokens);
+                    tokensByPlatform.mobile.push(...mobileTokens);
                 }
             }
         }
+
+        logger.info(
+            `[FCM Broadcast] Token fetch done: webTokens=${tokensByPlatform.web.length} mobileTokens=${tokensByPlatform.mobile.length} ` +
+            `ownersWithMobile=${ownersWithMobileTokens} ownersWithoutMobile=${ownersWithoutMobileTokens}`
+        );
 
         // Deduplicate globally so one device token is never sent to twice.
         const seenTokens = new Set();
@@ -1365,7 +1376,10 @@ export const broadcastPushToTargetsSafely = async (targets = [], payload = {}) =
             })
         }));
 
-        logger.info(`[FCM Broadcast] Resolved ${seenTokens.size} unique tokens. Dispatching to Firebase...`);
+        logger.info(
+            `[FCM Broadcast] After dedup: ${seenTokens.size} unique tokens ` +
+            `(web=${dispatchGroups[0].tokens.length}, mobile=${dispatchGroups[1].tokens.length}). Dispatching to Firebase...`
+        );
 
         // 2. Dispatch to FCM in controlled chunks
         // Firebase HTTP v1 limits: we do 50 concurrent fetch requests to avoid socket hang ups.
@@ -1383,6 +1397,12 @@ export const broadcastPushToTargetsSafely = async (targets = [], payload = {}) =
 
                 for (const r of (res.results || [])) {
                     if (!r.ok && r.remove && r.token) deadTokens.push(r.token);
+                    if (!r.ok && !r.skippedDuplicate) {
+                        logger.warn(
+                            `[FCM Broadcast] FAILED token=...${r.token?.slice(-8)} platform=${group.platform} ` +
+                            `remove=${r.remove} error="${r.error}"`
+                        );
+                    }
                 }
 
                 // Artificial delay to prevent overwhelming network interfaces on huge broadcasts
