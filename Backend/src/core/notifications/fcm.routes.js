@@ -417,13 +417,30 @@ router.post('/client-diagnostic', authMiddleware, async (req, res) => {
     const handlerSummary =
         Object.entries(handlers).map(([name, outcome]) => `${name}=${outcome}`).join('; ') ||
         '(no handler answered in time)';
+    // What the app's notification-permission handler answered; null when never asked.
+    const rawPermission = req.body?.permission && typeof req.body.permission === 'object' ? req.body.permission : null;
+    const permission = rawPermission
+        ? {
+            handler: rawPermission.handler ? clip(rawPermission.handler, 40) : null,
+            result: rawPermission.result === undefined ? undefined : clip(rawPermission.result, 60),
+            attempts: Object.fromEntries(
+                Object.entries(
+                    rawPermission.attempts && typeof rawPermission.attempts === 'object' ? rawPermission.attempts : {}
+                )
+                    .slice(0, 8)
+                    .map(([name, outcome]) => [clip(name, 30).replace(/[.$]/g, '_'), clip(outcome, 100)])
+            )
+        }
+        : null;
     const diagnostic = {
         module: clip(req.body?.module, 20),
+        tokenFound: req.body?.tokenFound === true,
         hasCallHandler: Boolean(req.body?.hasCallHandler),
         userAgent: clip(req.body?.userAgent, 200)
     };
     logger.warn(
-        `[FCM-Client] No native FCM token for ${ownerType}:${ownerId} module=${diagnostic.module} ` +
+        `[FCM-Client] ${ownerType}:${ownerId} module=${diagnostic.module} tokenFound=${diagnostic.tokenFound} ` +
+        `permission=${permission ? JSON.stringify(permission) : 'unknown'} ` +
         `hasCallHandler=${diagnostic.hasCallHandler} handlers: ${handlerSummary} ua="${diagnostic.userAgent}"`
     );
     try {
@@ -432,6 +449,7 @@ router.post('/client-diagnostic', authMiddleware, async (req, res) => {
                 ownerType: String(ownerType).toUpperCase(),
                 ownerId,
                 handlers,
+                permission,
                 ...diagnostic
             });
         }

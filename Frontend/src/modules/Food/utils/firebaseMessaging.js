@@ -182,6 +182,19 @@ function isSupportedBrowser() {
 
 /** Why the last native token lookup came back empty, per bridge handler name. */
 let lastNativeTokenFailure = null;
+/** What the app's notification-permission handler answered (or that none exists). */
+let lastNativePermission = null;
+
+function describePermissionValue(raw) {
+  if (raw === undefined) return "undefined";
+  if (raw === null) return "null";
+  if (typeof raw === "string") return raw.slice(0, 40);
+  try {
+    return JSON.stringify(raw).slice(0, 60);
+  } catch {
+    return typeof raw;
+  }
+}
 
 function describeBridgeValue(raw) {
   if (raw === undefined) return "undefined";
@@ -199,9 +212,9 @@ function describeBridgeValue(raw) {
  * and pushes have nowhere to go. The client's own console never reaches us, so
  * tell the server once per session what the bridge actually said.
  */
-async function reportNativeTokenFailure(moduleName) {
+async function reportNativeTokenFailure(moduleName, tokenFound = false) {
   try {
-    const key = `fcm_native_failure_reported_${moduleName}`;
+    const key = `fcm_native_failure_reported_${moduleName}_${tokenFound ? "ok" : "missing"}`;
     if (sessionStorage.getItem(key)) return;
     sessionStorage.setItem(key, "1");
     const apiClient = (await import("@food/api")).default;
@@ -209,6 +222,8 @@ async function reportNativeTokenFailure(moduleName) {
       "/fcm-tokens/client-diagnostic",
       {
         module: moduleName,
+        tokenFound,
+        permission: lastNativePermission,
         handlers: lastNativeTokenFailure || {},
         hasCallHandler: Boolean(window.flutter_inappwebview?.callHandler),
         userAgent: String(navigator.userAgent || "").slice(0, 200),
@@ -305,14 +320,17 @@ function sleep(ms) {
 async function requestNativeNotificationPermission(moduleName) {
   if (!isFlutterWebView()) return false;
 
+  const attempts = {};
   for (const handlerName of FCM_PERMISSION_HANDLER_NAMES) {
     try {
-      await window.flutter_inappwebview.callHandler(handlerName, { module: moduleName });
+      const raw = await window.flutter_inappwebview.callHandler(handlerName, { module: moduleName });
+      lastNativePermission = { handler: handlerName, result: describePermissionValue(raw) };
       return true;
-    } catch {
-      // Try next handler.
+    } catch (error) {
+      attempts[handlerName] = `threw ${String(error?.message || error).slice(0, 80)}`;
     }
   }
+  lastNativePermission = { handler: null, attempts };
   return false;
 }
 
@@ -555,6 +573,9 @@ export async function persistModuleFcmToken(moduleName, options = {}) {
   try {
     await saveTokenByModule(moduleName, fcmToken, platform);
     pushDebugLog(PUSH_DEBUG_PREFIX, "FCM token synced to backend", { moduleName, platform });
+    // A saved token does not mean iOS will show anything: report what the app
+    // said about notification permission so the admin Push Debug tool can show it.
+    if (isFlutterWebView()) void reportNativeTokenFailure(moduleName, true);
     return true;
   } catch (error) {
     pushDebugWarn(PUSH_DEBUG_PREFIX, "Failed to sync FCM token to backend", {

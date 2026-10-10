@@ -9,6 +9,8 @@ const pushClientDiagnosticSchema = new mongoose.Schema(
         ownerType: { type: String, required: true, index: true },
         ownerId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
         module: { type: String, default: '' },
+        tokenFound: { type: Boolean, default: false },
+        permission: { type: mongoose.Schema.Types.Mixed, default: null },
         handlers: { type: mongoose.Schema.Types.Mixed, default: {} },
         hasCallHandler: { type: Boolean, default: false },
         userAgent: { type: String, default: '' },

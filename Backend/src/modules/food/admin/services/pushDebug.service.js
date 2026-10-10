@@ -144,7 +144,7 @@ export const runPushDebug = async ({ ownerType = 'USER', query, testSend = false
 
     if (!webTokens.length && !mobileTokens.length) {
         add('error', 'No FCM token is saved for this account (neither web nor mobile). Pushes have nowhere to go.');
-        if (clientReports.length) {
+        if (clientReports.some((report) => !report.tokenFound)) {
             add(
                 'error',
                 'The app reported it could not get a token from the native layer (see "App reports" below). That is a Flutter-side problem: the handler is missing or Firebase has no token yet.'
@@ -157,6 +157,35 @@ export const runPushDebug = async ({ ownerType = 'USER', query, testSend = false
         }
     } else if (!mobileTokens.length) {
         add('warn', 'Only a web token is saved. In the Flutter app a mobile token is expected, so this device is not registering natively.');
+    }
+
+    // The token being saved says nothing about whether iOS will display pushes:
+    // without notification permission iOS drops them while Firebase still reports success.
+    const latestReport = clientReports[0];
+    if (latestReport?.permission) {
+        const { handler, result, attempts } = latestReport.permission;
+        const answer = String(result ?? '').toLowerCase();
+        if (!handler) {
+            add(
+                'error',
+                'The app has no notification-permission handler (tried requestNotificationPermission, requestPushPermission, enableNotifications' +
+                    (attempts && Object.keys(attempts).length
+                        ? `; results: ${Object.entries(attempts).map(([name, outcome]) => `${name} ${outcome}`).join(', ')}`
+                        : '') +
+                    '), so the web layer cannot ask iOS for permission. If iPhone Settings > Notifications has no entry for this app, or Allow Notifications is off, iOS silently drops every push even though Firebase accepts it. Fix in the Flutter app: call FirebaseMessaging.instance.requestPermission(alert: true, badge: true, sound: true) at startup (or register one of those handlers).'
+            );
+        } else if (/denied|false|not.?determined|restricted/.test(answer)) {
+            add(
+                'error',
+                `The app reports notification permission is NOT granted (${handler} answered "${result}"). iOS drops every push until the user allows notifications for this app in iPhone Settings > Notifications.`
+            );
+        } else if (/authorized|granted|true|provisional/.test(answer)) {
+            add('info', `The app reports notification permission is granted (${handler} answered "${result}").`);
+        } else {
+            add('warn', `The app answered "${result}" to the notification-permission request (${handler}); this is not a clear yes or no.`);
+        }
+    } else if (tokenRows.length) {
+        add('warn', 'The app has not reported its notification permission yet. Log in or fully reopen the app on the latest build, then run this again.');
     }
 
     for (const row of tokenRows) {
@@ -195,6 +224,8 @@ export const runPushDebug = async ({ ownerType = 'USER', query, testSend = false
         clientReports: clientReports.map((report) => ({
             at: report.createdAt,
             hasCallHandler: report.hasCallHandler,
+            tokenFound: report.tokenFound === true,
+            permission: report.permission || null,
             handlers: report.handlers,
             userAgent: report.userAgent
         })),

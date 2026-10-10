@@ -182,8 +182,19 @@ export default function PushDebug() {
                 ) : (
                   result.clientReports.map((report, index) => (
                     <div key={index} className="rounded-lg bg-gray-50 p-3 text-xs text-gray-700">
-                      <div className="font-semibold">{formatDate(report.at)} · bridge present: {String(report.hasCallHandler)}</div>
-                      {Object.keys(report.handlers || {}).length === 0 ? (
+                      <div className="font-semibold">
+                        {formatDate(report.at)} · bridge present: {String(report.hasCallHandler)} · token found:{" "}
+                        {String(report.tokenFound)}
+                      </div>
+                      <div>
+                        Notification permission:{" "}
+                        {!report.permission
+                          ? "not reported"
+                          : report.permission.handler
+                            ? `${report.permission.handler} answered "${report.permission.result}"`
+                            : "NO permission handler in the app"}
+                      </div>
+                      {report.tokenFound ? null : Object.keys(report.handlers || {}).length === 0 ? (
                         <div>No bridge handler answered in time.</div>
                       ) : (
                         Object.entries(report.handlers).map(([name, outcome]) => (
