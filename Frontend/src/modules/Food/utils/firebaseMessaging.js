@@ -180,6 +180,46 @@ function isSupportedBrowser() {
   );
 }
 
+/** Why the last native token lookup came back empty, per bridge handler name. */
+let lastNativeTokenFailure = null;
+
+function describeBridgeValue(raw) {
+  if (raw === undefined) return "undefined";
+  if (raw === null) return "null";
+  if (typeof raw === "string") return raw ? `string(len=${raw.length})` : "empty-string";
+  try {
+    return `${typeof raw}:${JSON.stringify(raw).slice(0, 60)}`;
+  } catch {
+    return typeof raw;
+  }
+}
+
+/**
+ * The iPhone app never handed the web layer a token, so nothing can be saved
+ * and pushes have nowhere to go. The client's own console never reaches us, so
+ * tell the server once per session what the bridge actually said.
+ */
+async function reportNativeTokenFailure(moduleName) {
+  try {
+    const key = `fcm_native_failure_reported_${moduleName}`;
+    if (sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, "1");
+    const apiClient = (await import("@food/api")).default;
+    await apiClient.post(
+      "/fcm-tokens/client-diagnostic",
+      {
+        module: moduleName,
+        handlers: lastNativeTokenFailure || {},
+        hasCallHandler: Boolean(window.flutter_inappwebview?.callHandler),
+        userAgent: String(navigator.userAgent || "").slice(0, 200),
+      },
+      { contextModule: moduleName },
+    );
+  } catch {
+    // diagnostics only
+  }
+}
+
 function isFlutterWebView() {
   return (
     typeof window !== "undefined" &&
@@ -423,6 +463,7 @@ export async function collectNativeFcmToken(moduleName, options = {}) {
     platform = "mobile";
     await requestNativeNotificationPermission(moduleName);
 
+    const failures = {};
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       for (const handlerName of FCM_BRIDGE_HANDLER_NAMES) {
         try {
@@ -433,10 +474,12 @@ export async function collectNativeFcmToken(moduleName, options = {}) {
           if (token) {
             rememberNativeCapabilities(moduleName, raw);
             setSavedToken(moduleName, token);
+            lastNativeTokenFailure = null;
             return { fcmToken: token, platform };
           }
-        } catch {
-          // Try next handler.
+          failures[handlerName] = `returned ${describeBridgeValue(raw)}`;
+        } catch (error) {
+          failures[handlerName] = `threw ${String(error?.message || error).slice(0, 80)}`;
         }
       }
 
@@ -444,6 +487,7 @@ export async function collectNativeFcmToken(moduleName, options = {}) {
         await sleep(delayMs);
       }
     }
+    lastNativeTokenFailure = failures;
 
     const cached = getSavedToken(moduleName);
     if (cached && cached.length >= 20) {
@@ -491,7 +535,12 @@ export async function persistModuleFcmToken(moduleName, options = {}) {
     platform = collected.platform;
   }
 
-  if (!fcmToken) return false;
+  if (!fcmToken) {
+    if (isFlutterWebView() && localStorage.getItem(`${moduleName}_accessToken`)) {
+      void reportNativeTokenFailure(moduleName);
+    }
+    return false;
+  }
 
   setSavedToken(moduleName, fcmToken);
 
@@ -1941,7 +1990,14 @@ export async function registerWebPushForCurrentModule(pathname = window.location
   if (isFlutterWebView()) {
     // Ask the app itself (not the cache) so an updated build's token and
     // capabilities reach the server at launch; the cache is still the fallback.
-    await persistModuleFcmToken(moduleName, { maxAttempts: 6, delayMs: 350, skipCache: true });
+    // iOS can take several seconds to hand out the first FCM token (it waits on
+    // the APNs registration), longer than the default 2s collect window.
+    await persistModuleFcmToken(moduleName, {
+      maxAttempts: 10,
+      delayMs: 500,
+      skipCache: true,
+      collectTimeoutMs: FCM_SUBMIT_COLLECT_TIMEOUT_MS,
+    });
     return;
   }
 

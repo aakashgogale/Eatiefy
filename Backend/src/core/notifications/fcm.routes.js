@@ -398,6 +398,26 @@ router.post('/voip/test', authMiddleware, async (req, res, next) => {
     }
 });
 
+/*
+ * The native app build could not hand the web layer an FCM token, so no push
+ * can ever reach that device. The client reports why (what each bridge handler
+ * returned or threw) so it shows up in server logs instead of staying on-device.
+ */
+router.post('/client-diagnostic', authMiddleware, (req, res) => {
+    const { ownerType, ownerId } = getOwnerContext(req);
+    const clip = (value, max) => String(value ?? '').slice(0, max);
+    const handlers = req.body?.handlers && typeof req.body.handlers === 'object' ? req.body.handlers : {};
+    const handlerSummary = Object.entries(handlers)
+        .slice(0, 8)
+        .map(([name, outcome]) => `${clip(name, 30)}=${clip(outcome, 100)}`)
+        .join('; ') || '(no handler answered in time)';
+    logger.warn(
+        `[FCM-Client] No native FCM token for ${ownerType}:${ownerId} module=${clip(req.body?.module, 20)} ` +
+        `hasCallHandler=${Boolean(req.body?.hasCallHandler)} handlers: ${handlerSummary} ua="${clip(req.body?.userAgent, 200)}"`
+    );
+    return res.status(200).json({ success: true });
+});
+
 router.post('/diagnose', authMiddleware, async (req, res, next) => {
     try {
         const { ownerType: callerRole } = getOwnerContext(req);
