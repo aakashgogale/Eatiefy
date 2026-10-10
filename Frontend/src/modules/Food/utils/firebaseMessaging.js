@@ -326,21 +326,41 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function requestNativeNotificationPermission(moduleName) {
-  if (!isFlutterWebView()) return false;
+// Login, OTP and the route-change registration all ask for a token within the
+// same few seconds. Each one re-asking for notification permission (and, on a
+// first install, each starting its own token polling loop) piles bridge calls
+// onto the iOS main thread while the user is typing. Share one in-flight ask
+// per module, and don't ask again once the app has answered.
+const nativePermissionRequests = new Map();
+const nativePermissionAnswered = new Set();
 
-  const attempts = {};
-  for (const handlerName of FCM_PERMISSION_HANDLER_NAMES) {
-    try {
-      const raw = await window.flutter_inappwebview.callHandler(handlerName, { module: moduleName });
-      lastNativePermission = { handler: handlerName, result: describePermissionValue(raw) };
-      return true;
-    } catch (error) {
-      attempts[handlerName] = `threw ${String(error?.message || error).slice(0, 80)}`;
+function requestNativeNotificationPermission(moduleName) {
+  if (!isFlutterWebView()) return Promise.resolve(false);
+  if (nativePermissionAnswered.has(moduleName)) return Promise.resolve(true);
+
+  const inFlight = nativePermissionRequests.get(moduleName);
+  if (inFlight) return inFlight;
+
+  const request = (async () => {
+    const attempts = {};
+    for (const handlerName of FCM_PERMISSION_HANDLER_NAMES) {
+      try {
+        const raw = await window.flutter_inappwebview.callHandler(handlerName, { module: moduleName });
+        lastNativePermission = { handler: handlerName, result: describePermissionValue(raw) };
+        nativePermissionAnswered.add(moduleName);
+        return true;
+      } catch (error) {
+        attempts[handlerName] = `threw ${String(error?.message || error).slice(0, 80)}`;
+      }
     }
-  }
-  lastNativePermission = { handler: null, attempts };
-  return false;
+    lastNativePermission = { handler: null, attempts };
+    return false;
+  })().finally(() => {
+    nativePermissionRequests.delete(moduleName);
+  });
+
+  nativePermissionRequests.set(moduleName, request);
+  return request;
 }
 
 /** True when running inside the Flutter InAppWebView shell (no browser Allow popup). */
@@ -481,47 +501,70 @@ export function getCachedFcmTokenForSubmit(moduleName) {
  * Collect FCM token from Flutter WebView (iPhone app) or web cache.
  * Retries because the native bridge is often not ready on first call.
  */
+const nativeTokenLookups = new Map();
+
+async function pollNativeFcmToken(moduleName, maxAttempts, delayMs) {
+  await requestNativeNotificationPermission(moduleName);
+
+  const failures = {};
+  // Handler names are only aliases for older builds. A name that threw on the
+  // first pass isn't registered in this build, so don't keep calling it across
+  // the bridge on every retry — a first install retries for several seconds.
+  let handlerNames = FCM_BRIDGE_HANDLER_NAMES;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const usable = [];
+    for (const handlerName of handlerNames) {
+      try {
+        const raw = await window.flutter_inappwebview.callHandler(handlerName, {
+          module: moduleName,
+        });
+        usable.push(handlerName);
+        const token = normalizeFcmBridgeToken(raw);
+        if (token) {
+          rememberNativeCapabilities(moduleName, raw);
+          setSavedToken(moduleName, token);
+          lastNativeTokenFailure = null;
+          return { fcmToken: token, platform: "mobile" };
+        }
+        failures[handlerName] = `returned ${describeBridgeValue(raw)}`;
+      } catch (error) {
+        failures[handlerName] = `threw ${String(error?.message || error).slice(0, 80)}`;
+      }
+    }
+    if (usable.length > 0) handlerNames = usable;
+
+    if (attempt < maxAttempts - 1) {
+      await sleep(delayMs);
+    }
+  }
+  lastNativeTokenFailure = failures;
+
+  const cached = getSavedToken(moduleName);
+  if (cached && cached.length >= 20) {
+    return { fcmToken: cached, platform: "mobile" };
+  }
+
+  return { fcmToken: null, platform: "mobile" };
+}
+
 export async function collectNativeFcmToken(moduleName, options = {}) {
   const maxAttempts = options.maxAttempts ?? 8;
   const delayMs = options.delayMs ?? 400;
   let platform = "web";
 
   if (isFlutterWebView()) {
-    platform = "mobile";
-    await requestNativeNotificationPermission(moduleName);
+    // collectFcmTokenFast stops *waiting* after its timeout but cannot stop this
+    // loop, so the route-change registration, the login submit and the OTP verify
+    // each left their own loop running on a fresh install (token not ready yet).
+    // Join the lookup already in flight instead of starting another.
+    const inFlight = nativeTokenLookups.get(moduleName);
+    if (inFlight) return inFlight;
 
-    const failures = {};
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      for (const handlerName of FCM_BRIDGE_HANDLER_NAMES) {
-        try {
-          const raw = await window.flutter_inappwebview.callHandler(handlerName, {
-            module: moduleName,
-          });
-          const token = normalizeFcmBridgeToken(raw);
-          if (token) {
-            rememberNativeCapabilities(moduleName, raw);
-            setSavedToken(moduleName, token);
-            lastNativeTokenFailure = null;
-            return { fcmToken: token, platform };
-          }
-          failures[handlerName] = `returned ${describeBridgeValue(raw)}`;
-        } catch (error) {
-          failures[handlerName] = `threw ${String(error?.message || error).slice(0, 80)}`;
-        }
-      }
-
-      if (attempt < maxAttempts - 1) {
-        await sleep(delayMs);
-      }
-    }
-    lastNativeTokenFailure = failures;
-
-    const cached = getSavedToken(moduleName);
-    if (cached && cached.length >= 20) {
-      return { fcmToken: cached, platform: "mobile" };
-    }
-
-    return { fcmToken: null, platform: "mobile" };
+    const lookup = pollNativeFcmToken(moduleName, maxAttempts, delayMs).finally(() => {
+      nativeTokenLookups.delete(moduleName);
+    });
+    nativeTokenLookups.set(moduleName, lookup);
+    return lookup;
   }
 
   const skipCache = options.skipCache === true;
@@ -1119,27 +1162,62 @@ async function playPushSound(payload = {}) {
 const SILENT_AUDIO_DATA_URI =
   'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
 
+let pushSoundUnlockListenersAttached = false;
+
 function setupPushSoundUnlock() {
   if (typeof window === "undefined" || pushSoundUnlocked) return;
+  // initPushNotificationClient runs on every route change; adding a fresh set of
+  // listeners each time made the first tap fire the unlock once per route visited.
+  if (pushSoundUnlockListenersAttached) return;
+  pushSoundUnlockListenersAttached = true;
+
+  // pointerdown, touchstart and keydown all land on the first tap/keystroke, and
+  // the unlock awaits audio calls that iOS can leave pending. Without this guard
+  // every event (and every later keystroke) built another AudioContext, which
+  // is what made the very first typing on a fresh install stutter.
+  let unlockInFlight = false;
+  const withTimeout = (promise, ms) => Promise.race([promise, sleep(ms)]);
+
+  const detach = () => {
+    window.removeEventListener("pointerdown", unlock);
+    window.removeEventListener("keydown", unlock);
+    window.removeEventListener("touchstart", unlock);
+  };
 
   const unlock = async () => {
+    if (pushSoundUnlocked) {
+      detach();
+      return;
+    }
+    if (unlockInFlight) return;
+    unlockInFlight = true;
     try {
       pushDebugLog(PUSH_DEBUG_PREFIX, "Attempting passive push sound unlock with silent buffer");
 
       // 1. Prime Web Audio Context
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (AudioCtx) {
+        let ctx = null;
         try {
-          const ctx = new AudioCtx();
+          ctx = new AudioCtx();
           if (ctx.state === "suspended") {
-            await ctx.resume();
+            await withTimeout(ctx.resume(), 1500);
           }
           const buffer = ctx.createBuffer(1, 1, 22050);
           const source = ctx.createBufferSource();
           source.buffer = buffer;
           source.connect(ctx.destination);
           source.start(0);
-        } catch (_) {}
+          source.onended = () => {
+            try {
+              void ctx.close?.();
+            } catch (_) {}
+          };
+        } catch (_) {
+          try {
+            void ctx?.close?.();
+          } catch (__) {}
+        }
       }
 
       // 2. Pre-initialize audio elements without playing real sound file
@@ -1150,7 +1228,7 @@ function setupPushSoundUnlock() {
         const silentAudio = new Audio(SILENT_AUDIO_DATA_URI);
         const started = silentAudio.play();
         if (started && typeof started.then === "function") {
-          await started;
+          await withTimeout(started, 1500);
           try {
             silentAudio.pause();
           } catch (_) {}
@@ -1166,13 +1244,11 @@ function setupPushSoundUnlock() {
         error: error?.message || error,
       });
       pushSoundUnlocked = true;
+    } finally {
+      unlockInFlight = false;
     }
 
-    if (pushSoundUnlocked) {
-      window.removeEventListener("pointerdown", unlock);
-      window.removeEventListener("keydown", unlock);
-      window.removeEventListener("touchstart", unlock);
-    }
+    if (pushSoundUnlocked) detach();
   };
 
   window.addEventListener("pointerdown", unlock, { passive: true });
