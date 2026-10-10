@@ -1089,6 +1089,52 @@ export const sendPushNotification = async (tokens, payload = {}, { platform } = 
 };
 
 /**
+ * Debug probe for one token: asks Firebase directly and reports its exact
+ * answer. `validateOnly` checks the token/payload without delivering anything
+ * (it cannot prove APNs delivery); otherwise a real push is sent. Bypasses the
+ * dispatch idempotency claim on purpose so it can be repeated.
+ */
+export const probeFcmToken = async ({ token, platform = 'mobile', validateOnly = true, payload } = {}) => {
+    const normalizedToken = sanitizeString(token);
+    if (!normalizedToken) return { ok: false, error: 'empty token' };
+
+    try {
+        const projectId = getFirebaseProjectId();
+        const accessToken = await getFirebaseAccessToken();
+        const message = buildMessagePayload(
+            payload || {
+                title: 'Eatiefy push test',
+                body: `Debug probe at ${new Date().toLocaleTimeString('en-IN')}`,
+                eventId: `probe:${Date.now()}:${crypto.randomUUID()}`,
+                data: { type: 'debug_probe' }
+            },
+            normalizedToken,
+            { platform }
+        );
+        const response = await fetch(FCM_SEND_URL(projectId), {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ validate_only: Boolean(validateOnly), message })
+        });
+        if (response.ok) {
+            const json = await response.json().catch(() => ({}));
+            return { ok: true, status: response.status, messageId: json?.name || null, validateOnly: Boolean(validateOnly) };
+        }
+        const errorJson = await parseFirebaseError(response);
+        const detailCodes = (errorJson?.error?.details || []).map((d) => d?.errorCode).filter(Boolean);
+        return {
+            ok: false,
+            status: response.status,
+            errorCode: detailCodes[0] || errorJson?.error?.status || null,
+            error: errorJson?.error?.message || `FCM send failed (${response.status})`,
+            validateOnly: Boolean(validateOnly)
+        };
+    } catch (error) {
+        return { ok: false, error: error?.message || String(error) };
+    }
+};
+
+/**
  * Order alarms split the mobile group by what each install can render:
  *  - `payload.orderAlarm`: alarm-capable tokens get the Android data-only
  *    variant, every other device keeps the regular push.

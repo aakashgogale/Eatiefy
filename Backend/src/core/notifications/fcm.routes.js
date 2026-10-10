@@ -13,6 +13,7 @@ import {
     upsertVoipDevice
 } from './firebase.service.js';
 import { isVoipConfigured } from './voip.service.js';
+import { PushClientDiagnostic } from './models/pushClientDiagnostic.model.js';
 import { findDeliveryPartnerByPhone } from '../../modules/food/delivery/services/delivery.service.js';
 import { findRestaurantByPhone } from '../../modules/food/restaurant/services/restaurant.service.js';
 
@@ -403,79 +404,41 @@ router.post('/voip/test', authMiddleware, async (req, res, next) => {
  * can ever reach that device. The client reports why (what each bridge handler
  * returned or threw) so it shows up in server logs instead of staying on-device.
  */
-router.post('/client-diagnostic', authMiddleware, (req, res) => {
+router.post('/client-diagnostic', authMiddleware, async (req, res) => {
     const { ownerType, ownerId } = getOwnerContext(req);
     const clip = (value, max) => String(value ?? '').slice(0, max);
-    const handlers = req.body?.handlers && typeof req.body.handlers === 'object' ? req.body.handlers : {};
-    const handlerSummary = Object.entries(handlers)
-        .slice(0, 8)
-        .map(([name, outcome]) => `${clip(name, 30)}=${clip(outcome, 100)}`)
-        .join('; ') || '(no handler answered in time)';
-    logger.warn(
-        `[FCM-Client] No native FCM token for ${ownerType}:${ownerId} module=${clip(req.body?.module, 20)} ` +
-        `hasCallHandler=${Boolean(req.body?.hasCallHandler)} handlers: ${handlerSummary} ua="${clip(req.body?.userAgent, 200)}"`
+    const rawHandlers = req.body?.handlers && typeof req.body.handlers === 'object' ? req.body.handlers : {};
+    // Keys become Mongo field names, so strip the characters Mongo reserves.
+    const handlers = Object.fromEntries(
+        Object.entries(rawHandlers)
+            .slice(0, 8)
+            .map(([name, outcome]) => [clip(name, 30).replace(/[.$]/g, '_'), clip(outcome, 100)])
     );
-    return res.status(200).json({ success: true });
-});
-
-router.post('/diagnose', authMiddleware, async (req, res, next) => {
+    const handlerSummary =
+        Object.entries(handlers).map(([name, outcome]) => `${name}=${outcome}`).join('; ') ||
+        '(no handler answered in time)';
+    const diagnostic = {
+        module: clip(req.body?.module, 20),
+        hasCallHandler: Boolean(req.body?.hasCallHandler),
+        userAgent: clip(req.body?.userAgent, 200)
+    };
+    logger.warn(
+        `[FCM-Client] No native FCM token for ${ownerType}:${ownerId} module=${diagnostic.module} ` +
+        `hasCallHandler=${diagnostic.hasCallHandler} handlers: ${handlerSummary} ua="${diagnostic.userAgent}"`
+    );
     try {
-        const { ownerType: callerRole } = getOwnerContext(req);
-        if (String(callerRole).toUpperCase() !== 'ADMIN') {
-            return sendError(res, 403, 'Admin access required');
+        if (ownerType && mongoose.Types.ObjectId.isValid(ownerId)) {
+            await PushClientDiagnostic.create({
+                ownerType: String(ownerType).toUpperCase(),
+                ownerId,
+                handlers,
+                ...diagnostic
+            });
         }
-        const targetOwnerType = String(req.body?.ownerType || 'USER').toUpperCase();
-        const targetOwnerId = String(req.body?.ownerId || '').trim();
-        if (!targetOwnerId || !mongoose.Types.ObjectId.isValid(targetOwnerId)) {
-            return sendError(res, 400, 'Valid ownerId is required');
-        }
-
-        const { listOwnerTokens, sendPushNotification } = await import('./firebase.service.js');
-        const webTokens = await listOwnerTokens({ ownerType: targetOwnerType, ownerId: targetOwnerId, platform: 'web' });
-        const mobileTokens = await listOwnerTokens({ ownerType: targetOwnerType, ownerId: targetOwnerId, platform: 'mobile' });
-
-        const results = { webTokens: webTokens.length, mobileTokens: mobileTokens.length, web: [], mobile: [] };
-
-        if (req.body?.testSend) {
-            const testPayload = {
-                title: 'FCM Diagnostic Test',
-                body: `Sent at ${new Date().toISOString()}`,
-                eventId: `diag:${Date.now()}:${Math.random().toString(36).slice(2)}`,
-                data: { type: 'diagnostic_test' }
-            };
-            if (webTokens.length) {
-                const webRes = await sendPushNotification(webTokens, testPayload, { platform: 'web' });
-                results.web = (webRes.results || []).map(r => ({
-                    tokenTail: r.token?.slice(-8),
-                    ok: r.ok,
-                    error: r.error || null,
-                    remove: r.remove || false,
-                    skippedDuplicate: r.skippedDuplicate || false
-                }));
-            }
-            if (mobileTokens.length) {
-                const mobileRes = await sendPushNotification(mobileTokens, testPayload, { platform: 'mobile' });
-                results.mobile = (mobileRes.results || []).map(r => ({
-                    tokenTail: r.token?.slice(-8),
-                    ok: r.ok,
-                    error: r.error || null,
-                    remove: r.remove || false,
-                    skippedDuplicate: r.skippedDuplicate || false
-                }));
-            }
-        }
-
-        return res.status(200).json({
-            success: true,
-            data: {
-                ownerType: targetOwnerType,
-                ownerId: targetOwnerId,
-                ...results
-            }
-        });
     } catch (error) {
-        next(error);
+        logger.warn(`[FCM-Client] Could not store client diagnostic: ${error.message}`);
     }
+    return res.status(200).json({ success: true });
 });
 
 export default router;

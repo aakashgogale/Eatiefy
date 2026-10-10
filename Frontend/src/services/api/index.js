@@ -415,6 +415,11 @@ export const adminAPI = {
     apiClient.delete(`/food/admin/notifications/broadcast/${String(id)}`, {
       contextModule: "admin",
     }),
+  /** Full admins only: end-to-end push diagnostics for one account. */
+  runPushDebug: (body = {}) =>
+    apiClient.post("/food/admin/notifications/push-debug", body ?? {}, {
+      contextModule: "admin",
+    }),
   searchBroadcastRecipients: (params = {}) =>
     apiClient.get("/food/admin/notifications/recipients-search", {
       params,

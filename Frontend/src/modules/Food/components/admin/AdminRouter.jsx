@@ -89,6 +89,7 @@ const SupportCMS = lazy(() => import("@food/pages/admin/settings/SupportCMS"));
 // System Settings
 const NotificationBroadcast = lazy(() => import("@food/pages/admin/system/NotificationBroadcast"));
 const AdminNotifications = lazy(() => import("@food/pages/admin/system/AdminNotifications"));
+const PushDebug = lazy(() => import("@food/pages/admin/system/PushDebug"));
 const LandingPageManagement = lazy(() => import("@food/pages/admin/system/LandingPageManagement"));
 const DiningManagement = lazy(() => import("@food/pages/admin/system/DiningManagement"));
 const DiningList = lazy(() => import("@food/pages/admin/system/DiningList"));
@@ -300,6 +301,7 @@ export default function AdminRouter() {
             
             <Route path="notifications" element={<AdminNotifications />} />
             <Route path="broadcast-notification" element={<NotificationBroadcast />} />
+            <Route path="push-debug" element={<PushDebug />} />
             <Route path="hero-banner-management" element={<LandingPageManagement />} />
             {/*
               Retired StackFood template pages. None of them has a backend: they

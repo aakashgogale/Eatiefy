@@ -52,6 +52,7 @@ router.post('/notifications/broadcast', notificationBroadcastController.createBr
 router.get('/notifications/broadcast', notificationBroadcastController.getBroadcastNotificationsController);
 router.get('/notifications/recipients-search', notificationBroadcastController.searchBroadcastRecipientsController);
 router.delete('/notifications/broadcast/:id', notificationBroadcastController.deleteBroadcastNotificationController);
+router.post('/notifications/push-debug', notificationBroadcastController.runPushDebugController);
 
 // ----- Customers -----
 router.get('/customers', adminController.getCustomers);
