@@ -1,0 +1,26 @@
+{
+  "id": "/",
+  "name": "Eatiefy",
+  "short_name": "Eatiefy",
+  "description": "Order food from your favourite restaurants with Eatiefy.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fffdf9",
+  "theme_color": "#D91F3A",
+  "icons": [
+    {
+      "src": "/assets/images/favicon.png",
+      "sizes": "256x256",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/images/eatiefy_logo.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

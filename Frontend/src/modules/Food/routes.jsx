@@ -6,6 +6,7 @@ import AuthRedirect from "@food/components/AuthRedirect"
 import Loader from "@food/components/Loader"
 import AuthInitializer from "@food/components/AuthInitializer"
 import PushSoundEnableButton from "@food/components/PushSoundEnableButton"
+import EnableNotificationsPrompt from "@food/components/user/EnableNotificationsPrompt"
 import { initPushNotificationClient, registerWebPushForCurrentModule } from "@food/utils/firebaseMessaging"
 import {
   getCategorySlugFromPath,
@@ -381,6 +382,7 @@ export default function App() {
         <ScrollToTop />
         <RestaurantGlobalNotificationListener />
         <PushSoundEnableButton />
+        <EnableNotificationsPrompt />
         <Routes>
           {/* Restaurant Module - Already mapped to /restaurant */}
           <Route

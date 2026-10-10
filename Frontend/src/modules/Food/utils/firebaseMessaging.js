@@ -1278,7 +1278,7 @@ async function syncFirebaseConfigToServiceWorker(registration, firebasePublicEnv
 async function registerMessagingServiceWorker(firebasePublicEnv) {
   // Cache-bust so closed-app background handler updates after deploys
   const registration = await navigator.serviceWorker.register(
-    `/firebase-messaging-sw.js?v=20260724`,
+    `/firebase-messaging-sw.js?v=20261010`,
     {
       scope: "/",
       updateViaCache: "none",
@@ -1791,6 +1791,42 @@ async function getMessagingAppForPush() {
 export function getWebNotificationPermission() {
   if (typeof window === "undefined" || typeof Notification === "undefined") return "unsupported";
   return Notification.permission;
+}
+
+/**
+ * What the notification prompt UI should do on this device:
+ * "native" (Flutter shell owns push), "ios-needs-install" (iOS Safari tab —
+ * web push only works from the Home Screen app), "unsupported", or the
+ * browser permission ("default" | "granted" | "denied").
+ */
+export function getWebPushPromptState() {
+  if (typeof window === "undefined") return "unsupported";
+  if (isFlutterWebView()) return "native";
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  if (isIOS && !isSupportedBrowser()) {
+    const standalone =
+      window.navigator.standalone || window.matchMedia?.("(display-mode: standalone)")?.matches;
+    return standalone ? "unsupported" : "ios-needs-install";
+  }
+  if (!isSupportedBrowser() || !isSecureContextForPush()) return "unsupported";
+  return Notification.permission;
+}
+
+/**
+ * Must be called straight from a tap/click handler: iOS ignores
+ * Notification.requestPermission() when it is not triggered by a user gesture,
+ * which is why the automatic prompt never produced a token on iPhones.
+ * The permission request is therefore the first await in this function.
+ */
+export async function enableWebPushFromUserGesture(moduleName = "user") {
+  if (!isSupportedBrowser() || !isSecureContextForPush()) return "unsupported";
+  const permission =
+    Notification.permission === "default"
+      ? await Notification.requestPermission()
+      : Notification.permission;
+  if (permission !== "granted") return permission;
+  await registerWebPushForCurrentModule(`/food/${moduleName}`);
+  return permission;
 }
 
 /**

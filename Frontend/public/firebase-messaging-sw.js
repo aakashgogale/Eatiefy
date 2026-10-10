@@ -284,13 +284,11 @@ async function ensureFirebaseMessaging() {
         firebase.initializeApp(config);
       }
       const messaging = firebase.messaging();
-      messaging.onBackgroundMessage(async (payload) => {
-        await notifyOpenClients(payload);
-        if (await hasVisibleFocusedClient(payload)) return;
-        // Always show tray for background/closed — title/body come from
-        // notification block and/or data mirrors from the server.
-        await showOsNotificationFromPayload(payload);
-      });
+      // Rendering is owned by the synchronous `push` listener below. The SDK
+      // attaches its own listener only after this async init finishes, so on a
+      // cold start a push can arrive before it exists; iOS then sees a push
+      // with no notification and eventually revokes the subscription.
+      messaging.onBackgroundMessage(() => {});
       messagingReady = true;
       return true;
     } catch {
@@ -320,15 +318,20 @@ self.addEventListener("message", (event) => {
   }
 });
 
+// iOS (Safari web push) requires every push to surface a visible notification;
+// a handful of silent ones gets the subscription revoked. So on iOS we never
+// skip the banner just because a window looks visible or the payload is empty.
+const IS_IOS = /iPad|iPhone|iPod/.test((self.navigator && self.navigator.userAgent) || "");
+
 /**
- * Fallback when Firebase messaging never initialized (missing config on cold start).
- * If messaging IS ready, onBackgroundMessage owns display — skip to avoid doubles.
+ * Single renderer for every web push. Registered synchronously at script
+ * evaluation so it is present for the event that woke the worker.
  */
 self.addEventListener("push", (event) => {
   event.waitUntil(
     (async () => {
-      const ready = await ensureFirebaseMessaging();
-      if (ready) return;
+      // Config warm-up is best-effort; rendering never depends on it.
+      void ensureFirebaseMessaging();
 
       let raw = null;
       try {
@@ -341,13 +344,21 @@ self.addEventListener("push", (event) => {
           raw = null;
         }
       }
-      if (!raw) return;
 
-      const payload = normalizePushPayload(raw) || raw;
-      if (await hasVisibleFocusedClient(payload)) {
-        await notifyOpenClients(payload);
+      const payload = normalizePushPayload(raw);
+      if (!payload) {
+        if (IS_IOS) {
+          await self.registration.showNotification("Eatiefy", {
+            body: "You have a new notification",
+            icon: DEFAULT_NOTIFICATION_ICON,
+            tag: `eatiefy-${Date.now()}`,
+          });
+        }
         return;
       }
+
+      await notifyOpenClients(payload);
+      if (!IS_IOS && (await hasVisibleFocusedClient(payload))) return;
       await showOsNotificationFromPayload(payload);
     })(),
   );
