@@ -1008,7 +1008,7 @@ export const removeFirebaseDeviceToken = async ({ ownerType, ownerId, token, pla
 export const sendPushNotification = async (tokens, payload = {}, { platform } = {}) => {
     const projectId = getFirebaseProjectId();
     const accessToken = await getFirebaseAccessToken();
-    const uniqueTokens = normalizeTokenList(tokens);
+    const uniqueTokens = [...new Set((Array.isArray(tokens) ? tokens : [tokens]).map(sanitizeString).filter(Boolean))];
 
     if (uniqueTokens.length === 0) {
         return { successCount: 0, failureCount: 0, results: [] };
@@ -1372,6 +1372,7 @@ export const broadcastPushToTargetsSafely = async (targets = [], payload = {}) =
         const CHUNK_SIZE = 50;
         let successCount = 0;
         let failureCount = 0;
+        const deadTokens = [];
 
         for (const group of dispatchGroups) {
             for (let i = 0; i < group.tokens.length; i += CHUNK_SIZE) {
@@ -1380,6 +1381,10 @@ export const broadcastPushToTargetsSafely = async (targets = [], payload = {}) =
                 successCount += res.successCount || 0;
                 failureCount += res.failureCount || 0;
 
+                for (const r of (res.results || [])) {
+                    if (!r.ok && r.remove && r.token) deadTokens.push(r.token);
+                }
+
                 // Artificial delay to prevent overwhelming network interfaces on huge broadcasts
                 if (i + CHUNK_SIZE < group.tokens.length) {
                     await new Promise(resolve => setTimeout(resolve, 50));
@@ -1387,7 +1392,23 @@ export const broadcastPushToTargetsSafely = async (targets = [], payload = {}) =
             }
         }
 
-        logger.info(`[FCM Broadcast] Completed. Success=${successCount}, Failure=${failureCount}`);
+        // Prune dead/unregistered tokens so future broadcasts skip them.
+        if (deadTokens.length > 0) {
+            logger.info(`[FCM Broadcast] Pruning ${deadTokens.length} dead token(s)`);
+            try {
+                const pullOp = { $pull: { fcmTokens: { $in: deadTokens }, fcmTokenMobile: { $in: deadTokens } } };
+                await Promise.all(
+                    Object.values(OWNER_MODELS).map((m) => m.updateMany(
+                        { $or: [{ fcmTokens: { $in: deadTokens } }, { fcmTokenMobile: { $in: deadTokens } }] },
+                        pullOp
+                    ))
+                );
+            } catch (pruneErr) {
+                logger.warn(`[FCM Broadcast] Dead-token prune failed: ${pruneErr.message}`);
+            }
+        }
+
+        logger.info(`[FCM Broadcast] Completed. Success=${successCount}, Failure=${failureCount}, DeadTokensPruned=${deadTokens.length}`);
         return { successCount, failureCount };
     } catch (error) {
         logger.error(`[FCM Broadcast] Critical failure during bulk push: ${error.message}`);
