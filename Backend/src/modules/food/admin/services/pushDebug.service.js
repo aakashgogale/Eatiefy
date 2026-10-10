@@ -144,7 +144,13 @@ export const runPushDebug = async ({ ownerType = 'USER', query, testSend = false
 
     if (!webTokens.length && !mobileTokens.length) {
         add('error', 'No FCM token is saved for this account (neither web nor mobile). Pushes have nowhere to go.');
-        if (clientReports.some((report) => !report.tokenFound)) {
+        const failureReport = clientReports.find((report) => !report.tokenFound);
+        if (failureReport?.env && failureReport.env.flutter === false) {
+            add(
+                'error',
+                `The device reported that the Flutter bridge is NOT available to the web page (running as ${failureReport.env.standalone ? 'an installed web app' : 'a normal browser tab'}, Notification API ${failureReport.env.notificationApi ? 'present' : 'missing'}, permission "${failureReport.env.webPermission}"). The web layer therefore cannot read the native FCM token. Either this is not the Flutter app, or the app injects its bridge too late for the page to see it.`
+            );
+        } else if (failureReport) {
             add(
                 'error',
                 'The app reported it could not get a token from the native layer (see "App reports" below). That is a Flutter-side problem: the handler is missing or Firebase has no token yet.'
@@ -152,7 +158,7 @@ export const runPushDebug = async ({ ownerType = 'USER', query, testSend = false
         } else {
             add(
                 'warn',
-                'The app never reported a token failure either. Typical causes: the user has not opened/logged in with the updated web build, or the native token call hangs. Ask them to fully close and reopen the app, then re-run.'
+                'This account has never reported anything. That means the phone has not run the latest web build while logged in (a Flutter WebView can keep serving a cached build — fully close the app, reopen it and log in again), or this account is not logged in on a phone at all. Re-run after that.'
             );
         }
     } else if (!mobileTokens.length) {
@@ -225,6 +231,7 @@ export const runPushDebug = async ({ ownerType = 'USER', query, testSend = false
             at: report.createdAt,
             hasCallHandler: report.hasCallHandler,
             tokenFound: report.tokenFound === true,
+            env: report.env || null,
             permission: report.permission || null,
             handlers: report.handlers,
             userAgent: report.userAgent

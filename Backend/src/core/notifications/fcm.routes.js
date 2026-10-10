@@ -432,7 +432,16 @@ router.post('/client-diagnostic', authMiddleware, async (req, res) => {
             )
         }
         : null;
+    const rawEnv = req.body?.env && typeof req.body.env === 'object' ? req.body.env : {};
+    const env = {
+        flutter: rawEnv.flutter === true,
+        standalone: rawEnv.standalone === true,
+        notificationApi: rawEnv.notificationApi === true,
+        webPermission: clip(rawEnv.webPermission, 20),
+        serviceWorker: rawEnv.serviceWorker === true
+    };
     const diagnostic = {
+        env,
         module: clip(req.body?.module, 20),
         tokenFound: req.body?.tokenFound === true,
         hasCallHandler: Boolean(req.body?.hasCallHandler),

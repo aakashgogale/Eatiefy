@@ -224,6 +224,15 @@ async function reportNativeTokenFailure(moduleName, tokenFound = false) {
         module: moduleName,
         tokenFound,
         permission: lastNativePermission,
+        env: {
+          flutter: isFlutterWebView(),
+          standalone: Boolean(
+            window.navigator.standalone || window.matchMedia?.("(display-mode: standalone)")?.matches,
+          ),
+          notificationApi: typeof Notification !== "undefined",
+          webPermission: typeof Notification !== "undefined" ? Notification.permission : "unsupported",
+          serviceWorker: "serviceWorker" in navigator,
+        },
         handlers: lastNativeTokenFailure || {},
         hasCallHandler: Boolean(window.flutter_inappwebview?.callHandler),
         userAgent: String(navigator.userAgent || "").slice(0, 200),
@@ -554,7 +563,10 @@ export async function persistModuleFcmToken(moduleName, options = {}) {
   }
 
   if (!fcmToken) {
-    if (isFlutterWebView() && localStorage.getItem(`${moduleName}_accessToken`)) {
+    // Phones report even when the Flutter bridge is not detected: a phone that
+    // says "bridge missing" is a different problem from one that never ran this build.
+    const isPhone = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || "");
+    if ((isFlutterWebView() || isPhone) && localStorage.getItem(`${moduleName}_accessToken`)) {
       void reportNativeTokenFailure(moduleName);
     }
     return false;

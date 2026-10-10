@@ -186,6 +186,12 @@ export default function PushDebug() {
                         {formatDate(report.at)} · bridge present: {String(report.hasCallHandler)} · token found:{" "}
                         {String(report.tokenFound)}
                       </div>
+                      {report.env && (
+                        <div>
+                          Device: Flutter bridge {report.env.flutter ? "yes" : "NO"} · installed web app{" "}
+                          {report.env.standalone ? "yes" : "no"} · web permission {report.env.webPermission}
+                        </div>
+                      )}
                       <div>
                         Notification permission:{" "}
                         {!report.permission
