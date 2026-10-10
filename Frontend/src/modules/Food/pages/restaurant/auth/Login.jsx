@@ -597,7 +597,7 @@ export default function RestaurantLogin() {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-white dark:bg-[#141414] flex flex-col relative overflow-hidden font-['Poppins']">
+    <div className="restaurant-login-root min-h-[100dvh] bg-white dark:bg-[#141414] flex flex-col relative overflow-hidden font-['Poppins']">
       <style>
         {`
           @keyframes floatDish1 {
@@ -610,9 +610,17 @@ export default function RestaurantLogin() {
           }
           .animate-float-dish-1 {
             animation: floatDish1 12s ease-in-out infinite;
+            will-change: transform;
           }
           .animate-float-dish-2 {
             animation: floatDish2 12s ease-in-out infinite;
+            will-change: transform;
+          }
+          /* The shadowed dishes repaint every frame, which makes typing and the
+             keyboard lag in iOS WebViews. Hold them still while a field is focused. */
+          .restaurant-login-root:focus-within .animate-float-dish-1,
+          .restaurant-login-root:focus-within .animate-float-dish-2 {
+            animation-play-state: paused;
           }
         `}
       </style>
@@ -626,7 +634,7 @@ export default function RestaurantLogin() {
               <stop offset="100%" stopColor="#14472F" />
             </linearGradient>
           </defs>
-          <path fill="url(#topRedGrad)" d="M -50,-50 L -50,280 C 200,100 800,100 1490,100 L 1490,-50 Z" filter="drop-shadow(0px 5px 15px rgba(0,0,0,0.15))" />
+          <path fill="url(#topRedGrad)" d="M -50,-50 L -50,280 C 200,100 800,100 1490,100 L 1490,-50 Z" />
         </svg>
         <img
           src="/assets/images/Restaurant_logo_2.png"
@@ -644,7 +652,7 @@ export default function RestaurantLogin() {
               <stop offset="100%" stopColor="#14472F" />
             </linearGradient>
           </defs>
-          <path fill="url(#botRedGrad)" d="M -50,370 L -50,220 C 640,220 1240,220 1490,40 L 1490,370 Z" filter="drop-shadow(0px -5px 15px rgba(0,0,0,0.15))" />
+          <path fill="url(#botRedGrad)" d="M -50,370 L -50,220 C 640,220 1240,220 1490,40 L 1490,370 Z" />
         </svg>
         <img
           src="/assets/images/Restaurant_logo_1.png"
@@ -729,7 +737,7 @@ export default function RestaurantLogin() {
                         }
                       }}
                       maxLength={10}
-                      className="block w-full pl-20 pr-6 py-3.5 bg-gray-50 dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 shadow-sm text-gray-900 dark:text-white rounded-full outline-none transition-all duration-300 placeholder:text-gray-400 font-medium text-base focus:bg-white dark:focus:bg-gray-900 focus:border-[#2E7D52] focus:ring-4 focus:ring-[#2E7D52]/10 hover:border-gray-400"
+                      className="block w-full pl-20 pr-6 py-3.5 bg-gray-50 dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 shadow-sm text-gray-900 dark:text-white rounded-full outline-none transition-[background-color,border-color,box-shadow] duration-200 placeholder:text-gray-400 font-medium text-base focus:bg-white dark:focus:bg-gray-900 focus:border-[#2E7D52] focus:ring-4 focus:ring-[#2E7D52]/10 hover:border-gray-400"
                       placeholder="Mobile number"
                     />
                   </div>
@@ -782,7 +790,7 @@ export default function RestaurantLogin() {
                         onChange={(e) => handleChange(index, e.target.value)}
                         onKeyDown={(e) => handleKeyDown(index, e)}
                         onPaste={index === 0 ? handlePaste : undefined}
-                        className={`w-14 h-14 sm:w-16 sm:h-16 text-center text-2xl font-bold bg-gray-50 dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 shadow-sm rounded-[20px] outline-none transition-all duration-300 text-gray-900 dark:text-white focus:bg-white dark:focus:bg-gray-900 focus:border-[#2E7D52] focus:ring-4 focus:ring-[#2E7D52]/10 hover:border-gray-400 ${blockTimer > 0 ? "opacity-50 cursor-not-allowed border-red-400 bg-red-50 text-red-800" : ""}`}
+                        className={`w-14 h-14 sm:w-16 sm:h-16 text-center text-2xl font-bold bg-gray-50 dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 shadow-sm rounded-[20px] outline-none transition-[background-color,border-color,box-shadow] duration-200 text-gray-900 dark:text-white focus:bg-white dark:focus:bg-gray-900 focus:border-[#2E7D52] focus:ring-4 focus:ring-[#2E7D52]/10 hover:border-gray-400 ${blockTimer > 0 ? "opacity-50 cursor-not-allowed border-red-400 bg-red-50 text-red-800" : ""}`}
                         placeholder="•"
                       />
                     ))}

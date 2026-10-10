@@ -1992,6 +1992,8 @@ async function attachForegroundListener(firebaseAppInstance) {
   foregroundListenerAttached = true;
 }
 
+const nativeRegistrationInFlight = new Set();
+
 export async function registerWebPushForCurrentModule(pathname = window.location.pathname) {
   const moduleName = normalizeModuleFromPath(pathname);
   if (moduleName === "admin") return;
@@ -2025,12 +2027,21 @@ export async function registerWebPushForCurrentModule(pathname = window.location
     // capabilities reach the server at launch; the cache is still the fallback.
     // iOS can take several seconds to hand out the first FCM token (it waits on
     // the APNs registration), longer than the default 2s collect window.
-    await persistModuleFcmToken(moduleName, {
-      maxAttempts: 10,
-      delayMs: 500,
-      skipCache: true,
-      collectTimeoutMs: FCM_SUBMIT_COLLECT_TIMEOUT_MS,
-    });
+    // One lookup per module at a time: every route change (login -> otp) calls
+    // this, and stacked bridge-polling loops hog the iOS main thread, which
+    // makes typing and the keyboard lag on the login screen.
+    if (nativeRegistrationInFlight.has(moduleName)) return;
+    nativeRegistrationInFlight.add(moduleName);
+    try {
+      await persistModuleFcmToken(moduleName, {
+        maxAttempts: 10,
+        delayMs: 500,
+        skipCache: true,
+        collectTimeoutMs: FCM_SUBMIT_COLLECT_TIMEOUT_MS,
+      });
+    } finally {
+      nativeRegistrationInFlight.delete(moduleName);
+    }
     return;
   }
 
