@@ -597,7 +597,7 @@ export default function RestaurantLogin() {
   }
 
   return (
-    <div className="restaurant-login-root min-h-[100dvh] bg-white dark:bg-[#141414] flex flex-col relative overflow-hidden font-['Poppins']">
+    <div className="restaurant-login-root rt-web-full min-h-[100dvh] bg-white dark:bg-[#141414] flex flex-col relative overflow-hidden font-['Poppins']">
       <style>
         {`
           @keyframes floatDish1 {

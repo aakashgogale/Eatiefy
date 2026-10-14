@@ -289,7 +289,7 @@ function CompletedOrders({ onSelectOrder, refreshToken = 0 }) {
           No completed orders yet
         </div>
       ) : (
-        <div>
+        <div className="md:grid md:grid-cols-2 md:gap-x-4 md:items-start 2xl:grid-cols-3">
           {orders.map((order) => {
             const deliveredDate = order.deliveredAt
               ? new Date(order.deliveredAt).toLocaleDateString("en-US", {
@@ -509,7 +509,7 @@ function CancelledOrders({ onSelectOrder, refreshToken = 0 }) {
           No cancelled orders yet
         </div>
       ) : (
-        <div>
+        <div className="md:grid md:grid-cols-2 md:gap-x-4 md:items-start 2xl:grid-cols-3">
           {orders.map((order) => {
             const cancelledDate = order.cancelledAt
               ? new Date(order.cancelledAt).toLocaleDateString("en-US", {
@@ -1000,7 +1000,7 @@ function AllOrders({ onSelectOrder, onCancel, onVerifyTakeaway, refreshToken = 0
           No orders found
         </div>
       ) : (
-        <div>
+        <div className="md:grid md:grid-cols-2 md:gap-x-4 md:items-start 2xl:grid-cols-3">
           {orders.map((order) => {
             const normalizedStatus = String(order.status || "").toLowerCase();
             let etaDisplay = order.eta;
@@ -1157,7 +1157,7 @@ function TakeawayOrders({ onSelectOrder, onCancel, onVerifyTakeaway, refreshToke
       {orders.length === 0 ? (
         <div className="text-center py-8 text-gray-500 text-sm">No takeaway orders found</div>
       ) : (
-        <div>
+        <div className="md:grid md:grid-cols-2 md:gap-x-4 md:items-start 2xl:grid-cols-3">
           {orders.map((order) => {
             const normalizedStatus = String(order.status || '').toLowerCase();
             let etaDisplay = order.eta;
@@ -1220,7 +1220,7 @@ function SearchResults({ query, results, isLoading, onSelectOrder, onVerifyTakea
           <p className="text-gray-500 text-xs">Try searching for a different order ID or customer name</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-3 md:space-y-0 md:grid md:grid-cols-2 md:gap-x-4 md:items-start 2xl:grid-cols-3 md:gap-y-3">
           {transformedResults.map((order) => (
             <OrderCard
               key={order.orderId || order.mongoId}
@@ -5029,7 +5029,7 @@ function PreparingOrders({
           No orders in preparation
         </div>
       ) : (
-        <div>
+        <div className="md:grid md:grid-cols-2 md:gap-x-4 md:items-start 2xl:grid-cols-3">
           {orders.map((order) => {
             // Format ETA display
             let etaDisplay = "";
@@ -5193,7 +5193,7 @@ function ReadyOrders({ onSelectOrder, onVerifyTakeaway, refreshToken = 0 }) {
           No orders ready for pickup
         </div>
       ) : (
-        <div>
+        <div className="md:grid md:grid-cols-2 md:gap-x-4 md:items-start 2xl:grid-cols-3">
           {orders.map((order) => (
             <OrderCard
               key={order.orderId || order.mongoId}
@@ -5324,7 +5324,7 @@ const OutForDeliveryOrders = ({ onSelectOrder, refreshToken = 0 }) => {
           No orders out for delivery
         </div>
       ) : (
-        <div>
+        <div className="md:grid md:grid-cols-2 md:gap-x-4 md:items-start 2xl:grid-cols-3">
           {orders.map((order) => (
             <OrderCard
               key={order.orderId || order.mongoId}

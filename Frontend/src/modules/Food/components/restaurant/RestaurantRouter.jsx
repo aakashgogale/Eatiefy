@@ -1,6 +1,7 @@
 import React, { Suspense, lazy } from "react"
 import RouteErrorBoundary from "@/shared/components/RouteErrorBoundary"
 import RestaurantOfflineGate from "./RestaurantOfflineGate"
+import RestaurantShell, { RestaurantShellIfSignedIn } from "./RestaurantShell"
 import { Routes, Route, Navigate, Outlet, useLocation, useNavigate } from "react-router-dom"
 import ProtectedRoute from "@food/components/ProtectedRoute"
 import AuthRedirect from "@food/components/AuthRedirect"
@@ -124,7 +125,9 @@ export default function RestaurantRouter() {
         {/* Protected Routes */}
         <Route element={
           <ProtectedRoute requiredRole="restaurant" loginPath="/food/restaurant/login">
-            <Outlet />
+            <RestaurantShell>
+              <Outlet />
+            </RestaurantShell>
           </ProtectedRoute>
         }>
           <Route path="" element={<OrdersMain />} />
@@ -167,10 +170,10 @@ export default function RestaurantRouter() {
         <Route path="onboarding/payment" element={<RestaurantOnboardingPayment />} />
         
         {/* Public Legal & Support Routes */}
-        <Route path="privacy" element={<PrivacyPolicyPage />} />
-        <Route path="terms" element={<TermsAndConditionsPage />} />
-        <Route path="help-centre/support" element={<RestaurantSupport />} />
-        <Route path="help-content" element={<CMSHelpSupportPage />} />
+        <Route path="privacy" element={<RestaurantShellIfSignedIn><PrivacyPolicyPage /></RestaurantShellIfSignedIn>} />
+        <Route path="terms" element={<RestaurantShellIfSignedIn><TermsAndConditionsPage /></RestaurantShellIfSignedIn>} />
+        <Route path="help-centre/support" element={<RestaurantShellIfSignedIn><RestaurantSupport /></RestaurantShellIfSignedIn>} />
+        <Route path="help-content" element={<RestaurantShellIfSignedIn><CMSHelpSupportPage /></RestaurantShellIfSignedIn>} />
         </Routes>
       </Suspense>
       </RestaurantOfflineGate>

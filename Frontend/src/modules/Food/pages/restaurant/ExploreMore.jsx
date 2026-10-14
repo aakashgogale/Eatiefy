@@ -878,7 +878,7 @@ export default function ExploreMore() {
       >
         {title}
       </motion.h2>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 md:gap-5">
         {items.map((item, index) => {
           const IconComponent = item.icon
           return (
@@ -975,7 +975,7 @@ export default function ExploreMore() {
         }}
         /* Safe-area padding keeps the row clear of the status bar in the mobile
            shell without pushing the sticky edge away from the viewport top. */
-        className="bg-white border-b border-gray-200 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] sticky top-0 z-50"
+        className="bg-white border-b border-gray-200 px-4 md:px-6 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] sticky top-0 z-50"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 flex-1">
@@ -1008,7 +1008,7 @@ export default function ExploreMore() {
       </motion.div>
 
       {/* Main Content */}
-      <div className="px-4 py-6">
+      <div className="px-4 py-6 md:px-6 md:py-8">
         {/* Restaurant Information Card */}
         <motion.div
           initial={{ opacity: 0, y: 8 }}

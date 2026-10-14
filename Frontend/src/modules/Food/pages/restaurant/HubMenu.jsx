@@ -1678,7 +1678,7 @@ export default function HubMenu() {
       </div>
 
       {/* Sticky Bottom Right Buttons */}
-      <div className="fixed right-4 bottom-24 z-30 flex flex-col gap-1">
+      <div className="fixed right-4 bottom-24 md:bottom-8 md:right-8 z-30 flex flex-col gap-1">
         {/* ADD Button */}
 
         {activeTab !== "add-ons" && (
@@ -1724,7 +1724,7 @@ export default function HubMenu() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 20 }}
                     transition={{ duration: 0.2 }}
-                    className="fixed right-4 bottom-36 z-30 w-[60vw] max-w-sm h-[45vh] bg-white rounded-3xl shadow-lg overflow-hidden"
+                    className="fixed right-4 bottom-36 md:bottom-20 md:right-8 z-30 w-[60vw] max-w-sm h-[45vh] bg-white rounded-3xl shadow-lg overflow-hidden"
                   >
                     <div className="h-full flex flex-col">
                       <div className="px-4 pt-4 pb-2">

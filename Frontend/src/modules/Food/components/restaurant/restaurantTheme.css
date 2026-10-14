@@ -125,34 +125,103 @@
 }
 
 /* ----------------------------------------------------------------------
-   Web/desktop presentation only — everything below md (768px), i.e. the
-   phone experience, is untouched by this block.
+   Responsive web layout. Phones (< 768px) are untouched: the shell
+   wrappers below are `display: contents` there, so every screen lays out
+   exactly as in the mobile app.
 
-   The panel is built mobile-first: every screen's root is a direct child
-   of .restaurant-theme sized with min-h-screen/h-screen/h-[100dvh]. On a
-   wide viewport that used to stretch edge to edge. Centering it as a
-   fixed-width "app frame" (like partner web dashboards do) fixes that
-   without changing any page's internal layout, spacing, or logic.
+   >= 768px  (tablet)  icon rail sidebar + full-width content
+   >= 1024px (desktop) labelled sidebar + full-width content
 
-   Screens that already ship their own real desktop layout (the split
-   image/form auth screens) opt out via .rt-web-full and render full width
-   as designed.
+   The signed-in screens render inside RestaurantShell (.rt-shell). Screens
+   outside it (legal, help, onboarding, pending) get a centred readable
+   column. Auth screens with their own split desktop layout opt out via
+   .rt-web-full.
    ---------------------------------------------------------------------- */
+.restaurant-theme {
+  --rt-sidebar-w: 0px;
+}
+
+.rt-shell,
+.rt-shell-main {
+  display: contents;
+}
+
 @media (min-width: 768px) {
   .restaurant-theme {
-    display: flex;
-    justify-content: center;
+    --rt-sidebar-w: 96px;
     min-height: 100dvh;
-    background: #eef1f0;
+    background: #f3f5f4;
   }
 
-  .restaurant-theme > div:not(.rt-web-full) {
+  .rt-shell {
+    display: block;
+  }
+
+  .rt-shell-main {
+    display: block;
+    min-height: 100dvh;
+    padding-left: var(--rt-sidebar-w);
+  }
+
+  /* Full-width fixed bars and toasts inside a screen start after the
+     sidebar instead of sliding underneath it. Full-screen overlays
+     (inset-0) still cover everything. */
+  .rt-shell-main .fixed.left-0.right-0:not(.inset-0),
+  .rt-shell-main .fixed.inset-x-0 {
+    left: var(--rt-sidebar-w);
+  }
+
+  .rt-shell-main .fixed.left-4.right-4 {
+    left: calc(var(--rt-sidebar-w) + 1rem);
+  }
+
+  .rt-shell-main .fixed.left-1\/2 {
+    left: calc(50% + var(--rt-sidebar-w) / 2);
+  }
+
+  /* Standalone screens outside the dashboard shell. */
+  .restaurant-theme > div:not(.rt-web-full):not(.rt-shell):not(.fixed) {
     width: 100%;
-    max-width: 480px;
-    box-shadow: 0 0 0 1px rgba(16, 24, 40, 0.06), 0 24px 60px -20px rgba(16, 24, 40, 0.25);
+    max-width: 960px;
+    margin-inline: auto;
+    box-shadow: 0 0 0 1px rgba(16, 24, 40, 0.05);
+  }
+}
+
+@media (min-width: 1024px) {
+  .restaurant-theme {
+    --rt-sidebar-w: 248px;
   }
 
-  .restaurant-theme > div.rt-web-full {
-    max-width: none;
+  /* Content column. Each screen's sections (direct children of the screen
+     root) keep their full-width background, but their content is centred
+     in a column sized for the screen type (RestaurantShell sets data-col).
+     Overlays/toasts (.fixed) are left alone; full-width fixed bottom bars
+     get the same column so their buttons line up with the content. */
+  .rt-shell-main[data-col="narrow"] { --rt-col: 48rem; }
+  .rt-shell-main[data-col="medium"] { --rt-col: 64rem; }
+  .rt-shell-main[data-col="wide"] { --rt-col: 72rem; }
+
+  .rt-shell-main[data-col] > * > :not(.fixed) {
+    padding-inline: max(1rem, calc((100% - var(--rt-col)) / 2));
+  }
+
+  .rt-shell-main[data-col] .fixed.left-0.right-0:not(.inset-0):not(.top-0),
+  .rt-shell-main[data-col] .fixed.bottom-0.inset-x-0 {
+    padding-inline: max(1rem, calc((100vw - var(--rt-sidebar-w) - var(--rt-col)) / 2));
+  }
+
+  /* Phone bottom sheets (fixed to the bottom with rounded top corners)
+     float as a centred panel on desktop instead of spanning the screen.
+     revert-layer hands their padding back to their own utility classes. */
+  .rt-shell-main[data-col] .fixed.bottom-0.left-0.right-0[class*="rounded-t"]:not(.inset-0),
+  .rt-shell-main[data-col] .fixed.bottom-0.inset-x-0[class*="rounded-t"] {
+    --rt-sheet: min(var(--rt-col), 44rem);
+    left: calc(var(--rt-sidebar-w) + (100vw - var(--rt-sidebar-w) - var(--rt-sheet)) / 2);
+    right: calc((100vw - var(--rt-sidebar-w) - var(--rt-sheet)) / 2);
+    bottom: 1.5rem;
+    padding-inline: revert-layer;
+    border-radius: 1.5rem;
+    box-shadow: 0 24px 60px -12px rgba(16, 24, 40, 0.35);
   }
 }

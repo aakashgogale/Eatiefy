@@ -12,14 +12,14 @@ import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotificatio
 import { isDiningEnabled } from "@food/config/featureFlags";
 import useIsKeyboardOpen from "@food/hooks/useIsKeyboardOpen";
 
-const getOrdersTabs = (basePath = "/food/restaurant") => [
+export const getOrdersTabs = (basePath = "/food/restaurant") => [
   { id: "orders", label: "Orders", icon: FileText, route: `${basePath}` },
   { id: "inventory", label: "Inventory", icon: Package, route: `${basePath}/inventory` },
   { id: "feedback", label: "Feedback", icon: MessageSquare, route: `${basePath}/feedback` },
   { id: "explore", label: "Explore", icon: Compass, route: `${basePath}/explore` },
 ]
 
-const findActiveTab = (tabs, pathname) =>
+export const findActiveTab = (tabs, pathname) =>
   tabs
     .slice()
     .sort((a, b) => b.route.length - a.route.length)
@@ -61,7 +61,7 @@ export default function BottomNavOrders({ activeTabOverride }) {
 
   return (
     <div
-      className={`fixed bottom-0 left-0 right-0 z-40 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] transition-all duration-300 ease-in-out ${
+      className={`md:hidden fixed bottom-0 left-0 right-0 z-40 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] transition-all duration-300 ease-in-out ${
         isKeyboardOpen
           ? "pointer-events-none opacity-0 translate-y-full"
           : "opacity-100 translate-y-0"

@@ -589,9 +589,9 @@ export default function AllOrdersPage() {
       )}
 
       {/* Orders List */}
-      <div className="px-4 pb-24 space-y-3">
+      <div className="px-4 pb-24 space-y-3 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0 lg:items-start">
         {loading && (
-          <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
+          <div className="text-center py-12 bg-white rounded-lg border border-gray-200 lg:col-span-2">
             <div className="flex flex-col items-center gap-3">
               <div className="w-8 h-8 border-4 border-[#2E7D52] border-t-transparent rounded-full animate-spin"></div>
               <p className="text-gray-600 text-sm">Loading orders...</p>
@@ -600,7 +600,7 @@ export default function AllOrdersPage() {
         )}
         
         {!loading && error && (
-          <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
+          <div className="text-center py-12 bg-white rounded-lg border border-gray-200 lg:col-span-2">
             <div className="flex flex-col items-center gap-3">
               <p className="text-[#2E7D52] font-medium text-sm">Error loading orders</p>
               <p className="text-gray-500 text-xs">{error}</p>
@@ -611,7 +611,7 @@ export default function AllOrdersPage() {
         {!loading && !error && (
           <AnimatePresence mode="popLayout">
             {filteredOrders.length === 0 ? (
-              <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
+              <div className="text-center py-12 bg-white rounded-lg border border-gray-200 lg:col-span-2">
                 <div className="flex flex-col items-center gap-3">
                   <p className="text-gray-900 font-medium text-sm">No orders found</p>
                   <p className="text-gray-500 text-xs">
