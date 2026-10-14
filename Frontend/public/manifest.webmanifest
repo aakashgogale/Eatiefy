@@ -12,13 +12,13 @@
   "icons": [
     {
       "src": "/assets/images/favicon.png",
-      "sizes": "256x256",
+      "sizes": "180x180",
       "type": "image/png",
       "purpose": "any"
     },
     {
       "src": "/assets/images/eatiefy_logo.png",
-      "sizes": "1254x1254",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     }

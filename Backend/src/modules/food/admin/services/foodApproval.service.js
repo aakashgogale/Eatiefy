@@ -186,28 +186,32 @@ export async function approveFoodItem(id) {
     if (updated?.restaurantId) {
         // Single DB update; makes user-facing menu reflect approval immediately.
         await syncMenuItemApprovalStatus(updated.restaurantId, updated._id, 'approved', '');
-        
-        try {
-            const { notifyOwnersSafely } = await import('../../../../core/notifications/firebase.service.js');
-            await notifyOwnersSafely(
-                [{ ownerType: 'RESTAURANT', ownerId: updated.restaurantId }],
-                {
-                    title: 'Dish Approved! 🍲',
-                    body: `Your dish "${updated.name}" has been approved and is now visible to customers.`,
-                    image: updated.image || 'https://i.ibb.co/3m2Yh7r/Eatiefy-Brand-Image.png',
-                    sendToAllDevices: true,
-                    data: {
-                        type: 'food_approved',
-                        foodId: String(updated._id),
-                        restaurantId: String(updated.restaurantId),
-                        targetUrl: '/food/restaurant',
-                        link: '/food/restaurant',
+
+        // Push is fire-and-forget so FCM latency doesn't hold the admin's approve
+        // response (a slow response widens the window for stale list refreshes).
+        void (async () => {
+            try {
+                const { notifyOwnersSafely } = await import('../../../../core/notifications/firebase.service.js');
+                await notifyOwnersSafely(
+                    [{ ownerType: 'RESTAURANT', ownerId: updated.restaurantId }],
+                    {
+                        title: 'Dish Approved! 🍲',
+                        body: `Your dish "${updated.name}" has been approved and is now visible to customers.`,
+                        image: updated.image || 'https://i.ibb.co/3m2Yh7r/Eatiefy-Brand-Image.png',
+                        sendToAllDevices: true,
+                        data: {
+                            type: 'food_approved',
+                            foodId: String(updated._id),
+                            restaurantId: String(updated.restaurantId),
+                            targetUrl: '/food/restaurant',
+                            link: '/food/restaurant',
+                        }
                     }
-                }
-            );
-        } catch (e) {
-            console.error('Failed to send food approval notification:', e);
-        }
+                );
+            } catch (e) {
+                console.error('Failed to send food approval notification:', e);
+            }
+        })();
     }
     return updated;
 }
@@ -227,29 +231,32 @@ export async function rejectFoodItem(id, reason) {
     ).lean();
     if (updated?.restaurantId) {
         await syncMenuItemApprovalStatus(updated.restaurantId, updated._id, 'rejected', r);
-        
-        try {
-            const { notifyOwnersSafely } = await import('../../../../core/notifications/firebase.service.js');
-            await notifyOwnersSafely(
-                [{ ownerType: 'RESTAURANT', ownerId: updated.restaurantId }],
-                {
-                    title: 'Dish Rejected ❌',
-                    body: `Your dish "${updated.name}" was rejected. Reason: ${r}`,
-                    image: updated.image || 'https://i.ibb.co/3m2Yh7r/Eatiefy-Brand-Image.png',
-                    sendToAllDevices: true,
-                    data: {
-                        type: 'food_rejected',
-                        foodId: String(updated._id),
-                        restaurantId: String(updated.restaurantId),
-                        reason: r,
-                        targetUrl: '/food/restaurant',
-                        link: '/food/restaurant',
+
+        // Fire-and-forget, same reasoning as approveFoodItem.
+        void (async () => {
+            try {
+                const { notifyOwnersSafely } = await import('../../../../core/notifications/firebase.service.js');
+                await notifyOwnersSafely(
+                    [{ ownerType: 'RESTAURANT', ownerId: updated.restaurantId }],
+                    {
+                        title: 'Dish Rejected ❌',
+                        body: `Your dish "${updated.name}" was rejected. Reason: ${r}`,
+                        image: updated.image || 'https://i.ibb.co/3m2Yh7r/Eatiefy-Brand-Image.png',
+                        sendToAllDevices: true,
+                        data: {
+                            type: 'food_rejected',
+                            foodId: String(updated._id),
+                            restaurantId: String(updated.restaurantId),
+                            reason: r,
+                            targetUrl: '/food/restaurant',
+                            link: '/food/restaurant',
+                        }
                     }
-                }
-            );
-        } catch (e) {
-            console.error('Failed to send food rejection notification:', e);
-        }
+                );
+            } catch (e) {
+                console.error('Failed to send food rejection notification:', e);
+            }
+        })();
     }
     return updated;
 }

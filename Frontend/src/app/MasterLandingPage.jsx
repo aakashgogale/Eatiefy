@@ -25,6 +25,12 @@ import {
   Navigation
 } from "lucide-react"
 
+const AppleIcon = ({ className }) => (
+  <svg viewBox="0 0 384 512" fill="currentColor" className={className} aria-hidden="true">
+    <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141 4 184.8 4 273.5c0 25.7 4.7 52.3 14.1 79.7 12.4 36.7 57.2 126.7 103.9 125.2 24.6-.6 42-17.5 74-17.5 31 0 47.1 17.5 74.4 17.5 47.1-.7 87.6-82.9 99.4-119.7-63.2-29.8-50.9-87.5-51.1-90zM256.8 88.3c26.9-32 24.5-61.1 23.7-71.6-23.8 1.4-51.4 16.4-67.2 34.8-17.4 19.6-27.6 44-25.4 70.6 25.2 2 48.4-10.2 68.9-33.8z"/>
+  </svg>
+)
+
 const NAV_LINKS = [
   { label: "Home", href: "#home" },
   { label: "Restaurants", href: "#restaurants" },
@@ -213,6 +219,19 @@ export default function MasterLandingPage() {
               <div className="text-left leading-tight pointer-events-none">
                 <div className="text-[10px] uppercase tracking-wide text-gray-300">GET IT ON</div>
                 <div className="text-sm font-semibold">Google Play</div>
+              </div>
+            </a>
+            <a
+              href="https://apps.apple.com/in/app/eatiefy/id6804955136"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ cursor: 'pointer' }}
+              className="cursor-pointer flex items-center gap-3 bg-black border border-gray-600 text-white px-5 py-2 rounded-xl hover:-translate-y-2 hover:scale-[1.03] hover:border-gray-400 hover:shadow-2xl transition-all duration-200 w-48 justify-center relative z-30"
+            >
+              <AppleIcon className="w-6 h-6 text-white pointer-events-none" />
+              <div className="text-left leading-tight pointer-events-none">
+                <div className="text-[10px] uppercase tracking-wide text-gray-300">Download on the</div>
+                <div className="text-sm font-semibold">App Store</div>
               </div>
             </a>
           </motion.div>
@@ -589,6 +608,21 @@ export default function MasterLandingPage() {
                     <div className="text-lg font-bold leading-none text-white tracking-tight">Google Play</div>
                   </div>
                 </a>
+                <a
+                  href="https://apps.apple.com/in/app/eatiefy/id6804955136"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ cursor: 'pointer' }}
+                  className="cursor-pointer flex items-center gap-3 bg-transparent border border-white/20 text-white px-6 py-3 rounded-2xl hover:-translate-y-2 hover:scale-[1.03] hover:border-gray-400 hover:shadow-2xl transition-all duration-200 w-full sm:w-[230px] justify-center md:justify-start relative z-30"
+                >
+                  <div className="w-8 h-8 flex items-center justify-center shrink-0 pointer-events-none">
+                    <AppleIcon className="w-7 h-7 text-white" />
+                  </div>
+                  <div className="text-left flex-1 pointer-events-none">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Download on the</div>
+                    <div className="text-lg font-bold leading-none text-white tracking-tight">App Store</div>
+                  </div>
+                </a>
               </div>
             </div>
 
@@ -635,8 +669,8 @@ export default function MasterLandingPage() {
 
                   <div className="flex-1 w-full relative">
                     <img 
-                      src="/assets/images/phone screen 1.webp" 
-                      alt="App Screen" 
+                      src="/assets/images/eatiefy_app_screen.png"
+                      alt="Eatiefy App Screen"
                       className="absolute inset-0 w-full h-full object-cover object-top"
                       style={{ imageRendering: 'high-quality', WebkitFontSmoothing: 'antialiased' }} 
                     />
@@ -657,7 +691,7 @@ export default function MasterLandingPage() {
             {/* Brand */}
             <div>
               <div className="flex items-center gap-2 mb-6">
-                <img src="/assets/images/eatiefy_logo_transparent.png" alt="Eatiefy" className="h-14 w-auto object-contain" />
+                <img src="/assets/images/EatiefyUserAppLogo.jpeg" alt="Eatiefy" className="h-14 w-14 object-cover rounded-xl shadow-lg" />
               </div>
               <p className="text-gray-400 text-sm mb-6 leading-relaxed">
                 India's smartest dining and takeaway platform. Skip the lines, discover new tastes, and dine better.
@@ -672,6 +706,16 @@ export default function MasterLandingPage() {
                   title="Google Play Store"
                 >
                   <img src="/assets/images/playstore_img-removebg-preview.webp" alt="Google Play" className="w-5 h-5 object-contain opacity-70 group-hover:opacity-100 transition-all pointer-events-none" />
+                </a>
+                <a
+                  href="https://apps.apple.com/in/app/eatiefy/id6804955136"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ cursor: 'pointer' }}
+                  className="cursor-pointer w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-gray-400 hover:bg-[#D32F2F] hover:text-white transition-all group relative z-30"
+                  title="Apple App Store"
+                >
+                  <AppleIcon className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-all pointer-events-none" />
                 </a>
               </div>
             </div>

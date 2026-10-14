@@ -123,3 +123,36 @@
   border-color: color-mix(in srgb, var(--rt-primary) 55%, #ffffff) !important;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--rt-primary) 15%, transparent) !important;
 }
+
+/* ----------------------------------------------------------------------
+   Web/desktop presentation only — everything below md (768px), i.e. the
+   phone experience, is untouched by this block.
+
+   The panel is built mobile-first: every screen's root is a direct child
+   of .restaurant-theme sized with min-h-screen/h-screen/h-[100dvh]. On a
+   wide viewport that used to stretch edge to edge. Centering it as a
+   fixed-width "app frame" (like partner web dashboards do) fixes that
+   without changing any page's internal layout, spacing, or logic.
+
+   Screens that already ship their own real desktop layout (the split
+   image/form auth screens) opt out via .rt-web-full and render full width
+   as designed.
+   ---------------------------------------------------------------------- */
+@media (min-width: 768px) {
+  .restaurant-theme {
+    display: flex;
+    justify-content: center;
+    min-height: 100dvh;
+    background: #eef1f0;
+  }
+
+  .restaurant-theme > div:not(.rt-web-full) {
+    width: 100%;
+    max-width: 480px;
+    box-shadow: 0 0 0 1px rgba(16, 24, 40, 0.06), 0 24px 60px -20px rgba(16, 24, 40, 0.25);
+  }
+
+  .restaurant-theme > div.rt-web-full {
+    max-width: none;
+  }
+}

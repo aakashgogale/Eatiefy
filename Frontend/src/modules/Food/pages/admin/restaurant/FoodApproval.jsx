@@ -124,6 +124,14 @@ export default function FoodApproval() {
   const [rejectReason, setRejectReason] = useState("")
   const [processing, setProcessing] = useState(false)
   const isMountedRef = useRef(true)
+  // Several triggers (approve refetch, badge refresh, focus, interval) can overlap;
+  // only the most recently started fetch may write state, so a slower older
+  // response can't resurrect rows that were already approved/rejected.
+  const latestFetchIdRef = useRef(0)
+  // id -> fetch watermark for items approved/rejected from this page. A fetch
+  // started at or before the watermark may have read the DB before the action
+  // committed, so the item is hidden from its result. Infinity = action in flight.
+  const actionedIdsRef = useRef(new Map())
 
   // Fetch active zones dynamically
   useEffect(() => {
@@ -154,6 +162,8 @@ export default function FoodApproval() {
 
   // Fetch pending food approval requests
   const fetchFoodRequests = useCallback(async ({ silent = false } = {}) => {
+    const fetchId = ++latestFetchIdRef.current
+    const isLatest = () => isMountedRef.current && fetchId === latestFetchIdRef.current
     try {
       if (!silent) {
         setLoading(true)
@@ -170,21 +180,31 @@ export default function FoodApproval() {
         : Array.isArray(payload)
           ? payload
           : []
-      if (!isMountedRef.current) return
-      setFoodRequests(data)
-      setTotalItems(
-        Number(payload?.total ?? response?.data?.total ?? data.length) || 0,
-      )
+      if (!isLatest()) return
+      const actioned = actionedIdsRef.current
+      const visible = data.filter((item) => {
+        const watermark = actioned.get(String(item._id || item.id))
+        return watermark === undefined || fetchId > watermark
+      })
+      // Watermarks below this fetch can no longer affect any later fetch.
+      actioned.forEach((watermark, id) => {
+        if (watermark < fetchId) actioned.delete(id)
+      })
+      const total = Number(payload?.total ?? response?.data?.total ?? data.length) || 0
+      setFoodRequests(visible)
+      setTotalItems(Math.max(0, total - (data.length - visible.length)))
     } catch (error) {
       debugError('Error fetching food approval requests:', error)
-      if (!isMountedRef.current) return
+      if (!isLatest()) return
       if (!silent) {
         toast.error('Failed to load food approval requests')
       }
       setFoodRequests([])
       setTotalItems(0)
     } finally {
-      if (!silent && isMountedRef.current) {
+      // The latest fetch owns the spinner: it clears a loading state left by a
+      // superseded non-silent fetch whose result was discarded.
+      if (isLatest()) {
         setLoading(false)
       }
     }
@@ -203,7 +223,7 @@ export default function FoodApproval() {
     setCurrentPage(1)
   }, [debouncedSearch])
 
-  useAdminBadgeListRefresh("foodApprovals", fetchFoodRequests, [debouncedSearch, currentPage, pageSize])
+  useAdminBadgeListRefresh("foodApprovals", fetchFoodRequests, [fetchFoodRequests])
 
   useEffect(() => {
     isMountedRef.current = true
@@ -242,9 +262,10 @@ export default function FoodApproval() {
   // Handle approve food item or addon
   const handleApprove = async (request) => {
     if (!request?.isActionable) return
+    const id = request._id || request.id
     try {
       setProcessing(true)
-      const id = request._id || request.id
+      actionedIdsRef.current.set(String(id), Infinity)
       setFoodRequests(prev => prev.filter(item => (item._id || item.id) !== id))
 
       if (request.entityType === 'addon') {
@@ -254,13 +275,15 @@ export default function FoodApproval() {
         await adminAPI.approveFoodItem(id)
         toast.success('Food item approved successfully')
       }
-      
+      actionedIdsRef.current.set(String(id), latestFetchIdRef.current)
+
       await fetchFoodRequests({ silent: true })
       refreshSidebarBadges("foodApprovals")
       setShowDetailModal(false)
       setSelectedRequest(null)
     } catch (error) {
       debugError('Error approving item:', error)
+      actionedIdsRef.current.delete(String(id))
       toast.error(error?.response?.data?.message || 'Failed to approve item')
       await fetchFoodRequests()
     } finally {
@@ -279,9 +302,10 @@ export default function FoodApproval() {
       return
     }
 
+    const id = selectedRequest._id || selectedRequest.id
     try {
       setProcessing(true)
-      const id = selectedRequest._id || selectedRequest.id
+      actionedIdsRef.current.set(String(id), Infinity)
       setFoodRequests(prev => prev.filter(item => (item._id || item.id) !== id))
 
       if (selectedRequest.entityType === 'addon') {
@@ -291,7 +315,8 @@ export default function FoodApproval() {
         await adminAPI.rejectFoodItem(id, rejectReason)
         toast.success('Food item rejected')
       }
-      
+      actionedIdsRef.current.set(String(id), latestFetchIdRef.current)
+
       await fetchFoodRequests({ silent: true })
       refreshSidebarBadges("foodApprovals")
       setShowRejectModal(false)
@@ -300,6 +325,7 @@ export default function FoodApproval() {
       setRejectReason("")
     } catch (error) {
       debugError('Error rejecting item:', error)
+      actionedIdsRef.current.delete(String(id))
       toast.error(error?.response?.data?.message || 'Failed to reject item')
       await fetchFoodRequests()
     } finally {
