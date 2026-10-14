@@ -31,6 +31,10 @@ const AppleIcon = ({ className }) => (
   </svg>
 )
 
+// Customer app store listings (hero, download section and footer).
+const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.eatiefy.user"
+const APP_STORE_URL = "https://apps.apple.com/in/app/eatiefy/id6804955136"
+
 const NAV_LINKS = [
   { label: "Home", href: "#home" },
   { label: "Restaurants", href: "#restaurants" },
@@ -209,7 +213,7 @@ export default function MasterLandingPage() {
             className="flex flex-col sm:flex-row items-center gap-4 justify-center relative z-30"
           >
             <a
-              href="https://play.google.com/store/apps/details?id=com.ometto.user"
+              href={PLAY_STORE_URL}
               target="_blank"
               rel="noopener noreferrer"
               style={{ cursor: 'pointer' }}
@@ -222,7 +226,7 @@ export default function MasterLandingPage() {
               </div>
             </a>
             <a
-              href="https://apps.apple.com/in/app/eatiefy/id6804955136"
+              href={APP_STORE_URL}
               target="_blank"
               rel="noopener noreferrer"
               style={{ cursor: 'pointer' }}
@@ -594,7 +598,7 @@ export default function MasterLandingPage() {
 
               <div className="flex flex-col sm:flex-row items-center gap-4 justify-center md:justify-start relative z-30">
                 <a
-                  href="https://play.google.com/store/apps/details?id=com.ometto.user"
+                  href={PLAY_STORE_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ cursor: 'pointer' }}
@@ -609,7 +613,7 @@ export default function MasterLandingPage() {
                   </div>
                 </a>
                 <a
-                  href="https://apps.apple.com/in/app/eatiefy/id6804955136"
+                  href={APP_STORE_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ cursor: 'pointer' }}
@@ -698,7 +702,7 @@ export default function MasterLandingPage() {
               </p>
               <div className="flex gap-4 relative z-30">
                 <a
-                  href="https://play.google.com/store/apps/details?id=com.ometto.user"
+                  href={PLAY_STORE_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ cursor: 'pointer' }}
@@ -708,7 +712,7 @@ export default function MasterLandingPage() {
                   <img src="/assets/images/playstore_img-removebg-preview.webp" alt="Google Play" className="w-5 h-5 object-contain opacity-70 group-hover:opacity-100 transition-all pointer-events-none" />
                 </a>
                 <a
-                  href="https://apps.apple.com/in/app/eatiefy/id6804955136"
+                  href={APP_STORE_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ cursor: 'pointer' }}
