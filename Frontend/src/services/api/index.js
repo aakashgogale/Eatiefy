@@ -591,17 +591,30 @@ export const adminAPI = {
       contextModule: "admin",
     }, { ttlMs: 10000, staleOn429Ms: 90000 }),
   approveFoodItem: (id) =>
-    apiClient.patch(
+    withPendingFoodApprovalsInvalidation(apiClient.patch(
       `/food/admin/foods/${String(id)}/approve`,
       {},
       { contextModule: "admin" },
-    ),
+    )),
   rejectFoodItem: (id, reason) =>
-    apiClient.patch(
+    withPendingFoodApprovalsInvalidation(apiClient.patch(
       `/food/admin/foods/${String(id)}/reject`,
       { reason: String(reason || "").trim() },
       { contextModule: "admin" },
-    ),
+    )),
+  /** Restaurants with pending food/add-on approvals (+ counts); uncached so the bulk dialog is always current. */
+  getPendingApprovalRestaurants: (params = {}) =>
+    apiClient.get("/food/admin/foods/pending-approvals/restaurants", {
+      params,
+      contextModule: "admin",
+    }),
+  /** Bulk approve: { items: [{ id, entityType }] } or { restaurantIds | allRestaurants, zoneId }. */
+  bulkApprovePending: (payload) =>
+    withPendingFoodApprovalsInvalidation(apiClient.patch(
+      "/food/admin/foods/bulk-approve",
+      payload,
+      { contextModule: "admin" },
+    )),
   /** Customers (admin) */
   getCustomers: (params = {}) =>
     apiClient.get("/food/admin/customers", { params, contextModule: "admin" }),
@@ -1111,17 +1124,17 @@ export const adminAPI = {
       { contextModule: "admin" },
     ),
   approveRestaurantAddon: (id) =>
-    apiClient.patch(
+    withPendingFoodApprovalsInvalidation(apiClient.patch(
       `/food/admin/addons/${String(id)}/approve`,
       {},
       { contextModule: "admin" },
-    ),
+    )),
   rejectRestaurantAddon: (id, reason) =>
-    apiClient.patch(
+    withPendingFoodApprovalsInvalidation(apiClient.patch(
       `/food/admin/addons/${String(id)}/reject`,
       { reason: String(reason || "").trim() },
       { contextModule: "admin" },
-    ),
+    )),
   /** Business Settings (admin) */
   getBusinessSettings: () =>
     apiClient.get(API_ENDPOINTS.ADMIN.BUSINESS_SETTINGS, {
@@ -1994,7 +2007,11 @@ const adminCachedGet = (url, config = {}, options = {}) => {
   const request = apiClient
     .get(url, { params, ...axiosConfig })
     .then((res) => {
-      adminReadCache.set(key, { at: Date.now(), res });
+      // Skip caching if invalidateAdminReadCache() dropped this request while it
+      // was in flight: it may have read data from before a mutation.
+      if (adminReadInFlight.get(key) === request) {
+        adminReadCache.set(key, { at: Date.now(), res });
+      }
       return res;
     })
     .catch((err) => {
@@ -2006,12 +2023,34 @@ const adminCachedGet = (url, config = {}, options = {}) => {
       throw err;
     })
     .finally(() => {
-      adminReadInFlight.delete(key);
+      if (adminReadInFlight.get(key) === request) {
+        adminReadInFlight.delete(key);
+      }
     });
 
   adminReadInFlight.set(key, request);
   return request;
 };
+
+/**
+ * Drop cached and in-flight admin reads for `url` (all params) so the next read
+ * hits the server. Call after a mutation that changes what that list returns.
+ */
+const invalidateAdminReadCache = (url) => {
+  const prefix = `admin:${String(url || "").trim()}:`;
+  for (const key of [...adminReadCache.keys()]) {
+    if (key.startsWith(prefix)) adminReadCache.delete(key);
+  }
+  for (const key of [...adminReadInFlight.keys()]) {
+    if (key.startsWith(prefix)) adminReadInFlight.delete(key);
+  }
+};
+
+/** Runs an approval mutation, then invalidates the pending-approvals list whether it succeeded or not. */
+const withPendingFoodApprovalsInvalidation = (mutation) =>
+  mutation.finally(() => {
+    invalidateAdminReadCache("/food/admin/foods/pending-approvals");
+  });
 
 export const publicGetOnce = (url, config = {}) => {
   const safeUrl = typeof url === "string" ? url.trim() : "";

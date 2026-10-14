@@ -3,7 +3,9 @@ import { invalidateFoodBrowseCaches } from '../../../../middleware/cache.js';
 import {
     listPendingFoodApprovals,
     approveFoodItem,
-    rejectFoodItem
+    rejectFoodItem,
+    listPendingApprovalRestaurants,
+    bulkApprovePending
 } from '../services/foodApproval.service.js';
 
 export async function getPendingFoodApprovals(req, res, next) {
@@ -29,6 +31,38 @@ export async function approveFoodItemController(req, res, next) {
         ]);
 
         return sendResponse(res, 200, 'Food item approved successfully', { food: updated });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function getPendingApprovalRestaurantsController(req, res, next) {
+    try {
+        const data = await listPendingApprovalRestaurants(req.query || {});
+        return sendResponse(res, 200, 'Pending approval restaurants fetched successfully', data);
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function bulkApprovePendingController(req, res, next) {
+    try {
+        const result = await bulkApprovePending(req.body || {});
+
+        if (result.approvedCount > 0) {
+            await invalidateFoodBrowseCaches([
+                'restaurant_menu',
+                'search',
+                'categories',
+                'under_250',
+                'restaurants',
+            ]);
+        }
+
+        const message = result.skippedCount > 0
+            ? `${result.approvedCount} item(s) approved, ${result.skippedCount} already processed`
+            : `${result.approvedCount} item(s) approved successfully`;
+        return sendResponse(res, 200, message, result);
     } catch (error) {
         next(error);
     }

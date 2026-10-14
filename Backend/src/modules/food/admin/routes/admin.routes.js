@@ -126,6 +126,8 @@ router.patch('/addons/:id/reject', addonsApprovalController.rejectRestaurantAddo
 // ----- Foods -----
 router.get('/foods', adminController.getFoods);
 router.post('/foods', adminController.createFood);
+// Must precede '/foods/:id' so "bulk-approve" isn't treated as a food id.
+router.patch('/foods/bulk-approve', foodApprovalController.bulkApprovePendingController);
 router.patch('/foods/:id', adminController.updateFood);
 router.delete('/foods/:id', adminController.deleteFood);
 
@@ -141,6 +143,7 @@ router.get('/pricing/audits', otherPriceController.listPricingAudits);
 
 // Food approval queue (pending items created by restaurants)
 router.get('/foods/pending-approvals', foodApprovalController.getPendingFoodApprovals);
+router.get('/foods/pending-approvals/restaurants', foodApprovalController.getPendingApprovalRestaurantsController);
 router.patch('/foods/:id/approve', foodApprovalController.approveFoodItemController);
 router.patch('/foods/:id/reject', foodApprovalController.rejectFoodItemController);
 
