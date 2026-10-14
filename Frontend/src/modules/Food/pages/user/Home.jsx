@@ -121,6 +121,7 @@ import { usePublicAppConfig } from "@food/context/PublicAppConfigContext";
 import { API_BASE_URL } from "@food/api/config";
 import OptimizedImage from "@food/components/OptimizedImage";
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability";
+import { resolveRestaurantDistance } from "@food/utils/geo";
 import { useFoodPageInvalidation } from "@food/hooks/useFoodPageInvalidation";
 import HomeHeader, { SearchBarRow } from "@food/components/user/home/HomeHeader";
 import QuickSection from "@food/components/user/home/QuickSection";
@@ -2582,6 +2583,10 @@ export default function Home() {
                 ? restaurant.activeOffers
                 : [];
               const offerText = activeOffers[0]?.summary || restaurant.offer || null;
+              const distanceInfo = resolveRestaurantDistance(restaurant, {
+                latitude: userLat,
+                longitude: userLng,
+              });
 
               return {
                 id: restaurant.restaurantId || restaurant._id,
@@ -2598,6 +2603,8 @@ export default function Home() {
                   (restaurant.estimatedDeliveryTimeMinutes
                     ? `${restaurant.estimatedDeliveryTimeMinutes} mins`
                     : deliveryTime),
+                distance: distanceInfo?.label || "",
+                distanceInKm: distanceInfo?.km ?? null,
                 image: image,
                 images: allImages, // Array of cover images for carousel (separate from menu images)
                 priceRange: restaurant.priceRange || "$$", // Use from API or default
@@ -2851,17 +2858,15 @@ export default function Home() {
       }
 
       // Distance filters
+      // Uses numeric km (the label can be "450 m"); unknown distance is left to
+      // the server-side radiusKm filter rather than dropped here.
+      const isWithinKm = (r, maxKm) =>
+        !Number.isFinite(r.distanceInKm) || r.distanceInKm <= maxKm;
       if (activeFilters.has("distance-under-1km")) {
-        result = result.filter((r) => {
-          const dist = parseFloat(String(r.distance || "").replace(/[^0-9.]/g, "") || "1.0");
-          return dist <= 1.0;
-        });
+        result = result.filter((r) => isWithinKm(r, 1.0));
       }
       if (activeFilters.has("distance-under-2km")) {
-        result = result.filter((r) => {
-          const dist = parseFloat(String(r.distance || "").replace(/[^0-9.]/g, "") || "2.0");
-          return dist <= 2.0;
-        });
+        result = result.filter((r) => isWithinKm(r, 2.0));
       }
 
       // Dish Price filters
@@ -3196,13 +3201,22 @@ export default function Home() {
           (cr) => String(cr.mongoId || cr.id || cr.restaurantId) === restaurantId || (cr.slug && cr.slug === restaurant.slug)
         );
 
+        const distanceInfo = liveMatch?.distance
+          ? { label: liveMatch.distance, km: liveMatch.distanceInKm ?? null }
+          : resolveRestaurantDistance(restaurant, {
+            latitude: effectiveLocation?.latitude,
+            longitude: effectiveLocation?.longitude,
+          });
+
         return {
           id: restaurant?.restaurantId || restaurantId,
           mongoId: restaurantId,
           name: getRestaurantDisplayName(restaurant),
           cuisine,
+          cuisines: Array.isArray(restaurant?.cuisines) ? restaurant.cuisines : [],
           rating: Number(liveMatch?.rating || restaurant?.rating) || 0,
-          distance: liveMatch?.distance || "",
+          distance: distanceInfo?.label || "",
+          distanceInKm: distanceInfo?.km ?? null,
           deliveryTime: liveMatch?.deliveryTime || "",
           image: normalizeImageUrl(image) || foodImages[0],
           images: imageCandidates.length > 0 ? imageCandidates : [foodImages[0]],
@@ -3244,6 +3258,8 @@ export default function Home() {
     recommendedRestaurantsFromSettings,
     restaurantsData,
     zoneId,
+    effectiveLocation?.latitude,
+    effectiveLocation?.longitude,
     extractImages,
     normalizeImageUrl,
     matchesVegMode,
@@ -4078,11 +4094,19 @@ export default function Home() {
                       const resolvedCover = typeof rawCover === "string" && rawCover.trim() !== "" ? resolveImageUrl(rawCover, { width: 450 }) : (rawCover?.url ? resolveImageUrl(rawCover.url, { width: 450 }) : fallbackRecommendedImage);
                       const resolvedLogo = typeof rawLogo === "string" ? resolveImageUrl(rawLogo, { width: 80 }) : (rawLogo?.url ? resolveImageUrl(rawLogo.url, { width: 80 }) : null);
 
-                      const cuisinesList = Array.isArray(restaurant.cuisines)
-                        ? restaurant.cuisines.join(" • ")
-                        : (restaurant.cuisine || "Italian • Pasta • Pizza");
+                      const cuisinesList =
+                        Array.isArray(restaurant.cuisines) && restaurant.cuisines.length > 0
+                          ? restaurant.cuisines.join(" • ")
+                          : (restaurant.cuisine || "Multi-cuisine");
 
-                      const priceForTwo = restaurant.costForTwo || restaurant.priceForTwo || (200 + (index * 30));
+                      // Restaurants may store just "35"; show it with its unit.
+                      const rawDeliveryTime = String(restaurant.deliveryTime || "").trim();
+                      const deliveryTimeLabel = /^\d+(\s*-\s*\d+)?$/.test(rawDeliveryTime)
+                        ? `${rawDeliveryTime} mins`
+                        : rawDeliveryTime;
+                      const distanceLabel = String(restaurant.distance || "").trim();
+                      const hasRating = Number(restaurant.rating) > 0;
+                      const offerLabel = restaurant.offer || null;
 
                       return (
                         <motion.div
@@ -4163,9 +4187,9 @@ export default function Home() {
                                   <h3 className="text-xs sm:text-sm font-extrabold text-gray-900 dark:text-white truncate tracking-tight flex-1">
                                     {restaurantName}
                                   </h3>
-                                  <span className="bg-[#24963F] text-white text-[9.5px] sm:text-[10px] font-extrabold px-1.5 py-0.5 rounded flex items-center gap-0.5 shrink-0 shadow-sm">
-                                    <Star className="w-2.5 h-2.5 fill-white text-white" />
-                                    {Number(restaurant.rating) > 0 ? Number(restaurant.rating).toFixed(1) : "4.6"}
+                                  <span className={`${hasRating ? "bg-[#24963F]" : "bg-gray-400"} text-white text-[9.5px] sm:text-[10px] font-extrabold px-1.5 py-0.5 rounded flex items-center gap-0.5 shrink-0 shadow-sm`}>
+                                    {hasRating && <Star className="w-2.5 h-2.5 fill-white text-white" />}
+                                    {hasRating ? Number(restaurant.rating).toFixed(1) : "NEW"}
                                   </span>
                                 </div>
 
@@ -4173,29 +4197,36 @@ export default function Home() {
                                   {cuisinesList}
                                 </p>
 
-                                {/* Stats Row: Time • Distance */}
-                                <div className="flex items-center gap-1.5 text-[10.5px] sm:text-[11px] font-extrabold text-gray-600 dark:text-gray-400 mt-1.5 whitespace-nowrap overflow-hidden">
-                                  <span className="flex items-center gap-0.5 shrink-0">
-                                    <Clock className="w-3 h-3 text-gray-400" />
-                                    <span>{restaurant.deliveryTime || "20-30 min"}</span>
-                                  </span>
-                                  <span className="text-gray-300 dark:text-gray-700 font-normal">•</span>
-                                  <span className="flex items-center gap-0.5 shrink-0">
-                                    <MapPin className="w-3 h-3 text-gray-400" />
-                                    <span>{restaurant.distance || "1.4 km"}</span>
-                                  </span>
-                                </div>
+                                {/* Stats Row: Time • Distance (only real values) */}
+                                {(deliveryTimeLabel || distanceLabel) && (
+                                  <div className="flex items-center gap-1.5 text-[10.5px] sm:text-[11px] font-extrabold text-gray-600 dark:text-gray-400 mt-1.5 whitespace-nowrap overflow-hidden">
+                                    {deliveryTimeLabel && (
+                                      <span className="flex items-center gap-0.5 shrink-0">
+                                        <Clock className="w-3 h-3 text-gray-400" />
+                                        <span>{deliveryTimeLabel}</span>
+                                      </span>
+                                    )}
+                                    {deliveryTimeLabel && distanceLabel && (
+                                      <span className="text-gray-300 dark:text-gray-700 font-normal">•</span>
+                                    )}
+                                    {distanceLabel && (
+                                      <span className="flex items-center gap-0.5 shrink-0">
+                                        <MapPin className="w-3 h-3 text-gray-400" />
+                                        <span>{distanceLabel}</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
 
-                                {/* Delivery & Price Row */}
-                                <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-gray-100 dark:border-gray-800/80">
-                                  <span className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 text-[9px] sm:text-[10px] font-extrabold px-1.5 py-0.5 rounded flex items-center gap-0.5">
-                                    <span>🛵</span>
-                                    <span>Free</span>
-                                  </span>
-                                  <span className="text-[10px] sm:text-[11px] font-bold text-gray-700 dark:text-gray-300">
-                                    ₹{priceForTwo} for two
-                                  </span>
-                                </div>
+                                {/* Offer Row (restaurant's live offer, if any) */}
+                                {offerLabel && (
+                                  <div className="flex items-center gap-1 mt-2 pt-1.5 border-t border-gray-100 dark:border-gray-800/80 min-w-0">
+                                    <BadgePercent className="w-3 h-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                                    <span className="truncate text-[10px] sm:text-[11px] font-bold text-emerald-700 dark:text-emerald-400" title={offerLabel}>
+                                      {offerLabel}
+                                    </span>
+                                  </div>
+                                )}
                               </div>
 
                               {/* View Menu Button */}

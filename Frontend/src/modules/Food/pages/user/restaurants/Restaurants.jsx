@@ -14,6 +14,7 @@ import { useLocation } from "@food/hooks/useLocation"
 import { restaurantAPI } from "@food/api"
 import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
 import { filterRestaurantsForVegMode } from "@food/utils/vegMode"
+import { resolveRestaurantDistance } from "@food/utils/geo"
 import { resolveMediaUrl } from "@/shared/utils/mediaUrl"
 import dishFallbackImage from "@food/assets/dish_fallback.webp"
 
@@ -50,13 +51,21 @@ export default function Restaurants() {
   const { addFavorite, removeFavorite, isFavorite, orderType, vegMode, vegModeOption } = useProfile()
   const { location: userLocation } = useLocation()
   const { zoneId } = useZone(userLocation)
+  const userLat = userLocation?.latitude
+  const userLng = userLocation?.longitude
   const [restaurants, setRestaurants] = useState([])
   const [loading, setLoading] = useState(true)
   const showRestaurantsSkeleton = useDelayedLoading(loading)
 
   const visibleRestaurants = useMemo(
-    () => filterRestaurantsForVegMode(restaurants, { vegMode, vegModeOption }),
-    [restaurants, vegMode, vegModeOption],
+    () =>
+      filterRestaurantsForVegMode(restaurants, { vegMode, vegModeOption }).map((restaurant) => ({
+        ...restaurant,
+        // Real distance from the user's location; empty (hidden) when unknown.
+        distance:
+          resolveRestaurantDistance(restaurant, { latitude: userLat, longitude: userLng })?.label || "",
+      })),
+    [restaurants, vegMode, vegModeOption, userLat, userLng],
   )
 
   useEffect(() => {
@@ -99,11 +108,12 @@ export default function Restaurants() {
             slug,
             name: restaurant?.name || "Unknown Restaurant",
             cuisine,
-            rating: Number(restaurant?.rating || 0) || 4.5,
+            rating: Number(restaurant?.rating || 0) || 0,
             deliveryTime: (orderType === "takeaway")
               ? (restaurant.preparationTime || "20-25 mins")
               : restaurant?.estimatedDeliveryTime || (restaurant?.estimatedDeliveryTimeMinutes ? `${restaurant.estimatedDeliveryTimeMinutes} mins` : "25-30 mins"),
-            distance: restaurant?.distance ? (typeof restaurant.distance === 'number' ? `${restaurant.distance.toFixed(1)} km` : restaurant.distance) : "1.2 km",
+            location: restaurant?.location || null,
+            distanceInKm: restaurant?.distanceInKm ?? null,
             priceRange: restaurant?.priceRange || "$$",
             image: pickRestaurantImage(restaurant),
           }
@@ -194,7 +204,7 @@ export default function Restaurants() {
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <div className="flex items-center gap-1 bg-yellow-50 dark:bg-yellow-900/30 px-1.5 py-0.5 rounded-full">
                                       <Star className="h-3 w-3 sm:h-3.5 sm:w-3.5 fill-yellow-400 text-yellow-400" />
-                                      <span className="font-bold text-xs sm:text-sm text-yellow-700 dark:text-yellow-400">{restaurant.rating.toFixed(1)}</span>
+                                      <span className="font-bold text-xs sm:text-sm text-yellow-700 dark:text-yellow-400">{restaurant.rating > 0 ? restaurant.rating.toFixed(1) : "NEW"}</span>
                                     </div>
                                   </div>
                                 </div>
@@ -214,10 +224,12 @@ export default function Restaurants() {
                                   <Clock className="h-3 w-3 sm:h-3.5 sm:w-3.5 flex-shrink-0" />
                                   <span className="font-medium whitespace-nowrap">{restaurant.deliveryTime}</span>
                                 </div>
-                                <div className="flex items-center gap-1">
-                                  <MapPin className="h-3 w-3 sm:h-3.5 sm:w-3.5 flex-shrink-0" />
-                                  <span className="font-medium whitespace-nowrap">{restaurant.distance}</span>
-                                </div>
+                                {restaurant.distance && (
+                                  <div className="flex items-center gap-1">
+                                    <MapPin className="h-3 w-3 sm:h-3.5 sm:w-3.5 flex-shrink-0" />
+                                    <span className="font-medium whitespace-nowrap">{restaurant.distance}</span>
+                                  </div>
+                                )}
                               </div>
                               <Button className="bg-[#1F6B45] hover:opacity-90 dark:hover:opacity-80 text-white text-xs sm:text-sm h-7 sm:h-8 px-3 sm:px-4 flex-shrink-0 transition-opacity">
                                 Order Now

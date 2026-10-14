@@ -145,16 +145,26 @@ export default function CollectionDetail() {
                       <h3 className="text-lg font-bold line-clamp-1 flex-1">{restaurant.name}</h3>
                       <div className="flex items-center gap-1 bg-green-600 text-white px-2 py-1 rounded-lg ml-2">
                         <Star className="h-3 w-3 fill-white" />
-                        <span className="text-sm font-bold">{restaurant.rating || "4.5"}</span>
+                        <span className="text-sm font-bold">{Number(restaurant.rating) > 0 ? Number(restaurant.rating).toFixed(1) : "NEW"}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-                      <Clock className="h-4 w-4" />
-                      <span>{restaurant.deliveryTime || "25-30 mins"}</span>
-                      <span>�</span>
-                      <MapPin className="h-4 w-4" />
-                      <span>{restaurant.distance || "2.5 km"}</span>
-                    </div>
+                    {(restaurant.deliveryTime || restaurant.distance) && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+                        {restaurant.deliveryTime && (
+                          <>
+                            <Clock className="h-4 w-4" />
+                            <span>{restaurant.deliveryTime}</span>
+                          </>
+                        )}
+                        {restaurant.deliveryTime && restaurant.distance && <span>•</span>}
+                        {restaurant.distance && (
+                          <>
+                            <MapPin className="h-4 w-4" />
+                            <span>{restaurant.distance}</span>
+                          </>
+                        )}
+                      </div>
+                    )}
                     {restaurant.cuisine && (
                       <p className="text-sm text-muted-foreground line-clamp-1">{restaurant.cuisine}</p>
                     )}

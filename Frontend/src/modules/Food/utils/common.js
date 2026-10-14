@@ -44,10 +44,11 @@ export const calculateDistance = (lat1, lng1, lat2, lng2) => {
 };
 
 /**
- * Formats distance for display
+ * Formats distance for display. Unknown distance gives "" (callers hide it)
+ * rather than a made-up value.
  */
 export const formatDistance = (distanceInKm) => {
-  if (distanceInKm === null || distanceInKm === undefined) return "1.2 km";
+  if (!Number.isFinite(distanceInKm) || distanceInKm < 0) return "";
   if (distanceInKm >= 1) {
     return `${distanceInKm.toFixed(1)} km`;
   } else {

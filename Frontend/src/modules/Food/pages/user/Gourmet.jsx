@@ -14,6 +14,7 @@ import { useLocation } from "@food/hooks/useLocation"
 import { useZone } from "@food/hooks/useZone"
 import { useProfile } from "@food/context/ProfileContext"
 import { filterRestaurantsForVegMode } from "@food/utils/vegMode"
+import { resolveRestaurantDistance } from "@food/utils/geo"
 
 // Import banner
 import gourmetBanner from "@food/assets/gourmet_new_banner.png"
@@ -163,31 +164,12 @@ export default function Gourmet() {
                   const restaurantId = restaurant._id || restaurant.restaurantId || restaurant.id
                   const isFavorite = favorites.has(restaurantId)
 
-                  // Calculate distance if coordinates are available
-                  const calculateDistance = (lat1, lng1, lat2, lng2) => {
-                    const R = 6371; // Earth's radius in kilometers
-                    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-                    const dLng = ((lng2 - lng1) * Math.PI) / 180;
-                    const a =
-                      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                      Math.cos((lat1 * Math.PI) / 180) *
-                        Math.cos((lat2 * Math.PI) / 180) *
-                        Math.sin(dLng / 2) *
-                        Math.sin(dLng / 2);
-                    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-                    return R * c; // Distance in kilometers
-                  };
-
-                  let distanceStr = '1.2 km'
-                  const restaurantLat = restaurant.location?.latitude || restaurant.location?.coordinates?.[1]
-                  const restaurantLng = restaurant.location?.longitude || restaurant.location?.coordinates?.[0]
-                  
-                  if (location?.latitude && location?.longitude && restaurantLat && restaurantLng) {
-                    const d = calculateDistance(location.latitude, location.longitude, restaurantLat, restaurantLng)
-                    distanceStr = `${d.toFixed(1)} km`
-                  } else if (restaurant.distance) {
-                    distanceStr = restaurant.distance
-                  }
+                  // Real distance from the user; empty (hidden) when unknown.
+                  const distanceStr =
+                    resolveRestaurantDistance(restaurant, {
+                      latitude: location?.latitude,
+                      longitude: location?.longitude,
+                    })?.label || ""
 
                   // Get restaurant cover image with priority: coverImages > menuImages > profileImage
                   const coverImages = restaurant.coverImages && restaurant.coverImages.length > 0
@@ -264,10 +246,14 @@ export default function Gourmet() {
                               <Clock className="h-4 w-4 text-[#1F6B45]" strokeWidth={2.5} />
                               <span>{restaurant.estimatedDeliveryTime || '25-30 mins'}</span>
                             </div>
-                            <span className="text-gray-200">•</span>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[#6BAF8C] font-black">{distanceStr} away</span>
-                            </div>
+                            {distanceStr && (
+                              <>
+                                <span className="text-gray-200">•</span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[#6BAF8C] font-black">{distanceStr} away</span>
+                                </div>
+                              </>
+                            )}
                           </div>
 
                           {/* Offer Badge */}

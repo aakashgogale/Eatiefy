@@ -144,9 +144,42 @@ export function calculateDistanceKm(fromEntity, toEntity) {
 export function getUserRestaurantDistance(userLocation, restaurantLocation) {
   const km = calculateDistanceKm(userLocation, restaurantLocation)
   if (km == null) return null
-  const label =
-    km >= 1 ? `${km.toFixed(1)} km` : `${Math.round(km * 1000)} m`
-  return { km, label }
+  return { km, label: formatDistanceKmLabel(km) }
+}
+
+/** Same format as the backend's formatRestaurantDistanceLabel ("3.2 km" / "450 m"). */
+export function formatDistanceKmLabel(km) {
+  const n = toFiniteCoord(km)
+  if (n === null || n < 0) return null
+  return n >= 1 ? `${n.toFixed(1)} km` : `${Math.round(n * 1000)} m`
+}
+
+/**
+ * Real user ↔ restaurant distance for a restaurant card: { km, label } or null.
+ * Prefers what the restaurants API computed (driving distance when available),
+ * then falls back to Haversine from the user's coordinates. Returns null when
+ * neither is known so callers hide the distance instead of showing a fake one.
+ */
+export function resolveRestaurantDistance(restaurant, userLocation) {
+  if (!restaurant || typeof restaurant !== "object") return null
+
+  const apiKm = toFiniteCoord(restaurant.distanceInKm)
+  if (apiKm !== null && apiKm >= 0) {
+    return { km: apiKm, label: formatDistanceKmLabel(apiKm) }
+  }
+
+  if (typeof restaurant.distance === "number") {
+    const label = formatDistanceKmLabel(restaurant.distance)
+    if (label) return { km: restaurant.distance, label }
+  }
+
+  const computed = userLocation ? getUserRestaurantDistance(userLocation, restaurant) : null
+  if (computed) return computed
+
+  if (typeof restaurant.distance === "string" && restaurant.distance.trim()) {
+    return { km: null, label: restaurant.distance.trim() }
+  }
+  return null
 }
 
 export function normalizeLocationForPricing(address) {

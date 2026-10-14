@@ -65,6 +65,7 @@ import {
 } from "@food/utils/foodVariants"
 import { RestaurantDetailSkeleton } from "@food/components/ui/loading-skeletons"
 import { isVegMenuItem } from "@food/utils/vegMode"
+import { getUserRestaurantDistance } from "@food/utils/geo"
 import dishFallbackImage from "@food/assets/dish_fallback.webp"
 import OptimizedImage from "@food/components/OptimizedImage"
 import SafeImage from "@food/components/SafeImage"
@@ -855,7 +856,13 @@ function RestaurantDetailsContent() {
                 ? (apiDistanceInKm >= 1
                     ? `${apiDistanceInKm.toFixed(1)} km`
                     : `${Math.round(apiDistanceInKm * 1000)} m`)
-                : apiDistance || null
+                : apiDistance ||
+                  // API gave no distance: straight-line from the user's location.
+                  getUserRestaurantDistance(
+                    { latitude: userLat, longitude: userLng },
+                    { latitude: restaurantLat, longitude: restaurantLng },
+                  )?.label ||
+                  null
 
           if (!calculatedDistance) {
             debugWarn('? Driving distance missing from API — pass lat/lng on restaurant fetch', {
@@ -928,7 +935,7 @@ function RestaurantDetailsContent() {
             rating: actualRestaurant?.rating || apiRestaurant?.rating || actualRestaurant?.averageRating || apiRestaurant?.averageRating || 0,
             reviews: actualRestaurant?.totalRatings || apiRestaurant?.totalRatings || actualRestaurant?.reviewCount || apiRestaurant?.reviewCount || actualRestaurant?.reviews?.length || apiRestaurant?.reviews?.length || 0,
             deliveryTime: actualRestaurant?.estimatedDeliveryTime || apiRestaurant?.estimatedDeliveryTime || actualRestaurant?.deliveryTime || apiRestaurant?.deliveryTime || actualRestaurant?.avgDeliveryTime || apiRestaurant?.avgDeliveryTime || "25-30 mins",
-            distance: calculatedDistance || actualRestaurant?.distance || apiRestaurant?.distance || actualRestaurant?.distanceFromUser || apiRestaurant?.distanceFromUser || "1.2 km",
+            distance: calculatedDistance || "",
             distanceInKm: Number.isFinite(apiDistanceInKm) ? apiDistanceInKm : (actualRestaurant?.distanceInKm ?? apiRestaurant?.distanceInKm ?? null),
             distanceMode: actualRestaurant?.distanceMode || apiRestaurant?.distanceMode || null,
             distanceOriginKey:
@@ -2676,7 +2683,7 @@ function RestaurantDetailsContent() {
                 >
                   <MapPin className="h-4 w-4" />
                   <span className="truncate">
-                    {restaurant?.distance || "1.2 km"} | {restaurant?.location || "Location"}
+                    {restaurant?.distance ? `${restaurant.distance} | ` : ""}{restaurant?.location || "Location"}
                   </span>
                   <ChevronDown className="h-4 w-4 text-gray-500" />
                 </button>
@@ -3901,10 +3908,12 @@ function RestaurantDetailsContent() {
                                   <Clock className="h-3.5 w-3.5" />
                                   <span>{outlet?.deliveryTime || "25-30 mins"}</span>
                                 </div>
-                                <div className="flex items-center gap-1">
-                                  <MapPin className="h-3.5 w-3.5" />
-                                  <span>{outlet?.distance || "1.2 km"}</span>
-                                </div>
+                                {outlet?.distance && (
+                                  <div className="flex items-center gap-1">
+                                    <MapPin className="h-3.5 w-3.5" />
+                                    <span>{outlet.distance}</span>
+                                  </div>
+                                )}
                               </div>
                               <div className="flex flex-col items-end gap-0.5">
                                 <div className="flex items-center gap-1">
