@@ -468,6 +468,13 @@ export async function getRestaurants(query) {
     } else {
         filter.status = { $ne: 'deleted' };
     }
+    // Optional isActive filter (used by Pricing Management to hide disabled restaurants).
+    // Accept the literal strings "true"/"false" or booleans; ignore anything else.
+    if (query.isActive === true || query.isActive === 'true') {
+        filter.isActive = { $ne: false };
+    } else if (query.isActive === false || query.isActive === 'false') {
+        filter.isActive = false;
+    }
     const [restaurants, total] = await Promise.all([
         FoodRestaurant.find(filter)
             .sort({ createdAt: -1 })

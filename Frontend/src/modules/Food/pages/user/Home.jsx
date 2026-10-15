@@ -58,6 +58,7 @@ import { useVoiceSearch } from "@food/hooks/useVoiceSearch";
 import { motion, AnimatePresence } from "framer-motion";
 import Footer from "@food/components/user/Footer";
 import FoodFilterBar from "@food/components/user/FoodFilterBar";
+import dishFallbackImage from "@food/assets/dish_fallback.webp";
 import AddToCartButton from "@food/components/user/AddToCartButton";
 import DishDetailModal from "@food/components/user/DishDetailModal";
 import FloatingHomeDock from "@food/components/user/FloatingHomeDock";
@@ -155,9 +156,6 @@ const momosImg = optimizeCloudinaryUrl(cloudinaryImages.momos, { width: 160 });
 const cakeImg = optimizeCloudinaryUrl(cloudinaryImages.cake, { width: 160 });
 const noodlesImg = optimizeCloudinaryUrl(cloudinaryImages.noodles, { width: 160 });
 const choleBhatureImg = optimizeCloudinaryUrl(cloudinaryImages.chole_bhature, { width: 160 });
-const biryaniCleanImg = optimizeCloudinaryUrl(cloudinaryImages.biryani_clean, { width: 240 });
-const maggieCleanImg = optimizeCloudinaryUrl(cloudinaryImages.maggie_clean, { width: 240 });
-const rasgullaCleanImg = optimizeCloudinaryUrl(cloudinaryImages.rasgulla_clean, { width: 240 });
 const BACKEND_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "");
 
 const resolveImageUrl = (url, options = {}) => {
@@ -3812,19 +3810,16 @@ export default function Home() {
                         const hasVariants = variants && variants.length > 0;
                         const totalQty = getCartItemQuantity(dish);
 
-                        // Image sanitizer to replace transparent checkerboard PNGs or missing images
+                        // When the restaurant uploaded no image (or a known
+                        // placeholder slipped through), fall back to the branded
+                        // golden-dome dish image — never a stock food photo and
+                        // never an auto-swap based on the dish name, so real
+                        // uploads are shown as uploaded.
                         const getSanitizedImage = (item) => {
-                          const name = (item.name || "").toLowerCase();
                           const img = item.image || "";
                           if (!img || img.includes("transparent") || img.includes("checkerboard") || img.includes("placeholder")) {
-                            if (name.includes("biryani")) return biryaniCleanImg;
-                            if (name.includes("maggie") || name.includes("maggi") || name.includes("noodle")) return maggieCleanImg;
-                            if (name.includes("rasgulla") || name.includes("sweet") || name.includes("dessert")) return rasgullaCleanImg;
-                            return biryaniCleanImg;
+                            return dishFallbackImage;
                           }
-                          if (name.includes("biryani")) return biryaniCleanImg;
-                          if (name.includes("maggie") || name.includes("maggi")) return maggieCleanImg;
-                          if (name.includes("rasgulla")) return rasgullaCleanImg;
                           return img;
                         };
 
@@ -3843,6 +3838,11 @@ export default function Home() {
                                   className="w-full h-full object-cover rounded-2xl bg-white transition-transform duration-300 group-hover:scale-105"
                                   loading="lazy"
                                   decoding="async"
+                                  onError={(e) => {
+                                    if (e.currentTarget.src !== dishFallbackImage) {
+                                      e.currentTarget.src = dishFallbackImage;
+                                    }
+                                  }}
                                 />
 
                                 {/* Rating Badge Overlay */}

@@ -46,6 +46,39 @@ function formatShortDate(value) {
   })
 }
 
+function formatDateTime(value) {
+  if (!value) return ""
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  return date.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+function formatRelative(value) {
+  if (!value) return ""
+  const then = new Date(value).getTime()
+  if (!Number.isFinite(then)) return ""
+  const diff = Date.now() - then
+  if (diff < 0) return ""
+  const secs = Math.floor(diff / 1000)
+  if (secs < 60) return "just now"
+  const mins = Math.floor(secs / 60)
+  if (mins < 60) return `${mins} min${mins === 1 ? "" : "s"} ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs} hour${hrs === 1 ? "" : "s"} ago`
+  const days = Math.floor(hrs / 24)
+  if (days < 30) return `${days} day${days === 1 ? "" : "s"} ago`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months} month${months === 1 ? "" : "s"} ago`
+  const years = Math.floor(months / 12)
+  return `${years} year${years === 1 ? "" : "s"} ago`
+}
+
 function PreviewCard({ type, value }) {
   const base = 200
   const num = Number(value) || 0
@@ -1299,7 +1332,14 @@ export default function PricingManagement() {
       const [summaryRes, rulesRes, restaurantsRes] = await Promise.all([
         adminAPI.getPricingSummary(zoneParams),
         adminAPI.getPricingRules(zoneParams),
-        adminAPI.getRestaurants({ limit: 1000, zoneId: selectedZoneId }),
+        // Only approved, active restaurants in this zone — mirrors the Restaurants List
+        // page so pending/rejected/banned/half-registered rows don't leak into pricing.
+        adminAPI.getApprovedRestaurants({
+          status: "approved",
+          isActive: true,
+          limit: 1000,
+          zoneId: selectedZoneId,
+        }),
       ])
 
       setSummary(summaryRes?.data?.data || null)
@@ -1638,17 +1678,55 @@ export default function PricingManagement() {
       </div>
 
       {tab === "global" ? (
-        <RuleEditor
-          title="Global Admin Pricing"
-          form={globalForm}
-          setForm={setGlobalForm}
-          saving={saving}
-          canClear={Boolean(globalForm.id)}
-          onClear={() =>
-            requestClearRule(globalForm.id, "Remove the Global pricing rule? Restaurants without overrides will show base price only.")
-          }
-          onSave={() => saveRule("GLOBAL", globalForm)}
-        />
+        <>
+          <RuleEditor
+            title="Global Admin Pricing"
+            form={globalForm}
+            setForm={setGlobalForm}
+            saving={saving}
+            canClear={Boolean(globalForm.id)}
+            onClear={() =>
+              requestClearRule(globalForm.id, "Remove the Global pricing rule? Restaurants without overrides will show base price only.")
+            }
+            onSave={() => saveRule("GLOBAL", globalForm)}
+          />
+          {globalRule ? (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
+                    <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">
+                      Currently active
+                    </p>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-700">
+                    Global admin markup of{" "}
+                    <span className="font-bold text-slate-900">
+                      {formatRuleLabel(globalRule)}
+                    </span>{" "}
+                    is live for every restaurant in this zone without an override.
+                  </p>
+                  {globalRule.updatedAt ? (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Last updated {formatRelative(globalRule.updatedAt)}
+                      <span className="ml-1 text-slate-400">
+                        ({formatDateTime(globalRule.updatedAt)})
+                      </span>
+                    </p>
+                  ) : null}
+                </div>
+                <span className="inline-flex shrink-0 items-center rounded-full bg-emerald-600/10 px-3 py-1 text-sm font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+                  {formatRuleLabel(globalRule)}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+              No global rule is active yet. Save a rule above to apply a markup across every restaurant in this zone.
+            </div>
+          )}
+        </>
       ) : null}
 
       {tab === "restaurant" ? (
