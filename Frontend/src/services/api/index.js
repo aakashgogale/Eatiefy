@@ -1867,8 +1867,6 @@ export const restaurantAPI = {
     apiClient.get(`/food/restaurant/restaurants/${String(id)}/addons`, {
       ...config,
     }),
-  getPublicOffers: (params = {}, config = {}) =>
-    apiClient.get("/food/restaurant/offers", { params, ...config }),
   /** Resend delivery notification (restaurant dashboard) */
   resendDeliveryNotification: (orderId) =>
     apiClient.post(`/food/restaurant/orders/${String(orderId)}/resend-notification`, {}, {

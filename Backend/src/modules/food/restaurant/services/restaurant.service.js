@@ -2216,23 +2216,36 @@ export const listPublicOffers = async (query = {}) => {
         ]
     };
     // Zone-wise offers: with a zone, only offers for every zone or for that zone.
-    const zoneId = String(query.zoneId || '').trim();
-    if (zoneId && mongoose.Types.ObjectId.isValid(zoneId)) {
+    const zoneIdRaw = String(query.zoneId || '').trim();
+    const hasZone = zoneIdRaw && mongoose.Types.ObjectId.isValid(zoneIdRaw);
+    const zoneObjectId = hasZone ? new mongoose.Types.ObjectId(zoneIdRaw) : null;
+    if (hasZone) {
         filter.$and.push({
             $or: [
                 { zoneIds: { $exists: false } },
                 { zoneIds: { $size: 0 } },
-                { zoneIds: new mongoose.Types.ObjectId(zoneId) }
+                { zoneIds: zoneObjectId }
             ]
         });
     }
 
     const list = await FoodOffer.find(filter)
         .sort({ createdAt: -1 })
-        .populate({ path: 'restaurantId', select: 'restaurantName restaurantNameNormalized profileImage estimatedDeliveryTime rating' })
+        .populate({ path: 'restaurantId', select: 'restaurantName restaurantNameNormalized profileImage estimatedDeliveryTime rating zoneId' })
         .lean();
 
-    const allOffers = list.map((o) => {
+    const allOffers = list
+        .filter((o) => {
+            // Restaurant-selected coupon only belongs in a zone if its restaurant
+            // sits in that zone — a Zone A coupon for a Zone B restaurant must
+            // never surface in Zone A, even when the coupon's own zoneIds are empty.
+            if (o.restaurantScope !== 'selected') return true;
+            const restaurant = o.restaurantId && typeof o.restaurantId === 'object' ? o.restaurantId : null;
+            if (!restaurant) return false; // selected scope with missing restaurant: skip
+            if (!hasZone) return true;
+            return String(restaurant.zoneId || '') === String(zoneIdRaw);
+        })
+        .map((o) => {
         const restaurant = o.restaurantId && typeof o.restaurantId === 'object' ? o.restaurantId : null;
         const restaurantSlug = restaurant?.restaurantNameNormalized || undefined;
         const restaurantName =
@@ -2261,6 +2274,7 @@ export const listPublicOffers = async (query = {}) => {
             restaurantImage: restaurant?.profileImage || null,
             deliveryTime: restaurant?.estimatedDeliveryTime || null,
             restaurantRating: typeof restaurant?.rating === 'number' ? restaurant.rating : 0,
+            startDate: o.startDate || null,
             endDate: o.endDate || null,
             showInCart: o.showInCart !== false,
             minOrderValue: Number(o.minOrderValue) > 0 ? Number(o.minOrderValue) : null,

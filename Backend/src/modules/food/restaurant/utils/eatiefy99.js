@@ -39,9 +39,11 @@ export const buildEatiefy99CandidateFilter = () => ({
 
 /**
  * Price candidates with live pricing rules and keep only those selling at ₹99
- * or below. Items with variants keep only their eligible variants (cheapest
- * first, so the default variant is the displayed price), so the section never
- * offers a ₹159 option of a dish; without an eligible variant the item is dropped.
+ * or below. An item with variants qualifies as long as at least one variant is
+ * within ₹99; all variants are preserved (sorted cheapest first, so the default
+ * price shown in the rail is the eligible one) so the detail modal still lets
+ * the customer pick the larger option the restaurant added (e.g. Full ₹159
+ * alongside Half ₹82).
  *
  * @param {object[]} foods lean FoodItem docs (must include _id, restaurantId, price, variants)
  * @returns {Promise<object[]>} priced foods in input order
@@ -64,19 +66,22 @@ export async function selectEatiefy99Foods(foods = []) {
             continue;
         }
 
-        // With variants the customer pays the chosen variant's price.
-        const eligibleVariants = variants
-            .filter((variant) => isWithin99(variant.price))
-            .sort((a, b) => Number(a.price) - Number(b.price));
-        if (!eligibleVariants.length) continue;
-        const cheapest = eligibleVariants[0];
+        // Qualifies if any variant is within ₹99; keep every variant so the
+        // modal shows Half and Full exactly as the restaurant configured them.
+        const hasEligibleVariant = variants.some((variant) => isWithin99(variant.price));
+        if (!hasEligibleVariant) continue;
+
+        const sortedVariants = [...variants].sort(
+            (a, b) => Number(a.price) - Number(b.price),
+        );
+        const cheapest = sortedVariants[0];
         eligible.push({
             ...priced,
             price: Number(cheapest.price),
             basePrice: Number(cheapest.basePrice) || priced.basePrice,
             markupAmount: Math.max(0, Number(cheapest.markupAmount) || 0),
-            variants: eligibleVariants,
-            variations: eligibleVariants,
+            variants: sortedVariants,
+            variations: sortedVariants,
         });
     }
     return eligible;

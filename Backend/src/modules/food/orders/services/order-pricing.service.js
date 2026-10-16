@@ -212,7 +212,9 @@ export async function calculateOrderPricing(userId, dto) {
       } else if (
         Array.isArray(offer.zoneIds) &&
         offer.zoneIds.length > 0 &&
-        !offer.zoneIds.some((z) => String(z) === String(restaurant.zoneId || pricingZoneId || ""))
+        // The restaurant's own zone is what gates eligibility — a Zone A coupon
+        // never applies to a Zone B restaurant even if the user carts from Zone A.
+        !offer.zoneIds.some((z) => String(z) === String(restaurant.zoneId || ""))
       ) {
         couponError = "This coupon is not valid in your area";
       } else if (
