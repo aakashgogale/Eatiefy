@@ -200,6 +200,11 @@ const OtpModal = ({ order, onVerified, onClose }) => {
 const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
   const [showQrModal, setShowQrModal] = useState(false);
   const [collectQrLink, setCollectQrLink] = useState(null);
+  const [qrDetails, setQrDetails] = useState({
+    imageUrl: null,
+    rawImageUrl: null,
+    upiUri: null,
+  });
   const [isGeneratingQr, setIsGeneratingQr] = useState(false);
   const isInitialPaid = ['paid', 'captured', 'authorized'].includes(String(order?.payment?.status || "").toLowerCase());
   const [paymentStatus, setPaymentStatus] = useState(isInitialPaid ? 'paid' : 'idle');
@@ -244,7 +249,16 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
         phone: order?.userPhone || order?.customerPhone || order?.userId?.phone || ''
       });
       const data = res?.data?.data || res?.data || {};
-      const link = data.imageUrl || data.shortUrl || data.image || data.qrCode || null;
+      const img = data.imageUrl || data.rawImageUrl || null;
+      const upi = data.upiUri || (String(data.shortUrl || '').startsWith('upi://') ? data.shortUrl : null);
+      
+      setQrDetails({
+        imageUrl: img,
+        rawImageUrl: data.rawImageUrl || null,
+        upiUri: upi,
+      });
+
+      const link = img || upi || data.shortUrl || null;
       if (link) {
         setCollectQrLink(link);
         setPaymentStatus('pending');
@@ -273,20 +287,32 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
     generateQr();
   };
 
-  const isDirectImage = (url) => {
-    if (!url || typeof url !== 'string') return false;
-    if (url.startsWith('data:image/')) return true;
-    if (/\.(png|jpe?g|webp|svg|gif)(\?.*)?$/i.test(url)) return true;
-    if (url.includes('rzp.io/rzp/') || url.includes('/qr_')) return true;
-    if (url.includes('s3.ap-south-1.amazonaws.com')) return true;
-    return false;
-  };
-
   const qrImageSrc = useMemo(() => {
-    if (!collectQrLink) return '';
-    if (isDirectImage(collectQrLink)) return collectQrLink;
-    return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data=${encodeURIComponent(collectQrLink)}`;
-  }, [collectQrLink]);
+    // 1. Direct base64 Data URL or direct image
+    if (qrDetails.imageUrl && (qrDetails.imageUrl.startsWith('data:image/') || qrDetails.imageUrl.includes('/qr-image'))) {
+      return qrDetails.imageUrl;
+    }
+    if (qrDetails.rawImageUrl && qrDetails.rawImageUrl.startsWith('data:image/')) {
+      return qrDetails.rawImageUrl;
+    }
+    // 2. Direct upiUri -> encode the UPI deep link directly so scanning opens GPay/PhonePe
+    if (qrDetails.upiUri) {
+      return `https://api.qrserver.com/v1/create-qr-code/?size=350x350&margin=10&data=${encodeURIComponent(qrDetails.upiUri)}`;
+    }
+    // 3. Fallback to collectQrLink if it is a data URL or upi URI
+    if (collectQrLink) {
+      if (collectQrLink.startsWith('data:image/')) return collectQrLink;
+      if (collectQrLink.startsWith('upi://')) {
+        return `https://api.qrserver.com/v1/create-qr-code/?size=350x350&margin=10&data=${encodeURIComponent(collectQrLink)}`;
+      }
+      // If it's an rzp.io image URL, render the image directly rather than passing to qrserver
+      if (collectQrLink.includes('rzp.io/rzp/')) {
+        return collectQrLink;
+      }
+      return `https://api.qrserver.com/v1/create-qr-code/?size=350x350&margin=10&data=${encodeURIComponent(collectQrLink)}`;
+    }
+    return '';
+  }, [qrDetails, collectQrLink]);
 
   return (
     <>
@@ -401,9 +427,14 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
                       alt="Payment QR"
                       className="w-full h-full object-contain"
                       onError={(e) => {
-                        console.warn('[PaymentModal] QR image load error, falling back to qrserver');
-                        if (collectQrLink && !e.currentTarget.src.includes('api.qrserver.com')) {
-                          e.currentTarget.src = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data=${encodeURIComponent(collectQrLink)}`;
+                        console.warn('[PaymentModal] QR image error, checking fallback');
+                        if (qrDetails.rawImageUrl && qrDetails.rawImageUrl.startsWith('data:image/') && e.currentTarget.src !== qrDetails.rawImageUrl) {
+                          e.currentTarget.src = qrDetails.rawImageUrl;
+                          return;
+                        }
+                        if (qrDetails.upiUri && !e.currentTarget.src.includes(encodeURIComponent(qrDetails.upiUri))) {
+                          e.currentTarget.src = `https://api.qrserver.com/v1/create-qr-code/?size=350x350&margin=10&data=${encodeURIComponent(qrDetails.upiUri)}`;
+                          return;
                         }
                       }}
                     />

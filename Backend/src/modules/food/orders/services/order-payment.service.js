@@ -24,25 +24,41 @@ import {
 } from './order.helpers.js';
 
 /**
- * Decode UPI URI from Razorpay's QR code image and produce a clean, crisp square QR data URL.
+ * Decode UPI URI from Razorpay's QR code image and produce a clean, crisp square QR data URL,
+ * plus the direct base64 image data URL.
  */
 async function extractUpiUriAndGenerateQr(imageUrl) {
   try {
-    const res = await fetch(imageUrl, { signal: AbortSignal.timeout(6000) });
+    const res = await fetch(imageUrl, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return null;
     const buf = Buffer.from(await res.arrayBuffer());
-    const { data, info } = await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-    const code = jsQR(new Uint8ClampedArray(data), info.width, info.height);
-    if (!code?.data) return null;
-    const upiUri = code.data;
-    const qrDataUrl = await QRCode.toDataURL(upiUri, {
-      margin: 2,
-      width: 400,
-      color: { dark: '#000000', light: '#ffffff' },
-    });
-    return { upiUri, qrDataUrl };
+    const rawBase64 = `data:image/png;base64,${buf.toString('base64')}`;
+
+    let upiUri = null;
+    let qrDataUrl = null;
+
+    try {
+      const { data, info } = await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      const code = jsQR(new Uint8ClampedArray(data), info.width, info.height);
+      if (code?.data) {
+        upiUri = code.data;
+        qrDataUrl = await QRCode.toDataURL(upiUri, {
+          margin: 2,
+          width: 400,
+          color: { dark: '#000000', light: '#ffffff' },
+        });
+      }
+    } catch (decodeErr) {
+      logger.warn(`[CollectQR] jsQR decode failed: ${decodeErr?.message}`);
+    }
+
+    return {
+      upiUri,
+      qrDataUrl,
+      rawBase64,
+    };
   } catch (err) {
-    logger.warn(`[CollectQR] Failed to parse QR image to UPI URI: ${err?.message || err}`);
+    logger.warn(`[CollectQR] Failed to parse QR image: ${err?.message || err}`);
     return null;
   }
 }
@@ -193,11 +209,13 @@ export async function createCollectQr(
 
       let cleanUpiUri = null;
       let qrDataUrl = null;
+      let rawBase64 = null;
       if (directImage) {
         const decoded = await extractUpiUriAndGenerateQr(directImage);
         if (decoded) {
           cleanUpiUri = decoded.upiUri;
           qrDataUrl = decoded.qrDataUrl;
+          rawBase64 = decoded.rawBase64;
         }
       }
 
@@ -205,8 +223,8 @@ export async function createCollectQr(
         qrCodeId: rzQr.id,
         paymentLinkId: rzQr.id,
         shortUrl: cleanUpiUri || directImage,
-        imageUrl: qrDataUrl || directImage,
-        rawImageUrl: directImage,
+        imageUrl: qrDataUrl || rawBase64 || directImage,
+        rawImageUrl: rawBase64 || directImage,
         upiUri: cleanUpiUri || null,
         status: rzQr.status || 'active',
         expiresAt: rzQr.close_by ? new Date(rzQr.close_by * 1000) : null,
