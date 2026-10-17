@@ -16,8 +16,15 @@ import {
     getRefundsByOrderController
 } from './payment.controller.js';
 import { requireRoles } from '../roles/role.middleware.js';
-import { sendError } from '../../utils/response.js';
+import { sendResponse, sendError } from '../../utils/response.js';
+import { logger } from '../../utils/logger.js';
 import { FoodOrder } from '../../modules/food/orders/models/order.model.js';
+import { FoodTransaction } from '../../modules/food/orders/models/foodTransaction.model.js';
+import * as foodTransactionService from '../../modules/food/orders/services/foodTransaction.service.js';
+import {
+    createRazorpayQrCode,
+    fetchRazorpayQrCodePayments
+} from '../../modules/food/orders/helpers/razorpay.helper.js';
 
 /*
  * This router is mounted behind authMiddleware only, so every role guard lives
@@ -84,5 +91,122 @@ router.get('/admin/settlements', adminOrSubAdmin, listSettlementsController);
 router.post('/admin/settlements', adminOnly, createSettlementController);
 router.post('/admin/settlements/:id/process', adminOnly, processSettlementController);
 router.get('/admin/refunds', adminOrSubAdmin, listRefundsController);
+
+// ─── Razorpay Dynamic Single-Use UPI QR Endpoints ───
+
+/**
+ * POST /v1/food/payments/qr/create
+ * Create a single-use dynamic UPI QR code with exact payment amount in paise & notes
+ */
+router.post('/qr/create', async (req, res, next) => {
+    try {
+        const { amount, amountPaise, orderId, name, description, notes = {} } = req.body || {};
+        const totalPaise = Number.isFinite(Number(amountPaise)) && Number(amountPaise) > 0
+            ? Math.round(Number(amountPaise))
+            : Math.round(Number(amount || 0) * 100);
+
+        if (!totalPaise || totalPaise < 100) {
+            return sendError(res, 400, 'Valid payment amount is required (minimum ₹1.00)');
+        }
+
+        const foodOrderId = orderId ? String(orderId) : (notes.foodOrderId ? String(notes.foodOrderId) : '');
+        const rzQr = await createRazorpayQrCode({
+            amountPaise: totalPaise,
+            name: name || (foodOrderId ? `Order #${foodOrderId.slice(-6)}` : 'Payment'),
+            description: description || `Payment for order ${foodOrderId}`,
+            notes: {
+                ...(notes || {}),
+                ...(foodOrderId ? { foodOrderId } : {}),
+            },
+        });
+
+        const directImageUrl = rzQr.image_url || rzQr.imageUrl || rzQr.image;
+
+        return sendResponse(res, 201, 'Dynamic UPI QR Code created successfully', {
+            qrCodeId: rzQr.id,
+            imageUrl: directImageUrl,
+            shortUrl: rzQr.short_url || directImageUrl,
+            amount: totalPaise / 100,
+            amountPaise: totalPaise,
+            status: rzQr.status || 'active',
+            usage: rzQr.usage || 'single_use',
+            type: rzQr.type || 'upi_qr',
+            notes: rzQr.notes,
+        });
+    } catch (err) {
+        next(err);
+    }
+});
+
+/**
+ * GET /v1/food/payments/qr/:qrCodeId/status
+ * Check payment status using Razorpay qrCode.fetchAllPayments() to verify captured or authorized
+ */
+router.get('/qr/:qrCodeId/status', async (req, res, next) => {
+    try {
+        const { qrCodeId } = req.params;
+        if (!qrCodeId) {
+            return sendError(res, 400, 'qrCodeId is required');
+        }
+
+        const resList = await fetchRazorpayQrCodePayments(qrCodeId);
+        const items = Array.isArray(resList?.items) ? resList.items : Array.isArray(resList) ? resList : [];
+        const capturedPayment = items.find((p) =>
+            ['captured', 'authorized'].includes(String(p?.status || '').toLowerCase())
+        );
+
+        const isPaid = Boolean(capturedPayment);
+
+        // If payment is captured and has associated foodOrderId in notes, update order
+        const foodOrderId = capturedPayment?.notes?.foodOrderId;
+        if (isPaid && foodOrderId) {
+            try {
+                const paidAt = new Date();
+                await FoodOrder.updateOne(
+                    { _id: foodOrderId },
+                    {
+                        $set: {
+                            'payment.status': 'paid',
+                            'payment.paidAt': paidAt,
+                            'payment.razorpay.paymentId': capturedPayment.id,
+                        },
+                    }
+                );
+                await FoodTransaction.updateOne(
+                    { orderId: foodOrderId },
+                    {
+                        $set: {
+                            'payment.qr.status': 'paid',
+                            'payment.status': 'paid',
+                            'payment.paidAt': paidAt,
+                            'gateway.razorpayPaymentId': capturedPayment.id,
+                        },
+                    }
+                );
+                await foodTransactionService.updateTransactionStatus(
+                    foodOrderId,
+                    'captured',
+                    {
+                        status: 'captured',
+                        razorpayPaymentId: capturedPayment.id,
+                        note: 'Dynamic UPI QR payment verified on Razorpay',
+                    }
+                );
+            } catch (syncErr) {
+                logger.warn(`[QrPaymentStatus] Sync error for order ${foodOrderId}: ${syncErr?.message}`);
+            }
+        }
+
+        return sendResponse(res, 200, 'QR payment status fetched', {
+            qrCodeId,
+            isPaid,
+            status: isPaid ? 'captured' : 'active',
+            payment: capturedPayment || null,
+            payments: items,
+        });
+    } catch (err) {
+        next(err);
+    }
+});
 
 export default router;

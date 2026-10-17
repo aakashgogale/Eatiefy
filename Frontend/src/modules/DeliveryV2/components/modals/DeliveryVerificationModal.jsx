@@ -200,10 +200,14 @@ const OtpModal = ({ order, onVerified, onClose }) => {
 const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
   const [showQrModal, setShowQrModal] = useState(false);
   const [collectQrLink, setCollectQrLink] = useState(null);
+  const [cropView, setCropView] = useState(true);
   const [qrDetails, setQrDetails] = useState({
     imageUrl: null,
     rawImageUrl: null,
+    qrDataUrl: null,
+    rawBase64: null,
     upiUri: null,
+    isPoster: true,
   });
   const [isGeneratingQr, setIsGeneratingQr] = useState(false);
   const isInitialPaid = ['paid', 'captured', 'authorized'].includes(String(order?.payment?.status || "").toLowerCase());
@@ -218,28 +222,80 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
     try {
       const res = await deliveryAPI.getPaymentStatus(orderId);
       const data = res?.data?.data || res?.data || {};
-      const status = String(data?.payment?.status || "").toLowerCase();
-      if (['paid', 'captured', 'authorized'].includes(status)) {
+      const status = String(data?.payment?.status || data?.status || "").toLowerCase();
+      const isPaidResponse = Boolean(data?.isPaid || ['paid', 'captured', 'authorized'].includes(status));
+      if (isPaidResponse) {
         setPaymentStatus('paid');
-        if (pollingRef.current) clearInterval(pollingRef.current);
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
         toast.success("Payment Received Successfully via Razorpay!");
         setShowQrModal(false);
+        // Auto-close modal and confirm order upon successful payment
+        if (onComplete) {
+          setTimeout(() => {
+            onComplete(otpString, 'qr');
+          }, 400);
+        }
       }
-    } catch (e) { }
-  }, [orderId]);
+    } catch (e) {
+      console.warn('[PaymentModal] Error checking payment status:', e?.message || e);
+    }
+  }, [orderId, onComplete, otpString]);
 
   const handleManualCheck = async () => {
+    if (isSyncing) return;
     setIsSyncing(true);
-    await checkPaymentSync();
-    setTimeout(() => setIsSyncing(false), 800);
+    try {
+      const res = await deliveryAPI.getPaymentStatus(orderId);
+      const data = res?.data?.data || res?.data || {};
+      const status = String(data?.payment?.status || data?.status || "").toLowerCase();
+      const isPaidResponse = Boolean(data?.isPaid || ['paid', 'captured', 'authorized'].includes(status));
+      if (isPaidResponse) {
+        setPaymentStatus('paid');
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+        toast.success("Payment Received Successfully via Razorpay!");
+        setShowQrModal(false);
+        if (onComplete) {
+          setTimeout(() => {
+            onComplete(otpString, 'qr');
+          }, 400);
+        }
+      } else {
+        toast.info("Payment not detected yet. Please ensure customer completed payment.");
+      }
+    } catch (e) {
+      toast.error("Could not sync payment status");
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
+  // Automatic 5-second interval timer that polls payment status while modal is active
   useEffect(() => {
-    if (paymentStatus === 'pending' || (amountToCollect > 0 && paymentStatus !== 'paid')) {
-      pollingRef.current = setInterval(checkPaymentSync, 4000);
+    if (!showQrModal || paymentStatus === 'paid') {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      return;
     }
-    return () => clearInterval(pollingRef.current);
-  }, [paymentStatus, amountToCollect, checkPaymentSync]);
+
+    pollingRef.current = setInterval(() => {
+      checkPaymentSync();
+    }, 5000);
+
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [showQrModal, paymentStatus, checkPaymentSync]);
 
   const generateQr = async () => {
     setIsGeneratingQr(true);
@@ -255,7 +311,10 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
       setQrDetails({
         imageUrl: img,
         rawImageUrl: data.rawImageUrl || null,
+        qrDataUrl: data.qrDataUrl || null,
+        rawBase64: data.rawBase64 || null,
         upiUri: upi,
+        isPoster: data.isPoster !== undefined ? Boolean(data.isPoster) : (img ? img.includes('rzp.io') : true),
       });
 
       const link = img || upi || data.shortUrl || null;
@@ -414,22 +473,31 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
-                Live Razorpay QR
+                Live Dynamic UPI QR
               </div>
-              <h3 className="text-gray-950 font-black text-xl mb-1">Scan & Pay Online</h3>
+              <h3 className="text-gray-950 font-black text-xl mb-1">Scan to Pay</h3>
               <p className="text-gray-500 text-sm mb-4 font-semibold">Amount to Pay: <span className="text-gray-950 font-bold">₹{amountToCollect.toFixed(2)}</span></p>
 
               <div className="flex flex-col items-center gap-3 bg-gray-50 rounded-3xl border-2 border-gray-100 p-4 mb-4 w-full">
-                <div className="relative w-64 h-64 sm:w-68 sm:h-68 rounded-2xl border-2 border-gray-200 bg-white shadow-sm overflow-hidden flex items-center justify-center p-2">
+                {/* Fixed square container with rounded corners, border, and hidden overflow */}
+                <div className="relative w-64 h-64 sm:w-72 sm:h-72 aspect-square rounded-2xl sm:rounded-3xl border-2 border-gray-200 bg-white shadow-sm overflow-hidden flex items-center justify-center">
                   {qrImageSrc ? (
                     <img
                       src={qrImageSrc}
-                      alt="Payment QR"
-                      className="w-full h-full object-contain"
+                      alt="Scan to Pay QR"
+                      className={`w-full h-full transition-transform duration-300 ${
+                        cropView && qrDetails.isPoster
+                          ? 'object-cover scale-[1.7] -translate-y-[2%] object-center'
+                          : 'object-contain p-2 scale-100'
+                      }`}
                       onError={(e) => {
-                        console.warn('[PaymentModal] QR image error, checking fallback');
-                        if (qrDetails.rawImageUrl && qrDetails.rawImageUrl.startsWith('data:image/') && e.currentTarget.src !== qrDetails.rawImageUrl) {
-                          e.currentTarget.src = qrDetails.rawImageUrl;
+                        console.warn('[PaymentModal] Primary QR image error, checking fallback');
+                        if (qrDetails.rawBase64 && e.currentTarget.src !== qrDetails.rawBase64) {
+                          e.currentTarget.src = qrDetails.rawBase64;
+                          return;
+                        }
+                        if (qrDetails.qrDataUrl && e.currentTarget.src !== qrDetails.qrDataUrl) {
+                          e.currentTarget.src = qrDetails.qrDataUrl;
                           return;
                         }
                         if (qrDetails.upiUri && !e.currentTarget.src.includes(encodeURIComponent(qrDetails.upiUri))) {
@@ -445,6 +513,17 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
                     </div>
                   )}
                 </div>
+
+                {qrDetails.isPoster && (
+                  <button
+                    type="button"
+                    onClick={() => setCropView(prev => !prev)}
+                    className="text-[11px] font-bold text-gray-500 hover:text-gray-800 transition-colors py-0.5 px-2.5 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center gap-1"
+                  >
+                    <span>{cropView ? "Cropped QR Matrix View" : "Full Poster View"}</span>
+                    <span className="text-gray-400 font-normal">({cropView ? "tap for full" : "tap to crop"})</span>
+                  </button>
+                )}
 
                 <div className="flex items-center justify-center gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-wider py-1 px-3 bg-white rounded-full border border-gray-200 w-full">
                   <span>GPay</span>

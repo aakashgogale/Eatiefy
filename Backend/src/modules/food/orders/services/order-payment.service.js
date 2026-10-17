@@ -223,10 +223,13 @@ export async function createCollectQr(
         qrCodeId: rzQr.id,
         paymentLinkId: rzQr.id,
         shortUrl: cleanUpiUri || directImage,
-        imageUrl: qrDataUrl || rawBase64 || directImage,
-        rawImageUrl: rawBase64 || directImage,
+        imageUrl: directImage,
+        rawImageUrl: directImage,
+        qrDataUrl: qrDataUrl || null,
+        rawBase64: rawBase64 || null,
         upiUri: cleanUpiUri || null,
         status: rzQr.status || 'active',
+        isPoster: true,
         expiresAt: rzQr.close_by ? new Date(rzQr.close_by * 1000) : null,
       };
     } catch (qrError) {
@@ -340,9 +343,12 @@ export async function createCollectQr(
     shortUrl: qrData.shortUrl,
     imageUrl: qrData.imageUrl,
     rawImageUrl: qrData.rawImageUrl || qrData.imageUrl,
+    qrDataUrl: qrData.qrDataUrl || null,
+    rawBase64: qrData.rawBase64 || null,
     upiUri: qrData.upiUri || null,
     qrCodeId: qrData.qrCodeId,
     amount: amountDue,
+    isPoster: Boolean(qrData.isPoster),
     expiresAt: qrData.expiresAt,
   };
 }
@@ -362,18 +368,28 @@ export async function getPaymentStatus(orderId, deliveryPartnerId) {
   }
 
   let transaction = await FoodTransaction.findOne({ orderId: order._id }).lean();
-  if (transaction?.payment?.method === 'razorpay_qr') {
+  let payment = transaction?.payment || {};
+
+  if (payment?.method === 'razorpay_qr') {
     const syncedPayment = await syncRazorpayQrPayment(order);
-    if (syncedPayment?.status === 'paid') {
+    if (syncedPayment) {
+      payment = syncedPayment;
       transaction = await FoodTransaction.findOne({ orderId: order._id }).lean();
     }
   }
+
+  const isPaid = ['paid', 'captured', 'authorized'].includes(String(payment?.status || '').toLowerCase());
   const latestHistory =
     (transaction?.history || []).sort((a, b) => (b.at || 0) - (a.at || 0))[0] ||
     null;
 
   return {
-    payment: transaction?.payment || {},
+    isPaid,
+    status: isPaid ? 'paid' : (payment?.status || 'pending'),
+    payment: {
+      ...payment,
+      status: isPaid ? 'paid' : (payment?.status || 'pending'),
+    },
     latestPaymentSnapshot: latestHistory,
     riderEarning: order.riderEarning ?? 0,
     platformProfit: order.platformProfit ?? 0,
