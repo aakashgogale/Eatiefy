@@ -115,6 +115,13 @@ export const handleRazorpayWebhook = async (req, res) => {
             }
 
             let order = await findFoodOrderForRazorpayOrderId(rzOrderId);
+            if (!order && paymentObj.notes?.foodOrderId) {
+                // If payment was made via dynamic collect QR
+                order = await FoodOrder.findById(paymentObj.notes.foodOrderId).catch(() => null);
+                if (!order) {
+                    order = await FoodOrder.findOne({ orderId: String(paymentObj.notes.foodOrderId) });
+                }
+            }
             if (!order) {
                 // If phone dropped network post-payment, recover order from pending intent
                 try {
@@ -139,6 +146,22 @@ export const handleRazorpayWebhook = async (req, res) => {
                     rzPaymentId,
                     'Payment status synced via Webhook (payment.captured)',
                 );
+                try {
+                    await FoodTransaction.updateOne(
+                        { orderId: order._id },
+                        {
+                            $set: {
+                                'payment.status': 'paid',
+                                'payment.paidAt': new Date(),
+                                ...(paymentObj.notes?.purpose === 'cod_collect_qr' ? {
+                                    'payment.method': 'razorpay_qr',
+                                    'payment.qr.status': 'paid',
+                                    'gateway.razorpayPaymentId': rzPaymentId,
+                                } : {}),
+                            },
+                        },
+                    );
+                } catch (_) {}
                 logger.info(`Webhook [payment.captured]: Synced Order ${order.orderId || order._id} (Status=paid)`);
             } else {
                 logger.warn(`Webhook [payment.captured]: Order not found & no pending intent for RZ-Order: ${rzOrderId}`);
@@ -157,6 +180,52 @@ export const handleRazorpayWebhook = async (req, res) => {
                 });
                 logger.info(`Webhook [payment.failed]: released onboarding payment ${onboardingPayment._id}`);
                 return res.status(200).json({ status: 'ok' });
+            }
+        }
+
+        // COD Dynamic UPI QR credited event
+        if (event === 'qr_code.credited') {
+            const qrEntity = payload?.qr_code?.entity || {};
+            const paymentEntity = payload?.payment?.entity || {};
+            const qrCodeId = qrEntity.id;
+            const rzPaymentId = paymentEntity.id || payload?.payment?.id;
+            const foodOrderId = qrEntity.notes?.foodOrderId || paymentEntity.notes?.foodOrderId;
+
+            let order = null;
+            if (foodOrderId) {
+                order = await FoodOrder.findById(foodOrderId).catch(() => null);
+                if (!order) {
+                    order = await FoodOrder.findOne({ orderId: String(foodOrderId) });
+                }
+            }
+            if (!order && qrCodeId) {
+                const tx = await FoodTransaction.findOne({ 'payment.qr.qrCodeId': qrCodeId }).lean();
+                if (tx?.orderId) order = await FoodOrder.findById(tx.orderId);
+            }
+
+            if (order) {
+                await markOrderPaidFromWebhook(
+                    order,
+                    rzPaymentId,
+                    'Payment status synced via Webhook (qr_code.credited)',
+                );
+                try {
+                    await FoodTransaction.updateOne(
+                        { orderId: order._id },
+                        {
+                            $set: {
+                                'payment.status': 'paid',
+                                'payment.method': 'razorpay_qr',
+                                'payment.qr.status': 'paid',
+                                'payment.paidAt': new Date(),
+                                ...(rzPaymentId ? { 'gateway.razorpayPaymentId': rzPaymentId } : {}),
+                            },
+                        },
+                    );
+                } catch (_) {}
+                logger.info(`Webhook [qr_code.credited]: Synced Order ${order.orderId || order._id} (Status=paid)`);
+            } else {
+                logger.warn(`Webhook [qr_code.credited]: Order not found for QR ${qrCodeId}`);
             }
         }
 
@@ -194,6 +263,8 @@ export const handleRazorpayWebhook = async (req, res) => {
                                 'payment.status': 'paid',
                                 'payment.method': 'razorpay_qr',
                                 'payment.qr.status': 'paid',
+                                'payment.paidAt': new Date(),
+                                ...(rzPaymentId ? { 'gateway.razorpayPaymentId': rzPaymentId } : {}),
                             },
                         },
                     );

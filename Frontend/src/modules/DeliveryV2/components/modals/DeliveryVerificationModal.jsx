@@ -217,7 +217,7 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
       if (['paid', 'captured', 'authorized'].includes(status)) {
         setPaymentStatus('paid');
         if (pollingRef.current) clearInterval(pollingRef.current);
-        // toast.success("Payment Received Successfully!");
+        toast.success("Payment Received Successfully via Razorpay!");
         setShowQrModal(false);
       }
     } catch (e) { }
@@ -231,7 +231,7 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
 
   useEffect(() => {
     if (paymentStatus === 'pending' || (amountToCollect > 0 && paymentStatus !== 'paid')) {
-      pollingRef.current = setInterval(checkPaymentSync, 5000);
+      pollingRef.current = setInterval(checkPaymentSync, 4000);
     }
     return () => clearInterval(pollingRef.current);
   }, [paymentStatus, amountToCollect, checkPaymentSync]);
@@ -277,7 +277,8 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
     if (!url || typeof url !== 'string') return false;
     if (url.startsWith('data:image/')) return true;
     if (/\.(png|jpe?g|webp|svg|gif)(\?.*)?$/i.test(url)) return true;
-    if (url.includes('s3.ap-south-1.amazonaws.com') && url.includes('/qr_')) return true;
+    if (url.includes('rzp.io/rzp/') || url.includes('/qr_')) return true;
+    if (url.includes('s3.ap-south-1.amazonaws.com')) return true;
     return false;
   };
 
@@ -379,13 +380,21 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
           >
             <motion.div
               initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
-              className="bg-white w-full max-w-sm rounded-3xl p-5 sm:p-8 flex flex-col items-center text-center shadow-2xl"
+              className="bg-white w-full max-w-sm rounded-3xl p-5 sm:p-7 flex flex-col items-center text-center shadow-2xl"
               onClick={e => e.stopPropagation()}
             >
-              <h3 className="text-gray-950 font-bold text-xl mb-2">Scan to Pay</h3>
-              <p className="text-gray-500 text-sm mb-6 font-medium">Order Total: ₹{amountToCollect.toFixed(2)}</p>
-              <div className="flex flex-col items-center gap-4 bg-gray-50 rounded-3xl border-2 border-gray-100 p-4 mb-4 w-full">
-                <div className="relative w-64 h-64 sm:w-72 sm:h-72 rounded-2xl border-2 border-gray-200 bg-white shadow-sm overflow-hidden flex items-center justify-center p-3">
+              <div className="flex items-center gap-1.5 text-emerald-600 text-[11px] font-bold tracking-wider uppercase mb-1">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                Live Razorpay QR
+              </div>
+              <h3 className="text-gray-950 font-black text-xl mb-1">Scan & Pay Online</h3>
+              <p className="text-gray-500 text-sm mb-4 font-semibold">Amount to Pay: <span className="text-gray-950 font-bold">₹{amountToCollect.toFixed(2)}</span></p>
+
+              <div className="flex flex-col items-center gap-3 bg-gray-50 rounded-3xl border-2 border-gray-100 p-4 mb-4 w-full">
+                <div className="relative w-64 h-64 sm:w-68 sm:h-68 rounded-2xl border-2 border-gray-200 bg-white shadow-sm overflow-hidden flex items-center justify-center p-2">
                   {qrImageSrc ? (
                     <img
                       src={qrImageSrc}
@@ -405,10 +414,21 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
                     </div>
                   )}
                 </div>
+
+                <div className="flex items-center justify-center gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-wider py-1 px-3 bg-white rounded-full border border-gray-200 w-full">
+                  <span>GPay</span>
+                  <span>•</span>
+                  <span>PhonePe</span>
+                  <span>•</span>
+                  <span>Paytm</span>
+                  <span>•</span>
+                  <span>BHIM UPI</span>
+                </div>
+
                 <button
                   onClick={handleManualCheck}
                   disabled={isSyncing}
-                  className="flex gap-2 items-center bg-[#15498b] hover:bg-[#0f3568] text-white px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-[#15498b]/30 active:scale-95 transition-all disabled:opacity-60"
+                  className="w-full flex gap-2 items-center justify-center bg-[#15498b] hover:bg-[#0f3568] text-white px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-[#15498b]/30 active:scale-95 transition-all disabled:opacity-60"
                 >
                   {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                   Check Payment Status
@@ -417,7 +437,7 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
 
               <button
                 onClick={() => setShowQrModal(false)}
-                className="w-full py-3.5 bg-gray-900 hover:bg-black text-white rounded-2xl font-bold text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-all"
+                className="w-full py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-2xl font-bold text-xs uppercase tracking-widest active:scale-95 transition-all"
               >
                 Close QR
               </button>

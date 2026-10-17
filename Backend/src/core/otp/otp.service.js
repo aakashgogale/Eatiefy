@@ -191,9 +191,13 @@ const normalizePhoneForOtp = (phone) => {
     return digits.slice(-10); // Always normalize to 10 digits to prevent duplicate checks
 };
 
-/** True only for the env-configured test phone(s) when USE_DEFAULT_TEST_PHONE=true */
+const DEFAULT_STATIC_TEST_PHONES = ['9424047900', '9329380330', '6261745842'];
+
+/** True only for the test phone(s) when USE_DEFAULT_TEST_PHONE is enabled / not false */
 const isDefaultTestPhone = (normalizedPhone) => {
-    if (!config.useDefaultTestPhone || !normalizedPhone) return false;
+    if (!normalizedPhone) return false;
+    if (config.useDefaultTestPhone === false) return false;
+    if (DEFAULT_STATIC_TEST_PHONES.includes(normalizedPhone)) return true;
     const testPhones = config.defaultTestPhones || [];
     if (testPhones.includes(normalizedPhone)) return true;
     if (config.defaultTestPhone && normalizedPhone === config.defaultTestPhone) return true;
@@ -335,7 +339,7 @@ export const verifyOtp = async (phone, otp, preserveOtp = false) => {
     // we allow '1234' unconditionally to avoid any formatting or database issues.
     // Also bypass for DEFAULT_TEST_PHONE when USE_DEFAULT_TEST_PHONE=true.
     // if (config.useDefaultOtp && otp === '1234') {
-    if (shouldUseStaticOtp(normalizedPhone) && String(otp || '').trim() === '1234') {
+    if (shouldUseStaticOtp(normalizedPhone) && String(otp || '').replace(/\D/g, '') === '1234') {
         console.info(`✅ [OTP-Verify] Static OTP '1234' ABSOLUTE BYPASS for ${phone}`);
         if (record && !preserveOtp) {
             await record.deleteOne(); // Reset the request limit for successful logins

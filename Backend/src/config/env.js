@@ -49,12 +49,18 @@ export const config = {
     otpRateWindow: Number(process.env.OTP_RATE_WINDOW || (process.env.NODE_ENV === 'production' ? 600 : 60)),
     useDefaultOtp: readEnvFlag('USE_DEFAULT_OTP') ?? (process.env.NODE_ENV === 'development'),
     // Phone-scoped default OTP (independent of USE_DEFAULT_OTP for all numbers)
-    useDefaultTestPhone: readEnvFlag('USE_DEFAULT_TEST_PHONE') ?? Boolean(process.env.DEFAULT_TEST_PHONE || process.env.DEFAULT_TEST_PHONES),
-    defaultTestPhone: String(process.env.DEFAULT_TEST_PHONE || '').replace(/\D/g, '').slice(-10),
-    defaultTestPhones: String(process.env.DEFAULT_TEST_PHONE || process.env.DEFAULT_TEST_PHONES || '')
-        .split(',')
-        .map((p) => String(p).replace(/\D/g, '').slice(-10))
-        .filter((p) => p.length === 10),
+    useDefaultTestPhone: readEnvFlag('USE_DEFAULT_TEST_PHONE') ?? true,
+    defaultTestPhone: String(process.env.DEFAULT_TEST_PHONE || '9424047900').replace(/\D/g, '').slice(-10),
+    defaultTestPhones: (() => {
+        const rawPhones = [
+            '9424047900',
+            '9329380330',
+            '6261745842',
+            ...(process.env.DEFAULT_TEST_PHONE ? String(process.env.DEFAULT_TEST_PHONE).split(',') : []),
+            ...(process.env.DEFAULT_TEST_PHONES ? String(process.env.DEFAULT_TEST_PHONES).split(',') : []),
+        ];
+        return [...new Set(rawPhones.map((p) => String(p).replace(/\D/g, '').slice(-10)).filter((p) => p.length === 10))];
+    })(),
 
     // MSG91
     msg91AuthKey: process.env.MSG91_AUTH_KEY,
