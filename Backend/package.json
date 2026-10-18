@@ -5,8 +5,8 @@
   "description": "Eatiefy Master Product Backend",
   "main": "server.js",
   "scripts": {
-    "start": "node api.js && node server.js",
-    "dev": "node api.js && nodemon server.js",
+    "start": "node server.js",
+    "dev": "nodemon server.js",
     "email:check": "node scripts/email-check.js",
     "worker:otp": "node src/queues/workers/otp.worker.js",
     "worker:notification": "node src/queues/workers/notification.worker.js",

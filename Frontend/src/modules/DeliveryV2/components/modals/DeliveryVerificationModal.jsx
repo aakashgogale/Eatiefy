@@ -307,23 +307,25 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
       const data = res?.data?.data || res?.data || {};
       const img = data.imageUrl || data.rawImageUrl || null;
       const upi = data.upiUri || (String(data.shortUrl || '').startsWith('upi://') ? data.shortUrl : null);
-      
+
       setQrDetails({
         imageUrl: img,
         rawImageUrl: data.rawImageUrl || null,
         qrDataUrl: data.qrDataUrl || null,
         rawBase64: data.rawBase64 || null,
         upiUri: upi,
-        isPoster: data.isPoster !== undefined ? Boolean(data.isPoster) : (img ? img.includes('rzp.io') : true),
+        isPoster: data.isPoster !== undefined ? Boolean(data.isPoster) : false,
       });
 
-      const link = img || upi || data.shortUrl || null;
-      if (link) {
+      // Prefer the clean UPI intent for the scanner; only accept a link as a
+      // last resort if it is a upi:// or data-image (never an rzp.io web link).
+      const link = upi || (img && (img.startsWith('data:image/') || img.startsWith('upi://')) ? img : null) || null;
+      if (upi || (img && (img.startsWith('data:image/'))) || data.qrDataUrl) {
         setCollectQrLink(link);
         setPaymentStatus('pending');
         setShowQrModal(true);
       } else {
-        toast.error("Could not generate QR code");
+        toast.error("Could not generate a direct UPI QR. Please retry or collect cash.");
       }
     } catch (e) {
       console.error('[PaymentModal] QR Generation failed:', e);
@@ -347,29 +349,34 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
   };
 
   const qrImageSrc = useMemo(() => {
-    // 1. Direct base64 Data URL or direct image
+    // The scanner MUST get a QR that encodes the raw `upi://pay?...` intent so it
+    // opens GPay/PhonePe/Paytm directly. We never render — nor re-encode — a
+    // Razorpay rzp.io poster/link, because scanning that only opens a web redirect.
+
+    // 1. Prefer the real UPI intent string: encode it ourselves.
+    if (qrDetails.upiUri && qrDetails.upiUri.startsWith('upi://')) {
+      return `https://api.qrserver.com/v1/create-qr-code/?size=350x350&margin=10&data=${encodeURIComponent(qrDetails.upiUri)}`;
+    }
+    // 2. Server-regenerated clean QR matrix (data URL of the upi:// QR).
+    if (qrDetails.qrDataUrl && qrDetails.qrDataUrl.startsWith('data:image/')) {
+      return qrDetails.qrDataUrl;
+    }
+    // 3. Direct base64 / clean image URLs produced by our backend.
     if (qrDetails.imageUrl && (qrDetails.imageUrl.startsWith('data:image/') || qrDetails.imageUrl.includes('/qr-image'))) {
       return qrDetails.imageUrl;
     }
     if (qrDetails.rawImageUrl && qrDetails.rawImageUrl.startsWith('data:image/')) {
       return qrDetails.rawImageUrl;
     }
-    // 2. Direct upiUri -> encode the UPI deep link directly so scanning opens GPay/PhonePe
-    if (qrDetails.upiUri) {
-      return `https://api.qrserver.com/v1/create-qr-code/?size=350x350&margin=10&data=${encodeURIComponent(qrDetails.upiUri)}`;
-    }
-    // 3. Fallback to collectQrLink if it is a data URL or upi URI
+    // 4. Fallback to collectQrLink ONLY when it is itself a UPI intent or a data image.
     if (collectQrLink) {
       if (collectQrLink.startsWith('data:image/')) return collectQrLink;
       if (collectQrLink.startsWith('upi://')) {
         return `https://api.qrserver.com/v1/create-qr-code/?size=350x350&margin=10&data=${encodeURIComponent(collectQrLink)}`;
       }
-      // If it's an rzp.io image URL, render the image directly rather than passing to qrserver
-      if (collectQrLink.includes('rzp.io/rzp/')) {
-        return collectQrLink;
-      }
-      return `https://api.qrserver.com/v1/create-qr-code/?size=350x350&margin=10&data=${encodeURIComponent(collectQrLink)}`;
     }
+    // Never fall back to encoding an http(s)/rzp.io link — that is the broken
+    // "opens a web page" behaviour we are fixing.
     return '';
   }, [qrDetails, collectQrLink]);
 
