@@ -11,6 +11,7 @@ import { createInboxNotifications } from '../../../../core/notifications/notific
 import { notifyOwnersSafely, broadcastPushToTargetsSafely } from '../../../../core/notifications/firebase.service.js';
 import { zoneToGeoPolygon } from '../../shared/zoneLocation.js';
 import { getIO, rooms } from '../../../../config/socket.js';
+import { logger } from '../../../../utils/logger.js';
 
 const TARGET_TYPE_MAP = {
     ALL: 'ALL',
@@ -323,6 +324,15 @@ export const createBroadcastNotification = async ({ body = {}, adminId } = {}) =
         targets: body?.targets,
         zone
     });
+
+    // One-line audit of exactly what a broadcast resolved to — invaluable for
+    // confirming zone scoping in production (grep the server log for [Broadcast]).
+    logger.info(
+        `[Broadcast] targetType=${targetType} ` +
+        `zoneIdIn=${String(body?.zoneId || '') || '(none/global)'} ` +
+        `zoneResolved=${zone ? `${zoneDisplayName(zone)}:${zone._id}` : 'GLOBAL'} ` +
+        `recipients=${resolvedTargets.length}`
+    );
 
     // Global/unscoped with no recipients is a misconfiguration — surface it.
     // A zone-scoped broadcast that matches nobody still records silently (the
