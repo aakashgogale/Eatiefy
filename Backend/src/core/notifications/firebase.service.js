@@ -317,6 +317,16 @@ const buildMessagePayload = (payload = {}, token, { platform } = {}) => {
     const collapseKey = collapseRaw ? collapseRaw.replace(/[^a-zA-Z0-9-_.~%]/g, '_').slice(0, 64) : undefined;
     const tag = sanitizeString(payload.tag || payload.data?.tag || collapseKey || '');
 
+    // Mirror a single stable dedup key into the data map so every client-side
+    // renderer collapses to one notification. The web FCM SDK's foreground
+    // `onMessage` and the service worker's own `push` relay both fire for the
+    // same message when a tab is open; without a shared key in `data` their
+    // dedup falls back to title/body and a race lets both render — one broadcast
+    // shows up twice. `data.eventId`/`data.tag` are the first keys both the page
+    // (buildOsNotificationDedupeKey) and the SW (getNotificationKey) check.
+    if (eventKey && !data.eventId) data.eventId = eventKey;
+    if (tag && !data.tag) data.tag = tag;
+
     // dataOnly: omit system notification blocks ONLY if caller explicitly requested silent background sync.
     // For killed/closed app delivery (Android/iOS), top-level `notification` block MUST be included.
     const message = { token };

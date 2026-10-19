@@ -284,11 +284,22 @@ const ensureSocket = (userId) => {
   });
 
   socket.on('admin_notification', (payload) => {
-    window.dispatchEvent(
-      new CustomEvent('show-user-notification-toast', {
-        detail: { title: payload?.title || 'Notification', message: payload?.message || '' },
-      }),
-    );
+    // The same broadcast also arrives as an FCM push, which renders its own
+    // toast. Both channels share one dedup key (broadcast:<id>) so the user sees
+    // a single notification instead of two identical ones. The key must match
+    // the FCM payload's data.eventId set in the backend buildMessagePayload.
+    const broadcastId = String(payload?.id || payload?.broadcastId || '').trim();
+    const dedupeSource = broadcastId
+      ? { eventId: `broadcast:${broadcastId}` }
+      : { type: 'admin_broadcast', title: payload?.title || '', link: payload?.link || '' };
+
+    if (!shouldSkipDuplicateOsNotification(dedupeSource)) {
+      window.dispatchEvent(
+        new CustomEvent('show-user-notification-toast', {
+          detail: { title: payload?.title || 'Notification', message: payload?.message || '' },
+        }),
+      );
+    }
     dispatchNotificationInboxRefresh();
   });
 
