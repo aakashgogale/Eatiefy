@@ -110,10 +110,19 @@ export async function createOrderFromPendingIntent(rzOrderId, rzPaymentId, rzSig
 // ----- Initiate online payment (Razorpay) -----
 export async function initiateOnlinePayment(userId, dto) {
   // SECURITY: Razorpay amount must come from server-calculated pricing, never client totals.
+  // The client sends the delivery location under `address`, but the pricing
+  // service reads `deliveryAddress` to compute the distance-based delivery fee.
+  // Map it here exactly as createOrder does — otherwise the distance is unknown,
+  // the delivery fee collapses to 0, and the customer is charged the item total
+  // only (e.g. ₹322 instead of ₹347) while the order is later created for the
+  // full amount.
   const priced = await calculateOrderPricing(userId, {
     ...dto,
     useCart: dto?.useCart !== false,
     couponCode: dto?.couponCode || dto?.pricing?.couponCode || "",
+    deliveryAddress: dto.address?.location?.coordinates
+      ? { location: { coordinates: dto.address.location.coordinates } }
+      : dto.deliveryAddress,
   });
   const restaurantId = priced.restaurantId || dto.restaurantId;
 
