@@ -10,6 +10,11 @@ const TARGET_OPTIONS = [
   { value: "CUSTOM", label: "Particular Persons" },
 ];
 
+// Target types where a zone filter makes sense. "Particular Persons" is a
+// hand-picked list, so zone does not apply there.
+const ZONE_CAPABLE_TARGETS = new Set(["ALL", "USER", "RESTAURANT", "DELIVERY"]);
+const GLOBAL_ZONE_VALUE = "";
+
 const CATEGORY_TABS = [
   { id: "ALL", label: "All Recipients" },
   { id: "USER", label: "Users" },
@@ -44,8 +49,11 @@ export default function NotificationBroadcast() {
       title: "",
       message: "",
       targetType: savedTarget && TARGET_OPTIONS.some((opt) => opt.value === savedTarget) ? savedTarget : "ALL",
+      zoneId: GLOBAL_ZONE_VALUE,
     };
   });
+  const [zones, setZones] = useState([]);
+  const [zonesLoading, setZonesLoading] = useState(false);
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [deletingIds, setDeletingIds] = useState(new Set());
@@ -68,6 +76,34 @@ export default function NotificationBroadcast() {
       sessionStorage.setItem("admin_broadcast_targetType", newTarget);
     }
   };
+
+  const showZoneSelector = ZONE_CAPABLE_TARGETS.has(form.targetType);
+
+  // Load active zones once, for the zone dropdown.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setZonesLoading(true);
+        const response = await adminAPI.getZones({ isActive: true });
+        const list = response?.data?.data?.zones || response?.data?.zones || [];
+        if (!cancelled) setZones(Array.isArray(list) ? list : []);
+      } catch {
+        if (!cancelled) setZones([]);
+      } finally {
+        if (!cancelled) setZonesLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // If the target switches to one that has no zone filter, reset to Global so a
+  // stale zone selection can never ride along with a Particular-Persons send.
+  useEffect(() => {
+    if (!showZoneSelector && form.zoneId !== GLOBAL_ZONE_VALUE) {
+      setForm((prev) => ({ ...prev, zoneId: GLOBAL_ZONE_VALUE }));
+    }
+  }, [showZoneSelector, form.zoneId]);
 
   const loadHistory = async ({ silent = false } = {}) => {
     try {
@@ -205,6 +241,8 @@ export default function NotificationBroadcast() {
         title: form.title.trim(),
         message: form.message.trim(),
         targetType: form.targetType,
+        // Zone applies only to role-based targets; omit it for Particular Persons.
+        zoneId: ZONE_CAPABLE_TARGETS.has(form.targetType) ? form.zoneId : GLOBAL_ZONE_VALUE,
         targetIds:
           form.targetType === "CUSTOM"
             ? selectedRecipients.map((item) => item.ownerId)
@@ -219,7 +257,7 @@ export default function NotificationBroadcast() {
               }))
             : [],
       });
-      setForm((prev) => ({ title: "", message: "", targetType: prev.targetType }));
+      setForm((prev) => ({ title: "", message: "", targetType: prev.targetType, zoneId: prev.zoneId }));
       setSelectedRecipients([]);
       setSearch("");
       setCategoryFilter("ALL");
@@ -306,6 +344,30 @@ export default function NotificationBroadcast() {
               </select>
             </label>
           </div>
+
+          {showZoneSelector && (
+            <label className="block">
+              <span className="text-sm font-semibold text-slate-700">Zone</span>
+              <select
+                value={form.zoneId}
+                onChange={(event) => setForm((prev) => ({ ...prev, zoneId: event.target.value }))}
+                disabled={zonesLoading}
+                className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 font-semibold disabled:opacity-60"
+              >
+                <option value={GLOBAL_ZONE_VALUE}>Global — All Areas</option>
+                {zones.map((zone) => (
+                  <option key={zone._id} value={zone._id}>
+                    {zone.name || zone.zoneName || zone.serviceLocation || "Unnamed Zone"}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block text-xs text-slate-400">
+                {form.zoneId
+                  ? "Only recipients in this zone will receive the notification."
+                  : "Sent everywhere — all cities and areas."}
+              </span>
+            </label>
+          )}
 
           <label className="block">
             <span className="text-sm font-semibold text-slate-700">Message</span>

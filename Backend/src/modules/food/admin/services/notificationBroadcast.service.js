@@ -3,10 +3,13 @@ import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js'
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
+import { FoodZone } from '../models/zone.model.js';
+import { FoodOrder } from '../../orders/models/order.model.js';
 import { BroadcastNotification } from '../../../../core/notifications/models/notificationBroadcast.model.js';
 import { FoodNotification } from '../../../../core/notifications/models/notification.model.js';
 import { createInboxNotifications } from '../../../../core/notifications/notification.service.js';
 import { notifyOwnersSafely, broadcastPushToTargetsSafely } from '../../../../core/notifications/firebase.service.js';
+import { zoneToGeoPolygon } from '../../shared/zoneLocation.js';
 import { getIO, rooms } from '../../../../config/socket.js';
 
 const TARGET_TYPE_MAP = {
@@ -105,11 +108,98 @@ const dedupeTargets = (targets = []) => {
     return [...map.values()];
 };
 
-const loadTargetsByOwnerType = async (ownerType) => {
+/**
+ * Loads the active zone a broadcast is scoped to. Returns null for Global
+ * (no zoneId given) — callers then skip all zone filtering, which keeps the
+ * existing "send to everyone" behaviour byte-for-byte unchanged.
+ */
+const resolveBroadcastZone = async (zoneId) => {
+    const rawZoneId = String(zoneId || '').trim();
+    if (!rawZoneId) return null;
+    if (!mongoose.Types.ObjectId.isValid(rawZoneId)) {
+        throw new ValidationError('Selected zone is invalid');
+    }
+    const zone = await FoodZone.findById(rawZoneId)
+        .select('name zoneName serviceLocation isActive coordinates')
+        .lean();
+    if (!zone) throw new ValidationError('Selected zone no longer exists');
+    if (zone.isActive === false) throw new ValidationError('Selected zone is not active');
+    return zone;
+};
+
+const zoneDisplayName = (zone) =>
+    String(zone?.name || zone?.zoneName || zone?.serviceLocation || '').trim();
+
+/**
+ * User ids that belong to a zone, by EITHER signal:
+ *  - a saved address whose point falls inside the zone polygon (2dsphere), or
+ *  - any order they placed in that zone (order.zoneId).
+ * The two id sets are unioned and de-duplicated.
+ */
+const findUserIdsInZone = async (zone) => {
+    const ids = new Set();
+
+    const polygon = zoneToGeoPolygon(zone);
+    if (polygon) {
+        const byAddress = await FoodUser.find({
+            isActive: true,
+            'addresses.location': { $geoWithin: { $geometry: polygon } }
+        }).select('_id').lean();
+        byAddress.forEach((row) => ids.add(String(row._id)));
+    }
+
+    const byOrder = await FoodOrder.find({ zoneId: zone._id })
+        .distinct('userId');
+    byOrder.forEach((id) => { if (id) ids.add(String(id)); });
+
+    return [...ids];
+};
+
+/**
+ * Mongo filter that scopes a model's zone query:
+ *  - DELIVERY_PARTNER / RESTAURANT carry a zoneId directly.
+ *  - RESTAURANT also matches by polygon for legacy rows that never got a zoneId.
+ */
+const buildOwnerZoneFilter = (ownerType, zone) => {
+    const zoneObjectId = new mongoose.Types.ObjectId(String(zone._id));
+    if (ownerType === 'DELIVERY_PARTNER') {
+        return { zoneId: zoneObjectId };
+    }
+    if (ownerType === 'RESTAURANT') {
+        const clauses = [{ zoneId: zoneObjectId }];
+        const polygon = zoneToGeoPolygon(zone);
+        if (polygon) clauses.push({ location: { $geoWithin: { $geometry: polygon } } });
+        return { $or: clauses };
+    }
+    return {};
+};
+
+const loadTargetsByOwnerType = async (ownerType, zone = null) => {
     const config = modelConfigMap[ownerType];
     if (!config) return [];
 
-    const rows = await config.model.find(config.query).select(config.select).lean();
+    // Global broadcast (no zone): unchanged behaviour — every active owner.
+    if (!zone) {
+        const rows = await config.model.find(config.query).select(config.select).lean();
+        return rows.map((row) => ({
+            ownerType,
+            ownerId: String(row._id),
+            ...config.buildLabel(row)
+        }));
+    }
+
+    // Zone-scoped: USER is resolved by address-geo OR order history; the
+    // others by their own zoneId (+ polygon for legacy restaurants).
+    let query;
+    if (ownerType === 'USER') {
+        const userIds = await findUserIdsInZone(zone);
+        if (!userIds.length) return [];
+        query = { ...config.query, _id: { $in: userIds.map((id) => new mongoose.Types.ObjectId(id)) } };
+    } else {
+        query = { ...config.query, ...buildOwnerZoneFilter(ownerType, zone) };
+    }
+
+    const rows = await config.model.find(query).select(config.select).lean();
     return rows.map((row) => ({
         ownerType,
         ownerId: String(row._id),
@@ -145,19 +235,20 @@ const resolveCustomTargets = async ({ targets = [], targetIds = [] } = {}) => {
     return resolved;
 };
 
-const resolveTargets = async ({ targetType, targetIds = [], targets = [] } = {}) => {
+const resolveTargets = async ({ targetType, targetIds = [], targets = [], zone = null } = {}) => {
     if (targetType === 'ALL') {
         const [users, restaurants, deliveryPartners] = await Promise.all([
-            loadTargetsByOwnerType('USER'),
-            loadTargetsByOwnerType('RESTAURANT'),
-            loadTargetsByOwnerType('DELIVERY_PARTNER')
+            loadTargetsByOwnerType('USER', zone),
+            loadTargetsByOwnerType('RESTAURANT', zone),
+            loadTargetsByOwnerType('DELIVERY_PARTNER', zone)
         ]);
         return [...users, ...restaurants, ...deliveryPartners];
     }
 
-    if (targetType === 'USER') return loadTargetsByOwnerType('USER');
-    if (targetType === 'RESTAURANT') return loadTargetsByOwnerType('RESTAURANT');
-    if (targetType === 'DELIVERY') return loadTargetsByOwnerType('DELIVERY_PARTNER');
+    if (targetType === 'USER') return loadTargetsByOwnerType('USER', zone);
+    if (targetType === 'RESTAURANT') return loadTargetsByOwnerType('RESTAURANT', zone);
+    if (targetType === 'DELIVERY') return loadTargetsByOwnerType('DELIVERY_PARTNER', zone);
+    // Particular-person targeting is an explicit hand-picked list — zone does not apply.
     if (targetType === 'CUSTOM') return resolveCustomTargets({ targets, targetIds });
 
     throw new ValidationError('Unsupported targetType');
@@ -222,13 +313,21 @@ export const createBroadcastNotification = async ({ body = {}, adminId } = {}) =
     const message = normalizeText(body?.message, 'message');
     const link = normalizeText(body?.link, 'link', false);
     const targetType = normalizeTargetType(body?.targetType);
+    // Zone applies only to the role-based targets; ALL/CUSTOM ignore it.
+    const zone = ['USER', 'RESTAURANT', 'DELIVERY', 'ALL'].includes(targetType)
+        ? await resolveBroadcastZone(body?.zoneId)
+        : null;
     const resolvedTargets = await resolveTargets({
         targetType,
         targetIds: body?.targetIds,
-        targets: body?.targets
+        targets: body?.targets,
+        zone
     });
 
-    if (!resolvedTargets.length) {
+    // Global/unscoped with no recipients is a misconfiguration — surface it.
+    // A zone-scoped broadcast that matches nobody still records silently (the
+    // zone may simply have no users/partners yet), per product choice.
+    if (!resolvedTargets.length && !zone) {
         throw new ValidationError(`No recipients found for ${targetType.toLowerCase()} broadcast`);
     }
 
@@ -246,9 +345,16 @@ export const createBroadcastNotification = async ({ body = {}, adminId } = {}) =
             subLabel: target.subLabel || ''
         })),
         link,
+        zoneId: zone?._id || null,
+        zoneName: zone ? zoneDisplayName(zone) : '',
         createdBy: toObjectId(adminId, 'createdBy'),
         targetCount: resolvedTargets.length
     });
+
+    // Nobody to notify (empty zone): record is saved above; skip all fan-out.
+    if (!resolvedTargets.length) {
+        return { broadcast, targetPreview: [] };
+    }
 
     const pushTargets = resolvedTargets.map((target) => ({
         ownerType: target.ownerType,
@@ -320,14 +426,28 @@ export const getBroadcastNotifications = async ({ page = 1, limit = 10 } = {}) =
         BroadcastNotification.countDocuments({})
     ]);
 
+    const baseTargetLabel = (item) => {
+        if (item.targetType === 'CUSTOM') {
+            return `${Number(item.targetCount || item.targets?.length || 0)} selected recipients`;
+        }
+        const map = {
+            ALL: 'All Recipients',
+            USER: 'Users',
+            RESTAURANT: 'Restaurants',
+            DELIVERY: 'Delivery Partners'
+        };
+        return map[item.targetType] || OWNER_LABEL_MAP[item.targetType] || item.targetType;
+    };
+
     return {
-        items: items.map((item) => ({
-            ...item,
-            targetLabel:
-                item.targetType === 'CUSTOM'
-                    ? `${Number(item.targetCount || item.targets?.length || 0)} selected recipients`
-                    : OWNER_LABEL_MAP[item.targetType] || item.targetType
-        })),
+        items: items.map((item) => {
+            const base = baseTargetLabel(item);
+            // Zone-scoped broadcasts show "<target> • <zone>"; Global shows just the target.
+            const zoneSuffix = item.zoneName ? ` • ${item.zoneName}` : (item.zoneId ? '' : '');
+            const targetLabel =
+                item.targetType === 'CUSTOM' ? base : `${base}${zoneSuffix}`;
+            return { ...item, targetLabel };
+        }),
         pagination: {
             page: meta.page,
             limit: meta.limit,

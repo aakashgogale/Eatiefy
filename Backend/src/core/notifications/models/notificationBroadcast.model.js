@@ -56,6 +56,19 @@ const notificationBroadcastSchema = new mongoose.Schema(
             default: '',
             trim: true
         },
+        /** Zone this broadcast was scoped to. null = Global (every area). */
+        zoneId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'FoodZone',
+            default: null,
+            index: true
+        },
+        /** Snapshot of the zone's name at send time, for history display. */
+        zoneName: {
+            type: String,
+            default: '',
+            trim: true
+        },
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'FoodAdmin',
